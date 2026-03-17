@@ -1,13 +1,14 @@
-import { LANGUAGE_REGISTRY } from '../osnova-compiler/language-registry';
+import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
+import type { KeywordEntry, ConstructEntry } from '../compiler/language-registry';
 
 export function buildOsnovaPrompt(text: string): string {
   const keywords = LANGUAGE_REGISTRY.keywords
-    .filter((k) => k.implemented)
-    .map((k) => k.lexeme)
+    .filter((k: KeywordEntry) => k.implemented)
+    .map((k: KeywordEntry) => k.lexeme)
     .join(', ');
   const constructs = LANGUAGE_REGISTRY.constructs
-    .filter((c) => c.implemented)
-    .map((c) => `${c.id}: ${c.syntax}`)
+    .filter((c: ConstructEntry) => c.implemented)
+    .map((c: ConstructEntry) => `${c.id}: ${c.syntax}`)
     .join('\n');
 
   return [
