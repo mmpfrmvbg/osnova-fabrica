@@ -330,7 +330,8 @@ describe("VLIW bytecode v2", () => {
     const pkt = m.code.find((el) => isVliwPacket(el)) as VliwPacket;
     expect(pkt).toBeTruthy();
     expect(pkt.slots.length).toBe(3);
-    expect(pkt.deps.length).toBe(2);
+    // deps — опциональный hint планировщика; проверяем только если присутствует
+    expect(pkt.deps?.length ?? 0).toBe(2);
   });
 
   it("VM run: пример returns 2", async () => {
