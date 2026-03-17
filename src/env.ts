@@ -2,10 +2,15 @@
 // Вызывается из src/cli.ts до runPipeline()
 
 import { setLogLevel, type LogLevel } from './logger';
+import {
+  PROVIDER_DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  getDefaultModel,
+} from './llm/defaults.js';
 
 export function validateEnv(): void {
-  const provider = process.env.OSNOVA_PROVIDER ?? 'qwen-cli';
-  const valid = ['qwen-cli', 'ollama', 'deepseek'];
+  const provider = process.env.OSNOVA_PROVIDER ?? DEFAULT_PROVIDER;
+  const valid = Object.keys(PROVIDER_DEFAULT_MODEL);
 
   if (!valid.includes(provider)) {
     console.error(
@@ -29,7 +34,9 @@ export function validateEnv(): void {
 
   if (!process.env.OSNOVA_MODEL) {
     console.warn(
-      '[env] OSNOVA_MODEL не задан, будет использован: llama3.2',
+      `[env] OSNOVA_MODEL не задан, будет использован: ${getDefaultModel(
+        provider,
+      )}`,
     );
   }
 
