@@ -14,21 +14,18 @@ const RUNTIME_DIR = __dirname;
 async function getVmRunnerExec(): Promise<{ executable: string; args: string[] }> {
   const jsPath = path.join(RUNTIME_DIR, "vm-runner.js");
   const tsPath = path.join(RUNTIME_DIR, "vm-runner.ts");
+
   try {
     await fs.access(jsPath);
+    // Скомпилированный JS — запускаем напрямую через node
     return { executable: process.execPath, args: [jsPath] };
   } catch {
     try {
       await fs.access(tsPath);
-      const nodeDir = path.dirname(process.execPath);
-      const npxName = process.platform === "win32" ? "npx.cmd" : "npx";
-      const npxPath = path.join(nodeDir, npxName);
-      try {
-        await fs.access(npxPath);
-        return { executable: npxPath, args: ["tsx", tsPath] };
-      } catch {
-        return { executable: "npx", args: ["tsx", tsPath] };
-      }
+      // TS-исходник — запускаем через node + tsx/cli, без npx
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const tsxPath = require.resolve("tsx/cli");
+      return { executable: process.execPath, args: [tsxPath, tsPath] };
     } catch {
       throw new Error("vm-runner.js and vm-runner.ts not found in " + RUNTIME_DIR);
     }
@@ -71,19 +68,13 @@ async function runSubprocess(config: ResolvedRunConfig): Promise<number> {
   const { executable, args } = await getVmRunnerExec();
   const spawnArgs = [...args, "--config", configPath];
 
-  const useShell = executable !== process.execPath;
-  const escape = (s: string) => (s.includes(" ") || s.includes('"') ? `"${s.replace(/"/g, '\\"')}"` : s);
   return new Promise((resolve) => {
-    const child = useShell
-      ? spawn(
-          [executable, ...spawnArgs].map(escape).join(" "),
-          { stdio: ["ignore", "inherit", "inherit"], cwd: path.dirname(config.appDir), env: { ...process.env }, shell: true }
-        )
-      : spawn(executable, spawnArgs, {
-          stdio: ["ignore", "inherit", "inherit"],
-          cwd: path.dirname(config.appDir),
-          env: { ...process.env },
-        });
+    const child = spawn(executable, spawnArgs, {
+      stdio: ["ignore", "inherit", "inherit"],
+      cwd: path.dirname(config.appDir),
+      env: { ...process.env },
+      shell: false,
+    });
 
     child.on("error", (err) => {
       console.error("[osnova-runtime] VM process error:", err);
