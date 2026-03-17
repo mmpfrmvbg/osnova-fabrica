@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "moduleName": "vliw_example",
+  "vliwSlots": 4,
+  "constants": [1, 10],
+  "procedures": [
+    {
+      "name": "пример",
+      "codeOffset": 0,
+      "argc": 0,
+      "localsCount": 2,
+      "deps": {
+        "blocks": [
+          { "start": 0, "end": 3 },
+          { "start": 3, "end": 6 }
+        ],
+        "edges": [[0, 1]]
+      }
+    }
+  ],
+  "code": [
+    { "op": "const", "type": "i32", "k": 0 },
+    { "op": "local.set", "i": 0 },
+    {
+      "packet": true,
+      "slots": [
+        { "op": "local.get", "i": 0 },
+        { "op": "const", "type": "i32", "k": 0 },
+        { "op": "add" }
+      ],
+      "deps": [[2, 0], [2, 1]]
+    },
+    { "op": "local.set", "i": 1 },
+    { "op": "local.get", "i": 1 },
+    { "op": "ret" }
+  ]
+}

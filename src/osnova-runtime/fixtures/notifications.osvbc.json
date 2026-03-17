@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "moduleName": "notifications",
+  "constants": [],
+  "procedures": [
+    { "name": "запуск", "codeOffset": 0, "argc": 0, "localsCount": 0 }
+  ],
+  "code": []
+}

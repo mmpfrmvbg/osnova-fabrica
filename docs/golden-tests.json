@@ -1,0 +1,37 @@
+{
+  "version": "0.1.0",
+  "tests": [
+    {
+      "id": "hello_world",
+      "description": "Минимальная программа — вывод строки",
+      "category": "generic",
+      "specSnippet": { "meta": { "name": "Привет", "type": "cli" } },
+      "expectCompiler": { "success": true },
+      "expectKeywords": ["модуль", "процедура", "главная"]
+    },
+    {
+      "id": "let_assign",
+      "description": "Объявление переменной и присвоение",
+      "category": "generic",
+      "specSnippet": { "meta": { "name": "Переменные", "type": "cli" } },
+      "expectCompiler": { "success": true },
+      "expectKeywords": ["пусть"]
+    },
+    {
+      "id": "if_else",
+      "description": "Ветвление если/иначе/конец",
+      "category": "generic",
+      "specSnippet": { "meta": { "name": "Условие", "type": "cli" } },
+      "expectCompiler": { "success": true },
+      "expectKeywords": ["если", "иначе", "конец"]
+    },
+    {
+      "id": "for_each_loop",
+      "description": "Цикл для_каждого ... в ... конец",
+      "category": "generic",
+      "specSnippet": { "meta": { "name": "Цикл", "type": "cli" } },
+      "expectCompiler": { "success": true },
+      "expectKeywords": ["для_каждого", "в", "конец"]
+    }
+  ]
+}

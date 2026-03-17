@@ -1,0 +1,36 @@
+id: "osnova.micro_crm"
+name: "Micro-CRM (список клиентов)"
+version: "0.1.0"
+
+entry:
+  module: "micro_crm"
+  procedure: "run_golden"
+  args:
+    - - имя: "А"
+        баланс: 10
+        статус: "активен"
+      - имя: "Б"
+        баланс: 20
+        статус: "активен"
+      - имя: "В"
+        баланс: 30
+        статус: "закрыт"
+      - имя: "Г"
+        баланс: 5
+        статус: "новый"
+
+category: "crm"
+
+ui:
+  kind: "window"
+  single_instance: false
+
+permissions:
+  files:
+    read: []
+    write: []
+  network:
+    outbound: false
+
+runtime:
+  min_osnova_version: "0.1.0"

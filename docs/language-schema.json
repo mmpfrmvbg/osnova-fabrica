@@ -1,0 +1,368 @@
+{
+  "version": "0.1.0",
+  "keywords": [
+    {
+      "lexeme": "модуль",
+      "kind": "module",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "процедура",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "пусть",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "если",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "иначе",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0",
+      "description": "ветка else после если"
+    },
+    {
+      "lexeme": "пока",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "для_каждого",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0",
+      "description": "цикл по коллекции"
+    },
+    {
+      "lexeme": "в",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0",
+      "description": "в конструкции для_каждого x в expr"
+    },
+    {
+      "lexeme": "цикл",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "конец",
+      "kind": "block",
+      "implemented": true,
+      "since": "0.1.0",
+      "description": "конец блока если/пока/для_каждого/цикл/процедура"
+    },
+    {
+      "lexeme": "вернуть",
+      "kind": "stmt",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "истина",
+      "kind": "expr",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "ложь",
+      "kind": "expr",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "пусто",
+      "kind": "expr",
+      "implemented": true,
+      "since": "0.1.0"
+    },
+    {
+      "lexeme": "и",
+      "kind": "expr",
+      "implemented": true,
+      "since": "0.1.0",
+      "description": "логическое И, short-circuit"
+    },
+    {
+      "lexeme": "или",
+      "kind": "expr",
+      "implemented": true,
+      "since": "0.1.0",
+      "description": "логическое ИЛИ, short-circuit"
+    },
+    {
+      "lexeme": "не",
+      "kind": "expr",
+      "implemented": true,
+      "since": "0.1.0",
+      "description": "логическое НЕ"
+    }
+  ],
+  "constructs": [
+    {
+      "id": "module",
+      "syntax": "модуль <имя>",
+      "astNode": {
+        "kind": "Module",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "procedures",
+            "type": "Procedure[]"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "implemented": true
+    },
+    {
+      "id": "procedure",
+      "syntax": "процедура <имя>(<параметры>) ... конец",
+      "astNode": {
+        "kind": "Procedure",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "params",
+            "type": "string[]"
+          },
+          {
+            "name": "body",
+            "type": "Stmt[]"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "implemented": true
+    },
+    {
+      "id": "let",
+      "syntax": "пусть <имя> = <выражение>",
+      "astNode": {
+        "kind": "пусть",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "init",
+            "type": "Expr"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "implemented": true
+    },
+    {
+      "id": "assign",
+      "syntax": "<имя> = <выражение>",
+      "astNode": {
+        "kind": "присвоить",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "value",
+            "type": "Expr"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "implemented": true
+    },
+    {
+      "id": "if",
+      "syntax": "если <условие> ... иначе ... конец",
+      "astNode": {
+        "kind": "если",
+        "fields": [
+          {
+            "name": "condition",
+            "type": "Expr"
+          },
+          {
+            "name": "body",
+            "type": "Stmt[]"
+          },
+          {
+            "name": "elseBody",
+            "type": "Stmt[]",
+            "optional": true
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "bytecodePattern": "condition → jmp_if_not else; then-body; jmp end; else-body; end:",
+      "implemented": true
+    },
+    {
+      "id": "while",
+      "syntax": "пока <условие> ... конец",
+      "astNode": {
+        "kind": "пока",
+        "fields": [
+          {
+            "name": "condition",
+            "type": "Expr"
+          },
+          {
+            "name": "body",
+            "type": "Stmt[]"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "bytecodePattern": "loopStart: condition → jmp_if_not exit; body; jmp loopStart; exit:",
+      "implemented": true
+    },
+    {
+      "id": "for_each",
+      "syntax": "для_каждого <переменная> в <выражение> ... конец",
+      "astNode": {
+        "kind": "для_каждого",
+        "fields": [
+          {
+            "name": "variable",
+            "type": "string"
+          },
+          {
+            "name": "collection",
+            "type": "Expr"
+          },
+          {
+            "name": "body",
+            "type": "Stmt[]"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "bytecodePattern": "collection → __for_arr; 0 → __for_idx; loop: idx<length? jmp_if_not exit; получить(arr,idx)→var; body; idx+1→__for_idx; jmp loop; exit:",
+      "implemented": true,
+      "description": "Цикл по массиву через система.массив.длина / система.массив.получить"
+    },
+    {
+      "id": "loop",
+      "syntax": "цикл ... конец",
+      "astNode": {
+        "kind": "цикл",
+        "fields": [
+          {
+            "name": "body",
+            "type": "Stmt[]"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "bytecodePattern": "loop: body; jmp loop",
+      "implemented": true
+    },
+    {
+      "id": "return",
+      "syntax": "вернуть <выражение> | вернуть",
+      "astNode": {
+        "kind": "вернуть",
+        "fields": [
+          {
+            "name": "value",
+            "type": "Expr",
+            "optional": true
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "implemented": true
+    },
+    {
+      "id": "and",
+      "syntax": "<левый> и <правый>",
+      "astNode": {
+        "kind": "бинарное",
+        "fields": [
+          {
+            "name": "op",
+            "type": "string"
+          },
+          {
+            "name": "left",
+            "type": "Expr"
+          },
+          {
+            "name": "right",
+            "type": "Expr"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "bytecodePattern": "left; jmp_if_not skip_right; right; skip_right:",
+      "implemented": true,
+      "description": "Short-circuit: правый операнд не вычисляется, если левый ложь"
+    },
+    {
+      "id": "or",
+      "syntax": "<левый> или <правый>",
+      "astNode": {
+        "kind": "бинарное",
+        "fields": [
+          {
+            "name": "op",
+            "type": "string"
+          },
+          {
+            "name": "left",
+            "type": "Expr"
+          },
+          {
+            "name": "right",
+            "type": "Expr"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "bytecodePattern": "left; jmp_if skip_right; right; skip_right:",
+      "implemented": true,
+      "description": "Short-circuit: правый операнд не вычисляется, если левый истина"
+    },
+    {
+      "id": "not",
+      "syntax": "не <выражение>",
+      "astNode": {
+        "kind": "унарное",
+        "fields": [
+          {
+            "name": "op",
+            "type": "не"
+          },
+          {
+            "name": "arg",
+            "type": "Expr"
+          }
+        ]
+      },
+      "since": "0.1.0",
+      "bytecodePattern": "arg; const.false; eq",
+      "implemented": true
+    }
+  ]
+}
