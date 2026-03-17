@@ -1,0 +1,197 @@
+# ============================================================
+# roles.yaml — Agent Registry for osnova-fabrica
+# Version: 0.1.0
+# ============================================================
+# 3 агента MVP. Все генерируют/обрабатывают код на языке ОСНОВА.
+# НЕ TypeScript, НЕ REST, НЕ SQL, НЕ Docker/nginx.
+# Артефакты: OsnovaSource (.osnova), OsvbcModule (.osvbc), OsnovaSpec.
+# ============================================================
+
+apiVersion: fabrica/v1
+kind: AgentRegistry
+
+agentInterface:
+  requiredFields:
+    - agentName
+    - trustTier        # T2=bounded-auto, T3=full-auto (детерминированный инструмент)
+    - description
+    - inputContracts
+    - outputContracts
+    - resourceLimits
+
+agents:
+
+  # ════════════════════════════════════════
+  # Агент 1: IntakeAgent
+  # Фазы: intake + spec_generation
+  # ════════════════════════════════════════
+  - agentName: IntakeAgent
+    displayName: Интерпретатор запросов
+    trustTier: T2
+    description: >
+      Принимает сырой текстовый запрос пользователя.
+      Выдаёт OsnovaIntent (что должна делать программа)
+      и OsnovaSpec (как это выразить на языке Основа: модули, типы, процедуры, invoke).
+      НЕТ: entities/endpoints/migrations/routes — это не веб-стек.
+    capabilities:
+      - parse_natural_language_ru   # понимает русский текст
+      - classify_app_type           # утилита / хранилище / UI / актор
+      - define_osnova_modules       # раскладывает по .osnova модулям
+      - define_types                # типы Основа (Целое32, Строка, ?Тип, Результат<T,E>)
+      - define_procedures           # сигнатуры процедур
+      - identify_syscalls           # какие система.* вызовы нужны
+    inputContracts:
+      - type: RawText
+        schema:
+          text: string
+    outputContracts:
+      - type: OsnovaIntent
+        schema:
+          intentId: uuid
+          description: string
+          features: string[]
+          appType: "enum[утилита, хранилище, ui_приложение, актор, смешанный]"
+          constraints: object
+          confidence: "float[0..1]"
+      - type: OsnovaSpec
+        schema:
+          specId: uuid
+          modules: OsnovaModule[]
+          mainModule: string
+          types: OsnovaType[]
+          procedures: ProcedureSignature[]
+          syscalls: string[]
+          conventions: object
+    resourceLimits:
+      maxTokensPerCall: 16000
+      maxCallsPerRun: 5
+      timeoutSeconds: 60
+    prompting:
+      style: "few-shot с примерами OsnovaSpec из golden-tests"
+      language: "отвечает на русском, spec тоже на русском/кириллице"
+
+  # ════════════════════════════════════════
+  # Агент 2: OsnovaCodegen
+  # Фаза: codegen
+  # ════════════════════════════════════════
+  - agentName: OsnovaCodegen
+    displayName: Кодогенератор Основа
+    trustTier: T2
+    description: >
+      Главный агент. Получает OsnovaSpec и генерирует валидный .osnova код.
+      Использует кириллический синтаксис языка Основа:
+        - процедура / если / иначе / цикл / для каждого
+        - типы: Целое32, Строка, Логический, ?Тип, Результат<T,E>
+        - invoke: система.хранилище.получить(), система.окно.создать_окно()
+        - акторы: актор + канал + ожидать
+        - VLIW: параллельно {}, предвыбор {}
+      НЕ генерирует TypeScript, Python, SQL или любой другой язык.
+    capabilities:
+      - generate_osnova_source      # полный .osnova файл
+      - use_few_shot_examples       # примеры из golden-tests.json обязательны
+      - follow_osnova_conventions   # имена кириллицей, отступы 2 пробела
+      - use_syscall_api             # правильные invoke-вызовы система.*
+      - handle_result_type          # Результат<T,E>, Успех(v), Неудача(e)
+    inputContracts:
+      - type: OsnovaSpec
+        schema:
+          modules: OsnovaModule[]
+          procedures: ProcedureSignature[]
+          syscalls: string[]
+      - type: FewShotExamples
+        schema:
+          examples: OsnovaExample[]
+          count: "int (3-5 примеров)"
+    outputContracts:
+      - type: OsnovaSource
+        schema:
+          filename: string          # например main.osnova
+          source: string            # полный исходный текст на языке Основа
+          tokensUsed: int
+    resourceLimits:
+      maxTokensPerCall: 32000
+      maxCallsPerRun: 10
+      timeoutSeconds: 180
+    prompting:
+      few_shot_required: true
+      few_shot_source: "golden-tests.json → GOLDEN_APP_CASES"
+      system_prompt_includes:
+        - "Грамматика языка Основа v0.1 (ключевые конструкции)"
+        - "3-5 примеров рабочих .osnova программ"
+        - "Запрет: не генерировать TypeScript, Python, SQL"
+        - "Формат ответа: только .osnova код, без markdown"
+
+  # ════════════════════════════════════════
+  # Агент 3: RepairEngineer
+  # Фаза: repair
+  # ════════════════════════════════════════
+  - agentName: RepairEngineer
+    displayName: Ремонтник Основа
+    trustTier: T2
+    description: >
+      Получает .osnova код + конкретные ошибки тулчейна.
+      Ошибки бывают двух видов:
+        1. Ошибки компилятора: lexerError, parserError, compilerError
+           (неверный токен, несовпадение типов, неизвестная процедура)
+        2. Ошибки VM: неверный байткод, stack underflow, неизвестный invoke
+      Генерирует минимальный патч — исправляет только проблемные строки.
+      НЕ переписывает весь файл без необходимости.
+      НЕ меняет логику программы, только исправляет синтаксис/типы.
+    capabilities:
+      - diagnose_osnova_error       # понять что именно сломано в .osnova
+      - generate_minimal_patch      # минимальное исправление
+      - apply_grammar_fix           # исправить синтаксис по грамматике v0.1
+      - fix_type_mismatch           # исправить несоответствие типов Основа
+      - fix_syscall_signature       # исправить неверный invoke система.*
+    inputContracts:
+      - type: OsnovaSource
+        schema:
+          source: string
+      - type: BuildReport
+        optional: true
+        schema:
+          lexerErrors: LexerError[]
+          parserErrors: ParserError[]
+          compilerErrors: CompilerError[]
+      - type: GoldenReport
+        optional: true
+        schema:
+          vmErrors: VMError[]
+          outputDiff: string
+    outputContracts:
+      - type: OsnovaSource
+        schema:
+          filename: string
+          source: string            # исправленный .osnova код
+          patchDescription: string  # что именно исправлено
+    resourceLimits:
+      maxTokensPerCall: 16000
+      maxCallsPerRun: 10
+      timeoutSeconds: 120
+    constraints:
+      maxRepairAttempts: 3          # после 3 попыток — логируем провал
+      escalateAfter: 3
+    prompting:
+      system_prompt_includes:
+        - "Грамматика языка Основа v0.1"
+        - "Текущий .osnova код (полностью)"
+        - "Конкретные ошибки с позицией (строка:колонка)"
+        - "Инструкция: вернуть только исправленный .osnova, без объяснений"
+
+# ─── Roadmap: агенты v0.2+ ───
+future_agents:
+  - agentName: SpecArchitect
+    description: "Генерирует полный OsnovaSpec для многомодульных приложений"
+    phase: v0.2
+
+  - agentName: MultiModuleCodegen
+    description: "Параллельная генерация нескольких .osnova модулей"
+    phase: v0.2
+
+  - agentName: LanguageMaster
+    description: "Предлагает RFC для языка Основа на основе анализа трейсов"
+    phase: v0.3
+
+  - agentName: RuleDistiller
+    description: "Дистиллирует fix-rules из истории repair-loop"
+    phase: v0.3

@@ -1,0 +1,204 @@
+# ============================================================
+# gates.yaml — Quality Gates for osnova-fabrica
+# Version: 0.1.0
+# ============================================================
+# 3 gates для MVP. Все метрики — тулчейн языка Основа.
+# НЕ tscErrors, НЕ coveragePercent, НЕ testsFailed (TypeScript-метрики).
+# Метрики: lexerErrors, parserErrors, compilerSuccess, vm.executed, golden.passed
+# ============================================================
+
+apiVersion: fabrica/v1
+kind: QualityGates
+
+metadata:
+  name: osnova-quality-gates
+  version: "0.1.0"
+  description: >
+    Формальные условия перехода между фазами pipeline Основа.
+    Все условия опираются на артефакты тулчейна .osnova → .osvbc → VM.
+
+defaults:
+  enforcement: strict
+  auditLog: true
+  overridePolicy: manual_only
+
+gates:
+
+  # ═══════════════════════════════════════
+  # G1: Spec Ready
+  # После: intake → перед: codegen
+  # ═══════════════════════════════════════
+  - id: G1_spec_ready
+    name: Spec Ready
+    between: [intake, codegen]
+    enforcement: strict
+    description: >
+      Убеждаемся, что Intent достаточен для кодогенерации на языке Основа.
+    checks:
+      - id: g1_confidence
+        name: Confidence threshold
+        condition: intent.confidence >= 0.7
+        onFail: ask_user_to_clarify
+        severity: blocking
+        note: >
+          Если confidence < 0.7 — IntakeAgent не понял задачу.
+          Нужно уточнение, иначе OsnovaCodegen сгенерирует мусор.
+
+      - id: g1_features_present
+        name: At least one feature
+        condition: intent.features.length >= 1
+        onFail: ask_user_what_program_should_do
+        severity: blocking
+
+      - id: g1_modules_defined
+        name: At least one Osnova module
+        condition: spec.modules.length >= 1
+        onFail: retry_spec_generation
+        severity: blocking
+        note: >
+          Минимум один .osnova модуль должен быть определён в OsnovaSpec.
+
+      - id: g1_main_module_set
+        name: Main module identified
+        condition: spec.mainModule != null AND spec.mainModule != ""
+        onFail: use_first_module_as_main
+        severity: warning
+
+      - id: g1_app_type_classified
+        name: App type classified
+        condition: intent.appType != null
+        onFail: default_to_utility
+        severity: warning
+        note: >
+          appType определяет какие syscall-вызовы нужны:
+          утилита → система.хранилище
+          ui_приложение → система.окно
+          актор → актор + канал
+
+  # ═══════════════════════════════════════
+  # G2: Build Pass
+  # После: build → перед: golden_check
+  # ═══════════════════════════════════════
+  - id: G2_build_pass
+    name: Build Pass
+    between: [build, golden_check]
+    enforcement: strict
+    description: >
+      .osnova успешно прошёл тулчейн: лексер → парсер → компилятор → .osvbc.
+      Метрики из CompileResult (src/compiler/compiler.ts).
+    checks:
+      - id: g2_lexer_clean
+        name: Zero lexer errors
+        condition: buildReport.lexerErrors.length == 0
+        onFail: route_to_repair
+        severity: blocking
+        note: >
+          Ошибки лексера: неизвестный символ, незакрытая строка, недопустимый токен.
+          Обычно означает что LLM добавил нерусский символ или неверный синтаксис.
+
+      - id: g2_parser_clean
+        name: Zero parser errors
+        condition: buildReport.parserErrors.length == 0
+        onFail: route_to_repair
+        severity: blocking
+        note: >
+          Ошибки парсера: несовпадение структуры, неверный AST-узел.
+          Пример: «процедура» без тела, «если» без «иначе» там где требуется.
+
+      - id: g2_compiler_success
+        name: Compiler produced bytecode
+        condition: buildReport.compilerSuccess == true AND buildReport.bytecode != null
+        onFail: route_to_repair
+        severity: blocking
+        note: >
+          Компилятор должен выдать валидный OsvbcModule (JSON).
+          Если bytecode == null при compilerSuccess == true — это баг компилятора,
+          логировать отдельно.
+
+      - id: g2_build_time
+        name: Build under 30 seconds
+        condition: buildReport.durationMs <= 30000
+        onFail: log_slow_build
+        severity: warning
+        note: >
+          Тулчейн Основа детерминированный и быстрый.
+          >30с означает зависание или бесконечный цикл в AST.
+
+  # ═══════════════════════════════════════
+  # G3: Golden Check Pass
+  # После: golden_check → done
+  # ═══════════════════════════════════════
+  - id: G3_golden_pass
+    name: Golden Check Pass
+    between: [golden_check, done]
+    enforcement: strict
+    description: >
+      .osvbc исполнен на VM, результат сверен с golden-тестами.
+      В v0.1 нет инструментов покрытия — golden-тесты как proxy качества.
+      Для задач без golden-эталона: qualityScore >= 0.7 (LLM-оценка соответствия spec).
+    checks:
+      - id: g3_vm_executed
+        name: VM executed without crash
+        condition: goldenReport.executed == true
+        onFail: route_to_repair
+        severity: blocking
+        note: >
+          VM должна запустить байткод без паники/краша.
+          Ошибки: stack underflow, неизвестный опкод, неизвестный invoke.
+          Эти ошибки означают что компилятор сгенерировал невалидный байткод
+          (нужен repair + возможно баг в compiler.ts).
+
+      - id: g3_no_vm_errors
+        name: Zero VM runtime errors
+        condition: goldenReport.vmErrors.length == 0
+        onFail: route_to_repair
+        severity: blocking
+        note: >
+          Ошибки рантайма отличаются от ошибок компилятора:
+          программа скомпилировалась, но упала при исполнении.
+          Пример: деление на ноль, обращение к несуществующему ключу хранилища.
+
+      - id: g3_golden_or_quality
+        name: Golden test passed OR quality score acceptable
+        condition: >
+          goldenReport.passed == true
+          OR goldenReport.qualityScore >= 0.7
+        onFail: log_partial_failure_continue
+        severity: warning
+        note: >
+          Два пути успеха:
+          1. Точное совпадение с golden-эталоном (passed == true)
+          2. Для новых задач без эталона: qualityScore >= 0.7
+             (LLM проверяет соответствие поведения программы спеке)
+
+      - id: g3_output_diff_acceptable
+        name: Output diff is minor
+        condition: goldenReport.outputDiff == null OR goldenReport.qualityScore >= 0.5
+        onFail: route_to_repair
+        severity: blocking
+        note: >
+          Если есть расхождение с эталоном И qualityScore < 0.5 —
+          программа принципиально неверна, нужен repair.
+
+# ─── Repair loop constraints ───
+repairConstraints:
+  maxRepairLoopsPerRun: 3
+  note: "После 3 попыток — сохраняем трейс как failure для дообучения"
+  onExhausted:
+    action: save_trace_as_failure
+    log: repair_exhausted
+    exitWithReport: true
+
+# ─── Gate evolution (v0.2+) ───
+evolution:
+  note: >
+    В v0.1 gates статичны.
+    В v0.2: RuleDistiller может предлагать ужесточение/ослабление thresholds
+    на основе статистики трейсов.
+  versionHistory:
+    - version: 0.1.0
+      date: 2026-03-17
+      changes: >
+        Первая версия gates под язык Основа.
+        Убраны все TypeScript-метрики (tscErrors, coveragePercent, testsFailed).
+        Добавлены: lexerErrors, parserErrors, compilerSuccess, vm.executed, golden.passed.

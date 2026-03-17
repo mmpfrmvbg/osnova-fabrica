@@ -1,0 +1,219 @@
+# ============================================================
+# pipeline.yaml — Pipeline DAG for osnova-fabrica
+# Version: 0.1.0
+# ============================================================
+# ВАЖНО: В v0.1 pipeline ЛИНЕЙНЫЙ (хардкод в orchestrator.ts).
+# DAG-оркестратор по этой спеке — в v0.2 (DEBT-002).
+#
+# Целевой язык: Основа (.osnova → .osvbc → VM)
+# НЕ TypeScript, НЕ REST, НЕ SQL.
+# ============================================================
+
+apiVersion: fabrica/v1
+kind: PipelineDAG
+
+metadata:
+  name: osnova-pipeline
+  version: "0.1.0"
+  description: >
+    6-фазный pipeline: текст → Intent → OsnovaSpec → .osnova → байткод → golden-check.
+    Repair-loop при ошибках компиляции или VM (max 3 итерации).
+
+defaults:
+  maxRetries: 3
+  retryBackoffMs: [1000, 3000, 10000]
+  timeoutMs: 180000
+  onTimeout: abort_and_log
+  onMaxRetries: log_failure_and_exit
+
+phases:
+
+  # ═══ Phase 1: Intake ═══
+  - id: intake
+    agent: IntakeAgent
+    description: Текстовый запрос пользователя → нормализованный OsnovaIntent
+    input:
+      - type: RawText
+        source: cli_arg
+    output:
+      - type: OsnovaIntent
+        fields:
+          intentId: uuid
+          description: string        # что должна делать программа
+          features: string[]         # список поведений ("добавить задачу", "показать список")
+          appType: string            # тип приложения (утилита, хранилище, UI-приложение)
+          constraints: object        # ограничения (память, платформа)
+          confidence: float          # 0..1
+    gate: G1_spec_ready
+    next: spec_generation
+    retry:
+      maxAttempts: 2
+      on: [llm_timeout, parse_error]
+    fallback:
+      action: ask_user_to_rephrase
+
+  # ═══ Phase 2: Spec Generation ═══
+  - id: spec_generation
+    agent: IntakeAgent
+    description: >
+      OsnovaIntent → OsnovaSpec.
+      Spec описывает модули, типы, процедуры и invoke-вызовы языка Основа.
+      НЕТ entities/endpoints/migrations — это не веб-приложение.
+    input:
+      - type: OsnovaIntent
+        from: intake
+    output:
+      - type: OsnovaSpec
+        fields:
+          specId: uuid
+          modules: OsnovaModule[]    # список .osnova модулей
+          mainModule: string         # имя главного модуля (точка входа)
+          types: OsnovaType[]        # пользовательские типы
+          procedures: string[]       # список процедур с сигнатурами
+          syscalls: string[]         # система.хранилище / система.окно / etc
+          conventions: object        # имена, стиль кода
+    next: codegen
+    retry:
+      maxAttempts: 3
+      on: [llm_timeout, schema_parse_error]
+
+  # ═══ Phase 3: Code Generation ═══
+  - id: codegen
+    agent: OsnovaCodegen
+    description: >
+      OsnovaSpec → .osnova исходный код.
+      LLM генерирует кириллический код с few-shot примерами из golden-tests.
+      Один агент — один главный .osnova файл (в v0.1 нет параллельных групп).
+    input:
+      - type: OsnovaSpec
+        from: spec_generation
+      - type: FewShotExamples
+        from: golden_store   # примеры из golden-tests.json
+        count: 3
+    output:
+      - type: OsnovaSource
+        fields:
+          filename: string           # main.osnova
+          source: string             # исходный текст на языке Основа
+          tokensUsed: int
+    next: build
+    retry:
+      maxAttempts: 2
+      on: [llm_timeout, empty_output]
+
+  # ═══ Phase 4: Build ═══
+  - id: build
+    agent: null     # не LLM — прямой вызов тулчейна
+    description: >
+      .osnova → лексер → парсер → компилятор → .osvbc байткод.
+      Использует src/compiler/ напрямую (compileSource).
+      НЕТ tsc, НЕТ npm test — только тулчейн Основа.
+    input:
+      - type: OsnovaSource
+        from: codegen
+    output:
+      - type: BuildReport
+        fields:
+          success: boolean
+          lexerErrors: LexerError[]      # ошибки токенизации
+          parserErrors: ParserError[]    # ошибки разбора AST
+          compilerErrors: CompilerError[] # ошибки кодогенерации
+          bytecode: OsvbcModule | null   # .osvbc JSON если success
+          durationMs: int
+    gate: G2_build_pass
+    next:
+      - condition: success == true
+        goto: golden_check
+      - condition: success == false
+        goto: repair
+    retry:
+      maxAttempts: 1  # компилятор детерминирован — retry бессмысленен без патча
+
+  # ═══ Phase 5: Golden Check ═══
+  - id: golden_check
+    agent: null     # прямой вызов VM + сверка
+    description: >
+      .osvbc → VM исполнение → сверка output с golden-tests.
+      Использует OsnovaGoldenRunner из src/runtime/goldenApps.ts.
+      НЕТ coverage tool — golden-тесты как proxy качества.
+    input:
+      - type: BuildReport
+        from: build
+        condition: success == true
+      - type: OsnovaSpec
+        from: spec_generation
+    output:
+      - type: GoldenReport
+        fields:
+          executed: boolean          # VM запустился без краша
+          passed: boolean            # output совпал с ожидаемым
+          qualityScore: float        # 0..1 (совпадение + полнота)
+          vmErrors: VMError[]        # ошибки рантайма
+          outputDiff: string | null  # расхождение с эталоном
+          durationMs: int
+    gate: G3_golden_pass
+    next:
+      - condition: passed == true
+        goto: done
+      - condition: passed == false AND vmErrors.length > 0
+        goto: repair
+      - condition: passed == false AND qualityScore >= 0.5
+        goto: done   # частичный успех — логируем и продолжаем
+
+  # ═══ Phase 6: Repair (loop) ═══
+  - id: repair
+    agent: RepairEngineer
+    description: >
+      Ошибки компиляции или VM → LLM-патч → исправленный .osnova.
+      Агент получает исходный код + конкретные ошибки + few-shot примеров исправлений.
+      Результат передаётся обратно в build.
+    input:
+      - type: OsnovaSource
+        from: codegen
+      - type: BuildReport
+        from: build
+        optional: true
+      - type: GoldenReport
+        from: golden_check
+        optional: true
+    output:
+      - type: OsnovaSource    # исправленный .osnova
+    next:
+      - build
+    maxLoops: 3
+    onMaxLoops: log_failure_exit
+    loopCounter: repairAttempts
+    retry:
+      maxAttempts: 2
+      on: [llm_timeout]
+
+errorHandlers:
+  - trigger: any_phase_timeout
+    action: abort_run
+    log: timeout_error
+
+  - trigger: repair_loop_exhausted
+    action: save_trace_as_failure
+    then: exit_with_report
+
+  - trigger: llm_provider_unavailable
+    action: retry_with_backoff
+    maxRetries: 3
+    then: abort_run
+
+telemetry:
+  collectPerPhase:
+    - duration_ms
+    - tokens_used
+    - llm_calls_count
+    - retry_count
+    - error_types
+  collectPerRun:
+    - total_duration_ms
+    - total_tokens
+    - repair_loops_count
+    - golden_passed
+    - phases_visited
+  exportTo:
+    - traces.jsonl   # для дообучения LLM
+    - stdout         # CLI-отчёт

@@ -1,0 +1,270 @@
+# ============================================================
+# spec.yaml — L0 Source of Truth for osnova-fabrica
+# Version: 0.1.0
+# ============================================================
+# ПРАВИЛО: если реальность расходится с этим файлом — исправляется код.
+# Исключение: секция tech_debt.
+#
+# Репозиторий: github.com/mmpfrmvbg/osnova-fabrica
+# ============================================================
+
+project:
+  name: osnova-fabrica
+  version: "0.1.0"
+  description: >
+    Кодогенератор для языка «Основа».
+    Принимает текстовое описание задачи, генерирует .osnova-программу
+    через LLM, компилирует в .osvbc байткод, исполняет на стековой VM,
+    сверяет с golden-тестами. Repair-loop при ошибках.
+    Язык Основа: кириллический синтаксис, VLIW/e2k поддержка, sandbox.
+  status: "Phase A — MVP pipeline"
+  repository: github.com/mmpfrmvbg/osnova-fabrica
+  license: MIT
+  last_updated: "2026-03-17"
+
+# ---------------------------------------------------------------------------
+# Стек
+# ---------------------------------------------------------------------------
+stack:
+  runtime: "Node.js >= 20"
+  language: "TypeScript 5.x, strict: true"
+  module_system: CommonJS
+  llm_providers:
+    qwen-cli:
+      type: "CLI subprocess"
+      default: true
+      note: "OSNOVA_PROVIDER=qwen-cli"
+    deepseek:
+      url: "https://api.deepseek.com"
+      endpoints: ["/v1/chat/completions"]
+      timeout_ms: 300000
+      streaming: true
+      json_mode: true
+    ollama:
+      url_default: "http://localhost:11434"
+      timeout_ms: 300000
+  testing:
+    golden: "golden-tests.json — эталонные .osnova программы + ожидаемый байткод/результат VM"
+    runner: "OsnovaGoldenRunner — запускает VM, сверяет output"
+
+# ---------------------------------------------------------------------------
+# Структура проекта
+# ---------------------------------------------------------------------------
+structure:
+  root_files:
+    - "spec.yaml          # L0 источник правды"
+    - "pipeline.yaml      # DAG фаз (6 фаз)"
+    - "roles.yaml         # Реестр агентов (3 агента)"
+    - "gates.yaml         # Quality gates (3 gates)"
+    - ".env.example"
+    - "package.json"
+    - "tsconfig.json"
+
+  src:
+    compiler:
+      description: "Компилятор языка Основа: .osnova → .osvbc (JSON байткод)"
+      pipeline: "tokenize → parse → compile → JSON"
+      source: "перенесено из llama-fabrica/src/tools/osnova-compiler/"
+      files:
+        - lexer.ts
+        - parser.ts
+        - ast.ts
+        - codegen.ts
+        - compiler.ts        # compileSource(source): CompileResult
+        - language-registry.ts
+        - cli.ts
+
+    runtime:
+      description: "Рантайм: исполнение .osvbc байткода на стековой VM"
+      source: "перенесено из llama-fabrica/src/tools/osnova-runtime/"
+      files:
+        - vm/               # VM + bytecode типы
+        - runner.ts
+        - sandbox.ts
+        - storage.ts
+        - goldenApps.ts     # GOLDEN_APP_CASES
+        - types.ts
+        - cli.ts
+
+    vliw:
+      description: "VLIW-планировщик (модель e2k). Заморожен в v0.1 — не удалять."
+      source: "перенесено из llama-fabrica/src/tools/osnova-vliw/"
+      files:
+        - scheduler.ts
+        - dependencyGraph.ts
+        - e2kModel.ts
+        - index.ts
+
+    agents:
+      description: "3 агента MVP. Получают/отдают строго типизированные артефакты."
+      files:
+        - IntakeAgent.ts    # RawText → OsnovaIntent
+        - OsnovaCodegen.ts  # OsnovaSpec → .osnova source (LLM + few-shot)
+        - RepairEngineer.ts # CompileError | VMError → патч .osnova (LLM, max 3 попытки)
+
+    pipeline:
+      description: "Оркестратор 6 фаз по pipeline.yaml. Читает gates.yaml для чекпоинтов."
+      files:
+        - orchestrator.ts   # runPipeline(task): PipelineResult
+        - gateChecker.ts    # checkGate(gateId, context): GateResult
+        - types.ts          # OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport
+
+    llm:
+      description: "LLM провайдеры — QwenCli, DeepSeek, Ollama"
+      source: "перенесено из llama-fabrica/src/infrastructure/llm/"
+      files:
+        - QwenCliProvider.ts
+        - DeepSeekProvider.ts
+        - OllamaProvider.ts
+        - index.ts
+
+    trace:
+      description: "Запись трейсов прогонов в JSONL для дообучения LLM"
+      files:
+        - traceStore.ts     # saveTrace(trace): void
+        - types.ts          # TraceEntry — meta, input, osnova, lexer, ast, compiler, vm, feedback
+
+    cli.ts: "Точка входа: osnova-fabrica --task '...' --provider qwen-cli"
+
+  golden:
+    description: "Эталонные .osnova программы + ожидаемые результаты"
+    files:
+      - golden-tests.json  # 5+ golden app cases
+      - runner.ts          # запуск и сверка
+
+  examples:
+    description: "Примеры программ на языке Основа"
+
+# ---------------------------------------------------------------------------
+# Pipeline (см. pipeline.yaml)
+# ---------------------------------------------------------------------------
+pipeline:
+  description: "task → intent → spec → codegen → build → golden_check → [repair]"
+  phases: 6
+  detail: "см. pipeline.yaml"
+
+# ---------------------------------------------------------------------------
+# Агенты (см. roles.yaml)
+# ---------------------------------------------------------------------------
+agents:
+  count: 3
+  detail: "см. roles.yaml"
+  list:
+    - IntakeAgent     # T2 — текст → OsnovaIntent
+    - OsnovaCodegen   # T2 — OsnovaSpec → .osnova source
+    - RepairEngineer  # T2 — ошибка → патч .osnova
+
+# ---------------------------------------------------------------------------
+# Gates (см. gates.yaml)
+# ---------------------------------------------------------------------------
+gates:
+  count: 3
+  detail: "см. gates.yaml"
+  list:
+    - G1_spec_ready    # intent.confidence >= 0.7, features.length >= 1
+    - G2_build_pass    # lexerErrors == 0, parserErrors == 0, compilerSuccess == true
+    - G3_golden_pass   # vm.executed == true, output matches golden OR qualityScore >= 0.7
+
+# ---------------------------------------------------------------------------
+# Переменные окружения
+# ---------------------------------------------------------------------------
+env:
+  required:
+    OSNOVA_PROVIDER:
+      values: [qwen-cli, deepseek, ollama]
+      default: qwen-cli
+    DEEPSEEK_API_KEY: "Обязателен при provider=deepseek"
+  optional:
+    OSNOVA_MODEL:
+      default: llama3.2
+    OLLAMA_URL:
+      default: "http://localhost:11434"
+    OSNOVA_TRACE_DB:
+      default: "./runs/traces.db"
+    LOG_LEVEL:
+      default: info
+
+# ---------------------------------------------------------------------------
+# Язык Основа
+# ---------------------------------------------------------------------------
+osnova_language:
+  description: >
+    Русскоязычный язык программирования с VLIW-поддержкой.
+    Синтаксис читается как структурированный русский текст.
+    Целевая платформа: VLIW-процессоры (модель e2k).
+  version: "0.1"
+  pipeline: ".osnova → компилятор → .osvbc (байткод JSON) → VM"
+  builtin_types:
+    integers: [Целое8, Целое16, Целое32, Целое64]
+    floats: [Вещественное32, Вещественное64]
+    other: [Логический, Строка, Байт, Ничто]
+    option: "?Тип"
+  key_constructs:
+    procedure: "процедура имя(арг: Тип): Тип"
+    if: "если ... иначе"
+    loop: "цикл ... пока условие"
+    foreach: "для каждого эл из коллекция"
+    actor: "актор + канал + ожидать"
+    result: "Результат<T,E>, Успех(v), Неудача(e)"
+    parallel: "параллельно {} — явный параллельный блок"
+    syscall: "система.хранилище, система.окно, система.сеть — invoke-API"
+  note_on_llm: >
+    LLM хуже генерирует кириллический код чем латинский.
+    Поэтому few-shot примеры в промпте обязательны.
+    Golden-тесты — ключевой критерий качества генерации.
+
+# ---------------------------------------------------------------------------
+# Технический долг
+# ---------------------------------------------------------------------------
+tech_debt:
+  DEBT-001:
+    title: "VLIW заморожен — не интегрирован в pipeline"
+    priority: low
+    status: open
+    note: "Перенесён для сохранности, активируется в v0.2+"
+  DEBT-002:
+    title: "Нет DAG-оркестратора — pipeline линейный в v0.1"
+    priority: medium
+    status: open
+    note: "В v0.1 хардкодим цепочку фаз, DAG из pipeline.yaml — в v0.2"
+  DEBT-003:
+    title: "Нет инструментов покрытия для языка Основа"
+    priority: low
+    status: open
+    note: "G3_golden_pass заменяет coverage — golden-тесты как proxy"
+
+debt_summary:
+  total_items: 3
+  open: 3
+  critical_open: 0
+
+# ---------------------------------------------------------------------------
+# Роадмап
+# ---------------------------------------------------------------------------
+roadmap:
+  current_phase: "Phase A — MVP pipeline"
+
+  phase_a_mvp:
+    goal: "CLI генерирует .osnova → .osvbc → VM проходит 3/5 golden-тестов"
+    items:
+      - "Перенести compiler + runtime + llm-providers из llama-fabrica"
+      - "Реализовать IntakeAgent + OsnovaCodegen (с few-shot промптами)"
+      - "Реализовать RepairEngineer (max 3 попытки)"
+      - "Написать gateChecker.ts по gates.yaml"
+      - "CLI: osnova-fabrica --task '...' → отчёт"
+      - "Пройти 3 из 5 golden-приложений стабильно"
+
+  phase_b_stability:
+    goal: "5/5 golden, трейсы, дообучение"
+    items:
+      - "traces.jsonl для дообучения LLM"
+      - "LoRA fine-tune на успешных трейсах"
+      - "Полноценный DAG-оркестратор из pipeline.yaml"
+
+  phase_c_ecosystem:
+    goal: "Фабрика генерирует целые модули экосистемы Основа"
+    items:
+      - "SpecArchitect — генерация OsnovaSpec из описания"
+      - "Многомодульные проекты (.osnova × N → .osvbc)"
+      - "Каталог модулей"
+      - "NERVE для самоаудита"
