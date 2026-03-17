@@ -10,6 +10,8 @@ import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { RepairEngineerAgent } from '../agents/RepairEngineer';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { saveTrace } from '../trace/traceStore';
+import { logger } from '../logger';
+import type { CompileResult } from '../compiler/compiler';
 import type {
   OsnovaIntent,
   OsnovaSpec,
@@ -19,7 +21,27 @@ import type {
   PipelineResult,
 } from './types';
 
+const log = logger('pipeline');
 const MAX_REPAIR_LOOPS = 3;
+
+/**
+ * Адаптер: CompileResult (src/compiler/compiler.ts) → BuildReport (src/pipeline/types.ts).
+ *
+ * Разница:
+ *   CompileResult.module       → BuildReport.bytecode
+ *   + добавляет BuildReport.success = compilerSuccess && lexerErrors.length === 0
+ */
+export function compileToBuildReport(r: CompileResult): BuildReport {
+  return {
+    success: r.compilerSuccess && r.lexerErrors.length === 0 && r.parserErrors.length === 0,
+    lexerErrors: r.lexerErrors,
+    parserErrors: r.parserErrors,
+    compilerErrors: r.compilerErrors,
+    bytecode: r.module ?? null,
+    compilerSuccess: r.compilerSuccess,
+    durationMs: r.durationMs,
+  };
+}
 
 export async function runPipeline(
   task: string,
@@ -37,24 +59,24 @@ export async function runPipeline(
 
   try {
     // ─── Фаза 1: intake ───
-    console.log('[pipeline] phase: intake');
+    log.info('phase: intake');
     const intake = new IntakeAgent();
     intent = await intake.parseIntent({ text: task });
 
     // ─── Фаза 2: spec_generation ───
-    console.log('[pipeline] phase: spec_generation');
+    log.info('phase: spec_generation');
     spec = await intake.generateSpec(intent);
 
     // ─── Gate G1 ───
     const g1 = checkG1(intent, spec);
     if (!g1.passed) {
-      console.error('[gate G1 FAIL]', g1.failedChecks);
+      log.error('gate G1 FAIL', g1.failedChecks);
       return finish('failure', `G1 failed: ${g1.failedChecks[0]}`);
     }
-    console.log('[gate G1] passed');
+    log.info('gate G1 passed');
 
     // ─── Фаза 3: codegen ───
-    console.log('[pipeline] phase: codegen');
+    log.info('phase: codegen');
     const codegen = new OsnovaCodegenAgent();
     source = await codegen.generate(spec);
     lastSource = source;
@@ -62,49 +84,39 @@ export async function runPipeline(
     // ─── Repair loop: build → golden_check → repair ───
     for (let loop = 0; loop <= MAX_REPAIR_LOOPS; loop++) {
       // ─── Фаза 4: build ───
-      console.log(`[pipeline] phase: build (attempt ${loop + 1})`);
+      log.info(`phase: build (attempt ${loop + 1})`);
       const { compileSource } = await import('../compiler/compiler');
-      const compileResult = compileSource(lastSource.source);
-
-      buildReport = {
-        success: compileResult.compilerSuccess,
-        lexerErrors: compileResult.lexerErrors,
-        parserErrors: compileResult.parserErrors,
-        compilerErrors: compileResult.compilerErrors,
-        bytecode: compileResult.module ?? null,
-        compilerSuccess: compileResult.compilerSuccess,
-        durationMs: compileResult.durationMs,
-      };
+      buildReport = compileToBuildReport(compileSource(lastSource.source));
 
       // ─── Gate G2 ───
       const g2 = checkG2(buildReport);
       if (!g2.passed) {
-        console.warn(`[gate G2 FAIL] attempt ${loop + 1}`, g2.failedChecks);
+        log.warn(`gate G2 FAIL (attempt ${loop + 1})`, g2.failedChecks);
         if (loop >= MAX_REPAIR_LOOPS) break;
         const repair = new RepairEngineerAgent();
-        lastSource = await repair.fix(lastSource, buildReport, undefined);
+        lastSource = await repair.fix(lastSource, buildReport, undefined, loop + 1);
         repairAttempts++;
         continue;
       }
-      console.log('[gate G2] passed');
+      log.info('gate G2 passed');
 
       // ─── Фаза 5: golden_check ───
-      console.log('[pipeline] phase: golden_check');
+      log.info('phase: golden_check');
       const { runGoldenCheck } = await import('../runtime/goldenApps');
       goldenReport = await runGoldenCheck(buildReport.bytecode, spec);
 
       // ─── Gate G3 ───
       const g3 = checkG3(goldenReport);
       if (!g3.passed) {
-        console.warn(`[gate G3 FAIL] attempt ${loop + 1}`, g3.failedChecks);
+        log.warn(`gate G3 FAIL (attempt ${loop + 1})`, g3.failedChecks);
         if (loop >= MAX_REPAIR_LOOPS) break;
         const repair = new RepairEngineerAgent();
-        lastSource = await repair.fix(lastSource, buildReport, goldenReport);
+        lastSource = await repair.fix(lastSource, buildReport, goldenReport, loop + 1);
         repairAttempts++;
         continue;
       }
 
-      console.log('[gate G3] passed — pipeline complete');
+      log.info('gate G3 passed — pipeline complete');
       source = lastSource;
 
       const result = finish(goldenReport.passed ? 'success' : 'partial');
@@ -113,14 +125,14 @@ export async function runPipeline(
     }
 
     // repair exhausted
-    console.error('[pipeline] repair loop exhausted after', repairAttempts, 'attempts');
+    log.error('repair loop exhausted', { repairAttempts });
     const result = finish('repair_exhausted', 'max repair loops reached');
     await saveTrace({ runId, status: result.status, task, intent, spec, source: lastSource, buildReport, goldenReport, repairAttempts });
     return result;
 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[pipeline] unhandled error:', message);
+    log.error('unhandled error', message);
     await saveTrace({
       runId,
       status: 'failure',
