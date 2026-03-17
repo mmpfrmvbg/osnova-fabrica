@@ -49,7 +49,7 @@ const SYSTEM_PROMPT = `
 export class OsnovaCodegenAgent {
   async generate(spec: OsnovaSpec): Promise<OsnovaSource> {
     const provider = getLLMProvider();
-    const model = process.env.OSNOVA_MODEL ?? 'llama3.2';
+    const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     const fewShot = loadFewShot();
     log.debug('generate', { model, mainModule: spec.mainModule });
 

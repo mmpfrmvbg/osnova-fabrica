@@ -68,7 +68,7 @@ npm run validate:spec      # валидировать spec.yaml
 |---|---|---|
 | `OSNOVA_PROVIDER` | `qwen-cli` | LLM провайдер (`qwen-cli`, `deepseek`, `ollama`) |
 | `DEEPSEEK_API_KEY` | — | Обязателен при `provider=deepseek` |
-| `OSNOVA_MODEL` | `llama3.2` | Модель LLM |
+| `OSNOVA_MODEL` | `qwen-coder-plus` | Модель LLM |
 | `OLLAMA_URL` | `http://localhost:11434` | URL Ollama |
 | `OSNOVA_TRACE_DB` | `./runs/traces.jsonl` | Путь к JSONL-файлу трейсов прогонов (диагностика и дообучение LLM) |
 | `QWEN_TIMEOUT_MS` | `300000` | Таймаут QwenCliProvider (мс) |
@@ -80,5 +80,32 @@ npm run validate:spec      # валидировать spec.yaml
 - ✅ **batch-2** — compiler, runtime VM, golden-тесты
 - ✅ **batch-3** — агенты (IntakeAgent, OsnovaCodegen, RepairEngineer)
 - ✅ **batch-4** — трейсы для дообучения LLM
+- ✅ **batch-5** — CLI, логгер, стандартизация ошибок LLM-агентов, адаптация под Qwen Code v0.12.6
 - ✅ **lint** — ESLint v9 flat config (`eslint.config.mjs`), 0 ошибок
-- ⏳ **batch-5** — CLI, логгер, стандартизация ошибок LLM-агентов
+
+### Пример запуска
+
+```bash
+OSNOVA_PROVIDER=qwen-cli \
+OSNOVA_MODEL=qwen-coder-plus \
+LOG_LEVEL=debug \
+npx tsx src/cli.ts --task "посчитай сумму чисел от 1 до 10"
+```
+
+Ожидаемый результат (сокращённо):
+
+```text
+[pipeline] phase: intake
+[pipeline] phase: spec_generation
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+[pipeline] phase: build (attempt 1)
+...
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+[pipeline] gate G3 passed — pipeline complete
+
+Статус:          success
+Файл:            Главный.osnova
+Golden:          passed ✅
+```

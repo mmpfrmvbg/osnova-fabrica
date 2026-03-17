@@ -33,7 +33,7 @@ export class RepairEngineerAgent {
     attempt?: number,
   ): Promise<OsnovaSource> {
     const provider = getLLMProvider();
-    const model = process.env.OSNOVA_MODEL ?? 'llama3.2';
+    const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('fix', { model, attempt, filename: source.filename });
 
     const errors: string[] = [];

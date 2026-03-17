@@ -13,26 +13,16 @@ import { logger } from '../logger';
 
 const log = logger('intake-agent');
 
-const INTENT_SYSTEM_PROMPT = `
-Ты — IntakeAgent системы osnova-fabrica.
-Твоя задача: проанализировать текстовый запрос пользователя и вернуть JSON с полями:
-{
-  "description": string,
-  "features": string[],
-  "appType": "утилита" | "хранилище" | "ui_приложение" | "актор" | "смешанный",
-  "constraints": {},
-  "confidence": number (0..1)
-}
-НЕ придумывай лишнего. Отвечай ТОЛЬКО JSON, без markdown.
-`.trim();
-
 const SPEC_SYSTEM_PROMPT = `
-Ты — SpecArchitect системы osnova-fabrica.
-На основании OsnovaIntent сгенерируй OsnovaSpec для программы на языке ОСНОВА.
-Язык Основа: кириллический синтаксис, типы Целое32/Строка/Логический/?Тип/Результат,
-процедуры, система.хранилище / система.окно / система.сеть.
+Given this programming intent for the Osnova language, return a JSON spec object.
 
-Верни JSON:
+The Osnova language has:
+- Cyrillic syntax
+- Types: Целое32, Строка, Логический, ?Тип, Результат
+- Procedures and functions
+- Syscalls: система.хранилище, система.окно, система.сеть
+
+Return ONLY this JSON, nothing else:
 {
   "modules": [{"name": string, "description": string, "isMain": boolean}],
   "mainModule": string,
@@ -41,13 +31,14 @@ const SPEC_SYSTEM_PROMPT = `
   "syscalls": string[],
   "conventions": {}
 }
-Отвечай ТОЛЬКО JSON, без markdown.
+
+No explanation. No greeting. Just the JSON.
 `.trim();
 
 export class IntakeAgent {
   async parseIntent(input: RawText): Promise<OsnovaIntent> {
     const provider = getLLMProvider();
-    const model = process.env.OSNOVA_MODEL ?? 'llama3.2';
+    const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('parseIntent', { model });
 
     let response;
@@ -55,8 +46,26 @@ export class IntakeAgent {
       response = await provider.complete({
         model,
         messages: [
-          { role: 'system', content: INTENT_SYSTEM_PROMPT },
-          { role: 'user', content: input.text },
+          {
+            role: 'user',
+            content: [
+              'Analyze this programming task and return ONLY a JSON object with fields: intent, confidence, language, features, params.',
+              '',
+              'Return ONLY this JSON, nothing else:',
+              '{',
+              '  "intent": "brief description",',
+              '  "confidence": 0.9,',
+              '  "language": "osnova",',
+              '  "features": ["feature1", "feature2"],',
+              '  "params": {}',
+              '}',
+              '',
+              'features — list of 1-3 key capabilities the program must have.',
+              'Example for "calculate sum 1 to 10": features: ["arithmetic loop","print result"]',
+              '',
+              `Task: "${input.text}"`,
+            ].join('\n'),
+          },
         ],
         responseFormat: { type: 'json_object' },
         maxTokens: 2000,
@@ -67,25 +76,36 @@ export class IntakeAgent {
 
     let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(response.content);
+      const cleaned = this.cleanJsonResponse(response.content, 'parseIntent');
+      parsed = JSON.parse(cleaned);
     } catch {
       log.warn('parseIntent: JSON parse failed, using fallback');
+      log.debug('parseIntent: raw LLM response', { raw: response?.content });
       return this.fallbackIntent(input.text);
     }
 
     return {
       intentId: randomUUID(),
-      description: String(parsed.description ?? input.text),
-      features: Array.isArray(parsed.features) ? parsed.features.map(String) : [],
+      description: String(
+        (parsed as { intent?: unknown }).intent ??
+          (parsed as { description?: unknown }).description ??
+          input.text,
+      ),
+      features:
+        Array.isArray((parsed as { features?: unknown }).features) &&
+        (parsed as { features: unknown[] }).features.length > 0
+          ? (parsed as { features: unknown[] }).features.map(String)
+          : [String((parsed as { intent?: unknown }).intent ?? input.text)],
       appType: (parsed.appType as AppType) ?? 'утилита',
       constraints: (parsed.constraints as Record<string, unknown>) ?? {},
-      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+      confidence:
+        typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
     };
   }
 
   async generateSpec(intent: OsnovaIntent): Promise<OsnovaSpec> {
     const provider = getLLMProvider();
-    const model = process.env.OSNOVA_MODEL ?? 'llama3.2';
+    const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('generateSpec', { model, intentId: intent.intentId });
 
     let response;
@@ -112,9 +132,11 @@ export class IntakeAgent {
 
     let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(response.content);
+      const cleaned = this.cleanJsonResponse(response.content, 'generateSpec');
+      parsed = JSON.parse(cleaned);
     } catch {
       log.warn('generateSpec: JSON parse failed, using fallback');
+      log.debug('generateSpec: raw LLM response', { raw: response?.content });
       return this.fallbackSpec(intent);
     }
 
@@ -152,5 +174,28 @@ export class IntakeAgent {
       syscalls: [],
       conventions: {},
     };
+  }
+
+  private cleanJsonResponse(raw: string, _context: 'parseIntent' | 'generateSpec'): string {
+    if (!raw) return raw;
+    let text = raw.trim();
+
+    // Снять ```json ... ``` или ``` ... ``` обёртку
+    if (text.startsWith('```')) {
+      text = text.replace(/^```[a-zA-Z]*\s*/, '');
+      const lastFence = text.lastIndexOf('```');
+      if (lastFence !== -1) {
+        text = text.slice(0, lastFence);
+      }
+      text = text.trim();
+    }
+
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+      text = text.slice(firstBrace, lastBrace + 1);
+    }
+
+    return text.trim();
   }
 }

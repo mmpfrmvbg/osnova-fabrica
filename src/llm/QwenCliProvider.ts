@@ -7,7 +7,7 @@
 //     (в osnova-fabrica нет RAG-слоя в v0.1)
 // ============================================================
 import { spawn } from 'node:child_process';
-import { platform } from 'node:os';
+import { platform, tmpdir } from 'node:os';
 import type {
   LLMProvider,
   LLMCompletionRequest,
@@ -32,12 +32,12 @@ export class QwenCliProvider implements LLMProvider {
       const execFileAsync = promisify(execFile);
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
       if (isWindows) {
-        await execFileAsync('cmd', ['/c', 'chcp 65001 >nul 2>&1 && qwen --help'], {
+        await execFileAsync('cmd', ['/c', 'chcp 65001 >nul 2>&1 && qwen --version'], {
           timeout: 10_000,
           env,
         });
       } else {
-        await execFileAsync('qwen', ['--help'], { timeout: 10_000, env });
+        await execFileAsync('qwen', ['--version'], { timeout: 10_000, env });
       }
       return { available: true };
     } catch (error: unknown) {
@@ -63,17 +63,61 @@ export class QwenCliProvider implements LLMProvider {
   async complete(request: LLMCompletionRequest): Promise<LLMCompletionResponse> {
     const startTime = Date.now();
     const prompt = this.formatMessages(request.messages);
-    const args = ['--auth-type=qwen-oauth', '--output-format=text', '-y'];
+    const args = ['--auth-type=qwen-oauth', '--output-format=json', '-y', '--channel=CI'];
     if (request.model) args.push(`--model=${request.model}`);
     const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
 
     try {
+      // Debug logging of prompt before sending to Qwen
+      // eslint-disable-next-line no-console
+      console.error('[qwen-debug] prompt length:', prompt.length);
+      // eslint-disable-next-line no-console
+      console.error(
+        '[qwen-debug] prompt preview:',
+        prompt.slice(0, 200),
+      );
+      // eslint-disable-next-line no-console
+      console.error(
+        '[qwen-debug] args (without prompt):',
+        args,
+      );
+
       const output = await this.runQwenWithStdin(prompt, args, env);
+
+      // Qwen Code (--output-format=json) returns a JSON array of events.
+      // We need the last { type: "result", subtype: "success", result: string }.
+      let text = '';
+      try {
+        const events = JSON.parse(output) as Array<{
+          type?: string;
+          subtype?: string;
+          result?: string;
+        }>;
+        const resultEvent = [...events]
+          .reverse()
+          .find((e) => e.type === 'result' && e.subtype === 'success');
+        if (resultEvent?.result) {
+          text = resultEvent.result;
+        }
+      } catch {
+        text = output;
+      }
+
+      if (!text) {
+        text = output;
+      }
+
+      // Strip optional ```json ... ``` fences from result
+      text = text
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
       const promptTokens = this.estimateTokens(prompt);
-      const completionTokens = this.estimateTokens(output);
+      const completionTokens = this.estimateTokens(text);
       void startTime;
       return {
-        content: output,
+        content: text,
         tokensUsed: {
           prompt: promptTokens,
           completion: completionTokens,
@@ -110,7 +154,10 @@ export class QwenCliProvider implements LLMProvider {
     env: NodeJS.ProcessEnv,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn('qwen', args, {
+      const command = isWindows ? 'cmd' : 'qwen';
+      const finalArgs = isWindows ? ['/c', 'qwen.cmd', ...args] : args;
+      const child = spawn(command, finalArgs, {
+        cwd: tmpdir(),
         env: { ...env, PYTHONIOENCODING: 'utf-8' },
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
@@ -140,18 +187,28 @@ export class QwenCliProvider implements LLMProvider {
       child.on('close', (code) => {
         cleanup();
         const stdout = Buffer.concat(chunks).toString('utf8').trim();
-        if (code !== 0 && !killed) {
-          reject(new Error(`qwen exited with code ${code}`));
-        } else if (killed && code !== 0) {
-          reject(new Error(`qwen timed out after ${QWEN_TIMEOUT_MS}ms`));
-        } else {
-          resolve(stdout);
+        if ((code !== 0 && !killed) || (killed && code !== 0)) {
+          reject(
+            new Error(
+              killed
+                ? `qwen timed out after ${QWEN_TIMEOUT_MS}ms`
+                : `qwen exited with code ${code}`,
+            ),
+          );
+          return;
         }
+
+        // Return raw stdout; JSON parsing is done in complete()
+        resolve(stdout);
       });
 
       child.stdin?.write(prompt, 'utf8', (err) => {
-        if (err) { cleanup(); reject(err); }
-        else { child.stdin?.end(); }
+        if (err) {
+          cleanup();
+          reject(err);
+        } else {
+          child.stdin?.end();
+        }
       });
     });
   }
