@@ -1,6 +1,6 @@
 /**
  * Smoke-тест компилятора: todo.osnova компилируется без ошибок и содержит ожидаемые процедуры.
- * Запуск: npx tsx --test src/tools/osnova-compiler/compiler.test.ts
+ * Запуск: npx vitest run
  */
 
 import { readFileSync } from "node:fs";
@@ -10,17 +10,17 @@ import assert from "node:assert/strict";
 import { compileSource } from "./compiler";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
-import { VM } from "../osnova-runtime/vm/interpreter";
+import { VM } from "../runtime/vm/interpreter";
 
-const FIXTURES_DIR = join(__dirname, "..", "osnova-runtime", "fixtures");
+const FIXTURES_DIR = join(__dirname, "..", "runtime", "fixtures");
 
 describe("Compiler smoke: todo.osnova", () => {
   it("compiles without lex/parse errors and has procedures запуск, handle_event, handle_add", () => {
     const source = readFileSync(join(FIXTURES_DIR, "todo.osnova"), "utf-8");
     const result = compileSource(source);
 
-    assert.strictEqual(result.lexErrors.length, 0, "no lex errors");
-    assert.strictEqual(result.parseErrors.length, 0, "no parse errors");
+    assert.strictEqual(result.lexerErrors.length, 0, "no lex errors");
+    assert.strictEqual(result.parserErrors.length, 0, "no parse errors");
     assert.ok(result.module, "module produced");
 
     const names = result.module!.procedures.map((p) => p.name);
@@ -45,8 +45,8 @@ describe("Compiler: иначе (if/else)", () => {
 конец
 `;
     const result = compileSource(source.trim());
-    assert.strictEqual(result.lexErrors.length, 0, "no lex errors");
-    assert.strictEqual(result.parseErrors.length, 0, "no parse errors");
+    assert.strictEqual(result.lexerErrors.length, 0, "no lex errors");
+    assert.strictEqual(result.parserErrors.length, 0, "no parse errors");
     assert.ok(result.module, "module produced");
     const vm = new VM(result.module!, { maxSteps: 1000 });
     const value = await vm.runProcedure(0, []);
@@ -111,8 +111,8 @@ describe("Compiler: для_каждого", () => {
 конец
 `;
     const result = compileSource(source.trim());
-    assert.strictEqual(result.lexErrors.length, 0, "no lex errors");
-    assert.strictEqual(result.parseErrors.length, 0, "no parse errors");
+    assert.strictEqual(result.lexerErrors.length, 0, "no lex errors");
+    assert.strictEqual(result.parserErrors.length, 0, "no parse errors");
     assert.ok(result.module, "module produced");
     const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 10000 });
     const value = await vm.runProcedure(0, [[10, 20, 30]]);
@@ -223,10 +223,10 @@ describe("Compiler: и / или / не (short-circuit)", () => {
 });
 
 describe("Compiler negative: errors reported", () => {
-  it("invalid syntax (модуль without identifier) → parseErrors.length > 0", () => {
+  it("invalid syntax (модуль without identifier) → parserErrors.length > 0", () => {
     const source = "модуль \n";
     const result = compileSource(source);
-    assert.ok(result.parseErrors.length > 0, "parse errors expected");
+    assert.ok(result.parserErrors.length > 0, "parse errors expected");
     assert.ok(!result.module, "no module on parse error");
   });
 
@@ -250,17 +250,17 @@ describe("Compiler negative: errors reported", () => {
     assert.strictEqual(ast!.procedures[0].name, "ok", "second procedure present");
   });
 
-  it("unknown variable in expression (пусть y = x without пусть x) → compile error in parseErrors", () => {
+  it("unknown variable in expression (пусть y = x without пусть x) → compile error in parserErrors", () => {
     const source = "модуль t\nпроцедура main()\n  пусть y = x\nконец\n";
     const result = compileSource(source);
-    assert.ok(result.parseErrors.length > 0, "codegen throws → reported as parseErrors");
+    assert.ok(result.parserErrors.length > 0, "codegen throws → reported as parserErrors");
     assert.ok(!result.module, "no module");
   });
 
-  it("call to non-existent procedure → compile error in parseErrors", () => {
+  it("call to non-existent procedure → compile error in parserErrors", () => {
     const source = "модуль t\nпроцедура main()\n  foo()\nконец\n";
     const result = compileSource(source);
-    assert.ok(result.parseErrors.length > 0, "unknown procedure → reported");
+    assert.ok(result.parserErrors.length > 0, "unknown procedure → reported");
     assert.ok(!result.module, "no module");
   });
 });

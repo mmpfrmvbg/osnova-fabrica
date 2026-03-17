@@ -5,6 +5,7 @@
 // ============================================================
 
 import { runPipeline } from './pipeline/orchestrator';
+import { validateEnv } from './env';
 
 const args = process.argv.slice(2);
 const taskIdx = args.indexOf('--task');
@@ -16,6 +17,8 @@ if (taskIdx === -1 || !args[taskIdx + 1]) {
 }
 
 const task = args[taskIdx + 1];
+
+validateEnv();
 
 console.log(`\n[osnova-fabrica] Задача: ${task}\n`);
 

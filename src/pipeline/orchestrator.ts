@@ -121,6 +121,17 @@ export async function runPipeline(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[pipeline] unhandled error:', message);
+    await saveTrace({
+      runId,
+      status: 'failure',
+      task,
+      intent,
+      spec,
+      source: lastSource,
+      buildReport,
+      goldenReport,
+      repairAttempts,
+    }).catch(() => {});
     return finish('failure', message);
   }
 

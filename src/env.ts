@@ -1,0 +1,33 @@
+// src/env.ts — валидация переменных окружения перед запуском пайплайна
+// Вызывается из src/cli.ts до runPipeline()
+
+export function validateEnv(): void {
+  const provider = process.env.OSNOVA_PROVIDER ?? 'qwen-cli';
+  const valid = ['qwen-cli', 'ollama', 'deepseek'];
+
+  if (!valid.includes(provider)) {
+    console.error(
+      `[env] OSNOVA_PROVIDER="${provider}" неверный. Допустимые: ${valid.join(', ')}`,
+    );
+    process.exit(1);
+  }
+
+  if (provider === 'deepseek' && !process.env.DEEPSEEK_API_KEY) {
+    console.error(
+      '[env] DEEPSEEK_API_KEY не задан. Обязателен при OSNOVA_PROVIDER=deepseek',
+    );
+    process.exit(1);
+  }
+
+  if (provider === 'ollama' && !process.env.OLLAMA_URL) {
+    console.warn(
+      '[env] OLLAMA_URL не задан, будет использован http://localhost:11434',
+    );
+  }
+
+  if (!process.env.OSNOVA_MODEL) {
+    console.warn(
+      '[env] OSNOVA_MODEL не задан, будет использован: llama3.2',
+    );
+  }
+}

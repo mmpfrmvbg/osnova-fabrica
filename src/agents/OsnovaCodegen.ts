@@ -7,6 +7,7 @@
 
 import { getLLMProvider } from '../llm/index';
 import type { OsnovaSpec, OsnovaSource } from '../pipeline/types';
+import { buildOsnovaPrompt } from '../pipeline-llm/buildOsnovaPrompt';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -14,11 +15,12 @@ function loadFewShot(): string {
   try {
     const p = path.resolve(__dirname, '../../docs/golden-tests.json');
     const raw = fs.readFileSync(p, 'utf-8');
-    const cases = JSON.parse(raw) as Array<{ name: string; source?: string; osnova?: string }>;
+    const data = JSON.parse(raw) as { tests?: Array<{ name?: string; id?: string; source?: string; osnova?: string }> };
+    const cases = data.tests ?? [];
     return cases
       .slice(0, 3)
       .filter(c => c.source || c.osnova)
-      .map(c => `// Пример: ${c.name}\n${c.source ?? c.osnova}`)
+      .map(c => `// Пример: ${c.name ?? c.id}\n${c.source ?? c.osnova}`)
       .join('\n\n---\n\n');
   } catch {
     return '// нет примеров';
@@ -45,20 +47,16 @@ export class OsnovaCodegenAgent {
     const provider = getLLMProvider();
     const fewShot = loadFewShot();
 
-    const userPrompt = [
-      '// Примеры программ на языке Основа:',
-      fewShot,
-      '',
-      '// Задание:',
-      `// Сгенерируй программу на языке Основа по спецификации:`,
-      JSON.stringify(spec, null, 2),
-    ].join('\n');
+    const specPrompt = buildOsnovaPrompt(JSON.stringify(spec, null, 2));
 
     const response = await provider.complete({
       model: process.env.OSNOVA_MODEL ?? 'llama3.2',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
+        {
+          role: 'user',
+          content: specPrompt + '\n\n// Few-shot примеры программ на языке Основа:\n' + fewShot,
+        },
       ],
       maxTokens: 8000,
       temperature: 0.2,

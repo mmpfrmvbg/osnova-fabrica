@@ -5,6 +5,7 @@
       "id": "hello_world",
       "description": "Минимальная программа — вывод строки",
       "category": "generic",
+      "source": "модуль привет\nпроцедура главная()\n  система.окно.показать(\"Привет, мир!\")\nконец",
       "specSnippet": { "meta": { "name": "Привет", "type": "cli" } },
       "expectCompiler": { "success": true },
       "expectKeywords": ["модуль", "процедура", "главная"]
@@ -13,6 +14,7 @@
       "id": "let_assign",
       "description": "Объявление переменной и присвоение",
       "category": "generic",
+      "source": "модуль переменные\nпроцедура главная()\n  пусть счётчик = 0\n  счётчик = счётчик + 1\n  вернуть счётчик\nконец",
       "specSnippet": { "meta": { "name": "Переменные", "type": "cli" } },
       "expectCompiler": { "success": true },
       "expectKeywords": ["пусть"]
@@ -21,17 +23,19 @@
       "id": "if_else",
       "description": "Ветвление если/иначе/конец",
       "category": "generic",
+      "source": "модуль условие\nпроцедура проверить(x)\n  если x > 0\n    вернуть 1\n  иначе\n    вернуть 0\n  конец\nконец",
       "specSnippet": { "meta": { "name": "Условие", "type": "cli" } },
       "expectCompiler": { "success": true },
       "expectKeywords": ["если", "иначе", "конец"]
     },
     {
-      "id": "for_each_loop",
-      "description": "Цикл для_каждого ... в ... конец",
-      "category": "generic",
-      "specSnippet": { "meta": { "name": "Цикл", "type": "cli" } },
+      "id": "storage_read_write",
+      "description": "Чтение и запись через система.хранилище",
+      "category": "storage",
+      "source": "модуль хранилище_демо\nпроцедура главная()\n  система.хранилище.сохранить(\"ключ\", \"значение\")\n  пусть val = система.хранилище.получить(\"ключ\")\n  вернуть val\nконец",
+      "specSnippet": { "meta": { "name": "Хранилище", "type": "cli" } },
       "expectCompiler": { "success": true },
-      "expectKeywords": ["для_каждого", "в", "конец"]
+      "expectKeywords": ["система.хранилище.сохранить", "система.хранилище.получить"]
     }
   ]
 }
