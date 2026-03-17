@@ -1,6 +1,8 @@
 // src/env.ts — валидация переменных окружения перед запуском пайплайна
 // Вызывается из src/cli.ts до runPipeline()
 
+import { setLogLevel, type LogLevel } from './logger';
+
 export function validateEnv(): void {
   const provider = process.env.OSNOVA_PROVIDER ?? 'qwen-cli';
   const valid = ['qwen-cli', 'ollama', 'deepseek'];
@@ -28,6 +30,17 @@ export function validateEnv(): void {
   if (!process.env.OSNOVA_MODEL) {
     console.warn(
       '[env] OSNOVA_MODEL не задан, будет использован: llama3.2',
+    );
+  }
+
+  // Применяем LOG_LEVEL из окружения к логгеру
+  const logLevel = process.env.LOG_LEVEL as LogLevel | undefined;
+  const validLevels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+  if (logLevel && validLevels.includes(logLevel)) {
+    setLogLevel(logLevel);
+  } else if (logLevel) {
+    console.warn(
+      `[env] LOG_LEVEL="${logLevel}" неверный. Допустимые: ${validLevels.join(', ')}. Используется info.`,
     );
   }
 }
