@@ -129,15 +129,14 @@ describe("Compiler: для_каждого", () => {
 
 describe("Compiler: и / или / не", () => {
   it("не ложь → истина, return 1", async () => {
-    const source = `
-модуль t
+    const source = `модуль t
 процедура main()
   если не ложь
     вернуть 1
   иначе
     вернуть 0
   конец
-конец`.trim();
+конец`;
     const result = compileSource(source);
     expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { maxSteps: 100 });
@@ -220,15 +219,19 @@ describe("Compiler negative: errors reported", () => {
     expect(ast!.procedures[0].name).toBe("ok");
   });
 
-  it("пусть y = x (x не объявлен) → parserErrors", () => {
+  it("пусть y = x (x не объявлен) → compilerErrors (семантанализ в batch-5)", () => {
     const result = compileSource("модуль t\nпроцедура main()\n  пусть y = x\nконец\n");
-    expect(result.parserErrors.length).toBeGreaterThan(0);
+    expect(result.compilerSuccess).toBe(false);
+    const hasError = result.parserErrors.length > 0 || result.compilerErrors.length > 0;
+    expect(hasError).toBe(true);
     expect(result.module).toBeFalsy();
   });
 
-  it("вызов несуществующей процедуры → parserErrors", () => {
+  it("вызов несуществующей процедуры → compilerErrors (семантанализ в batch-5)", () => {
     const result = compileSource("модуль t\nпроцедура main()\n  foo()\nконец\n");
-    expect(result.parserErrors.length).toBeGreaterThan(0);
+    expect(result.compilerSuccess).toBe(false);
+    const hasError = result.parserErrors.length > 0 || result.compilerErrors.length > 0;
+    expect(hasError).toBe(true);
     expect(result.module).toBeFalsy();
   });
 });
