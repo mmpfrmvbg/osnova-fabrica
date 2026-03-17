@@ -1,0 +1,455 @@
+{
+  "version": 1,
+  "moduleName": "todo",
+  "constants": [
+    "TODO",
+    400,
+    300,
+    "1",
+    "Новая задача",
+    "input1",
+    "Добавить",
+    "add_btn",
+    "Items:",
+    "items_label",
+    "",
+    "items_area",
+    "items",
+    0,
+    1,
+    200,
+    "тип",
+    "закрытие",
+    "виджет_id",
+    "\n"
+  ],
+  "procedures": [
+    {
+      "name": "запуск",
+      "codeOffset": 0,
+      "argc": 0,
+      "localsCount": 3
+    },
+    {
+      "name": "handle_event",
+      "codeOffset": 54,
+      "argc": 1,
+      "localsCount": 1
+    },
+    {
+      "name": "handle_add",
+      "codeOffset": 76,
+      "argc": 0,
+      "localsCount": 2
+    }
+  ],
+  "code": [
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 1
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 2
+    },
+    {
+      "op": "invoke",
+      "name": "система.окно.создать_окно"
+    },
+    {
+      "op": "local.set",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "invoke",
+      "name": "система.окно.показать"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 5
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.поле_ввода"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 7
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.кнопка"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 8
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 9
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.текст"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 10
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 11
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.область_текста"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 11
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 12
+    },
+    {
+      "op": "invoke",
+      "name": "система.хранилище.прочитать"
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.установить_значение"
+    },
+    {
+      "op": "invoke",
+      "name": "система.окно.получить_события"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 13
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.длина"
+    },
+    {
+      "op": "lt"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 50
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "call",
+      "fi": 1
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 14
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 45
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 14
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "jmp",
+      "off": 31
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 15
+    },
+    {
+      "op": "invoke",
+      "name": "система.время.спать"
+    },
+    {
+      "op": "jmp",
+      "off": 27
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 16
+    },
+    {
+      "op": "invoke",
+      "name": "система.объект.получить"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 17
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 64
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 14
+    },
+    {
+      "op": "invoke",
+      "name": "система.окно.закрыть"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 14
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 18
+    },
+    {
+      "op": "invoke",
+      "name": "система.объект.получить"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 7
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 73
+    },
+    {
+      "op": "call",
+      "fi": 2
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 13
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 13
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 5
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.получить_значение"
+    },
+    {
+      "op": "local.set",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 12
+    },
+    {
+      "op": "invoke",
+      "name": "система.хранилище.прочитать"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 19
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 12
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "invoke",
+      "name": "система.хранилище.записать"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 11
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.установить_значение"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 10
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.установить_значение"
+    },
+    {
+      "op": "ret"
+    }
+  ]
+}

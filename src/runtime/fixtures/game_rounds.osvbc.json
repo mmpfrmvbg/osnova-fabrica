@@ -1,0 +1,790 @@
+{
+  "version": 1,
+  "moduleName": "game_rounds",
+  "constants": [
+    "Раунды",
+    320,
+    240,
+    "1",
+    "Игровая логика (golden: run_golden)",
+    "label1",
+    0,
+    1,
+    200,
+    "тип",
+    "закрытие",
+    "очки",
+    "total_points",
+    "",
+    "результат",
+    "победа",
+    "wins",
+    10,
+    "bonus_wins"
+  ],
+  "procedures": [
+    {
+      "name": "запуск",
+      "codeOffset": 0,
+      "argc": 0,
+      "localsCount": 5
+    },
+    {
+      "name": "handle_event",
+      "codeOffset": 42,
+      "argc": 1,
+      "localsCount": 1
+    },
+    {
+      "name": "сумма_очков",
+      "codeOffset": 55,
+      "argc": 1,
+      "localsCount": 6
+    },
+    {
+      "name": "количество_побед",
+      "codeOffset": 89,
+      "argc": 1,
+      "localsCount": 5
+    },
+    {
+      "name": "бонусные_победы",
+      "codeOffset": 125,
+      "argc": 1,
+      "localsCount": 7
+    },
+    {
+      "name": "run_golden",
+      "codeOffset": 171,
+      "argc": 1,
+      "localsCount": 1
+    }
+  ],
+  "code": [
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 1
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 2
+    },
+    {
+      "op": "invoke",
+      "name": "система.окно.создать_окно"
+    },
+    {
+      "op": "local.set",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "invoke",
+      "name": "система.окно.показать"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 5
+    },
+    {
+      "op": "invoke",
+      "name": "система.интерфейс.текст"
+    },
+    {
+      "op": "invoke",
+      "name": "система.окно.получить_события"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.длина"
+    },
+    {
+      "op": "lt"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 38
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "call",
+      "fi": 1
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 33
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "jmp",
+      "off": 17
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 8
+    },
+    {
+      "op": "invoke",
+      "name": "система.время.спать"
+    },
+    {
+      "op": "jmp",
+      "off": 11
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 9
+    },
+    {
+      "op": "invoke",
+      "name": "система.объект.получить"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 10
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 52
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "invoke",
+      "name": "система.окно.закрыть"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.длина"
+    },
+    {
+      "op": "lt"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 83
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 11
+    },
+    {
+      "op": "invoke",
+      "name": "система.объект.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "jmp",
+      "off": 61
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 12
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 13
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "invoke",
+      "name": "система.хранилище.записать"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.длина"
+    },
+    {
+      "op": "lt"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 119
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 14
+    },
+    {
+      "op": "invoke",
+      "name": "система.объект.получить"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 15
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 114
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "jmp",
+      "off": 95
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 16
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 13
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "invoke",
+      "name": "система.хранилище.записать"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.длина"
+    },
+    {
+      "op": "lt"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 165
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 14
+    },
+    {
+      "op": "invoke",
+      "name": "система.объект.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 11
+    },
+    {
+      "op": "invoke",
+      "name": "система.объект.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 15
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 155
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 17
+    },
+    {
+      "op": "ge"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 160
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "jmp",
+      "off": 131
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 18
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 13
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "invoke",
+      "name": "система.хранилище.записать"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "call",
+      "fi": 2
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "call",
+      "fi": 3
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "call",
+      "fi": 4
+    },
+    {
+      "op": "ret"
+    }
+  ]
+}
