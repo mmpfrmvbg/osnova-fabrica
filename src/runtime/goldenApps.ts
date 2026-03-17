@@ -33,48 +33,90 @@ export async function runGoldenCheck(
   }
 
   const module = bytecode as OsVbcModule;
+  const vmErrors: { message: string; opcode?: string; stack?: unknown[] }[] = [];
 
-  try {
-    const vm = new VM(module, { maxSteps: 50_000 });
+  // ── 1. Точка входа ──
+  const entryName =
+    module.procedures.find(p => p.name === spec.mainModule)?.name ??
+    module.procedures[0]?.name;
 
-    // Ищем точку входа: процедура с именем mainModule, иначе первая
-    const entryName =
-      module.procedures.find(p => p.name === spec.mainModule)?.name ??
-      module.procedures[0]?.name;
-
-    if (!entryName) {
-      return {
-        executed: false,
-        passed: false,
-        qualityScore: 0,
-        vmErrors: [{ message: 'no procedures in bytecode' }],
-        outputDiff: null,
-        durationMs: Date.now() - start,
-      };
-    }
-
-    const idx = vm.findProcedureIndex(entryName);
-    await vm.runProcedure(idx, []);
-
-    return {
-      executed: true,
-      passed: true,
-      qualityScore: 1.0,
-      vmErrors: [],
-      outputDiff: null,
-      durationMs: Date.now() - start,
-    };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+  if (!entryName) {
     return {
       executed: false,
       passed: false,
       qualityScore: 0,
-      vmErrors: [{ message }],
+      vmErrors: [{ message: 'no procedures in bytecode' }],
       outputDiff: null,
       durationMs: Date.now() - start,
     };
   }
+
+  // ── 2. Запуск VM ──
+  let executed = false;
+  try {
+    const vm = new VM(module, { maxSteps: 50_000 });
+    const idx = vm.findProcedureIndex(entryName);
+    await vm.runProcedure(idx, []);
+    executed = true;
+  } catch (e) {
+    vmErrors.push({ message: e instanceof Error ? e.message : String(e) });
+  }
+
+  if (!executed) {
+    return {
+      executed: false,
+      passed: false,
+      qualityScore: 0,
+      vmErrors,
+      outputDiff: null,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  // ── 3. Структурные проверки ──
+  const checks = {
+    hasEntryProcedure: true, // уже проверено выше
+    procedureNamesMatch:
+      spec.procedures.length === 0 ||
+      spec.procedures.every(p =>
+        module.procedures.some(mp => mp.name === p.name),
+      ),
+    syscallsPresent:
+      spec.syscalls.length === 0 ||
+      spec.syscalls.every(sc =>
+        module.code.some((el: unknown) => {
+          if (typeof el !== 'object' || el === null) return false;
+          const entry = el as { op?: unknown; name?: unknown };
+          return (
+            entry.op === 'invoke' &&
+            typeof entry.name === 'string' &&
+            entry.name.startsWith(sc)
+          );
+        }),
+      ),
+  };
+
+  const passedChecks = Object.values(checks).filter(Boolean).length;
+  const totalChecks = Object.values(checks).length;
+  const qualityScore = passedChecks / totalChecks;
+
+  const failedNames = (Object.entries(checks) as [string, boolean][])
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+
+  const outputDiff =
+    failedNames.length > 0
+      ? `failed checks: ${failedNames.join(', ')}`
+      : null;
+
+  return {
+    executed: true,
+    passed: qualityScore >= 0.7,
+    qualityScore,
+    vmErrors: [],
+    outputDiff,
+    durationMs: Date.now() - start,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
