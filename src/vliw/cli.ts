@@ -6,8 +6,8 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { OsVbcModule, RawInstruction, CodeElement } from "../osnova-runtime/vm/bytecode";
-import { isOsVbcModule, isVliwPacket } from "../osnova-runtime/vm/bytecode";
+import type { OsVbcModule, RawInstruction, CodeElement } from "../runtime/vm/bytecode";
+import { isOsVbcModule, isVliwPacket } from "../runtime/vm/bytecode";
 import { buildDependencyGraph } from "./dependencyGraph";
 import { scheduleLinearBlock, packetsToCodeElements } from "./scheduler";
 

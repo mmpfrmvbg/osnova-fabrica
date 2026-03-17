@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 /**
  * Компилирует все .osnova в fixtures в .osvbc.json.
- * Запуск: npx tsx src/tools/osnova-compiler/compile-fixtures.ts
- * Кросс-платформенно (Node), без bash.
+ * Запуск: npx tsx src/compiler/compile-fixtures.ts
  */
 
 import * as fs from "fs";
 import * as path from "path";
 import { compileSource } from "./compiler";
 
-const FIXTURES_DIR = path.join(__dirname, "..", "osnova-runtime", "fixtures");
+const FIXTURES_DIR = path.join(__dirname, "..", "runtime", "fixtures");
 
 function main(): number {
   let exitCode = 0;
@@ -21,10 +20,10 @@ function main(): number {
     const source = fs.readFileSync(inputPath, "utf-8");
     const result = compileSource(source);
 
-    if (result.lexErrors.length > 0 || result.parseErrors.length > 0 || !result.module) {
+    if (result.lexerErrors.length > 0 || result.parserErrors.length > 0 || !result.module) {
       console.error(`[osnova-compile:all] Ошибка компиляции: ${file}`);
-      for (const e of result.lexErrors) console.error(`  Лексер ${e.line}:${e.column}: ${e.message}`);
-      for (const e of result.parseErrors) console.error(`  Парсер ${e.line}:${e.column}: ${e.message}`);
+      for (const e of result.lexerErrors) console.error(`  Лексер ${e.line}:${e.column}: ${e.message}`);
+      for (const e of result.parserErrors) console.error(`  Парсер ${e.line}:${e.column}: ${e.message}`);
       exitCode = 1;
       continue;
     }

@@ -16,10 +16,6 @@ import type { StackValue } from "./vm/interpreter";
 
 const STORAGE_ROOT = path.join(os.tmpdir(), "osnova-storage");
 
-// Мок-события для golden-тестов: если переменная окружения OSNOVA_VM_MOCK_EVENTS
-// содержит JSON-массив событий окна, система.окно.получить_события будет
-// возвращать их по одному (без реального окна/WebSocket).
-// Очередь инициализируется при первом вызове get_events (env к этому моменту уже установлен тестом).
 let mockEventsQueue: unknown[] | null = null;
 
 function ensureMockEventsQueue(): void {
@@ -40,7 +36,6 @@ function applySandbox(permissions: AppManifest["permissions"]) {
   return createSandboxContext(permissions ?? {});
 }
 
-/** Режим UI: window возвращает server + api для VM. */
 async function setupUI(
   uiKind: string,
   appDir: string
@@ -67,7 +62,6 @@ export interface AppContext {
   windowApi: WindowApi | null;
 }
 
-/** Состояние окон и виджетов для GUI (id, значения полей). */
 interface GuiState {
   nextWindowId: number;
   nextWidgetId: number;
@@ -78,7 +72,6 @@ function createGuiState(): GuiState {
   return { nextWindowId: 1, nextWidgetId: 1, widgetValues: {} };
 }
 
-/** Обработчик invoke: лог, файлы, время, хранилище, сеть, окно, интерфейс. */
 function createInvokeHandler(
   sandbox: ReturnType<typeof createSandboxContext>,
   appContext: AppContext,
@@ -122,7 +115,6 @@ function createInvokeHandler(
       }
 
       case "система.хранилище.записать": {
-        // Конвенция: push key, push value → args[0]=key, args[1]=value (stack-convention-v0.1.md)
         const key = String(args[0] ?? "");
         const value = String(args[1] ?? "");
         await storage.storageWrite(appContext.storageRoot, appContext.appId, key, value);
@@ -150,7 +142,7 @@ function createInvokeHandler(
         const headers = (args[2] as Record<string, string> | null) ?? {};
         const body = args[3] != null ? String(args[3]) : undefined;
         try {
-          const res = await fetch(url, { method, headers: headers as HeadersInit, body });
+          const res = await fetch(url, { method, headers: headers as Record<string, string>, body });
           const text = await res.text();
           return text;
         } catch (e) {
@@ -254,7 +246,6 @@ function createInvokeHandler(
         return null;
       }
       case "система.интерфейс.диалог_подтвердить": {
-        // В Node без TTY не интерактивно — возвращаем false
         console.log("[подтвердить]", String(args[0] ?? ""), String(args[1] ?? ""));
         return false;
       }
@@ -268,21 +259,18 @@ function createInvokeHandler(
         return Array.isArray(arr) ? arr.length : 0;
       }
       case "система.массив.получить": {
-        // Конвенция: push array, push index → args[0]=array, args[1]=index (stack-convention-v0.1.md)
         const arr = args[0];
         const idx = Number(args[1]) | 0;
         if (!Array.isArray(arr) || idx < 0 || idx >= arr.length) return null;
         return arr[idx] as StackValue;
       }
       case "система.объект.получить": {
-        // Конвенция: push obj, push key → args[0]=obj, args[1]=key (stack-convention-v0.1.md)
         const obj = args[0];
         const key = String(args[1] ?? "");
         if (obj == null || typeof obj !== "object" || Array.isArray(obj)) return null;
         return (obj as Record<string, unknown>)[key] as StackValue ?? null;
       }
       case "система.строка.объединить": {
-        // Конвенция: push a, push b → args[0]=a, args[1]=b; результат a + b
         const a = String(args[0] ?? "");
         const b = String(args[1] ?? "");
         return a + b;
@@ -299,7 +287,6 @@ function createInvokeHandler(
 }
 
 async function executeEntry(config: ResolvedRunConfig, windowApi: WindowApi | null): Promise<number> {
-  // Мок-события: из конфига (дочерний процесс) или из env (lazy при первом get_events)
   mockEventsQueue = null;
   if (config.mockEvents && Array.isArray(config.mockEvents)) {
     mockEventsQueue = [...config.mockEvents];
@@ -377,7 +364,6 @@ async function main(): Promise<number> {
   return code;
 }
 
-/** Запуск по конфигу в текущем процессе (для тестов, без подпроцесса). */
 export async function runWithConfig(config: ResolvedRunConfig): Promise<number> {
   applySandbox(config.permissions);
   const ui = await setupUI(config.uiKind, config.appDir);

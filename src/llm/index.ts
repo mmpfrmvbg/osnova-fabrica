@@ -28,7 +28,7 @@ import { QwenCliProvider } from './QwenCliProvider.js';
 export function getLLMProvider(): LLMProvider {
   const name = process.env.OSNOVA_PROVIDER ?? 'qwen-cli';
   switch (name) {
-    case 'deepseek': return new DeepSeekProvider();
+    case 'deepseek': return new DeepSeekProvider(process.env.DEEPSEEK_API_KEY ?? '');
     case 'ollama':   return new OllamaProvider();
     case 'qwen-cli':
     default:         return new QwenCliProvider();

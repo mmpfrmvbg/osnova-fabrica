@@ -3,7 +3,7 @@
  * Симуляция стека: каждый push — узел (индекс инструкции), рёбра producer → consumer.
  */
 
-import type { RawInstruction } from "../osnova-runtime/vm/bytecode";
+import type { RawInstruction } from "../runtime/vm/bytecode";
 
 export interface DependencyGraph {
   /** Индексы инструкций в порядке следования. */
@@ -24,12 +24,6 @@ function getOp(ins: RawInstruction): string {
   return (ins as { op: string }).op;
 }
 
-/**
- * Строит граф зависимостей для линейной последовательности инструкций.
- * Стек: при push на стек кладётся индекс инструкции; при pop добавляются рёбра producer → текущая.
- * Store/load: для каждой локали ведётся lastStore[localIndex] = индекс последнего local.set;
- * при local.get i добавляется ребро lastStore(i) → текущая (если i >= argc и lastStore(i) есть).
- */
 export function buildDependencyGraph(
   instructions: RawInstruction[],
   options: DependencyGraphOptions = {},
@@ -39,7 +33,6 @@ export function buildDependencyGraph(
   const callArgc = options.callArgc ?? (() => 0);
   const invokeArgc = options.invokeArgc ?? (() => 0);
   const argc = options.argc ?? 0;
-  /** Последняя запись в локаль: localIndex → индекс инструкции local.set. */
   const lastStore = new Map<number, number>();
 
   for (let i = 0; i < instructions.length; i++) {
@@ -150,8 +143,5 @@ export function buildDependencyGraph(
     }
   }
 
-  return {
-    nodes: instructions.map((_, idx) => idx),
-    edges,
-  };
+  return { nodes: instructions.map((_, idx) => idx), edges };
 }

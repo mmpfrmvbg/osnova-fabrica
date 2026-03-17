@@ -3,7 +3,7 @@
  * Stack Convention v0.1: push arg0, push arg1, op → result on stack.
  */
 
-import type { OsVbcModule, RawInstruction } from "../osnova-runtime/vm/bytecode";
+import type { OsVbcModule, RawInstruction } from "../runtime/vm/bytecode";
 import type { Module, Procedure, Stmt, Expr } from "./ast";
 
 const BINARY_OP: Record<string, RawInstruction["op"]> = {

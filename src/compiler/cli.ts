@@ -30,11 +30,11 @@ function main(): number {
   }
   const source = fs.readFileSync(inputPath, "utf-8");
   const result = compileSource(source);
-  if (result.lexErrors.length > 0) {
-    for (const e of result.lexErrors) console.error(`Лексер ${e.line}:${e.column}: ${e.message}`);
+  if (result.lexerErrors.length > 0) {
+    for (const e of result.lexerErrors) console.error(`Лексер ${e.line}:${e.column}: ${e.message}`);
   }
-  if (result.parseErrors.length > 0) {
-    for (const e of result.parseErrors) printParseError(e, source);
+  if (result.parserErrors.length > 0) {
+    for (const e of result.parserErrors) printParseError(e, source);
   }
   if (!result.module) {
     return 1;
