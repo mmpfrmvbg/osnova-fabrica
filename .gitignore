@@ -1,0 +1,47 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Logs
+*.log
+logs/
+
+# TypeScript build output
+dist/
+build/
+out/
+
+# Compiler generated artifacts
+src/compiler/generated/*.js
+src/compiler/generated/*.json
+src/compiler/generated/*.osvbc
+!src/compiler/generated/.gitkeep
+
+# Runtime artifacts
+src/runtime/generated/
+*.osvbc.json.tmp
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+.nyc_output/
+
+# vitest
+.vitest-cache/
