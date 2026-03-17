@@ -72,12 +72,13 @@ structure:
       status: "✅ реализовано в batch-1 (2026-03-17)"
       source: "llama-fabrica/src/infrastructure/llm/ + domain/llm/"
       files:
-        - types.ts          # LLMProvider, LLMCompletionRequest/Response, LLMMessage
+        - types.ts
         - QwenCliProvider.ts
         - DeepSeekProvider.ts
         - OllamaProvider.ts
-        - defaults.ts       # PROVIDER_DEFAULT_MODEL, getDefaultModel()
-        - index.ts          # публичный re-export
+        - defaults.ts
+        - errors.ts         # LlmError, LlmErrorKind, wrapLlmError (batch-5)
+        - index.ts
       notes: >
         QwenCliProvider: удалены VectorDB/EmbeddingService зависимости — в v0.1 RAG не нужен.
         При появлении RAG в v0.2 — добавить как опциональный параметр конструктора.
@@ -92,7 +93,7 @@ structure:
         - parser.ts
         - ast.ts
         - codegen.ts
-        - compiler.ts        # compileSource(source): CompileResult
+        - compiler.ts
         - language-registry.ts
         - cli.ts
 
@@ -101,13 +102,13 @@ structure:
       status: "✅ реализовано в batch-2 (2026-03-17)"
       source: "создано с нуля"
       files:
-        - vm/               # VM + bytecode типы
+        - vm/
         - runner.ts
         - sandbox.ts
         - storage.ts
-        - goldenApps.ts     # GOLDEN_APP_CASES
+        - goldenApps.ts
         - types.ts
-        - ui.ts             # WebSocket UI-сервер для оконного режима
+        - ui.ts
         - cli.ts
 
     vliw:
@@ -122,19 +123,19 @@ structure:
 
     agents:
       description: "3 агента MVP. Получают/отдают строго типизированные артефакты."
-      status: "✅ реализовано в batch-3 (2026-03-17)"
+      status: "✅ реализовано в batch-3/5 (2026-03-17). LlmError + logger добавлены в batch-5."
       files:
-        - IntakeAgent.ts    # RawText → OsnovaIntent
-        - OsnovaCodegen.ts  # OsnovaSpec → .osnova source (LLM + few-shot)
-        - RepairEngineer.ts # CompileError | VMError → патч .osnova (LLM, max 3 попытки)
+        - IntakeAgent.ts
+        - OsnovaCodegen.ts
+        - RepairEngineer.ts
 
     pipeline:
       description: "Оркестратор 6 фаз по pipeline.yaml. Читает gates.yaml для чекпоинтов."
       status: "✅ реализовано в batch-3 (2026-03-17). Линейный оркестратор (DAG — v0.2, DEBT-002)."
       files:
-        - orchestrator.ts   # runPipeline(task): PipelineResult
-        - gateChecker.ts    # checkGate(gateId, context): GateResult
-        - types.ts          # OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport
+        - orchestrator.ts
+        - gateChecker.ts
+        - types.ts
       notes: >
         pipeline/types.ts — единственный источник правды для типов артефактов.
         gates.yaml и pipeline.yaml ссылаются на поля BuildReport/GoldenReport
@@ -144,19 +145,23 @@ structure:
       description: "Запись трейсов прогонов в JSONL для дообучения LLM"
       status: "✅ реализовано в batch-4 (2026-03-17)"
       files:
-        - traceStore.ts     # saveTrace(trace): void
-        - types.ts          # TraceEntry — meta, input, osnova, lexer, ast, compiler, vm, feedback
+        - traceStore.ts
+        - types.ts
+
+    logger.ts:
+      description: "Общий логгер с LOG_LEVEL: debug/info/warn/error. Используется всеми агентами."
+      status: "✅ реализовано в batch-5 (2026-03-17)"
 
     cli.ts:
       description: "Точка входа: osnova-fabrica --task '...' --provider qwen-cli"
-      status: "⏳ частично реализовано — финализация после batch-5"
+      status: "✅ реализовано в batch-3/5 (2026-03-17)"
 
   golden:
     description: "Эталонные .osnova программы + ожидаемые результаты (5 голден-приложений)"
     status: "✅ реализовано в batch-2 (2026-03-17). Все 5 приложений проходят в CI."
     files:
-      - golden-tests.json  # 5 golden app cases
-      - runner.ts          # запуск и сверка
+      - golden-tests.json
+      - runner.ts
 
   examples:
     description: "Примеры программ на языке Основа"
@@ -177,9 +182,9 @@ agents:
   count: 3
   detail: "см. roles.yaml"
   list:
-    - IntakeAgent     # T2 — текст → OsnovaIntent, работает в 2 режимах (modes: intent/spec)
-    - OsnovaCodegen   # T2 — OsnovaSpec → .osnova source
-    - RepairEngineer  # T2 — ошибка → патч .osnova
+    - IntakeAgent
+    - OsnovaCodegen
+    - RepairEngineer
   notes: >
     IntakeAgent имеет явное поле modes: [intent, spec] (см. roles.yaml).
     При выделении SpecArchitect в v0.2 — IntakeAgent остаётся только с mode=intent.
@@ -191,9 +196,9 @@ gates:
   count: 3
   detail: "см. gates.yaml"
   list:
-    - G1_spec_ready    # intent.confidence >= 0.7, features.length >= 1
-    - G2_build_pass    # lexerErrors == 0, parserErrors == 0, compilerSuccess == true
-    - G3_golden_pass   # vm.executed == true, qualityScore >= 0.7
+    - G1_spec_ready
+    - G2_build_pass
+    - G3_golden_pass
   notes: >
     Единый источник порогов — thresholds в pipeline.yaml.
     G3: pass=0.7, partial=0.5 (partial_success — трейс для дообучения).
@@ -218,6 +223,8 @@ env:
       note: "Путь к JSONL-файлу трейсов (для дообучения LLM и диагностики)"
     LOG_LEVEL:
       default: info
+      values: [debug, info, warn, error]
+      note: "Читается в validateEnv(), применяется через setLogLevel() в src/logger.ts"
     QWEN_TIMEOUT_MS:
       default: 300000
       note: "таймаут для QwenCliProvider (мс)"
@@ -251,7 +258,7 @@ osnova_language:
     result: "Результат<T,E>, Успех(v), Неудача(e)"
     parallel: "параллельно {} — явный параллельный блок (VLIW hint)"
     predvybor: "предвыбор { когда условие: выражение } — предикативное ветвление"
-    packet: "пакет { слот00: ...; слоа1: ... } — ручное управление VLIW-слотами"
+    packet: "пакет { слоа0: ...; слоа1: ... } — ручное управление VLIW-слотами"
     syscall: "система.хранилище, система.окно, система.сеть — invoke-API"
   note_on_llm: >
     LLM хуже генерирует кириллический код чем латинский.
@@ -285,17 +292,20 @@ tech_debt:
   DEBT-005:
     title: "Общий логгер с LOG_LEVEL"
     priority: medium
-    status: open
-    note: "Сейчас console.log/error непараметризован. Добавить src/logger.ts в batch-5."
+    status: closed
+    closed_in: batch-5 (2026-03-17)
+    note: "Реализовано: src/logger.ts + setLogLevel() в validateEnv()."
   DEBT-006:
     title: "Типы ошибок LLM-агентов не стандартизированы"
     priority: medium
-    status: open
-    note: "Ввести LlmError с полями provider/model/attempt/truncated в batch-5."
+    status: closed
+    closed_in: batch-5 (2026-03-17)
+    note: "Реализовано: src/llm/errors.ts (LlmError + wrapLlmError). Все 3 агента вращивают ошибки provider.complete()."
 
 debt_summary:
   total_items: 6
-  open: 6
+  open: 4
+  closed: 2
   critical_open: 0
 
 # ---------------------------------------------------------------------------
@@ -311,35 +321,33 @@ roadmap:
         status: "✅ выполнен 2026-03-17"
         items:
           - "Перенести LLM-провайдеры из llama-fabrica (QwenCli, DeepSeek, Ollama)"
-          - "Перенести LLM domain types (LLMProvider, LLMCompletionRequest/Response)"
-          - "Обновить spec.yaml до v0.1.1 с заметками о новых полях"
+          - "Перенести LLM domain types"
+          - "Обновить spec.yaml до v0.1.1"
       batch_2:
         status: "✅ выполнен 2026-03-17"
         items:
-          - "Реализован compiler: lexer → parser → AST → codegen → compiler.ts"
-          - "Реализован language-registry.ts (39 ключевых слов, типы, syscalls)"
-          - "Реализован golden-runner + golden-tests.json (5 приложений, все проходят CI)"
-          - "Реализована VM: src/runtime/ (стековая машина для .osvbc)"
-          - "Реализован VLIW-планировщик (src/vliw/): граф зависимостей, list scheduling"
+          - "Реализован compiler: lexer → parser → AST → codegen"
+          - "Реализован language-registry.ts"
+          - "Реализован golden-runner + golden-tests.json (5 приложений)"
+          - "Реализована VM: src/runtime/"
+          - "Реализован VLIW-планировщик (src/vliw/)"
       batch_3:
         status: "✅ выполнен 2026-03-17"
         items:
-          - "Реализован IntakeAgent + OsnovaCodegen (с few-shot промптами)"
-          - "Реализован RepairEngineer (max 3 попытки)"
+          - "Реализован IntakeAgent + OsnovaCodegen + RepairEngineer"
           - "Реализованы pipeline/types.ts + orchestrator.ts + gateChecker.ts"
-          - "CLI: частично реализован, финализация в batch-5"
+          - "CLI: основа реализована"
       batch_4:
         status: "✅ выполнен 2026-03-17"
         items:
-          - "Реализованы traces.jsonl (запись TraceEntry после каждого прогона)"
+          - "Реализованы traces.jsonl"
           - "5/5 golden-приложений проходят CI"
       batch_5:
-        status: "⏳ планируется"
+        status: "⏳ в процессе"
         items:
-          - "Финализация CLI (src/cli.ts)"
-          - "Общий логгер src/logger.ts с LOG_LEVEL (DEBT-005)"
-          - "Стандартизация ошибок LLM-агентов — LlmError (DEBT-006)"
-          - "Адаптер CompileResult → BuildReport"
+          - "✅ src/logger.ts с LOG_LEVEL (DEBT-005)"
+          - "✅ src/llm/errors.ts — LlmError + wrapLlmError (DEBT-006)"
+          - "⏳ Адаптер CompileResult → BuildReport"
 
   phase_b_stability:
     goal: "5/5 golden, трейсы, дообучение"
@@ -351,7 +359,7 @@ roadmap:
   phase_c_ecosystem:
     goal: "Фабрика генерирует целые модули экосистемы Основа"
     items:
-      - "SpecArchitect — выделить из IntakeAgent (mode=spec) в отдельного агента"
+      - "SpecArchitect — выделить из IntakeAgent (mode=spec)"
       - "Многомодульные проекты (.osnova × N → .osvbc)"
       - "Каталог модулей"
       - "NERVE для самоаудита"
