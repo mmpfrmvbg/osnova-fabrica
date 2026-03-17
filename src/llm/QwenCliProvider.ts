@@ -110,12 +110,8 @@ export class QwenCliProvider implements LLMProvider {
     env: NodeJS.ProcessEnv,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
-      const cmd = isWindows ? 'cmd' : 'qwen';
-      const cmdArgs = isWindows
-        ? ['/c', `chcp 65001 >nul 2>&1 && qwen ${args.join(' ')}`]
-        : args;
-      const child = spawn(cmd, cmdArgs, {
-        env,
+      const child = spawn('qwen', args, {
+        env: { ...env, PYTHONIOENCODING: 'utf-8' },
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });
