@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --project tsconfig.typecheck.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "golden": "tsx src/runtime/goldenApps.ts",
@@ -18,7 +19,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "validate:spec": "tsx src/compiler/validate-language-registry.ts",
-    "ci": "npm run build && npm test && npm run lint && npm run golden"
+    "ci": "npm run typecheck && npm test && npm run lint && npm run golden"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
