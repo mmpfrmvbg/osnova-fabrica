@@ -1,12 +1,11 @@
 /**
- * Smoke-тест компилятора: todo.osnova компилируется без ошибок и содержит ожидаемые процедуры.
+ * Smoke-тест компилятора: todo.osnova компилируется без ошибок.
  * Запуск: npx vitest run
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from "vitest";
 import { compileSource } from "./compiler";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
@@ -15,23 +14,23 @@ import { VM } from "../runtime/vm/interpreter";
 const FIXTURES_DIR = join(__dirname, "..", "runtime", "fixtures");
 
 describe("Compiler smoke: todo.osnova", () => {
-  it("compiles without lex/parse errors and has procedures запуск, handle_event, handle_add", () => {
+  it("компилирует без ошибок и содержит процедуры запуск, handle_event, handle_add", () => {
     const source = readFileSync(join(FIXTURES_DIR, "todo.osnova"), "utf-8");
     const result = compileSource(source);
 
-    assert.strictEqual(result.lexerErrors.length, 0, "no lex errors");
-    assert.strictEqual(result.parserErrors.length, 0, "no parse errors");
-    assert.ok(result.module, "module produced");
+    expect(result.lexerErrors.length).toBe(0);
+    expect(result.parserErrors.length).toBe(0);
+    expect(result.module).toBeTruthy();
 
     const names = result.module!.procedures.map((p) => p.name);
-    assert.ok(names.includes("запуск"), "procedure запуск");
-    assert.ok(names.includes("handle_event"), "procedure handle_event");
-    assert.ok(names.includes("handle_add"), "procedure handle_add");
+    expect(names).toContain("запуск");
+    expect(names).toContain("handle_event");
+    expect(names).toContain("handle_add");
   });
 });
 
 describe("Compiler: иначе (if/else)", () => {
-  it("если истина ... иначе ... конец: then-branch runs, VM returns 1", async () => {
+  it("если истина ... иначе ... конец: then-branch, VM returns 1", async () => {
     const source = `
 модуль t
 процедура main()
@@ -42,18 +41,16 @@ describe("Compiler: иначе (if/else)", () => {
     x = 2
   конец
   вернуть x
-конец
-`;
-    const result = compileSource(source.trim());
-    assert.strictEqual(result.lexerErrors.length, 0, "no lex errors");
-    assert.strictEqual(result.parserErrors.length, 0, "no parse errors");
-    assert.ok(result.module, "module produced");
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.lexerErrors.length).toBe(0);
+    expect(result.parserErrors.length).toBe(0);
+    expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { maxSteps: 1000 });
-    const value = await vm.runProcedure(0, []);
-    assert.strictEqual(value, 1, "then-branch: x=1");
+    expect(await vm.runProcedure(0, [])).toBe(1);
   });
 
-  it("если ложь ... иначе ... конец: else-branch runs, VM returns 2", async () => {
+  it("если ложь ... иначе ... конец: else-branch, VM returns 2", async () => {
     const source = `
 модуль t
 процедура main()
@@ -64,16 +61,14 @@ describe("Compiler: иначе (if/else)", () => {
     x = 2
   конец
   вернуть x
-конец
-`;
-    const result = compileSource(source.trim());
-    assert.ok(result.module, "module produced");
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { maxSteps: 1000 });
-    const value = await vm.runProcedure(0, []);
-    assert.strictEqual(value, 2, "else-branch: x=2");
+    expect(await vm.runProcedure(0, [])).toBe(2);
   });
 
-  it("если без иначе: backward compatible, VM returns 1", async () => {
+  it("если без иначе: VM returns 1", async () => {
     const source = `
 модуль t
 процедура main()
@@ -82,13 +77,11 @@ describe("Compiler: иначе (if/else)", () => {
     x = 1
   конец
   вернуть x
-конец
-`;
-    const result = compileSource(source.trim());
-    assert.ok(result.module, "module produced");
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { maxSteps: 1000 });
-    const value = await vm.runProcedure(0, []);
-    assert.strictEqual(value, 1, "if without else: x=1");
+    expect(await vm.runProcedure(0, [])).toBe(1);
   });
 });
 
@@ -108,18 +101,16 @@ describe("Compiler: для_каждого", () => {
     sum = sum + x
   конец
   вернуть sum
-конец
-`;
-    const result = compileSource(source.trim());
-    assert.strictEqual(result.lexerErrors.length, 0, "no lex errors");
-    assert.strictEqual(result.parserErrors.length, 0, "no parse errors");
-    assert.ok(result.module, "module produced");
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.lexerErrors.length).toBe(0);
+    expect(result.parserErrors.length).toBe(0);
+    expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 10000 });
-    const value = await vm.runProcedure(0, [[10, 20, 30]]);
-    assert.strictEqual(value, 60, "sum 10+20+30=60");
+    expect(await vm.runProcedure(0, [[10, 20, 30]])).toBe(60);
   });
 
-  it("для_каждого по пустому массиву: body not run, return 0", async () => {
+  it("для_каждого по пустому массиву: return 0", async () => {
     const source = `
 модуль t
 процедура main(arr)
@@ -128,18 +119,16 @@ describe("Compiler: для_каждого", () => {
     sum = sum + 1
   конец
   вернуть sum
-конец
-`;
-    const result = compileSource(source.trim());
-    assert.ok(result.module, "module produced");
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
-    const value = await vm.runProcedure(0, [[]]);
-    assert.strictEqual(value, 0, "empty array: sum stays 0");
+    expect(await vm.runProcedure(0, [[]])).toBe(0);
   });
 });
 
-describe("Compiler: и / или / не (short-circuit)", () => {
-  it("не ложь → истина, не истина → ложь", async () => {
+describe("Compiler: и / или / не", () => {
+  it("не ложь → истина, return 1", async () => {
     const source = `
 модуль t
 процедура main()
@@ -148,119 +137,98 @@ describe("Compiler: и / или / не (short-circuit)", () => {
   иначе
     вернуть 0
   конец
-конец
-`;
-    const result = compileSource(source.trim());
-    assert.ok(result.module, "module");
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { maxSteps: 100 });
-    const value = await vm.runProcedure(0, []);
-    assert.strictEqual(value, 1, "не ложь = истина → then-branch");
+    expect(await vm.runProcedure(0, [])).toBe(1);
   });
 
   it("истина и истина → 1, истина и ложь → 0", async () => {
-    const t = `
-модуль t
+    const t = `модуль t
 процедура main()
   если истина и истина
     вернуть 1
   иначе
     вернуть 0
   конец
-конец
-`;
-    const f = `
-модуль t
+конец`;
+    const f = `модуль t
 процедура main()
   если истина и ложь
     вернуть 1
   иначе
     вернуть 0
   конец
-конец
-`;
-    const rT = compileSource(t.trim());
-    const rF = compileSource(f.trim());
-    assert.ok(rT.module && rF.module);
-    const vm = new VM(rT.module!, { maxSteps: 100 });
-    assert.strictEqual(await vm.runProcedure(0, []), 1, "истина и истина");
-    const vm2 = new VM(rF.module!, { maxSteps: 100 });
-    assert.strictEqual(await vm2.runProcedure(0, []), 0, "истина и ложь");
+конец`;
+    const rT = compileSource(t);
+    const rF = compileSource(f);
+    expect(await new VM(rT.module!, { maxSteps: 100 }).runProcedure(0, [])).toBe(1);
+    expect(await new VM(rF.module!, { maxSteps: 100 }).runProcedure(0, [])).toBe(0);
   });
 
-  it("ложь или истина → 1, ложь или ложь → 0", async () => {
-    const source = `
-модуль t
+  it("ложь или истина → 1", async () => {
+    const source = `модуль t
 процедура main()
   если ложь или истина
     вернуть 1
   иначе
     вернуть 0
   конец
-конец
-`;
-    const result = compileSource(source.trim());
-    assert.ok(result.module);
-    const vm = new VM(result.module!, { maxSteps: 100 });
-    assert.strictEqual(await vm.runProcedure(0, []), 1, "ложь или истина = истина");
+конец`;
+    const result = compileSource(source);
+    expect(await new VM(result.module!, { maxSteps: 100 }).runProcedure(0, [])).toBe(1);
   });
 
-  it("не (истина и ложь) → истина, return 1", async () => {
-    const source = `
-модуль t
+  it("не (истина и ложь) → 1", async () => {
+    const source = `модуль t
 процедура main()
   если не (истина и ложь)
     вернуть 1
   иначе
     вернуть 0
   конец
-конец
-`;
-    const result = compileSource(source.trim());
-    assert.ok(result.module);
-    const vm = new VM(result.module!, { maxSteps: 100 });
-    assert.strictEqual(await vm.runProcedure(0, []), 1);
+конец`;
+    const result = compileSource(source);
+    expect(await new VM(result.module!, { maxSteps: 100 }).runProcedure(0, [])).toBe(1);
   });
 });
 
 describe("Compiler negative: errors reported", () => {
-  it("invalid syntax (модуль without identifier) → parserErrors.length > 0", () => {
-    const source = "модуль \n";
-    const result = compileSource(source);
-    assert.ok(result.parserErrors.length > 0, "parse errors expected");
-    assert.ok(!result.module, "no module on parse error");
+  it("модуль without identifier → parserErrors", () => {
+    const result = compileSource("модуль \n");
+    expect(result.parserErrors.length).toBeGreaterThan(0);
+    expect(result.module).toBeFalsy();
   });
 
-  it("invalid syntax (пусть = 42) → parse error + recovery (sync to newline), AST still produced", () => {
+  it("пусть = 42 → parse error + recovery, AST produced", () => {
     const source = "модуль t\nпроцедура main()\n  пусть = 42\nконец\n";
     const { tokens } = tokenize(source);
     const { ast, errors } = parse(tokens);
-    assert.ok(errors.length > 0, "parse error expected after 'пусть'");
-    assert.ok(ast, "recovery: parser produced AST despite error");
-    assert.strictEqual(ast!.procedures.length, 1, "one procedure");
-    assert.strictEqual(ast!.procedures[0].body.length, 0, "bad stmt skipped via sync, body empty");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(ast).toBeTruthy();
+    expect(ast!.procedures.length).toBe(1);
+    expect(ast!.procedures[0].body.length).toBe(0);
   });
 
-  it("broken procedure signature → parse error + recovery (sync to next процедура), second procedure in AST", () => {
+  it("процедура 123() → parse error + recovery, second procedure in AST", () => {
     const source = "модуль t\nпроцедура 123()\nконец\nпроцедура ok()\n  вернуть\nконец\n";
     const { tokens } = tokenize(source);
     const { ast, errors } = parse(tokens);
-    assert.ok(errors.length > 0, "parse error expected (procedure name must be identifier)");
-    assert.ok(ast, "recovery: module still produced");
-    assert.strictEqual(ast!.procedures.length, 1, "broken procedure skipped via syncToTopLevel, only ok() parsed");
-    assert.strictEqual(ast!.procedures[0].name, "ok", "second procedure present");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(ast!.procedures.length).toBe(1);
+    expect(ast!.procedures[0].name).toBe("ok");
   });
 
-  it("unknown variable in expression (пусть y = x without пусть x) → compile error in parserErrors", () => {
-    const source = "модуль t\nпроцедура main()\n  пусть y = x\nконец\n";
-    const result = compileSource(source);
-    assert.ok(result.parserErrors.length > 0, "codegen throws → reported as parserErrors");
-    assert.ok(!result.module, "no module");
+  it("пусть y = x (x не объявлен) → parserErrors", () => {
+    const result = compileSource("модуль t\nпроцедура main()\n  пусть y = x\nконец\n");
+    expect(result.parserErrors.length).toBeGreaterThan(0);
+    expect(result.module).toBeFalsy();
   });
 
-  it("call to non-existent procedure → compile error in parserErrors", () => {
-    const source = "модуль t\nпроцедура main()\n  foo()\nконец\n";
-    const result = compileSource(source);
-    assert.ok(result.parserErrors.length > 0, "unknown procedure → reported");
-    assert.ok(!result.module, "no module");
+  it("вызов несуществующей процедуры → parserErrors", () => {
+    const result = compileSource("модуль t\nпроцедура main()\n  foo()\nконец\n");
+    expect(result.parserErrors.length).toBeGreaterThan(0);
+    expect(result.module).toBeFalsy();
   });
 });
