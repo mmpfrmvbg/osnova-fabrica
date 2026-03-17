@@ -343,11 +343,11 @@ roadmap:
           - "Реализованы traces.jsonl"
           - "5/5 golden-приложений проходят CI"
       batch_5:
-        status: "⏳ в процессе"
+        status: "✅ выполнен 2026-03-17"
         items:
           - "✅ src/logger.ts с LOG_LEVEL (DEBT-005)"
           - "✅ src/llm/errors.ts — LlmError + wrapLlmError (DEBT-006)"
-          - "⏳ Адаптер CompileResult → BuildReport"
+          - "✅ Адаптер CompileResult → BuildReport"
 
   phase_b_stability:
     goal: "5/5 golden, трейсы, дообучение"
