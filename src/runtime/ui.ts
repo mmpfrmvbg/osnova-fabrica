@@ -20,7 +20,7 @@ export interface WindowApi {
   sendToClient(msg: Record<string, unknown>): void;
   getEvents(): WindowEvent[];
   /** Снять с очереди только события для данного окна. */
-  getEventsForWindow(окноId: number): WindowEvent[];
+  getEventsForWindow(окно_id: number): WindowEvent[];
   pushEvent(ev: WindowEvent): void;
 }
 
@@ -126,18 +126,18 @@ export function setupWindow(html: string = WINDOW_HTML): Promise<WindowServer> {
   const eventQueue: WindowEvent[] = [];
   const api: WindowApi = {
     sendToClient(msg: Record<string, unknown>) {
-      if (client) try { client.send(JSON.stringify(msg)); } catch (_) {}
+      if (client) try { client.send(JSON.stringify(msg)); } catch { /* ignore send errors */ }
     },
     getEvents() {
       const out = eventQueue.slice();
       eventQueue.length = 0;
       return out;
     },
-    getEventsForWindow(окноId: number) {
+    getEventsForWindow(окно_id: number) {
       const out: WindowEvent[] = [];
       const rest: WindowEvent[] = [];
       for (const e of eventQueue) {
-        if (e.окно_id === окноId) out.push(e);
+        if (e.окно_id === окно_id) out.push(e);
         else rest.push(e);
       }
       eventQueue.length = 0;
@@ -170,7 +170,7 @@ export function setupWindow(html: string = WINDOW_HTML): Promise<WindowServer> {
           try {
             const msg = JSON.parse(data.toString());
             if (msg.type === "event" && msg.event) api.pushEvent(msg.event as WindowEvent);
-          } catch (_) {}
+          } catch { /* ignore malformed messages */ }
         });
         ws.on("close", () => { client = null; });
       });

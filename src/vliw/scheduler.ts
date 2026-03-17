@@ -32,7 +32,7 @@ export function scheduleLinearBlock(
   if (n === 0) return [];
   const { preds, succs } = buildPredSucc(graph);
   const scheduled = new Set<number>();
-  let ready = new Set<number>(graph.nodes.filter((i) => preds[i].length === 0));
+  const ready = new Set<number>(graph.nodes.filter((i) => preds[i].length === 0));
   const packets: RawInstruction[][] = [];
 
   while (scheduled.size < n) {

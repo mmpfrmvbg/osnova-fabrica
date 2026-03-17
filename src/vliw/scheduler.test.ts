@@ -114,7 +114,7 @@ describe("scheduler.scheduleLinearBlock", () => {
     const nodeToPacket = new Map<number, number>();
     let idx = 0;
     for (let p = 0; p < packets.length; p++) {
-      for (const _ of packets[p]) nodeToPacket.set(idx++, p);
+      for (let s = 0; s < packets[p].length; s++) nodeToPacket.set(idx++, p);
     }
     for (const [a, b] of g.edges) {
       expect(nodeToPacket.get(a)!).toBeLessThanOrEqual(nodeToPacket.get(b)!);
