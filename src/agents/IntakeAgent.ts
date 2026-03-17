@@ -8,6 +8,10 @@
 import { randomUUID } from 'crypto';
 import { getLLMProvider } from '../llm/index';
 import type { RawText, OsnovaIntent, OsnovaSpec, AppType } from '../pipeline/types';
+import { wrapLlmError } from '../llm/errors';
+import { logger } from '../logger';
+
+const log = logger('intake-agent');
 
 const INTENT_SYSTEM_PROMPT = `
 Ты — IntakeAgent системы osnova-fabrica.
@@ -24,7 +28,7 @@ const INTENT_SYSTEM_PROMPT = `
 
 const SPEC_SYSTEM_PROMPT = `
 Ты — SpecArchitect системы osnova-fabrica.
-На основе OsnovaIntent сгенерируй OsnovaSpec для программы на языке ОСНОВА.
+На основании OsnovaIntent сгенерируй OsnovaSpec для программы на языке ОСНОВА.
 Язык Основа: кириллический синтаксис, типы Целое32/Строка/Логический/?Тип/Результат,
 процедуры, система.хранилище / система.окно / система.сеть.
 
@@ -43,20 +47,29 @@ const SPEC_SYSTEM_PROMPT = `
 export class IntakeAgent {
   async parseIntent(input: RawText): Promise<OsnovaIntent> {
     const provider = getLLMProvider();
-    const response = await provider.complete({
-      model: process.env.OSNOVA_MODEL ?? 'llama3.2',
-      messages: [
-        { role: 'system', content: INTENT_SYSTEM_PROMPT },
-        { role: 'user', content: input.text },
-      ],
-      responseFormat: { type: 'json_object' },
-      maxTokens: 2000,
-    });
+    const model = process.env.OSNOVA_MODEL ?? 'llama3.2';
+    log.debug('parseIntent', { model });
+
+    let response;
+    try {
+      response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: INTENT_SYSTEM_PROMPT },
+          { role: 'user', content: input.text },
+        ],
+        responseFormat: { type: 'json_object' },
+        maxTokens: 2000,
+      });
+    } catch (err) {
+      throw wrapLlmError(err, 'IntakeAgent.parseIntent', { model });
+    }
 
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(response.content);
     } catch {
+      log.warn('parseIntent: JSON parse failed, using fallback');
       return this.fallbackIntent(input.text);
     }
 
@@ -72,27 +85,36 @@ export class IntakeAgent {
 
   async generateSpec(intent: OsnovaIntent): Promise<OsnovaSpec> {
     const provider = getLLMProvider();
-    const response = await provider.complete({
-      model: process.env.OSNOVA_MODEL ?? 'llama3.2',
-      messages: [
-        { role: 'system', content: SPEC_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            description: intent.description,
-            features: intent.features,
-            appType: intent.appType,
-          }),
-        },
-      ],
-      responseFormat: { type: 'json_object' },
-      maxTokens: 4000,
-    });
+    const model = process.env.OSNOVA_MODEL ?? 'llama3.2';
+    log.debug('generateSpec', { model, intentId: intent.intentId });
+
+    let response;
+    try {
+      response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: SPEC_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              description: intent.description,
+              features: intent.features,
+              appType: intent.appType,
+            }),
+          },
+        ],
+        responseFormat: { type: 'json_object' },
+        maxTokens: 4000,
+      });
+    } catch (err) {
+      throw wrapLlmError(err, 'IntakeAgent.generateSpec', { model });
+    }
 
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(response.content);
     } catch {
+      log.warn('generateSpec: JSON parse failed, using fallback');
       return this.fallbackSpec(intent);
     }
 

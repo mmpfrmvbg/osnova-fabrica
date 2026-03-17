@@ -7,6 +7,10 @@
 
 import { getLLMProvider } from '../llm/index';
 import type { OsnovaSource, BuildReport, GoldenReport } from '../pipeline/types';
+import { wrapLlmError } from '../llm/errors';
+import { logger } from '../logger';
+
+const log = logger('repair-agent');
 
 const SYSTEM_PROMPT = `
 Ты — RepairEngineer языка ОСНОВА.
@@ -26,8 +30,11 @@ export class RepairEngineerAgent {
     source: OsnovaSource,
     buildReport?: BuildReport,
     goldenReport?: GoldenReport,
+    attempt?: number,
   ): Promise<OsnovaSource> {
     const provider = getLLMProvider();
+    const model = process.env.OSNOVA_MODEL ?? 'llama3.2';
+    log.debug('fix', { model, attempt, filename: source.filename });
 
     const errors: string[] = [];
 
@@ -55,15 +62,20 @@ export class RepairEngineerAgent {
       errors.length > 0 ? errors.join('\n') : 'Программа выполнилась, но результат не совпадает с эталоном.',
     ].join('\n');
 
-    const response = await provider.complete({
-      model: process.env.OSNOVA_MODEL ?? 'llama3.2',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
-      maxTokens: 8000,
-      temperature: 0.1,
-    });
+    let response;
+    try {
+      response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
+        ],
+        maxTokens: 8000,
+        temperature: 0.1,
+      });
+    } catch (err) {
+      throw wrapLlmError(err, 'RepairEngineer.fix', { model, attempt });
+    }
 
     const fixed = response.content
       .replace(/```[a-z]*\n?/g, '')

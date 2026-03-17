@@ -8,8 +8,12 @@
 import { getLLMProvider } from '../llm/index';
 import type { OsnovaSpec, OsnovaSource } from '../pipeline/types';
 import { buildOsnovaPrompt } from '../pipeline-llm/buildOsnovaPrompt';
+import { wrapLlmError } from '../llm/errors';
+import { logger } from '../logger';
 import * as fs from 'fs';
 import * as path from 'path';
+
+const log = logger('codegen-agent');
 
 function loadFewShot(): string {
   try {
@@ -45,22 +49,29 @@ const SYSTEM_PROMPT = `
 export class OsnovaCodegenAgent {
   async generate(spec: OsnovaSpec): Promise<OsnovaSource> {
     const provider = getLLMProvider();
+    const model = process.env.OSNOVA_MODEL ?? 'llama3.2';
     const fewShot = loadFewShot();
+    log.debug('generate', { model, mainModule: spec.mainModule });
 
     const specPrompt = buildOsnovaPrompt(JSON.stringify(spec, null, 2));
 
-    const response = await provider.complete({
-      model: process.env.OSNOVA_MODEL ?? 'llama3.2',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: specPrompt + '\n\n// Few-shot примеры программ на языке Основа:\n' + fewShot,
-        },
-      ],
-      maxTokens: 8000,
-      temperature: 0.2,
-    });
+    let response;
+    try {
+      response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: specPrompt + '\n\n// Few-shot примеры программ на языке Основа:\n' + fewShot,
+          },
+        ],
+        maxTokens: 8000,
+        temperature: 0.2,
+      });
+    } catch (err) {
+      throw wrapLlmError(err, 'OsnovaCodegen.generate', { model });
+    }
 
     const source = response.content
       .replace(/```[a-z]*\n?/g, '')
