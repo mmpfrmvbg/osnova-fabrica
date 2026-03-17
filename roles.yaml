@@ -1,6 +1,6 @@
 # ============================================================
 # roles.yaml — Agent Registry for osnova-fabrica
-# Version: 0.1.0
+# Version: 0.1.1
 # ============================================================
 # 3 агента MVP. Все генерируют/обрабатывают код на языке ОСНОВА.
 # НЕ TypeScript, НЕ REST, НЕ SQL, НЕ Docker/nginx.
@@ -28,6 +28,22 @@ agents:
   - agentName: IntakeAgent
     displayName: Интерпретатор запросов
     trustTier: T2
+
+    # DESIGN NOTE (v0.2): IntakeAgent работает в двух режимах:
+    # - mode="intent" : RawText → OsnovaIntent (фаза intake)
+    # - mode="spec"   : OsnovaIntent → OsnovaSpec (фаза spec_generation)
+    # Когда в v0.2 выделим SpecArchitect — каждый агент получит один mode.
+    # Сейчас один агент, два вызова. Оркестратор передаёт mode явно.
+    modes:
+      - id: intent
+        phase: intake
+        input: RawText
+        output: OsnovaIntent
+      - id: spec
+        phase: spec_generation
+        input: OsnovaIntent
+        output: OsnovaSpec
+
     description: >
       Принимает сырой текстовый запрос пользователя.
       Выдаёт OsnovaIntent (что должна делать программа)
@@ -145,18 +161,22 @@ agents:
       - fix_syscall_signature       # исправить неверный invoke система.*
     inputContracts:
       - type: OsnovaSource
+        # ВАЖНО: оркестратор всегда подаёт последнюю версию .osnova.
+        # Если это 2-й/3-й repair-цикл — источником будет предыдущий
+        # RepairEngineer, а не оригинальный codegen.
+        # См. pipeline.yaml фаза repair: from: last_repair_or_codegen.
         schema:
           source: string
       - type: BuildReport
         optional: true
         schema:
-          lexerErrors: LexerError[]
-          parserErrors: ParserError[]
-          compilerErrors: CompilerError[]
+          lexerErrors: LexerError[]       # → src/pipeline/types.ts: LexerError
+          parserErrors: ParserError[]     # → src/pipeline/types.ts: ParserError
+          compilerErrors: CompilerError[] # → src/pipeline/types.ts: CompilerError
       - type: GoldenReport
         optional: true
         schema:
-          vmErrors: VMError[]
+          vmErrors: VMError[]             # → src/pipeline/types.ts: VMError
           outputDiff: string
     outputContracts:
       - type: OsnovaSource
@@ -181,7 +201,10 @@ agents:
 # ─── Roadmap: агенты v0.2+ ───
 future_agents:
   - agentName: SpecArchitect
-    description: "Генерирует полный OsnovaSpec для многомодульных приложений"
+    description: >
+      Выделяется из IntakeAgent (mode=spec).
+      Генерирует полный OsnovaSpec для многомодульных приложений.
+      При появлении: IntakeAgent оставляет только mode=intent.
     phase: v0.2
 
   - agentName: MultiModuleCodegen

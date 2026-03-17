@@ -1,6 +1,6 @@
 # ============================================================
 # pipeline.yaml — Pipeline DAG for osnova-fabrica
-# Version: 0.1.0
+# Version: 0.1.1
 # ============================================================
 # ВАЖНО: В v0.1 pipeline ЛИНЕЙНЫЙ (хардкод в orchestrator.ts).
 # DAG-оркестратор по этой спеке — в v0.2 (DEBT-002).
@@ -14,7 +14,7 @@ kind: PipelineDAG
 
 metadata:
   name: osnova-pipeline
-  version: "0.1.0"
+  version: "0.1.1"
   description: >
     6-фазный pipeline: текст → Intent → OsnovaSpec → .osnova → байткод → golden-check.
     Repair-loop при ошибках компиляции или VM (max 3 итерации).
@@ -26,11 +26,27 @@ defaults:
   onTimeout: abort_and_log
   onMaxRetries: log_failure_and_exit
 
+# ─── Единый реестр порогов qualityScore ───────────────────────────────────
+# ПРАВИЛО: менять пороги только здесь. gates.yaml и логика фаз ссылаются
+# на эти значения по имени, а не хардкодят числа в нескольких местах.
+# Типы BuildReport / GoldenReport должны строго соответствовать
+# src/pipeline/types.ts — это единственный источник правды для полей.
+thresholds:
+  qualityScore:
+    pass: 0.7       # G3 пропускает run; pipeline считает run успешным
+    partial: 0.5    # run завершается, но помечается как partial_success
+    # partial нужен для сбора трейсов: программа работает, но не идеально.
+    # Не является заменой pass — в отчёте ставится статус partial_success,
+    # а не success. RuleDistiller в v0.3 использует эти трейсы отдельно.
+  repairLoops:
+    max: 3
+
 phases:
 
   # ═══ Phase 1: Intake ═══
   - id: intake
     agent: IntakeAgent
+    agentMode: intent     # IntakeAgent запускается в режиме intent (см. roles.yaml: modes)
     description: Текстовый запрос пользователя → нормализованный OsnovaIntent
     input:
       - type: RawText
@@ -55,6 +71,7 @@ phases:
   # ═══ Phase 2: Spec Generation ═══
   - id: spec_generation
     agent: IntakeAgent
+    agentMode: spec       # IntakeAgent запускается в режиме spec (см. roles.yaml: modes)
     description: >
       OsnovaIntent → OsnovaSpec.
       Spec описывает модули, типы, процедуры и invoke-вызовы языка Основа.
@@ -108,17 +125,22 @@ phases:
       .osnova → лексер → парсер → компилятор → .osvbc байткод.
       Использует src/compiler/ напрямую (compileSource).
       НЕТ tsc, НЕТ npm test — только тулчейн Основа.
+      Типы BuildReport строго соответствуют src/pipeline/types.ts.
     input:
       - type: OsnovaSource
-        from: codegen
+        from: last_repair_or_codegen
+        # ВАЖНО: оркестратор всегда берёт последнюю версию OsnovaSource —
+        # либо из codegen (первый проход), либо из предыдущего repair.
+        # Никогда не возвращаться к оригинальному codegen после repair.
     output:
       - type: BuildReport
+        # Все поля строго соответствуют src/pipeline/types.ts: BuildReport
         fields:
           success: boolean
-          lexerErrors: LexerError[]      # ошибки токенизации
-          parserErrors: ParserError[]    # ошибки разбора AST
-          compilerErrors: CompilerError[] # ошибки кодогенерации
-          bytecode: OsvbcModule | null   # .osvbc JSON если success
+          lexerErrors: LexerError[]       # src/pipeline/types.ts: LexerError
+          parserErrors: ParserError[]     # src/pipeline/types.ts: ParserError
+          compilerErrors: CompilerError[] # src/pipeline/types.ts: CompilerError
+          bytecode: OsvbcModule | null    # .osvbc JSON если success
           durationMs: int
     gate: G2_build_pass
     next:
@@ -136,6 +158,7 @@ phases:
       .osvbc → VM исполнение → сверка output с golden-tests.
       Использует OsnovaGoldenRunner из src/runtime/goldenApps.ts.
       НЕТ coverage tool — golden-тесты как proxy качества.
+      Типы GoldenReport строго соответствуют src/pipeline/types.ts.
     input:
       - type: BuildReport
         from: build
@@ -144,32 +167,44 @@ phases:
         from: spec_generation
     output:
       - type: GoldenReport
+        # Все поля строго соответствуют src/pipeline/types.ts: GoldenReport
         fields:
           executed: boolean          # VM запустился без краша
           passed: boolean            # output совпал с ожидаемым
           qualityScore: float        # 0..1 (совпадение + полнота)
-          vmErrors: VMError[]        # ошибки рантайма
+          vmErrors: VMError[]        # src/pipeline/types.ts: VMError
           outputDiff: string | null  # расхождение с эталоном
           durationMs: int
     gate: G3_golden_pass
     next:
       - condition: passed == true
         goto: done
+        runStatus: success
+
       - condition: passed == false AND vmErrors.length > 0
         goto: repair
-      - condition: passed == false AND qualityScore >= 0.5
-        goto: done   # частичный успех — логируем и продолжаем
+
+      # Диапазон [0.5..0.7): программа работает, но не дотягивает до pass.
+      # Статус partial_success: трейс сохраняется для дообучения (RuleDistiller v0.3).
+      # Единый источник правды для порогов — thresholds.qualityScore выше.
+      - condition: "passed == false AND qualityScore >= 0.5 AND qualityScore < 0.7"
+        goto: done
+        runStatus: partial_success
 
   # ═══ Phase 6: Repair (loop) ═══
   - id: repair
     agent: RepairEngineer
     description: >
       Ошибки компиляции или VM → LLM-патч → исправленный .osnova.
-      Агент получает исходный код + конкретные ошибки + few-shot примеров исправлений.
+      Агент получает ПОСЛЕДНЮЮ версию .osnova (не оригинал из codegen).
       Результат передаётся обратно в build.
     input:
       - type: OsnovaSource
-        from: codegen
+        from: last_repair_or_codegen
+        # ПРАВИЛО: оркестратор поддерживает переменную ctx.currentSource.
+        # После каждого repair она обновляется на новый OsnovaSource.
+        # В build и в следующий repair всегда идёт ctx.currentSource.
+        # Никогда не использовать статичный from: codegen в repair-loop.
       - type: BuildReport
         from: build
         optional: true
@@ -177,10 +212,10 @@ phases:
         from: golden_check
         optional: true
     output:
-      - type: OsnovaSource    # исправленный .osnova
+      - type: OsnovaSource    # исправленный .osnova → обновляет ctx.currentSource
     next:
       - build
-    maxLoops: 3
+    maxLoops: 3               # = thresholds.repairLoops.max
     onMaxLoops: log_failure_exit
     loopCounter: repairAttempts
     retry:
@@ -213,6 +248,7 @@ telemetry:
     - total_tokens
     - repair_loops_count
     - golden_passed
+    - run_status           # success | partial_success | failure
     - phases_visited
   exportTo:
     - traces.jsonl   # для дообучения LLM
