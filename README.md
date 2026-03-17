@@ -66,11 +66,13 @@ npm run validate:spec      # валидировать spec.yaml
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
-| `OSNOVA_PROVIDER` | `qwen-cli` | LLM провайдер |
+| `OSNOVA_PROVIDER` | `qwen-cli` | LLM провайдер (`qwen-cli`, `deepseek`, `ollama`) |
 | `DEEPSEEK_API_KEY` | — | Обязателен при `provider=deepseek` |
 | `OSNOVA_MODEL` | `llama3.2` | Модель LLM |
 | `OLLAMA_URL` | `http://localhost:11434` | URL Ollama |
-| `LOG_LEVEL` | `info` | Уровень логирования |
+| `OSNOVA_TRACE_DB` | `./runs/traces.jsonl` | Путь к JSONL-файлу трейсов прогонов (диагностика и дообучение LLM) |
+| `QWEN_TIMEOUT_MS` | `300000` | Таймаут QwenCliProvider (мс) |
+| `LOG_LEVEL` | `info` | Уровень логирования (`debug`, `info`, `warn`, `error`) |
 
 ## Статус
 
@@ -79,4 +81,4 @@ npm run validate:spec      # валидировать spec.yaml
 - ✅ **batch-3** — агенты (IntakeAgent, OsnovaCodegen, RepairEngineer)
 - ✅ **batch-4** — трейсы для дообучения LLM
 - ✅ **lint** — ESLint v9 flat config (`eslint.config.mjs`), 0 ошибок
-- ⏳ **batch-5** — ...
+- ⏳ **batch-5** — CLI, логгер, стандартизация ошибок LLM-агентов
