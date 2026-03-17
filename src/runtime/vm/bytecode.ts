@@ -1,6 +1,20 @@
 /**
  * Формат байткода Основа v0.1 (JSON .osvbc).
  * Соответствие compiler-v0.1.md: константный пул, таблица процедур, линейный код.
+ *
+ * ## Граница compiler / VLIW / VM
+ *
+ * - Поля `deps` (в `VliwPacket` и `ProcedureDef`) являются **hintами для VLIW-планировщика**
+ *   (src/vliw/). VM их полностью игнорирует — это намеренное поведение, не баг.
+ * - VM исполняет пакеты последовательно — slot[0], slot[1], ..., slot[N-1] —
+ *   без знания и без проверки `deps`.
+ * - VLIW-планировщик использует `deps` для построения графа зависимостей
+ *   и переупаковки инструкций в пакеты.
+ * - Отсутствие `deps` (undefined) валидно и для VM, и для планировщика
+ *   (означает: зависимости не вычислены).
+ *
+ * **Back-compat инвариант:** добавление/изменение полей `deps`
+ * не ломает VM — любой файл .osvbc с валидными `slots` продолжает работать.
  */
 
 export const BYTECODE_VERSION = 1;
@@ -76,7 +90,15 @@ export type RawInstruction =
   | InstructionJmp
   | { op: Exclude<Op, "const" | "local.get" | "local.set" | "global.get" | "global.set" | "call" | "invoke" | "jmp" | "jmp_if" | "jmp_if_not"> };
 
-/** VLIW-пакет (format v2): несколько операций на одну позицию в code. */
+/**
+ * VLIW-пакет (format v2): несколько операций на одну позицию в code.
+ *
+ * `slots` — обязательный контракт VM: исполняются последовательно slot[0..N-1].
+ *
+ * `deps` — **hint для VLIW-планировщика** (src/vliw/), VM игнорирует.
+ * Каждый элемент — пара [from, to] (индексы в потоке инструкций).
+ * Отсутствие (undefined) означает, что зависимости не вычислены.
+ */
 export interface VliwPacket {
   packet: true;
   slots: RawInstruction[];
@@ -91,13 +113,19 @@ export interface ProcedureDeps {
   edges: [number, number][];
 }
 
+/**
+ * Описание процедуры в таблице `.procedures`.
+ *
+ * `deps` — **hint для VLIW-планировщика** (src/vliw/), VM игнорирует.
+ * Содержит граф зависимостей блоков (в v2, опционально).
+ */
 export interface ProcedureDef {
   name: string;
   codeOffset: number;
   argc: number;
   localsCount: number;
   returnsValue?: boolean;
-  /** Зависимости для VLIW-планировщика (v2, опционально). */
+  /** @hint VLIW-планировщик (src/vliw/). VM игнорирует. */
   deps?: ProcedureDeps;
 }
 
