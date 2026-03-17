@@ -45,11 +45,14 @@ export function logger(prefix: string): Logger {
     if (LEVELS[level] < LEVELS[_activeLevel]) return;
     const line = `[${prefix}] ${msg}`;
     if (level === 'error') {
-      data !== undefined ? console.error(line, data) : console.error(line);
+      if (data !== undefined) console.error(line, data);
+      else console.error(line);
     } else if (level === 'warn') {
-      data !== undefined ? console.warn(line, data) : console.warn(line);
+      if (data !== undefined) console.warn(line, data);
+      else console.warn(line);
     } else {
-      data !== undefined ? console.log(line, data) : console.log(line);
+      if (data !== undefined) console.log(line, data);
+      else console.log(line);
     }
   }
   return {
