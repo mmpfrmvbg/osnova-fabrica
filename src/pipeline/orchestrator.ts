@@ -11,7 +11,6 @@ import { RepairEngineerAgent } from '../agents/RepairEngineer';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { saveTrace } from '../trace/traceStore';
 import type {
-  RawText,
   OsnovaIntent,
   OsnovaSpec,
   OsnovaSource,
@@ -34,6 +33,7 @@ export async function runPipeline(
   let source: OsnovaSource | undefined;
   let buildReport: BuildReport | undefined;
   let goldenReport: GoldenReport | undefined;
+  let lastSource: OsnovaSource | undefined;
 
   try {
     // ─── Фаза 1: intake ───
@@ -57,10 +57,9 @@ export async function runPipeline(
     console.log('[pipeline] phase: codegen');
     const codegen = new OsnovaCodegenAgent();
     source = await codegen.generate(spec);
+    lastSource = source;
 
     // ─── Repair loop: build → golden_check → repair ───
-    let lastSource = source;
-
     for (let loop = 0; loop <= MAX_REPAIR_LOOPS; loop++) {
       // ─── Фаза 4: build ───
       console.log(`[pipeline] phase: build (attempt ${loop + 1})`);
@@ -68,13 +67,13 @@ export async function runPipeline(
       const compileResult = compileSource(lastSource.source);
 
       buildReport = {
-        success: compileResult.success,
-        lexerErrors: compileResult.lexerErrors ?? [],
-        parserErrors: compileResult.parserErrors ?? [],
-        compilerErrors: compileResult.errors ?? [],
+        success: compileResult.compilerSuccess,
+        lexerErrors: compileResult.lexerErrors,
+        parserErrors: compileResult.parserErrors,
+        compilerErrors: compileResult.compilerErrors,
         bytecode: compileResult.module ?? null,
-        compilerSuccess: compileResult.success,
-        durationMs: compileResult.durationMs ?? 0,
+        compilerSuccess: compileResult.compilerSuccess,
+        durationMs: compileResult.durationMs,
       };
 
       // ─── Gate G2 ───
@@ -108,9 +107,7 @@ export async function runPipeline(
       console.log('[gate G3] passed — pipeline complete');
       source = lastSource;
 
-      const result = finish(
-        goldenReport.passed ? 'success' : 'partial',
-      );
+      const result = finish(goldenReport.passed ? 'success' : 'partial');
       await saveTrace({ runId, status: result.status, task, intent, spec, source, buildReport, goldenReport, repairAttempts });
       return result;
     }
