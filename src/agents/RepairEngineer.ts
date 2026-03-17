@@ -23,6 +23,19 @@ const SYSTEM_PROMPT = `
 4. Ошибки парсера: неверная структура → добавь/убери ключевое слово.
 5. Ошибки VM: stack underflow, неизвестный invoke → исправь вызов система.*.
 6. Верни ТОЛЬКО исправленный .osnova код, без объяснений, без markdown.
+7. Если видишь "объект.поле = значение" — замени на отдельную переменную:
+   БЫЛО:  список.количество = список.количество + 1
+   СТАЛО: пусть новоеКоличество = список.количество + 1
+          (и далее используй новоеКоличество вместо список.количество)
+8. Если видишь английские ключевые слова (procedure, let, return, if, while, module, end) — замени на кириллические аналоги:
+   procedure → процедура
+   let/var   → пусть
+   return    → вернуть
+   if        → если
+   else      → иначе
+   end/}     → конец
+   while     → пока
+   module    → модуль
 `.trim();
 
 export class RepairEngineerAgent {
@@ -64,6 +77,7 @@ export class RepairEngineerAgent {
 
     let response;
     try {
+      log.debug('fix errors', { errors });
       response = await provider.complete({
         model,
         messages: [

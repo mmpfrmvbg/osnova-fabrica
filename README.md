@@ -83,6 +83,14 @@ npm run validate:spec      # валидировать spec.yaml
 - ✅ **batch-5** — CLI, логгер, стандартизация ошибок LLM-агентов, адаптация под Qwen Code v0.12.6
 - ✅ **lint** — ESLint v9 flat config (`eslint.config.mjs`), 0 ошибок
 
+## Known Limitations (v0.1)
+
+| Задача | Статус | Причина |
+|---|---|---|
+| Скалярные утилиты | ✅ success | Поддерживается |
+| Коллекции / TODO-лист | ⚠️ repair_exhausted | Нет массивов в языке |
+| Многомодульный код | ⚠️ parser error | Один модуль на файл |
+
 ### Пример запуска
 
 ```bash
