@@ -93,6 +93,17 @@ export async function runPipeline(
       const g2 = checkG2(buildReport);
       if (!g2.passed) {
         log.warn(`gate G2 FAIL (attempt ${loop + 1})`, g2.failedChecks);
+        if (buildReport.parserErrors?.length) {
+          for (const e of buildReport.parserErrors) {
+            log.info(`parser error: ${e.line}:${e.column} ${e.message}`);
+          }
+        }
+        if (buildReport.compilerErrors?.length) {
+          for (const e of buildReport.compilerErrors) {
+            const msg = (e as { message?: string }).message ?? JSON.stringify(e);
+            log.info(`compiler error: ${msg}`);
+          }
+        }
         if (loop >= MAX_REPAIR_LOOPS) break;
         const repair = new RepairEngineerAgent();
         lastSource = await repair.fix(lastSource, buildReport, undefined, loop + 1);
