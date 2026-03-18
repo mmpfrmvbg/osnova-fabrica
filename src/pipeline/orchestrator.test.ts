@@ -189,8 +189,14 @@ describe('Gates: G1, G2, G3', () => {
     expect(g1.failedChecks).toHaveLength(0);
   });
 
-  it('G1: fails when confidence < 0.7', () => {
+  it('G1: passes when confidence < 0.7 for утилита (check skipped)', () => {
     const intent = { ...validIntent, confidence: 0.5 };
+    const g1 = checkG1(intent, validSpec);
+    expect(g1.passed).toBe(true);
+  });
+
+  it('G1: fails when confidence < 0.7 for non-утилита', () => {
+    const intent = { ...validIntent, appType: 'ui_приложение', confidence: 0.5 };
     const g1 = checkG1(intent, validSpec);
     expect(g1.passed).toBe(false);
     expect(g1.failedChecks.some(c => c.includes('confidence'))).toBe(true);

@@ -27,7 +27,8 @@ export function checkG1(
     appType: intent.appType ?? 'утилита',
   };
 
-  if (normalizedIntent.confidence < 0.7)
+  const isSimpleUtility = normalizedIntent.appType === 'утилита';
+  if (!isSimpleUtility && normalizedIntent.confidence < 0.7)
     failed.push('g1_confidence: intent.confidence < 0.7 → ask_user_to_clarify');
 
   if (normalizedIntent.features.length < 1)
