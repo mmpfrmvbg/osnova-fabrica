@@ -36,6 +36,24 @@
       "specSnippet": { "meta": { "name": "Хранилище", "type": "cli" } },
       "expectCompiler": { "success": true },
       "expectKeywords": ["система.хранилище.записать", "система.хранилище.прочитать"]
+    },
+    {
+      "id": "array_foreach",
+      "description": "Массив литерал + для_каждого + сумма",
+      "category": "arrays",
+      "source": "модуль суммаМассива\nпроцедура главная()\n  пусть числа = [1, 2, 3, 4, 5]\n  пусть сумма = 0\n  для_каждого х в числа\n    сумма = сумма + х\n  конец\n  вернуть сумма\nконец",
+      "specSnippet": { "meta": { "name": "СуммаМассива", "type": "cli" } },
+      "expectCompiler": { "success": true },
+      "expectKeywords": ["для_каждого", "система.массив"]
+    },
+    {
+      "id": "elseif_chain",
+      "description": "Цепочка иначе_если",
+      "category": "generic",
+      "source": "модуль классификация\nпроцедура классифицировать(x)\n  если x < 0\n    вернуть \"отрицательное\"\n  иначе_если x == 0\n    вернуть \"ноль\"\n  иначе_если x < 10\n    вернуть \"маленькое\"\n  иначе\n    вернуть \"большое\"\n  конец\nконец",
+      "specSnippet": { "meta": { "name": "Классификация", "type": "cli" } },
+      "expectCompiler": { "success": true },
+      "expectKeywords": ["иначе_если"]
     }
   ]
 }
