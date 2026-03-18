@@ -24,24 +24,20 @@
 
 **С окном (полное поведение):**
 ```bash
-npx tsx src/tools/osnova-runtime/cli.ts run \
-  --manifest src/tools/osnova-runtime/fixtures/todo.osapp.yaml \
-  --ui window
+npx tsx src/cli.ts run --manifest src/runtime/fixtures/todo.osapp.yaml --ui window
 ```
 Откроется браузер с окном «TODO»; добавление задач и закрытие окна завершает процесс (код 0).
 
 **Без окна (проверка загрузки и цикла):**
 ```bash
-npx tsx src/tools/osnova-runtime/cli.ts run \
-  --manifest src/tools/osnova-runtime/fixtures/todo.osapp.yaml \
-  --ui cli
+npx tsx src/cli.ts run --manifest src/runtime/fixtures/todo.osapp.yaml --ui cli
 ```
 Окно не открывается, `получить_события` возвращает `[]`, цикл крутится (sleep 200 ms). Для автоматического golden-теста можно ограничить число итераций или подставлять мок событий.
 
 ## Ожидаемый артефакт для golden-теста
 
-- Манифест: `fixtures/todo.osapp.yaml` (entry: модуль `todo`, процедура `запуск`).
-- Байткод: `fixtures/todo.osvbc.json` (модуль `todo`, процедуры `запуск`, `handle_event`, `handle_add`).
+- Манифест: `src/runtime/fixtures/todo.osapp.yaml` (entry: модуль `todo`, процедура `запуск`).
+- Байткод: `src/runtime/fixtures/todo.osvbc.json` (модуль `todo`, процедуры `запуск`, `handle_event`, `handle_add`).
 - При успешном запуске: процесс выходит с кодом 0; при `--ui window` в браузере видно окно с полем, кнопкой и списком; данные сохраняются в хранилище (ключ `items`).
 
 ## Расширения invoke для цикла событий

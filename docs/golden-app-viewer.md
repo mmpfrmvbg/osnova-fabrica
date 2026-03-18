@@ -64,9 +64,7 @@
 **С окном (полное поведение):**
 
 ```bash
-npx tsx src/tools/osnova-runtime/cli.ts run \
-  --manifest src/tools/osnova-runtime/fixtures/file-viewer.osapp.yaml \
-  --ui window
+npx tsx src/cli.ts run --manifest src/runtime/fixtures/file-viewer.osapp.yaml --ui window
 ```
 
 - Откроется браузер с окном «File Viewer».
@@ -77,9 +75,7 @@ npx tsx src/tools/osnova-runtime/cli.ts run \
 **Без окна (проверка загрузки и цикла):**
 
 ```bash
-npx tsx src/tools/osnova-runtime/cli.ts run \
-  --manifest src/tools/osnova-runtime/fixtures/file-viewer.osapp.yaml \
-  --ui cli
+npx tsx src/cli.ts run --manifest src/runtime/fixtures/file-viewer.osapp.yaml --ui cli
 ```
 
 - Окно не открывается, `получить_события` возвращает `[]`.
@@ -89,13 +85,13 @@ npx tsx src/tools/osnova-runtime/cli.ts run \
 
 ## Ожидаемый артефакт для golden-теста
 
-- **Манифест:** `fixtures/file-viewer.osapp.yaml`
+- **Манифест:** `src/runtime/fixtures/file-viewer.osapp.yaml`
   - `id: "osnova.viewer"`.
   - `entry.module: "viewer"`, `entry.procedure: "запуск"`.
   - `ui.kind: "window"`.
-  - `permissions.files.read: ["~/Документы"]` (или другой каталог для тестовых файлов), `write: []`.
+  - `permissions.files.read: ["~/Документы"]`, `write: []`.
   - `network.outbound: false`.
-- **Байткод:** `fixtures/viewer.osvbc.json`
+- **Байткод:** `src/runtime/fixtures/viewer.osvbc.json`
   - `moduleName: "viewer"`.
   - `procedures`:
     - `запуск(codeOffset=0)` — инициализация окна и виджетов, чтение `last_path` из хранилища, первый рендер статуса и текстовой области, основной цикл обработки событий.
