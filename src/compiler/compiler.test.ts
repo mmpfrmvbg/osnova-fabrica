@@ -391,15 +391,14 @@ describe("Compiler: и / или / не", () => {
 
   it("повторное пусть переприсваивает значение", async () => {
     const src = `
-      модуль тест
-      процедура главная()
-        пусть x = 1
-        пусть x = 2
-        вернуть x
-      конец
-      конец
-    `;
-    const result = compileSource(src.trim());
+модуль тест
+процедура главная()
+  пусть x = 1
+  пусть x = 2
+  вернуть x
+конец
+`.trim();
+    const result = compileSource(src);
     expect(result.compilerSuccess).toBe(true);
     expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { maxSteps: 1000 });
