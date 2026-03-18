@@ -1,0 +1,327 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Osnova Language Specification",
+  "version": "0.1.1",
+  "lastUpdated": "2026-03-17",
+  
+  "project": {
+    "name": "osnova-fabrica",
+    "description": "Кодогенератор для языка «Основа» — кириллического языка программирования с VLIW-поддержкой",
+    "repository": "github.com/mmpfrmvbg/osnova-fabrica",
+    "license": "MIT",
+    "status": "Phase A — MVP pipeline",
+    "pipeline": "task → intent → spec → codegen → build → golden_check → [repair]"
+  },
+
+  "language": {
+    "name": "Основа",
+    "version": "0.1",
+    "philosophy": {
+      "readable": "Пишется как структурированный русский текст",
+      "sequential": "Последовательный по умолчанию, параллелизм только там где явно указан",
+      "honest": "Честный с компилятором — явные конструкции для планировщика",
+      "strict": "Строгий в горячем коде — никаких скрытых зависимостей",
+      "relaxed": "Расслабленный в прикладном коде — чем дальше от железа, тем больше сахара"
+    },
+    "targetPlatform": "VLIW-процессоры (модель e2k)",
+    "compilationPipeline": ".osnova → компилятор → .osvbc (JSON байткод) → VM"
+  },
+
+  "types": {
+    "builtin": {
+      "integers": [
+        { "name": "Целое8", "analog": "i8" },
+        { "name": "Целое16", "analog": "i16" },
+        { "name": "Целое32", "analog": "i32" },
+        { "name": "Целое64", "analog": "i64" }
+      ],
+      "floats": [
+        { "name": "Вещественное32", "analog": "f32" },
+        { "name": "Вещественное64", "analog": "f64" }
+      ],
+      "other": [
+        { "name": "Логический", "analog": "bool" },
+        { "name": "Строка", "analog": "str" },
+        { "name": "Байт", "analog": "u8" },
+        { "name": "Ничто", "analog": "void" }
+      ],
+      "generic": [
+        { "name": "?Тип", "analog": "Option<T>", "description": "опциональный тип" },
+        { "name": "ссылка Тип", "analog": "&mut T", "description": "мутабельная ссылка" },
+        { "name": "Результат<T,E>", "analog": "Result<T,E>", "description": "тип результата с обработкой ошибок" }
+      ]
+    },
+    "typeDeclaration": {
+      "syntax": "тип ИмяТипа { поле: Тип; }",
+      "example": "тип Задача { идентификатор: Целое32; приоритет: Целое8; }"
+    }
+  },
+
+  "keywords": {
+    "implemented": [
+      { "lexeme": "модуль", "kind": "module", "since": "0.1.0" },
+      { "lexeme": "процедура", "kind": "stmt", "since": "0.1.0" },
+      { "lexeme": "пусть", "kind": "stmt", "since": "0.1.0" },
+      { "lexeme": "если", "kind": "stmt", "since": "0.1.0" },
+      { "lexeme": "иначе", "kind": "stmt", "since": "0.1.0", "description": "ветка else" },
+      { "lexeme": "пока", "kind": "stmt", "since": "0.1.0" },
+      { "lexeme": "для_каждого", "kind": "stmt", "since": "0.1.0", "description": "цикл по коллекции" },
+      { "lexeme": "в", "kind": "stmt", "since": "0.1.0", "description": "в конструкции для_каждого x в expr" },
+      { "lexeme": "цикл", "kind": "stmt", "since": "0.1.0" },
+      { "lexeme": "конец", "kind": "block", "since": "0.1.0", "description": "конец блока" },
+      { "lexeme": "вернуть", "kind": "stmt", "since": "0.1.0" },
+      { "lexeme": "истина", "kind": "expr", "since": "0.1.0" },
+      { "lexeme": "ложь", "kind": "expr", "since": "0.1.0" },
+      { "lexeme": "пусто", "kind": "expr", "since": "0.1.0" },
+      { "lexeme": "и", "kind": "expr", "since": "0.1.0", "description": "логическое И, short-circuit" },
+      { "lexeme": "или", "kind": "expr", "since": "0.1.0", "description": "логическое ИЛИ, short-circuit" },
+      { "lexeme": "не", "kind": "expr", "since": "0.1.0", "description": "логическое НЕ" }
+    ],
+    "planned": [
+      "использовать", "тип", "функция", "иначе_если", "для", "каждого",
+      "совпадает", "когда", "параллельно", "предвыбор", "пакет", "слот",
+      "разворачивать", "регион", "небезопасно", "актор", "задача", "канал",
+      "ожидать", "Успех", "Неудача", "вызвать", "открытый", "закрытый", "по"
+    ]
+  },
+
+  "constructs": {
+    "module": {
+      "syntax": "модуль <имя>",
+      "astNode": { "kind": "Module", "fields": ["name: string", "procedures: Procedure[]"] },
+      "example": "модуль планировщик"
+    },
+    "procedure": {
+      "syntax": "процедура <имя>(<параметры>) ... конец",
+      "astNode": { "kind": "Procedure", "fields": ["name: string", "params: string[]", "body: Stmt[]"] },
+      "example": "процедура главная()\n  пусть x: Целое32 = 42\nконец"
+    },
+    "let": {
+      "syntax": "пусть <имя> = <выражение>",
+      "astNode": { "kind": "пусть", "fields": ["name: string", "init: Expr"] },
+      "example": "пусть здоровье = 100"
+    },
+    "assign": {
+      "syntax": "<имя> = <выражение>",
+      "astNode": { "kind": "присвоить", "fields": ["name: string", "value: Expr"] },
+      "example": "сумма = сумма + x"
+    },
+    "if": {
+      "syntax": "если <условие> ... иначе ... конец",
+      "astNode": { "kind": "если", "fields": ["condition: Expr", "body: Stmt[]", "elseBody: Stmt[]?"] },
+      "bytecodePattern": "condition → jmp_if_not else; then-body; jmp end; else-body; end:",
+      "example": "если здоровье <= 0 { вызвать смерть(); } иначе { вызвать обновить(); }"
+    },
+    "while": {
+      "syntax": "пока <условие> ... конец",
+      "astNode": { "kind": "пока", "fields": ["condition: Expr", "body: Stmt[]"] },
+      "bytecodePattern": "loopStart: condition → jmp_if_not exit; body; jmp loopStart; exit:",
+      "example": "пока задача.активна { вызвать обработать(задача); }"
+    },
+    "forEach": {
+      "syntax": "для_каждого <переменная> в <выражение> ... конец",
+      "astNode": { "kind": "для_каждого", "fields": ["variable: string", "collection: Expr", "body: Stmt[]"] },
+      "bytecodePattern": "collection → __for_arr; 0 → __for_idx; loop: idx<length? jmp_if_not exit; получить(arr,idx)→var; body; idx+1→__for_idx; jmp loop; exit:",
+      "example": "для каждого юнит в юниты { юнит.обновить(дельта); }"
+    },
+    "loop": {
+      "syntax": "цикл ... конец",
+      "astNode": { "kind": "цикл", "fields": ["body: Stmt[]"] },
+      "bytecodePattern": "loop: body; jmp loop",
+      "example": "цикл { вызвать обработать(); }"
+    },
+    "return": {
+      "syntax": "вернуть <выражение> | вернуть",
+      "astNode": { "kind": "вернуть", "fields": ["value: Expr?"] },
+      "example": "вернуть сумма"
+    }
+  },
+
+  "expressions": {
+    "literals": [
+      { "type": "число", "example": "42" },
+      { "type": "строка", "example": "\"Артём\"" },
+      { "type": "булево", "values": ["истина", "ложь"] },
+      { "type": "пусто", "value": "пусто" }
+    ],
+    "variables": {
+      "syntax": "<имя> | <имя>(<аргументы>) | система.модуль.метод(<аргументы>)",
+      "example": "здоровье | максимум(а, б) | система.лог.вывести(x)"
+    },
+    "operators": {
+      "comparison": [
+        { "op": "==", "description": "равно" },
+        { "op": "!=", "description": "не равно" },
+        { "op": "<", "description": "меньше" },
+        { "op": "<=", "description": "меньше или равно" },
+        { "op": ">", "description": "больше" },
+        { "op": ">=", "description": "больше или равно" }
+      ],
+      "arithmetic": [
+        { "op": "+", "description": "сложение" },
+        { "op": "-", "description": "вычитание" },
+        { "op": "*", "description": "умножение" },
+        { "op": "/", "description": "деление" },
+        { "op": "%", "description": "остаток" }
+      ],
+      "logical": [
+        { "op": "не", "precedence": "высокий", "shortCircuit": false, "bytecodePattern": "arg; const.false; eq" },
+        { "op": "и", "precedence": "средний", "shortCircuit": true, "bytecodePattern": "left; jmp_if_not skip_right; right; skip_right:" },
+        { "op": "или", "precedence": "низкий", "shortCircuit": true, "bytecodePattern": "left; jmp_if skip_right; right; skip_right:" }
+      ]
+    },
+    "precedence": {
+      "order": ["или", "и", "не", "сравнения", "сложение/вычитание", "умножение/деление", "унарный минус"],
+      "note": "от низшего к высшему"
+    }
+  },
+
+  "vliw": {
+    "description": "VLIW-специфичные конструкции для управления планировщиком",
+    "constructs": {
+      "parallel": {
+        "syntax": "параллельно { ... }",
+        "description": "явный параллельный блок — подсказка компилятору",
+        "example": "параллельно { юнит.позиция = ...; юнит.анимация.обновить(дельта); }"
+      },
+      "predicateChoice": {
+        "syntax": "предвыбор { когда условие: выражение; когда иначе: выражение; }",
+        "description": "предикативное ветвление вместо if/else"
+      },
+      "packet": {
+        "syntax": "пакет { слот0: ...; слот1: ...; слот2: ...; }",
+        "description": "явный пакет команд — ручное управление слотами"
+      },
+      "loopUnroll": {
+        "syntax": "цикл (по <переменная> в <коллекция>) разворачивать <N> { ... }",
+        "description": "разворачивание цикла"
+      },
+      "region": {
+        "syntax": "регион <имя> { ... }",
+        "description": "гарантия регистровой локальности"
+      },
+      "unsafe": {
+        "syntax": "небезопасно { ... }",
+        "description": "интринсики и прямое железо"
+      }
+    }
+  },
+
+  "advanced": {
+    "resultHandling": {
+      "syntax": "Результат<T,E>, Успех(v), Неудача(e)",
+      "example": "функция загрузить(путь): Результат<Данные, Ошибка> { если не файл_существует(путь) { вернуть Неудача(...); } вернуть Успех(...); }"
+    },
+    "patternMatching": {
+      "syntax": "совпадает <выражение> { когда Успех(v) { ... } когда Неудача(e) { ... } }",
+      "example": "совпадает загрузить(\"файл.кфг\") { когда Успех(данные) { применить(данные); } }"
+    },
+    "actors": {
+      "syntax": "актор <имя> { вход: канал<Тип>; задача цикл() { ... } }",
+      "example": "актор Журнал { вход: канал<Строка>; задача цикл() { пока истина { пусть текст = ожидать вход.получить(); } } }"
+    }
+  },
+
+  "compiler": {
+    "pipeline": ["tokenize", "parse", "compile", "JSON"],
+    "output": ".osvbc (JSON байткод)",
+    "source": "src/compiler/",
+    "files": ["lexer.ts", "parser.ts", "ast.ts", "codegen.ts", "compiler.ts", "language-registry.ts", "cli.ts"]
+  },
+
+  "runtime": {
+    "vm": "стековая VM",
+    "sandbox": true,
+    "source": "src/runtime/",
+    "files": ["vm/", "runner.ts", "sandbox.ts", "storage.ts", "goldenApps.ts", "types.ts", "ui.ts", "cli.ts"]
+  },
+
+  "goldenTests": {
+    "count": 5,
+    "applications": [
+      "micro-crm",
+      "todo",
+      "viewer",
+      "game-rounds",
+      "micro-crm (расширенный)"
+    ],
+    "source": "golden-tests.json",
+    "runner": "OsnovaGoldenRunner"
+  },
+
+  "stack": {
+    "runtime": "Node.js >= 20",
+    "language": "TypeScript 5.x, strict: true",
+    "moduleSystem": "CommonJS",
+    "llmProviders": {
+      "qwen-cli": {
+        "type": "CLI subprocess",
+        "default": true,
+        "env": "OSNOVA_PROVIDER=qwen-cli",
+        "timeout": "QWEN_TIMEOUT_MS (default: 300000)"
+      },
+      "deepseek": {
+        "url": "https://api.deepseek.com",
+        "endpoints": ["/v1/chat/completions"],
+        "timeout": "300000ms",
+        "streaming": true,
+        "jsonMode": true
+      },
+      "ollama": {
+        "url": "http://localhost:11434",
+        "timeout": "300000ms"
+      }
+    }
+  },
+
+  "environment": {
+    "required": {
+      "OSNOVA_PROVIDER": {
+        "values": ["qwen-cli", "deepseek", "ollama"],
+        "default": "qwen-cli"
+      },
+      "DEEPSEEK_API_KEY": {
+        "required": true,
+        "condition": "при provider=deepseek"
+      }
+    },
+    "optional": {
+      "OSNOVA_MODEL": { "default": "llama3.2" },
+      "OLLAMA_URL": { "default": "http://localhost:11434" },
+      "OSNOVA_TRACE_DB": { "default": "./runs/traces.jsonl", "description": "JSONL-файл трейсов для дообучения LLM" },
+      "LOG_LEVEL": { "default": "info", "values": ["debug", "info", "warn", "error"] },
+      "QWEN_TIMEOUT_MS": { "default": "300000", "description": "таймаут для QwenCliProvider (мс)" }
+    }
+  },
+
+  "techDebt": {
+    "DEBT-001": { "title": "VLIW не интегрирован в pipeline", "priority": "low", "status": "open" },
+    "DEBT-002": { "title": "Нет DAG-оркестратора — pipeline линейный в v0.1", "priority": "medium", "status": "open" },
+    "DEBT-003": { "title": "Нет инструментов покрытия для языка Основа", "priority": "low", "status": "open" },
+    "DEBT-004": { "title": "QwenCliProvider без RAG", "priority": "low", "status": "open" },
+    "DEBT-005": { "title": "Общий логгер с LOG_LEVEL", "priority": "medium", "status": "closed", "closedIn": "batch-5" },
+    "DEBT-006": { "title": "Типы ошибок LLM-агентов не стандартизированы", "priority": "medium", "status": "closed", "closedIn": "batch-5" }
+  },
+
+  "roadmap": {
+    "currentPhase": "Phase A — MVP pipeline",
+    "phases": {
+      "phaseA": {
+        "name": "Phase A — MVP pipeline",
+        "goal": "CLI генерирует .osnova → .osvbc → VM проходит 5/5 golden-тестов",
+        "status": "completed",
+        "batches": ["batch-1", "batch-2", "batch-3", "batch-4", "batch-5"]
+      },
+      "phaseB": {
+        "name": "Phase B — stability",
+        "goal": "5/5 golden, трейсы, дообучение",
+        "items": ["traces.jsonl для дообучения LLM", "LoRA fine-tune на успешных трейсах", "Полноценный DAG-оркестратор"]
+      },
+      "phaseC": {
+        "name": "Phase C — ecosystem",
+        "goal": "Фабрика генерирует целые модули экосистемы Основа",
+        "items": ["SpecArchitect — выделить из IntakeAgent", "Многомодульные проекты", "Каталог модулей", "NERVE для самоаудита", "QwenCliProvider + RAG/VectorDB"]
+      }
+    }
+  }
+}

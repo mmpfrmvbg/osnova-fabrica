@@ -3,7 +3,7 @@
 // Путь: OSNOVA_TRACE_DB (default: ./runs/traces.jsonl)
 // ============================================================
 
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { TraceEntry } from './types';
 import type {
@@ -39,9 +39,11 @@ export async function saveTrace(data: {
   const tracePath = getTracePath();
   const dir = path.dirname(tracePath);
 
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    await fs.access(dir);
+  } catch {
+    await fs.mkdir(dir, { recursive: true });
   }
 
-  fs.appendFileSync(tracePath, JSON.stringify(entry) + '\n', 'utf-8');
+  await fs.appendFile(tracePath, JSON.stringify(entry) + '\n', 'utf-8');
 }

@@ -200,7 +200,8 @@ gates:
     - G2_build_pass
     - G3_golden_pass
   notes: >
-    Единый источник порогов — thresholds в pipeline.yaml.
+    Единый источник порогов — src/pipeline/thresholds.ts (QUALITY_PASS, QUALITY_PARTIAL).
+    pipeline.yaml и gates.yaml содержат комментарии со ссылкой на thresholds.ts.
     G3: pass=0.7, partial=0.5 (partial_success — трейс для дообучения).
     Типы полей (lexerErrors, vmErrors, etc.) строго по src/pipeline/types.ts.
 
@@ -215,7 +216,7 @@ env:
     DEEPSEEK_API_KEY: "Обязателен при provider=deepseek"
   optional:
     OSNOVA_MODEL:
-      default: llama3.2
+      default: qwen-coder-plus
     OLLAMA_URL:
       default: "http://localhost:11434"
     OSNOVA_TRACE_DB:
@@ -248,18 +249,18 @@ osnova_language:
     reference: "ссылка Тип"
   keywords_count: 39
   key_constructs:
-    procedure: "процедура имя(арг: Тип): Тип"
-    function: "функция имя(арг: Тип): Тип"
-    if: "если ... иначе_если ... иначе"
-    loop_while: "пока условие { ... }"
-    loop_for: "для каждого эл в коллекция"
-    match: "совпадает ... когда Успех(v) / когда Неудача(e)"
-    actor: "актор + канал + ожидать"
-    result: "Результат<T,E>, Успех(v), Неудача(e)"
-    parallel: "параллельно {} — явный параллельный блок (VLIW hint)"
-    predvybor: "предвыбор { когда условие: выражение } — предикативное ветвление"
-    packet: "пакет { слоа0: ...; слоа1: ... } — ручное управление VLIW-слотами"
-    syscall: "система.хранилище, система.окно, система.сеть — invoke-API"
+    procedure: { syntax: "процедура имя(арг: Тип): Тип", implemented: true }
+    function: { syntax: "функция имя(арг: Тип): Тип", implemented: false }
+    if: { syntax: "если ... иначе_если ... иначе", implemented: false }
+    loop_while: { syntax: "пока условие { ... }", implemented: true }
+    loop_for: { syntax: "для_каждого переменная в выражение", implemented: true }
+    match: { syntax: "совпадает ... когда Успех(v) / когда Неудача(e)", implemented: false }
+    actor: { syntax: "актор + канал + ожидать", implemented: false }
+    result: { syntax: "Результат<T,E>, Успех(v), Неудача(e)", implemented: true }
+    parallel: { syntax: "параллельно {} — явный параллельный блок (VLIW hint)", implemented: false }
+    predvybor: { syntax: "предвыбор { когда условие: выражение }", implemented: false }
+    packet: { syntax: "пакет { слот0: ...; слот1: ... }", implemented: false }
+    syscall: { syntax: "система.хранилище, система.окно, система.сеть — invoke-API", implemented: true }
   note_on_llm: >
     LLM хуже генерирует кириллический код чем латинский.
     Поэтому few-shot примеры в промпте обязательны.

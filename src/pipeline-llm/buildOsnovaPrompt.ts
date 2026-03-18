@@ -27,8 +27,10 @@ export function buildOsnovaPrompt(text: string): string {
 export function buildOsnovaRepairPrompt(
   currentSource: string,
   errors: string[],
+  prefix?: string,
 ): string {
-  return [
+  const parts = [
+    prefix ? prefix + '\n\n' : '',
     'Ты компилятор языка Основа. Код содержит ошибки компиляции. Исправь их.',
     '',
     'Текущий код:',
@@ -37,8 +39,9 @@ export function buildOsnovaRepairPrompt(
     '---',
     '',
     'Ошибки компилятора:',
-    errors.map((e) => `• ${e}`).join('\n'),
+    errors.length > 0 ? errors.map((e) => `• ${e}`).join('\n') : 'Программа выполнилась, но результат не совпадает с эталоном.',
     '',
     'Верни ТОЛЬКО исправленный код на языке Основа, без пояснений, без markdown-блоков.',
-  ].join('\n');
+  ].filter(Boolean);
+  return parts.join('\n');
 }

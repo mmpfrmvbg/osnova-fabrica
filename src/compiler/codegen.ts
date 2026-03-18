@@ -5,6 +5,9 @@
 
 import type { OsVbcModule, RawInstruction } from "../runtime/vm/bytecode";
 import type { Module, Procedure, Stmt, Expr } from "./ast";
+import { logger } from "../logger";
+
+const log = logger("codegen");
 
 const BINARY_OP: Record<string, RawInstruction["op"]> = {
   "+": "add",
@@ -72,25 +75,33 @@ export function compile(ast: Module): OsVbcModule {
       }
       case "бинарное": {
         if (expr.op === "и") {
+          // [left, jmp_if_not shortCircuit, right, jmp endAnd, shortCircuit: const.false, endAnd:]
           emitExpr(expr.left, locals);
-          const patchSkip = code.length;
+          const patchJmpIfNot = code.length;
           emit({ op: "jmp_if_not", off: 0 } as RawInstruction);
           emitExpr(expr.right, locals);
-          (code[patchSkip] as { off: number }).off = code.length;
+          const patchJmpEnd = code.length;
+          emit({ op: "jmp", off: 0 } as RawInstruction);
+          const shortCircuitLabel = code.length;
+          emit({ op: "const.false" } as RawInstruction);
+          const endAnd = code.length;
+          (code[patchJmpIfNot] as { off: number }).off = shortCircuitLabel;
+          (code[patchJmpEnd] as { off: number }).off = endAnd;
           break;
         }
         if (expr.op === "или") {
+          // [left, jmp_if shortCircuit, right, jmp endOr, shortCircuit: const.true, endOr:]
           emitExpr(expr.left, locals);
           const patchJmpIf = code.length;
           emit({ op: "jmp_if", off: 0 } as RawInstruction);
           emitExpr(expr.right, locals);
-          const patchJmpPastRight = code.length;
+          const patchJmpEnd = code.length;
           emit({ op: "jmp", off: 0 } as RawInstruction);
-          const skipToTrue = code.length;
+          const shortCircuitLabel = code.length;
           emit({ op: "const.true" } as RawInstruction);
           const endOr = code.length;
-          (code[patchJmpIf] as { off: number }).off = skipToTrue;
-          (code[patchJmpPastRight] as { off: number }).off = endOr;
+          (code[patchJmpIf] as { off: number }).off = shortCircuitLabel;
+          (code[patchJmpEnd] as { off: number }).off = endOr;
           break;
         }
         emitExpr(expr.left, locals);
@@ -100,6 +111,10 @@ export function compile(ast: Module): OsVbcModule {
       }
       case "унарное":
         if (expr.op === "не") {
+          const arg = expr.arg;
+          if (arg.kind === "пусто" || arg.kind === "число" || arg.kind === "строка") {
+            log.info(`"не" с не-булевым операндом (${arg.kind}) — семантика: строгое сравнение с false`);
+          }
           emitExpr(expr.arg, locals);
           emit({ op: "const.false" } as RawInstruction);
           emit({ op: "eq" } as RawInstruction);
@@ -121,11 +136,12 @@ export function compile(ast: Module): OsVbcModule {
 
   function buildLocals(proc: Procedure): Map<string, number> {
     const locals = new Map<string, number>();
+    let forCounter = 0;
     proc.params.forEach((p, i) => locals.set(p, i));
     function scan(stmts: Stmt[]): void {
       for (const s of stmts) {
         if (s.kind === "пусть" && !locals.has(s.name)) locals.set(s.name, locals.size);
-        if (s.kind === "присвоить" && !locals.has(s.name)) locals.set(s.name, locals.size);
+        if (s.kind === "присвоить") { /* не добавляем в locals — требуется пусть, ошибка в emitStmt */ }
         if (s.kind === "если") {
           scan(s.body);
           if (s.elseBody) scan(s.elseBody);
@@ -133,8 +149,11 @@ export function compile(ast: Module): OsVbcModule {
         if (s.kind === "пока") scan(s.body);
         if (s.kind === "для_каждого") {
           if (!locals.has(s.variable)) locals.set(s.variable, locals.size);
-          if (!locals.has("__for_arr")) locals.set("__for_arr", locals.size);
-          if (!locals.has("__for_idx")) locals.set("__for_idx", locals.size);
+          const arrKey = `__for_arr_${forCounter}`;
+          const idxKey = `__for_idx_${forCounter}`;
+          if (!locals.has(arrKey)) locals.set(arrKey, locals.size);
+          if (!locals.has(idxKey)) locals.set(idxKey, locals.size);
+          forCounter++;
           scan(s.body);
         }
         if (s.kind === "цикл") scan(s.body);
@@ -150,6 +169,7 @@ export function compile(ast: Module): OsVbcModule {
     const codeOffset = code.length;
     const locals = buildLocals(proc);
     const localsCount = Math.max(proc.params.length, locals.size);
+    let emitForCounter = 0;
 
     function emitStmt(s: Stmt): void {
       switch (s.kind) {
@@ -157,10 +177,15 @@ export function compile(ast: Module): OsVbcModule {
           emitExpr(s.init, locals);
           emit({ op: "local.set", i: locals.get(s.name)! } as RawInstruction);
           break;
-        case "присвоить":
+        case "присвоить": {
+          const slot = locals.get(s.name);
+          if (slot === undefined) {
+            throw new Error(`Переменная "${s.name}" не объявлена через пусть`);
+          }
           emitExpr(s.value, locals);
-          emit({ op: "local.set", i: locals.get(s.name)! } as RawInstruction);
+          emit({ op: "local.set", i: slot } as RawInstruction);
           break;
+        }
         case "выражение":
           emitExpr(s.expr, locals);
           break;
@@ -191,8 +216,9 @@ export function compile(ast: Module): OsVbcModule {
           break;
         }
         case "для_каждого": {
-          const arrSlot = locals.get("__for_arr")!;
-          const idxSlot = locals.get("__for_idx")!;
+          const depth = emitForCounter++;
+          const arrSlot = locals.get(`__for_arr_${depth}`)!;
+          const idxSlot = locals.get(`__for_idx_${depth}`)!;
           const varSlot = locals.get(s.variable)!;
           emitExpr(s.collection, locals);
           emit({ op: "local.set", i: arrSlot } as RawInstruction);

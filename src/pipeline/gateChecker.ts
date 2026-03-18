@@ -1,8 +1,10 @@
 // ============================================================
 // src/pipeline/gateChecker.ts — Исполнитель gates.yaml
 // Источник правды: gates.yaml (3 gates: G1, G2, G3)
+// Пороги qualityScore — src/pipeline/thresholds.ts
 // ============================================================
 
+import { QUALITY_PASS, QUALITY_PARTIAL } from './thresholds';
 import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport } from './types';
 
 export type GateId = 'G1_spec_ready' | 'G2_build_pass' | 'G3_golden_pass';
@@ -20,11 +22,15 @@ export function checkG1(
   spec: OsnovaSpec,
 ): GateResult {
   const failed: string[] = [];
+  const normalizedIntent: OsnovaIntent = {
+    ...intent,
+    appType: intent.appType ?? 'утилита',
+  };
 
-  if (intent.confidence < 0.7)
+  if (normalizedIntent.confidence < 0.7)
     failed.push('g1_confidence: intent.confidence < 0.7 → ask_user_to_clarify');
 
-  if (intent.features.length < 1)
+  if (normalizedIntent.features.length < 1)
     failed.push('g1_features_present: no features → ask_user_what_program_should_do');
 
   if (spec.modules.length < 1)
@@ -82,14 +88,14 @@ export function checkG3(goldenReport: GoldenReport): GateResult {
   if (goldenReport.vmErrors.length > 0)
     failed.push(`g3_no_vm_errors: ${goldenReport.vmErrors.length} VM error(s) → route_to_repair`);
 
-  const qualityOk = goldenReport.passed || goldenReport.qualityScore >= 0.7;
+  const qualityOk = goldenReport.qualityScore >= QUALITY_PASS;
   if (!qualityOk)
-    failed.push('g3_golden_or_quality: passed=false AND qualityScore < 0.7 (warning)');
+    failed.push(`g3_golden_or_quality: qualityScore < ${QUALITY_PASS} → route_to_repair`);
 
   const diffCritical =
-    goldenReport.outputDiff !== null && goldenReport.qualityScore < 0.5;
+    goldenReport.outputDiff !== null && goldenReport.qualityScore < QUALITY_PARTIAL;
   if (diffCritical)
-    failed.push('g3_output_diff_acceptable: diff present AND qualityScore < 0.5 → route_to_repair');
+    failed.push(`g3_output_diff_acceptable: diff present AND qualityScore < ${QUALITY_PARTIAL} → route_to_repair`);
 
   const blockingFailed = failed.filter(f => !f.includes('warning'));
 

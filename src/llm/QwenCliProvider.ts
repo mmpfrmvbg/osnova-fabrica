@@ -68,20 +68,6 @@ export class QwenCliProvider implements LLMProvider {
     const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
 
     try {
-      // Debug logging of prompt before sending to Qwen
-      // eslint-disable-next-line no-console
-      console.error('[qwen-debug] prompt length:', prompt.length);
-      // eslint-disable-next-line no-console
-      console.error(
-        '[qwen-debug] prompt preview:',
-        prompt.slice(0, 200),
-      );
-      // eslint-disable-next-line no-console
-      console.error(
-        '[qwen-debug] args (without prompt):',
-        args,
-      );
-
       const output = await this.runQwenWithStdin(prompt, args, env);
 
       // Qwen Code (--output-format=json) returns a JSON array of events.
@@ -163,9 +149,10 @@ export class QwenCliProvider implements LLMProvider {
         windowsHide: true,
       });
 
-      const chunks: Buffer[] = [];
-      child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
-      child.stderr?.on('data', (chunk: Buffer) => chunks.push(chunk));
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+      child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
       let killed = false;
       let sigkillTimer: NodeJS.Timeout | undefined;
@@ -186,19 +173,16 @@ export class QwenCliProvider implements LLMProvider {
       child.on('error', (err) => { cleanup(); reject(err); });
       child.on('close', (code) => {
         cleanup();
-        const stdout = Buffer.concat(chunks).toString('utf8').trim();
-        if ((code !== 0 && !killed) || (killed && code !== 0)) {
-          reject(
-            new Error(
-              killed
-                ? `qwen timed out after ${QWEN_TIMEOUT_MS}ms`
-                : `qwen exited with code ${code}`,
-            ),
-          );
+        const stdout = Buffer.concat(stdoutChunks).toString('utf8').trim();
+        if (killed || code !== 0) {
+          const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+          const msg = killed
+            ? `qwen timed out after ${QWEN_TIMEOUT_MS}ms`
+            : `qwen exited with code ${code}`;
+          reject(new Error(stderr ? `${msg}\nstderr: ${stderr}` : msg));
           return;
         }
 
-        // Return raw stdout; JSON parsing is done in complete()
         resolve(stdout);
       });
 
@@ -221,6 +205,7 @@ export class QwenCliProvider implements LLMProvider {
 
   private estimateTokens(text: string): number {
     if (!text) return 0;
-    return Math.ceil(text.length / 4);
+    const hasCyrillic = /[\u0400-\u04FF]/.test(text);
+    return Math.ceil(text.length / (hasCyrillic ? 2 : 4));
   }
 }

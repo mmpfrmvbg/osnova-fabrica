@@ -9,7 +9,8 @@ import { describe, it, expect } from "vitest";
 import { compileSource } from "./compiler";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
-import { VM } from "../runtime/vm/interpreter";
+import { VM, InterpreterError } from "../runtime/vm/interpreter";
+import type { OsVbcModule } from "../runtime/vm/bytecode";
 
 const FIXTURES_DIR = join(__dirname, "..", "runtime", "fixtures");
 
@@ -125,6 +126,65 @@ describe("Compiler: для_каждого", () => {
     const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
     expect(await vm.runProcedure(0, [[]])).toBe(0);
   });
+
+  it("вложенные для_каждого не затирают __for_arr", async () => {
+    const source = `
+модуль t
+процедура main(arr)
+  пусть sum = 0
+  для_каждого a в arr
+    для_каждого b в a
+      sum = sum + 1
+    конец
+  конец
+  вернуть sum
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 10000 });
+    // [[1], [2, 3]] → inner loops: 1 + 2 = 3
+    expect(await vm.runProcedure(0, [[[1], [2, 3]]])).toBe(3);
+  });
+});
+
+describe("Compiler: short-circuit и/или", () => {
+  it("и при falsy left возвращает false и не вычисляет right", async () => {
+    const source = `модуль t
+процедура main()
+  пусть x = 0 и 1
+  если x
+    вернуть 0
+  иначе
+    вернуть 1
+  конец
+конец`;
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 100 });
+    // x должен быть false (short-circuit: 0 falsy → skip right, emit const.false)
+    const r = await vm.runProcedure(0, []);
+    expect(r).toBe(1);
+  });
+
+  it("или при truthy left возвращает true и не вычисляет right", async () => {
+    const source = `модуль t
+процедура main()
+  пусть x = 1 или 0
+  если x
+    вернуть 1
+  иначе
+    вернуть 0
+  конец
+конец`;
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 100 });
+    const r = await vm.runProcedure(0, []);
+    expect(r).toBe(1);
+  });
 });
 
 describe("Compiler: и / или / не", () => {
@@ -233,5 +293,26 @@ describe("Compiler negative: errors reported", () => {
     const hasError = result.parserErrors.length > 0 || result.compilerErrors.length > 0;
     expect(hasError).toBe(true);
     expect(result.module).toBeFalsy();
+  });
+
+  it("присвоить без пусть даёт compilerError", () => {
+    const result = compileSource("модуль t\nпроцедура main()\n  x = 1\n  вернуть x\nконец\n");
+    expect(result.compilerSuccess).toBe(false);
+    expect(result.compilerErrors.some((e) => /не объявлена через пусть|Переменная.*не объявлена/.test(e.message))).toBe(true);
+  });
+});
+
+describe("VM: invoke unknown", () => {
+  it("вызов неизвестного invoke бросает InterpreterError", async () => {
+    const module: OsVbcModule = {
+      version: 1,
+      moduleName: "test",
+      constants: [],
+      procedures: [{ name: "main", codeOffset: 0, argc: 0, localsCount: 0 }],
+      code: [{ op: "invoke", name: "система.неизвестный.вызов" }],
+    };
+    const vm = new VM(module, { maxSteps: 100 });
+    await expect(vm.runProcedure(0, [])).rejects.toThrow(InterpreterError);
+    await expect(vm.runProcedure(0, [])).rejects.toThrow(/Unknown invoke/);
   });
 });

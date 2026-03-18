@@ -6,6 +6,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { OsVbcModule, RawInstruction, CodeElement } from "./bytecode";
+import { getInvokeArgCount, isKnownInvoke } from "./invokeRegistry";
 import { isVliwPacket } from "./bytecode";
 
 export type StackValue =
@@ -238,7 +239,10 @@ export class VM {
       }
       case "invoke": {
         const name = (ins as { op: "invoke"; name: string }).name;
-        const argc = this.inferInvokeArgCount(name);
+        if (!isKnownInvoke(name)) {
+          throw new InterpreterError(`Unknown invoke: ${name}`, this.pc, "invoke");
+        }
+        const argc = getInvokeArgCount(name);
         const args: StackValue[] = [];
         for (let i = 0; i < argc; i++) args.unshift(this.stack.pop()!);
         const result = await this.options.invoke(name, args);
@@ -249,12 +253,12 @@ export class VM {
         return (ins as { op: "jmp"; off: number }).off;
       case "jmp_if": {
         const off = (ins as { op: "jmp_if"; off: number }).off;
-        if (this.stack.pop() === true) return off;
+        if (this.stack.pop()) return off;  // truthy → jump
         return next;
       }
       case "jmp_if_not": {
         const off = (ins as { op: "jmp_if_not"; off: number }).off;
-        if (this.stack.pop() !== true) return off;
+        if (!this.stack.pop()) return off;  // falsy → jump
         return next;
       }
       case "ret":
@@ -264,43 +268,6 @@ export class VM {
     }
   }
 
-  /** Число аргументов для известных системных вызовов (по имени). */
-  private inferInvokeArgCount(name: string): number {
-    const args: Record<string, number> = {
-      "система.лог.вывести": 1,
-      "система.файлы.прочитать_все": 1,
-      "система.файлы.записать_все": 2,
-      "система.файлы.существует": 1,
-      "система.время.сейчас": 0,
-      "система.время.спать": 1,
-      "система.хранилище.записать": 2,
-      "система.хранилище.прочитать": 1,
-      "система.хранилище.удалить": 1,
-      "система.хранилище.ключи": 0,
-      "система.сеть.запрос": 4,
-      "система.окно.создать_окно": 3,
-      "система.окно.показать": 1,
-      "система.окно.скрыть": 1,
-      "система.окно.закрыть": 1,
-      "система.окно.установить_заголовок": 2,
-      "система.окно.получить_события": 0,
-      "система.интерфейс.контейнер": 3,
-      "система.интерфейс.кнопка": 3,
-      "система.интерфейс.поле_ввода": 3,
-      "система.интерфейс.текст": 3,
-      "система.интерфейс.область_текста": 3,
-      "система.интерфейс.получить_значение": 1,
-      "система.интерфейс.установить_значение": 2,
-      "система.интерфейс.диалог_сообщение": 2,
-      "система.интерфейс.диалог_подтвердить": 2,
-      "система.интерфейс.диалог_ввод": 3,
-      "система.массив.длина": 1,
-      "система.массив.получить": 2,
-      "система.объект.получить": 2,
-      "система.строка.объединить": 2,
-    };
-    return args[name] ?? 0;
-  }
 }
 
 /** Загрузить модуль из файла .osvbc или .osvbc.json */

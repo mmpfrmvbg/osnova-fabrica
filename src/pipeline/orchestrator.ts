@@ -9,6 +9,7 @@ import { IntakeAgent } from '../agents/IntakeAgent';
 import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { RepairEngineerAgent } from '../agents/RepairEngineer';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
+import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { saveTrace } from '../trace/traceStore';
 import { logger } from '../logger';
 import type { CompileResult } from '../compiler/compiler';
@@ -46,6 +47,9 @@ export function compileToBuildReport(r: CompileResult): BuildReport {
 export async function runPipeline(
   task: string,
 ): Promise<PipelineResult> {
+  const { compileSource } = await import('../compiler/compiler');
+  const { runGoldenCheck } = await import('../runtime/goldenApps');
+
   const runId = randomUUID();
   const startTime = Date.now();
   let repairAttempts = 0;
@@ -85,7 +89,6 @@ export async function runPipeline(
     for (let loop = 0; loop <= MAX_REPAIR_LOOPS; loop++) {
       // ─── Фаза 4: build ───
       log.info(`phase: build (attempt ${loop + 1})`);
-      const { compileSource } = await import('../compiler/compiler');
       buildReport = compileToBuildReport(compileSource(lastSource.source));
 
       // ─── Gate G2 ───
@@ -102,12 +105,19 @@ export async function runPipeline(
 
       // ─── Фаза 5: golden_check ───
       log.info('phase: golden_check');
-      const { runGoldenCheck } = await import('../runtime/goldenApps');
       goldenReport = await runGoldenCheck(buildReport.bytecode, spec);
 
       // ─── Gate G3 ───
       const g3 = checkG3(goldenReport);
+      const { qualityScore } = goldenReport;
       if (!g3.passed) {
+        if (qualityScore >= QUALITY_PARTIAL && qualityScore < QUALITY_PASS) {
+          log.info('qualityScore in [0.5, 0.7) — partial_success, no repair');
+          source = lastSource;
+          const result = finish('partial');
+          await saveTrace({ runId, status: result.status, task, intent, spec, source, buildReport, goldenReport, repairAttempts });
+          return result;
+        }
         log.warn(`gate G3 FAIL (attempt ${loop + 1})`, g3.failedChecks);
         if (loop >= MAX_REPAIR_LOOPS) break;
         const repair = new RepairEngineerAgent();
@@ -139,7 +149,7 @@ export async function runPipeline(
       task,
       intent,
       spec,
-      source: lastSource,
+      source: lastSource ?? source,
       buildReport,
       goldenReport,
       repairAttempts,

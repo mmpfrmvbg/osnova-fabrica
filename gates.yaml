@@ -3,7 +3,7 @@
 # Version: 0.1.0
 # ============================================================
 # 3 gates для MVP. Все метрики — тулчейн языка Основа.
-# НЕ tscErrors, НЕ coveragePercent, НЕ testsFailed (TypeScript-метрики).
+# Пороги qualityScore: src/pipeline/thresholds.ts (QUALITY_PASS, QUALITY_PARTIAL)
 # Метрики: lexerErrors, parserErrors, compilerSuccess, vm.executed, golden.passed
 # ============================================================
 
@@ -163,13 +163,11 @@ gates:
         condition: >
           goldenReport.passed == true
           OR goldenReport.qualityScore >= 0.7
-        onFail: log_partial_failure_continue
-        severity: warning
+        onFail: route_to_repair
+        severity: blocking
         note: >
-          Два пути успеха:
-          1. Точное совпадение с golden-эталоном (passed == true)
-          2. Для новых задач без эталона: qualityScore >= 0.7
-             (LLM проверяет соответствие поведения программы спеке)
+          0.7 = QUALITY_PASS из src/pipeline/thresholds.ts. Два пути: passed ИЛИ qualityScore>=0.7.
+          partial_success [0.5..0.7) — orchestrator.
 
       - id: g3_output_diff_acceptable
         name: Output diff is minor

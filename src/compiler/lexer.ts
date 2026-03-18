@@ -1,7 +1,10 @@
 /**
  * Лексер Основа MVP: разделитель инструкций — перевод строки (Python-style).
  * Спека: минимальный набор для todo/bloknot/storage_demo.
+ * Ключевые слова — из language-registry (единый источник правды).
  */
+
+import { getImplementedKeywords } from "./language-registry";
 
 export type TokenKind =
   | "модуль"
@@ -51,26 +54,10 @@ export interface Token {
   column: number;
 }
 
-/** Ключевые слова лексера (для валидации против реестра языка). */
-export const KEYWORDS: Record<string, TokenKind> = {
-  модуль: "модуль",
-  процедура: "процедура",
-  пусть: "пусть",
-  если: "если",
-  иначе: "иначе",
-  пока: "пока",
-  для_каждого: "для_каждого",
-  в: "в",
-  цикл: "цикл",
-  конец: "конец",
-  вернуть: "вернуть",
-  и: "и",
-  или: "или",
-  не: "не",
-  истина: "истина",
-  ложь: "ложь",
-  пусто: "пусто",
-};
+/** Ключевые слова лексера — из реестра языка (implemented: true). */
+export const KEYWORDS: Record<string, TokenKind> = Object.fromEntries(
+  getImplementedKeywords().map((k) => [k.lexeme, k.lexeme as TokenKind]),
+) as Record<string, TokenKind>;
 
 function isLetter(c: string): boolean {
   if (!c) return false;

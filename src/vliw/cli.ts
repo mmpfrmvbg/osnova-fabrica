@@ -22,11 +22,10 @@ function isLinearCode(code: CodeElement[]): code is RawInstruction[] {
   return last.op === "ret";
 }
 
-async function main(): Promise<number> {
-  const args = process.argv.slice(2);
-  const outIdx = args.indexOf("-o");
-  const outputPath = outIdx >= 0 ? args[outIdx + 1] : null;
-  const inputPath = args.filter((a, i) => a !== "-o" && (i === 0 || args[i - 1] !== "-o"))[0];
+export async function runScheduleCli(cliArgs: string[]): Promise<number> {
+  const outIdx = cliArgs.indexOf("-o");
+  const outputPath = outIdx >= 0 ? cliArgs[outIdx + 1] : null;
+  const inputPath = cliArgs.filter((a, i) => a !== "-o" && (i === 0 || cliArgs[i - 1] !== "-o"))[0];
 
   if (!inputPath) {
     console.error("Использование: osnova-schedule input.osvbc.json [-o output.osvbc.json]");
@@ -98,9 +97,15 @@ async function main(): Promise<number> {
   return 0;
 }
 
-main()
-  .then((code) => process.exit(code))
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+function main(): void {
+  runScheduleCli(process.argv.slice(2))
+    .then((code) => process.exit(code))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
+
+if (require.main === module) {
+  main();
+}

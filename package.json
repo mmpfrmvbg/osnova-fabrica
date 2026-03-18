@@ -3,6 +3,10 @@
   "version": "0.1.1",
   "description": "Кодогенератор для языка Основа: LLM → .osnova → .osvbc → VM",
   "private": true,
+  "bin": {
+    "osnova": "dist/cli.js",
+    "osnova-fabrica": "dist/cli.js"
+  },
   "engines": {
     "node": ">=20"
   },

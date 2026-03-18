@@ -7,8 +7,9 @@ import {
   DEFAULT_PROVIDER,
   getDefaultModel,
 } from './llm/defaults.js';
+import { getLLMProvider } from './llm/index.js';
 
-export function validateEnv(): void {
+export async function validateEnv(): Promise<void> {
   const provider = process.env.OSNOVA_PROVIDER ?? DEFAULT_PROVIDER;
   const valid = Object.keys(PROVIDER_DEFAULT_MODEL);
 
@@ -38,6 +39,16 @@ export function validateEnv(): void {
         provider,
       )}`,
     );
+  }
+
+  try {
+    const provider = getLLMProvider();
+    const status = await provider.checkHealth?.();
+    if (status && !status.available) {
+      console.warn('[env] LLM provider unavailable:', status.error);
+    }
+  } catch {
+    /* ignore — не блокируем старт */
   }
 
   // Применяем LOG_LEVEL из окружения к логгеру

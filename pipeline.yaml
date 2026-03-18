@@ -27,14 +27,13 @@ defaults:
   onMaxRetries: log_failure_and_exit
 
 # ─── Единый реестр порогов qualityScore ───────────────────────────────────
-# ПРАВИЛО: менять пороги только здесь. gates.yaml и логика фаз ссылаются
-# на эти значения по имени, а не хардкодят числа в нескольких местах.
-# Типы BuildReport / GoldenReport должны строго соответствовать
-# src/pipeline/types.ts — это единственный источник правды для полей.
+# ИСТОЧНИК ПРАВДЫ: src/pipeline/thresholds.ts (QUALITY_PASS, QUALITY_PARTIAL).
+# Значения ниже — документация; код читает thresholds.ts. Не дублировать числа.
+# Типы BuildReport / GoldenReport — src/pipeline/types.ts
 thresholds:
   qualityScore:
-    pass: 0.7       # G3 пропускает run; pipeline считает run успешным
-    partial: 0.5    # run завершается, но помечается как partial_success
+    pass: 0.7       # = QUALITY_PASS в thresholds.ts
+    partial: 0.5    # = QUALITY_PARTIAL в thresholds.ts (partial_success)
     # partial нужен для сбора трейсов: программа работает, но не идеально.
     # Не является заменой pass — в отчёте ставится статус partial_success,
     # а не success. RuleDistiller в v0.3 использует эти трейсы отдельно.
@@ -47,6 +46,8 @@ phases:
   - id: intake
     agent: IntakeAgent
     agentMode: intent     # IntakeAgent запускается в режиме intent (см. roles.yaml: modes)
+    # Примечание: agentMode — декларативный; оркестратор v0.1 не читает pipeline.yaml,
+    # фазы захардкожены в orchestrator.ts (DEBT-002).
     description: Текстовый запрос пользователя → нормализованный OsnovaIntent
     input:
       - type: RawText
@@ -72,6 +73,7 @@ phases:
   - id: spec_generation
     agent: IntakeAgent
     agentMode: spec       # IntakeAgent запускается в режиме spec (см. roles.yaml: modes)
+    # agentMode — декларативный; оркестратор v0.1 хардкодит цепочку фаз.
     description: >
       OsnovaIntent → OsnovaSpec.
       Spec описывает модули, типы, процедуры и invoke-вызовы языка Основа.

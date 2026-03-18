@@ -9,6 +9,9 @@ import { getLLMProvider } from '../llm/index';
 import type { OsnovaSource, BuildReport, GoldenReport } from '../pipeline/types';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
+import { OSNOVA_FORBIDDEN_RULES } from './osnova-constraints';
+import { buildOsnovaRepairPrompt } from '../pipeline-llm/buildOsnovaPrompt';
+import { stripMarkdownFence } from '../llm/stripMarkdownFence';
 
 const log = logger('repair-agent');
 
@@ -36,6 +39,9 @@ const SYSTEM_PROMPT = `
    end/}     → конец
    while     → пока
    module    → модуль
+
+Запрещённые конструкции (не генерировать при исправлении):
+${OSNOVA_FORBIDDEN_RULES}
 `.trim();
 
 export class RepairEngineerAgent {
@@ -67,13 +73,8 @@ export class RepairEngineerAgent {
         errors.push(`Расхождение с эталоном:\n${goldenReport.outputDiff}`);
     }
 
-    const userPrompt = [
-      '// Текущий .osnova код:',
-      source.source,
-      '',
-      '// Ошибки:',
-      errors.length > 0 ? errors.join('\n') : 'Программа выполнилась, но результат не совпадает с эталоном.',
-    ].join('\n');
+    const prefix = attempt ? `// Попытка #${attempt}: предыдущие попытки не исправили проблему.` : undefined;
+    const userPrompt = buildOsnovaRepairPrompt(source.source, errors, prefix);
 
     let response;
     try {
@@ -91,10 +92,7 @@ export class RepairEngineerAgent {
       throw wrapLlmError(err, 'RepairEngineer.fix', { model, attempt });
     }
 
-    const fixed = response.content
-      .replace(/```[a-z]*\n?/g, '')
-      .replace(/```/g, '')
-      .trim();
+    const fixed = stripMarkdownFence(response.content);
 
     return {
       filename: source.filename,

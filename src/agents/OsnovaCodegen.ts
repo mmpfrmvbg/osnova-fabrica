@@ -6,6 +6,7 @@
 // ============================================================
 
 import { getLLMProvider } from '../llm/index';
+import { stripMarkdownFence } from '../llm/stripMarkdownFence';
 import type { OsnovaSpec, OsnovaSource } from '../pipeline/types';
 import { buildOsnovaPrompt } from '../pipeline-llm/buildOsnovaPrompt';
 import { wrapLlmError } from '../llm/errors';
@@ -15,7 +16,10 @@ import * as path from 'path';
 
 const log = logger('codegen-agent');
 
+let cachedFewShot: string | null = null;
+
 function loadFewShot(): string {
+  if (cachedFewShot) return cachedFewShot;
   try {
     const p = path.resolve(__dirname, '../../docs/golden-tests.json');
     const raw = fs.readFileSync(p, 'utf-8');
@@ -40,7 +44,8 @@ function loadFewShot(): string {
       'конец',
     ].join('\n');
 
-    return [goldenExamples, sumExample].filter(Boolean).join('\n\n---\n\n');
+    cachedFewShot = [goldenExamples, sumExample].filter(Boolean).join('\n\n---\n\n');
+    return cachedFewShot;
   } catch {
     return '// нет примеров';
   }
@@ -52,9 +57,9 @@ const SYSTEM_PROMPT = `
 
 Правила:
 1. Генерируй ТОЛЬКО код на языке Основа — не TypeScript, не Python, не SQL.
-2. Используй кириллические ключевые слова: процедура, если, иначе, цикл, для каждого, вернуть.
+2. Используй кириллические ключевые слова: процедура, если, иначе, цикл, для_каждого (с подчёркиванием), вернуть.
 3. Типы: Целое32, Строка, Логический, Байт, ?Тип, Результат<Т,Е>, Успех(v), Неудача(e).
-4. Syscall API: система.хранилище.получить(), система.хранилище.сохранить(),
+4. Syscall API: система.хранилище.прочитать(ключ), система.хранилище.записать(ключ, значение),
    система.окно.создать_окно(), система.сеть.запрос().
 5. Отступы: 2 пробела.
 6. Имена переменных и процедур — на кириллице.
@@ -63,7 +68,7 @@ const SYSTEM_PROMPT = `
 9. ЗАПРЕЩЕНО: литералы массивов [] — нет в языке.
 10. ЗАПРЕЩЕНО: методы на переменных: .добавить(), .длина(), .найти() и подобные.
 11. ЗАПРЕЩЕНО: "пусть объект.поле = значение" — "пусть" только для объявления новых переменных.
-12. ЗАПРЕЩЕНО: "для каждого X в Y" — вместо этого используй цикл "пока" с индексом/счётчиком.
+12. ЗАПРЕЩЕНО: «для каждого» с пробелом — только «для_каждого» с подчёркиванием.
 13. Для хранения нескольких значений используй только отдельные переменные
     или передавай данные через параметры процедур.
 14. Каждый модуль заканчивается словом "конец" только один раз в самом конце файла.
@@ -98,10 +103,7 @@ export class OsnovaCodegenAgent {
       throw wrapLlmError(err, 'OsnovaCodegen.generate', { model });
     }
 
-    const source = response.content
-      .replace(/```[a-z]*\n?/g, '')
-      .replace(/```/g, '')
-      .trim();
+    const source = stripMarkdownFence(response.content);
 
     return {
       filename: `${spec.mainModule}.osnova`,

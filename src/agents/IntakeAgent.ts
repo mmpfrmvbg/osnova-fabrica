@@ -57,6 +57,7 @@ export class IntakeAgent {
               '  "confidence": 0.9,',
               '  "language": "osnova",',
               '  "features": ["feature1", "feature2"],',
+              '  "appType": "утилита",',
               '  "params": {}',
               '}',
               '',
