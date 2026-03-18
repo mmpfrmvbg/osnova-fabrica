@@ -12,7 +12,8 @@ import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { saveTrace } from '../trace/traceStore';
 import { logger } from '../logger';
-import type { CompileResult } from '../compiler/compiler';
+import { compileSource, type CompileResult } from '../compiler/compiler';
+import { runGoldenCheck } from '../runtime/goldenApps';
 import type {
   OsnovaIntent,
   OsnovaSpec,
@@ -47,9 +48,6 @@ export function compileToBuildReport(r: CompileResult): BuildReport {
 export async function runPipeline(
   task: string,
 ): Promise<PipelineResult> {
-  const { compileSource } = await import('../compiler/compiler');
-  const { runGoldenCheck } = await import('../runtime/goldenApps');
-
   const runId = randomUUID();
   const startTime = Date.now();
   let repairAttempts = 0;
