@@ -1,0 +1,23 @@
+# Cursorrules для osnova-fabrica
+
+## Канон документации
+- Язык: `docs/language-v1.md` (единственный источник истины)
+- Трейсы: `docs/traces-v1.md` + `src/trace/types.ts`
+- Пайплайн: `src/pipeline/orchestrator.ts` (не docs/pipeline-llm-osnova.md)
+- Статусы документов: `docs/doc-status-plan.md`
+
+## Deprecated — не ссылаться, не цитировать
+- `docs/grammatika-v0.1.md` → status: deprecated
+- `docs/trace-format-v0.1.md` → superseded-by: traces-v1.md
+
+## Запрещённые конструкции языка Основа
+Не генерировать: `{ }`, `вызвать`, `функция`, `:=`, `конец_пока`, `конец_процедуры`
+Только: `конец`, `процедура`, `пусть имя = значение`
+
+## Коммиты
+- Формат: `type(scope): описание`
+- Трейлеры: только `Co-authored-by:` или `Signed-off-by:`
+- Не использовать: `Made-with:`, `Generated-by:` и нестандартные трейлеры
+
+## CI
+npm run typecheck && npm test && npm run lint && npm run golden
