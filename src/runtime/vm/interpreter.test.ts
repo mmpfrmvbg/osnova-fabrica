@@ -219,6 +219,75 @@ describe("Invoke arg order (Stack Convention: push arg0, push arg1, invoke → a
   });
 });
 
+describe("система.строка расширенная", () => {
+  it("длина: система.строка.длина('привет') === 6", async () => {
+    const m = mod(
+      [pushK(0), { op: "invoke", name: "система.строка.длина" } as RawInstruction],
+      ["привет"],
+    );
+    expect((await run(m)).result).toBe(6);
+  });
+
+  it("содержит: система.строка.содержит('привет мир', 'мир') === true", async () => {
+    const m = mod(
+      [pushK(0), pushK(1), { op: "invoke", name: "система.строка.содержит" } as RawInstruction],
+      ["привет мир", "мир"],
+    );
+    expect((await run(m)).result).toBe(true);
+  });
+
+  it("начинается_с: система.строка.начинается_с('привет', 'при') === true", async () => {
+    const m = mod(
+      [pushK(0), pushK(1), { op: "invoke", name: "система.строка.начинается_с" } as RawInstruction],
+      ["привет", "при"],
+    );
+    expect((await run(m)).result).toBe(true);
+  });
+
+  it("заканчивается_на: система.строка.заканчивается_на('привет', 'вет') === true", async () => {
+    const m = mod(
+      [pushK(0), pushK(1), { op: "invoke", name: "система.строка.заканчивается_на" } as RawInstruction],
+      ["привет", "вет"],
+    );
+    expect((await run(m)).result).toBe(true);
+  });
+
+  it("подстрока: система.строка.подстрока('привет', 0, 3) === 'при'", async () => {
+    const m = mod(
+      [pushK(0), pushK(1), pushK(2), { op: "invoke", name: "система.строка.подстрока" } as RawInstruction],
+      ["привет", 0, 3],
+    );
+    expect((await run(m)).result).toBe("при");
+  });
+
+  it("в_верхний: система.строка.в_верхний('hello') === 'HELLO'", async () => {
+    const m = mod(
+      [pushK(0), { op: "invoke", name: "система.строка.в_верхний" } as RawInstruction],
+      ["hello"],
+    );
+    expect((await run(m)).result).toBe("HELLO");
+  });
+
+  it("заменить: система.строка.заменить('а,б,в', ',', ' ') === 'а б в'", async () => {
+    const m = mod(
+      [pushK(0), pushK(1), pushK(2), { op: "invoke", name: "система.строка.заменить" } as RawInstruction],
+      ["а,б,в", ",", " "],
+    );
+    expect((await run(m)).result).toBe("а б в");
+  });
+
+  it("разделить: система.строка.разделить('a,b,c', ',') → массив из 3 элементов", async () => {
+    const m = mod(
+      [pushK(0), pushK(1), { op: "invoke", name: "система.строка.разделить" } as RawInstruction],
+      ["a,b,c", ","],
+    );
+    const result = (await run(m)).result;
+    expect(Array.isArray(result)).toBe(true);
+    expect((result as string[]).length).toBe(3);
+    expect((result as string[])).toEqual(["a", "b", "c"]);
+  });
+});
+
 describe("Control flow", () => {
   it("jmp skips instructions", async () => {
     const m = mod([{ op: "jmp", off: 2 } as RawInstruction, pushK(0), pushK(1)], [111, 999]);

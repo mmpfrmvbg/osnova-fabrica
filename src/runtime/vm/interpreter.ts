@@ -58,6 +58,57 @@ function defaultInvokeHandler(name: string, args: StackValue[]): StackValue | nu
       if (!Array.isArray(arr) || idx < 0 || idx >= arr.length) return null;
       return (arr as StackValue[])[idx] as StackValue;
     }
+    case "система.строка.объединить": {
+      const a = String(args[0] ?? "");
+      const b = String(args[1] ?? "");
+      return a + b;
+    }
+    case "система.строка.длина": {
+      const s = String(args[0] ?? "");
+      return s.length;
+    }
+    case "система.строка.содержит": {
+      const haystack = String(args[0] ?? "");
+      const needle = String(args[1] ?? "");
+      return haystack.includes(needle);
+    }
+    case "система.строка.начинается_с": {
+      const s = String(args[0] ?? "");
+      const prefix = String(args[1] ?? "");
+      return s.startsWith(prefix);
+    }
+    case "система.строка.заканчивается_на": {
+      const s = String(args[0] ?? "");
+      const suffix = String(args[1] ?? "");
+      return s.endsWith(suffix);
+    }
+    case "система.строка.подстрока": {
+      const s = String(args[0] ?? "");
+      const start = Number(args[1] ?? 0);
+      const end = Number(args[2] ?? s.length);
+      return s.slice(start, end);
+    }
+    case "система.строка.в_верхний": {
+      return String(args[0] ?? "").toUpperCase();
+    }
+    case "система.строка.в_нижний": {
+      return String(args[0] ?? "").toLowerCase();
+    }
+    case "система.строка.обрезать": {
+      return String(args[0] ?? "").trim();
+    }
+    case "система.строка.заменить": {
+      const s = String(args[0] ?? "");
+      const from = String(args[1] ?? "");
+      const to = String(args[2] ?? "");
+      return s.split(from).join(to);
+    }
+    case "система.строка.разделить": {
+      const s = String(args[0] ?? "");
+      const sep = String(args[1] ?? "");
+      const parts = s.split(sep);
+      return parts;
+    }
     default:
       return null;
   }
