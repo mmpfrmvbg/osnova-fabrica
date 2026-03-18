@@ -28,6 +28,19 @@ describe("Compiler smoke: todo.osnova", () => {
     expect(names).toContain("handle_event");
     expect(names).toContain("handle_add");
   });
+
+  it("модуль с закрывающим конец парсится без ошибок", () => {
+    const src = `
+модуль Главный
+процедура главная()
+  вернуть 42
+конец
+конец
+    `.trim();
+    const result = compileSource(src);
+    expect(result.parserErrors).toHaveLength(0);
+    expect(result.compilerSuccess).toBe(true);
+  });
 });
 
 describe("Compiler: иначе (if/else)", () => {

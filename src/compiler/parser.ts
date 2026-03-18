@@ -117,6 +117,21 @@ export function parse(tokens: Token[]): ParseResult {
       else syncToTopLevel();
       skipNewlines();
     }
+    // Опциональный закрывающий "конец" для модуля
+    if (peek().kind === "конец") {
+      advance();
+      skipNewlines();
+    }
+    // Опциональный закрывающий "конец" для модуля
+    if (peek().kind === "конец") {
+      advance();
+      skipNewlines();
+    }
+    // Опциональный закрывающий "конец" для модуля
+    if (peek().kind === "конец") {
+      advance();
+      skipNewlines();
+    }
     if (peek().kind !== "конец_файла") {
       const t = peek();
       errors.push({
