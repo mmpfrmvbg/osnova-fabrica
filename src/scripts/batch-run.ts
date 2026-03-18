@@ -81,6 +81,16 @@ interface TaskResult {
   status: string;
   repairAttempts: number;
   durationMs: number;
+  firstError?: string;
+}
+
+function getFirstError(buildReport: { parserErrors?: Array<{ line?: number; column?: number; message?: string }>; compilerErrors?: Array<{ message?: string }> } | undefined): string | undefined {
+  if (!buildReport) return undefined;
+  const pe = buildReport.parserErrors?.[0];
+  if (pe) return `${pe.line ?? 0}:${pe.column ?? 0} ${pe.message ?? ''}`;
+  const ce = buildReport.compilerErrors?.[0];
+  if (ce) return (ce as { message?: string }).message ?? JSON.stringify(ce);
+  return undefined;
 }
 
 async function main(): Promise<void> {
@@ -111,6 +121,7 @@ async function main(): Promise<void> {
       status: result.status,
       repairAttempts: result.repairAttempts ?? 0,
       durationMs,
+      firstError: (result.status === 'repair_exhausted' || result.status === 'failure') ? getFirstError(result.buildReport) : undefined,
     };
     const sym = statusSymbol(result.status);
     const r = result.repairAttempts ?? 0;
@@ -164,6 +175,16 @@ avg repair:       ${avgRepair}
     'utf-8',
   );
   log.info('summary written', { path: outputPath });
+
+  const failed = results.filter((r) => r.status === 'repair_exhausted' || r.status === 'failure');
+  if (failed.length > 0) {
+    console.log('\n═══ Упавшие задачи ═══');
+    for (const r of failed) {
+      console.log(`✗ ${r.task}`);
+      console.log(`  ${r.status} ${r.repairAttempts}r  ${r.firstError ?? '—'}`);
+    }
+    console.log('═══════════════════════');
+  }
 }
 
 main().catch((err) => {
