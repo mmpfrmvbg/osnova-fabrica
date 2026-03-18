@@ -236,7 +236,9 @@ async function main() {
   console.error('[osnova-golden] VLIW v2 example OK');
 }
 
-main().catch(err => {
-  console.error('[osnova-golden] ERROR:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('[osnova-golden] ERROR:', err);
+    process.exit(1);
+  });
+}

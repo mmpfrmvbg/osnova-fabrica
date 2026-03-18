@@ -40,8 +40,12 @@ const createMockProvider = () => ({
       };
     }
 
-    // IntakeAgent generateSpec: system + user, system имеет "Return ONLY this JSON" и "modules"
-    if (messages.length === 2 && systemContent.includes('Return ONLY this JSON') && systemContent.includes('modules')) {
+    // IntakeAgent generateSpec: system + user, system имеет "modules" (и "Return ONLY" или "Верни ТОЛЬКО")
+    if (
+      messages.length === 2 &&
+      systemContent.includes('modules') &&
+      (systemContent.includes('Return ONLY this JSON') || systemContent.includes('Верни ТОЛЬКО'))
+    ) {
       return {
         content: JSON.stringify({
           modules: [{ name: 'Главный', description: 'Main', isMain: true }],

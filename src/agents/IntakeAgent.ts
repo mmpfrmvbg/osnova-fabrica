@@ -14,25 +14,28 @@ import { logger } from '../logger';
 const log = logger('intake-agent');
 
 const SPEC_SYSTEM_PROMPT = `
-Given this programming intent for the Osnova language, return a JSON spec object.
+Ты генерируешь спецификацию для программы на языке Основа.
+Язык Основа — один модуль, только процедуры, без классов и объектов.
 
-The Osnova language has:
-- Cyrillic syntax
-- Types: Целое32, Строка, Логический, ?Тип, Результат
-- Procedures and functions
-- Syscalls: система.хранилище, система.окно, система.сеть
+ВАЖНО: возвращай ТОЛЬКО один модуль в "modules". Несколько модулей запрещены.
+ВАЖНО: "types" всегда пустой массив []. Объектных типов в языке нет.
+ВАЖНО: "mainModule" — имя главного модуля на кириллице (например: "Главный").
+ВАЖНО: "syscalls" — только из списка:
+  система.лог.вывести, система.хранилище.записать, система.хранилище.прочитать,
+  система.хранилище.ключи, система.хранилище.удалить, система.строка.объединить,
+  система.массив.длина, система.массив.получить, система.массив.добавить,
+  система.массив.создать, система.массив.установить, система.массив.удалить,
+  система.файлы.прочитать_все, система.файлы.записать_все, система.время.сейчас
 
-Return ONLY this JSON, nothing else:
+Верни ТОЛЬКО этот JSON, без объяснений:
 {
-  "modules": [{"name": string, "description": string, "isMain": boolean}],
-  "mainModule": string,
-  "types": [{"name": string, "fields": {}}],
-  "procedures": [{"name": string, "params": {}, "returnType": string}],
-  "syscalls": string[],
+  "modules": [{"name": "Главный", "description": "описание", "isMain": true}],
+  "mainModule": "Главный",
+  "types": [],
+  "procedures": [{"name": "главная", "params": {}, "returnType": "Логический"}],
+  "syscalls": ["система.лог.вывести"],
   "conventions": {}
 }
-
-No explanation. No greeting. Just the JSON.
 `.trim();
 
 export class IntakeAgent {
