@@ -74,6 +74,7 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "пусть", kind: "stmt", implemented: true, since: "0.1.0" },
   { lexeme: "если", kind: "stmt", implemented: true, since: "0.1.0" },
   { lexeme: "иначе", kind: "stmt", implemented: true, since: "0.1.0", description: "ветка else после если" },
+  { lexeme: "иначе_если", kind: "stmt", implemented: true, since: "0.1.0", description: "цепочка else-if между если и иначе" },
   { lexeme: "пока", kind: "stmt", implemented: true, since: "0.1.0" },
   { lexeme: "для_каждого", kind: "stmt", implemented: true, since: "0.1.0", description: "цикл по коллекции" },
   { lexeme: "в", kind: "stmt", implemented: true, since: "0.1.0", description: "в конструкции для_каждого x в expr" },

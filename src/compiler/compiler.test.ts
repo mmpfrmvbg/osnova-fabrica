@@ -69,6 +69,39 @@ describe("Compiler: иначе (if/else)", () => {
     expect(await vm.runProcedure(0, [])).toBe(2);
   });
 
+  it("иначе_если генерирует корректный байткод", async () => {
+    const source = `
+модуль t
+процедура main()
+  пусть x = 0
+  если x == 1
+    x = 1
+  иначе_если x == 2
+    x = 2
+  иначе_если x == 3
+    x = 3
+  иначе
+    x = 4
+  конец
+  вернуть x
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.lexerErrors.length).toBe(0);
+    expect(result.parserErrors.length).toBe(0);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(4);
+    // x==1 → ветка 1
+    const src1 = source.replace("пусть x = 0", "пусть x = 1");
+    expect(await new VM(compileSource(src1).module!, { maxSteps: 1000 }).runProcedure(0, [])).toBe(1);
+    // x==2 → ветка 2
+    const src2 = source.replace("пусть x = 0", "пусть x = 2");
+    expect(await new VM(compileSource(src2).module!, { maxSteps: 1000 }).runProcedure(0, [])).toBe(2);
+    // x==3 → ветка 3
+    const src3 = source.replace("пусть x = 0", "пусть x = 3");
+    expect(await new VM(compileSource(src3).module!, { maxSteps: 1000 }).runProcedure(0, [])).toBe(3);
+  });
+
   it("если без иначе: VM returns 1", async () => {
     const source = `
 модуль t

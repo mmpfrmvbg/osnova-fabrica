@@ -16,7 +16,7 @@ export type Stmt =
   | { kind: "пусть"; name: string; init: Expr }
   | { kind: "присвоить"; name: string; value: Expr }
   | { kind: "выражение"; expr: Expr }
-  | { kind: "если"; condition: Expr; body: Stmt[]; elseBody?: Stmt[] }
+  | { kind: "если"; condition: Expr; body: Stmt[]; elseIfClauses?: Array<{ condition: Expr; body: Stmt[] }>; elseBody?: Stmt[] }
   | { kind: "пока"; condition: Expr; body: Stmt[] }
   | { kind: "для_каждого"; variable: string; collection: Expr; body: Stmt[] }
   | { kind: "цикл"; body: Stmt[] }

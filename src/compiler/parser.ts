@@ -212,11 +212,26 @@ export function parse(tokens: Token[]): ParseResult {
       if (!condition) return null;
       skipNewlines();
       const body: Stmt[] = [];
-      while (peek().kind !== "конец" && peek().kind !== "иначе" && peek().kind !== "конец_файла") {
+      while (peek().kind !== "конец" && peek().kind !== "иначе_если" && peek().kind !== "иначе" && peek().kind !== "конец_файла") {
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
         skipNewlines();
+      }
+      const elseIfClauses: Array<{ condition: Expr; body: Stmt[] }> = [];
+      while (peek().kind === "иначе_если") {
+        advance();
+        const cond = parseExpr();
+        if (!cond) return null;
+        skipNewlines();
+        const clauseBody: Stmt[] = [];
+        while (peek().kind !== "конец" && peek().kind !== "иначе_если" && peek().kind !== "иначе" && peek().kind !== "конец_файла") {
+          const s = parseStmt();
+          if (s) clauseBody.push(s);
+          else syncToStmtBoundary();
+          skipNewlines();
+        }
+        elseIfClauses.push({ condition: cond, body: clauseBody });
       }
       let elseBody: Stmt[] | undefined;
       if (peek().kind === "иначе") {
@@ -231,7 +246,7 @@ export function parse(tokens: Token[]): ParseResult {
         }
       }
       if (!consume("конец", "Ожидается 'конец' после тела если")) return null;
-      return { kind: "если", condition, body, elseBody };
+      return { kind: "если", condition, body, elseIfClauses: elseIfClauses.length > 0 ? elseIfClauses : undefined, elseBody };
     }
     if (peek().kind === "пока") {
       advance();

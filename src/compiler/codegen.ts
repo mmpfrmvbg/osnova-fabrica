@@ -144,6 +144,7 @@ export function compile(ast: Module): OsVbcModule {
         if (s.kind === "присвоить") { /* не добавляем в locals — требуется пусть, ошибка в emitStmt */ }
         if (s.kind === "если") {
           scan(s.body);
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) scan(c.body);
           if (s.elseBody) scan(s.elseBody);
         }
         if (s.kind === "пока") scan(s.body);
@@ -191,18 +192,45 @@ export function compile(ast: Module): OsVbcModule {
           break;
         case "если": {
           emitExpr(s.condition, locals);
-          const jmpIfFalse = code.length;
+          const patchJmpIfFalse = code.length;
           emit({ op: "jmp_if_not", off: 0 } as RawInstruction);
           for (const b of s.body) emitStmt(b);
-          if (s.elseBody && s.elseBody.length > 0) {
-            const jmpEnd = code.length;
+          const hasElsePart =
+            (s.elseIfClauses && s.elseIfClauses.length > 0) ||
+            (s.elseBody && s.elseBody.length > 0);
+          let patchJmpSkip: number | null = null;
+          if (hasElsePart) {
+            patchJmpSkip = code.length;
             emit({ op: "jmp", off: 0 } as RawInstruction);
-            (code[jmpIfFalse] as { off: number }).off = code.length;
-            for (const b of s.elseBody) emitStmt(b);
-            (code[jmpEnd] as { off: number }).off = code.length;
-          } else {
-            (code[jmpIfFalse] as { off: number }).off = code.length;
           }
+          const patchesToEnd: number[] = [];
+          if (s.elseIfClauses && s.elseIfClauses.length > 0) {
+            let nextTarget = code.length;
+            (code[patchJmpIfFalse] as { off: number }).off = nextTarget;
+            for (const clause of s.elseIfClauses) {
+              emitExpr(clause.condition, locals);
+              const patchClauseJmp = code.length;
+              emit({ op: "jmp_if_not", off: 0 } as RawInstruction);
+              for (const b of clause.body) emitStmt(b);
+              patchesToEnd.push(code.length);
+              emit({ op: "jmp", off: 0 } as RawInstruction);
+              nextTarget = code.length;
+              (code[patchClauseJmp] as { off: number }).off = nextTarget;
+            }
+            if (s.elseBody && s.elseBody.length > 0) {
+              for (const b of s.elseBody) emitStmt(b);
+            }
+          } else if (s.elseBody && s.elseBody.length > 0) {
+            (code[patchJmpIfFalse] as { off: number }).off = code.length;
+            for (const b of s.elseBody) emitStmt(b);
+          } else {
+            (code[patchJmpIfFalse] as { off: number }).off = code.length;
+          }
+          const endIf = code.length;
+          if (patchJmpSkip !== null)
+            (code[patchJmpSkip] as { off: number }).off = endIf;
+          for (const p of patchesToEnd)
+            (code[p] as { off: number }).off = endIf;
           break;
         }
         case "пока": {
