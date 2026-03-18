@@ -122,16 +122,6 @@ export function parse(tokens: Token[]): ParseResult {
       advance();
       skipNewlines();
     }
-    // Опциональный закрывающий "конец" для модуля
-    if (peek().kind === "конец") {
-      advance();
-      skipNewlines();
-    }
-    // Опциональный закрывающий "конец" для модуля
-    if (peek().kind === "конец") {
-      advance();
-      skipNewlines();
-    }
     if (peek().kind !== "конец_файла") {
       const t = peek();
       errors.push({
@@ -325,13 +315,31 @@ export function parse(tokens: Token[]): ParseResult {
     if (isAt("идентификатор")) {
       const tokAssign = advance();
       const name = String(tokAssign.value ?? tokAssign.lexeme);
-      if (peek().kind === "=") {
+      // Проверить: имя.поле = значение (только когда после поля сразу "=")
+      let rewinded = false;
+      if (peek().kind === ".") {
+        const savePos = pos;
+        advance();
+        if (isAt("идентификатор")) {
+          const fieldTok = advance();
+          const field = String(fieldTok.value ?? fieldTok.lexeme);
+          if (peek().kind === "=") {
+            advance();
+            const value = parseExpr();
+            if (!value) return null;
+            return { kind: "поле_присвоить", object: name, field, value };
+          }
+        }
+        pos = savePos - 1; // rewind to identifier for parseExpr
+        rewinded = true;
+      }
+      if (!rewinded && peek().kind === "=") {
         advance();
         const value = parseExpr();
         if (!value) return null;
         return { kind: "присвоить", name, value };
       }
-      pos--; // put back identifier, parse as expression statement
+      if (!rewinded) pos--; // put back identifier, parse as expression statement
     }
     const expr = parseExpr();
     if (!expr) return null;
@@ -426,6 +434,12 @@ export function parse(tokens: Token[]): ParseResult {
     return parsePrimary();
   }
 
+  function getExprInvokeName(expr: Expr): string {
+    if (expr.kind === "переменная") return expr.name;
+    if (expr.kind === "поле") return getExprInvokeName(expr.object) + "." + expr.field;
+    return "";
+  }
+
   function parsePrimary(): Expr | null {
     const t = peek();
     if (t.kind === "число") {
@@ -454,6 +468,29 @@ export function parse(tokens: Token[]): ParseResult {
       consume(")", "Ожидается ')'");
       return inner;
     }
+    if (t.kind === "{") {
+      advance();
+      skipNewlines();
+      const entries: Array<{ key: string; value: Expr }> = [];
+      while (peek().kind !== "}" && peek().kind !== "конец_файла") {
+        const keyTok = peek();
+        if (keyTok.kind !== "идентификатор") break;
+        advance();
+        const key = String(keyTok.value ?? keyTok.lexeme);
+        if (!consume(":", "Ожидается ':' после ключа объекта")) return null;
+        skipNewlines();
+        const val = parseExpr();
+        if (!val) return null;
+        entries.push({ key, value: val });
+        skipNewlines();
+        if (peek().kind === ",") {
+          advance();
+          skipNewlines();
+        } else break;
+      }
+      if (!consume("}", "Ожидается '}' после тела объекта")) return null;
+      return { kind: "объект", entries };
+    }
     if (t.kind === "[") {
       advance();
       const elements: Expr[] = [];
@@ -472,24 +509,31 @@ export function parse(tokens: Token[]): ParseResult {
     }
     if (t.kind === "идентификатор") {
       advance();
-      let name = String(t.value ?? t.lexeme);
-      while (peek().kind === ".") {
+      const name = String(t.value ?? t.lexeme);
+      let expr: Expr = { kind: "переменная", name };
+      while (peek().kind === "." && peek().kind !== "конец_файла") {
         advance();
-        if (!isAt("идентификатор")) {
-          const tDot = peek();
-          errors.push({
-            message: "Ожидается идентификатор после '.'",
-            line: tDot.line,
-            column: tDot.column,
-            context: "expr",
-            expected: ["идентификатор"],
-            actualKind: tDot.kind,
-            actualLexeme: tDot.lexeme,
-          });
-          return { kind: "переменная", name };
+        if (!isAt("идентификатор")) break;
+        const fieldTok = advance();
+        const field = String(fieldTok.value ?? fieldTok.lexeme);
+        if (peek().kind === "(") {
+          const fullName = getExprInvokeName(expr) + (getExprInvokeName(expr) ? "." : "") + field;
+          advance();
+          skipNewlines();
+          const args: Expr[] = [];
+          while (peek().kind !== ")" && peek().kind !== "конец_файла") {
+            const arg = parseExpr();
+            if (arg) args.push(arg);
+            skipNewlines();
+            if (peek().kind === ",") {
+              advance();
+              skipNewlines();
+            } else break;
+          }
+          if (!consume(")", "Ожидается ')'")) return null;
+          return { kind: "вызов", name: fullName, args };
         }
-        const tokMember = advance();
-        name += "." + String(tokMember.value ?? tokMember.lexeme);
+        expr = { kind: "поле", object: expr, field };
       }
       if (peek().kind === "(") {
         advance();
@@ -507,7 +551,7 @@ export function parse(tokens: Token[]): ParseResult {
         consume(")", "Ожидается ')'");
         return { kind: "вызов", name, args };
       }
-      return { kind: "переменная", name };
+      return expr;
     }
     errors.push({
       message: `Ожидается выражение, получено: ${t.kind}`,

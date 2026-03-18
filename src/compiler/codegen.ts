@@ -55,6 +55,14 @@ export function compile(ast: Module): OsVbcModule {
     let arrLiteralCounter = 0;
     proc.params.forEach((p, i) => locals.set(p, i));
     function scanExpr(expr: Expr): void {
+      if (expr.kind === "объект") {
+        for (const { value } of expr.entries) scanExpr(value);
+        return;
+      }
+      if (expr.kind === "поле") {
+        scanExpr(expr.object);
+        return;
+      }
       if (expr.kind === "массив") {
         if (!locals.has(`__arr_literal_${arrLiteralCounter}`))
           locals.set(`__arr_literal_${arrLiteralCounter}`, locals.size);
@@ -100,6 +108,7 @@ export function compile(ast: Module): OsVbcModule {
         }
         if (s.kind === "цикл") scan(s.body);
         if (s.kind === "вернуть" && s.value) scanExpr(s.value);
+        if (s.kind === "поле_присвоить") scanExpr(s.value);
       }
     }
     scan(proc.body);
@@ -198,6 +207,24 @@ export function compile(ast: Module): OsVbcModule {
           emit({ op: "local.get", i: arrSlot } as RawInstruction);
           break;
         }
+        case "объект": {
+          emit({ op: "obj.new" } as RawInstruction);
+          for (const { key, value } of expr.entries) {
+            emit({ op: "dup" } as RawInstruction);
+            const k = constIndex(key);
+            emit({ op: "const", type: "str", k } as RawInstruction);
+            emitExpr(value, l);
+            emit({ op: "obj.set" } as RawInstruction);
+          }
+          break;
+        }
+        case "поле": {
+          emitExpr(expr.object, l);
+          const k = constIndex(expr.field);
+          emit({ op: "const", type: "str", k } as RawInstruction);
+          emit({ op: "obj.get" } as RawInstruction);
+          break;
+        }
         case "вызов": {
           for (const arg of expr.args) emitExpr(arg, l);
           if (expr.name.includes(".")) {
@@ -225,6 +252,19 @@ export function compile(ast: Module): OsVbcModule {
           }
           emitExpr(s.value, locals);
           emit({ op: "local.set", i: slot } as RawInstruction);
+          break;
+        }
+        case "поле_присвоить": {
+          const objIdx = locals.get(s.object);
+          if (objIdx === undefined) {
+            throw new Error(`Переменная "${s.object}" не объявлена`);
+          }
+          emit({ op: "local.get", i: objIdx } as RawInstruction);
+          const k = constIndex(s.field);
+          emit({ op: "const", type: "str", k } as RawInstruction);
+          emitExpr(s.value, locals);
+          emit({ op: "obj.set" } as RawInstruction);
+          emit({ op: "local.set", i: objIdx } as RawInstruction);
           break;
         }
         case "выражение":

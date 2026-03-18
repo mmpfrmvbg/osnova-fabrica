@@ -48,7 +48,11 @@ export type Op =
   | "jmp_if_not"
   | "ret"
   | "result.unwrap"
-  | "result.tag";
+  | "result.tag"
+  | "obj.new"
+  | "obj.get"
+  | "obj.set"
+  | "dup";
 
 export interface InstructionConst {
   op: "const";

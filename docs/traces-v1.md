@@ -1,0 +1,87 @@
+# Трейсы пайплайна ОС-НОВА v1
+
+## Назначение
+
+Трейсы — журнал работы LLM-пайплайна. Каждый запуск `osnova new-app` или прямой вызов `runPipeline` записывает одну строку JSONL. Используются для: отладки, анализа качества генерации, дообучения моделей.
+
+Источник правды: `src/trace/types.ts`, `src/trace/traceStore.ts`, `src/pipeline/types.ts`.
+
+---
+
+## Расположение
+
+- **Файл:** `./runs/traces.jsonl` (по умолчанию)
+- **Переменная окружения:** `OSNOVA_TRACE_DB` (переопределить путь)
+- **Формат:** JSONL (одна запись = одна строка JSON)
+
+---
+
+## Структура записи трейса
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| runId | string | UUID прогона |
+| timestamp | string | ISO 8601 (момент записи) |
+| status | PipelineStatus | Итоговый статус (`success` \| `partial` \| `failure` \| `repair_exhausted`) |
+| task | string | Исходный текстовый запрос пользователя |
+| intent | OsnovaIntent? | Результат фазы intake |
+| spec | OsnovaSpec? | Результат фазы spec_generation |
+| source | OsnovaSource? | Финальный исходный код (.osnova) |
+| buildReport | BuildReport? | Результат компиляции (lexerErrors, parserErrors, compilerErrors, bytecode) |
+| goldenReport | GoldenReport? | Результат golden_check (passed, qualityScore, vmErrors, outputDiff) |
+| repairAttempts | number | Количество вызовов RepairEngineer |
+
+**BuildReport:** `success`, `lexerErrors`, `parserErrors`, `compilerErrors`, `bytecode`, `compilerSuccess`, `durationMs`
+
+**GoldenReport:** `executed`, `passed`, `qualityScore`, `vmErrors`, `outputDiff`, `durationMs`
+
+---
+
+## Статусы PipelineResult
+
+| Статус | Когда возникает |
+|--------|-----------------|
+| success | golden_check прошёл (passed=true или qualityScore ≥ 0.7) |
+| partial | qualityScore в [0.5, 0.7) — частичный успех, repair не вызывался |
+| failure | Gate G1 не прошёл (intent/spec) или необработанное исключение |
+| repair_exhausted | Исчерпаны MAX_REPAIR_LOOPS (3) попыток repair при провале G2 или G3 |
+
+---
+
+## Анализ трейсов
+
+Примеры запросов с `jq`:
+
+**1. Количество успешных запусков:**
+```bash
+jq -s 'map(select(.status == "success")) | length' runs/traces.jsonl
+```
+
+**2. Ошибки парсера (топ провалов компиляции):**
+```bash
+jq -c 'select(.buildReport.parserErrors | length > 0) | {task, errors: .buildReport.parserErrors}' runs/traces.jsonl
+```
+
+**3. Среднее количество repair-попыток:**
+```bash
+jq -s 'map(select(.repairAttempts != null) | .repairAttempts) | add / length' runs/traces.jsonl
+```
+
+**4. Задачи, закончившиеся repair_exhausted:**
+```bash
+jq -r 'select(.status == "repair_exhausted") | .task' runs/traces.jsonl
+```
+
+**5. Трейсы с провалом golden (не прошли проверку):**
+```bash
+jq -c 'select(.goldenReport != null and .goldenReport.passed == false) | {task, qualityScore: .goldenReport.qualityScore}' runs/traces.jsonl
+```
+
+---
+
+## Использование для дообучения
+
+- **success** — позитивные примеры для fine-tuning: task → intent → spec → source образуют полную цепочку «запрос → работающий код».
+- **repair** (трейсы с repairAttempts > 0, но status = success) — примеры исправления ошибок компиляции/VM: source до и после repair, buildReport с ошибками.
+- **repair_exhausted** — сложные случаи: задачи, которые текущие промпты/модели не решают; полезны для улучшения промптов и выявления недостатков языка.
+- Идентификатор LLM-модели/провайдера для каждой фазы — планируется добавить в следующих версиях формата.

@@ -419,6 +419,38 @@ describe("Compiler: и / или / не", () => {
   });
 });
 
+describe("Compiler: объект (object literals)", () => {
+  it("объект: создание и доступ к полю", () => {
+    const src = `
+модуль Тест
+процедура главная()
+  пусть obj = { имя: "Иван", возраст: 30 }
+  пусть н = obj.имя
+  вернуть н
+конец
+конец
+    `.trim();
+    const r = compileSource(src);
+    expect(r.parserErrors).toHaveLength(0);
+    expect(r.compilerSuccess).toBe(true);
+  });
+
+  it("объект: присваивание поля", () => {
+    const src = `
+модуль Тест
+процедура главная()
+  пусть obj = { готово: ложь }
+  obj.готово = истина
+  вернуть obj.готово
+конец
+конец
+    `.trim();
+    const r = compileSource(src);
+    expect(r.parserErrors).toHaveLength(0);
+    expect(r.compilerSuccess).toBe(true);
+  });
+});
+
 describe("Compiler negative: errors reported", () => {
   it("модуль without identifier → parserErrors", () => {
     const result = compileSource("модуль \n");

@@ -154,6 +154,11 @@ export class VM {
     return this.stack;
   }
 
+  /** Вершина стека без pop (для obj.set). */
+  private stackPeek(): StackValue {
+    return this.stack[this.stack.length - 1];
+  }
+
   /** Найти индекс процедуры по имени (без учёта модуля: имя процедуры). */
   findProcedureIndex(name: string): number {
     const i = this.module.procedures.findIndex((p) => p.name === name);
@@ -356,6 +361,33 @@ export class VM {
       }
       case "ret":
         return "ret";
+      case "obj.new": {
+        this.stack.push(Object.create(null) as Record<string, StackValue>);
+        return next;
+      }
+      case "obj.get": {
+        const key = this.stack.pop() as string;
+        const obj = this.stack.pop();
+        const val =
+          obj !== null && typeof obj === "object" && !Array.isArray(obj)
+            ? (obj as Record<string, StackValue>)[key] ?? null
+            : null;
+        this.stack.push(val);
+        return next;
+      }
+      case "obj.set": {
+        const val = this.stack.pop();
+        const key = this.stack.pop() as string;
+        const obj = this.stackPeek();
+        if (obj !== null && typeof obj === "object" && !Array.isArray(obj)) {
+          (obj as Record<string, StackValue>)[key] = val as StackValue;
+        }
+        return next;
+      }
+      case "dup": {
+        this.stack.push(this.stackPeek());
+        return next;
+      }
       default:
         throw new InterpreterError(`Unknown op: ${(ins as RawInstruction).op}`, this.pc, (ins as RawInstruction).op);
     }

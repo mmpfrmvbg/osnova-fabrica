@@ -11,11 +11,14 @@ export type Expr =
   | { kind: "бинарное"; op: string; left: Expr; right: Expr }
   | { kind: "унарное"; op: "не"; arg: Expr }
   | { kind: "вызов"; name: string; args: Expr[] }
-  | { kind: "массив"; elements: Expr[] };
+  | { kind: "массив"; elements: Expr[] }
+  | { kind: "объект"; entries: Array<{ key: string; value: Expr }> }
+  | { kind: "поле"; object: Expr; field: string };
 
 export type Stmt =
   | { kind: "пусть"; name: string; init: Expr }
   | { kind: "присвоить"; name: string; value: Expr }
+  | { kind: "поле_присвоить"; object: string; field: string; value: Expr }
   | { kind: "выражение"; expr: Expr }
   | { kind: "если"; condition: Expr; body: Stmt[]; elseIfClauses?: Array<{ condition: Expr; body: Stmt[] }>; elseBody?: Stmt[] }
   | { kind: "пока"; condition: Expr; body: Stmt[] }

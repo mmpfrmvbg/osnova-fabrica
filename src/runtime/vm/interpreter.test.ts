@@ -409,6 +409,23 @@ describe("VLIW bytecode v2", () => {
     expect(await vm.runProcedure(vm.findProcedureIndex("пример"), [])).toBe(2);
   });
 
+  it("obj.new / obj.set / obj.get", async () => {
+    const m = mod(
+      [
+        { op: "obj.new" } as RawInstruction,
+        { op: "dup" } as RawInstruction,
+        { op: "const", type: "str", k: 0 } as RawInstruction,
+        { op: "const", type: "i32", k: 1 } as RawInstruction,
+        { op: "obj.set" } as RawInstruction,
+        { op: "const", type: "str", k: 0 } as RawInstruction,
+        { op: "obj.get" } as RawInstruction,
+      ],
+      ["x", 42],
+    );
+    const { result } = await run(m);
+    expect(result).toBe(42);
+  });
+
   it("VM runs version 2 without crash", async () => {
     const m = JSON.parse(await fs.readFile(fixturePath, "utf-8")) as OsVbcModule;
     const vm = new VM(m, { maxSteps: 10_000 });
