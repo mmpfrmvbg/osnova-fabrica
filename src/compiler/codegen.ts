@@ -184,6 +184,20 @@ export function compile(ast: Module): OsVbcModule {
             emit({ op: "eq" } as RawInstruction);
           }
           break;
+        case "массив": {
+          const slotKey = `__arr_literal_${emitArrLiteralCounter++}`;
+          const arrSlot = l.get(slotKey);
+          if (arrSlot === undefined) throw new Error(`Нет слота для массива: ${slotKey}`);
+          emit({ op: "invoke", name: "система.массив.создать" } as RawInstruction);
+          emit({ op: "local.set", i: arrSlot } as RawInstruction);
+          for (const element of expr.elements) {
+            emit({ op: "local.get", i: arrSlot } as RawInstruction);
+            emitExpr(element, l);
+            emit({ op: "invoke", name: "система.массив.добавить" } as RawInstruction);
+          }
+          emit({ op: "local.get", i: arrSlot } as RawInstruction);
+          break;
+        }
         case "вызов": {
           for (const arg of expr.args) emitExpr(arg, l);
           if (expr.name.includes(".")) {
@@ -193,20 +207,6 @@ export function compile(ast: Module): OsVbcModule {
             if (fi === undefined) throw new Error(`Неизвестная процедура: ${expr.name}`);
             emit({ op: "call", fi } as RawInstruction);
           }
-          break;
-        }
-        case "массив": {
-          const depth = emitArrLiteralCounter++;
-          const slot = l.get(`__arr_literal_${depth}`);
-          if (slot === undefined) throw new Error(`Слот __arr_literal_${depth} не зарезервирован`);
-          emit({ op: "invoke", name: "система.массив.создать" } as RawInstruction);
-          emit({ op: "local.set", i: slot } as RawInstruction);
-          for (const el of expr.elements) {
-            emit({ op: "local.get", i: slot } as RawInstruction);
-            emitExpr(el, l);
-            emit({ op: "invoke", name: "система.массив.добавить" } as RawInstruction);
-          }
-          emit({ op: "local.get", i: slot } as RawInstruction);
           break;
         }
       }
