@@ -49,105 +49,45 @@ export function compile(ast: Module): OsVbcModule {
     code.push(ins);
   }
 
-  function emitExpr(expr: Expr, locals: Map<string, number>): void {
-    switch (expr.kind) {
-      case "число": {
-        const k = constIndex(expr.value);
-        emit({ op: "const", type: constType(expr.value), k } as RawInstruction);
-        break;
-      }
-      case "строка": {
-        const k = constIndex(expr.value);
-        emit({ op: "const", type: "str", k } as RawInstruction);
-        break;
-      }
-      case "булево":
-        emit((expr.value ? { op: "const.true" } : { op: "const.false" }) as RawInstruction);
-        break;
-      case "пусто":
-        emit({ op: "const.null" } as RawInstruction);
-        break;
-      case "переменная": {
-        const i = locals.get(expr.name);
-        if (i === undefined) throw new Error(`Неизвестная переменная: ${expr.name}`);
-        emit({ op: "local.get", i } as RawInstruction);
-        break;
-      }
-      case "бинарное": {
-        if (expr.op === "и") {
-          // [left, jmp_if_not shortCircuit, right, jmp endAnd, shortCircuit: const.false, endAnd:]
-          emitExpr(expr.left, locals);
-          const patchJmpIfNot = code.length;
-          emit({ op: "jmp_if_not", off: 0 } as RawInstruction);
-          emitExpr(expr.right, locals);
-          const patchJmpEnd = code.length;
-          emit({ op: "jmp", off: 0 } as RawInstruction);
-          const shortCircuitLabel = code.length;
-          emit({ op: "const.false" } as RawInstruction);
-          const endAnd = code.length;
-          (code[patchJmpIfNot] as { off: number }).off = shortCircuitLabel;
-          (code[patchJmpEnd] as { off: number }).off = endAnd;
-          break;
-        }
-        if (expr.op === "или") {
-          // [left, jmp_if shortCircuit, right, jmp endOr, shortCircuit: const.true, endOr:]
-          emitExpr(expr.left, locals);
-          const patchJmpIf = code.length;
-          emit({ op: "jmp_if", off: 0 } as RawInstruction);
-          emitExpr(expr.right, locals);
-          const patchJmpEnd = code.length;
-          emit({ op: "jmp", off: 0 } as RawInstruction);
-          const shortCircuitLabel = code.length;
-          emit({ op: "const.true" } as RawInstruction);
-          const endOr = code.length;
-          (code[patchJmpIf] as { off: number }).off = shortCircuitLabel;
-          (code[patchJmpEnd] as { off: number }).off = endOr;
-          break;
-        }
-        emitExpr(expr.left, locals);
-        emitExpr(expr.right, locals);
-        emit({ op: BINARY_OP[expr.op] } as RawInstruction);
-        break;
-      }
-      case "унарное":
-        if (expr.op === "не") {
-          const arg = expr.arg;
-          if (arg.kind === "пусто" || arg.kind === "число" || arg.kind === "строка") {
-            log.info(`"не" с не-булевым операндом (${arg.kind}) — семантика: строгое сравнение с false`);
-          }
-          emitExpr(expr.arg, locals);
-          emit({ op: "const.false" } as RawInstruction);
-          emit({ op: "eq" } as RawInstruction);
-        }
-        break;
-      case "вызов": {
-        for (const arg of expr.args) emitExpr(arg, locals);
-        if (expr.name.includes(".")) {
-          emit({ op: "invoke", name: expr.name } as RawInstruction);
-        } else {
-          const fi = procedureIndex.get(expr.name);
-          if (fi === undefined) throw new Error(`Неизвестная процедура: ${expr.name}`);
-          emit({ op: "call", fi } as RawInstruction);
-        }
-        break;
-      }
-    }
-  }
-
   function buildLocals(proc: Procedure): Map<string, number> {
     const locals = new Map<string, number>();
     let forCounter = 0;
+    let arrLiteralCounter = 0;
     proc.params.forEach((p, i) => locals.set(p, i));
+    function scanExpr(expr: Expr): void {
+      if (expr.kind === "массив") {
+        if (!locals.has(`__arr_literal_${arrLiteralCounter}`))
+          locals.set(`__arr_literal_${arrLiteralCounter}`, locals.size);
+        arrLiteralCounter++;
+        for (const el of expr.elements) scanExpr(el);
+        return;
+      }
+      if (expr.kind === "бинарное") {
+        scanExpr(expr.left);
+        scanExpr(expr.right);
+        return;
+      }
+      if (expr.kind === "унарное") scanExpr(expr.arg);
+      if (expr.kind === "вызов") for (const a of expr.args) scanExpr(a);
+    }
     function scan(stmts: Stmt[]): void {
       for (const s of stmts) {
-        if (s.kind === "пусть" && !locals.has(s.name)) locals.set(s.name, locals.size);
-        if (s.kind === "присвоить") { /* не добавляем в locals — требуется пусть, ошибка в emitStmt */ }
+        if (s.kind === "пусть" && !locals.has(s.name)) {
+          locals.set(s.name, locals.size);
+          scanExpr(s.init);
+        }
+        if (s.kind === "присвоить") scanExpr(s.value);
+        if (s.kind === "выражение") scanExpr(s.expr);
         if (s.kind === "если") {
+          scanExpr(s.condition);
           scan(s.body);
-          if (s.elseIfClauses) for (const c of s.elseIfClauses) scan(c.body);
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) scanExpr(c.condition), scan(c.body);
           if (s.elseBody) scan(s.elseBody);
         }
-        if (s.kind === "пока") scan(s.body);
+        if (s.kind === "пока") {
+          scanExpr(s.condition);
+          scan(s.body);
+        }
         if (s.kind === "для_каждого") {
           if (!locals.has(s.variable)) locals.set(s.variable, locals.size);
           const arrKey = `__for_arr_${forCounter}`;
@@ -155,9 +95,11 @@ export function compile(ast: Module): OsVbcModule {
           if (!locals.has(arrKey)) locals.set(arrKey, locals.size);
           if (!locals.has(idxKey)) locals.set(idxKey, locals.size);
           forCounter++;
+          scanExpr(s.collection);
           scan(s.body);
         }
         if (s.kind === "цикл") scan(s.body);
+        if (s.kind === "вернуть" && s.value) scanExpr(s.value);
       }
     }
     scan(proc.body);
@@ -171,6 +113,104 @@ export function compile(ast: Module): OsVbcModule {
     const locals = buildLocals(proc);
     const localsCount = Math.max(proc.params.length, locals.size);
     let emitForCounter = 0;
+    let emitArrLiteralCounter = 0;
+
+    function emitExpr(expr: Expr, l: Map<string, number>): void {
+      switch (expr.kind) {
+        case "число": {
+          const k = constIndex(expr.value);
+          emit({ op: "const", type: constType(expr.value), k } as RawInstruction);
+          break;
+        }
+        case "строка": {
+          const k = constIndex(expr.value);
+          emit({ op: "const", type: "str", k } as RawInstruction);
+          break;
+        }
+        case "булево":
+          emit((expr.value ? { op: "const.true" } : { op: "const.false" }) as RawInstruction);
+          break;
+        case "пусто":
+          emit({ op: "const.null" } as RawInstruction);
+          break;
+        case "переменная": {
+          const i = l.get(expr.name);
+          if (i === undefined) throw new Error(`Неизвестная переменная: ${expr.name}`);
+          emit({ op: "local.get", i } as RawInstruction);
+          break;
+        }
+        case "бинарное": {
+          if (expr.op === "и") {
+            emitExpr(expr.left, l);
+            const patchJmpIfNot = code.length;
+            emit({ op: "jmp_if_not", off: 0 } as RawInstruction);
+            emitExpr(expr.right, l);
+            const patchJmpEnd = code.length;
+            emit({ op: "jmp", off: 0 } as RawInstruction);
+            const shortCircuitLabel = code.length;
+            emit({ op: "const.false" } as RawInstruction);
+            const endAnd = code.length;
+            (code[patchJmpIfNot] as { off: number }).off = shortCircuitLabel;
+            (code[patchJmpEnd] as { off: number }).off = endAnd;
+            break;
+          }
+          if (expr.op === "или") {
+            emitExpr(expr.left, l);
+            const patchJmpIf = code.length;
+            emit({ op: "jmp_if", off: 0 } as RawInstruction);
+            emitExpr(expr.right, l);
+            const patchJmpEnd = code.length;
+            emit({ op: "jmp", off: 0 } as RawInstruction);
+            const shortCircuitLabel = code.length;
+            emit({ op: "const.true" } as RawInstruction);
+            const endOr = code.length;
+            (code[patchJmpIf] as { off: number }).off = shortCircuitLabel;
+            (code[patchJmpEnd] as { off: number }).off = endOr;
+            break;
+          }
+          emitExpr(expr.left, l);
+          emitExpr(expr.right, l);
+          emit({ op: BINARY_OP[expr.op] } as RawInstruction);
+          break;
+        }
+        case "унарное":
+          if (expr.op === "не") {
+            const arg = expr.arg;
+            if (arg.kind === "пусто" || arg.kind === "число" || arg.kind === "строка") {
+              log.info(`"не" с не-булевым операндом (${arg.kind}) — семантика: строгое сравнение с false`);
+            }
+            emitExpr(expr.arg, l);
+            emit({ op: "const.false" } as RawInstruction);
+            emit({ op: "eq" } as RawInstruction);
+          }
+          break;
+        case "вызов": {
+          for (const arg of expr.args) emitExpr(arg, l);
+          if (expr.name.includes(".")) {
+            emit({ op: "invoke", name: expr.name } as RawInstruction);
+          } else {
+            const fi = procedureIndex.get(expr.name);
+            if (fi === undefined) throw new Error(`Неизвестная процедура: ${expr.name}`);
+            emit({ op: "call", fi } as RawInstruction);
+          }
+          break;
+        }
+        case "массив": {
+          const depth = emitArrLiteralCounter++;
+          const slot = l.get(`__arr_literal_${depth}`);
+          if (slot === undefined) throw new Error(`Слот __arr_literal_${depth} не зарезервирован`);
+          emit({ op: "invoke", name: "система.массив.создать" } as RawInstruction);
+          emit({ op: "local.set", i: slot } as RawInstruction);
+          for (const el of expr.elements) {
+            emit({ op: "local.get", i: slot } as RawInstruction);
+            emitExpr(el, l);
+            emit({ op: "invoke", name: "система.массив.добавить" } as RawInstruction);
+          }
+          emit({ op: "local.get", i: slot } as RawInstruction);
+          break;
+        }
+      }
+    }
 
     function emitStmt(s: Stmt): void {
       switch (s.kind) {

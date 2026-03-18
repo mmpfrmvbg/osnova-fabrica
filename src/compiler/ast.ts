@@ -10,7 +10,8 @@ export type Expr =
   | { kind: "переменная"; name: string }
   | { kind: "бинарное"; op: string; left: Expr; right: Expr }
   | { kind: "унарное"; op: "не"; arg: Expr }
-  | { kind: "вызов"; name: string; args: Expr[] };
+  | { kind: "вызов"; name: string; args: Expr[] }
+  | { kind: "массив"; elements: Expr[] };
 
 export type Stmt =
   | { kind: "пусть"; name: string; init: Expr }

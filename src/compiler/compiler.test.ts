@@ -119,6 +119,110 @@ describe("Compiler: иначе (if/else)", () => {
   });
 });
 
+describe("Compiler: массивы (array literals)", () => {
+  const arrayInvoke = (name: string, args: unknown[]): unknown => {
+    if (name === "система.массив.создать") return [];
+    if (name === "система.массив.добавить") {
+      const arr = args[0] as unknown[];
+      if (Array.isArray(arr)) arr.push(args[1]);
+      return null;
+    }
+    if (name === "система.массив.установить") {
+      const arr = args[0] as unknown[];
+      const idx = Number(args[1]) | 0;
+      if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr[idx] = args[2];
+      return null;
+    }
+    if (name === "система.массив.удалить") {
+      const arr = args[0] as unknown[];
+      const idx = Number(args[1]) | 0;
+      if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr.splice(idx, 1);
+      return null;
+    }
+    if (name === "система.массив.срез") {
+      const arr = args[0];
+      const from = Number(args[1]) | 0;
+      const to = Number(args[2]) | 0;
+      return Array.isArray(arr) ? arr.slice(from, to) : [];
+    }
+    if (name === "система.массив.длина") return (args[0] != null ? (args[0] as unknown[]) : []).length;
+    if (name === "система.массив.получить") return (args[0] as unknown[])[args[1] as number];
+    return null;
+  };
+
+  it("пустой массив []: вернуть длина → 0", async () => {
+    const source = `
+модуль t
+процедура main()
+  пусть arr = []
+  вернуть система.массив.длина(arr)
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.lexerErrors.length).toBe(0);
+    expect(result.parserErrors.length).toBe(0);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(0);
+  });
+
+  it("массив [1, 2, 3]: вернуть длина → 3", async () => {
+    const source = `
+модуль t
+процедура main()
+  пусть arr = [1, 2, 3]
+  вернуть система.массив.длина(arr)
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(3);
+  });
+
+  it("массив [10, 20, 30]: получить(1) → 20", async () => {
+    const source = `
+модуль t
+процедура main()
+  пусть arr = [10, 20, 30]
+  вернуть система.массив.получить(arr, 1)
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(20);
+  });
+
+  it("для_каждого x в [1, 2, 3]: sum → 6", async () => {
+    const source = `
+модуль t
+процедура main()
+  пусть arr = [1, 2, 3]
+  пусть sum = 0
+  для_каждого x в arr
+    sum = sum + x
+  конец
+  вернуть sum
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(6);
+  });
+
+  it("система.массив.добавить: [1, 2] + 3 → длина 3", async () => {
+    const source = `
+модуль t
+процедура main()
+  пусть arr = [1, 2]
+  система.массив.добавить(arr, 3)
+  вернуть система.массив.длина(arr)
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(3);
+  });
+});
+
 describe("Compiler: для_каждого", () => {
   const arrayInvoke = (name: string, args: unknown[]): number | null => {
     if (name === "система.массив.длина") return (args[0] != null ? (args[0] as unknown[]) : []).length;

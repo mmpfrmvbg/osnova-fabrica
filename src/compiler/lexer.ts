@@ -42,6 +42,8 @@ export type TokenKind =
   | "%"
   | "("
   | ")"
+  | "["
+  | "]"
   | ","
   | "."
   | "новая_строка"
@@ -232,6 +234,8 @@ export function tokenize(source: string): LexerResult {
       "%": "%",
       "(": "(",
       ")": ")",
+      "[": "[",
+      "]": "]",
       ",": ",",
       ".": ".",
     };

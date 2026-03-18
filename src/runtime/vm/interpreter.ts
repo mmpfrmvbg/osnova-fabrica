@@ -21,6 +21,48 @@ export interface InvokeHandler {
   (name: string, args: StackValue[]): Promise<StackValue> | StackValue;
 }
 
+/** Обработчик по умолчанию для система.массив.* (используется когда invoke не передан). */
+function defaultInvokeHandler(name: string, args: StackValue[]): StackValue | null {
+  switch (name) {
+    case "система.массив.создать":
+      return [];
+    case "система.массив.добавить": {
+      const arr = args[0] as StackValue[];
+      if (Array.isArray(arr)) arr.push(args[1] as StackValue);
+      return null;
+    }
+    case "система.массив.установить": {
+      const arr = args[0] as StackValue[];
+      const idx = Number(args[1]) | 0;
+      const val = args[2];
+      if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr[idx] = val as StackValue;
+      return null;
+    }
+    case "система.массив.удалить": {
+      const arr = args[0] as StackValue[];
+      const idx = Number(args[1]) | 0;
+      if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr.splice(idx, 1);
+      return null;
+    }
+    case "система.массив.срез": {
+      const arr = args[0];
+      const from = Number(args[1]) | 0;
+      const to = Number(args[2]) | 0;
+      return Array.isArray(arr) ? (arr as StackValue[]).slice(from, to) : [];
+    }
+    case "система.массив.длина":
+      return Array.isArray(args[0]) ? (args[0] as StackValue[]).length : 0;
+    case "система.массив.получить": {
+      const arr = args[0];
+      const idx = Number(args[1]) | 0;
+      if (!Array.isArray(arr) || idx < 0 || idx >= arr.length) return null;
+      return (arr as StackValue[])[idx] as StackValue;
+    }
+    default:
+      return null;
+  }
+}
+
 export interface InterpreterOptions {
   /** Обработчик invoke (система.окно, система.файлы и т.д.) */
   invoke?: InvokeHandler;
@@ -51,7 +93,7 @@ export class VM {
   constructor(module: OsVbcModule, options: InterpreterOptions = {}) {
     this.module = module;
     this.options = {
-      invoke: options.invoke ?? (() => null),
+      invoke: options.invoke ?? defaultInvokeHandler,
       maxSteps: options.maxSteps ?? 1_000_000,
     };
   }

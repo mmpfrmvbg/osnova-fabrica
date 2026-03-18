@@ -254,6 +254,32 @@ function createInvokeHandler(
         return "";
       }
 
+      case "система.массив.создать":
+        return [];
+      case "система.массив.добавить": {
+        const arr = args[0] as StackValue[];
+        if (Array.isArray(arr)) arr.push(args[1] as StackValue);
+        return null;
+      }
+      case "система.массив.установить": {
+        const arr = args[0] as StackValue[];
+        const idx = Number(args[1]) | 0;
+        const val = args[2];
+        if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr[idx] = val as StackValue;
+        return null;
+      }
+      case "система.массив.удалить": {
+        const arr = args[0] as StackValue[];
+        const idx = Number(args[1]) | 0;
+        if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr.splice(idx, 1);
+        return null;
+      }
+      case "система.массив.срез": {
+        const arr = args[0];
+        const from = Number(args[1]) | 0;
+        const to = Number(args[2]) | 0;
+        return Array.isArray(arr) ? arr.slice(from, to) : [];
+      }
       case "система.массив.длина": {
         const arr = args[0];
         return Array.isArray(arr) ? arr.length : 0;

@@ -439,6 +439,22 @@ export function parse(tokens: Token[]): ParseResult {
       consume(")", "Ожидается ')'");
       return inner;
     }
+    if (t.kind === "[") {
+      advance();
+      const elements: Expr[] = [];
+      while (peek().kind !== "]" && peek().kind !== "конец_файла") {
+        const el = parseExpr();
+        if (!el) return null;
+        elements.push(el);
+        skipNewlines();
+        if (peek().kind === ",") {
+          advance();
+          skipNewlines();
+        } else break;
+      }
+      if (!consume("]", "Ожидается ']'")) return null;
+      return { kind: "массив", elements };
+    }
     if (t.kind === "идентификатор") {
       advance();
       let name = String(t.value ?? t.lexeme);
@@ -483,7 +499,7 @@ export function parse(tokens: Token[]): ParseResult {
       line: t.line,
       column: t.column,
       context: "expr",
-      expected: ["число", "строка", "истина", "ложь", "пусто", "идентификатор", "("],
+      expected: ["число", "строка", "истина", "ложь", "пусто", "идентификатор", "(", "["],
       actualKind: t.kind,
       actualLexeme: t.lexeme,
     });
