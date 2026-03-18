@@ -90,9 +90,6 @@ async function main(): Promise<void> {
 
   let tasks = await loadTasks(tasksPath);
 
-  // TEMP: первые 5 для пробного прогона
-  tasks = tasks.slice(0, 5);
-
   if (skipDone) {
     const done = await loadDoneTasks();
     const before = tasks.length;
