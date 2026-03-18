@@ -388,6 +388,23 @@ describe("Compiler: и / или / не", () => {
     const result = compileSource(source);
     expect(await new VM(result.module!, { maxSteps: 100 }).runProcedure(0, [])).toBe(1);
   });
+
+  it("повторное пусть переприсваивает значение", async () => {
+    const src = `
+      модуль тест
+      процедура главная()
+        пусть x = 1
+        пусть x = 2
+        вернуть x
+      конец
+      конец
+    `;
+    const result = compileSource(src.trim());
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(2);
+  });
 });
 
 describe("Compiler negative: errors reported", () => {
