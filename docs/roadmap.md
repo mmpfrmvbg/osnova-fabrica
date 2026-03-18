@@ -242,21 +242,21 @@
 **Цель:** явно описать и закрепить пайплайн `intake → spec → codegen → build → golden → repair` как часть платформы.
 
 - **1.1. Документ `pipeline-v1.md`**
-  - [ ] Описать фазы пайплайна:
-    - [ ] `intake` → `OsnovaIntent`.
-    - [ ] `spec_generation` → `OsnovaSpec`.
-    - [ ] `codegen` → `OsnovaSource` (.osnova).
-    - [ ] `build` → `BuildReport`.
-    - [ ] `golden_check` → `GoldenReport`.
-    - [ ] `repair` → обновлённый `OsnovaSource` (при необходимости).
-  - [ ] Для каждой фазы зафиксировать:
-    - [ ] входные и выходные типы,
-    - [ ] какие агенты участвуют (`IntakeAgent`, `OsnovaCodegenAgent`, `RepairEngineerAgent`),
-    - [ ] где и как пишутся трейсы.
+  - [x] Описать фазы пайплайна:
+    - [x] `intake` → `OsnovaIntent`.
+    - [x] `spec_generation` → `OsnovaSpec`.
+    - [x] `codegen` → `OsnovaSource` (.osnova).
+    - [x] `build` → `BuildReport`.
+    - [x] `golden_check` → `GoldenReport`.
+    - [x] `repair` → обновлённый `OsnovaSource` (при необходимости).
+  - [x] Для каждой фазы зафиксировать:
+    - [x] входные и выходные типы,
+    - [x] какие агенты участвуют (`IntakeAgent`, `OsnovaCodegenAgent`, `RepairEngineerAgent`),
+    - [x] где и как пишутся трейсы.
 
 - **1.2. Контракты типов пайплайна**
-  - [ ] Привести `OsnovaIntent`, `OsnovaSpec`, `OsnovaSource`, `BuildReport`, `GoldenReport`, `PipelineResult` к внятным, задокументированным интерфейсам (в доке и в коде).
-  - [ ] В доке коротко описать смысл полей (особенно для отчетов об ошибках и golden‑проверок).
+  - [x] Привести `OsnovaIntent`, `OsnovaSpec`, `OsnovaSource`, `BuildReport`, `GoldenReport`, `PipelineResult` к внятным, задокументированным интерфейсам (в доке и в коде).
+  - [x] В доке коротко описать смысл полей (особенно для отчетов об ошибках и golden‑проверок).
 
 ---
 
