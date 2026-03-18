@@ -25,8 +25,14 @@ function loadFewShot(): string {
     const raw = fs.readFileSync(p, 'utf-8');
     const data = JSON.parse(raw) as { tests?: Array<{ name?: string; id?: string; source?: string; osnova?: string }> };
     const cases = data.tests ?? [];
-    const goldenExamples = cases
-      .slice(0, 3)
+    // Берём примеры по категориям: один generic, один arrays, один с иначе_если
+    const byCategory = new Map<string, (typeof cases)[0]>();
+    for (const c of cases) {
+      const cat = (c as { category?: string }).category ?? 'generic';
+      if (!byCategory.has(cat)) byCategory.set(cat, c);
+    }
+    const selected = [...byCategory.values()].slice(0, 4);
+    const goldenExamples = selected
       .filter(c => c.source || c.osnova)
       .map(c => `// Пример: ${c.name ?? c.id}\n${c.source ?? c.osnova}`)
       .join('\n\n---\n\n');
