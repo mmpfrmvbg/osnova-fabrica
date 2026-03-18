@@ -20,6 +20,7 @@ function printUsage(): void {
   console.error('  osnova compile file.osnova [-o out]  Компиляция .osnova → .osvbc');
   console.error('  osnova run --manifest path           Запуск приложения по манифесту');
   console.error('  osnova schedule file.osvbc.json      VLIW-планирование (линейный код)');
+  console.error('  osnova list [--dir <path>]       Список приложений из реестра');
 }
 
 async function runTaskMode(task: string): Promise<void> {
@@ -111,6 +112,49 @@ async function runScheduleMode(cliArgs: string[]): Promise<number> {
   return runScheduleCli(cliArgs);
 }
 
+async function listApps(cliArgs: string[]): Promise<number> {
+  let dir = path.resolve('src/runtime');
+  for (let i = 0; i < cliArgs.length; i++) {
+    if (cliArgs[i] === '--dir' && cliArgs[i + 1]) {
+      dir = path.resolve(cliArgs[++i]!);
+      break;
+    }
+  }
+  const registryPath = path.join(dir, 'registry.json');
+  if (!fs.existsSync(registryPath)) {
+    console.error('Реестр не найден:', registryPath);
+    return 1;
+  }
+  const raw = fs.readFileSync(registryPath, 'utf-8');
+  const registry = JSON.parse(raw) as {
+    entries: Array<{
+      kind: string;
+      id: string;
+      name: string;
+      version: string;
+      category: string;
+      uiKind: string;
+    }>;
+  };
+  console.log('\n─── Приложения ОС-НОВА ───\n');
+  const apps = registry.entries.filter(e => e.kind === 'app');
+  const services = registry.entries.filter(e => e.kind === 'service');
+  if (apps.length) {
+    console.log('Приложения:');
+    for (const a of apps) {
+      console.log(`  [${a.id}]  ${a.name}  v${a.version}  (${a.category}, ui: ${a.uiKind})`);
+    }
+  }
+  if (services.length) {
+    console.log('\nСервисы:');
+    for (const s of services) {
+      console.log(`  [${s.id}]  ${s.name}  v${s.version}`);
+    }
+  }
+  console.log(`\nВсего: ${registry.entries.length} (${apps.length} app, ${services.length} service)\n`);
+  return 0;
+}
+
 async function main(): Promise<number> {
   const sub = args[0];
   const taskIdx = args.indexOf('--task');
@@ -131,6 +175,10 @@ async function main(): Promise<number> {
 
   if (sub === 'schedule') {
     return await runScheduleMode(args.slice(1));
+  }
+
+  if (sub === 'list') {
+    return await listApps(args.slice(1));
   }
 
   if (!sub || sub.startsWith('-')) {
