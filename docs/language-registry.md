@@ -17,9 +17,10 @@
 
 | Артефакт | Описание |
 |----------|----------|
-| `src/tools/osnova-compiler/language-registry.ts` | **Источник правды:** TS-интерфейсы (`KeywordSpec`, `ConstructSpec`, `LanguageRegistry`) и константа `LANGUAGE_V01`. Импортируется компилятором и скриптами. |
+| `src/compiler/language-registry.ts` | **Источник правды:** TS-интерфейсы (`KeywordSpec`, `ConstructSpec`, `LanguageRegistry`) и константа `LANGUAGE_V01`. Импортируется компилятором и скриптами. |
 | `docs/osnova/language-schema.json` | JSON-экспорт реестра для документации и потребления без TS (LLM-пайплайн, скрипты на других языках). Генерируется скриптом `export-language-schema.ts`. |
-| `docs/osnova/language-registry.md` | Этот документ: описание реестра, связь с другими спеками. |
+| `docs/osnova-language-spec.json` | Расширенная документация языка (philosophy, types, constructs). Не используется в коде; ручное сопровождение. Для справки и внешних инструментов. |
+| `docs/language-registry.md` | Этот документ: описание реестра, связь с другими спеками. |
 
 **Обновление JSON после изменений в реестре:**
 
