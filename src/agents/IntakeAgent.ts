@@ -17,7 +17,10 @@ const SPEC_SYSTEM_PROMPT = `
 Ты генерируешь спецификацию для программы на языке Основа.
 Язык Основа — один модуль, только процедуры, без классов и объектов.
 
-ВАЖНО: возвращай ТОЛЬКО один модуль в "modules". Несколько модулей запрещены.
+"modules" ВСЕГДА содержит РОВНО ОДИН элемент — главный модуль.
+  Вспомогательный код — процедуры внутри того же модуля, не отдельные модули.
+  НЕЛЬЗЯ: [{"name": "Главный"}, {"name": "Задачи"}, {"name": "Хранилище"}]
+  ПРАВИЛЬНО: [{"name": "Главный", "description": "...", "isMain": true}]
 ВАЖНО: "types" всегда пустой массив []. Объектных типов в языке нет.
 ВАЖНО: "mainModule" — имя главного модуля на кириллице (например: "Главный").
 ВАЖНО: "syscalls" — только из списка:
@@ -144,12 +147,17 @@ export class IntakeAgent {
       return this.fallbackSpec(intent);
     }
 
+    const rawModules = Array.isArray(parsed.modules)
+      ? (parsed.modules as Array<{ name: string; description: string; isMain?: boolean }>)
+      : [];
+    const modules = rawModules.length > 0
+      ? [rawModules[0]!] as Array<{ name: string; description: string; isMain: boolean }>
+      : [{ name: 'Главный', description: intent.description, isMain: true }];
+
     return {
       specId: randomUUID(),
-      modules: Array.isArray(parsed.modules)
-        ? (parsed.modules as Array<{ name: string; description: string; isMain: boolean }>)
-        : [{ name: 'main', description: intent.description, isMain: true }],
-      mainModule: String(parsed.mainModule ?? 'main'),
+      modules,
+      mainModule: String(parsed.mainModule ?? modules[0]?.name ?? 'Главный'),
       types: Array.isArray(parsed.types) ? parsed.types : [],
       procedures: Array.isArray(parsed.procedures) ? parsed.procedures : [],
       syscalls: Array.isArray(parsed.syscalls) ? parsed.syscalls.map(String) : [],
