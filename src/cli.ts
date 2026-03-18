@@ -38,7 +38,31 @@ async function runTaskMode(task: string): Promise<void> {
   } else if (result.error) {
     console.error('Ошибка:         ', result.error);
   }
-  if (result.source) {
+  if (result.buildReport) {
+    const br = result.buildReport;
+    if (br.lexerErrors?.length) {
+      console.error('\n─── Lexer errors ───');
+      for (const e of br.lexerErrors) {
+        console.error(`  ${e.line}:${e.column} ${e.message}`);
+      }
+    }
+    if (br.parserErrors?.length) {
+      console.error('\n─── Parser errors ───');
+      for (const e of br.parserErrors) {
+        console.error(`  ${e.message ?? JSON.stringify(e)}`);
+      }
+    }
+    if (br.compilerErrors?.length) {
+      console.error('\n─── Compiler errors ───');
+      for (const e of br.compilerErrors) {
+        console.error(`  ${(e as { message?: string }).message ?? JSON.stringify(e)}`);
+      }
+    }
+  }
+  if (result.status === 'repair_exhausted' && result.source) {
+    console.log('\n─── Последний сгенерированный код ───');
+    console.log(result.source.source);
+  } else if (result.source) {
     console.log('\n─── Сгенерированный .osnova ───');
     console.log(result.source.source);
   }
