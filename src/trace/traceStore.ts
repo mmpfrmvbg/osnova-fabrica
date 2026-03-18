@@ -24,6 +24,7 @@ export async function saveTrace(data: {
   runId: string;
   status: PipelineStatus;
   task: string;
+  modelId?: string;
   intent?: OsnovaIntent;
   spec?: OsnovaSpec;
   source?: OsnovaSource;

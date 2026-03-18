@@ -1,7 +1,8 @@
 // ============================================================
-// src/trace/types.ts — Формат трейса прогона
-// Источник правды: trace-format-v0.1.md
-// Используется для дообучения LLM: training-llm-from-traces-v0.1.md
+// src/trace/types.ts — Формат трейса прогона (traces-v1)
+// Источник истины — этот файл и src/pipeline/types.ts
+// Документация: docs/traces-v1.md (должна синхронизироваться с кодом)
+// Запись: src/trace/traceStore.ts | Чтение: src/scripts/export-dataset.ts
 // ============================================================
 
 import type {
@@ -18,6 +19,7 @@ export interface TraceEntry {
   readonly timestamp: string;   // ISO 8601
   readonly status: PipelineStatus;
   readonly task: string;        // исходный текстовый запрос
+  readonly modelId?: string;    // OSNOVA_MODEL, для анализа качества по провайдерам
   readonly intent?: OsnovaIntent;
   readonly spec?: OsnovaSpec;
   readonly source?: OsnovaSource;

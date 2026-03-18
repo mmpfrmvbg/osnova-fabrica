@@ -24,6 +24,7 @@
 | timestamp | string | ISO 8601 (момент записи) |
 | status | PipelineStatus | Итоговый статус (`success` \| `partial` \| `failure` \| `repair_exhausted`) |
 | task | string | Исходный текстовый запрос пользователя |
+| modelId | string? | LLM-модель (OSNOVA_MODEL) — для анализа качества по провайдерам |
 | intent | OsnovaIntent? | Результат фазы intake |
 | spec | OsnovaSpec? | Результат фазы spec_generation |
 | source | OsnovaSource? | Финальный исходный код (.osnova) |
@@ -32,6 +33,9 @@
 | repairAttempts | number | Количество вызовов RepairEngineer |
 
 **BuildReport:** `success`, `lexerErrors`, `parserErrors`, `compilerErrors`, `bytecode`, `compilerSuccess`, `durationMs`
+
+- **`success`** — агрегат: `compilerSuccess && lexerErrors.length === 0 && parserErrors.length === 0`. Для дообучения LLM берём только записи с `buildReport.success === true` (нет ни одной ошибки лексера/парсера).
+- **`compilerSuccess`** — сырой результат компилятора (есть байткод или нет). Может быть true при наличии lexer/parser errors — такие примеры невалидны для обучения.
 
 **GoldenReport:** `executed`, `passed`, `qualityScore`, `vmErrors`, `outputDiff`, `durationMs`
 
@@ -84,4 +88,4 @@ jq -c 'select(.goldenReport != null and .goldenReport.passed == false) | {task, 
 - **success** — позитивные примеры для fine-tuning: task → intent → spec → source образуют полную цепочку «запрос → работающий код».
 - **repair** (трейсы с repairAttempts > 0, но status = success) — примеры исправления ошибок компиляции/VM: source до и после repair, buildReport с ошибками.
 - **repair_exhausted** — сложные случаи: задачи, которые текущие промпты/модели не решают; полезны для улучшения промптов и выявления недостатков языка.
-- Идентификатор LLM-модели/провайдера для каждой фазы — планируется добавить в следующих версиях формата.
+- **modelId** — в каждой записи есть поле `modelId` (OSNOVA_MODEL). Анализ «какая модель генерирует больше ошибок лексера»: `jq -s 'group_by(.modelId) | map({model: .[0].modelId, count: length})' runs/traces.jsonl`

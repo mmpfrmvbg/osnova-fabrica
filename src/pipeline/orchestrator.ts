@@ -50,6 +50,7 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   const runId = randomUUID();
   const startTime = Date.now();
+  const modelId = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
   let repairAttempts = 0;
 
   let intent: OsnovaIntent | undefined;
@@ -124,7 +125,7 @@ export async function runPipeline(
           log.info('qualityScore in [0.5, 0.7) — partial_success, no repair');
           source = lastSource;
           const result = finish('partial');
-          await saveTrace({ runId, status: result.status, task, intent, spec, source, buildReport, goldenReport, repairAttempts });
+          await saveTrace({ runId, status: result.status, task, modelId, intent, spec, source, buildReport, goldenReport, repairAttempts });
           return result;
         }
         log.warn(`gate G3 FAIL (attempt ${loop + 1})`, g3.failedChecks);
@@ -139,14 +140,14 @@ export async function runPipeline(
       source = lastSource;
 
       const result = finish(goldenReport.passed ? 'success' : 'partial');
-      await saveTrace({ runId, status: result.status, task, intent, spec, source, buildReport, goldenReport, repairAttempts });
+      await saveTrace({ runId, status: result.status, task, modelId, intent, spec, source, buildReport, goldenReport, repairAttempts });
       return result;
     }
 
     // repair exhausted
     log.error('repair loop exhausted', { repairAttempts });
     const result = finish('repair_exhausted', 'max repair loops reached');
-    await saveTrace({ runId, status: result.status, task, intent, spec, source: lastSource, buildReport, goldenReport, repairAttempts });
+    await saveTrace({ runId, status: result.status, task, intent, spec, source: lastSource, buildReport, goldenReport, repairAttempts, modelId });
     return result;
 
   } catch (err) {
@@ -156,6 +157,7 @@ export async function runPipeline(
       runId,
       status: 'failure',
       task,
+      modelId,
       intent,
       spec,
       source: lastSource ?? source,

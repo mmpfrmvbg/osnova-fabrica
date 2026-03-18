@@ -8,6 +8,7 @@ import { runPipeline, compileToBuildReport } from './orchestrator';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport } from './types';
 import { compileSource } from '../compiler/compiler';
+import { saveTrace } from '../trace/traceStore';
 
 // Mock LLM provider: возвращает заготовленные ответы для каждого агента
 const createMockProvider = () => ({
@@ -114,6 +115,10 @@ vi.mock('../llm/index', () => ({
   PROVIDER_DEFAULT_MODEL: {},
 }));
 
+vi.mock('../trace/traceStore', () => ({
+  saveTrace: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('Pipeline integration (mock LLM)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -133,6 +138,9 @@ describe('Pipeline integration (mock LLM)', () => {
     expect(result.buildReport?.success).toBe(true);
     expect(result.goldenReport?.executed).toBe(true);
     expect(result.repairAttempts).toBe(0);
+    expect(vi.mocked(saveTrace)).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: expect.any(String) }),
+    );
   }, 15000);
 });
 
