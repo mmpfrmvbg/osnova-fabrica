@@ -379,7 +379,19 @@ export class VM {
           this.stack.push(errVal);
           return handler.catchOffset;
         }
-        throw new InterpreterError(`Необработанное исключение: ${String(errVal)}`, this.pc, "throw");
+        // Важно: объект VM может быть с null-prototype (Object.create(null)).
+        // String(obj) для таких объектов падает: "Cannot convert object to primitive value".
+        let errText: string;
+        if (errVal !== null && typeof errVal === "object") {
+          try {
+            errText = JSON.stringify(errVal);
+          } catch {
+            errText = "[object]";
+          }
+        } else {
+          errText = String(errVal);
+        }
+        throw new InterpreterError(`Необработанное исключение: ${errText}`, this.pc, "throw");
       }
       case "jmp_if": {
         const off = (ins as { op: "jmp_if"; off: number }).off;

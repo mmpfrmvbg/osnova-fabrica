@@ -534,6 +534,12 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
   { id: "wrong_log_api", description: "система.вывести не существует", bad: "система.вывести(x)", good: "система.лог.вывести(x)" },
   { id: "return_with_parens", description: "скобки после вернуть не поддерживаются", bad: "вернуть(сумма)", good: "вернуть сумма" },
   { id: "composite_end", description: "составные конец_* не поддерживаются", bad: "конец_пока", good: "конец" },
+  {
+    id: "throw_undefined_var",
+    description: "выбросить переменную которой нет в текущей процедуре",
+    bad: "процедура а(х)\n  выбросить сообщение  // сообщение не параметр а!\nконец",
+    good: "процедура а(х)\n  выбросить х  // только то что объявлено в процедуре\nконец",
+  },
   { id: "english_keywords", description: "английские ключевые слова не поддерживаются", bad: "let x = 1" },
   { id: "redeclare_with_let", description: "повторное объявление через пусть не допускается", bad: "пусть x = 1\nпусть x = 2", good: "пусть x = 1\nx = 2" },
   { id: "assign_before_let", description: "первая инициализация переменной должна быть через пусть", bad: "x = 1", good: "пусть x = 1" },
