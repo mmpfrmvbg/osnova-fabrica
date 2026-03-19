@@ -449,7 +449,7 @@
 - [x] Тест repair-цикла пайплайна: `src/pipeline/orchestrator.partial.test.ts`
 - [ ] Интеграция `golden-tests.json` в тестовый прогон (runner читает JSON, сверяет с компилятором)
 - [ ] Coverage-репорт: требует vitest 4.x + `@vitest/coverage-v8` (сейчас vitest 1.6.1 — апгрейд отложен)
-- [ ] Unit-тесты для `DeepSeekProvider` и `OllamaProvider`
+- [x] Unit-тесты для `DeepSeekProvider` и `OllamaProvider`
 
 ### Пайплайн и CI
 - [ ] G3 golden-check: поведенческие проверки (не только структурные)
