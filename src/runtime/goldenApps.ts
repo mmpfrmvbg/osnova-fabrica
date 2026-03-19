@@ -101,6 +101,15 @@ export async function runGoldenCheck(
           );
         })
       ).length >= Math.ceil(spec.syscalls.length / 2),
+
+    entryProcedureCallable:
+      module.procedures.some(p =>
+        p.name === 'главная' ||
+        p.name === 'main' ||
+        p.name === spec.mainModule ||
+        (spec.procedures.length > 0 && spec.procedures.some(sp => sp.name === p.name))
+      ) &&
+      module.code.length > 0,
   };
 
   const passedChecks = Object.values(checks).filter(Boolean).length;
@@ -111,9 +120,26 @@ export async function runGoldenCheck(
     .filter(([, v]) => !v)
     .map(([k]) => k);
 
+  const missingSyscalls = spec.syscalls.filter(sc =>
+    !module.code.some((el: unknown) => {
+      if (typeof el !== 'object' || el === null) return false;
+      const entry = el as { op?: unknown; name?: unknown };
+      return (
+        entry.op === 'invoke' &&
+        typeof entry.name === 'string' &&
+        entry.name.startsWith(sc.split('.').slice(0, 2).join('.'))
+      );
+    })
+  );
+
   const outputDiff =
-    failedNames.length > 0
-      ? `failed checks: ${failedNames.join(', ')}`
+    failedNames.length > 0 || missingSyscalls.length > 0
+      ? JSON.stringify({
+          failedChecks: failedNames,
+          missingSyscalls,
+          procedureCount: module.procedures.length,
+          codeLength: module.code.length,
+        })
       : null;
 
   return {
