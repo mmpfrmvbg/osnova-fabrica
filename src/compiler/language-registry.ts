@@ -46,7 +46,9 @@ export type ConstructId =
   | "not"
   | "array_index_read"
   | "array_index_write"
-  | "main_with_args";
+  | "main_with_args"
+  | "module_import"
+  | "module_export";
 
 export interface AstFieldSpec {
   name: string;
@@ -407,6 +409,33 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     implemented: true,
     description: "Рекурсивный вызов пользовательской процедуры",
   },
+  {
+    id: "module_import",
+    syntax: 'использовать модуль <namespace> из "<путь>"',
+    example: 'использовать модуль Утилиты из "утилиты.osnova"\n\nпроцедура главная()\n  пусть р = Утилиты.сложить(2, 3)\n  вернуть р\nконец',
+    astNode: {
+      kind: "ImportDeclaration",
+      fields: [
+        { name: "module", type: "string" },
+        { name: "path", type: "string" },
+      ],
+    },
+    since: "1.5.0",
+    implemented: true,
+    description: "Импорт экспортированных процедур из другого файла",
+  },
+  {
+    id: "module_export",
+    syntax: "процедура экспорт имя(...)",
+    example: "процедура экспорт сложить(а, б)\n  вернуть а + б\nконец",
+    astNode: {
+      kind: "Procedure",
+      fields: [{ name: "exported", type: "boolean", optional: true }],
+    },
+    since: "1.5.0",
+    implemented: true,
+    description: "Объявление публичной процедуры модуля",
+  },
 ];
 
 const OPERATORS_V01: OperatorSpec[] = [
@@ -565,6 +594,17 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
     description: "многострочные литералы объектов не поддерживаются — весь объект в одну строку",
     bad: "пусть o = {\n  a: 1\n}",
     good: "пусть o = { a: 1 }",
+  },
+  {
+    id: "module_call_unexported",
+    description: "вызов не-экспортированной процедуры другого модуля",
+    bad: "Утилиты.внутренняя()",
+    good: "Утилиты.удвоить(21)",
+  },
+  {
+    id: "module_import_not_first",
+    description: "использовать после объявления процедуры запрещено",
+    bad: "процедура главная() ... конец\nиспользовать модуль X из \"x.osnova\"",
   },
 ];
 
