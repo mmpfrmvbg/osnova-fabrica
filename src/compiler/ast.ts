@@ -24,7 +24,17 @@ export type Stmt =
   | { kind: "попробовать"; body: Stmt[]; catchVar: string; catchBody: Stmt[] }
   | { kind: "выбросить"; value: Expr }
   | { kind: "пока"; condition: Expr; body: Stmt[] }
-  | { kind: "для_каждого"; variable: string; collection: Expr; body: Stmt[] }
+  | {
+      kind: "для_каждого";
+      item: string;
+      index?: string;
+      source: Expr;
+      body: Stmt[];
+      /** @deprecated старое имя поля для обратной совместимости */
+      variable: string;
+      /** @deprecated старое имя поля для обратной совместимости */
+      collection: Expr;
+    }
   | { kind: "цикл"; body: Stmt[] }
   | { kind: "вернуть"; value?: Expr };
 

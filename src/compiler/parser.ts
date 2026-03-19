@@ -336,11 +336,31 @@ export function parse(tokens: Token[]): ParseResult {
         });
         return null;
       }
-      const tokVar = advance();
-      const variable = String(tokVar.value ?? tokVar.lexeme);
-      if (!consume("в", "Ожидается 'в' после имени переменной")) return null;
-      const collection = parseExpr();
-      if (!collection) return null;
+      const tokItem = advance();
+      const item = String(tokItem.value ?? tokItem.lexeme);
+      let index: string | undefined;
+      if (peek().kind === ",") {
+        advance();
+        if (!isAt("идентификатор")) {
+          const t = peek();
+          errors.push({
+            message: "Ожидается имя индексной переменной после ','",
+            line: t.line,
+            column: t.column,
+            context: "stmt",
+            expected: ["идентификатор"],
+            actualKind: t.kind,
+            actualLexeme: t.lexeme,
+          });
+          return null;
+        }
+        const tokIndex = advance();
+        index = String(tokIndex.value ?? tokIndex.lexeme);
+      }
+      if (!consume("в", "Ожидается 'в' после переменной для_каждого")) return null;
+      const source = parseExpr();
+      if (!source) return null;
+      if (peek().kind === "тогда") advance();
       skipNewlines();
       const body: Stmt[] = [];
       while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
@@ -350,7 +370,16 @@ export function parse(tokens: Token[]): ParseResult {
         skipNewlines();
       }
       if (!consume("конец", "Ожидается 'конец' после тела для_каждого")) return null;
-      return { kind: "для_каждого", variable, collection, body };
+      return {
+        kind: "для_каждого",
+        item,
+        index,
+        source,
+        body,
+        // Обратная совместимость для текущего семантического анализатора.
+        variable: item,
+        collection: source,
+      };
     }
     if (peek().kind === "цикл") {
       advance();

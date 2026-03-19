@@ -331,9 +331,9 @@ describe("Compiler: массивы (array literals)", () => {
 });
 
 describe("Compiler: для_каждого", () => {
-  const arrayInvoke = (name: string, args: unknown[]): number | null => {
+  const arrayInvoke = (name: string, args: unknown[]): unknown => {
     if (name === "система.массив.длина") return (args[0] != null ? (args[0] as unknown[]) : []).length;
-    if (name === "система.массив.получить") return (args[0] as unknown[])[args[1] as number] as number;
+    if (name === "система.массив.получить") return (args[0] as unknown[])[args[1] as number];
     return null;
   };
 
@@ -389,6 +389,42 @@ describe("Compiler: для_каждого", () => {
     const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 10000 });
     // [[1], [2, 3]] → inner loops: 1 + 2 = 3
     expect(await vm.runProcedure(0, [[[1], [2, 3]]])).toBe(3);
+  });
+
+  it("для_каждого элемент, индекс в массив: последний индекс = 2", async () => {
+    const source = `
+модуль t
+процедура main(arr)
+  пусть last = -1
+  для_каждого эл, i в arr
+    last = i
+  конец
+  вернуть last
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 10000 });
+    expect(await vm.runProcedure(0, [["a", "b", "c"]])).toBe(2);
+  });
+
+  it("вложенный для_каждого 2x2 считает 4 элемента", async () => {
+    const source = `
+модуль t
+процедура main(arr)
+  пусть count = 0
+  для_каждого row в arr
+    для_каждого cell, i в row
+      count = count + 1
+    конец
+  конец
+  вернуть count
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 10000 });
+    expect(await vm.runProcedure(0, [[[1, 2], [3, 4]]])).toBe(4);
   });
 });
 

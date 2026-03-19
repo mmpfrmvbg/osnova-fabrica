@@ -79,5 +79,27 @@ describe("parser: базовые конструкции MVP", () => {
     const { errors } = parseModule(src);
     expect(errors.length).toBeGreaterThan(0);
   });
+
+  it("для_каждого с индексом строит AST с item/index/source", () => {
+    const src = [
+      "модуль t",
+      "процедура main(arr)",
+      "  для_каждого эл, idx в arr",
+      "    вернуть idx",
+      "  конец",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+    const { ast, errors } = parseModule(src);
+    expect(errors.length).toBe(0);
+    const m = ast as Module;
+    const forEachStmt = m.procedures[0]?.body.find((s: Stmt) => s.kind === "для_каждого");
+    expect(forEachStmt).toBeDefined();
+    if (!forEachStmt || forEachStmt.kind !== "для_каждого") return;
+    expect(forEachStmt.item).toBe("эл");
+    expect(forEachStmt.index).toBe("idx");
+    expect(forEachStmt.source.kind).toBe("переменная");
+  });
 });
 

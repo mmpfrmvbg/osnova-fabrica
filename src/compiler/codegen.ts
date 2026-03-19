@@ -102,13 +102,16 @@ export function compile(ast: Module): OsVbcModule {
           scan(s.body);
         }
         if (s.kind === "для_каждого") {
-          if (!locals.has(s.variable)) locals.set(s.variable, locals.size);
-          const arrKey = `__for_arr_${forCounter}`;
-          const idxKey = `__for_idx_${forCounter}`;
-          if (!locals.has(arrKey)) locals.set(arrKey, locals.size);
+          if (!locals.has(s.item)) locals.set(s.item, locals.size);
+          if (s.index && !locals.has(s.index)) locals.set(s.index, locals.size);
+          const srcKey = `__forEach_src_${forCounter}`;
+          const lenKey = `__forEach_len_${forCounter}`;
+          const idxKey = `__forEach_i_${forCounter}`;
+          if (!locals.has(srcKey)) locals.set(srcKey, locals.size);
+          if (!locals.has(lenKey)) locals.set(lenKey, locals.size);
           if (!locals.has(idxKey)) locals.set(idxKey, locals.size);
           forCounter++;
-          scanExpr(s.collection);
+          scanExpr(s.source);
           scan(s.body);
         }
         if (s.kind === "цикл") scan(s.body);
@@ -359,25 +362,33 @@ export function compile(ast: Module): OsVbcModule {
         }
         case "для_каждого": {
           const depth = emitForCounter++;
-          const arrSlot = locals.get(`__for_arr_${depth}`)!;
-          const idxSlot = locals.get(`__for_idx_${depth}`)!;
-          const varSlot = locals.get(s.variable)!;
-          emitExpr(s.collection, locals);
-          emit({ op: "local.set", i: arrSlot } as RawInstruction);
+          const srcSlot = locals.get(`__forEach_src_${depth}`)!;
+          const lenSlot = locals.get(`__forEach_len_${depth}`)!;
+          const idxSlot = locals.get(`__forEach_i_${depth}`)!;
+          const itemSlot = locals.get(s.item)!;
+          const indexSlot = s.index ? locals.get(s.index) : undefined;
+          emitExpr(s.source, locals);
+          emit({ op: "local.set", i: srcSlot } as RawInstruction);
+          emit({ op: "local.get", i: srcSlot } as RawInstruction);
+          emit({ op: "invoke", name: "система.массив.длина" } as RawInstruction);
+          emit({ op: "local.set", i: lenSlot } as RawInstruction);
           const k0 = constIndex(0);
           emit({ op: "const", type: "i32", k: k0 } as RawInstruction);
           emit({ op: "local.set", i: idxSlot } as RawInstruction);
           const loopStart = code.length;
           emit({ op: "local.get", i: idxSlot } as RawInstruction);
-          emit({ op: "local.get", i: arrSlot } as RawInstruction);
-          emit({ op: "invoke", name: "система.массив.длина" } as RawInstruction);
+          emit({ op: "local.get", i: lenSlot } as RawInstruction);
           emit({ op: "lt" } as RawInstruction);
           const patchExit = code.length;
           emit({ op: "jmp_if_not", off: 0 } as RawInstruction);
-          emit({ op: "local.get", i: arrSlot } as RawInstruction);
+          emit({ op: "local.get", i: srcSlot } as RawInstruction);
           emit({ op: "local.get", i: idxSlot } as RawInstruction);
           emit({ op: "invoke", name: "система.массив.получить" } as RawInstruction);
-          emit({ op: "local.set", i: varSlot } as RawInstruction);
+          emit({ op: "local.set", i: itemSlot } as RawInstruction);
+          if (indexSlot !== undefined) {
+            emit({ op: "local.get", i: idxSlot } as RawInstruction);
+            emit({ op: "local.set", i: indexSlot } as RawInstruction);
+          }
           for (const b of s.body) emitStmt(b);
           emit({ op: "local.get", i: idxSlot } as RawInstruction);
           const k1 = constIndex(1);

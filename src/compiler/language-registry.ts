@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "1.2.0";
+export const LANGUAGE_VERSION = "1.3.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -36,6 +36,7 @@ export type ConstructId =
   | "throw_stmt"
   | "while"
   | "for_each"
+  | "for_each_indexed"
   | "loop"
   | "return"
   | "and"
@@ -263,19 +264,36 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   },
   {
     id: "for_each",
-    syntax: "для_каждого <переменная> в <выражение> ... конец",
+    syntax: "для_каждого <элемент> в <массив> ... конец",
     astNode: {
       kind: "для_каждого",
       fields: [
-        { name: "variable", type: "string" },
-        { name: "collection", type: "Expr" },
+        { name: "item", type: "string" },
+        { name: "source", type: "Expr" },
         { name: "body", type: "Stmt[]" },
       ],
     },
-    since: "0.1.0",
-    bytecodePattern: "collection → __for_arr; 0 → __for_idx; loop: idx<length? jmp_if_not exit; получить(arr,idx)→var; body; idx+1→__for_idx; jmp loop; exit:",
+    since: "1.0.0",
+    bytecodePattern: "source → __forEach_src_N; len(source) → __forEach_len_N; __forEach_i_N=0; loop: i<len? jmp_if_not exit; item=получить(source,i); body; i=i+1; jmp loop; exit:",
     implemented: true,
     description: "Цикл по массиву через система.массив.длина / система.массив.получить",
+  },
+  {
+    id: "for_each_indexed",
+    syntax: "для_каждого <элемент>, <индекс> в <массив> ... конец",
+    astNode: {
+      kind: "для_каждого",
+      fields: [
+        { name: "item", type: "string" },
+        { name: "index", type: "string", optional: true },
+        { name: "source", type: "Expr" },
+        { name: "body", type: "Stmt[]" },
+      ],
+    },
+    since: "1.3.0",
+    bytecodePattern: "как for_each + index=i перед телом цикла",
+    implemented: true,
+    description: "Итерация по массиву с доступом к индексу",
   },
   {
     id: "loop",
@@ -463,6 +481,12 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
     bad: "система.число.из_строки(s)",
   },
   { id: "env_api_missing", description: "система.окружение.* не поддерживается", bad: "система.окружение.получить(\"X\")" },
+  {
+    id: "foreach_js_syntax",
+    description: "Не использовать JavaScript forEach/for...of",
+    bad: "arr.forEach(el => { })",
+    good: "для_каждого элемент в arr\n  ...\nконец",
+  },
   {
     id: "js_try_catch",
     description: "Не использовать JavaScript try/catch",
