@@ -113,6 +113,8 @@ const SYSTEM_PROMPT = `
 `.trim();
 
 export class OsnovaCodegenAgent {
+  constructor(private registryContext: string = '') {}
+
   async generate(spec: OsnovaSpec): Promise<OsnovaSource> {
     const provider = getLLMProvider();
     const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
@@ -126,7 +128,10 @@ export class OsnovaCodegenAgent {
       response = await provider.complete({
         model,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          {
+            role: 'system',
+            content: SYSTEM_PROMPT + (this.registryContext ? '\n\n' + this.registryContext : ''),
+          },
           {
             role: 'user',
             content: specPrompt + '\n\n// Few-shot примеры программ на языке Основа:\n' + fewShot,

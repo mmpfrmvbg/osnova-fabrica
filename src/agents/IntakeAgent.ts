@@ -42,6 +42,8 @@ const SPEC_SYSTEM_PROMPT = `
 `.trim();
 
 export class IntakeAgent {
+  constructor(private registryContext: string = '') {}
+
   async parseIntent(input: RawText): Promise<OsnovaIntent> {
     const provider = getLLMProvider();
     const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
@@ -71,6 +73,7 @@ export class IntakeAgent {
               'Example for "calculate sum 1 to 10": features: ["arithmetic loop","print result"]',
               '',
               `Task: "${input.text}"`,
+              this.registryContext ? '\n\n' + this.registryContext : '',
             ].join('\n'),
           },
         ],
@@ -120,7 +123,10 @@ export class IntakeAgent {
       response = await provider.complete({
         model,
         messages: [
-          { role: 'system', content: SPEC_SYSTEM_PROMPT },
+          {
+            role: 'system',
+            content: SPEC_SYSTEM_PROMPT + (this.registryContext ? '\n\n' + this.registryContext : ''),
+          },
           {
             role: 'user',
             content: JSON.stringify({

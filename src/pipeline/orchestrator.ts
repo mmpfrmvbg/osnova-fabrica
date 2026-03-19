@@ -14,6 +14,7 @@ import { saveTrace } from '../trace/traceStore';
 import { logger } from '../logger';
 import { compileSource, type CompileResult } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
+import { loadRegistry, registryToContext } from '../runtime/loadRegistry';
 import type {
   OsnovaIntent,
   OsnovaSpec,
@@ -49,6 +50,8 @@ export async function runPipeline(
   task: string,
 ): Promise<PipelineResult> {
   const runId = randomUUID();
+  const registry = loadRegistry();
+  const registryContext = registryToContext(registry);
   const startTime = Date.now();
   const modelId = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
   let repairAttempts = 0;
@@ -63,7 +66,7 @@ export async function runPipeline(
   try {
     // ─── Фаза 1: intake ───
     log.info('phase: intake');
-    const intake = new IntakeAgent();
+    const intake = new IntakeAgent(registryContext);
     intent = await intake.parseIntent({ text: task });
 
     // ─── Фаза 2: spec_generation ───
@@ -80,7 +83,7 @@ export async function runPipeline(
 
     // ─── Фаза 3: codegen ───
     log.info('phase: codegen');
-    const codegen = new OsnovaCodegenAgent();
+    const codegen = new OsnovaCodegenAgent(registryContext);
     source = await codegen.generate(spec);
     lastSource = source;
 
