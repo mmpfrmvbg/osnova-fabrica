@@ -56,7 +56,7 @@ function renderHtml(registry: unknown, traces: unknown[]): string {
   const appRows = apps
     .map(
       a =>
-        `<tr><td><b>${a.id}</b></td><td>${a.name}</td><td>${a.category ?? ''}</td><td>${
+        `<tr><td><b><a href="/app/${encodeURIComponent(a.id)}" style="color:#7ec8e3">${a.id}</a></b></td><td>${a.name}</td><td>${a.category ?? ''}</td><td>${
           a.version ?? ''
         }</td></tr>`,
     )
@@ -101,6 +101,9 @@ function renderHtml(registry: unknown, traces: unknown[]): string {
 <table><tr><th>ID</th><th>Название</th><th>Версия</th></tr>${svcRows}</table>
 
 <h2>Последние трейсы</h2>
+<div style="font-size:11px;color:#555;margin-bottom:6px">
+  Обновляется каждые 30 сек · <a href="/" style="color:#555">обновить сейчас</a>
+</div>
 <table><tr><th>Статус</th><th>Задача</th><th>Repairs</th><th>Время</th><th>runId</th></tr>${traceRows}</table>
 <h2>Ассистент — создать приложение</h2>
 <div id="assistant" style="background:#1a1a1a;padding:16px;border-radius:6px;margin-bottom:24px">
@@ -151,6 +154,9 @@ async function runPipeline() {
   }
 }
 </script>
+<script>
+setTimeout(function(){ location.reload(); }, 30000);
+</script>
 </body></html>`;
 }
 
@@ -197,6 +203,50 @@ export function startCenter(): void {
           res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
         }
       });
+      return;
+    }
+
+    const appMatch = req.url?.match(/^\/app\/(.+)$/);
+    if (req.method === 'GET' && appMatch) {
+      const appId = decodeURIComponent(appMatch[1]!);
+      const reg = loadRegistry() as {
+        entries?: Array<{
+          id: string;
+          name?: string;
+          kind?: string;
+          permissions?: unknown;
+          version?: string;
+          manifestPath?: string;
+        }>;
+      };
+      const entry = (reg.entries ?? []).find(e => e.id === appId);
+      if (!entry) {
+        res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(
+          `<p>Приложение не найдено: ${appId} <a href="/" style="color:#7ec8e3">← назад</a></p>`,
+        );
+        return;
+      }
+
+      const perms = JSON.stringify(entry.permissions ?? {}, null, 2);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(
+        `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>${
+          entry.name ?? appId
+        }</title>
+<style>body{font-family:system-ui,sans-serif;background:#0f0f0f;color:#e0e0e0;padding:20px}
+a{color:#7ec8e3}pre{background:#1a1a1a;padding:16px;border-radius:6px;font-size:12px;overflow:auto}
+h1{color:#7ec8e3}h2{color:#aaa;font-size:13px;text-transform:uppercase;letter-spacing:1px}</style></head>
+<body><a href="/">← ОС-НОВА Center</a>
+<h1>${entry.name ?? appId}</h1>
+<p style="color:#888;font-size:13px">ID: ${entry.id} | Версия: ${entry.version ?? '—'} | Тип: ${
+          entry.kind ?? '—'
+        }</p>
+<h2>Права (permissions)</h2>
+<pre>${perms}</pre>
+${entry.manifestPath ? `<p style="font-size:12px;color:#555">Манифест: ${entry.manifestPath}</p>` : '' }
+</body></html>`,
+      );
       return;
     }
 
