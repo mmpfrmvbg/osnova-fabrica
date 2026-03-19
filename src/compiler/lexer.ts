@@ -31,6 +31,10 @@ export type TokenKind =
   | "="
   | "=="
   | "!="
+  | "+="
+  | "-="
+  | "*="
+  | "/="
   | "<"
   | "<="
   | ">"
@@ -223,6 +227,30 @@ export function tokenize(source: string): LexerResult {
       advance();
       advance();
       tokens.push(makeToken(">=", ">="));
+      continue;
+    }
+    if (c === "+" && source[i + 1] === "=") {
+      advance();
+      advance();
+      tokens.push(makeToken("+=", "+="));
+      continue;
+    }
+    if (c === "-" && source[i + 1] === "=") {
+      advance();
+      advance();
+      tokens.push(makeToken("-=", "-="));
+      continue;
+    }
+    if (c === "*" && source[i + 1] === "=") {
+      advance();
+      advance();
+      tokens.push(makeToken("*=", "*="));
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "=") {
+      advance();
+      advance();
+      tokens.push(makeToken("/=", "/="));
       continue;
     }
 

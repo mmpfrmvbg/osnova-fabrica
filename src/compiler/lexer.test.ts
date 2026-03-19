@@ -62,6 +62,24 @@ describe("lexer: базовые конструкции MVP", () => {
     expect(idxStar).toBeGreaterThan(idxPlus);
   });
 
+  it("составное присваивание: x += 1", () => {
+    const { tokens, errors } = tokenize("x += 1\n");
+    expect(errors.length).toBe(0);
+    const seq = tokens
+      .map((t) => t.kind)
+      .filter((k) => k !== "новая_строка" && k !== "конец_файла");
+    expect(seq).toEqual(["идентификатор", "+=", "число"]);
+  });
+
+  it("составное присваивание: x -= 2", () => {
+    const { tokens, errors } = tokenize("x -= 2\n");
+    expect(errors.length).toBe(0);
+    const seq = tokens
+      .map((t) => t.kind)
+      .filter((k) => k !== "новая_строка" && k !== "конец_файла");
+    expect(seq).toEqual(["идентификатор", "-=", "число"]);
+  });
+
   it("ошибка лексера: неизвестный символ @", () => {
     const src = "процедура main()\n  пусть x = 1 @ 2\nконец\n";
     const { errors } = tokenize(src);

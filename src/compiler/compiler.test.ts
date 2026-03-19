@@ -451,6 +451,64 @@ describe("Compiler: объект (object literals)", () => {
   });
 });
 
+describe("Compiler: compound assignments", () => {
+  it("x += 3 компилируется и VM возвращает 4", async () => {
+    const source = `
+модуль t
+процедура главная()
+  пусть x = 1
+  x += 3
+  вернуть x
+конец
+конец
+    `.trim();
+
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.lexerErrors).toHaveLength(0);
+    expect(result.parserErrors).toHaveLength(0);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(4);
+  });
+
+  it("x -= 3 компилируется и VM возвращает 7", async () => {
+    const source = `
+модуль t
+процедура главная()
+  пусть x = 10
+  x -= 3
+  вернуть x
+конец
+конец
+    `.trim();
+
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(7);
+  });
+
+  it("obj.field += 2 компилируется и VM возвращает 7", async () => {
+    const source = `
+модуль t
+процедура главная()
+  пусть o = { n: 5 }
+  o.n += 2
+  вернуть o.n
+конец
+конец
+    `.trim();
+
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(7);
+  });
+});
+
 describe("Compiler negative: errors reported", () => {
   it("модуль without identifier → parserErrors", () => {
     const result = compileSource("модуль \n");

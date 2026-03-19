@@ -180,6 +180,13 @@ export function parse(tokens: Token[]): ParseResult {
   }
 
   function parseStmt(): Stmt | null {
+    const compoundToBinaryOp: Record<"+=" | "-=" | "*=" | "/=", "+" | "-" | "*" | "/"> = {
+      "+=": "+",
+      "-=": "-",
+      "*=": "*",
+      "/=": "/",
+    };
+
     if (peek().kind === "пусть") {
       advance();
       if (!isAt("идентификатор")) {
@@ -315,7 +322,7 @@ export function parse(tokens: Token[]): ParseResult {
     if (isAt("идентификатор")) {
       const tokAssign = advance();
       const name = String(tokAssign.value ?? tokAssign.lexeme);
-      // Проверить: имя.поле = значение (только когда после поля сразу "=")
+      // Проверить: имя.поле (=|+=|-=|*=|/=) значение
       let rewinded = false;
       if (peek().kind === ".") {
         const savePos = pos;
@@ -323,20 +330,46 @@ export function parse(tokens: Token[]): ParseResult {
         if (isAt("идентификатор")) {
           const fieldTok = advance();
           const field = String(fieldTok.value ?? fieldTok.lexeme);
-          if (peek().kind === "=") {
+          const opKind = peek().kind;
+          if (opKind === "=" || opKind === "+=" || opKind === "-=" || opKind === "*=" || opKind === "/=") {
             advance();
-            const value = parseExpr();
-            if (!value) return null;
+            const rhs = parseExpr();
+            if (!rhs) return null;
+            if (opKind === "=") {
+              return { kind: "поле_присвоить", object: name, field, value: rhs };
+            }
+            const value: Expr = {
+              kind: "бинарное",
+              op: compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="],
+              left: {
+                kind: "поле",
+                object: { kind: "переменная", name },
+                field,
+              },
+              right: rhs,
+            };
             return { kind: "поле_присвоить", object: name, field, value };
           }
         }
         pos = savePos - 1; // rewind to identifier for parseExpr
         rewinded = true;
       }
-      if (!rewinded && peek().kind === "=") {
-        advance();
-        const value = parseExpr();
-        if (!value) return null;
+      if (
+        !rewinded &&
+        (peek().kind === "=" || peek().kind === "+=" || peek().kind === "-=" || peek().kind === "*=" || peek().kind === "/=")
+      ) {
+        const opKind = advance().kind;
+        const rhs = parseExpr();
+        if (!rhs) return null;
+        if (opKind === "=") {
+          return { kind: "присвоить", name, value: rhs };
+        }
+        const value: Expr = {
+          kind: "бинарное",
+          op: compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="],
+          left: { kind: "переменная", name },
+          right: rhs,
+        };
         return { kind: "присвоить", name, value };
       }
       if (!rewinded) pos--; // put back identifier, parse as expression statement

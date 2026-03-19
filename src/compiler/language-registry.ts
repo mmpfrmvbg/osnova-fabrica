@@ -249,10 +249,10 @@ const OPERATORS_V01: OperatorSpec[] = [
   { symbol: "*", kind: "arithmetic", precedence: 6, associativity: "left", implemented: true, since: "0.1.0" },
   { symbol: "/", kind: "arithmetic", precedence: 6, associativity: "left", implemented: true, since: "0.1.0" },
   { symbol: "%", kind: "arithmetic", precedence: 6, associativity: "left", implemented: true, since: "0.1.0" },
-  { symbol: "+=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: false, since: "0.1.1" },
-  { symbol: "-=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: false, since: "0.1.1" },
-  { symbol: "*=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: false, since: "0.1.1" },
-  { symbol: "/=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: false, since: "0.1.1" },
+  { symbol: "+=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: true, since: "0.1.1" },
+  { symbol: "-=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: true, since: "0.1.1" },
+  { symbol: "*=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: true, since: "0.1.1" },
+  { symbol: "/=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: true, since: "0.1.1" },
 ];
 
 const SYSCALLS_V01: SyscallSpec[] = [
