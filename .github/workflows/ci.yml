@@ -40,3 +40,35 @@ jobs:
 
       - name: Validate language registry
         run: npm run validate:spec
+
+  golden-fixtures:
+    name: golden fixtures check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if fixtures changed
+        id: fixtures_changed
+        run: |
+          git diff --name-only HEAD~1 HEAD | grep -q "src/runtime/fixtures/" && echo "changed=true" >> $GITHUB_OUTPUT || echo "changed=false" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        if: steps.fixtures_changed.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.fixtures_changed.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Run golden (fixtures changed)
+        if: steps.fixtures_changed.outputs.changed == 'true'
+        run: npm run golden
+        env:
+          OSNOVA_STORAGE_ROOT: /tmp/osnova-storage-ci
