@@ -416,6 +416,20 @@
       "source": "модуль т\nпроцедура главная()\n  пусть числа = [10,\n    20,\n    30\n  ]\n  вернуть числа[0]\nконец\nконец",
       "expectCompiler": { "success": true },
       "expectVM": { "returnValue": 10 }
+    },
+    {
+      "id": "proc_call_basic",
+      "description": "Вызов вспомогательной процедуры из главная",
+      "category": "generic",
+      "source": "модуль т\nпроцедура удвоить(х)\n  вернуть х * 2\nконец\nпроцедура главная()\n  пусть р = удвоить(5)\n  вернуть р\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "proc_call_recursive",
+      "description": "Рекурсивный факториал",
+      "category": "generic",
+      "source": "модуль т\nпроцедура факториал(н)\n  если н <= 1\n    вернуть 1\n  конец\n  вернуть н * факториал(н - 1)\nконец\nпроцедура главная()\n  вернуть факториал(5)\nконец\nконец",
+      "expectCompiler": { "success": true }
     }
   ]
 }

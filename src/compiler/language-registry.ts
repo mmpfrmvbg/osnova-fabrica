@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "1.3.0";
+export const LANGUAGE_VERSION = "1.4.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -39,6 +39,8 @@ export type ConstructId =
   | "for_each_indexed"
   | "loop"
   | "return"
+  | "proc_call"
+  | "proc_call_recursive"
   | "and"
   | "or"
   | "not"
@@ -383,6 +385,24 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     since: "1.1.0",
     implemented: true,
     description: "Точка входа может принимать один параметр-массив CLI аргументов",
+  },
+  {
+    id: "proc_call",
+    syntax: "пусть результат = имя_процедуры(аргументы)",
+    example: "пусть р = удвоить(5)",
+    astNode: { kind: "вызов", fields: [{ name: "name", type: "string" }, { name: "args", type: "Expr[]" }] },
+    since: "1.4.0",
+    implemented: true,
+    description: "Вызов пользовательской процедуры (из процедуры/тела программы)",
+  },
+  {
+    id: "proc_call_recursive",
+    syntax: "вернуть имя_процедуры(выражение)",
+    example: "вернуть факториал(н - 1)",
+    astNode: { kind: "вызов", fields: [{ name: "name", type: "string" }, { name: "args", type: "Expr[]" }] },
+    since: "1.4.0",
+    implemented: true,
+    description: "Рекурсивный вызов пользовательской процедуры",
   },
 ];
 

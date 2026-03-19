@@ -719,6 +719,48 @@ describe("semantic checker", () => {
   });
 });
 
+describe("Compiler: procedure calls", () => {
+  it("вызов вспомогательной процедуры: удвоить(5) → 10", async () => {
+    const src = `модуль т
+процедура удвоить(х)
+  вернуть х * 2
+конец
+процедура главная()
+  пусть р = удвоить(5)
+  вернуть р
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+
+    const vm = new VM(result.module!, { maxSteps: 10000 });
+    const idx = vm.findProcedureIndex("главная");
+    expect(await vm.runProcedure(idx, [])).toBe(10);
+  });
+
+  it("рекурсия: факториал(5) → 120", async () => {
+    const src = `модуль т
+процедура факториал(н)
+  если н <= 1
+    вернуть 1
+  конец
+  вернуть н * факториал(н - 1)
+конец
+процедура главная()
+  вернуть факториал(5)
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+
+    const vm = new VM(result.module!, { maxSteps: 10000 });
+    const idx = vm.findProcedureIndex("главная");
+    expect(await vm.runProcedure(idx, [])).toBe(120);
+  });
+});
+
 describe("Compiler negative: errors reported", () => {
   it("модуль without identifier → parserErrors", () => {
     const result = compileSource("модуль \n");
