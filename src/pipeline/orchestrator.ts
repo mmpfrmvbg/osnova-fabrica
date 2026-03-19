@@ -35,11 +35,19 @@ const MAX_REPAIR_LOOPS = 3;
  *   + добавляет BuildReport.success = compilerSuccess && lexerErrors.length === 0
  */
 export function compileToBuildReport(r: CompileResult): BuildReport {
+  const blockingSemanticErrors = (r.semanticErrors ?? []).filter(
+    e => e.kind === 'unknown_syscall' || e.kind === 'undeclared_var' || e.kind === 'unknown_procedure',
+  );
   return {
-    success: r.compilerSuccess && r.lexerErrors.length === 0 && r.parserErrors.length === 0,
+    success:
+      r.compilerSuccess &&
+      r.lexerErrors.length === 0 &&
+      r.parserErrors.length === 0 &&
+      blockingSemanticErrors.length === 0,
     lexerErrors: r.lexerErrors,
     parserErrors: r.parserErrors,
     compilerErrors: r.compilerErrors,
+    semanticErrors: r.semanticErrors ?? [],
     bytecode: r.module ?? null,
     compilerSuccess: r.compilerSuccess,
     durationMs: r.durationMs,
@@ -106,6 +114,13 @@ export async function runPipeline(
           for (const e of buildReport.compilerErrors) {
             const msg = (e as { message?: string }).message ?? JSON.stringify(e);
             log.info(`compiler error: ${msg}`);
+          }
+        }
+        if (buildReport.semanticErrors?.length) {
+          for (const e of buildReport.semanticErrors.filter(
+            se => se.kind === 'unknown_syscall' || se.kind === 'undeclared_var' || se.kind === 'unknown_procedure',
+          )) {
+            log.info(`semantic error [${e.kind}]: ${e.message}`);
           }
         }
         if (loop >= MAX_REPAIR_LOOPS) break;

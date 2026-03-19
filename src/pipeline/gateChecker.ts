@@ -66,6 +66,14 @@ export function checkG2(buildReport: BuildReport): GateResult {
   if (!buildReport.compilerSuccess || buildReport.bytecode === null)
     failed.push('g2_compiler_success: no bytecode → route_to_repair');
 
+  const blockingSemantic = (buildReport.semanticErrors ?? []).filter(
+    e => e.kind === 'unknown_syscall' || e.kind === 'undeclared_var' || e.kind === 'unknown_procedure',
+  );
+  if (blockingSemantic.length > 0) {
+    const details = blockingSemantic.map(e => e.message).join('; ');
+    failed.push(`g2_semantic_clean: ${details} → route_to_repair`);
+  }
+
   if (buildReport.durationMs > 30000)
     failed.push('g2_build_time: build > 30s (warning, log_slow_build)');
 
