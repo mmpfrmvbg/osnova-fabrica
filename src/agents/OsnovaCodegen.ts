@@ -86,8 +86,8 @@ function loadFewShot(): string {
 // ✓ ПРАВИЛЬНО — только: система.лог.вывести(...)
 `.trim();
 
-    const v11Patterns = `
-// ═══ НОВОЕ в v1.1 — ИСПОЛЬЗУЙ ЭТИ ПАТТЕРНЫ ═══
+    const v12Patterns = `
+// ═══ НОВОЕ в v1.1/v1.2 — ИСПОЛЬЗУЙ ЭТИ ПАТТЕРНЫ ═══
 
 // ✓ Индексный доступ к массиву (v1.1 sugar):
 // пусть первый = числа[0]
@@ -103,9 +103,18 @@ function loadFewShot(): string {
 // процедура главная(аргументы)
 //   пусть первый = аргументы[0]
 // конец
+//
+// ✓ Обработка ошибок (v1.2-alpha):
+// попробовать
+//   пусть д = система.хранилище.прочитать("ключ")
+// иначе_попытка е
+//   система.лог.вывести(е)
+// конец
+//
+// выбросить "что-то пошло не так"
 `.trim();
 
-    cachedFewShot = [goldenExamples, sumExample, antiPatterns, v11Patterns]
+    cachedFewShot = [goldenExamples, sumExample, antiPatterns, v12Patterns]
       .filter(Boolean)
       .join('\n\n---\n\n');
     return cachedFewShot;
