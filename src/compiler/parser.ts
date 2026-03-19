@@ -262,6 +262,49 @@ export function parse(tokens: Token[]): ParseResult {
       if (!consume("конец", "Ожидается 'конец' после тела если")) return null;
       return { kind: "если", condition, body, elseIfClauses: elseIfClauses.length > 0 ? elseIfClauses : undefined, elseBody };
     }
+    if (peek().kind === "попробовать") {
+      advance();
+      skipNewlines();
+      const body: Stmt[] = [];
+      while (peek().kind !== "иначе_попытка" && peek().kind !== "конец_файла") {
+        const s = parseStmt();
+        if (s) body.push(s);
+        else syncToStmtBoundary();
+        skipNewlines();
+      }
+      if (!consume("иначе_попытка", "Ожидается 'иначе_попытка'")) return null;
+      if (!isAt("идентификатор")) {
+        const t = peek();
+        errors.push({
+          message: "Ожидается имя переменной ошибки после 'иначе_попытка'",
+          line: t.line,
+          column: t.column,
+          context: "stmt",
+          expected: ["идентификатор"],
+          actualKind: t.kind,
+          actualLexeme: t.lexeme,
+        });
+        return null;
+      }
+      const catchTok = advance();
+      const catchVar = String(catchTok.value ?? catchTok.lexeme);
+      skipNewlines();
+      const catchBody: Stmt[] = [];
+      while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+        const s = parseStmt();
+        if (s) catchBody.push(s);
+        else syncToStmtBoundary();
+        skipNewlines();
+      }
+      if (!consume("конец", "Ожидается 'конец' после иначе_попытка")) return null;
+      return { kind: "попробовать", body, catchVar, catchBody };
+    }
+    if (peek().kind === "выбросить") {
+      advance();
+      const value = parseExpr();
+      if (!value) return null;
+      return { kind: "выбросить", value };
+    }
     if (peek().kind === "пока") {
       advance();
       const condition = parseExpr();

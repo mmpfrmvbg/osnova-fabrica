@@ -127,6 +127,11 @@ interface CallFrame {
   locals: StackValue[];
 }
 
+interface TryFrame {
+  catchOffset: number;
+  frameDepth: number;
+}
+
 export class InterpreterError extends Error {
   constructor(message: string, public pc?: number, public op?: string) {
     super(message);
@@ -137,6 +142,7 @@ export class InterpreterError extends Error {
 export class VM {
   private stack: StackValue[] = [];
   private frames: CallFrame[] = [];
+  private tryStack: TryFrame[] = [];
   private pc = 0;
   private module: OsVbcModule;
   private options: Required<InterpreterOptions>;
@@ -185,6 +191,7 @@ export class VM {
     });
     this.pc = proc.codeOffset;
     this.stack = [];
+    this.tryStack = [];
 
     let steps = 0;
     while (this.pc >= 0 && this.pc < this.module.code.length) {
@@ -198,6 +205,9 @@ export class VM {
           if (nextPc === "ret") {
             const frame = this.frames.pop();
             if (!frame) break;
+            while (this.tryStack.length > 0 && this.tryStack[this.tryStack.length - 1]!.frameDepth > this.frames.length) {
+              this.tryStack.pop();
+            }
             const returnValue = this.stack.pop();
             if (this.frames.length === 0) return returnValue;
             if (returnValue !== undefined) this.stack.push(returnValue);
@@ -212,6 +222,9 @@ export class VM {
       if (nextPc === "ret") {
         const frame = this.frames.pop();
         if (!frame) break;
+        while (this.tryStack.length > 0 && this.tryStack[this.tryStack.length - 1]!.frameDepth > this.frames.length) {
+          this.tryStack.pop();
+        }
         const returnValue = this.stack.pop();
         if (this.frames.length === 0) return returnValue;
         if (returnValue !== undefined) this.stack.push(returnValue);
@@ -349,6 +362,25 @@ export class VM {
       }
       case "jmp":
         return (ins as { op: "jmp"; off: number }).off;
+      case "try_begin": {
+        const off = (ins as { op: "try_begin"; off: number }).off;
+        this.tryStack.push({ catchOffset: off, frameDepth: this.frames.length });
+        return next;
+      }
+      case "try_end":
+        if (this.tryStack.length > 0) this.tryStack.pop();
+        return next;
+      case "throw": {
+        const errVal = this.stack.pop() ?? null;
+        if (this.tryStack.length > 0) {
+          const handler = this.tryStack.pop()!;
+          // Если когда-нибудь появятся throw через frame boundaries, отрежем стек вызовов.
+          while (this.frames.length > handler.frameDepth) this.frames.pop();
+          this.stack.push(errVal);
+          return handler.catchOffset;
+        }
+        throw new InterpreterError(`Необработанное исключение: ${String(errVal)}`, this.pc, "throw");
+      }
       case "jmp_if": {
         const off = (ins as { op: "jmp_if"; off: number }).off;
         if (this.stack.pop()) return off;  // truthy → jump

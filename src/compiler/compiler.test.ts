@@ -171,6 +171,43 @@ describe("Compiler: иначе (if/else)", () => {
     });
     expect(await vm.runProcedure(0, [["привет"]])).toBe(1);
   });
+
+  it("попробовать/иначе_попытка компилируется без ошибок", () => {
+    const src = `
+модуль t
+процедура главная()
+  попробовать
+    выбросить "ошибка"
+  иначе_попытка е
+    вернуть 1
+  конец
+  вернуть 0
+конец
+конец`.trim();
+    const result = compileSource(src);
+    expect(result.lexerErrors).toHaveLength(0);
+    expect(result.parserErrors).toHaveLength(0);
+    expect(result.compilerSuccess).toBe(true);
+  });
+
+  it("выбросить: catch перехватывает и VM возвращает 42", async () => {
+    const src = `
+модуль t
+процедура главная()
+  попробовать
+    выбросить "что-то пошло не так"
+  иначе_попытка ошибка
+    вернуть 42
+  конец
+  вернуть 0
+конец
+конец`.trim();
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(42);
+  });
 });
 
 describe("Compiler: массивы (array literals)", () => {

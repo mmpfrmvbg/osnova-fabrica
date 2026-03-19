@@ -114,6 +114,12 @@ export function compile(ast: Module): OsVbcModule {
         if (s.kind === "цикл") scan(s.body);
         if (s.kind === "вернуть" && s.value) scanExpr(s.value);
         if (s.kind === "поле_присвоить") scanExpr(s.value);
+        if (s.kind === "выбросить") scanExpr(s.value);
+        if (s.kind === "попробовать") {
+          if (!locals.has(s.catchVar)) locals.set(s.catchVar, locals.size);
+          scan(s.body);
+          scan(s.catchBody);
+        }
       }
     }
     scan(proc.body);
@@ -318,6 +324,29 @@ export function compile(ast: Module): OsVbcModule {
             (code[p] as { off: number }).off = endIf;
           break;
         }
+        case "попробовать": {
+          const catchSlot = locals.get(s.catchVar);
+          if (catchSlot === undefined) {
+            throw new Error(`Переменная catch '${s.catchVar}' не объявлена`);
+          }
+          const patchTryBegin = code.length;
+          emit({ op: "try_begin", off: 0 } as RawInstruction);
+          for (const b of s.body) emitStmt(b);
+          emit({ op: "try_end" } as RawInstruction);
+          const patchJmpEnd = code.length;
+          emit({ op: "jmp", off: 0 } as RawInstruction);
+          const catchLabel = code.length;
+          (code[patchTryBegin] as { off: number }).off = catchLabel;
+          emit({ op: "local.set", i: catchSlot } as RawInstruction);
+          for (const b of s.catchBody) emitStmt(b);
+          const endTry = code.length;
+          (code[patchJmpEnd] as { off: number }).off = endTry;
+          break;
+        }
+        case "выбросить":
+          emitExpr(s.value, locals);
+          emit({ op: "throw" } as RawInstruction);
+          break;
         case "пока": {
           const loopStart = code.length;
           emitExpr(s.condition, locals);

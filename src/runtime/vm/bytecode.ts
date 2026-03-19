@@ -46,6 +46,9 @@ export type Op =
   | "jmp"
   | "jmp_if"
   | "jmp_if_not"
+  | "try_begin"
+  | "try_end"
+  | "throw"
   | "ret"
   | "result.unwrap"
   | "result.tag"
@@ -81,7 +84,7 @@ export interface InstructionInvoke {
 }
 
 export interface InstructionJmp {
-  op: "jmp" | "jmp_if" | "jmp_if_not";
+  op: "jmp" | "jmp_if" | "jmp_if_not" | "try_begin";
   off: number;
 }
 
@@ -92,7 +95,7 @@ export type RawInstruction =
   | InstructionCall
   | InstructionInvoke
   | InstructionJmp
-  | { op: Exclude<Op, "const" | "local.get" | "local.set" | "global.get" | "global.set" | "call" | "invoke" | "jmp" | "jmp_if" | "jmp_if_not"> };
+  | { op: Exclude<Op, "const" | "local.get" | "local.set" | "global.get" | "global.set" | "call" | "invoke" | "jmp" | "jmp_if" | "jmp_if_not" | "try_begin"> };
 
 /**
  * VLIW-пакет (format v2): несколько операций на одну позицию в code.

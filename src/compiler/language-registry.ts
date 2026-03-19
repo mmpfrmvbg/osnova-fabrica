@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "1.1.0";
+export const LANGUAGE_VERSION = "1.2.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -32,6 +32,8 @@ export type ConstructId =
   | "else_if"
   | "field_assign"
   | "then_keyword"
+  | "try_catch"
+  | "throw_stmt"
   | "while"
   | "for_each"
   | "loop"
@@ -117,6 +119,9 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "иначе", kind: "stmt", implemented: true, since: "0.1.0", description: "ветка else после если" },
   { lexeme: "иначе_если", kind: "stmt", implemented: true, since: "0.1.0", description: "цепочка else-if между если и иначе" },
   { lexeme: "пока", kind: "stmt", implemented: true, since: "0.1.0" },
+  { lexeme: "попробовать", kind: "stmt", implemented: true, since: "1.2.0", description: "начало блока обработки ошибок" },
+  { lexeme: "иначе_попытка", kind: "stmt", implemented: true, since: "1.2.0", description: "блок catch для попробовать" },
+  { lexeme: "выбросить", kind: "stmt", implemented: true, since: "1.2.0", description: "выброс исключения" },
   { lexeme: "для_каждого", kind: "stmt", implemented: true, since: "0.1.0", description: "цикл по коллекции" },
   { lexeme: "в", kind: "stmt", implemented: true, since: "0.1.0", description: "в конструкции для_каждого x в expr" },
   { lexeme: "цикл", kind: "stmt", implemented: true, since: "0.1.0" },
@@ -221,6 +226,32 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     since: "0.1.0",
     implemented: true,
     description: "Присваивание поля объекта",
+  },
+  {
+    id: "try_catch",
+    syntax: "попробовать\n  <тело>\nиначе_попытка ошибка\n  <обработчик>\nконец",
+    astNode: {
+      kind: "попробовать",
+      fields: [
+        { name: "body", type: "Stmt[]" },
+        { name: "catchVar", type: "string" },
+        { name: "catchBody", type: "Stmt[]" },
+      ],
+    },
+    since: "1.2.0",
+    implemented: true,
+    description: "Блок перехвата ошибок",
+  },
+  {
+    id: "throw_stmt",
+    syntax: "выбросить <выражение>",
+    astNode: {
+      kind: "выбросить",
+      fields: [{ name: "value", type: "Expr" }],
+    },
+    since: "1.2.0",
+    implemented: true,
+    description: "Выбросить значение как исключение",
   },
   {
     id: "while",

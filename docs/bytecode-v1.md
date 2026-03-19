@@ -76,6 +76,9 @@
 | `jmp` | `off` | — → — | Переход на `pc = off` |
 | `jmp_if` | `off` | [cond] → — | truthy → jump, иначе next |
 | `jmp_if_not` | `off` | [cond] → — | falsy → jump, иначе next |
+| `try_begin` | `off` | — → — | Начало try-блока; `off` = адрес catch-обработчика |
+| `try_end` | — | — → — | Конец try-блока, pop из стека обработчиков |
+| `throw` | — | [value] → — | Выбросить значение; переход к ближайшему catch или ошибка VM |
 | `ret` | — | [value?] → — | Возврат из процедуры |
 
 ### 3.5. VLIW-пакеты
