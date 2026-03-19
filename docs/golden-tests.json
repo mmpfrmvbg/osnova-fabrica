@@ -81,6 +81,62 @@
       "specSnippet": { "meta": { "name": "НайтиМакс", "type": "cli" } },
       "expectCompiler": { "success": true },
       "expectKeywords": ["obj.new", "obj.get"]
+    },
+    {
+      "id": "not_unary_basic",
+      "description": "Унарный не в условии",
+      "category": "logic",
+      "source": "модуль t\nпроцедура главная()\n  если не ложь\n    вернуть 1\n  иначе\n    вернуть 0\n  конец\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "while_with_or",
+      "description": "Цикл пока с или",
+      "category": "logic",
+      "source": "модуль t\nпроцедура главная()\n  пусть x = 0\n  пока x == 0 или x == 1\n    x = x + 1\n    если x > 3\n      вернуть x\n    конец\n  конец\n  вернуть x\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "null_literal_flow",
+      "description": "Пусто как литерал и сравнение",
+      "category": "logic",
+      "source": "модуль t\nпроцедура главная()\n  пусть x = пусто\n  если x == пусто\n    вернуть 1\n  иначе\n    вернуть 0\n  конец\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "object_field_arith",
+      "description": "Объект: доступ к полям + арифметика",
+      "category": "objects",
+      "source": "модуль t\nпроцедура главная()\n  пусть obj = { a: 10, b: 5 }\n  пусть c = obj.a - obj.b\n  вернуть c\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "object_field_reassign",
+      "description": "Двойное присваивание поля объекта",
+      "category": "objects",
+      "source": "модуль t\nпроцедура главная()\n  пусть o = { счёт: 1 }\n  o.счёт = 2\n  o.счёт = o.счёт + 3\n  вернуть o.счёт\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "string_ops_chain",
+      "description": "Цепочка строковых syscalls",
+      "category": "strings",
+      "source": "модуль t\nпроцедура главная()\n  пусть s = система.строка.объединить(\"a\", \"b\")\n  пусть s2 = система.строка.в_верхний(s)\n  система.лог.вывести(s2)\n  вернуть система.строка.длина(s2)\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "array_mutation",
+      "description": "Массив: добавить/установить/удалить/длина",
+      "category": "arrays",
+      "source": "модуль t\nпроцедура главная()\n  пусть a = система.массив.создать()\n  система.массив.добавить(a, 1)\n  система.массив.добавить(a, 2)\n  система.массив.установить(a, 1, 5)\n  система.массив.удалить(a, 0)\n  вернуть система.массив.длина(a)\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "loop_break_style",
+      "description": "Бесконечный цикл с выходом через вернуть",
+      "category": "logic",
+      "source": "модуль t\nпроцедура главная()\n  пусть счётчик = 0\n  цикл\n    счётчик = счётчик + 1\n    если счётчик > 3\n      вернуть счётчик\n    конец\n  конец\nконец\nконец",
+      "expectCompiler": { "success": true }
     }
   ]
 }
