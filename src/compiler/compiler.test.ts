@@ -533,6 +533,29 @@ describe("semantic checker", () => {
     const result = compileSource(source);
     expect(result.semanticErrors.some((e) => e.kind === "unknown_syscall")).toBe(true);
   });
+
+  it("unknown procedure call", () => {
+    const src = `модуль t
+процедура главная()
+  пусть r = вычислить(5)
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.semanticErrors.some((e) => e.kind === "unknown_procedure")).toBe(true);
+  });
+
+  it("known procedure call — no error", () => {
+    const src = `модуль t
+процедура вычислить(x)
+  вернуть x
+конец
+процедура главная()
+  пусть r = вычислить(5)
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.semanticErrors.filter((e) => e.kind === "unknown_procedure")).toHaveLength(0);
+  });
 });
 
 describe("Compiler negative: errors reported", () => {
