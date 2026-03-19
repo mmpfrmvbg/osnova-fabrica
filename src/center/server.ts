@@ -21,6 +21,89 @@ function loadTraces(limit = 50): unknown[] {
     .slice(-limit);
 }
 
+interface CenterTraceEntry {
+  runId?: string;
+  status?: string;
+  task?: string;
+  timestamp?: string;
+  repairAttempts?: number;
+  modelId?: string;
+  intent?: { description?: string; appType?: string };
+  spec?: { mainModule?: string; procedures?: Array<{ name?: string }> };
+  source?: { source?: string };
+  buildReport?: {
+    success?: boolean;
+    compilerSuccess?: boolean;
+    lexerErrors?: Array<{ message: string }>;
+    parserErrors?: Array<{ message: string }>;
+    compilerErrors?: Array<{ message: string }>;
+    semanticErrors?: Array<{ message: string }>;
+  };
+  goldenReport?: { passed?: boolean; qualityScore?: number; outputDiff?: string | null };
+}
+
+function renderTracePage(trace: CenterTraceEntry): string {
+  const icon =
+    trace.status === 'success'
+      ? '✅'
+      : trace.status === 'repair_exhausted'
+        ? '❌'
+        : trace.status === 'partial'
+          ? '⚠️'
+          : '❓';
+  const ts = trace.timestamp ? new Date(trace.timestamp).toLocaleString('ru-RU') : '';
+
+  const allErrors = [
+    ...(trace.buildReport?.lexerErrors ?? []),
+    ...(trace.buildReport?.parserErrors ?? []),
+    ...(trace.buildReport?.compilerErrors ?? []),
+    ...(trace.buildReport?.semanticErrors ?? []),
+  ];
+
+  const errHtml = allErrors.length
+    ? allErrors.map(e => `<div style="color:#e07e7e;font-size:12px">⚠ ${e.message}</div>`).join('')
+    : '<div style="color:#888;font-size:12px">нет ошибок</div>';
+
+  const sourceLines = (trace.source?.source ?? '').split('\n').slice(0, 50).join('\n');
+  const procs = (trace.spec?.procedures ?? []).map(p => p.name ?? '?').join(', ') || '—';
+
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Трейс ${(trace.runId ?? '').slice(0,8)}</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0f0f0f;color:#e0e0e0;padding:20px;max-width:900px}
+a{color:#7ec8e3} h1{color:#7ec8e3} h2{color:#aaa;font-size:13px;text-transform:uppercase;letter-spacing:1px;margin:20px 0 6px}
+pre{background:#1a1a1a;padding:12px;border-radius:6px;font-size:12px;overflow:auto;white-space:pre-wrap}
+.meta{color:#888;font-size:12px} .row{display:flex;gap:32px;margin-bottom:16px}
+.field{background:#1a1a1a;padding:10px 14px;border-radius:6px;flex:1}
+.field-l{font-size:11px;color:#555;margin-bottom:2px} .field-v{font-size:14px}
+</style></head><body>
+<a href="/">← ОС-НОВА Center</a>
+<h1>${icon} Трейс <span style="font-size:16px;color:#888">${trace.runId ?? ''}</span></h1>
+<div class="row">
+  <div class="field"><div class="field-l">Статус</div><div class="field-v">${trace.status ?? '—'}</div></div>
+  <div class="field"><div class="field-l">Время</div><div class="field-v">${ts}</div></div>
+  <div class="field"><div class="field-l">Модель</div><div class="field-v">${trace.modelId ?? '—'}</div></div>
+  <div class="field"><div class="field-l">Repairs</div><div class="field-v">${trace.repairAttempts ?? 0}</div></div>
+</div>
+<h2>Задача</h2>
+<pre>${trace.task ?? '—'}</pre>
+<h2>Intent</h2>
+<pre>${trace.intent?.description ?? '—'} | тип: ${trace.intent?.appType ?? '—'}</pre>
+<h2>Spec</h2>
+<pre>модуль: ${trace.spec?.mainModule ?? '—'}\nпроцедуры: ${procs}</pre>
+<h2>Исходный код (первые 50 строк)</h2>
+<pre>${sourceLines || '—'}</pre>
+<h2>Build</h2>
+<div style="margin-bottom:8px">
+  Компилятор: ${trace.buildReport?.compilerSuccess ? '✅ ok' : trace.buildReport ? '❌ fail' : '—'}
+</div>
+${errHtml}
+<h2>Golden</h2>
+<pre>passed: ${trace.goldenReport?.passed ?? '—'}
+qualityScore: ${trace.goldenReport?.qualityScore ?? '—'}
+diff: ${trace.goldenReport?.outputDiff ?? 'нет'}</pre>
+</body></html>`;
+}
+
 function renderHtml(registry: unknown, traces: unknown[]): string {
   const reg = registry as {
     entries?: Array<{ id: string; name: string; category?: string; kind?: string; version?: string }>;
@@ -49,7 +132,9 @@ function renderHtml(registry: unknown, traces: unknown[]): string {
       const ts = t.timestamp ? new Date(t.timestamp).toLocaleString('ru-RU') : '';
       return `<tr><td>${icon} ${t.status ?? ''}</td><td>${t.task?.slice(0, 60) ?? ''}</td><td>${
         t.repairAttempts ?? 0
-      }</td><td>${ts}</td><td style="font-size:11px;color:#888">${(t.runId ?? '').slice(0, 8)}</td></tr>`;
+      }</td><td>${ts}</td><td style="font-size:11px;color:#888"><a href="/trace/${encodeURIComponent(
+        t.runId ?? '',
+      )}" style="color:#7ec8e3">${(t.runId ?? '').slice(0, 8)}</a></td></tr>`;
     })
     .join('');
 
@@ -203,6 +288,25 @@ export function startCenter(): void {
           res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
         }
       });
+      return;
+    }
+
+    const traceMatch = req.url?.match(/^\/trace\/(.+)$/);
+    if (req.method === 'GET' && traceMatch) {
+      const runId = decodeURIComponent(traceMatch[1]!);
+      const all = loadTraces(10000) as CenterTraceEntry[];
+      const found = all.find(
+        t => t.runId === runId || (t.runId ?? '').startsWith(runId),
+      );
+      if (!found) {
+        res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(
+          `<p>Трейс не найден: ${runId} <a href="/" style="color:#7ec8e3">← назад</a></p>`,
+        );
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderTracePage(found));
       return;
     }
 
