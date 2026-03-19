@@ -12,6 +12,8 @@ export interface TraceRecord {
   runId?: string;
   status?: string;
   task?: string;
+  modelId?: string;
+  repairAttempts?: number;
   spec?: {
     mainModule?: string;
     procedures?: Array<{ name?: string }>;
@@ -21,11 +23,23 @@ export interface TraceRecord {
   /** success = compilerSuccess && нет ошибок лексера/парсера. Для дообучения — только success. */
   buildReport?: { success?: boolean; compilerSuccess?: boolean };
   goldenReport?: { qualityScore?: number };
+  intent?: {
+    description?: string;
+    appType?: string;
+    features?: string[];
+  };
 }
 
 export interface DatasetExample {
   input_text: string;
   target_text: string;
+  meta?: {
+    runId?: string;
+    status?: string;
+    repairAttempts?: number;
+    qualityScore?: number;
+    modelId?: string;
+  };
 }
 
 /**
@@ -36,6 +50,7 @@ export interface DatasetExample {
 export function filterAndTransform(
   records: TraceRecord[],
   minQuality = 0,
+  minRepairs = -1,
 ): DatasetExample[] {
   const examples: DatasetExample[] = [];
   for (const rec of records) {
@@ -46,19 +61,28 @@ export function filterAndTransform(
     if (rec.buildReport?.success !== true) continue;
     const quality = rec.goldenReport?.qualityScore ?? 0;
     if (quality < minQuality) continue;
+     if (minRepairs >= 0 && (rec.repairAttempts ?? 0) < minRepairs) continue;
     examples.push({
       input_text: buildInputText(rec),
       target_text: src,
+      meta: {
+        runId: rec.runId,
+        status: rec.status,
+        repairAttempts: rec.repairAttempts,
+        qualityScore: rec.goldenReport?.qualityScore,
+        modelId: rec.modelId,
+      },
     });
   }
   return examples;
 }
 
-function parseArgs(): { input: string; output: string; minQuality: number } {
+function parseArgs(): { input: string; output: string; minQuality: number; minRepairs: number } {
   const args = process.argv.slice(2);
   let input = 'runs/traces.jsonl';
   let output = 'runs/dataset-v1.jsonl';
   let minQuality = 0;
+  let minRepairs = -1;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--input' && args[i + 1]) {
@@ -67,23 +91,41 @@ function parseArgs(): { input: string; output: string; minQuality: number } {
       output = args[++i]!;
     } else if (args[i] === '--min-quality' && args[i + 1]) {
       minQuality = parseFloat(args[++i]!) || 0;
+    } else if (args[i] === '--min-repairs' && args[i + 1]) {
+      minRepairs = parseInt(args[++i]!, 10);
     }
   }
 
-  return { input, output, minQuality };
+  return { input, output, minQuality, minRepairs };
 }
 
 function buildInputText(record: TraceRecord): string {
   const task = record.task ?? '(нет задачи)';
   const spec = record.spec ?? {};
+  const intent = record.intent;
   const mainModule = spec.mainModule ?? '?';
   const procedures = (spec.procedures ?? []).map((p) => p.name ?? '?').join(', ') || '(нет)';
   const syscalls = (spec.syscalls ?? []).join(', ') || '(нет)';
 
-  return [
+  const lines = [
     'Сгенерируй код на языке Основа для следующей задачи.',
     '',
     `Задача: ${task}`,
+  ];
+
+  if (intent) {
+    if (intent.description && intent.description !== task) {
+      lines.push(`Описание: ${intent.description}`);
+    }
+    if (intent.appType) {
+      lines.push(`Тип приложения: ${intent.appType}`);
+    }
+    if (intent.features && intent.features.length > 0) {
+      lines.push(`Возможности: ${intent.features.join(', ')}`);
+    }
+  }
+
+  lines.push(
     '',
     'Спецификация:',
     `- Главный модуль: ${mainModule}`,
@@ -91,11 +133,13 @@ function buildInputText(record: TraceRecord): string {
     `- Syscalls: ${syscalls}`,
     '',
     'Верни ТОЛЬКО код модуля, без объяснений.',
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 function main(): void {
-  const { input, output, minQuality } = parseArgs();
+  const { input, output, minQuality, minRepairs } = parseArgs();
   const inputPath = path.resolve(input);
   const outputPath = path.resolve(output);
 
@@ -111,7 +155,7 @@ function main(): void {
     }
   }
 
-  const examples = filterAndTransform(records, minQuality);
+  const examples = filterAndTransform(records, minQuality, minRepairs);
   const skippedNotSuccess = records.filter((r) => r.status !== 'success').length;
   const totalTargetLen = examples.reduce((s, ex) => s + ex.target_text.length, 0);
   const avgTargetLen = examples.length > 0 ? Math.round(totalTargetLen / examples.length) : 0;
@@ -130,6 +174,7 @@ function main(): void {
   console.log(`Прочитано записей:      ${records.length}`);
   console.log(`Прошло фильтр:          ${examples.length}`);
   console.log(`Пропущено (не success): ${skippedNotSuccess}`);
+  console.log(`Мин. repair-попыток:     ${minRepairs >= 0 ? minRepairs : 'нет фильтра'}`);
   console.log(`Записано в dataset:     ${examples.length}`);
   console.log(`Средняя длина target:   ${avgTargetLen} символов`);
   console.log(`Файл: ${outputPath}`);

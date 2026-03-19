@@ -27,7 +27,8 @@
     "ci": "tsc --noEmit && vitest run src/ && npm run osnova-language:validate",
     "osnova-mini-os:e2e": "tsx src/scripts/osnova-mini-os-e2e.ts",
     "traces": "tsx src/scripts/trace-viewer.ts",
-    "batch": "tsx src/scripts/batch-run.ts"
+    "batch": "tsx src/scripts/batch-run.ts",
+    "export-dataset": "tsx src/scripts/export-dataset.ts"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
