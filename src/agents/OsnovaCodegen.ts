@@ -50,8 +50,6 @@ function loadFewShot(): string {
       'конец',
     ].join('\n');
 
-    cachedFewShot = [goldenExamples, sumExample].filter(Boolean).join('\n\n---\n\n');
-
     const antiPatterns = `
 // ═══ ЗАПРЕЩЁННЫЕ ПАТТЕРНЫ — НИКОГДА НЕ ДЕЛАЙ ТАК ═══
 
@@ -88,7 +86,28 @@ function loadFewShot(): string {
 // ✓ ПРАВИЛЬНО — только: система.лог.вывести(...)
 `.trim();
 
-    cachedFewShot = antiPatterns + '\n\n---\n\n' + cachedFewShot;
+    const v11Patterns = `
+// ═══ НОВОЕ в v1.1 — ИСПОЛЬЗУЙ ЭТИ ПАТТЕРНЫ ═══
+
+// ✓ Индексный доступ к массиву (v1.1 sugar):
+// пусть первый = числа[0]
+// числа[1] = 99
+// числа[0] += 5
+
+// ✓ Опциональное тогда:
+// если условие тогда
+//   ...
+// конец
+
+// ✓ Аргументы командной строки:
+// процедура главная(аргументы)
+//   пусть первый = аргументы[0]
+// конец
+`.trim();
+
+    cachedFewShot = [goldenExamples, sumExample, antiPatterns, v11Patterns]
+      .filter(Boolean)
+      .join('\n\n---\n\n');
     return cachedFewShot;
   } catch {
     return '// нет примеров';
