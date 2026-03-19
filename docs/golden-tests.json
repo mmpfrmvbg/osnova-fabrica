@@ -151,6 +151,27 @@
       "category": "arrays",
       "source": "модуль t\nпроцедура главная()\n  пусть числа = [1, 2, 3, 4]\n  пусть сумма = 0\n  для_каждого элемент в числа\n    сумма = сумма + элемент\n  конец\n  вернуть сумма\nконец\nконец",
       "expectCompiler": { "success": true }
+    },
+    {
+      "id": "modulo_basic",
+      "description": "Оператор остатка %",
+      "category": "arithmetic",
+      "source": "модуль t\nпроцедура главная()\n  пусть x = 10\n  пусть r = x % 3\n  вернуть r\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "nested_syscall",
+      "description": "Вложенный системный вызов как аргумент",
+      "category": "strings",
+      "source": "модуль t\nпроцедура главная()\n  пусть s = система.строка.объединить(\"итого: \", система.строка.объединить(\"\", 42))\n  вернуть система.строка.длина(s)\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "compound_assign_object",
+      "description": "Составное присваивание поля объекта",
+      "category": "objects",
+      "source": "модуль t\nпроцедура главная()\n  пусть o = { n: 5 }\n  o.n += 3\n  вернуть o.n\nконец\nконец",
+      "expectCompiler": { "success": true }
     }
   ]
 }
