@@ -108,6 +108,11 @@ export class RepairEngineerAgent {
         errors.push(`Парсер [${e.line}:${e.column}]: ${e.message}`);
       for (const e of buildReport.compilerErrors)
         errors.push(`Компилятор: ${e.message}`);
+      for (const e of (buildReport.semanticErrors ?? []).filter(
+        se => se.kind === 'unknown_syscall' || se.kind === 'undeclared_var' || se.kind === 'unknown_procedure',
+      )) {
+        errors.push(`Семантика [${e.kind}]: ${e.message}`);
+      }
     }
 
     if (goldenReport) {
