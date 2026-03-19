@@ -11,7 +11,7 @@ import { parse, type ParseError } from './parser';
 import { compile } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
 import { checkSemantics, type SemanticError } from './semantic';
-import type { Expr, Module, Procedure, Stmt } from './ast';
+import type { Expr, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -134,6 +134,7 @@ function parseModuleOrThrow(source: string): Module {
 
 function expandModuleImports(ast: Module, baseDir: string, importStack: string[] = []): Module {
   const aliasToExportedProcNameToPrefixed = new Map<string, Map<string, string>>();
+  const mergedTypeDeclarations: TypeDeclaration[] = [...ast.typeDeclarations];
 
   const inlinedProcedures: Procedure[] = [];
   for (const imp of ast.imports) {
@@ -166,6 +167,9 @@ function expandModuleImports(ast: Module, baseDir: string, importStack: string[]
       rewriteProcedureCalls(inlinedProc, (callee) => nameMap.get(callee) ?? callee);
       inlinedProcedures.push(inlinedProc);
     }
+
+    // Типы из импортированного модуля доступны в текущем модуле.
+    mergedTypeDeclarations.push(...importedExpanded.typeDeclarations);
   }
 
   // Переписываем вызовы Имя.процедура(...) в текущем модуле в уже инлайненные префиксные имена.
@@ -184,8 +188,103 @@ function expandModuleImports(ast: Module, baseDir: string, importStack: string[]
   return {
     name: ast.name,
     imports: [],
+    typeDeclarations: mergedTypeDeclarations,
     procedures: [...ast.procedures, ...inlinedProcedures],
   };
+}
+
+const PRIMITIVE_FIELD_TYPES = new Set(["Целое32", "Строка", "Логический"]);
+
+function validateNamedTypesAndRewrite(ast: Module): string[] {
+  const errors: string[] = [];
+
+  const typeByName = new Map<string, TypeDeclaration>();
+  for (const td of ast.typeDeclarations) {
+    if (!typeByName.has(td.name)) typeByName.set(td.name, td);
+  }
+
+  for (const td of ast.typeDeclarations) {
+    for (const f of td.fields) {
+      if (!PRIMITIVE_FIELD_TYPES.has(f.type.name)) {
+        errors.push(`Неподдерживаемый тип поля: ${f.type.name}`);
+      }
+    }
+  }
+
+  function visitExprObjectLiteralRewrite(objExpr: Expr & { kind: "объект" }, typeName: string): void {
+    const typeDef = typeByName.get(typeName);
+    if (!typeDef) return;
+
+    const fieldByName = new Map(typeDef.fields.map((f) => [f.name, f]));
+    const entries = objExpr.entries;
+    const entryIndexByKey = new Map<string, number>();
+    for (let i = 0; i < entries.length; i++) entryIndexByKey.set(entries[i]!.key, i);
+
+    // Неизвестные поля в литерале.
+    for (const entry of entries) {
+      if (!fieldByName.has(entry.key)) {
+        errors.push(`Неизвестное поле: ${entry.key} (тип ${typeName})`);
+      }
+    }
+
+    // Обязательные / nullable поля.
+    for (const field of typeDef.fields) {
+      const idx = entryIndexByKey.get(field.name);
+      if (idx === undefined) {
+        if (!field.type.nullable) {
+          errors.push(`Отсутствует обязательное поле: ${field.name}`);
+        } else {
+          entries.push({ key: field.name, value: { kind: "пусто" } });
+        }
+      }
+    }
+  }
+
+  function visitStmts(stmts: Stmt[]): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "пусть": {
+          if (!s.typeAnnotation) break;
+          const typeName = s.typeAnnotation.name;
+          const typeDef = typeByName.get(typeName);
+          if (!typeDef) {
+            errors.push(`Тип не объявлен: ${typeName}`);
+            break;
+          }
+
+          if (s.init.kind === "объект") {
+            visitExprObjectLiteralRewrite(s.init, typeName);
+          }
+          break;
+        }
+        case "если":
+          visitStmts(s.body);
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) visitStmts(c.body);
+          if (s.elseBody) visitStmts(s.elseBody);
+          break;
+        case "пока":
+        case "цикл":
+          visitStmts(s.body);
+          break;
+        case "для_каждого":
+          visitStmts(s.body);
+          break;
+        case "попробовать":
+          visitStmts(s.body);
+          visitStmts(s.catchBody);
+          break;
+        case "присвоить":
+        case "поле_присвоить":
+        case "выражение":
+        case "выбросить":
+        case "вернуть":
+          break;
+      }
+    }
+  }
+
+  visitStmts(ast.procedures.flatMap((p) => p.body));
+  return errors;
 }
 
 export function compileSource(source: string, options: CompileOptions = {}): CompileResult {
@@ -215,6 +314,19 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       lexerErrors: [],
       parserErrors: [],
       compilerErrors: [{ message: e instanceof Error ? e.message : String(e) }],
+      semanticErrors: [],
+      durationMs: Date.now() - start,
+    };
+  }
+
+  const namedTypeErrors = validateNamedTypesAndRewrite(expandedAst);
+  if (namedTypeErrors.length > 0) {
+    return {
+      module: null,
+      compilerSuccess: false,
+      lexerErrors: [],
+      parserErrors: [],
+      compilerErrors: namedTypeErrors.map((message) => ({ message })),
       semanticErrors: [],
       durationMs: Date.now() - start,
     };

@@ -3,7 +3,7 @@
  */
 
 import type { Token, TokenKind } from "./lexer";
-import type { Module, Procedure, Stmt, Expr, ImportDeclaration } from "./ast";
+import type { Module, Procedure, Stmt, Expr, ImportDeclaration, TypeDeclaration, TypeRef, TypeField } from "./ast";
 
 export type ParseErrorContext = "module" | "procedure" | "stmt" | "expr";
 
@@ -119,8 +119,17 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
     }
 
+    const typeDeclarations: TypeDeclaration[] = [];
+    // TypeDeclaration разрешён только до объявления процедур.
+    while (peek().kind === "тип") {
+      const t = parseTypeDeclaration();
+      if (t) typeDeclarations.push(t);
+      else syncToTopLevel();
+      skipNewlines();
+    }
+
     const procedures: Procedure[] = [];
-    while (peek().kind === "процедура" || peek().kind === "экспорт" || peek().kind === "использовать") {
+    while (peek().kind === "процедура" || peek().kind === "экспорт" || peek().kind === "использовать" || peek().kind === "тип") {
       if (peek().kind === "использовать") {
         const t = peek();
         errors.push({
@@ -131,6 +140,19 @@ export function parse(tokens: Token[]): ParseResult {
         });
         advance();
         skipNewlines();
+        continue;
+      }
+      if (peek().kind === "тип") {
+        const t = peek();
+        errors.push({
+          message: "TypeDeclaration разрешён только до процедур",
+          line: t.line,
+          column: t.column,
+          context: "module",
+        });
+        // Съедим TypeDeclaration, чтобы синхронизироваться.
+        const parsed = parseTypeDeclaration();
+        if (parsed) skipNewlines();
         continue;
       }
       const p = parseProcedure();
@@ -155,7 +177,7 @@ export function parse(tokens: Token[]): ParseResult {
         actualLexeme: t.lexeme,
       });
     }
-    return { name, imports, procedures };
+    return { name, imports, typeDeclarations, procedures };
   }
 
   function parseImportDeclaration(): ImportDeclaration | null {
@@ -196,6 +218,89 @@ export function parse(tokens: Token[]): ParseResult {
     const tokPath = advance();
     const path = String(tokPath.value ?? tokPath.lexeme);
     return { module: alias, path };
+  }
+
+  function parseTypeRef(): TypeRef | null {
+    let nullable = false;
+    if (peek().kind === "?") {
+      advance();
+      nullable = true;
+      skipNewlines();
+    }
+    if (!isAt("идентификатор")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается имя типа",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["идентификатор"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      return null;
+    }
+    const tok = advance();
+    const name = String(tok.value ?? tok.lexeme);
+    return { name, nullable };
+  }
+
+  function parseTypeDeclaration(): TypeDeclaration | null {
+    advance(); // тип
+    if (!isAt("идентификатор")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается имя типа после 'тип'",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["идентификатор"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      return null;
+    }
+    const tokName = advance();
+    const name = String(tokName.value ?? tokName.lexeme);
+    skipNewlines();
+
+    if (!consume("{", "Ожидается '{' после имени типа")) return null;
+    skipNewlines();
+
+    const fields: TypeField[] = [];
+    while (peek().kind !== "}" && peek().kind !== "конец_файла") {
+      skipNewlines();
+      if (!isAt("идентификатор")) {
+        const t = peek();
+        errors.push({
+          message: "Ожидается имя поля типа",
+          line: t.line,
+          column: t.column,
+          context: "module",
+          expected: ["идентификатор"],
+          actualKind: t.kind,
+          actualLexeme: t.lexeme,
+        });
+        return null;
+      }
+      const fieldTok = advance();
+      const fieldName = String(fieldTok.value ?? fieldTok.lexeme);
+      if (!consume(":", "Ожидается ':' после имени поля")) return null;
+      skipNewlines();
+
+      const fieldType = parseTypeRef();
+      if (!fieldType) return null;
+      fields.push({ name: fieldName, type: fieldType });
+
+      skipNewlines();
+      if (peek().kind === ",") {
+        advance();
+        skipNewlines();
+      }
+    }
+
+    if (!consume("}", "Ожидается '}' после тела типа")) return null;
+    return { kind: "TypeDeclaration", name, fields };
   }
 
   function parseProcedure(): Procedure | null {
@@ -280,10 +385,18 @@ export function parse(tokens: Token[]): ParseResult {
       }
       const tokLet = advance();
       const name = String(tokLet.value ?? tokLet.lexeme);
+      let typeAnnotation: TypeRef | undefined;
+      if (peek().kind === ":") {
+        advance(); // consume ':'
+        skipNewlines();
+        const t = parseTypeRef();
+        if (!t) return null;
+        typeAnnotation = t;
+      }
       if (!consume("=", "Ожидается '='")) return null;
       const init = parseExpr();
       if (!init) return null;
-      return { kind: "пусть", name, init };
+      return { kind: "пусть", name, init, typeAnnotation };
     }
     if (peek().kind === "вернуть") {
       advance();

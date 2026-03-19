@@ -482,6 +482,50 @@
       "category": "modules",
       "source": "модуль Главный\nиспользовать модуль Утил из \"missing.osnova\"\nпроцедура главная()\n  пусть x = Утил.удвоить(21)\n  вернуть x\nконец\nконец",
       "expectCompiler": { "success": false }
+    },
+    {
+      "id": "type_basic",
+      "description": "именованный тип: объявить, создать переменную, прочитать поле",
+      "category": "types",
+      "source": "модуль т\ntип Заказ {\n  стол: Целое32\n  гость: Строка\n  оплачен: Логический\n}\nпроцедура главная()\n  пусть заказ: Заказ = { стол: 3, гость: \"Иван\", оплачен: ложь }\n  вернуть заказ.стол\nконец\nконец",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 3 }
+    },
+    {
+      "id": "type_nullable",
+      "description": "nullable-поле: ?Строка, отсутствует в литерале — должно быть пусто (null)",
+      "category": "types",
+      "source": "модуль т\ntип Заказ {\n  стол: Целое32\n  гость: ?Строка\n}\nпроцедура главная()\n  пусть заказ: Заказ = { стол: 3 }\n  вернуть заказ.гость == пусто\nконец\nконец",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": true }
+    },
+    {
+      "id": "type_missing_field",
+      "description": "обязательное поле отсутствует — ошибка компиляции",
+      "category": "types",
+      "source": "модуль т\ntип Заказ {\n  стол: Целое32\n}\nпроцедура главная()\n  пусть заказ: Заказ = { }\n  вернуть 0\nконец\nконец",
+      "expectCompiler": { "success": false }
+    },
+    {
+      "id": "type_unknown",
+      "description": "использовать необъявленный тип — ошибка компиляции",
+      "category": "types",
+      "source": "модуль т\nпроцедура главная()\n  пусть заказ: Заказ = { стол: 3 }\n  вернуть 0\nконец\nконец",
+      "expectCompiler": { "success": false }
+    },
+    {
+      "id": "type_in_module",
+      "description": "тип объявлен в импортируемом модуле и доступен в main",
+      "category": "types",
+      "source": "модуль Главный\nиспользовать модуль Утил из \"util.osnova\"\nпроцедура главная()\n  пусть заказ: Заказ = { стол: 3 }\n  вернуть заказ.стол\nконец\nконец",
+      "files": [
+        {
+          "path": "util.osnova",
+          "source": "модуль Утил\ntип Заказ {\n  стол: Целое32\n}\nпроцедура экспорт dummy()\n  вернуть 0\nконец\nконец"
+        }
+      ],
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 3 }
     }
   ]
 }

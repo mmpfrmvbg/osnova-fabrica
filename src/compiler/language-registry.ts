@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "1.4.0";
+export const LANGUAGE_VERSION = "1.6.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -121,6 +121,7 @@ export interface LanguageRegistry {
 const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "модуль", kind: "module", implemented: true, since: "0.1.0" },
   { lexeme: "процедура", kind: "stmt", implemented: true, since: "0.1.0" },
+  { lexeme: "тип", kind: "type", implemented: true, since: "1.6.0", description: "объявление именованного типа" },
   { lexeme: "использовать", kind: "stmt", implemented: true, since: "1.5.0", description: "импорт процедур из другого модуля" },
   { lexeme: "экспорт", kind: "stmt", implemented: true, since: "1.5.0", description: "экспорт процедур для импорта" },
   { lexeme: "из", kind: "stmt", implemented: true, since: "1.5.0", description: "служебное слово для синтаксиса импорта" },

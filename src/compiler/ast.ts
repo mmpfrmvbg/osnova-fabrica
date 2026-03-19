@@ -16,7 +16,7 @@ export type Expr =
   | { kind: "поле"; object: Expr; field: string };
 
 export type Stmt =
-  | { kind: "пусть"; name: string; init: Expr }
+  | { kind: "пусть"; name: string; init: Expr; typeAnnotation?: TypeRef }
   | { kind: "присвоить"; name: string; value: Expr }
   | { kind: "поле_присвоить"; object: string; field: string; value: Expr }
   | { kind: "выражение"; expr: Expr }
@@ -53,8 +53,27 @@ export interface ImportDeclaration {
   path: string;
 }
 
+export interface TypeRef {
+  /** Идентификатор типа (для nullable — без префикса '?'). */
+  name: string;
+  /** Префикс '?' перед именем типа. */
+  nullable: boolean;
+}
+
+export interface TypeField {
+  name: string;
+  type: TypeRef;
+}
+
+export interface TypeDeclaration {
+  kind: "TypeDeclaration";
+  name: string;
+  fields: TypeField[];
+}
+
 export interface Module {
   name: string;
   imports: ImportDeclaration[];
+  typeDeclarations: TypeDeclaration[];
   procedures: Procedure[];
 }
