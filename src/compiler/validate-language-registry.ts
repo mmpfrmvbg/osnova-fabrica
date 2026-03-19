@@ -8,6 +8,7 @@ import {
   LANGUAGE_REGISTRY,
   getImplementedKeywords,
 } from "./language-registry";
+import { INVOKE_ARG_COUNT } from "../runtime/vm/invokeRegistry";
 
 const lexerLexemes = new Set(Object.keys(KEYWORDS));
 const implemented = getImplementedKeywords(LANGUAGE_REGISTRY);
@@ -46,4 +47,31 @@ if (missingInRegistry.length > 0) {
 
 console.log(
   `[osnova-language:validate] OK: лексер и реестр языка (v${LANGUAGE_REGISTRY.version}) согласованы, ключевых слов: ${lexerLexemes.size}`
+);
+
+const registrySyscallNames = new Set(LANGUAGE_REGISTRY.syscalls.map((s) => s.name));
+const missingSyscalls = Object.keys(INVOKE_ARG_COUNT).filter(
+  (name) => !registrySyscallNames.has(name),
+);
+
+if (missingSyscalls.length > 0) {
+  console.error(
+    "[validate] invokeRegistry содержит syscalls без registry-записи:",
+    missingSyscalls.join(", "),
+  );
+  process.exit(1);
+}
+
+for (const spec of LANGUAGE_REGISTRY.syscalls) {
+  const declared = INVOKE_ARG_COUNT[spec.name];
+  if (declared !== undefined && declared !== spec.argc) {
+    console.error(
+      `[validate] argc расхождение: ${spec.name} — registry=${spec.argc}, invokeRegistry=${declared}`,
+    );
+    process.exit(1);
+  }
+}
+
+console.log(
+  `[osnova-language:validate] OK: syscalls согласованы, записей: ${LANGUAGE_REGISTRY.syscalls.length}`,
 );

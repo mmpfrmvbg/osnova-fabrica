@@ -61,10 +61,45 @@ export interface ConstructSpec {
   description?: string;
 }
 
+export interface OperatorSpec {
+  symbol: string;
+  kind: "arithmetic" | "compare" | "logical" | "assign" | "compound_assign";
+  precedence: number;
+  associativity: "left" | "right";
+  implemented: boolean;
+  since: string;
+}
+
+export interface SyscallSpec {
+  name: string;
+  argc: number;
+  status: "stable" | "experimental" | "deprecated";
+  description: string;
+  since: string;
+}
+
+export interface LiteralSpec {
+  kind: "number" | "string" | "bool" | "null" | "array" | "object";
+  examples: string[];
+  implemented: boolean;
+  since: string;
+}
+
+export interface ForbiddenPatternSpec {
+  id: string;
+  description: string;
+  bad: string;
+  good?: string;
+}
+
 export interface LanguageRegistry {
   version: string;
   keywords: KeywordSpec[];
   constructs: ConstructSpec[];
+  operators: OperatorSpec[];
+  syscalls: SyscallSpec[];
+  literals: LiteralSpec[];
+  forbiddenPatterns: ForbiddenPatternSpec[];
 }
 
 /** Ключевые слова v0.1: реализованные в MVP + зарезервированные на будущее. */
@@ -201,11 +236,113 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   },
 ];
 
+const OPERATORS_V01: OperatorSpec[] = [
+  { symbol: "=", kind: "assign", precedence: 1, associativity: "right", implemented: true, since: "0.1.0" },
+  { symbol: "==", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "!=", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "<", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "<=", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: ">", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: ">=", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "+", kind: "arithmetic", precedence: 5, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "-", kind: "arithmetic", precedence: 5, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "*", kind: "arithmetic", precedence: 6, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "/", kind: "arithmetic", precedence: 6, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "%", kind: "arithmetic", precedence: 6, associativity: "left", implemented: true, since: "0.1.0" },
+  { symbol: "+=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: false, since: "0.1.1" },
+  { symbol: "-=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: false, since: "0.1.1" },
+  { symbol: "*=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: false, since: "0.1.1" },
+  { symbol: "/=", kind: "compound_assign", precedence: 1, associativity: "right", implemented: false, since: "0.1.1" },
+];
+
+const SYSCALLS_V01: SyscallSpec[] = [
+  { name: "система.лог.вывести", argc: 1, status: "stable", description: "Вывод сообщения в лог", since: "0.1.0" },
+  { name: "система.файлы.прочитать_все", argc: 1, status: "experimental", description: "Прочитать файл целиком", since: "0.1.0" },
+  { name: "система.файлы.записать_все", argc: 2, status: "experimental", description: "Записать данные в файл", since: "0.1.0" },
+  { name: "система.файлы.существует", argc: 1, status: "experimental", description: "Проверить существование файла", since: "0.1.0" },
+  { name: "система.время.сейчас", argc: 0, status: "stable", description: "Текущее время в миллисекундах", since: "0.1.0" },
+  { name: "система.время.спать", argc: 1, status: "experimental", description: "Приостановить выполнение на N мс", since: "0.1.0" },
+  { name: "система.хранилище.записать", argc: 2, status: "stable", description: "Записать значение по ключу", since: "0.1.0" },
+  { name: "система.хранилище.прочитать", argc: 1, status: "stable", description: "Прочитать значение по ключу", since: "0.1.0" },
+  { name: "система.хранилище.удалить", argc: 1, status: "stable", description: "Удалить значение по ключу", since: "0.1.0" },
+  { name: "система.хранилище.ключи", argc: 0, status: "stable", description: "Получить список ключей хранилища", since: "0.1.0" },
+  { name: "система.сеть.запрос", argc: 4, status: "experimental", description: "Выполнить сетевой HTTP-запрос", since: "0.1.0" },
+  { name: "система.окно.создать_окно", argc: 3, status: "experimental", description: "Создать окно интерфейса", since: "0.1.0" },
+  { name: "система.окно.показать", argc: 1, status: "experimental", description: "Показать окно", since: "0.1.0" },
+  { name: "система.окно.скрыть", argc: 1, status: "experimental", description: "Скрыть окно", since: "0.1.0" },
+  { name: "система.окно.закрыть", argc: 1, status: "experimental", description: "Закрыть окно", since: "0.1.0" },
+  { name: "система.окно.установить_заголовок", argc: 2, status: "experimental", description: "Изменить заголовок окна", since: "0.1.0" },
+  { name: "система.окно.получить_события", argc: 0, status: "experimental", description: "Получить события окна", since: "0.1.0" },
+  { name: "система.интерфейс.контейнер", argc: 3, status: "experimental", description: "Создать контейнер интерфейса", since: "0.1.0" },
+  { name: "система.интерфейс.кнопка", argc: 3, status: "experimental", description: "Создать кнопку интерфейса", since: "0.1.0" },
+  { name: "система.интерфейс.поле_ввода", argc: 3, status: "experimental", description: "Создать поле ввода", since: "0.1.0" },
+  { name: "система.интерфейс.текст", argc: 3, status: "experimental", description: "Создать текстовый виджет", since: "0.1.0" },
+  { name: "система.интерфейс.область_текста", argc: 3, status: "experimental", description: "Создать область текста", since: "0.1.0" },
+  { name: "система.интерфейс.получить_значение", argc: 1, status: "experimental", description: "Получить значение виджета", since: "0.1.0" },
+  { name: "система.интерфейс.установить_значение", argc: 2, status: "experimental", description: "Установить значение виджета", since: "0.1.0" },
+  { name: "система.интерфейс.диалог_сообщение", argc: 2, status: "experimental", description: "Показать диалоговое сообщение", since: "0.1.0" },
+  { name: "система.интерфейс.диалог_подтвердить", argc: 2, status: "experimental", description: "Показать диалог подтверждения", since: "0.1.0" },
+  { name: "система.интерфейс.диалог_ввод", argc: 3, status: "experimental", description: "Показать диалог ввода", since: "0.1.0" },
+  { name: "система.массив.создать", argc: 0, status: "stable", description: "Создать пустой массив", since: "0.1.0" },
+  { name: "система.массив.добавить", argc: 2, status: "stable", description: "Добавить элемент в массив", since: "0.1.0" },
+  { name: "система.массив.установить", argc: 3, status: "stable", description: "Установить элемент массива по индексу", since: "0.1.0" },
+  { name: "система.массив.удалить", argc: 2, status: "stable", description: "Удалить элемент массива по индексу", since: "0.1.0" },
+  { name: "система.массив.срез", argc: 3, status: "stable", description: "Получить срез массива", since: "0.1.0" },
+  { name: "система.массив.длина", argc: 1, status: "stable", description: "Получить длину массива", since: "0.1.0" },
+  { name: "система.массив.получить", argc: 2, status: "stable", description: "Получить элемент массива по индексу", since: "0.1.0" },
+  { name: "система.объект.получить", argc: 2, status: "stable", description: "Получить поле объекта по ключу", since: "0.1.0" },
+  { name: "система.строка.объединить", argc: 2, status: "stable", description: "Объединить две строки", since: "0.1.0" },
+  { name: "система.строка.длина", argc: 1, status: "stable", description: "Получить длину строки", since: "0.1.0" },
+  { name: "система.строка.содержит", argc: 2, status: "stable", description: "Проверить, содержит ли строка подстроку", since: "0.1.0" },
+  { name: "система.строка.начинается_с", argc: 2, status: "stable", description: "Проверить префикс строки", since: "0.1.0" },
+  { name: "система.строка.заканчивается_на", argc: 2, status: "stable", description: "Проверить суффикс строки", since: "0.1.0" },
+  { name: "система.строка.подстрока", argc: 3, status: "stable", description: "Получить подстроку по диапазону", since: "0.1.0" },
+  { name: "система.строка.в_верхний", argc: 1, status: "stable", description: "Преобразовать строку в верхний регистр", since: "0.1.0" },
+  { name: "система.строка.в_нижний", argc: 1, status: "stable", description: "Преобразовать строку в нижний регистр", since: "0.1.0" },
+  { name: "система.строка.обрезать", argc: 1, status: "stable", description: "Удалить пробелы по краям строки", since: "0.1.0" },
+  { name: "система.строка.заменить", argc: 3, status: "stable", description: "Заменить подстроку в строке", since: "0.1.0" },
+  { name: "система.строка.разделить", argc: 2, status: "stable", description: "Разделить строку по разделителю", since: "0.1.0" },
+];
+
+const LITERALS_V01: LiteralSpec[] = [
+  { kind: "number", examples: ["42", "3.14"], implemented: true, since: "0.1.0" },
+  { kind: "string", examples: ['"текст"'], implemented: true, since: "0.1.0" },
+  { kind: "bool", examples: ["истина", "ложь"], implemented: true, since: "0.1.0" },
+  { kind: "null", examples: ["пусто"], implemented: true, since: "0.1.0" },
+  { kind: "array", examples: ["[]", "[1, 2, 3]"], implemented: true, since: "0.1.0" },
+  { kind: "object", examples: ['{ a: 1, b: "текст" }'], implemented: true, since: "0.1.0" },
+];
+
+const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
+  { id: "let_outside_procedure", description: "пусть разрешён только внутри процедуры", bad: "модуль m\nпусть x = 1" },
+  { id: "assign_in_if", description: "в условии сравнение через ==, не через =", bad: "если x = 0", good: "если x == 0" },
+  { id: "then_keyword", description: "ключевое слово тогда не поддерживается", bad: "если x > 0 тогда", good: "если x > 0" },
+  { id: "walrus_assign", description: "оператор := не поддерживается", bad: "пусть x := 1", good: "пусть x = 1" },
+  { id: "missing_converters", description: "конверторы строка()/число()/целое32() не поддерживаются", bad: "целое32(x)" },
+  { id: "env_api_missing", description: "система.окружение.* не поддерживается", bad: "система.окружение.получить(\"X\")" },
+  { id: "array_indexing", description: "индексация массив[i] не поддерживается", bad: "задачи[0]", good: "система.массив.получить(задачи, 0)" },
+  { id: "wrong_log_api", description: "система.вывести не существует", bad: "система.вывести(x)", good: "система.лог.вывести(x)" },
+  { id: "return_with_parens", description: "скобки после вернуть не поддерживаются", bad: "вернуть(сумма)", good: "вернуть сумма" },
+  { id: "composite_end", description: "составные конец_* не поддерживаются", bad: "конец_пока", good: "конец" },
+  { id: "english_keywords", description: "английские ключевые слова не поддерживаются", bad: "let x = 1" },
+  { id: "redeclare_with_let", description: "повторное объявление через пусть не допускается", bad: "пусть x = 1\nпусть x = 2", good: "пусть x = 1\nx = 2" },
+  { id: "assign_before_let", description: "первая инициализация переменной должна быть через пусть", bad: "x = 1", good: "пусть x = 1" },
+  { id: "keyword_as_identifier", description: "ключевые слова нельзя использовать как имена", bad: "пусть если = 1" },
+  { id: "forbidden_param_names", description: "зарезервированные слова нельзя использовать как имена параметров", bad: "процедура сумма(начало, конец)", good: "процедура сумма(старт, предел)" },
+  { id: "higher_order_procedures", description: "передача процедур как аргументов не поддерживается", bad: "фильтровать(список, предикат)" },
+  { id: "multiline_array_literal", description: "многострочные литералы массивов не поддерживаются", bad: "пусть a = [\n 1,\n 2\n]" },
+  { id: "multiline_object_literal", description: "многострочные литералы объектов не поддерживаются", bad: "пусть o = {\n a: 1\n}" },
+];
+
 /** Реестр языка Основа v0.1 (текущая реализованная версия). */
 export const LANGUAGE_V01: LanguageRegistry = {
   version: LANGUAGE_VERSION,
   keywords: KEYWORDS_V01,
   constructs: CONSTRUCTS_V01,
+  operators: OPERATORS_V01,
+  syscalls: SYSCALLS_V01,
+  literals: LITERALS_V01,
+  forbiddenPatterns: FORBIDDEN_V01,
 };
 
 /** Реестр по умолчанию для компилятора и генератора. */
