@@ -312,6 +312,13 @@
       "category": "network",
       "source": "модуль t\nпроцедура главная()\n  пусть ответ = система.сеть.запрос(\"GET\", \"https://api.example.com/data\", пусто, пусто)\n  система.лог.вывести(ответ)\n  вернуть 1\nконец\nконец",
       "expectCompiler": { "success": true }
+    },
+    {
+      "id": "then_keyword_optional",
+      "description": "Опциональное тогда в если и пока",
+      "category": "generic",
+      "source": "модуль t\nпроцедура главная()\n  пусть x = 3\n  если x > 0 тогда\n    вернуть 1\n  конец\n  вернуть 0\nконец\nконец",
+      "expectCompiler": { "success": true }
     }
   ]
 }

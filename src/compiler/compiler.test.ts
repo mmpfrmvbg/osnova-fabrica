@@ -130,6 +130,25 @@ describe("Compiler: иначе (if/else)", () => {
     const vm = new VM(result.module!, { maxSteps: 1000 });
     expect(await vm.runProcedure(0, [])).toBe(1);
   });
+
+  it("если и пока с опциональным 'тогда' компилируются", () => {
+    const src = `
+модуль t
+процедура главная()
+  пусть x = 0
+  если x > 0 тогда
+    вернуть 1
+  конец
+  пока x < 5 тогда
+    x = x + 1
+  конец
+  вернуть x
+конец
+конец`.trim();
+    const result = compileSource(src);
+    expect(result.parserErrors).toHaveLength(0);
+    expect(result.compilerSuccess).toBe(true);
+  });
 });
 
 describe("Compiler: массивы (array literals)", () => {

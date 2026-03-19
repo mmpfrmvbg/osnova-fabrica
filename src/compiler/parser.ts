@@ -222,6 +222,7 @@ export function parse(tokens: Token[]): ParseResult {
       advance();
       const condition = parseExpr();
       if (!condition) return null;
+      if (peek().kind === "тогда") advance();
       skipNewlines();
       const body: Stmt[] = [];
       while (peek().kind !== "конец" && peek().kind !== "иначе_если" && peek().kind !== "иначе" && peek().kind !== "конец_файла") {
@@ -235,6 +236,7 @@ export function parse(tokens: Token[]): ParseResult {
         advance();
         const cond = parseExpr();
         if (!cond) return null;
+        if (peek().kind === "тогда") advance();
         skipNewlines();
         const clauseBody: Stmt[] = [];
         while (peek().kind !== "конец" && peek().kind !== "иначе_если" && peek().kind !== "иначе" && peek().kind !== "конец_файла") {
@@ -264,6 +266,7 @@ export function parse(tokens: Token[]): ParseResult {
       advance();
       const condition = parseExpr();
       if (!condition) return null;
+      if (peek().kind === "тогда") advance();
       skipNewlines();
       const body: Stmt[] = [];
       while (peek().kind !== "конец" && peek().kind !== "конец_файла") {

@@ -31,6 +31,7 @@ export type ConstructId =
   | "if"
   | "else_if"
   | "field_assign"
+  | "then_keyword"
   | "while"
   | "for_each"
   | "loop"
@@ -126,6 +127,7 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "и", kind: "expr", implemented: true, since: "0.1.0", description: "логическое И, short-circuit" },
   { lexeme: "или", kind: "expr", implemented: true, since: "0.1.0", description: "логическое ИЛИ, short-circuit" },
   { lexeme: "не", kind: "expr", implemented: true, since: "0.1.0", description: "логическое НЕ" },
+  { lexeme: "тогда", kind: "stmt", implemented: true, since: "1.1.0", description: "опциональное слово после условия в если/иначе_если/пока" },
 ];
 
 /** Конструкции v0.1 с привязкой к AST и синтаксису. */
@@ -172,6 +174,21 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     since: "0.1.0",
     bytecodePattern: "condition → jmp_if_not else; then-body; jmp end; else-body; end:",
     implemented: true,
+  },
+  {
+    id: "then_keyword",
+    syntax: "если условие тогда  // тогда опционально",
+    astNode: {
+      kind: "если",
+      fields: [
+        { name: "condition", type: "Expr" },
+        { name: "body", type: "Stmt[]" },
+        { name: "elseBody", type: "Stmt[]", optional: true },
+      ],
+    },
+    since: "1.1.0",
+    implemented: true,
+    description: "Опциональное ключевое слово 'тогда' после условия в если/иначе_если/пока",
   },
   {
     id: "else_if",
@@ -380,7 +397,12 @@ const LITERALS_V01: LiteralSpec[] = [
 const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
   { id: "let_outside_procedure", description: "пусть разрешён только внутри процедуры", bad: "модуль m\nпусть x = 1" },
   { id: "assign_in_if", description: "в условии сравнение через ==, не через =", bad: "если x = 0", good: "если x == 0" },
-  { id: "then_keyword", description: "ключевое слово тогда не поддерживается", bad: "если x > 0 тогда", good: "если x > 0" },
+  {
+    id: "then_keyword_optional",
+    description: "ключевое слово тогда опционально в если/иначе_если/пока",
+    bad: "если x > 0 тогда тогда",
+    good: "если x > 0 тогда",
+  },
   { id: "walrus_assign", description: "оператор := не поддерживается", bad: "пусть x := 1", good: "пусть x = 1" },
   { id: "missing_converters", description: "конверторы строка()/число()/целое32() не поддерживаются", bad: "целое32(x)" },
   {
