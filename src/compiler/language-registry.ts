@@ -29,6 +29,8 @@ export type ConstructId =
   | "let"
   | "assign"
   | "if"
+  | "else_if"
+  | "field_assign"
   | "while"
   | "for_each"
   | "loop"
@@ -168,6 +170,37 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     since: "0.1.0",
     bytecodePattern: "condition → jmp_if_not else; then-body; jmp end; else-body; end:",
     implemented: true,
+  },
+  {
+    id: "else_if",
+    syntax: "если <условие>\n  ...\nиначе_если <условие>\n  ...\nиначе\n  ...\nконец",
+    astNode: {
+      kind: "если",
+      fields: [
+        { name: "condition", type: "Expr" },
+        { name: "body", type: "Stmt[]" },
+        { name: "elseIfClauses", type: "{ condition: Expr; body: Stmt[] }[]", optional: true },
+        { name: "elseBody", type: "Stmt[]", optional: true },
+      ],
+    },
+    since: "0.1.0",
+    implemented: true,
+    description: "Цепочка ветвления: если / иначе_если / иначе / конец",
+  },
+  {
+    id: "field_assign",
+    syntax: "<объект>.<поле> = <выражение>",
+    astNode: {
+      kind: "поле_присвоить",
+      fields: [
+        { name: "object", type: "string" },
+        { name: "field", type: "string" },
+        { name: "value", type: "Expr" },
+      ],
+    },
+    since: "0.1.0",
+    implemented: true,
+    description: "Присваивание поля объекта",
   },
   {
     id: "while",
@@ -319,6 +352,17 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
   { id: "then_keyword", description: "ключевое слово тогда не поддерживается", bad: "если x > 0 тогда", good: "если x > 0" },
   { id: "walrus_assign", description: "оператор := не поддерживается", bad: "пусть x := 1", good: "пусть x = 1" },
   { id: "missing_converters", description: "конверторы строка()/число()/целое32() не поддерживаются", bad: "целое32(x)" },
+  {
+    id: "no_num_to_string_converter",
+    description: "нет система.строка.из_числа — для вывода числа используй система.строка.объединить",
+    bad: "система.строка.из_числа(x)",
+    good: 'система.строка.объединить("", x)',
+  },
+  {
+    id: "no_string_to_num_converter",
+    description: "нет система.число.из_строки — конвертация строки в число не поддерживается в v1",
+    bad: "система.число.из_строки(s)",
+  },
   { id: "env_api_missing", description: "система.окружение.* не поддерживается", bad: "система.окружение.получить(\"X\")" },
   { id: "array_indexing", description: "индексация массив[i] не поддерживается", bad: "задачи[0]", good: "система.массив.получить(задачи, 0)" },
   { id: "wrong_log_api", description: "система.вывести не существует", bad: "система.вывести(x)", good: "система.лог.вывести(x)" },
