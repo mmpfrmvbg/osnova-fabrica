@@ -133,8 +133,8 @@ export function buildOsnovaRepairPrompt(
     .join('\n');
   const stableSyscalls = LANGUAGE_REGISTRY.syscalls
     .filter((sc) => sc.status === 'stable')
-    .map((sc) => sc.name)
-    .join(', ');
+    .map((sc) => `${sc.name}(${sc.argc})`)
+    .join('\n');
 
   const parts = [
     prefix ? prefix + '\n\n' : '',
@@ -152,7 +152,7 @@ export function buildOsnovaRepairPrompt(
     'ЗАПРЕЩЁННЫЕ ПАТТЕРНЫ:',
     forbidden,
     '',
-    'STABLE SYSCALLS:',
+    'STABLE SYSCALLS (имя(argc)):',
     stableSyscalls,
     '',
     'Текущий код:',
