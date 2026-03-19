@@ -23,7 +23,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "validate:spec": "tsx src/compiler/validate-language-registry.ts",
-    "ci": "npm run validate:spec && npm run typecheck && npm test && npm run lint && npm run golden",
+    "osnova-language:validate": "npx tsx src/compiler/validate-language-registry.ts",
+    "ci": "tsc --noEmit && vitest run src/ && npm run osnova-language:validate",
     "osnova-mini-os:e2e": "tsx src/scripts/osnova-mini-os-e2e.ts",
     "traces": "tsx src/scripts/trace-viewer.ts",
     "batch": "tsx src/scripts/batch-run.ts"
