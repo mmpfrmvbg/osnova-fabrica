@@ -102,6 +102,55 @@ function renderHtml(registry: unknown, traces: unknown[]): string {
 
 <h2>Последние трейсы</h2>
 <table><tr><th>Статус</th><th>Задача</th><th>Repairs</th><th>Время</th><th>runId</th></tr>${traceRows}</table>
+<h2>Ассистент — создать приложение</h2>
+<div id="assistant" style="background:#1a1a1a;padding:16px;border-radius:6px;margin-bottom:24px">
+  <textarea id="task-input" rows="3" placeholder="Опишите задачу для нового приложения..."
+    style="width:100%;box-sizing:border-box;background:#111;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:8px;font-size:13px;resize:vertical"></textarea>
+  <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+    <button id="run-btn" onclick="runPipeline()"
+      style="background:#7ec8e3;color:#000;border:none;padding:8px 20px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold">
+      ▶ Создать приложение
+    </button>
+    <span id="status-text" style="font-size:12px;color:#888"></span>
+  </div>
+  <div id="result-box" style="margin-top:12px;font-size:12px;display:none"></div>
+</div>
+<script>
+async function runPipeline() {
+  const task = document.getElementById('task-input').value.trim();
+  if (!task) return;
+  const btn = document.getElementById('run-btn');
+  const status = document.getElementById('status-text');
+  const box = document.getElementById('result-box');
+  btn.disabled = true;
+  btn.textContent = '⏳ Генерация...';
+  status.textContent = 'Запускаем пайплайн...';
+  box.style.display = 'none';
+  try {
+    const r = await fetch('/api/new-app', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task })
+    });
+    const data = await r.json();
+    const icon = data.status === 'success' ? '✅' : data.status === 'partial' ? '⚠️' : '❌';
+    box.style.display = 'block';
+    box.style.color = data.status === 'success' ? '#7ec8e3' : '#e07e7e';
+    box.innerHTML = icon + ' <b>' + data.status + '</b>' +
+      (data.qualityScore != null ? ' | Q=' + data.qualityScore.toFixed(2) : '') +
+      ' | repairs: ' + (data.repairAttempts ?? 0) +
+      ' | runId: ' + (data.runId ?? '').slice(0, 8) +
+      (data.error ? '<br>Ошибка: ' + data.error : '') +
+      '<br><small style="color:#888">Обновите страницу чтобы увидеть новое приложение в списке</small>';
+    status.textContent = '';
+  } catch(e) {
+    status.textContent = 'Ошибка: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Создать приложение';
+  }
+}
+</script>
 </body></html>`;
 }
 
@@ -115,6 +164,39 @@ export function startCenter(): void {
     if (req.url === '/api/traces') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(loadTraces()));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/new-app') {
+      let body = '';
+      req.on('data', chunk => {
+        body += chunk;
+      });
+      req.on('end', async () => {
+        try {
+          const { task } = JSON.parse(body) as { task?: string };
+          if (!task || !task.trim()) {
+            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: 'task обязателен' }));
+            return;
+          }
+          const { runPipeline } = await import('../pipeline/orchestrator');
+          const result = await runPipeline(task.trim());
+          const lastTrace = loadTraces(1)[0] as { runId?: string } | undefined;
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(
+            JSON.stringify({
+              status: result.status,
+              runId: lastTrace?.runId ?? null,
+              repairAttempts: result.repairAttempts,
+              qualityScore: result.goldenReport?.qualityScore ?? null,
+            }),
+          );
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+        }
+      });
       return;
     }
 
