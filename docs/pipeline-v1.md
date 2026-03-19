@@ -26,7 +26,35 @@ intake → spec_generation → codegen → build → golden_check → [repair �
 | repair | OsnovaSource + BuildReport + GoldenReport? | OsnovaSource | RepairEngineerAgent | да |
 | result | — | PipelineResult | — | да |
 
-**Gates:** между фазами выполняются проверки (G1, G2, G3). При провале G1 — пайплайн останавливается с `failure`. При провале G2/G3 — запускается repair (если не исчерпаны попытки).
+**Gates:** между фазами выполняются проверки (G1, G2, G3). При провале G1 — пайплайн останавливается с `failure`. При провале G2 — запускается repair (если не исчерпаны попытки). При провале G3 — repair если `qualityScore < 0.5`, `partial` если `0.5 ≤ qualityScore < 0.7`, `success` если `qualityScore ≥ 0.7`. Blocking semantic errors (`unknown_syscall`, `undeclared_var`, `unknown_procedure`) в G2 также роутятся в repair.
+
+---
+
+## App-Registry контекст
+
+С версии Фазы 3.1 пайплайн загружает реестр приложений (`registry.json`) в начале прогона и инжектирует его в `IntakeAgent` и `OsnovaCodegenAgent`. Это позволяет LLM учитывать уже созданные приложения при генерации нового кода.
+
+---
+
+## Статусы прогона
+
+| Статус | Условие |
+|--------|---------|
+| `success` | G3 пройден, `qualityScore ≥ 0.7` |
+| `partial` | G3 не пройден, `0.5 ≤ qualityScore < 0.7` — repair не запускается |
+| `repair_exhausted` | Исчерпаны все попытки repair (MAX_REPAIR_LOOPS) |
+| `failure` | G1 не пройден или unhandled error |
+
+---
+
+## CLI-инструменты
+
+| Команда | Файл | Назначение |
+|---------|------|-----------|
+| `npm run batch` | `src/scripts/batch-run.ts` | Batch-прогон задач для измерения success rate. Требует `OSNOVA_DRY_RUN=1` |
+| `npm run traces` | `src/scripts/trace-viewer.ts` | Анализ трейсов: статистика, топ ошибок, разбивка по моделям. Флаги: `--stats`, `--errors`, `--models`, `--last N`, `--status <статус>` |
+| `npm run export-dataset` | `src/scripts/export-dataset.ts` | Экспорт успешных трейсов в JSONL для файн-тюна. Флаги: `--input`, `--output`, `--min-quality`, `--min-repairs` |
+| `osnova new-app` | CLI | Генерация нового приложения, сохранение `.osnova` + байткод + манифест, регистрация в `registry.json` |
 
 ---
 
@@ -176,3 +204,15 @@ intake → spec_generation → codegen → build → golden_check → [repair �
 - время выполнения фаз,
 - качество сгенерированного кода (goldenReport.qualityScore),
 - использование для дообучения LLM (task → intent → spec → source).
+
+---
+
+## Версии языка и промпты
+
+Промпты кодогенерации (`buildOsnovaPrompt`) автоматически подхватывают конструкции из `LANGUAGE_REGISTRY` — поле `example` у `ConstructSpec`. При добавлении новой конструкции в реестр с полем `example` промпт обновляется без ручных правок.
+
+Текущие версии языка:
+- v1.0.0 — стабильное ядро
+- v1.1.0 — `arr[i]` sugar, `тогда`, `главная(аргументы)`, multiline literals
+- v1.2.0-alpha — `попробовать/иначе_попытка/выбросить`
+- v1.3.0 — `для_каждого` stable + indexed form `для_каждого эл, и в массив`
