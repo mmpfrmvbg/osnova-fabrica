@@ -320,10 +320,56 @@ export function parse(tokens: Token[]): ParseResult {
       return { kind: "цикл", body };
     }
     if (isAt("идентификатор")) {
+      const startPos = pos;
       const tokAssign = advance();
       const name = String(tokAssign.value ?? tokAssign.lexeme);
+      const baseVarExpr: Expr = { kind: "переменная", name };
       // Проверить: имя.поле (=|+=|-=|*=|/=) значение
       let rewinded = false;
+      // Сахар: arr[i] = val и arr[i] op= val
+      if (peek().kind === "[") {
+        advance(); // consume "["
+        const idx = parseExpr();
+        if (!idx) return null;
+        if (!consume("]", "Ожидается ']'")) return null;
+        const opKind = peek().kind;
+        if (opKind === "=" || opKind === "+=" || opKind === "-=" || opKind === "*=" || opKind === "/=") {
+          advance();
+          const rhs = parseExpr();
+          if (!rhs) return null;
+
+          if (opKind === "=") {
+            const callExpr: Expr = {
+              kind: "вызов",
+              name: "система.массив.установить",
+              args: [baseVarExpr, idx, rhs],
+            };
+            return { kind: "выражение", expr: callExpr };
+          }
+
+          const binOp = compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="];
+          const current: Expr = {
+            kind: "вызов",
+            name: "система.массив.получить",
+            args: [baseVarExpr, idx],
+          };
+          const value: Expr = {
+            kind: "бинарное",
+            op: binOp,
+            left: current,
+            right: rhs,
+          };
+          const callExpr: Expr = {
+            kind: "вызов",
+            name: "система.массив.установить",
+            args: [baseVarExpr, idx, value],
+          };
+          return { kind: "выражение", expr: callExpr };
+        }
+        // не присваивание — откат и разбор как выражения arr[i]
+        pos = startPos;
+        rewinded = true;
+      }
       if (peek().kind === ".") {
         const savePos = pos;
         advance();
@@ -567,6 +613,17 @@ export function parse(tokens: Token[]): ParseResult {
           return { kind: "вызов", name: fullName, args };
         }
         expr = { kind: "поле", object: expr, field };
+      }
+      while (peek().kind === "[" && peek().kind !== "конец_файла") {
+        advance(); // "["
+        const idx = parseExpr();
+        if (!idx) return null;
+        if (!consume("]", "Ожидается ']'")) return null;
+        expr = {
+          kind: "вызов",
+          name: "система.массив.получить",
+          args: [expr, idx],
+        };
       }
       if (peek().kind === "(") {
         advance();

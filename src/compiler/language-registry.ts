@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "0.1.0";
+export const LANGUAGE_VERSION = "1.1.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -37,7 +37,9 @@ export type ConstructId =
   | "return"
   | "and"
   | "or"
-  | "not";
+  | "not"
+  | "array_index_read"
+  | "array_index_write";
 
 export interface AstFieldSpec {
   name: string;
@@ -267,6 +269,34 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     bytecodePattern: "arg; const.false; eq",
     implemented: true,
   },
+  {
+    id: "array_index_read",
+    syntax: "массив[индекс]  // сахар: система.массив.получить(массив, индекс)",
+    astNode: {
+      kind: "вызов",
+      fields: [
+        { name: "name", type: "string" },
+        { name: "args", type: "Expr[]" },
+      ],
+    },
+    since: "1.1.0",
+    implemented: true,
+    description: "Синтаксический сахар для чтения элемента массива по индексу",
+  },
+  {
+    id: "array_index_write",
+    syntax: "массив[индекс] = значение  // сахар: система.массив.установить(массив, индекс, значение)",
+    astNode: {
+      kind: "вызов",
+      fields: [
+        { name: "name", type: "string" },
+        { name: "args", type: "Expr[]" },
+      ],
+    },
+    since: "1.1.0",
+    implemented: true,
+    description: "Синтаксический сахар для записи элемента массива по индексу",
+  },
 ];
 
 const OPERATORS_V01: OperatorSpec[] = [
@@ -371,7 +401,12 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
     bad: "система.число.из_строки(s)",
   },
   { id: "env_api_missing", description: "система.окружение.* не поддерживается", bad: "система.окружение.получить(\"X\")" },
-  { id: "array_indexing", description: "индексация массив[i] не поддерживается", bad: "задачи[0]", good: "система.массив.получить(задачи, 0)" },
+  {
+    id: "array_index_syscall_direct",
+    description: "Не использовать система.массив.получить когда можно arr[i]",
+    bad: "система.массив.получить(arr, 0)",
+    good: "arr[0]",
+  },
   { id: "wrong_log_api", description: "система.вывести не существует", bad: "система.вывести(x)", good: "система.лог.вывести(x)" },
   { id: "return_with_parens", description: "скобки после вернуть не поддерживаются", bad: "вернуть(сумма)", good: "вернуть сумма" },
   { id: "composite_end", description: "составные конец_* не поддерживаются", bad: "конец_пока", good: "конец" },

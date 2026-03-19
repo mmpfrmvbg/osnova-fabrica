@@ -204,6 +204,22 @@ describe("Compiler: массивы (array literals)", () => {
     expect(await vm.runProcedure(0, [])).toBe(20);
   });
 
+  it("array index sugar: a[1] = 99; вернуть a[1] → 99", async () => {
+    const source = `
+модуль t
+процедура главная()
+  пусть a = [5, 10, 15]
+  a[1] = 99
+  вернуть a[1]
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.lexerErrors.length).toBe(0);
+    expect(result.parserErrors.length).toBe(0);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(99);
+  });
+
   it("для_каждого x в [1, 2, 3]: sum → 6", async () => {
     const source = `
 модуль t

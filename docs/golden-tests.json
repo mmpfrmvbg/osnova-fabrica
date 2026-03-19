@@ -272,6 +272,20 @@
       "expectCompiler": { "success": true }
     },
     {
+      "id": "array_index_read",
+      "description": "Чтение arr[i] вместо система.массив.получить",
+      "category": "arrays",
+      "source": "модуль t\nпроцедура главная()\n  пусть a = [10, 20, 30]\n  пусть x = a[1]\n  вернуть x\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "array_index_write",
+      "description": "Запись arr[i] = val вместо система.массив.установить",
+      "category": "arrays",
+      "source": "модуль t\nпроцедура главная()\n  пусть a = [1, 2, 3]\n  a[0] = 99\n  вернуть a[0]\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
       "id": "string_ends_with",
       "description": "система.строка.заканчивается_на",
       "category": "strings",
