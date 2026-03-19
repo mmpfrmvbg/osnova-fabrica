@@ -357,7 +357,11 @@ function createInvokeHandler(
   };
 }
 
-async function executeEntry(config: ResolvedRunConfig, windowApi: WindowApi | null): Promise<number> {
+async function executeEntry(
+  config: ResolvedRunConfig,
+  windowApi: WindowApi | null,
+  cliArgv: readonly string[] = [],
+): Promise<number> {
   mockEventsQueue = null;
   if (config.mockEvents && Array.isArray(config.mockEvents)) {
     mockEventsQueue = [...config.mockEvents];
@@ -394,9 +398,23 @@ async function executeEntry(config: ResolvedRunConfig, windowApi: WindowApi | nu
   }
 
   const stackArgs: StackValue[] = entryArgs.map((a) => (a as StackValue) ?? null);
+  const procMeta = mod.procedures[procIndex];
+  let callArgs: StackValue[] = stackArgs;
+  // Backward compatibility:
+  // - главная() -> no args
+  // - главная(аргументы) -> one array<string> argument
+  if (entryProcedure === "главная" && procMeta) {
+    if (procMeta.argc === 0) {
+      callArgs = [];
+    } else if (procMeta.argc === 1) {
+      const argvSource = entryArgs.length > 0 ? entryArgs : cliArgv;
+      const argv = argvSource.map((v) => String(v ?? ""));
+      callArgs = [argv as unknown as StackValue];
+    }
+  }
 
   try {
-    await vm.runProcedure(procIndex, stackArgs);
+    await vm.runProcedure(procIndex, callArgs);
     return 0;
   } catch (e) {
     if (e instanceof SandboxError) {
@@ -430,7 +448,7 @@ async function main(): Promise<number> {
 
   const ui = await setupUI(config.uiKind, config.appDir);
 
-  const code = await executeEntry(config, ui.windowApi ?? null);
+  const code = await executeEntry(config, ui.windowApi ?? null, process.argv.slice(2));
   ui.close?.();
   return code;
 }
@@ -439,7 +457,7 @@ export async function runWithConfig(config: ResolvedRunConfig): Promise<number> 
   applySandbox(config.permissions);
   const ui = await setupUI(config.uiKind, config.appDir);
   try {
-    return await executeEntry(config, ui.windowApi ?? null);
+    return await executeEntry(config, ui.windowApi ?? null, []);
   } finally {
     ui.close?.();
   }

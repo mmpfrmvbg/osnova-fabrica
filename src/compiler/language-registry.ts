@@ -40,7 +40,8 @@ export type ConstructId =
   | "or"
   | "not"
   | "array_index_read"
-  | "array_index_write";
+  | "array_index_write"
+  | "main_with_args";
 
 export interface AstFieldSpec {
   name: string;
@@ -313,6 +314,14 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     since: "1.1.0",
     implemented: true,
     description: "Синтаксический сахар для записи элемента массива по индексу",
+  },
+  {
+    id: "main_with_args",
+    syntax: "процедура главная(аргументы)  // аргументы — массив строк из CLI",
+    astNode: { kind: "Procedure", fields: [{ name: "name", type: "string" }, { name: "params", type: "string[]" }, { name: "body", type: "Stmt[]" }] },
+    since: "1.1.0",
+    implemented: true,
+    description: "Точка входа может принимать один параметр-массив CLI аргументов",
   },
 ];
 

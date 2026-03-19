@@ -319,6 +319,13 @@
       "category": "generic",
       "source": "модуль t\nпроцедура главная()\n  пусть x = 3\n  если x > 0 тогда\n    вернуть 1\n  конец\n  вернуть 0\nконец\nконец",
       "expectCompiler": { "success": true }
+    },
+    {
+      "id": "main_with_args",
+      "description": "главная с параметром аргументы — доступ к CLI аргументам",
+      "category": "generic",
+      "source": "модуль t\nпроцедура главная(аргументы)\n  вернуть система.массив.длина(аргументы)\nконец\nконец",
+      "expectCompiler": { "success": true }
     }
   ]
 }

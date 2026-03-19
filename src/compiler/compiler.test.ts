@@ -149,6 +149,28 @@ describe("Compiler: иначе (if/else)", () => {
     expect(result.parserErrors).toHaveLength(0);
     expect(result.compilerSuccess).toBe(true);
   });
+
+  it("главная(аргументы): компиляция и получение argv как массива", async () => {
+    const source = `
+модуль t
+процедура главная(аргументы)
+  вернуть система.массив.длина(аргументы)
+конец
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.lexerErrors).toHaveLength(0);
+    expect(result.parserErrors).toHaveLength(0);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, {
+      invoke: (name, args) => {
+        if (name === "система.массив.длина") return Array.isArray(args[0]) ? (args[0] as unknown[]).length : 0;
+        return null;
+      },
+      maxSteps: 1000,
+    });
+    expect(await vm.runProcedure(0, [["привет"]])).toBe(1);
+  });
 });
 
 describe("Compiler: массивы (array literals)", () => {
