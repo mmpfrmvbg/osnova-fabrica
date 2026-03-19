@@ -25,7 +25,8 @@
     "validate:spec": "tsx src/compiler/validate-language-registry.ts",
     "ci": "npm run validate:spec && npm run typecheck && npm test && npm run lint && npm run golden",
     "osnova-mini-os:e2e": "tsx src/scripts/osnova-mini-os-e2e.ts",
-    "traces": "tsx src/scripts/trace-viewer.ts"
+    "traces": "tsx src/scripts/trace-viewer.ts",
+    "batch": "tsx src/scripts/batch-run.ts"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",

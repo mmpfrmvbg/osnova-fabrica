@@ -1,193 +1,83 @@
-#!/usr/bin/env ts-node
-// ============================================================
-// src/scripts/batch-run.ts — Batch pipeline runner
-// Запуск множества задач из файла с ограничением concurrency
-// ============================================================
-
-import { runPipeline } from '../pipeline/orchestrator';
-import { validateEnv } from '../env';
-import { logger } from '../logger';
-import * as fs from 'fs/promises';
+import * as fs from 'fs';
 import * as path from 'path';
 
-const log = logger('batch-run');
+const TASKS_FILE = process.argv[2] ?? path.join(process.cwd(), 'src/scripts/batch-tasks.txt');
+const DRY_RUN = process.env.OSNOVA_DRY_RUN === '1';
 
-function parseArgs(): {
-  tasksPath: string;
-  concurrency: number;
-  outputPath: string;
-  skipDone: boolean;
-} {
-  const args = process.argv.slice(2);
-  let tasksPath = 'docs/batch-tasks.txt';
-  let concurrency = 1;
-  let outputPath = 'runs/batch-summary.json';
-  let skipDone = false;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--tasks' && args[i + 1]) {
-      tasksPath = args[++i]!;
-    } else if (args[i] === '--concurrency' && args[i + 1]) {
-      concurrency = Math.max(1, parseInt(args[++i]!, 10) || 1);
-    } else if (args[i] === '--output' && args[i + 1]) {
-      outputPath = args[++i]!;
-    } else if (args[i] === '--skip-done') {
-      skipDone = true;
-    }
-  }
-
-  return { tasksPath, concurrency, outputPath, skipDone };
+if (!DRY_RUN) {
+  console.error('❌ Установи OSNOVA_DRY_RUN=1 перед запуском batch-run (или используй реальный LLM осторожно)');
+  console.error('   OSNOVA_DRY_RUN=1 npx tsx src/scripts/batch-run.ts [tasks-file]');
+  process.exit(1);
 }
 
-async function loadTasks(tasksPath: string): Promise<string[]> {
-  const absPath = path.resolve(tasksPath);
-  const content = await fs.readFile(absPath, 'utf-8');
-  return content
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith('#'));
+if (!fs.existsSync(TASKS_FILE)) {
+  console.error(`Файл задач не найден: ${TASKS_FILE}`);
+  console.error('Создай src/scripts/batch-tasks.txt — по одной задаче на строку');
+  process.exit(1);
 }
 
-async function loadDoneTasks(): Promise<Set<string>> {
-  const dbPath = process.env.OSNOVA_TRACE_DB ?? './runs/traces.jsonl';
-  const absPath = path.resolve(dbPath);
-  const done = new Set<string>();
-  try {
-    const content = await fs.readFile(absPath, 'utf-8');
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const entry = JSON.parse(trimmed) as { task?: string };
-        if (entry.task) done.add(entry.task);
-      } catch {
-        /* skip malformed lines */
-      }
-    }
-  } catch {
-    /* file may not exist */
-  }
-  return done;
-}
+const tasks = fs.readFileSync(TASKS_FILE, 'utf-8')
+  .split('\n')
+  .map(l => l.trim())
+  .filter(l => l && !l.startsWith('#'));
 
-function statusSymbol(status: string): string {
-  if (status === 'success') return '✓';
-  if (status === 'repair_exhausted' || status === 'failure') return '✗';
-  return '~';
-}
+console.log(`\n[batch-run] Задач: ${tasks.length}, dry-run: ${DRY_RUN}\n`);
 
-interface TaskResult {
+interface BatchResult {
   task: string;
   status: string;
   repairAttempts: number;
   durationMs: number;
-  firstError?: string;
+  error?: string;
 }
 
-function getFirstError(buildReport: { parserErrors?: ReadonlyArray<{ line?: number; column?: number; message?: string }>; compilerErrors?: ReadonlyArray<{ message?: string }> } | undefined): string | undefined {
-  if (!buildReport) return undefined;
-  const pe = buildReport.parserErrors?.[0];
-  if (pe) return `${pe.line ?? 0}:${pe.column ?? 0} ${pe.message ?? ''}`;
-  const ce = buildReport.compilerErrors?.[0];
-  if (ce) return (ce as { message?: string }).message ?? JSON.stringify(ce);
-  return undefined;
-}
+const results: BatchResult[] = [];
 
 async function main(): Promise<void> {
-  const { tasksPath, concurrency, outputPath, skipDone } = parseArgs();
-
-  await validateEnv();
-
-  let tasks = await loadTasks(tasksPath);
-
-  if (skipDone) {
-    const done = await loadDoneTasks();
-    const before = tasks.length;
-    tasks = tasks.filter((t) => !done.has(t));
-    log.info('skip-done', { skipped: before - tasks.length, remaining: tasks.length });
-  }
-
-  const total = tasks.length;
-  const results: TaskResult[] = [];
-  const counts = { success: 0, partial: 0, repair_exhausted: 0, failure: 0 };
-  let totalRepair = 0;
-
-  const runOne = async (task: string, index: number): Promise<TaskResult> => {
-    const start = Date.now();
-    const result = await runPipeline(task);
-    const durationMs = Date.now() - start;
-    const tr: TaskResult = {
-      task,
-      status: result.status,
-      repairAttempts: result.repairAttempts ?? 0,
-      durationMs,
-      firstError: (result.status === 'repair_exhausted' || result.status === 'failure') ? getFirstError(result.buildReport) : undefined,
-    };
-    const sym = statusSymbol(result.status);
-    const r = result.repairAttempts ?? 0;
-    const short = task.length > 45 ? task.slice(0, 42) + '...' : task;
-    console.log(`[${index + 1}/${total}] ${sym} ${result.status.padEnd(16)} ${r}r  "${short}"`);
-    return tr;
-  };
-
-  for (let i = 0; i < tasks.length; i += concurrency) {
-    const batch = tasks.slice(i, i + concurrency);
-    const batchResults = await Promise.all(
-      batch.map((task, j) => runOne(task, i + j)),
-    );
-    results.push(...batchResults);
-    for (const r of batchResults) {
-      if (r.status === 'success') counts.success++;
-      else if (r.status === 'partial') counts.partial++;
-      else if (r.status === 'repair_exhausted') counts.repair_exhausted++;
-      else counts.failure++;
-      totalRepair += r.repairAttempts;
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i]!;
+    const t0 = Date.now();
+    process.stdout.write(`[${i + 1}/${tasks.length}] ${task.slice(0, 60)}... `);
+    try {
+      const { runPipeline } = await import('../pipeline/orchestrator');
+      const r = await runPipeline(task);
+      const dur = Date.now() - t0;
+      results.push({ task, status: r.status, repairAttempts: r.repairAttempts, durationMs: dur });
+      const icon = r.status === 'success' ? '✅' : r.status === 'partial' ? '⚠️ ' : '❌';
+      console.log(`${icon} ${r.status} (${dur}ms, repairs:${r.repairAttempts})`);
+    } catch (e) {
+      const dur = Date.now() - t0;
+      const msg = e instanceof Error ? e.message : String(e);
+      results.push({ task, status: 'error', repairAttempts: 0, durationMs: dur, error: msg });
+      console.log(`💥 error: ${msg.slice(0, 80)}`);
     }
   }
 
-  const avgRepair = total > 0 ? (totalRepair / total).toFixed(1) : '0';
-
-  console.log(`
-═══ BATCH COMPLETE ═══
-Total:            ${total}
-success:          ${counts.success}  (${total ? Math.round((counts.success / total) * 100) : 0}%)
-partial:          ${counts.partial}  (${total ? Math.round((counts.partial / total) * 100) : 0}%)
-repair_exhausted: ${counts.repair_exhausted}  (${total ? Math.round((counts.repair_exhausted / total) * 100) : 0}%)
-failure:          ${counts.failure}  (${total ? Math.round((counts.failure / total) * 100) : 0}%)
-avg repair:       ${avgRepair}
-═══════════════════════`);
-
-  const summary = {
-    total,
-    success: counts.success,
-    partial: counts.partial,
-    repair_exhausted: counts.repair_exhausted,
-    failure: counts.failure,
-    avgRepair: parseFloat(avgRepair),
-    tasks: results,
-  };
-
-  const outDir = path.dirname(path.resolve(outputPath));
-  await fs.mkdir(outDir, { recursive: true });
-  await fs.writeFile(
-    path.resolve(outputPath),
-    JSON.stringify(summary, null, 2),
-    'utf-8',
-  );
-  log.info('summary written', { path: outputPath });
-
-  const failed = results.filter((r) => r.status === 'repair_exhausted' || r.status === 'failure');
-  if (failed.length > 0) {
-    console.log('\n═══ Упавшие задачи ═══');
-    for (const r of failed) {
-      console.log(`✗ ${r.task}`);
-      console.log(`  ${r.status} ${r.repairAttempts}r  ${r.firstError ?? '—'}`);
-    }
-    console.log('═══════════════════════');
+  // Статистика
+  const total = results.length;
+  const byStatus: Record<string, number> = {};
+  let totalRepairs = 0;
+  for (const r of results) {
+    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+    totalRepairs += r.repairAttempts;
   }
+
+  console.log('\n═══ ИТОГИ BATCH-RUN ═══');
+  console.log(`Всего: ${total}`);
+  for (const [s, n] of Object.entries(byStatus)) {
+    const pct = ((n / total) * 100).toFixed(1);
+    console.log(`  ${s.padEnd(20)} ${n} (${pct}%)`);
+  }
+  console.log(`Repair-попыток: ${totalRepairs} (avg ${(totalRepairs / total).toFixed(2)})`);
+
+  // Сохраняем результат
+  const outPath = path.join(process.cwd(), 'runs', `batch-${Date.now()}.json`);
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, JSON.stringify({ timestamp: new Date().toISOString(), total, byStatus, results }, null, 2));
+  console.log(`\nРезультат сохранён: ${outPath}\n`);
 }
 
-main().catch((err) => {
-  console.error('[batch-run]', err);
+main().catch((e) => {
+  console.error('[batch-run] fatal:', e instanceof Error ? e.message : String(e));
   process.exit(1);
 });
