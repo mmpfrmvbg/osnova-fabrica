@@ -17,6 +17,7 @@ const args = process.argv.slice(2);
 function printUsage(): void {
   console.error('Использование:');
   console.error('  osnova --task "описание задачи"     Генерация через LLM');
+  console.error('  osnova new-app --task "описание"     Генерация + сохранение + регистрация');
   console.error('  osnova compile file.osnova [-o out]  Компиляция .osnova → .osvbc');
   console.error('  osnova run --manifest path           Запуск приложения по манифесту');
   console.error('  osnova schedule file.osvbc.json      VLIW-планирование (линейный код)');
@@ -155,6 +156,112 @@ async function listApps(cliArgs: string[]): Promise<number> {
   return 0;
 }
 
+async function runNewApp(cliArgs: string[]): Promise<void> {
+  // Парсим --task "..." из cliArgs
+  const taskIdx = cliArgs.indexOf('--task');
+  const task = taskIdx >= 0 ? cliArgs[taskIdx + 1] : cliArgs[0];
+  if (!task) {
+    console.error('Использование: osnova new-app --task "описание задачи"');
+    console.error('         или:  osnova new-app "описание задачи"');
+    process.exit(1);
+  }
+
+  await validateEnv();
+  console.log(`\n[osnova new-app] Задача: ${task}\n`);
+
+  const result = await runPipeline(task);
+
+  console.log('\n─── Результат генерации ───');
+  console.log('Статус:         ', result.status);
+  console.log('Repair попыток: ', result.repairAttempts);
+  console.log('Время:          ', result.totalDurationMs, 'ms');
+
+  if (result.status === 'failure' || !result.source) {
+    console.error('Генерация не удалась — приложение не сохранено.');
+    if (result.error) console.error('Ошибка:', result.error);
+    process.exit(1);
+  }
+
+  const translitMap: Record<string, string> = {
+    а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh', з: 'z', и: 'i',
+    й: 'j', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+    у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '',
+    э: 'e', ю: 'yu', я: 'ya',
+  };
+
+  // Генерируем appId из задачи: берём первые слова, транслитерируем
+  const appId = 'osnova.' + task
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9\s]/gi, '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 3)
+    .join('_')
+    .replace(/[а-яё]/gi, c => translitMap[c.toLowerCase()] ?? c);
+
+  const appsDir = path.resolve('src/runtime/apps');
+  const appDir = path.join(appsDir, appId);
+  fs.mkdirSync(appDir, { recursive: true });
+
+  // Сохраняем .osnova
+  const osnovaPath = path.join(appDir, result.source.filename);
+  fs.writeFileSync(osnovaPath, result.source.source, 'utf-8');
+  console.log('Сохранён .osnova: ', osnovaPath);
+
+  // Сохраняем bytecode если есть
+  if (result.buildReport?.bytecode) {
+    const bcPath = path.join(appDir, result.source.filename.replace(/\.osnova$/i, '.osvbc.json'));
+    fs.writeFileSync(bcPath, JSON.stringify(result.buildReport.bytecode, null, 2), 'utf-8');
+    console.log('Сохранён bytecode:', bcPath);
+  }
+
+  // Создаём минимальный osapp.yaml
+  const manifestPath = path.join(appDir, 'osapp.yaml');
+  const manifest = [
+    `id: "${appId}"`,
+    `name: "${task.slice(0, 40)}"`,
+    `version: "0.1.0"`,
+    `kind: app`,
+    `entry: "${result.source.filename}"`,
+    `uiKind: window`,
+    `category: generated`,
+    `generatedAt: "${new Date().toISOString()}"`,
+    `task: "${task.replace(/"/g, '\\"')}"`,
+    `status: "${result.status}"`,
+  ].join('\n');
+  fs.writeFileSync(manifestPath, manifest, 'utf-8');
+  console.log('Создан манифест: ', manifestPath);
+
+  // Обновляем registry.json
+  const registryPath = path.resolve('src/runtime/registry.json');
+  let registry: { entries: Array<Record<string, unknown>> } = { entries: [] };
+  if (fs.existsSync(registryPath)) {
+    registry = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+  }
+  const exists = registry.entries.some(e => e.id === appId);
+  if (!exists) {
+    registry.entries.push({
+      kind: 'app',
+      id: appId,
+      name: task.slice(0, 40),
+      version: '0.1.0',
+      category: 'generated',
+      uiKind: 'window',
+      manifestPath: path.relative('src/runtime', manifestPath).replace(/\\/g, '/'),
+      packagePath: path.relative('src/runtime', appDir).replace(/\\/g, '/'),
+      generatedAt: new Date().toISOString(),
+      status: result.status,
+    });
+    fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf-8');
+    console.log(`Зарегистрировано в registry.json: ${appId}`);
+  } else {
+    console.log(`Уже в реестре: ${appId} (не обновлялось)`);
+  }
+
+  console.log('\n✅ Приложение готово:', appDir);
+  console.log('   osnova list — чтобы увидеть в реестре\n');
+}
+
 async function main(): Promise<number> {
   const sub = args[0];
   const taskIdx = args.indexOf('--task');
@@ -179,6 +286,11 @@ async function main(): Promise<number> {
 
   if (sub === 'list') {
     return await listApps(args.slice(1));
+  }
+
+  if (sub === 'new-app') {
+    await runNewApp(args.slice(1));
+    return 0;
   }
 
   if (!sub || sub.startsWith('-')) {
