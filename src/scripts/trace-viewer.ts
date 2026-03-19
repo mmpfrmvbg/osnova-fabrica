@@ -11,7 +11,14 @@ interface TraceEntry {
   modelId?: string;
   repairAttempts?: number;
   timestamp: string;
-  buildReport?: { success?: boolean; compilerSuccess?: boolean };
+  buildReport?: {
+    success?: boolean;
+    compilerSuccess?: boolean;
+    lexerErrors?: Array<{ message: string }>;
+    parserErrors?: Array<{ message: string }>;
+    compilerErrors?: Array<{ message: string }>;
+    semanticErrors?: Array<{ message: string }>;
+  };
   goldenReport?: { passed?: boolean; qualityScore?: number; outputDiff?: string | null };
 }
 
@@ -67,6 +74,66 @@ function printStats(traces: TraceEntry[]): void {
   console.log('');
 }
 
+export function collectTopErrors(traces: TraceEntry[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const t of traces) {
+    const br = t.buildReport;
+    if (!br) continue;
+    const allErrors = [
+      ...(br.lexerErrors ?? []),
+      ...(br.parserErrors ?? []),
+      ...(br.compilerErrors ?? []),
+      ...(br.semanticErrors ?? []),
+    ];
+    for (const e of allErrors) {
+      const key = e.message
+        .replace(/'[^']+'/g, "'X'")
+        .replace(/\d+/g, 'N')
+        .slice(0, 80);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function printTopErrors(traces: TraceEntry[], topN = 10): void {
+  const counts = collectTopErrors(traces);
+  if (counts.size === 0) return;
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN);
+  console.log('═══ ТОП ОШИБОК КОМПИЛЯТОРА ═══');
+  for (const [msg, n] of sorted) {
+    console.log(`  ${String(n).padStart(4)}x  ${msg}`);
+  }
+  console.log('');
+}
+
+export function buildModelStats(
+  traces: TraceEntry[],
+): Map<string, { total: number; success: number; repairs: number }> {
+  const byModel = new Map<string, { total: number; success: number; repairs: number }>();
+  for (const t of traces) {
+    const model = t.modelId ?? 'unknown';
+    const cur = byModel.get(model) ?? { total: 0, success: 0, repairs: 0 };
+    cur.total++;
+    if (t.status === 'success') cur.success++;
+    cur.repairs += t.repairAttempts ?? 0;
+    byModel.set(model, cur);
+  }
+  return byModel;
+}
+
+function printByModel(traces: TraceEntry[]): void {
+  const byModel = buildModelStats(traces);
+  if (byModel.size <= 1) return;
+  console.log('═══ SUCCESS RATE ПО МОДЕЛЯМ ═══');
+  for (const [model, s] of [...byModel.entries()].sort((a, b) => b[1].total - a[1].total)) {
+    const pct = s.total > 0 ? ((s.success / s.total) * 100).toFixed(1) : '0.0';
+    const avgR = s.total > 0 ? (s.repairs / s.total).toFixed(2) : '0.00';
+    console.log(`  ${model.padEnd(25)} ${pct}% success  (${s.success}/${s.total})  avg repairs: ${avgR}`);
+  }
+  console.log('');
+}
+
 function printTraces(traces: TraceEntry[]): void {
   for (const t of traces) {
     const build = t.buildReport?.compilerSuccess ?? t.buildReport?.success;
@@ -91,6 +158,8 @@ const args = process.argv.slice(2);
 const statusFilter = args.includes('--status') ? args[args.indexOf('--status') + 1] : null;
 const lastN = args.includes('--last') ? parseInt(args[args.indexOf('--last') + 1] ?? '20', 10) : 20;
 const statsOnly = args.includes('--stats');
+const errorsOnly = args.includes('--errors');
+const modelsOnly = args.includes('--models');
 
 const all = loadTraces();
 const filtered = statusFilter ? all.filter(t => t.status === statusFilter) : all;
@@ -98,8 +167,15 @@ const slice = filtered.slice(-lastN);
 
 if (statsOnly) {
   printStats(all);
+  printByModel(all);
+} else if (errorsOnly) {
+  printTopErrors(all);
+} else if (modelsOnly) {
+  printByModel(all);
 } else {
   printStats(all);
+  printByModel(all);
+  printTopErrors(all);
   console.log(`═══ ПОСЛЕДНИЕ ${slice.length} из ${filtered.length} трейсов ═══\n`);
   printTraces(slice);
 }
