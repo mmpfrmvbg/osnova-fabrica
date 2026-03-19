@@ -35,8 +35,13 @@ function buildPromptSections(): {
     .join('\n');
 
   const forbiddenPatterns = LANGUAGE_REGISTRY.forbiddenPatterns
-    .map((fp) => `✗ ${fp.id}: ${fp.bad}${fp.good ? ` → ${fp.good}` : ''}`)
-    .join('\n');
+    .map((fp) => {
+      const lines = [`✗ ${fp.description}`];
+      lines.push(`  НЕЛЬЗЯ: ${fp.bad}`);
+      if (fp.good) lines.push(`  ПРАВИЛЬНО: ${fp.good}`);
+      return lines.join('\n');
+    })
+    .join('\n\n');
 
   return {
     keywords,
@@ -129,8 +134,13 @@ export function buildOsnovaRepairPrompt(
     .map((c) => c.syntax)
     .join('\n');
   const forbidden = LANGUAGE_REGISTRY.forbiddenPatterns
-    .map((fp) => `✗ ${fp.description}: ${fp.bad}${fp.good ? ` → ${fp.good}` : ''}`)
-    .join('\n');
+    .map((fp) => {
+      const lines = [`✗ ${fp.description}`];
+      lines.push(`  НЕЛЬЗЯ: ${fp.bad}`);
+      if (fp.good) lines.push(`  ПРАВИЛЬНО: ${fp.good}`);
+      return lines.join('\n');
+    })
+    .join('\n\n');
   const stableSyscalls = LANGUAGE_REGISTRY.syscalls
     .filter((sc) => sc.status === 'stable')
     .map((sc) => `${sc.name}(${sc.argc})`)
