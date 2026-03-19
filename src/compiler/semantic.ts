@@ -4,7 +4,14 @@ import { LANGUAGE_REGISTRY } from "./language-registry";
 export interface SemanticError {
   message: string;
   line?: number;
-  kind: "undeclared_var" | "syscall_argc" | "chained_compare" | "unknown_syscall" | "unknown_procedure";
+  kind:
+    | "undeclared_var"
+    | "syscall_argc"
+    | "chained_compare"
+    | "unknown_syscall"
+    | "unknown_procedure"
+    | "redeclare_var"
+    | "keyword_param";
 }
 
 const COMPARE_OPS = new Set(["==", "!=", "<", "<=", ">", ">="]);
@@ -16,6 +23,7 @@ function isCompareExpr(expr: Expr): boolean {
 export function checkSemantics(ast: Module): SemanticError[] {
   const errors: SemanticError[] = [];
   const knownProcedures = new Set(ast.procedures.map((p) => p.name));
+  const kwSet = new Set(LANGUAGE_REGISTRY.keywords.map((k) => k.lexeme));
 
   function checkExpr(expr: Expr, declared: Set<string>): void {
     switch (expr.kind) {
@@ -84,6 +92,12 @@ export function checkSemantics(ast: Module): SemanticError[] {
       switch (stmt.kind) {
         case "пусть":
           checkExpr(stmt.init, declared);
+          if (declared.has(stmt.name)) {
+            errors.push({
+              kind: "redeclare_var",
+              message: `повторное объявление '${stmt.name}' через пусть — используй просто '${stmt.name} = ...'`,
+            });
+          }
           declared.add(stmt.name);
           break;
         case "присвоить":
@@ -140,6 +154,14 @@ export function checkSemantics(ast: Module): SemanticError[] {
   }
 
   for (const proc of ast.procedures) {
+    for (const param of proc.params) {
+      if (kwSet.has(param)) {
+        errors.push({
+          kind: "keyword_param",
+          message: `параметр '${param}' является ключевым словом — используй другое имя`,
+        });
+      }
+    }
     const declared = new Set<string>(proc.params);
     checkStmts(proc.body, declared);
   }

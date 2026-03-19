@@ -556,6 +556,37 @@ describe("semantic checker", () => {
     const result = compileSource(src);
     expect(result.semanticErrors.filter((e) => e.kind === "unknown_procedure")).toHaveLength(0);
   });
+
+  it("redeclare var via пусть", () => {
+    const src = `модуль t
+процедура главная()
+  пусть x = 1
+  пусть x = 2
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.semanticErrors.some((e) => e.kind === "redeclare_var")).toBe(true);
+  });
+
+  it("keyword as param name", () => {
+    const src = `модуль t
+процедура сложить(если, пока)
+  вернуть если
+конец
+конец`;
+    expect(() => compileSource(src)).not.toThrow();
+  });
+
+  it("no redeclare for normal assign", () => {
+    const src = `модуль t
+процедура главная()
+  пусть x = 1
+  x = 2
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.semanticErrors.filter((e) => e.kind === "redeclare_var")).toHaveLength(0);
+  });
 });
 
 describe("Compiler negative: errors reported", () => {
