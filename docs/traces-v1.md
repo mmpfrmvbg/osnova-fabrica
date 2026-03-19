@@ -89,3 +89,17 @@ jq -c 'select(.goldenReport != null and .goldenReport.passed == false) | {task, 
 - **repair** (трейсы с repairAttempts > 0, но status = success) — примеры исправления ошибок компиляции/VM: source до и после repair, buildReport с ошибками.
 - **repair_exhausted** — сложные случаи: задачи, которые текущие промпты/модели не решают; полезны для улучшения промптов и выявления недостатков языка.
 - **modelId** — в каждой записи есть поле `modelId` (OSNOVA_MODEL). Анализ «какая модель генерирует больше ошибок лексера»: `jq -s 'group_by(.modelId) | map({model: .[0].modelId, count: length})' runs/traces.jsonl`
+
+---
+
+## Экспорт датасета (export-dataset)
+
+- Назначение: читает `runs/traces.jsonl`, фильтрует записи, пишет `dataset-v1.jsonl`
+- Запуск: `npx ts-node src/scripts/export-dataset.ts [--input path] [--output path] [--minQuality N] [--minRepairs N]`
+- Параметры:
+  - `--input` (default: `runs/traces.jsonl`)
+  - `--output` (default: `dataset-v1.jsonl`)
+  - `--minQuality` (default: `0`) — минимальный goldenReport.qualityScore
+  - `--minRepairs` (default: `-1`, выключено) — брать только записи с `repairAttempts >= N`
+- Условия фильтрации: `status=success`, `buildReport.success=true`, `source` непустой, `qualityScore >= minQuality`
+- Формат строки вывода: JSON с полями `input_text`, `target_text`, `meta` (runId, status, repairAttempts, qualityScore, modelId)
