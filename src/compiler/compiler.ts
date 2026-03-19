@@ -11,6 +11,9 @@ import { parse, type ParseError } from './parser';
 import { compile } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
 import { checkSemantics, type SemanticError } from './semantic';
+import type { Expr, Module, Procedure, Stmt } from './ast';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface CompileResult {
   /** Скомпилированный модуль — null если есть ошибки */
@@ -29,7 +32,163 @@ export interface CompileResult {
   durationMs: number;
 }
 
-export function compileSource(source: string): CompileResult {
+export interface CompileOptions {
+  /** Базовая директория для разрешения импортов `использовать ... из "путь"`. */
+  baseDir?: string;
+}
+
+function resolveImportPath(importPath: string, baseDir: string): string {
+  if (path.isAbsolute(importPath)) return importPath;
+  return path.join(baseDir, importPath);
+}
+
+function rewriteExprCalls(expr: Expr, rewriter: (calleeName: string) => string): void {
+  switch (expr.kind) {
+    case "вызов": {
+      expr.name = rewriter(expr.name);
+      for (const a of expr.args) rewriteExprCalls(a, rewriter);
+      return;
+    }
+    case "бинарное":
+      rewriteExprCalls(expr.left, rewriter);
+      rewriteExprCalls(expr.right, rewriter);
+      return;
+    case "унарное":
+      rewriteExprCalls(expr.arg, rewriter);
+      return;
+    case "поле":
+      rewriteExprCalls(expr.object, rewriter);
+      return;
+    case "массив":
+      for (const e of expr.elements) rewriteExprCalls(e, rewriter);
+      return;
+    case "объект":
+      for (const { value } of expr.entries) rewriteExprCalls(value, rewriter);
+      return;
+    default:
+      return;
+  }
+}
+
+function rewriteStmtCalls(stmt: Stmt, rewriter: (calleeName: string) => string): void {
+  switch (stmt.kind) {
+    case "пусть":
+      rewriteExprCalls(stmt.init, rewriter);
+      return;
+    case "присвоить":
+      rewriteExprCalls(stmt.value, rewriter);
+      return;
+    case "поле_присвоить":
+      rewriteExprCalls(stmt.value, rewriter);
+      return;
+    case "выражение":
+      rewriteExprCalls(stmt.expr, rewriter);
+      return;
+    case "если":
+      rewriteExprCalls(stmt.condition, rewriter);
+      for (const s of stmt.body) rewriteStmtCalls(s, rewriter);
+      if (stmt.elseIfClauses) {
+        for (const c of stmt.elseIfClauses) {
+          rewriteExprCalls(c.condition, rewriter);
+          for (const s of c.body) rewriteStmtCalls(s, rewriter);
+        }
+      }
+      if (stmt.elseBody) for (const s of stmt.elseBody) rewriteStmtCalls(s, rewriter);
+      return;
+    case "пока":
+      rewriteExprCalls(stmt.condition, rewriter);
+      for (const s of stmt.body) rewriteStmtCalls(s, rewriter);
+      return;
+    case "цикл":
+      for (const s of stmt.body) rewriteStmtCalls(s, rewriter);
+      return;
+    case "для_каждого":
+      rewriteExprCalls(stmt.source, rewriter);
+      for (const s of stmt.body) rewriteStmtCalls(s, rewriter);
+      return;
+    case "вернуть":
+      if (stmt.value) rewriteExprCalls(stmt.value, rewriter);
+      return;
+    case "попробовать":
+      for (const s of stmt.body) rewriteStmtCalls(s, rewriter);
+      for (const s of stmt.catchBody) rewriteStmtCalls(s, rewriter);
+      return;
+    case "выбросить":
+      rewriteExprCalls(stmt.value, rewriter);
+      return;
+  }
+}
+
+function rewriteProcedureCalls(proc: Procedure, rewriter: (calleeName: string) => string): void {
+  for (const s of proc.body) rewriteStmtCalls(s, rewriter);
+}
+
+function parseModuleOrThrow(source: string): Module {
+  const { tokens, errors: lexerErrors } = tokenize(source);
+  const { ast, errors: parserErrors } = parse(tokens);
+  if (lexerErrors.length > 0) throw new Error(lexerErrors[0]!.message);
+  if (parserErrors.length > 0) throw new Error(parserErrors[0]!.message);
+  if (!ast) throw new Error("Не удалось распарсить модуль");
+  return ast;
+}
+
+function expandModuleImports(ast: Module, baseDir: string, importStack: string[] = []): Module {
+  const aliasToExportedProcNameToPrefixed = new Map<string, Map<string, string>>();
+
+  const inlinedProcedures: Procedure[] = [];
+  for (const imp of ast.imports) {
+    const resolved = resolveImportPath(imp.path, baseDir);
+    if (!fs.existsSync(resolved)) throw new Error(`Модуль не найден: ${imp.path}`);
+    if (importStack.includes(resolved)) throw new Error(`Циклический импорт: ${imp.path}`);
+
+    const importedSource = fs.readFileSync(resolved, "utf-8");
+    const importedAst = parseModuleOrThrow(importedSource);
+    const importedExpanded = expandModuleImports(importedAst, path.dirname(resolved), [...importStack, resolved]);
+
+    // Для внешних вызовов alias.proc доступны только процедуры, помеченные `экспорт` в импортируемом модуле.
+    const exportedMap = new Map<string, string>();
+    for (const p of importedExpanded.procedures) {
+      if (p.exported) exportedMap.set(p.name, `${imp.module}__${p.name}`);
+    }
+    aliasToExportedProcNameToPrefixed.set(imp.module, exportedMap);
+
+    // Инлайним (встраиваем) ВСЕ процедуры импортируемого модуля, переименовывая их с префиксом.
+    const nameMap = new Map<string, string>();
+    for (const p of importedExpanded.procedures) nameMap.set(p.name, `${imp.module}__${p.name}`);
+
+    for (const p of importedExpanded.procedures) {
+      const inlinedProc: Procedure = {
+        name: nameMap.get(p.name)!,
+        params: [...p.params],
+        body: p.body,
+        exported: undefined, // импортированные процедуры не экспортируются из текущего модуля
+      };
+      rewriteProcedureCalls(inlinedProc, (callee) => nameMap.get(callee) ?? callee);
+      inlinedProcedures.push(inlinedProc);
+    }
+  }
+
+  // Переписываем вызовы Имя.процедура(...) в текущем модуле в уже инлайненные префиксные имена.
+  for (const proc of ast.procedures) {
+    rewriteProcedureCalls(proc, (callee) => {
+      if (!callee.includes(".")) return callee;
+      const [alias, rest] = callee.split(".", 2);
+      const exportedByName = aliasToExportedProcNameToPrefixed.get(alias);
+      if (!exportedByName) return callee; // не импортированный namespace
+      const prefixed = exportedByName.get(rest ?? "");
+      if (!prefixed) throw new Error("Процедура не экспортирована");
+      return prefixed;
+    });
+  }
+
+  return {
+    name: ast.name,
+    imports: [],
+    procedures: [...ast.procedures, ...inlinedProcedures],
+  };
+}
+
+export function compileSource(source: string, options: CompileOptions = {}): CompileResult {
   const start = Date.now();
   const { tokens, errors: lexerErrors } = tokenize(source);
   const { ast, errors: parserErrors } = parse(tokens);
@@ -46,11 +205,26 @@ export function compileSource(source: string): CompileResult {
     };
   }
 
-  const semanticErrors = checkSemantics(ast);
+  let expandedAst: Module;
+  try {
+    expandedAst = expandModuleImports(ast, options.baseDir ?? process.cwd());
+  } catch (e) {
+    return {
+      module: null,
+      compilerSuccess: false,
+      lexerErrors: [],
+      parserErrors: [],
+      compilerErrors: [{ message: e instanceof Error ? e.message : String(e) }],
+      semanticErrors: [],
+      durationMs: Date.now() - start,
+    };
+  }
+
+  const semanticErrors = checkSemantics(expandedAst);
   const semanticAsCompiler = semanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
 
   try {
-    const module = compile(ast);
+    const module = compile(expandedAst);
     return {
       module,
       compilerSuccess: true,

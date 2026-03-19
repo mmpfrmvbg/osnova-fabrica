@@ -9,6 +9,9 @@ import { getImplementedKeywords } from "./language-registry";
 export type TokenKind =
   | "модуль"
   | "процедура"
+  | "использовать"
+  | "экспорт"
+  | "из"
   | "пусть"
   | "если"
   | "иначе"

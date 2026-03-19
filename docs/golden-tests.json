@@ -454,6 +454,34 @@
       "source": "модуль т\nпроцедура главная()\n  попробовать\n    выбросить { код: 42, текст: \"ошибка\" }\n  иначе_попытка е\n    вернуть 1\n  конец\nконец\nконец",
       "expectCompiler": { "success": true },
       "expectVM": { "returnValue": 1 }
+    },
+    {
+      "id": "module_import_basic",
+      "description": "импорт экспортированной процедуры из другого файла",
+      "category": "modules",
+      "source": "модуль Главный\nиспользовать модуль Утил из \"util.osnova\"\nпроцедура главная()\n  пусть x = Утил.удвоить(21)\n  вернуть x\nконец\nконец",
+      "files": [
+        {
+          "path": "util.osnova",
+          "source": "модуль Утил\nпроцедура экспорт удвоить(x)\n  вернуть x * 2\nконец\nконец"
+        }
+      ],
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 42 }
+    },
+    {
+      "id": "module_export_only",
+      "description": "модуль с экспортной процедурой без главная",
+      "category": "modules",
+      "source": "модуль Утил\nпроцедура экспорт удвоить(x)\n  вернуть x * 2\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "module_not_found",
+      "description": "импорт по несуществующему пути — ошибка компиляции",
+      "category": "modules",
+      "source": "модуль Главный\nиспользовать модуль Утил из \"missing.osnova\"\nпроцедура главная()\n  пусть x = Утил.удвоить(21)\n  вернуть x\nконец\nконец",
+      "expectCompiler": { "success": false }
     }
   ]
 }

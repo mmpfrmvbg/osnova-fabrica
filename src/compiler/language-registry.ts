@@ -119,6 +119,9 @@ export interface LanguageRegistry {
 const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "модуль", kind: "module", implemented: true, since: "0.1.0" },
   { lexeme: "процедура", kind: "stmt", implemented: true, since: "0.1.0" },
+  { lexeme: "использовать", kind: "stmt", implemented: true, since: "1.5.0", description: "импорт процедур из другого модуля" },
+  { lexeme: "экспорт", kind: "stmt", implemented: true, since: "1.5.0", description: "экспорт процедур для импорта" },
+  { lexeme: "из", kind: "stmt", implemented: true, since: "1.5.0", description: "служебное слово для синтаксиса импорта" },
   { lexeme: "пусть", kind: "stmt", implemented: true, since: "0.1.0" },
   { lexeme: "если", kind: "stmt", implemented: true, since: "0.1.0" },
   { lexeme: "иначе", kind: "stmt", implemented: true, since: "0.1.0", description: "ветка else после если" },

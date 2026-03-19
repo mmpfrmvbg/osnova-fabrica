@@ -42,9 +42,19 @@ export interface Procedure {
   name: string;
   params: string[];
   body: Stmt[];
+  /** Модификатор `экспорт` в объявлении процедуры. */
+  exported?: boolean;
+}
+
+export interface ImportDeclaration {
+  /** Имя namespace в импортирующем модуле (например: `Утил` в `Утил.процедура(...)`). */
+  module: string;
+  /** Путь к импортируемому файлу. */
+  path: string;
 }
 
 export interface Module {
   name: string;
+  imports: ImportDeclaration[];
   procedures: Procedure[];
 }

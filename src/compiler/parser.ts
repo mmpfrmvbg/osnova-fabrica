@@ -3,7 +3,7 @@
  */
 
 import type { Token, TokenKind } from "./lexer";
-import type { Module, Procedure, Stmt, Expr } from "./ast";
+import type { Module, Procedure, Stmt, Expr, ImportDeclaration } from "./ast";
 
 export type ParseErrorContext = "module" | "procedure" | "stmt" | "expr";
 
@@ -110,8 +110,29 @@ export function parse(tokens: Token[]): ParseResult {
     const tokMod = advance();
     const name = String(tokMod.value ?? tokMod.lexeme);
     skipNewlines();
+    const imports: ImportDeclaration[] = [];
+    // Импорт разрешён только в самом начале модуля.
+    while (peek().kind === "использовать") {
+      const imp = parseImportDeclaration();
+      if (imp) imports.push(imp);
+      else syncToTopLevel();
+      skipNewlines();
+    }
+
     const procedures: Procedure[] = [];
-    while (peek().kind === "процедура") {
+    while (peek().kind === "процедура" || peek().kind === "экспорт" || peek().kind === "использовать") {
+      if (peek().kind === "использовать") {
+        const t = peek();
+        errors.push({
+          message: "Импорт разрешён только в начале модуля",
+          line: t.line,
+          column: t.column,
+          context: "module",
+        });
+        advance();
+        skipNewlines();
+        continue;
+      }
       const p = parseProcedure();
       if (p) procedures.push(p);
       else syncToTopLevel();
@@ -134,11 +155,66 @@ export function parse(tokens: Token[]): ParseResult {
         actualLexeme: t.lexeme,
       });
     }
-    return { name, procedures };
+    return { name, imports, procedures };
+  }
+
+  function parseImportDeclaration(): ImportDeclaration | null {
+    advance(); // использовать
+    if (!consume("модуль", "Ожидается 'модуль' после 'использовать'")) return null;
+
+    if (!isAt("идентификатор")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается имя namespace после 'модуль'",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["идентификатор"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      return null;
+    }
+    const tokAlias = advance();
+    const alias = String(tokAlias.value ?? tokAlias.lexeme);
+
+    if (!consume("из", "Ожидается 'из' после имени namespace")) return null;
+
+    if (!isAt("строка")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается строка с путём после 'из'",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["строка"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      return null;
+    }
+    const tokPath = advance();
+    const path = String(tokPath.value ?? tokPath.lexeme);
+    return { module: alias, path };
   }
 
   function parseProcedure(): Procedure | null {
-    advance(); // процедура
+    let exported = false;
+    if (peek().kind === "экспорт") {
+      advance();
+      exported = true;
+      skipNewlines();
+    }
+
+    if (!consume("процедура", "Ожидается 'процедура'")) return null;
+
+    // Поддержка формы: "процедура экспорт имя(...)" (экспорт после процедуры)
+    if (peek().kind === "экспорт") {
+      advance();
+      exported = true;
+      skipNewlines();
+    }
+
     if (!isAt("идентификатор")) {
       const t = peek();
       errors.push({
@@ -176,7 +252,7 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
     }
     if (!consume("конец", "Ожидается 'конец'")) return null;
-    return { name, params, body };
+    return { name, params, body, exported };
   }
 
   function parseStmt(): Stmt | null {
