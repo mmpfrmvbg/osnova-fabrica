@@ -4,6 +4,7 @@ import type { KeywordSpec, ConstructSpec } from '../compiler/language-registry';
 function buildPromptSections(): {
   keywords: string;
   constructs: string;
+  constructExamples: string;
   operators: string;
   literals: string;
   stableSyscalls: string;
@@ -18,6 +19,11 @@ function buildPromptSections(): {
     .filter((c: ConstructSpec) => c.implemented)
     .map((c: ConstructSpec) => `- ${c.id}: ${c.syntax}`)
     .join('\n');
+
+  const constructExamples = LANGUAGE_REGISTRY.constructs
+    .filter((c: ConstructSpec) => c.implemented && c.example)
+    .map((c: ConstructSpec) => `// ${c.syntax}\n${c.example!}`)
+    .join('\n\n');
 
   const operators = LANGUAGE_REGISTRY.operators
     .filter((o) => o.implemented)
@@ -46,6 +52,7 @@ function buildPromptSections(): {
   return {
     keywords,
     constructs,
+    constructExamples,
     operators,
     literals,
     stableSyscalls,
@@ -73,6 +80,9 @@ export function buildOsnovaPrompt(text: string): string {
     '',
     '═══ ЗАПРЕЩЁННЫЕ ПАТТЕРНЫ ═══',
     s.forbiddenPatterns,
+    '',
+    '═══ КОНСТРУКЦИИ С ПРИМЕРАМИ (из реестра) ═══',
+    s.constructExamples,
     '',
     '═══ ПРИМЕРЫ ПРАВИЛЬНОГО КОДА (v1.1) ═══',
     '',
@@ -109,7 +119,7 @@ export function buildOsnovaPrompt(text: string): string {
     'конец',
     'конец',
     '',
-    '// Пример: для_каждого и сумма',
+    '// Пример: для_каждого — простой перебор (v1.0, stable в v1.3)',
     'модуль т',
     'процедура главная()',
     '  пусть числа = [10, 20, 30]',
@@ -118,6 +128,17 @@ export function buildOsnovaPrompt(text: string): string {
     '    сумма = сумма + эл',
     '  конец',
     '  вернуть сумма',
+    'конец',
+    'конец',
+    '',
+    '// Пример: для_каждого с индексом (v1.3 indexed form)',
+    'модуль т',
+    'процедура главная()',
+    '  пусть числа = [10, 20, 30]',
+    '  для_каждого эл, и в числа',
+    '    система.лог.вывести(и)',
+    '  конец',
+    '  вернуть 0',
     'конец',
     'конец',
     '',
@@ -199,6 +220,7 @@ export function buildOsnovaRepairPrompt(
     '// главная() или главная(аргументы) — оба варианта допустимы',
     '// попробовать / иначе_попытка е / конец — перехват ошибок (v1.2)',
     '// выбросить "сообщение" — бросить ошибку',
+    '// для_каждого эл в массив / для_каждого эл, и в массив — оба варианта',
     '// пусть x = 1 / x = x + 1 (не x := 1)',
     '',
     'ДОПУСТИМЫЕ КОНСТРУКЦИИ:',

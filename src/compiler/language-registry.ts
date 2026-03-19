@@ -56,6 +56,8 @@ export interface ConstructSpec {
   id: ConstructId;
   /** Человекочитаемый шаблон синтаксиса для документации и LLM. */
   syntax: string;
+  /** Короткий пример кода для LLM-промптов. Без модуль/конец обёртки. */
+  example?: string;
   /** Узел AST: kind и поля (соответствует ast.ts). */
   astNode: {
     kind: string;
@@ -156,6 +158,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "let",
     syntax: "пусть <имя> = <выражение>",
+    example: "пусть х = 42",
     astNode: { kind: "пусть", fields: [{ name: "name", type: "string" }, { name: "init", type: "Expr" }] },
     since: "0.1.0",
     implemented: true,
@@ -163,6 +166,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "assign",
     syntax: "<имя> = <выражение>",
+    example: "х = х + 1",
     astNode: { kind: "присвоить", fields: [{ name: "name", type: "string" }, { name: "value", type: "Expr" }] },
     since: "0.1.0",
     implemented: true,
@@ -170,6 +174,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "if",
     syntax: "если <условие> ... иначе ... конец",
+    example: "если х > 0\n  вернуть истина\nиначе\n  вернуть ложь\nконец",
     astNode: {
       kind: "если",
       fields: [
@@ -231,6 +236,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "try_catch",
     syntax: "попробовать\n  <тело>\nиначе_попытка ошибка\n  <обработчик>\nконец",
+    example: "попробовать\n  выбросить \"ошибка\"\nиначе_попытка е\n  вернуть 1\nконец",
     astNode: {
       kind: "попробовать",
       fields: [
@@ -257,6 +263,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "while",
     syntax: "пока <условие> ... конец",
+    example: "пока i < 10\n  i = i + 1\nконец",
     astNode: { kind: "пока", fields: [{ name: "condition", type: "Expr" }, { name: "body", type: "Stmt[]" }] },
     since: "0.1.0",
     bytecodePattern: "loopStart: condition → jmp_if_not exit; body; jmp loopStart; exit:",
@@ -265,6 +272,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "for_each",
     syntax: "для_каждого <элемент> в <массив> ... конец",
+    example: "для_каждого эл в числа\n  сумма = сумма + эл\nконец",
     astNode: {
       kind: "для_каждого",
       fields: [
@@ -281,6 +289,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "for_each_indexed",
     syntax: "для_каждого <элемент>, <индекс> в <массив> ... конец",
+    example: "для_каждого эл, и в числа\n  система.лог.вывести(и)\nконец",
     astNode: {
       kind: "для_каждого",
       fields: [
@@ -306,6 +315,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "return",
     syntax: "вернуть <выражение> | вернуть",
+    example: "вернуть значение",
     astNode: { kind: "вернуть", fields: [{ name: "value", type: "Expr", optional: true }] },
     since: "0.1.0",
     implemented: true,
@@ -339,6 +349,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "array_index_read",
     syntax: "массив[индекс]  // сахар: система.массив.получить(массив, индекс)",
+    example: "пусть первый = числа[0]",
     astNode: {
       kind: "вызов",
       fields: [
@@ -353,6 +364,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "array_index_write",
     syntax: "массив[индекс] = значение  // сахар: система.массив.установить(массив, индекс, значение)",
+    example: "числа[1] = 99",
     astNode: {
       kind: "вызов",
       fields: [

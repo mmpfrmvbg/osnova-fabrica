@@ -112,6 +112,11 @@ function loadFewShot(): string {
 // конец
 //
 // выбросить "что-то пошло не так"
+//
+// ✓ для_каждого с индексом (v1.3 stable):
+// для_каждого элемент, индекс в массив
+//   система.лог.вывести(индекс)
+// конец
 `.trim();
 
     cachedFewShot = [goldenExamples, sumExample, antiPatterns, v12Patterns]
