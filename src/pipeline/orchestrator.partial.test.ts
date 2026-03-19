@@ -89,3 +89,106 @@ describe('Pipeline: partial_success', () => {
     expect(result.repairAttempts).toBe(0);
   }, 15000);
 });
+
+/**
+ * Тест repair-цикла: первый код не компилируется, RepairEngineer исправляет его, pipeline завершаетcя с успехом.
+ */
+describe('Pipeline: repair cycle', () => {
+  it('при ошибке компиляции запускает RepairEngineer и завершаетcя не в failure', async () => {
+    const llm = await import('../llm/index');
+    const originalGetProvider = llm.getLLMProvider;
+
+    // Переменная состояния, чтобы различать первый и последующие вызовы OsnovaCodegen/RepairEngineer
+    let codegenCalls = 0;
+
+    // Переопределим провайдера на время теста
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (llm as any).getLLMProvider = () => ({
+      id: 'mock-repair',
+      name: 'MockRepairLLM',
+      async checkHealth() {
+        return { available: true };
+      },
+      async listModels() {
+        return [];
+      },
+      async complete(req: { messages: { role: string; content: string }[] }) {
+        const messages = req.messages;
+        const systemContent =
+          messages[0]?.role === 'system' ? (messages[0].content as string) : '';
+
+        // OsnovaCodegen: первый вызов — вернуть заведомо невалидный код,
+        // чтобы build упал и запустился repair.
+        if (systemContent.includes('OsnovaCodegen')) {
+          codegenCalls += 1;
+          if (codegenCalls === 1) {
+            return {
+              content: 'это невалидный код на языке Основа',
+              model: 'mock-repair',
+              done: true,
+            };
+          }
+          // Вторая и последующие генерации — валидный минимальный модуль
+          return {
+            content: [
+              'модуль M',
+              'процедура главная()',
+              '  вернуть 0',
+              'конец',
+              'конец',
+              '',
+            ].join('\n'),
+            model: 'mock-repair',
+            done: true,
+          };
+        }
+
+        // RepairEngineer: возвращаем такой же валидный модуль
+        if (systemContent.includes('RepairEngineer')) {
+          return {
+            content: [
+              'модуль M',
+              'процедура главная()',
+              '  вернуть 0',
+              'конец',
+              'конец',
+              '',
+            ].join('\n'),
+            model: 'mock-repair',
+            done: true,
+          };
+        }
+
+        // Intake/spec оставляем семантически без изменений,
+        // используем простую заглушку чтобы не нарушать формат.
+        return {
+          content: messages[messages.length - 1]?.content ?? '',
+          model: 'mock-repair',
+          done: true,
+        };
+      },
+      async completeStream() {
+        throw new Error('not used');
+      },
+    });
+
+    const { saveTrace } = await import('../trace/traceStore');
+    const saveTraceSpy = vi.spyOn(await import('../trace/traceStore'), 'saveTrace' as never);
+
+    const result = await runPipeline('тест repair-цикла');
+
+    // Восстановим исходный провайдер
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(llm as any).getLLMProvider = originalGetProvider;
+
+    expect(result.repairAttempts ?? 0).toBeGreaterThanOrEqual(1);
+    expect(['success', 'partial']).toContain(result.status);
+
+    expect(saveTraceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repairAttempts: expect.any(Number),
+      }),
+    );
+  }, 30000);
+});
+
