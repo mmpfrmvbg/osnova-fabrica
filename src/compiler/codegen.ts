@@ -89,7 +89,7 @@ export function compile(ast: Module): OsVbcModule {
         if (s.kind === "если") {
           scanExpr(s.condition);
           scan(s.body);
-          if (s.elseIfClauses) {
+          if (s.elseIfClauses && s.elseIfClauses.length > 0) {
             for (const c of s.elseIfClauses) {
               scanExpr(c.condition);
               scan(c.body);

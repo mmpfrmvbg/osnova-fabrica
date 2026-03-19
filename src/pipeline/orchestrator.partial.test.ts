@@ -172,7 +172,7 @@ describe('Pipeline: repair cycle', () => {
       },
     });
 
-    const saveTraceSpy = vi.spyOn(await import('../trace/traceStore'), 'saveTrace' as never);
+    const _saveTraceSpy = vi.spyOn(await import('../trace/traceStore'), 'saveTrace' as never);
 
     const result = await runPipeline('тест repair-цикла');
 
@@ -183,7 +183,7 @@ describe('Pipeline: repair cycle', () => {
     expect(result.repairAttempts ?? 0).toBeGreaterThanOrEqual(1);
     expect(['success', 'partial']).toContain(result.status);
 
-    expect(saveTraceSpy).toHaveBeenCalledWith(
+    expect(_saveTraceSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         repairAttempts: expect.any(Number),
       }),
