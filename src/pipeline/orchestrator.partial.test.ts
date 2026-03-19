@@ -172,7 +172,6 @@ describe('Pipeline: repair cycle', () => {
       },
     });
 
-    const { saveTrace } = await import('../trace/traceStore');
     const saveTraceSpy = vi.spyOn(await import('../trace/traceStore'), 'saveTrace' as never);
 
     const result = await runPipeline('тест repair-цикла');
