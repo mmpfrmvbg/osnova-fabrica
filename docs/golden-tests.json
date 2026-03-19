@@ -354,6 +354,68 @@
       "category": "arrays",
       "source": "модуль t\nпроцедура главная()\n  пусть а = [1, 2, 3]\n  пусть сумма = 0\n  для_каждого эл в а\n    сумма = сумма + эл\n  конец\n  вернуть сумма\nконец\nконец",
       "expectCompiler": { "success": true }
+    },
+    {
+      "id": "array_index_compound",
+      "description": "составное присваивание arr[i] += val (v1.1)",
+      "category": "arrays",
+      "source": "модуль т\nпроцедура главная()\n  пусть числа = [10, 20, 30]\n  числа[1] += 5\n  вернуть числа[1]\nконец\nконец",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 25 }
+    },
+    {
+      "id": "array_index_loop",
+      "description": "перебор массива через arr[i] в цикле пока (v1.1)",
+      "category": "arrays",
+      "source": "модуль т\nпроцедура главная()\n  пусть числа = [1, 2, 3, 4, 5]\n  пусть сумма = 0\n  пусть индекс = 0\n  пока индекс < 5\n    сумма = сумма + числа[индекс]\n    индекс = индекс + 1\n  конец\n  вернуть сумма\nконец\nконец",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 15 }
+    },
+    {
+      "id": "main_with_args",
+      "description": "главная(аргументы) — точка входа с CLI-аргументами (v1.1)",
+      "category": "generic",
+      "source": "модуль т\nпроцедура главная(аргументы)\n  система.лог.вывести(\"старт\")\n  вернуть 0\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "try_catch_throw_value",
+      "description": "выбросить строку и поймать в иначе_попытка (v1.2)",
+      "category": "errors",
+      "source": "модуль т\nпроцедура главная()\n  попробовать\n    выбросить \"ошибка\"\n    вернуть 0\n  иначе_попытка е\n    вернуть 1\n  конец\nконец\nконец",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 1 }
+    },
+    {
+      "id": "try_catch_no_error",
+      "description": "попробовать без ошибки — выполняется основная ветка (v1.2)",
+      "category": "errors",
+      "source": "модуль т\nпроцедура главная()\n  попробовать\n    пусть х = 42\n    вернуть х\n  иначе_попытка е\n    вернуть 0\n  конец\nконец\nконец",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 42 }
+    },
+    {
+      "id": "try_catch_nested",
+      "description": "вложенный попробовать внутри процедуры (v1.2)",
+      "category": "errors",
+      "source": "модуль т\nпроцедура безопасноПрочитать(ключ)\n  попробовать\n    вернуть система.хранилище.прочитать(ключ)\n  иначе_попытка е\n    вернуть пусто\n  конец\nконец\nпроцедура главная()\n  пусть р = безопасноПрочитать(\"несуществующий\")\n  вернуть 0\nконец\nконец",
+      "expectCompiler": { "success": true }
+    },
+    {
+      "id": "тогда_while",
+      "description": "опциональное тогда в пока (v1.1)",
+      "category": "logic",
+      "source": "модуль т\nпроцедура главная()\n  пусть i = 0\n  пока i < 3 тогда\n    i = i + 1\n  конец\n  вернуть i\nконец\nконец",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 3 }
+    },
+    {
+      "id": "multiline_array_literal",
+      "description": "многострочный литерал массива (v1.1)",
+      "category": "arrays",
+      "source": "модуль т\nпроцедура главная()\n  пусть числа = [10,\n    20,\n    30\n  ]\n  вернуть числа[0]\nконец\nконец",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 10 }
     }
   ]
 }
