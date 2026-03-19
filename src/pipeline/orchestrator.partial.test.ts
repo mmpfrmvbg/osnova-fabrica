@@ -83,7 +83,7 @@ vi.mock('../runtime/goldenApps', () => ({
 
 describe('Pipeline: partial_success', () => {
   it('при qualityScore в [0.5, 0.7) возвращает status partial без repair', async () => {
-    const result = await runPipeline('тест');
+    const result = await runPipeline('__test__partial__mock__');
 
     expect(result.status).toBe('partial');
     expect(result.repairAttempts).toBe(0);

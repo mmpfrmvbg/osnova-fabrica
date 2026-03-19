@@ -309,6 +309,12 @@ if (args.includes('--help') || args.includes('-h')) {
 }
 
 const all = loadTraces();
+
+const isTestTrace = (t: any) =>
+  (t.task ?? '').startsWith('__test__') || t.goldenReport?.outputDiff === 'minor diff';
+const real = all.filter(t => !isTestTrace(t));
+const stale = all.filter(t => isTestTrace(t));
+
 if (runId) {
   const found = all.find(t => t.runId === runId || t.runId.startsWith(runId));
   if (!found) {
@@ -319,24 +325,28 @@ if (runId) {
   process.exit(0);
 }
 
-const filtered = statusFilter ? all.filter(t => t.status === statusFilter) : all;
+const filtered = statusFilter ? real.filter(t => t.status === statusFilter) : real;
 const slice = filtered.slice(-lastN);
 
 if (statsOnly) {
-  printStats(all);
-  printByModel(all);
+  printStats(real);
+  printByModel(real);
 } else if (errorsOnly) {
-  printTopErrors(all);
+  printTopErrors(real);
 } else if (modelsOnly) {
-  printByModel(all);
+  printByModel(real);
 } else {
-  printStats(all);
-  printByModel(all);
-  printTopErrors(all);
+  printStats(real);
+  printByModel(real);
+  printTopErrors(real);
   console.log(`═══ ПОСЛЕДНИЕ ${slice.length} из ${filtered.length} трейсов ═══\n`);
   printTraces(slice);
 }
 
 if (showRepair) {
   printRepairStats(filtered);
+}
+
+if (stale.length > 0) {
+  console.log(`\n⚠️  исключено тестовых/stale трейсов: ${stale.length}`);
 }
