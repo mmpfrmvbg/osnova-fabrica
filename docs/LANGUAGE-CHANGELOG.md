@@ -40,6 +40,8 @@
 - feat: `выбросить <значение>`
 - feat: опкоды VM `try_begin / try_end / throw`
 - docs: `bytecode-v1.md` обновлён
+- docs: `language-v1.md` обновлён — раздел "Обработка ошибок"
+- docs: `language-registry.md` синхронизирован
 
 ---
 

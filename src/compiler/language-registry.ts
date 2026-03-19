@@ -464,6 +464,12 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
   },
   { id: "env_api_missing", description: "система.окружение.* не поддерживается", bad: "система.окружение.получить(\"X\")" },
   {
+    id: "js_try_catch",
+    description: "Не использовать JavaScript try/catch",
+    bad: "try { } catch(e) { }",
+    good: "попробовать\n  ...\nиначе_попытка ошибка\n  ...\nконец",
+  },
+  {
     id: "array_index_syscall_direct",
     description: "Не использовать система.массив.получить когда можно arr[i]",
     bad: "система.массив.получить(arr, 0)",
