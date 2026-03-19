@@ -1,4 +1,4 @@
-import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
+import { LANGUAGE_REGISTRY, LANGUAGE_VERSION } from '../compiler/language-registry';
 import type { KeywordSpec, ConstructSpec } from '../compiler/language-registry';
 
 function buildPromptSections(): {
@@ -84,7 +84,7 @@ export function buildOsnovaPrompt(text: string): string {
     '═══ КОНСТРУКЦИИ С ПРИМЕРАМИ (из реестра) ═══',
     s.constructExamples,
     '',
-    '═══ ПРИМЕРЫ ПРАВИЛЬНОГО КОДА (v1.1) ═══',
+    `═══ ПРИМЕРЫ ПРАВИЛЬНОГО КОДА (${LANGUAGE_VERSION}) ═══`,
     '',
     '// Пример: цикл с счётчиком',
     'модуль т',
