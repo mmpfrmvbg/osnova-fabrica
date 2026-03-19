@@ -5,10 +5,13 @@
 - Трейсы: `docs/traces-v1.md` + `src/trace/types.ts`
 - Пайплайн: `src/pipeline/orchestrator.ts` (не docs/pipeline-llm-osnova.md)
 - Статусы документов: `docs/doc-status-plan.md`
+- История языка: `docs/LANGUAGE-CHANGELOG.md`
 
-## Deprecated — не ссылаться, не цитировать
-- `docs/grammatika-v0.1.md` → status: deprecated
-- `docs/trace-format-v0.1.md` → superseded-by: traces-v1.md
+## Deprecated документы (не редактировать, не использовать как источник)
+- `docs/grammatika-v0.1.md` → заменён: `docs/language-v1.md`
+- `docs/trace-format-v0.1.md` → заменён: `docs/traces-v1.md`
+- `docs/pipeline-llm-osnova.md` → исторический референс, канон: `docs/pipeline-v1.md` + `src/pipeline/orchestrator.ts`
+- `docs/roadmap-osnova-ideal-os.md` → vision-документ, канон: `docs/roadmap.md`
 
 ## Запрещённые конструкции языка Основа
 Не генерировать: `{ }`, `вызвать`, `функция`, `:=`, `конец_пока`, `конец_процедуры`
