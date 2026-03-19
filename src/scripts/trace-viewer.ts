@@ -74,6 +74,56 @@ function printStats(traces: TraceEntry[]): void {
   console.log('');
 }
 
+export function printRepairStats(traces: TraceEntry[]): void {
+  // Распределение: сколько прогонов потребовало 0/1/2/3 repair-попыток
+  const dist = new Map<number, { total: number; success: number; partial: number }>();
+  for (const t of traces) {
+    const r = t.repairAttempts ?? 0;
+    if (!dist.has(r)) dist.set(r, { total: 0, success: 0, partial: 0 });
+    const bucket = dist.get(r)!;
+    bucket.total++;
+    if (t.status === 'success') bucket.success++;
+    if (t.status === 'partial') bucket.partial++;
+  }
+
+  console.log('\n═══ REPAIR EFFECTIVENESS ═══');
+  console.log(`Всего прогонов: ${traces.length}`);
+  console.log('');
+
+  const sorted = [...dist.entries()].sort((a, b) => a[0] - b[0]);
+  console.log('Попытки | Прогонов | Success | Partial | Success rate');
+  console.log('--------|----------|---------|---------|-------------');
+  for (const [attempts, b] of sorted) {
+    const rate = b.total > 0 ? ((b.success / b.total) * 100).toFixed(1) : '0.0';
+    const label = attempts === 0 ? '0 (без repair)' : String(attempts);
+    console.log(
+      `${label.padEnd(14)} | ${String(b.total).padEnd(8)} | ${String(b.success).padEnd(7)} | ${String(
+        b.partial,
+      ).padEnd(7)} | ${rate}%`,
+    );
+  }
+
+  // Итог: насколько repair помогает
+  const withRepair = traces.filter(t => (t.repairAttempts ?? 0) > 0);
+  const withRepairSuccess = withRepair.filter(t => t.status === 'success');
+  const withoutRepair = traces.filter(t => (t.repairAttempts ?? 0) === 0);
+  const withoutRepairSuccess = withoutRepair.filter(t => t.status === 'success');
+
+  console.log('');
+  if (withoutRepair.length > 0) {
+    const rateWithout = ((withoutRepairSuccess.length / withoutRepair.length) * 100).toFixed(1);
+    console.log(`Без repair   (${withoutRepair.length} прогонов): success rate ${rateWithout}%`);
+  }
+  if (withRepair.length > 0) {
+    const rateWith = ((withRepairSuccess.length / withRepair.length) * 100).toFixed(1);
+    console.log(`С repair     (${withRepair.length} прогонов): success rate ${rateWith}%`);
+  }
+  const exhausted = traces.filter(t => t.status === 'repair_exhausted').length;
+  if (exhausted > 0) {
+    console.log(`repair_exhausted: ${exhausted} прогонов`);
+  }
+}
+
 export function collectTopErrors(traces: TraceEntry[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const t of traces) {
@@ -160,6 +210,26 @@ const lastN = args.includes('--last') ? parseInt(args[args.indexOf('--last') + 1
 const statsOnly = args.includes('--stats');
 const errorsOnly = args.includes('--errors');
 const modelsOnly = args.includes('--models');
+const showRepair = args.includes('--repair');
+
+function printHelp(): void {
+  console.error('Использование: ts-node src/scripts/trace-viewer.ts [options]');
+  console.error('');
+  console.error('  --status <status>        фильтр по PipelineStatus (success/partial/...)');
+  console.error('  --last <N>              показать последние N трейсов');
+  console.error('  --stats                   показать общую статистику трейсов');
+  console.error('  --errors                  показать топ ошибок компилятора');
+  console.error('  --models                  показать success rate по моделям');
+  console.error(
+    '  --repair         показать эффективность repair-цикла (распределение попыток, success rate)',
+  );
+  console.error('  --help                    показать это сообщение');
+}
+
+if (args.includes('--help') || args.includes('-h')) {
+  printHelp();
+  process.exit(0);
+}
 
 const all = loadTraces();
 const filtered = statusFilter ? all.filter(t => t.status === statusFilter) : all;
@@ -178,4 +248,8 @@ if (statsOnly) {
   printTopErrors(all);
   console.log(`═══ ПОСЛЕДНИЕ ${slice.length} из ${filtered.length} трейсов ═══\n`);
   printTraces(slice);
+}
+
+if (showRepair) {
+  printRepairStats(filtered);
 }

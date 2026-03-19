@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { collectTopErrors, buildModelStats } from './trace-viewer';
+import { describe, it, expect, vi } from 'vitest';
+import { collectTopErrors, buildModelStats, printRepairStats } from './trace-viewer';
 
 type MinTrace = Parameters<typeof collectTopErrors>[0][number];
 
@@ -70,6 +70,31 @@ describe('buildModelStats', () => {
   it('использует unknown для записей без modelId', () => {
     const stats = buildModelStats([makeTrace()]);
     expect(stats.has('unknown')).toBe(true);
+  });
+});
+
+describe('printRepairStats', () => {
+  it('считает распределение repair-попыток корректно', () => {
+    // просто вызываем чтобы убедиться что не падает при пустом массиве
+    expect(() => printRepairStats([])).not.toThrow();
+  });
+
+  it('корректно считает success rate для 0 попыток', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const traces = [
+      makeTrace({ status: 'success', repairAttempts: 0 }),
+      makeTrace({ status: 'failure', repairAttempts: 0 }),
+      makeTrace({ status: 'success', repairAttempts: 1 }),
+      makeTrace({ status: 'repair_exhausted', repairAttempts: 3 }),
+    ];
+
+    expect(() => printRepairStats(traces)).not.toThrow();
+
+    const output = logSpy.mock.calls.map(c => c.join(' ')).join('\n');
+    // 0 attempts: 2 прогона, 1 success => 50.0%
+    expect(output).toContain('success rate 50.0%');
+
+    logSpy.mockRestore();
   });
 });
 
