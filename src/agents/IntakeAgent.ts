@@ -10,10 +10,17 @@ import { getLLMProvider } from '../llm/index';
 import type { RawText, OsnovaIntent, OsnovaSpec, AppType } from '../pipeline/types';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
+import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
 
 const log = logger('intake-agent');
 
-const SPEC_SYSTEM_PROMPT = `
+function buildSpecSystemPrompt(): string {
+  const stableSyscalls = LANGUAGE_REGISTRY.syscalls
+    .filter(s => s.status === 'stable')
+    .map(s => `  ${s.name}`)
+    .join(',\n');
+
+  return `
 Ты генерируешь спецификацию для программы на языке Основа.
 Язык Основа — один модуль, только процедуры, без классов и объектов.
 
@@ -23,12 +30,8 @@ const SPEC_SYSTEM_PROMPT = `
   ПРАВИЛЬНО: [{"name": "Главный", "description": "...", "isMain": true}]
 ВАЖНО: "types" всегда пустой массив []. Объектных типов в языке нет.
 ВАЖНО: "mainModule" — имя главного модуля на кириллице (например: "Главный").
-ВАЖНО: "syscalls" — только из списка:
-  система.лог.вывести, система.хранилище.записать, система.хранилище.прочитать,
-  система.хранилище.ключи, система.хранилище.удалить, система.строка.объединить,
-  система.массив.длина, система.массив.получить, система.массив.добавить,
-  система.массив.создать, система.массив.установить, система.массив.удалить,
-  система.файлы.прочитать_все, система.файлы.записать_все, система.время.сейчас
+ВАЖНО: "syscalls" — только из этого списка (stable syscalls):
+${stableSyscalls}
 
 Верни ТОЛЬКО этот JSON, без объяснений:
 {
@@ -40,6 +43,7 @@ const SPEC_SYSTEM_PROMPT = `
   "conventions": {}
 }
 `.trim();
+}
 
 export class IntakeAgent {
   constructor(private registryContext: string = '') {}
@@ -125,7 +129,7 @@ export class IntakeAgent {
         messages: [
           {
             role: 'system',
-            content: SPEC_SYSTEM_PROMPT + (this.registryContext ? '\n\n' + this.registryContext : ''),
+            content: buildSpecSystemPrompt() + (this.registryContext ? '\n\n' + this.registryContext : ''),
           },
           {
             role: 'user',
