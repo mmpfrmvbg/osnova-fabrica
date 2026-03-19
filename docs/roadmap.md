@@ -449,6 +449,6 @@
 
 ### Пайплайн и CI
 - [x] G3 golden-check: поведенческие проверки — real storage invoke в tmpdir (`runGoldenCheck` + 5-й чек `storageWriteVerified`)
-- [ ] Автозапуск `npm run golden` в CI при изменении `.osvbc.json` фикстур
+- [x] Автозапуск `npm run golden` в CI при изменении фикстур — отдельный job `golden-fixtures` в `.github/workflows/ci.yml`
 
 ---
