@@ -509,6 +509,32 @@ describe("Compiler: compound assignments", () => {
   });
 });
 
+describe("semantic checker", () => {
+  it("фиксирует undeclared_var для присваивания без пусть", () => {
+    const source = "модуль t\nпроцедура главная()\n  x = 1\nконец\nконец";
+    const result = compileSource(source);
+    expect(result.semanticErrors.some((e) => e.kind === "undeclared_var")).toBe(true);
+  });
+
+  it("не выдаёт ошибок для корректно объявленной переменной", () => {
+    const source = "модуль t\nпроцедура главная()\n  пусть x = 1\n  x = 2\nконец\nконец";
+    const result = compileSource(source);
+    expect(result.semanticErrors).toHaveLength(0);
+  });
+
+  it("фиксирует syscall_argc при неверном количестве аргументов", () => {
+    const source = "модуль t\nпроцедура главная()\n  система.лог.вывести(\"a\", \"b\")\nконец\nконец";
+    const result = compileSource(source);
+    expect(result.semanticErrors.some((e) => e.kind === "syscall_argc")).toBe(true);
+  });
+
+  it("фиксирует unknown_syscall для несуществующего система.* вызова", () => {
+    const source = "модуль t\nпроцедура главная()\n  система.строка.из_числа(42)\nконец\nконец";
+    const result = compileSource(source);
+    expect(result.semanticErrors.some((e) => e.kind === "unknown_syscall")).toBe(true);
+  });
+});
+
 describe("Compiler negative: errors reported", () => {
   it("модуль without identifier → parserErrors", () => {
     const result = compileSource("модуль \n");

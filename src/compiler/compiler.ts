@@ -10,6 +10,7 @@ import { tokenize } from './lexer';
 import { parse, type ParseError } from './parser';
 import { compile } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
+import { checkSemantics, type SemanticError } from './semantic';
 
 export interface CompileResult {
   /** Скомпилированный модуль — null если есть ошибки */
@@ -22,6 +23,8 @@ export interface CompileResult {
   parserErrors: ParseError[];
   /** Ошибки компилятора (codegen-фаза) */
   compilerErrors: { message: string; node?: string }[];
+  /** Ошибки семантического анализатора (предупреждения первого этапа) */
+  semanticErrors: SemanticError[];
   /** Время компиляции в мс */
   durationMs: number;
 }
@@ -38,9 +41,13 @@ export function compileSource(source: string): CompileResult {
       lexerErrors,
       parserErrors,
       compilerErrors: [],
+      semanticErrors: [],
       durationMs: Date.now() - start,
     };
   }
+
+  const semanticErrors = checkSemantics(ast);
+  const semanticAsCompiler = semanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
 
   try {
     const module = compile(ast);
@@ -49,7 +56,8 @@ export function compileSource(source: string): CompileResult {
       compilerSuccess: true,
       lexerErrors: [],
       parserErrors: [],
-      compilerErrors: [],
+      compilerErrors: semanticAsCompiler,
+      semanticErrors,
       durationMs: Date.now() - start,
     };
   } catch (e) {
@@ -58,7 +66,11 @@ export function compileSource(source: string): CompileResult {
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
-      compilerErrors: [{ message: e instanceof Error ? e.message : String(e) }],
+      compilerErrors: [
+        ...semanticAsCompiler,
+        { message: e instanceof Error ? e.message : String(e) },
+      ],
+      semanticErrors,
       durationMs: Date.now() - start,
     };
   }
