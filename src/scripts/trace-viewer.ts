@@ -11,13 +11,16 @@ interface TraceEntry {
   modelId?: string;
   repairAttempts?: number;
   timestamp: string;
+  intent?: { description?: string; appType?: string };
+  spec?: { mainModule?: string; procedures?: Array<{ name?: string }> };
+  source?: { source?: string };
   buildReport?: {
     success?: boolean;
     compilerSuccess?: boolean;
-    lexerErrors?: Array<{ message: string }>;
-    parserErrors?: Array<{ message: string }>;
-    compilerErrors?: Array<{ message: string }>;
-    semanticErrors?: Array<{ message: string }>;
+    lexerErrors?: Array<{ message: string; line?: number; column?: number }>;
+    parserErrors?: Array<{ message: string; line?: number; column?: number }>;
+    compilerErrors?: Array<{ message: string; node?: string }>;
+    semanticErrors?: Array<{ message: string; kind?: string }>;
   };
   goldenReport?: { passed?: boolean; qualityScore?: number; outputDiff?: string | null };
 }
@@ -200,6 +203,78 @@ function printTraces(traces: TraceEntry[]): void {
   }
 }
 
+export function printSingleTrace(trace: TraceEntry): void {
+  const repairs = trace.repairAttempts ?? 0;
+  const model = trace.modelId ?? '—';
+
+  console.log('\n═══ TRACE (single) ═══');
+  console.log(
+    `runId: ${trace.runId} | timestamp: ${trace.timestamp} | status: ${trace.status} | model: ${model} | repairAttempts: ${repairs}`,
+  );
+  console.log('');
+
+  console.log('ЗАДАЧА:');
+  console.log(trace.task ?? '—');
+  console.log('');
+
+  console.log('INTENT:');
+  console.log(`  description: ${trace.intent?.description ?? '—'}`);
+  console.log(`  appType: ${trace.intent?.appType ?? '—'}`);
+  console.log('');
+
+  console.log('SPEC:');
+  console.log(`  mainModule: ${trace.spec?.mainModule ?? '—'}`);
+  const procNames = (trace.spec?.procedures ?? []).map(p => p.name).filter(Boolean) as string[];
+  console.log(`  procedures (${procNames.length}): ${procNames.length ? procNames.join(', ') : '—'}`);
+  console.log('');
+
+  console.log('SOURCE:');
+  const srcText = trace.source?.source ?? '';
+  const srcLines = srcText.split(/\r?\n/);
+  const preview = srcLines.slice(0, 40).join('\n');
+  console.log(preview || '—');
+  console.log('');
+
+  console.log('BUILD:');
+  console.log(`  success: ${trace.buildReport?.success ?? '—'}`);
+  console.log(`  compilerSuccess: ${trace.buildReport?.compilerSuccess ?? '—'}`);
+
+  const printErrs = (title: string, errs: unknown[], format: (e: any) => string): void => {
+    if (!errs || errs.length === 0) return;
+    console.log(`  ${title}:`);
+    for (const e of errs as any[]) {
+      console.log(`    - ${format(e)}`);
+    }
+  };
+
+  printErrs('lexerErrors', trace.buildReport?.lexerErrors ?? [], (e) => {
+    const loc = e.line != null && e.column != null ? `L${e.line}:${e.column} ` : '';
+    return `${loc}${e.message}`;
+  });
+
+  printErrs('parserErrors', trace.buildReport?.parserErrors ?? [], (e) => {
+    const loc = e.line != null && e.column != null ? `L${e.line}:${e.column} ` : '';
+    return `${loc}${e.message}`;
+  });
+
+  printErrs('compilerErrors', trace.buildReport?.compilerErrors ?? [], (e) => {
+    const node = e.node ? ` [node: ${e.node}]` : '';
+    return `${e.message}${node}`;
+  });
+
+  console.log('');
+
+  console.log('GOLDEN:');
+  console.log(`  passed: ${trace.goldenReport?.passed ?? '—'}`);
+  if (typeof trace.goldenReport?.qualityScore === 'number') {
+    console.log(`  qualityScore: ${trace.goldenReport.qualityScore}`);
+  } else {
+    console.log(`  qualityScore: —`);
+  }
+  console.log('  outputDiff:');
+  console.log(trace.goldenReport?.outputDiff ?? '—');
+}
+
 // Keep `os` import intentional and visible for CLI environment context.
 void os.platform();
 
@@ -211,12 +286,14 @@ const statsOnly = args.includes('--stats');
 const errorsOnly = args.includes('--errors');
 const modelsOnly = args.includes('--models');
 const showRepair = args.includes('--repair');
+const runId = args.includes('--run') ? args[args.indexOf('--run') + 1] : null;
 
 function printHelp(): void {
   console.error('Использование: ts-node src/scripts/trace-viewer.ts [options]');
   console.error('');
   console.error('  --status <status>        фильтр по PipelineStatus (success/partial/...)');
   console.error('  --last <N>              показать последние N трейсов');
+  console.error('  --run <runId>            показать полный трейс по runId (первые 8 символов тоже работают)');
   console.error('  --stats                   показать общую статистику трейсов');
   console.error('  --errors                  показать топ ошибок компилятора');
   console.error('  --models                  показать success rate по моделям');
@@ -232,6 +309,16 @@ if (args.includes('--help') || args.includes('-h')) {
 }
 
 const all = loadTraces();
+if (runId) {
+  const found = all.find(t => t.runId === runId || t.runId.startsWith(runId));
+  if (!found) {
+    console.error(`Трейс не найден: ${runId}`);
+    process.exit(1);
+  }
+  printSingleTrace(found);
+  process.exit(0);
+}
+
 const filtered = statusFilter ? all.filter(t => t.status === statusFilter) : all;
 const slice = filtered.slice(-lastN);
 
