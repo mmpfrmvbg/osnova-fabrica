@@ -210,8 +210,6 @@ export function tokenize(source: string): LexerResult {
       while (isIdContinue(peek())) lex += advance();
       const kw = KEYWORDS[lex];
       if (kw) tokens.push(makeToken(kw, lex));
-      // Защита от редкой Unicode-опечатки в тестах: латинская `t` вместо кириллической `т` в слове "тип".
-      else if (lex === "tип") tokens.push(makeToken("тип", lex));
       else tokens.push(makeToken("идентификатор", lex, lex));
       continue;
     }
