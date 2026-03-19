@@ -1,8 +1,9 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs/promises';
+import * as fssync from 'fs';
 import { run as runCli } from './run';
-import { storageKeys, storageRead } from './storage';
+import { storageWrite, storageKeys, storageRead } from './storage';
 import { VM } from './vm/interpreter';
 import { isOsVbcModule, isVliwPacket } from './vm/bytecode';
 import type { OsVbcModule, VliwPacket } from './vm/bytecode';
@@ -10,6 +11,12 @@ import type { GoldenReport } from '../pipeline/types';
 import type { OsnovaSpec } from '../pipeline/types';
 
 const STORAGE_ROOT = path.join(os.tmpdir(), 'osnova-storage');
+
+function makeTmpStorageRoot(): string {
+  const dir = path.join(os.tmpdir(), `osnova-golden-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  fssync.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 // ─────────────────────────────────────────────────────────────
 // runGoldenCheck — вызывается из pipeline/orchestrator
@@ -51,10 +58,37 @@ export async function runGoldenCheck(
     };
   }
 
+  // ── 1.5. Подготовка storage для поведенческих проверок ──
+  const storageRoot = makeTmpStorageRoot();
+  const appId = `golden-check-${module.moduleName}`;
+
   // ── 2. Запуск VM ──
   let executed = false;
   try {
-    const vm = new VM(module, { maxSteps: 50_000 });
+    const vm = new VM(module, {
+      maxSteps: 50_000,
+      invoke: async (name: string, args: unknown[]) => {
+        // Хранилище — реальная реализация через tmpdir
+        if (name === 'система.хранилище.записать') {
+          await storageWrite(storageRoot, appId, String(args[0]), String(args[1]));
+          return null;
+        }
+        if (name === 'система.хранилище.прочитать') {
+          return await storageRead(storageRoot, appId, String(args[0]));
+        }
+        if (name === 'система.хранилище.ключи') {
+          return await storageKeys(storageRoot, appId);
+        }
+        // Остальные syscall — заглушки (лог, UI и т.д.)
+        if (name.startsWith('система.лог.')) return null;
+        if (name.startsWith('система.окно.')) return null;
+        if (name.startsWith('система.интерфейс.')) return null;
+        if (name.startsWith('система.массив.')) return null;
+        if (name.startsWith('система.время.')) return null;
+        if (name.startsWith('система.сеть.')) return null;
+        return null;
+      },
+    });
     const idx = vm.findProcedureIndex(entryName);
     await vm.runProcedure(idx, []);
     executed = true;
@@ -74,7 +108,7 @@ export async function runGoldenCheck(
   }
 
   // ── 3. Структурные проверки ──
-  const checks = {
+  const checks = await (async () => ({
     hasEntryProcedure: true,
 
     // Проверяем только что процедура "главная" существует в bytecode,
@@ -110,7 +144,16 @@ export async function runGoldenCheck(
         (spec.procedures.length > 0 && spec.procedures.some(sp => sp.name === p.name))
       ) &&
       module.code.length > 0,
-  };
+    // Если spec.syscalls содержит хранилище — проверяем что запись реально произошла
+    storageWriteVerified: await (async () => {
+      const hasStorageSyscall = spec.syscalls.some(sc =>
+        sc.startsWith('система.хранилище.записать')
+      );
+      if (!hasStorageSyscall) return true; // не требуется
+      const keys = await storageKeys(storageRoot, appId);
+      return keys.length > 0;
+    })(),
+  }))();
 
   const passedChecks = Object.values(checks).filter(Boolean).length;
   const totalChecks = Object.values(checks).length;
