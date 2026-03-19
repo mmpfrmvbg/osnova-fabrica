@@ -292,11 +292,8 @@
     - [ ] перечень ключевых системных сервисов и их возможностей.
 
 - **3.2. Использование реестра в промптах**
-  - [ ] Обновить промпты `IntakeAgent`/`OsnovaCodegenAgent` (и при необходимости `RepairEngineer`), чтобы:
-    - [ ] в системном/пользовательском контексте было явно указано:
-      - [ ] какие `система.*` вызовы доступны,
-      - [ ] какие приложения/сервисы уже существуют (например, TODO, viewer, notifications).
-    - [ ] были примеры, как использовать существующие сервисы вместо изобретения новых велосипедом.
+- [x] Промпты `OsnovaCodegenAgent` и `RepairEngineer` читают language registry и few-shot примеры
+        (`feat(prompt): drive codegen from language registry` + `feat(prompt): add few-shot examples`)
 
 ---
 
@@ -446,12 +443,12 @@
 - [x] Прямые unit-тесты лексера: `src/compiler/lexer.test.ts`
 - [x] Прямые unit-тесты парсера: `src/compiler/parser.test.ts`
 - [x] Тест repair-цикла пайплайна: `src/pipeline/orchestrator.partial.test.ts`
-- [ ] Интеграция `golden-tests.json` в тестовый прогон (runner читает JSON, сверяет с компилятором)
+- [x] Интеграция `golden-tests.json` в тестовый прогон — `src/compiler/golden-runner.test.ts` (26 кейсов, npm test)
 - [ ] Coverage-репорт: требует vitest 4.x + `@vitest/coverage-v8` (сейчас vitest 1.6.1 — апгрейд отложен)
 - [x] Unit-тесты для `DeepSeekProvider` и `OllamaProvider`
 
 ### Пайплайн и CI
-- [ ] G3 golden-check: поведенческие проверки (не только структурные)
+- [x] G3 golden-check: поведенческие проверки — real storage invoke в tmpdir (`runGoldenCheck` + 5-й чек `storageWriteVerified`)
 - [ ] Автозапуск `npm run golden` в CI при изменении `.osvbc.json` фикстур
 
 ---
