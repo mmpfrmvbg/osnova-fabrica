@@ -9,6 +9,8 @@ import { checkG1, checkG2, checkG3 } from './gateChecker';
 import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport } from './types';
 import { compileSource } from '../compiler/compiler';
 import { saveTrace } from '../trace/traceStore';
+import { runGoldenCheck } from '../runtime/goldenApps';
+import { IntakeAgent } from '../agents/IntakeAgent';
 
 // Mock LLM provider: возвращает заготовленные ответы для каждого агента
 const createMockProvider = () => ({
@@ -119,12 +121,27 @@ vi.mock('../trace/traceStore', () => ({
   saveTrace: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../runtime/goldenApps');
+vi.mock('../agents/IntakeAgent', async () => {
+  const actual = await vi.importActual('../agents/IntakeAgent');
+  return actual;
+});
+
 describe('Pipeline integration (mock LLM)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('runPipeline: task → success with mock LLM', async () => {
+    vi.mocked(runGoldenCheck).mockResolvedValueOnce({
+      executed: true,
+      passed: true,
+      qualityScore: 0.9,
+      vmErrors: [],
+      outputDiff: null,
+      durationMs: 10,
+    });
+
     const result = await runPipeline('посчитай сумму от 1 до 10');
 
     expect(result.status).toBe('success');
@@ -142,6 +159,51 @@ describe('Pipeline integration (mock LLM)', () => {
       expect.objectContaining({ modelId: expect.any(String) }),
     );
   }, 15000);
+
+  it('runPipeline: partial — qualityScore в [0.5, 0.7)', async () => {
+    // mock goldenCheck возвращает qualityScore=0.6 → ожидаем статус partial
+    vi.mocked(runGoldenCheck).mockResolvedValueOnce({
+      executed: true,
+      passed: false,
+      qualityScore: 0.6,
+      vmErrors: [],
+      outputDiff: 'minor diff',
+      durationMs: 10,
+    });
+
+    const result = await runPipeline('тест partial');
+    expect(result.status).toBe('partial');
+  });
+
+  it('runPipeline: repair_exhausted — G3 всегда падает', async () => {
+    // mock goldenCheck всегда возвращает qualityScore=0.1 → repair loop исчерпывается
+    vi.mocked(runGoldenCheck).mockResolvedValue({
+      executed: true,
+      passed: false,
+      qualityScore: 0.1,
+      vmErrors: [{ message: 'wrong output' }],
+      outputDiff: 'big diff',
+      durationMs: 10,
+    });
+
+    const result = await runPipeline('тест repair_exhausted');
+    expect(result.status).toBe('repair_exhausted');
+  });
+
+  it('runPipeline: failure — G1 падает при пустых features', async () => {
+    // mock IntakeAgent возвращает intent с features=[] → G1 блокирует
+    vi.spyOn(IntakeAgent.prototype, 'parseIntent').mockResolvedValueOnce({
+      intentId: 'test',
+      description: 'тест',
+      features: [],
+      appType: 'утилита',
+      constraints: {},
+      confidence: 0.9,
+    } as OsnovaIntent);
+
+    const result = await runPipeline('тест G1 failure');
+    expect(result.status).toBe('failure');
+  });
 });
 
 describe('compileToBuildReport', () => {
