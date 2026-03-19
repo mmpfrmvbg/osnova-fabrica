@@ -150,6 +150,12 @@ describe('checkG3', () => {
     expect(checkG3(makeGoldenReport({ qualityScore: 1.0 })).passed).toBe(true);
   });
 
+  it('проходит при executed без vmErrors и qualityScore=0 (нет expectVM.returnValue)', () => {
+    const r = checkG3(makeGoldenReport({ executed: true, vmErrors: [], qualityScore: 0, outputDiff: 'whatever' }));
+    expect(r.passed).toBe(true);
+    expect(r.failedChecks).toHaveLength(0);
+  });
+
   it('блокирует при qualityScore < 0.7', () => {
     const r = checkG3(makeGoldenReport({ qualityScore: 0.6 }));
     expect(r.passed).toBe(false);

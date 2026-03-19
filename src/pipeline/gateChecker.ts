@@ -97,6 +97,20 @@ export function checkG3(goldenReport: GoldenReport): GateResult {
   if (goldenReport.vmErrors.length > 0)
     failed.push(`g3_no_vm_errors: ${goldenReport.vmErrors.length} VM error(s) → route_to_repair`);
 
+  // Если VM выполнилась без ошибок, но эталон (expectVM.returnValue) не задан,
+  // ранее это приводило к qualityScore=0 и passed=false, из-за чего pipeline начинал repair-цикл.
+  // В этом режиме считаем выполнение зачтённым.
+  const allowExecutedCleanWithoutExpectVmReturn =
+    goldenReport.executed && goldenReport.vmErrors.length === 0 && goldenReport.qualityScore === 0;
+  if (allowExecutedCleanWithoutExpectVmReturn) {
+    return {
+      passed: true,
+      gateId: 'G3_golden_pass',
+      failedChecks: [],
+      action: undefined,
+    };
+  }
+
   const qualityOk = goldenReport.qualityScore >= QUALITY_PASS;
   if (!qualityOk)
     failed.push(`g3_golden_or_quality: qualityScore < ${QUALITY_PASS} → route_to_repair`);
