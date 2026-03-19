@@ -437,7 +437,7 @@
 - [x] Прямые unit-тесты парсера: `src/compiler/parser.test.ts`
 - [x] Тест repair-цикла пайплайна: `src/pipeline/orchestrator.partial.test.ts`
 - [x] Интеграция `golden-tests.json` в тестовый прогон — `src/compiler/golden-runner.test.ts` (26 кейсов, npm test)
-- [ ] Coverage-репорт: требует vitest 4.x + `@vitest/coverage-v8` (сейчас vitest 1.6.1 — апгрейд отложен)
+- [x] Coverage-репорт: `@vitest/coverage-v8@1.6.1` + `vitest.config.ts`, `npm run coverage`, шаг в CI
 - [x] Unit-тесты для `DeepSeekProvider` и `OllamaProvider`
 
 ### Пайплайн и CI
