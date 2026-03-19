@@ -6,7 +6,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'node:url';
 
 /** Запись из traces.jsonl. Поля соответствуют TraceEntry (src/trace/types.ts). */
 export interface TraceRecord {
@@ -136,6 +135,6 @@ function main(): void {
   console.log(`Файл: ${outputPath}`);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (require.main === module) {
   main();
 }

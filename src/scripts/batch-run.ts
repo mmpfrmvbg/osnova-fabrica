@@ -84,7 +84,7 @@ interface TaskResult {
   firstError?: string;
 }
 
-function getFirstError(buildReport: { parserErrors?: Array<{ line?: number; column?: number; message?: string }>; compilerErrors?: Array<{ message?: string }> } | undefined): string | undefined {
+function getFirstError(buildReport: { parserErrors?: ReadonlyArray<{ line?: number; column?: number; message?: string }>; compilerErrors?: ReadonlyArray<{ message?: string }> } | undefined): string | undefined {
   if (!buildReport) return undefined;
   const pe = buildReport.parserErrors?.[0];
   if (pe) return `${pe.line ?? 0}:${pe.column ?? 0} ${pe.message ?? ''}`;
