@@ -41,6 +41,11 @@ jobs:
       - name: Validate language registry
         run: npm run validate:spec
 
+      - name: Coverage
+        run: npm run coverage
+        env:
+          OSNOVA_STORAGE_ROOT: /tmp/osnova-storage-ci
+
   golden-fixtures:
     name: golden fixtures check
     runs-on: ubuntu-latest
