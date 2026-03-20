@@ -127,9 +127,9 @@ npm run osnova-check
 
 ### Новые/обновлённые конструкции в v1.6.0-alpha
 
-- `named_type_declaration` — объявление именованных типов через `тип Имя { поле: Тип ... }`, since: 1.6.0, статус: alpha
-- `type_annotation` — аннотация переменной `пусть имя: Тип = { ... }`, since: 1.6.0, статус: alpha
-- `nullable_type` — nullable-поля с префиксом `?`, например `?Строка`, since: 1.6.0, статус: alpha
+- `named_type_declaration` — объявление именованных типов через `тип Имя { поле: Тип ... }`, since: 1.6.0, статус: stable
+- `type_annotation` — аннотация переменной `пусть имя: Тип = { ... }`, since: 1.6.0, статус: stable
+- `nullable_type` — nullable-поля с префиксом `?`, например `?Строка`, since: 1.6.0, статус: stable
 
 ### Новые ключевые слова в v1.2.0-alpha
 
