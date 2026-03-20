@@ -143,8 +143,21 @@ export function checkSemantics(ast: Module): SemanticError[] {
           checkStmts(stmt.body, loopScope);
           break;
         }
+        case "попробовать": {
+          // Блок попробовать выполняется в отдельном scope: объявления внутри не протекают наружу.
+          checkStmts(stmt.body, new Set(declared));
+
+          // В блоке иначе_попытка catchVar доступна и должна быть добавлена в scope.
+          const catchScope = new Set(declared);
+          catchScope.add(stmt.catchVar);
+          checkStmts(stmt.catchBody, catchScope);
+          break;
+        }
         case "выражение":
           checkExpr(stmt.expr, declared);
+          break;
+        case "выбросить":
+          checkExpr(stmt.value, declared);
           break;
         case "вернуть":
           if (stmt.value) checkExpr(stmt.value, declared);
