@@ -13,6 +13,7 @@ import type {
   GoldenReport,
   PipelineStatus,
 } from '../pipeline/types';
+import type { ShadowHit } from '../pipeline/shadowMode';
 
 export interface TraceEntry {
   readonly runId: string;
@@ -30,4 +31,5 @@ export interface TraceEntry {
   readonly semanticErrorCount?: number;
   /** Kind последней доминирующей ошибки при repair_exhausted (A-2) */
   readonly lastErrorKind?: string;
+  readonly shadow_hits?: ShadowHit[];
 }

@@ -26,6 +26,8 @@ import type {
   GoldenReport,
   PipelineResult,
 } from './types';
+import { analyzeShadow } from './shadowMode';
+import type { ShadowHit } from './shadowMode';
 
 const log = logger('pipeline');
 const MAX_REPAIR_LOOPS = 3;
@@ -133,6 +135,7 @@ export async function runPipeline(
   let buildReport: BuildReport | undefined;
   let goldenReport: GoldenReport | undefined;
   let lastSource: OsnovaSource | undefined;
+  let shadowHits: ShadowHit[] = [];
 
   try {
     // ─── Фаза 1: intake ───
@@ -158,6 +161,14 @@ export async function runPipeline(
     const codegen = new OsnovaCodegenAgent(registryContext);
     source = await codegen.generate(spec);
     lastSource = source;
+
+    // Shadow Mode: анализировать source после codegen (RFC-002, RFC-003)
+    const shadowReport = analyzeShadow(lastSource.source);
+    shadowHits = shadowReport.hits;
+    log.info('shadow mode', {
+      rfc002: shadowReport.totalByRfc['RFC-002'],
+      rfc003: shadowReport.totalByRfc['RFC-003'],
+    });
 
     // ─── Repair loop: build → golden_check → repair ───
     for (let loop = 0; loop <= MAX_REPAIR_LOOPS; loop++) {
@@ -217,6 +228,7 @@ export async function runPipeline(
             goldenReport,
             repairAttempts,
             semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+            shadow_hits: shadowHits,
           });
           return result;
         }
@@ -257,6 +269,7 @@ export async function runPipeline(
         goldenReport,
         repairAttempts,
         semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+        shadow_hits: shadowHits,
       });
       return result;
     }
@@ -282,6 +295,7 @@ export async function runPipeline(
       modelId,
       lastErrorKind,
       semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+      shadow_hits: shadowHits,
     });
     appendRepairFailure({
       ts: new Date().toISOString(),
@@ -306,6 +320,7 @@ export async function runPipeline(
       buildReport,
       goldenReport,
       repairAttempts,
+      shadow_hits: shadowHits,
     }).catch(() => {});
     return finish('failure', message);
   }
@@ -320,6 +335,7 @@ export async function runPipeline(
       goldenReport,
       repairAttempts,
       totalDurationMs: Date.now() - startTime,
+      shadow_hits: shadowHits,
       error,
     };
   }

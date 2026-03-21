@@ -15,6 +15,7 @@ import type {
   GoldenReport,
   PipelineStatus,
 } from '../pipeline/types';
+import type { ShadowHit } from '../pipeline/shadowMode';
 
 const LexerErrorSchema = z.object({
   line: z.number(),
@@ -137,6 +138,12 @@ const GoldenReportSchema = z
   })
   .passthrough();
 
+const ShadowHitSchema = z.object({
+  rfc: z.enum(['RFC-002', 'RFC-003']),
+  count: z.number(),
+  correct: z.boolean(),
+});
+
 export const TraceEntrySchema = z.object({
   runId: z.string().uuid(),
   timestamp: z.string().datetime({ offset: true }),
@@ -173,6 +180,7 @@ export async function saveTrace(data: {
   repairAttempts: number;
   semanticErrorCount?: number;
   lastErrorKind?: string;
+  shadow_hits?: ShadowHit[];
 }): Promise<void> {
   const entry: TraceEntry = {
     ...data,
