@@ -30,6 +30,8 @@
     "traces": "tsx src/scripts/trace-viewer.ts",
     "center": "tsx src/center/index.ts",
     "batch": "tsx src/scripts/batch-run.ts",
+    "batch-run": "tsx src/scripts/batch-run.ts",
+    "shadow-report": "tsx src/scripts/aggregate-shadow.ts",
     "export-dataset": "tsx src/scripts/export-dataset.ts",
     "analyze-dataset-health": "tsx src/scripts/analyze-dataset-health.ts",
     "analyze-language-health": "tsx src/scripts/analyze-language-health.ts",
@@ -43,7 +45,9 @@
     "cvt-weekly-report": "npx tsx src/intelligence/sources/cvt-weekly.ts",
     "cvt-weekly-report:notg": "npx tsx src/intelligence/sources/cvt-weekly.ts --no-telegram --no-fetch",
     "ab-prompt-test": "npx tsx src/tools/ab-prompt-test.ts",
-    "intelligence-collect": "npx tsx src/intelligence/collector.ts"
+    "intelligence-collect": "npx tsx src/intelligence/collector.ts",
+    "intelligence-digest": "npx tsx src/intelligence/digest.ts",
+    "intelligence-digest:notg": "npx tsx src/intelligence/digest.ts --no-telegram"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
