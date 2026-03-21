@@ -158,6 +158,7 @@ export const TraceEntrySchema = z.object({
   repairAttempts: z.number().int().min(0),
   semanticErrorCount: z.number().int().min(0).optional(),
   lastErrorKind: z.string().optional(),
+  shadow_hits: z.array(ShadowHitSchema).optional(),
 });
 
 export type TraceEntryParsed = z.infer<typeof TraceEntrySchema>;
