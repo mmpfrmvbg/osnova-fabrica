@@ -33,6 +33,7 @@
     "batch-run": "tsx src/scripts/batch-run.ts",
     "shadow-report": "tsx src/scripts/aggregate-shadow.ts",
     "export-dataset": "tsx src/scripts/export-dataset.ts",
+    "export-dataset-v2": "npx tsx src/tools/export-dataset-v2.ts",
     "analyze-dataset-health": "tsx src/scripts/analyze-dataset-health.ts",
     "analyze-language-health": "tsx src/scripts/analyze-language-health.ts",
     "llm-usage-report": "python3 scripts/llm_usage_report.py",
