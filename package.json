@@ -42,7 +42,8 @@
     "cvt-snapshot": "tsx src/intelligence/sources/hh.ts",
     "cvt-weekly-report": "npx tsx src/intelligence/sources/cvt-weekly.ts",
     "cvt-weekly-report:notg": "npx tsx src/intelligence/sources/cvt-weekly.ts --no-telegram --no-fetch",
-    "ab-prompt-test": "npx tsx src/tools/ab-prompt-test.ts"
+    "ab-prompt-test": "npx tsx src/tools/ab-prompt-test.ts",
+    "intelligence-collect": "npx tsx src/intelligence/collector.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
