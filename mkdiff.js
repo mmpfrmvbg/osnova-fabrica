@@ -1,1 +1,0 @@
-﻿const d=require("fs").readFileSync("qwen-out-utf8.json","utf8");const i=d.lastIndexOf("{\"type\":\"result\"");const o=JSON.parse(d.slice(i,d.indexOf("}]}]",i)+4));const diff=o.result.replace(/```diff\n/,"").replace(/```$/,"").replace(/\r\n/g,"\n");require("fs").writeFileSync("test.diff",diff,"utf8");console.log(JSON.stringify(diff.slice(0,200)))

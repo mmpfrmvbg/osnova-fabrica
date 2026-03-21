@@ -1,1 +1,0 @@
-﻿var fs=require("fs"),os=require("os"),path=require("path"),content=fs.readFileSync("src/patch-agent/index.ts","utf8").replace("/tmp/patch-","os.tmpdir()+\"/patch-\"").replace("const tmpDiff = `/tmp/patch-${Date.now()}.diff`","const tmpDiff = path.join(os.tmpdir(), \"patch-\"+Date.now()+\".diff\")");fs.writeFileSync("src/patch-agent/index.ts",content);console.log("OK");
