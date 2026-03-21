@@ -21,6 +21,8 @@
 - CLI/Server:
   - `src/cli.ts` — точка входа, запускает `runPipeline(task)`;
   - `src/center/server.ts` + `src/center/index.ts` — web-страницы + API для запуска пайплайна и просмотра трейсов/реестра.
+- MCP-сервер (`@modelcontextprotocol/sdk`):
+  - `src/mcp-server.ts` — stdio-транспорт MCP; регистрирует tools: `run_patch_agent` (вызов patch-agent / Qwen + git apply), `analyze_trace_health` и `analyze_dataset_health` (разбор `runs/traces.jsonl`), `run_golden_case` (прогон golden-runner по фикстуре), `read_repo` (обзор исходников). Нужен для интеграции с IDE/агентами, которые говорят по MCP; не является частью основного LLM-пайплайна `runPipeline`.
 
 ## Что работает, но хрупко (работает сейчас — может сломаться)
 - Политика gates для semantic errors задана кодом (не конфигом): в `src/pipeline/gateChecker.ts` блокирует только подмножество `semanticErrors.kind`, а остальное считается “неблокирующим”. Это напрямую влияет на то, что попадёт в success/partial и в ремонт.
