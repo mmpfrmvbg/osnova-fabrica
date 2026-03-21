@@ -585,18 +585,6 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
   },
   { id: "higher_order_procedures", description: "передача процедур как аргументов не поддерживается", bad: "фильтровать(список, предикат)" },
   {
-    id: "multiline_array_literal",
-    description: "многострочные литералы массивов не поддерживаются — весь массив в одну строку",
-    bad: "пусть a = [\n  1,\n  2\n]",
-    good: "пусть a = [1, 2]",
-  },
-  {
-    id: "multiline_object_literal",
-    description: "многострочные литералы объектов не поддерживаются — весь объект в одну строку",
-    bad: "пусть o = {\n  a: 1\n}",
-    good: "пусть o = { a: 1 }",
-  },
-  {
     id: "module_call_unexported",
     description: "вызов не-экспортированной процедуры другого модуля",
     bad: "Утилиты.внутренняя()",
