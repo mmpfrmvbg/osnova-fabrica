@@ -123,5 +123,7 @@ export interface PipelineResult {
   readonly goldenReport?: GoldenReport;
   readonly repairAttempts: number;
   readonly totalDurationMs: number;
+  /** Shadow Mode: hits по RFC-002 / RFC-003 (не влияет на логику) */
+  readonly shadow_hits?: import('./shadowMode').ShadowHit[];
   readonly error?: string;
 }
