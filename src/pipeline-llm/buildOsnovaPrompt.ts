@@ -316,3 +316,21 @@ export function buildOsnovaRepairPrompt(
   ].filter(Boolean);
   return parts.join('\n');
 }
+
+/**
+ * T-1: assert few-shot не пуст перед отправкой в LLM.
+ * Вызывать перед provider.complete() в OsnovaCodegen.
+ */
+export function assertFewShotNotEmpty(fewShot: string, context = 'unknown'): void {
+  const isEmpty =
+    !fewShot ||
+    fewShot.trim() === '' ||
+    fewShot.trim() === '// нет примеров';
+  if (isEmpty) {
+    throw new Error(
+      `[T-1:assertFewShotNotEmpty] few-shot пуст в контексте "${context}". ` +
+      'Генерация без примеров запрещена — LLM не знает синтаксис кириллицы. ' +
+      'Проверь docs/golden-tests.json: поле "tests" должно быть непустым массивом.',
+    );
+  }
+}

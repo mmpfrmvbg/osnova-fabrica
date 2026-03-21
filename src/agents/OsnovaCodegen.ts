@@ -8,7 +8,7 @@
 import { getLLMProvider } from '../llm/index';
 import { stripMarkdownFence } from '../llm/stripMarkdownFence';
 import type { OsnovaSpec, OsnovaSource } from '../pipeline/types';
-import { buildOsnovaPrompt } from '../pipeline-llm/buildOsnovaPrompt';
+import { buildOsnovaPrompt, assertFewShotNotEmpty } from '../pipeline-llm/buildOsnovaPrompt';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
 import * as fs from 'fs';
@@ -211,6 +211,7 @@ export class OsnovaCodegenAgent {
     const fewShot = loadFewShot();
     log.debug('generate', { model, mainModule: spec.mainModule });
 
+    assertFewShotNotEmpty(fewShot, 'OsnovaCodegen.generate');
     const specPrompt = buildOsnovaPrompt(JSON.stringify(spec, null, 2));
 
     let response;
