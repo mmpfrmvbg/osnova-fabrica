@@ -35,3 +35,28 @@ describe('RFC-003 Phase B: invented_syntax', () => {
     expect(hasKind(src, 'invented_syntax')).toBe(true);
   });
 });
+
+describe('RFC-002 Phase B: sentinel_pattern', () => {
+  it('пусть x = пусто вне try → sentinel_pattern', () => {
+    const src = wrap('  пусть результат = пусто\n  вернуть результат');
+    expect(hasKind(src, 'sentinel_pattern')).toBe(true);
+  });
+
+  it('пусть x = пусто внутри попробовать → НЕ sentinel_pattern', () => {
+    const src = wrap(
+      '  попробовать\n' +
+        '    пусть д = пусто\n' +
+        '    д = система.хранилище.прочитать("к")\n' +
+        '    вернуть д\n' +
+        '  иначе_попытка е\n' +
+        '    вернуть пусто\n' +
+        '  конец',
+    );
+    expect(hasKind(src, 'sentinel_pattern')).toBe(false);
+  });
+
+  it('вернуть пусто (без пусть) → НЕ sentinel_pattern', () => {
+    const src = wrap('  вернуть пусто');
+    expect(hasKind(src, 'sentinel_pattern')).toBe(false);
+  });
+});

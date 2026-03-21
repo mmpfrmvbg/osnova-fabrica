@@ -12,7 +12,8 @@ export interface SemanticError {
     | "unknown_procedure"
     | "redeclare_var"
     | "keyword_param"
-    | "invented_syntax";
+    | "invented_syntax"
+    | "sentinel_pattern";
 }
 
 const COMPARE_OPS = new Set(["==", "!=", "<", "<=", ">", ">="]);
@@ -142,6 +143,47 @@ export function checkSemantics(ast: Module): SemanticError[] {
 
   for (const proc of ast.procedures) {
     checkInventedSyntaxInStmts(proc.body);
+  }
+
+  function isSentinelInit(expr: Expr): boolean {
+    return expr.kind === "пусто";
+  }
+
+  function checkSentinelInStmts(stmts: Stmt[], insideTry: boolean): void {
+    for (const stmt of stmts) {
+      if (stmt.kind === "пусть" && isSentinelInit(stmt.init) && !insideTry) {
+        errors.push({
+          kind: "sentinel_pattern",
+          message: `Переменная '${stmt.name}' инициализируется значением пусто — это sentinel-паттерн. Используйте попробовать/иначе_попытка вместо проверки == пусто`,
+        });
+      }
+      switch (stmt.kind) {
+        case "если":
+          checkSentinelInStmts(stmt.body, insideTry);
+          if (stmt.elseIfClauses) {
+            for (const c of stmt.elseIfClauses) checkSentinelInStmts(c.body, insideTry);
+          }
+          if (stmt.elseBody) checkSentinelInStmts(stmt.elseBody, insideTry);
+          break;
+        case "пока":
+          checkSentinelInStmts(stmt.body, insideTry);
+          break;
+        case "цикл":
+          checkSentinelInStmts(stmt.body, insideTry);
+          break;
+        case "для_каждого":
+          checkSentinelInStmts(stmt.body, insideTry);
+          break;
+        case "попробовать":
+          checkSentinelInStmts(stmt.body, true);
+          checkSentinelInStmts(stmt.catchBody, insideTry);
+          break;
+      }
+    }
+  }
+
+  for (const proc of ast.procedures) {
+    checkSentinelInStmts(proc.body, false);
   }
 
   function checkExpr(expr: Expr, declared: Set<string>): void {

@@ -48,6 +48,7 @@ const SemanticErrorKindSchema = z.enum([
   'redeclare_var',
   'keyword_param',
   'invented_syntax',
+  'sentinel_pattern',
 ]);
 
 const SemanticErrorSchema = z
