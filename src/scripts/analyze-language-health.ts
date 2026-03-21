@@ -58,6 +58,12 @@ export function loadTraces(tracePath: string): TraceRecord[] {
     });
 }
 
+/** Возвращает true если трейс является мок/тестовым и должен быть исключён из prod-метрик. */
+export function isMockTrace(t: { task?: string }): boolean {
+  if (!t.task) return false;
+  return t.task.startsWith('__test__') || t.task.includes('__mock__');
+}
+
 export function computeHealthMetrics(
   traces: TraceRecord[],
   sinceOrOptions?: Date | { lastN?: number; lastHours24?: boolean; sinceDate?: Date },
@@ -92,6 +98,8 @@ export function computeHealthMetrics(
   } else if (options.lastN && options.lastN > 0) {
     windowedTraces = windowedTraces.slice(-options.lastN);
   }
+
+  windowedTraces = windowedTraces.filter((t) => !isMockTrace(t));
 
   const byStatus: Record<string, number> = {};
   const BLOCKING_KINDS = new Set<string>(BLOCKING_SEMANTIC_KINDS);

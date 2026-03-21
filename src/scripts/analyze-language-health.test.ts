@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeHealthMetrics } from './analyze-language-health';
+import { computeHealthMetrics, isMockTrace } from './analyze-language-health';
 
 describe('computeHealthMetrics', () => {
   it('пустой массив → все нули', () => {
@@ -207,6 +207,50 @@ describe('windowMode (S-7)', () => {
       ],
       { lastHours24: true },
     );
+    expect(m.total).toBe(1);
+  });
+});
+
+describe('isMockTrace', () => {
+  it('true для __test__partial__mock__', () => {
+    expect(isMockTrace({ task: '__test__partial__mock__' })).toBe(true);
+  });
+
+  it('true для __test__foo', () => {
+    expect(isMockTrace({ task: '__test__foo' })).toBe(true);
+  });
+
+  it('true для задачи с __mock__ в середине', () => {
+    expect(isMockTrace({ task: 'some__mock__task' })).toBe(true);
+  });
+
+  it('false для обычной задачи', () => {
+    expect(isMockTrace({ task: 'Посчитать сумму от 1 до 10' })).toBe(false);
+  });
+
+  it('false для undefined task', () => {
+    expect(isMockTrace({})).toBe(false);
+  });
+});
+
+describe('computeHealthMetrics — mock traces excluded', () => {
+  it('мок-трейс не попадает в teachability', () => {
+    const traces = [
+      {
+        status: 'success',
+        repairAttempts: 0,
+        task: 'реальная задача',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        status: 'success',
+        repairAttempts: 3,
+        task: '__test__partial__mock__',
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    const m = computeHealthMetrics(traces);
+    expect(m.teachability_score).toBe(1.0);
     expect(m.total).toBe(1);
   });
 });

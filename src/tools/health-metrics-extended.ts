@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { computeHealthMetrics, loadTraces } from '../scripts/analyze-language-health';
+import { computeHealthMetrics, isMockTrace, loadTraces } from '../scripts/analyze-language-health';
 
 export { computeHealthMetrics, loadTraces };
 
@@ -66,11 +66,13 @@ export function computeExtendedHealthMetrics(
   const sentinel_rate = successCount > 0 ? sentinelCount / successCount : null;
 
   const allTraces = loadTraces(tracesPath);
-  const windowedTraces = since
-    ? allTraces.filter(
-        (t) => Boolean(t.timestamp) && new Date(t.timestamp as string) >= since,
-      )
-    : allTraces;
+  const windowedTraces = (
+    since
+      ? allTraces.filter(
+          (t) => Boolean(t.timestamp) && new Date(t.timestamp as string) >= since,
+        )
+      : allTraces
+  ).filter((t) => !isMockTrace(t));
   const inventedCount = windowedTraces.filter(
     (t) =>
       Array.isArray((t as { forbiddenPatterns?: string[] }).forbiddenPatterns) &&
