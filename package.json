@@ -30,9 +30,11 @@
     "traces": "tsx src/scripts/trace-viewer.ts",
     "center": "tsx src/center/index.ts",
     "batch": "tsx src/scripts/batch-run.ts",
-    "export-dataset": "tsx src/scripts/export-dataset.ts"
+    "export-dataset": "tsx src/scripts/export-dataset.ts",
+    "analyze-language-health": "tsx src/scripts/analyze-language-health.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "js-yaml": "^4.1.0",
     "ws": "^8.16.0"
   },
