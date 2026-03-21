@@ -31,6 +31,7 @@
     "center": "tsx src/center/index.ts",
     "batch": "tsx src/scripts/batch-run.ts",
     "export-dataset": "tsx src/scripts/export-dataset.ts",
+    "analyze-dataset-health": "tsx src/scripts/analyze-dataset-health.ts",
     "analyze-language-health": "tsx src/scripts/analyze-language-health.ts",
     "blame-mode-bisect": "echo '[blame-mode-bisect] stub — no implementation yet' && exit 0",
     "report-to-pm": "echo '[report-to-pm] stub — no implementation yet' && exit 0",
