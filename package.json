@@ -41,7 +41,8 @@
     "weekly-health-diff:notg": "npx tsx src/tools/weekly-health-diff.ts --no-telegram",
     "cvt-snapshot": "tsx src/intelligence/sources/hh.ts",
     "cvt-weekly-report": "npx tsx src/intelligence/sources/cvt-weekly.ts",
-    "cvt-weekly-report:notg": "npx tsx src/intelligence/sources/cvt-weekly.ts --no-telegram --no-fetch"
+    "cvt-weekly-report:notg": "npx tsx src/intelligence/sources/cvt-weekly.ts --no-telegram --no-fetch",
+    "ab-prompt-test": "npx tsx src/tools/ab-prompt-test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
