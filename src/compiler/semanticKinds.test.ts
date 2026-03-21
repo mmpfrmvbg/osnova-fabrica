@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 
 describe('BLOCKING_SEMANTIC_KINDS', () => {
-  it('содержит ровно 5 kinds', () => {
-    expect(BLOCKING_SEMANTIC_KINDS).toHaveLength(5);
+  it('содержит ровно 6 kinds', () => {
+    expect(BLOCKING_SEMANTIC_KINDS).toHaveLength(6);
   });
 
   it('содержит все ожидаемые kinds', () => {
@@ -13,6 +13,7 @@ describe('BLOCKING_SEMANTIC_KINDS', () => {
       'unknown_procedure',
       'syscall_argc',
       'redeclare_var',
+      'invented_syntax',
     ];
     for (const kind of expected) {
       expect(BLOCKING_SEMANTIC_KINDS as readonly string[]).toContain(kind);

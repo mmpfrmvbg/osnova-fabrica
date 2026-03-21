@@ -11,7 +11,8 @@ export interface SemanticError {
     | "unknown_syscall"
     | "unknown_procedure"
     | "redeclare_var"
-    | "keyword_param";
+    | "keyword_param"
+    | "invented_syntax";
 }
 
 const COMPARE_OPS = new Set(["==", "!=", "<", "<=", ">", ">="]);
@@ -25,6 +26,124 @@ export function checkSemantics(ast: Module): SemanticError[] {
   const knownProcedures = new Set(ast.procedures.map((p) => p.name));
   const kwSet = new Set(LANGUAGE_REGISTRY.keywords.map((k) => k.lexeme));
 
+  // ─── RFC-003: invented syntax check ───
+  function checkInventedSyntaxInExpr(expr: Expr): void {
+    switch (expr.kind) {
+      case "вызов": {
+        if (expr.name === "структура") {
+          errors.push({
+            kind: "invented_syntax",
+            message:
+              "Конструкция 'структура(...)' не существует в языке Основа. Используйте объектный литерал: { поле: значение }",
+          });
+        }
+        if (expr.name.startsWith("система.типы.")) {
+          errors.push({
+            kind: "invented_syntax",
+            message: `Конструкция '${expr.name}' не существует в языке Основа. Используйте объектный литерал: { поле: значение }`,
+          });
+        }
+        if (expr.name === "система.хранилище.установить_поле") {
+          errors.push({
+            kind: "invented_syntax",
+            message:
+              "Конструкция 'система.хранилище.установить_поле' не существует. Используйте система.хранилище.записать(ключ, значение)",
+          });
+        }
+        // только .новый — система.объект.получить валиден в реестре
+        if (expr.name === "система.объект.новый") {
+          errors.push({
+            kind: "invented_syntax",
+            message: `Конструкция '${expr.name}' не существует в языке Основа. Используйте объектный литерал: { поле: значение }`,
+          });
+        }
+        for (const arg of expr.args) checkInventedSyntaxInExpr(arg);
+        break;
+      }
+      case "бинарное":
+        checkInventedSyntaxInExpr(expr.left);
+        checkInventedSyntaxInExpr(expr.right);
+        break;
+      case "поле":
+        checkInventedSyntaxInExpr(expr.object);
+        break;
+      case "унарное":
+        checkInventedSyntaxInExpr(expr.arg);
+        break;
+      case "массив":
+        for (const el of expr.elements) checkInventedSyntaxInExpr(el);
+        break;
+      case "объект":
+        for (const entry of expr.entries) checkInventedSyntaxInExpr(entry.value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function checkInventedSyntaxInStmts(stmts: Stmt[]): void {
+    for (const stmt of stmts) {
+      switch (stmt.kind) {
+        case "пусть":
+          if (stmt.name === "данные") {
+            errors.push({
+              kind: "invented_syntax",
+              message: "Идентификатор 'данные' зарезервирован. Используйте пусть имя = значение",
+            });
+          }
+          checkInventedSyntaxInExpr(stmt.init);
+          break;
+        case "присвоить":
+          checkInventedSyntaxInExpr(stmt.value);
+          break;
+        case "поле_присвоить":
+          checkInventedSyntaxInExpr(stmt.value);
+          break;
+        case "выражение":
+          checkInventedSyntaxInExpr(stmt.expr);
+          break;
+        case "вернуть":
+          if (stmt.value) checkInventedSyntaxInExpr(stmt.value);
+          break;
+        case "выбросить":
+          checkInventedSyntaxInExpr(stmt.value);
+          break;
+        case "если":
+          checkInventedSyntaxInExpr(stmt.condition);
+          checkInventedSyntaxInStmts(stmt.body);
+          if (stmt.elseIfClauses) {
+            for (const c of stmt.elseIfClauses) {
+              checkInventedSyntaxInExpr(c.condition);
+              checkInventedSyntaxInStmts(c.body);
+            }
+          }
+          if (stmt.elseBody) checkInventedSyntaxInStmts(stmt.elseBody);
+          break;
+        case "пока":
+          checkInventedSyntaxInExpr(stmt.condition);
+          checkInventedSyntaxInStmts(stmt.body);
+          break;
+        case "цикл":
+          checkInventedSyntaxInStmts(stmt.body);
+          break;
+        case "для_каждого": {
+          const col = stmt.source ?? stmt.collection;
+          if (col) checkInventedSyntaxInExpr(col);
+          checkInventedSyntaxInStmts(stmt.body);
+          break;
+        }
+        case "попробовать":
+          checkInventedSyntaxInStmts(stmt.body);
+          checkInventedSyntaxInStmts(stmt.catchBody);
+          break;
+      }
+    }
+  }
+
+  for (const proc of ast.procedures) {
+    checkInventedSyntaxInStmts(proc.body);
+  }
+
   function checkExpr(expr: Expr, declared: Set<string>): void {
     switch (expr.kind) {
       case "переменная":
@@ -36,6 +155,22 @@ export function checkSemantics(ast: Module): SemanticError[] {
         }
         return;
       case "вызов":
+        if (expr.name === "структура") {
+          for (const arg of expr.args) checkExpr(arg, declared);
+          return;
+        }
+        if (expr.name.startsWith("система.типы.")) {
+          for (const arg of expr.args) checkExpr(arg, declared);
+          return;
+        }
+        if (expr.name === "система.хранилище.установить_поле") {
+          for (const arg of expr.args) checkExpr(arg, declared);
+          return;
+        }
+        if (expr.name === "система.объект.новый") {
+          for (const arg of expr.args) checkExpr(arg, declared);
+          return;
+        }
         if (expr.name.startsWith("система.")) {
           const spec = LANGUAGE_REGISTRY.syscalls.find((s) => s.name === expr.name);
           if (!spec) {
@@ -137,17 +272,17 @@ export function checkSemantics(ast: Module): SemanticError[] {
           checkStmts(stmt.body, new Set(declared));
           break;
         case "для_каждого": {
-          checkExpr(stmt.collection, declared);
+          const col = stmt.source ?? stmt.collection;
+          if (col) checkExpr(col, declared);
           const loopScope = new Set(declared);
-          loopScope.add(stmt.variable);
+          const v = stmt.item ?? stmt.variable;
+          loopScope.add(v);
           checkStmts(stmt.body, loopScope);
           break;
         }
         case "попробовать": {
-          // Блок попробовать выполняется в отдельном scope: объявления внутри не протекают наружу.
           checkStmts(stmt.body, new Set(declared));
 
-          // В блоке иначе_попытка catchVar доступна и должна быть добавлена в scope.
           const catchScope = new Set(declared);
           catchScope.add(stmt.catchVar);
           checkStmts(stmt.catchBody, catchScope);

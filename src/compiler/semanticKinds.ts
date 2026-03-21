@@ -16,6 +16,7 @@ export const BLOCKING_SEMANTIC_KINDS = [
   'unknown_procedure',  // вызов необъявленной процедуры
   'syscall_argc',       // неверное число аргументов syscall
   'redeclare_var',      // повторное объявление переменной
+  'invented_syntax',    // RFC-003: вымышленные конструкции (структура, система.типы.*, …)
 ] as const;
 
 export type BlockingSemanticKind = typeof BLOCKING_SEMANTIC_KINDS[number];
