@@ -1,0 +1,55 @@
+name: Dataset Health Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/prompts/few-shot/**'
+
+jobs:
+  dataset-health:
+    name: dataset health gate
+    runs-on: ubuntu-latest
+    # Не блокирует merge — continue-on-error на уровне job не нужен,
+    # но при fail шлём warn и завершаем с exit 0 явно.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export dataset v2 (since 2026-03-21)
+        run: npm run export-dataset-v2 -- --since 2026-03-21
+
+      - name: Dataset stats
+        id: stats
+        run: |
+          set +e
+          npm run dataset-stats
+          STATS_EXIT=$?
+          echo "exit_code=${STATS_EXIT}" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Warn PM if dataset unhealthy
+        if: steps.stats.outputs.exit_code != '0'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          npm run report-to-pm -- \
+            --priority WARN \
+            --metric "dataset-health=WARN (категория < 10% или total < 200)" \
+            --actions-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      # Явно exit 0 — не блокируем pipeline
+      - name: Always pass
+        if: always()
+        run: exit 0
