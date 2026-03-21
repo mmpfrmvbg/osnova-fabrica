@@ -69,6 +69,7 @@ export function filterAndTransform(
   records: TraceRecord[],
   minQuality = 0,
   minRepairs = -1,
+  maxRepairs = -1,
 ): DatasetExample[] {
   const examples: DatasetExample[] = [];
   for (const rec of records) {
@@ -80,6 +81,7 @@ export function filterAndTransform(
     const quality = rec.goldenReport?.qualityScore ?? 0;
     if (quality < minQuality) continue;
     if (minRepairs >= 0 && (rec.repairAttempts ?? 0) < minRepairs) continue;
+    if (maxRepairs >= 0 && (rec.repairAttempts ?? 0) > maxRepairs) continue;
     examples.push({
       input_text: buildInputText(rec),
       target_text: src,
@@ -98,12 +100,19 @@ export function filterAndTransform(
   return examples;
 }
 
-function parseArgs(): { input: string; output: string; minQuality: number; minRepairs: number } {
+function parseArgs(): {
+  input: string;
+  output: string;
+  minQuality: number;
+  minRepairs: number;
+  maxRepairs: number;
+} {
   const args = process.argv.slice(2);
   let input = 'runs/traces.jsonl';
   let output = 'runs/dataset-v1.jsonl';
   let minQuality = 0;
   let minRepairs = -1;
+  let maxRepairs = -1;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--input' && args[i + 1]) {
@@ -114,10 +123,12 @@ function parseArgs(): { input: string; output: string; minQuality: number; minRe
       minQuality = parseFloat(args[++i]!) || 0;
     } else if (args[i] === '--min-repairs' && args[i + 1]) {
       minRepairs = parseInt(args[++i]!, 10);
+    } else if (args[i] === '--max-repairs' && args[i + 1]) {
+      maxRepairs = parseInt(args[++i]!, 10);
     }
   }
 
-  return { input, output, minQuality, minRepairs };
+  return { input, output, minQuality, minRepairs, maxRepairs };
 }
 
 function buildInputText(record: TraceRecord): string {
@@ -160,7 +171,7 @@ function buildInputText(record: TraceRecord): string {
 }
 
 function main(): void {
-  const { input, output, minQuality, minRepairs } = parseArgs();
+  const { input, output, minQuality, minRepairs, maxRepairs } = parseArgs();
   const inputPath = path.resolve(input);
   const outputPath = path.resolve(output);
 
@@ -176,7 +187,7 @@ function main(): void {
     }
   }
 
-  const examples = filterAndTransform(records, minQuality, minRepairs);
+  const examples = filterAndTransform(records, minQuality, minRepairs, maxRepairs);
   const skippedNotSuccess = records.filter((r) => r.status !== 'success').length;
   const totalTargetLen = examples.reduce((s, ex) => s + ex.target_text.length, 0);
   const avgTargetLen = examples.length > 0 ? Math.round(totalTargetLen / examples.length) : 0;
@@ -196,6 +207,7 @@ function main(): void {
   console.log(`Прошло фильтр:          ${examples.length}`);
   console.log(`Пропущено (не success): ${skippedNotSuccess}`);
   console.log(`Мин. repair-попыток:     ${minRepairs >= 0 ? minRepairs : 'нет фильтра'}`);
+  console.log(`Макс. repair-попыток:    ${maxRepairs >= 0 ? maxRepairs : 'нет фильтра'}`);
   console.log(`Записано в dataset:     ${examples.length}`);
   console.log(`Средняя длина target:   ${avgTargetLen} символов`);
   console.log(`Файл: ${outputPath}`);

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, test } from 'vitest';
 import { filterAndTransform, type TraceRecord } from './export-dataset';
 
 function makeRecord(overrides: Partial<TraceRecord> = {}): TraceRecord {
@@ -161,5 +161,24 @@ describe('filterAndTransform', () => {
     const rec = makeSuccessRecord({ intent: undefined });
     const [ex] = filterAndTransform([rec]);
     expect(ex.meta?.category).toBe('unknown');
+  });
+
+  test('maxRepairs=2 исключает записи с 3+ попытками', () => {
+    const records = [
+      { status: 'success', source: { source: 'код' }, buildReport: { success: true }, repairAttempts: 0 },
+      { status: 'success', source: { source: 'код' }, buildReport: { success: true }, repairAttempts: 2 },
+      { status: 'success', source: { source: 'код' }, buildReport: { success: true }, repairAttempts: 3 },
+    ];
+    const result = filterAndTransform(records as any, 0, -1, 2);
+    expect(result).toHaveLength(2);
+    expect(result.every(ex => (ex.meta?.repairAttempts ?? 0) <= 2)).toBe(true);
+  });
+
+  test('maxRepairs=-1 не фильтрует по верхней границе', () => {
+    const records = [
+      { status: 'success', source: { source: 'код' }, buildReport: { success: true }, repairAttempts: 10 },
+    ];
+    const result = filterAndTransform(records as any, 0, -1, -1);
+    expect(result).toHaveLength(1);
   });
 });
