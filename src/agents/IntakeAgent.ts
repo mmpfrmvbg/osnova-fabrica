@@ -16,6 +16,24 @@ import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
 
 const log = logger('intake-agent');
 
+/** Таблица префиксов → appType. Проверяется детерминированно, до LLM-вызова. */
+const PREFIX_APP_TYPE_MAP: Array<[RegExp, AppType]> = [
+  [/^алгоритм\s*:/i, 'алгоритм'],
+  [/^тест\s*:/i, 'тест'],
+  [/^модуль\s*типов\s*:/i, 'модуль_типов'],
+  [/^модуль\s*:/i, 'модуль'],
+  [/^библиотека\s*:/i, 'библиотека'],
+];
+
+/** Возвращает appType из префикса или null если нет. */
+export function detectAppTypeFromPrefix(text: string): AppType | null {
+  const trimmed = text.trim();
+  for (const [re, appType] of PREFIX_APP_TYPE_MAP) {
+    if (re.test(trimmed)) return appType;
+  }
+  return null;
+}
+
 function loadAbPromptOverride(): string | null {
   const promptFile = process.env.OSNOVA_AB_PROMPT_FILE;
   if (!promptFile) return null;
@@ -99,6 +117,12 @@ export class IntakeAgent {
     const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('parseIntent', { model });
 
+    // Prefix routing: детерминированный override до LLM
+    const prefixAppType = detectAppTypeFromPrefix(input.text);
+    if (prefixAppType !== null) {
+      log.debug('parseIntent: prefix appType detected', { prefixAppType });
+    }
+
     const abSystem = loadAbPromptOverride();
     const userContent = [
       'Analyze this programming task and return ONLY a JSON object with fields: intent, confidence, language, features, params.',
@@ -157,7 +181,7 @@ export class IntakeAgent {
     } catch {
       log.warn('parseIntent: JSON parse failed, using fallback');
       log.debug('parseIntent: raw LLM response', { raw: response?.content });
-      return this.fallbackIntent(input.text);
+      return this.fallbackIntent(input.text, prefixAppType);
     }
 
     return {
@@ -172,7 +196,7 @@ export class IntakeAgent {
         (parsed as { features: unknown[] }).features.length > 0
           ? (parsed as { features: unknown[] }).features.map(String)
           : [String((parsed as { intent?: unknown }).intent ?? input.text)],
-      appType: (parsed.appType as AppType) ?? 'утилита',
+      appType: prefixAppType ?? (parsed.appType as AppType) ?? 'утилита',
       constraints: (parsed.constraints as Record<string, unknown>) ?? {},
       confidence:
         typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
@@ -282,12 +306,12 @@ export class IntakeAgent {
     }
   }
 
-  private fallbackIntent(text: string): OsnovaIntent {
+  private fallbackIntent(text: string, prefixAppType: AppType | null = null): OsnovaIntent {
     return {
       intentId: randomUUID(),
       description: text,
       features: [text],
-      appType: 'утилита',
+      appType: prefixAppType ?? 'утилита',
       constraints: {},
       confidence: 0.5,
     };

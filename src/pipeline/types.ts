@@ -12,7 +12,17 @@ export interface RawText {
 
 // ─── Выход IntakeAgent (фаза intake) ───
 
-export type AppType = 'утилита' | 'хранилище' | 'ui_приложение' | 'актор' | 'смешанный';
+export type AppType =
+  | 'утилита'
+  | 'хранилище'
+  | 'ui_приложение'
+  | 'актор'
+  | 'смешанный'
+  | 'алгоритм'
+  | 'тест'
+  | 'модуль'
+  | 'библиотека'
+  | 'модуль_типов';
 
 export interface OsnovaIntent {
   readonly intentId: string;
