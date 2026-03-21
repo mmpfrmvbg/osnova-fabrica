@@ -5,6 +5,8 @@
 // ============================================================
 
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { IntakeAgent } from '../agents/IntakeAgent';
 import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { RepairEngineerAgent } from '../agents/RepairEngineer';
@@ -27,6 +29,31 @@ import type {
 
 const log = logger('pipeline');
 const MAX_REPAIR_LOOPS = 3;
+
+// T-6: append в repair-failures.jsonl при exhaustion
+function appendRepairFailure(entry: {
+  ts: string;
+  traceId: string;
+  category: string;
+  last_error_kind: string;
+  task_summary: string;
+}): void {
+  try {
+    const target = path.resolve('runs/repair-failures.jsonl');
+    const dir = path.dirname(target);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(target, JSON.stringify(entry) + '\n', 'utf-8');
+  } catch {
+    // не блокируем основной пайплайн
+  }
+}
+
+function categoryForRepairFailure(intent?: OsnovaIntent): string {
+  if (!intent) return 'unknown';
+  if (intent.appType) return String(intent.appType);
+  const f = intent.features?.[0];
+  return f ?? 'unknown';
+}
 
 /**
  * Адаптер: CompileResult (src/compiler/compiler.ts) → BuildReport (src/pipeline/types.ts).
@@ -255,6 +282,13 @@ export async function runPipeline(
       modelId,
       lastErrorKind,
       semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+    });
+    appendRepairFailure({
+      ts: new Date().toISOString(),
+      traceId: runId,
+      category: categoryForRepairFailure(intent),
+      last_error_kind: lastErrorKind,
+      task_summary: task.slice(0, 120),
     });
     return result;
 

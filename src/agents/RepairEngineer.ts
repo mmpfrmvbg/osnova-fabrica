@@ -5,15 +5,36 @@
 // Правило: исправлять только проблемные строки, не переписывать весь файл
 // ============================================================
 
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { getLLMProvider } from '../llm/index';
 import type { OsnovaSource, BuildReport, GoldenReport } from '../pipeline/types';
 import { BLOCKING_SEMANTIC_KINDS } from '../pipeline/semanticKinds';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
-import { buildOsnovaRepairPrompt } from '../pipeline-llm/buildOsnovaPrompt';
+import {
+  buildOsnovaRepairPrompt,
+  type RepairTargetBlock,
+} from '../pipeline-llm/buildOsnovaPrompt';
 import { stripMarkdownFence } from '../llm/stripMarkdownFence';
+import { logLlmUsage } from '../lib/usage-logger';
 
 const log = logger('repair-agent');
+
+function collectRepairTarget(buildReport?: BuildReport): RepairTargetBlock | undefined {
+  const sem = buildReport?.semanticErrors ?? [];
+  if (sem.length === 0) return undefined;
+  const allow = BLOCKING_SEMANTIC_KINDS as readonly string[];
+  const blockingKinds: string[] = [];
+  const seen = new Set<string>();
+  for (const e of sem) {
+    if (!allow.includes(e.kind) || seen.has(e.kind)) continue;
+    seen.add(e.kind);
+    blockingKinds.push(e.kind);
+  }
+  if (blockingKinds.length === 0) return undefined;
+  return { blockingKinds, primaryKind: blockingKinds[0] };
+}
 
 const SYSTEM_PROMPT = `
 Ты — RepairEngineer языка ОСНОВА.
@@ -122,9 +143,11 @@ export class RepairEngineerAgent {
     }
 
     const prefix = attempt ? `// Попытка #${attempt}: предыдущие попытки не исправили проблему.` : undefined;
-    const userPrompt = buildOsnovaRepairPrompt(source.source, errors, prefix);
+    const repairTarget = collectRepairTarget(buildReport);
+    const userPrompt = buildOsnovaRepairPrompt(source.source, errors, prefix, repairTarget);
 
     let response;
+    const t0 = Date.now();
     try {
       log.debug('fix errors', { errors });
       response = await provider.complete({
@@ -139,6 +162,18 @@ export class RepairEngineerAgent {
     } catch (err) {
       throw wrapLlmError(err, 'RepairEngineer.fix', { model, attempt });
     }
+
+    logLlmUsage({
+      timestamp: new Date().toISOString(),
+      role: 'RepairEngineer',
+      model,
+      tokenUsage: {
+        prompt:     response.tokensUsed?.prompt     ?? 0,
+        completion: response.tokensUsed?.completion ?? 0,
+        total:      response.tokensUsed?.total      ?? 0,
+      },
+      durationMs: Date.now() - t0,
+    });
 
     const fixed = stripMarkdownFence(response.content);
 
