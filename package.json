@@ -35,6 +35,8 @@
     "export-dataset": "tsx src/scripts/export-dataset.ts",
     "export-dataset-v2": "npx tsx src/tools/export-dataset-v2.ts",
     "dataset-stats": "npx tsx src/tools/dataset-stats.ts",
+    "submit-finetune": "npx tsx src/tools/submit-finetune.ts",
+    "submit-finetune:dry": "npx tsx src/tools/submit-finetune.ts --dry-run",
     "analyze-dataset-health": "tsx src/scripts/analyze-dataset-health.ts",
     "analyze-language-health": "tsx src/scripts/analyze-language-health.ts",
     "llm-usage-report": "python3 scripts/llm_usage_report.py",
