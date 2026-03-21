@@ -21,7 +21,11 @@ export interface TraceRecord {
   };
   source?: { source?: string };
   /** success = compilerSuccess && нет ошибок лексера/парсера. Для дообучения — только success. */
-  buildReport?: { success?: boolean; compilerSuccess?: boolean };
+  buildReport?: {
+    success?: boolean;
+    compilerSuccess?: boolean;
+    semanticErrors?: Array<{ kind?: string; message?: string }>;
+  };
   goldenReport?: { qualityScore?: number };
   intent?: {
     description?: string;
@@ -35,11 +39,25 @@ export interface DatasetExample {
   target_text: string;
   meta?: {
     runId?: string;
+    traceId?: string; // алиас runId для SFT-пайплайна
     status?: string;
     repairAttempts?: number;
     qualityScore?: number;
     modelId?: string;
+    semanticErrorCount?: number; // кол-во семантических ошибок в buildReport
+    category?: string; // категория из intent (appType или первый feature)
   };
+}
+
+/**
+ * Определяет категорию задачи из intent.
+ * Приоритет: appType → первый feature → 'unknown'
+ */
+function deriveCategory(rec: TraceRecord): string {
+  if (rec.intent?.appType) return rec.intent.appType;
+  const firstFeature = rec.intent?.features?.[0];
+  if (firstFeature) return firstFeature;
+  return 'unknown';
 }
 
 /**
@@ -61,16 +79,19 @@ export function filterAndTransform(
     if (rec.buildReport?.success !== true) continue;
     const quality = rec.goldenReport?.qualityScore ?? 0;
     if (quality < minQuality) continue;
-     if (minRepairs >= 0 && (rec.repairAttempts ?? 0) < minRepairs) continue;
+    if (minRepairs >= 0 && (rec.repairAttempts ?? 0) < minRepairs) continue;
     examples.push({
       input_text: buildInputText(rec),
       target_text: src,
       meta: {
         runId: rec.runId,
+        traceId: rec.runId,
         status: rec.status,
         repairAttempts: rec.repairAttempts,
         qualityScore: rec.goldenReport?.qualityScore,
         modelId: rec.modelId,
+        semanticErrorCount: rec.buildReport?.semanticErrors?.length ?? 0,
+        category: deriveCategory(rec),
       },
     });
   }

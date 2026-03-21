@@ -25,6 +25,9 @@ function makeRecord(overrides: Partial<TraceRecord> = {}): TraceRecord {
   };
 }
 
+/** Алиас для кейсов, где явно нужен «успешный» минимальный трейс */
+const makeSuccessRecord = makeRecord;
+
 describe('filterAndTransform', () => {
   it('включает успешные записи', () => {
     const result = filterAndTransform([makeRecord()]);
@@ -78,60 +81,85 @@ describe('filterAndTransform', () => {
   it('возвращает пустой массив для пустого входа', () => {
     expect(filterAndTransform([])).toHaveLength(0);
   });
-});
 
-import { describe, it, expect } from 'vitest';
-import { filterAndTransform, type TraceRecord } from './export-dataset';
-
-function mkRecord(overrides: Partial<TraceRecord> = {}): TraceRecord {
-  return {
-    status: 'success',
-    task: 'тест',
-    spec: { mainModule: 'M', procedures: [], syscalls: [] },
-    source: { source: 'модуль M\nпроцедура главная()\n  вернуть 1\nконец' },
-    buildReport: { success: true, compilerSuccess: true },
-    goldenReport: { qualityScore: 0.8 },
-    ...overrides,
-  };
-}
-
-describe('filterAndTransform', () => {
   it('оставляет только записи с buildReport.success === true', () => {
     const records: TraceRecord[] = [
-      mkRecord({ buildReport: { success: true, compilerSuccess: true } }),
-      mkRecord({ buildReport: { success: false, compilerSuccess: true } }), // lexer/parser errors
-      mkRecord({ buildReport: { success: true, compilerSuccess: true } }),
+      makeRecord({ buildReport: { success: true, compilerSuccess: true } }),
+      makeRecord({ buildReport: { success: false, compilerSuccess: true } }),
+      makeRecord({ buildReport: { success: true, compilerSuccess: true } }),
     ];
-    const examples = filterAndTransform(records);
-    expect(examples).toHaveLength(2);
+    expect(filterAndTransform(records)).toHaveLength(2);
   });
 
   it('отбрасывает записи со status !== success', () => {
     const records: TraceRecord[] = [
-      mkRecord({ status: 'success' }),
-      mkRecord({ status: 'failure' }),
-      mkRecord({ status: 'partial' }),
+      makeRecord({ status: 'success' }),
+      makeRecord({ status: 'failure' }),
+      makeRecord({ status: 'partial' }),
     ];
-    const examples = filterAndTransform(records);
-    expect(examples).toHaveLength(1);
+    expect(filterAndTransform(records)).toHaveLength(1);
   });
 
   it('отбрасывает записи без source.source', () => {
     const records: TraceRecord[] = [
-      mkRecord({ source: { source: 'код' } }),
-      mkRecord({ source: { source: '' } }),
-      mkRecord({ source: undefined }),
+      makeRecord({ source: { source: 'код' } }),
+      makeRecord({ source: { source: '' } }),
+      makeRecord({ source: undefined }),
     ];
-    const examples = filterAndTransform(records);
-    expect(examples).toHaveLength(1);
+    expect(filterAndTransform(records)).toHaveLength(1);
   });
 
-  it('фильтрует по minQuality', () => {
-    const records: TraceRecord[] = [
-      mkRecord({ goldenReport: { qualityScore: 0.9 } }),
-      mkRecord({ goldenReport: { qualityScore: 0.3 } }),
-    ];
-    const examples = filterAndTransform(records, 0.5);
-    expect(examples).toHaveLength(1);
+  // --- тесты новых мета-полей ---
+
+  it('meta.traceId совпадает с meta.runId', () => {
+    const rec = makeSuccessRecord();
+    const [ex] = filterAndTransform([rec]);
+    expect(ex.meta?.traceId).toBe(ex.meta?.runId);
+  });
+
+  it('meta.semanticErrorCount = 0 если semanticErrors пустой', () => {
+    const rec = makeSuccessRecord({
+      buildReport: { success: true, compilerSuccess: true, semanticErrors: [] },
+    });
+    const [ex] = filterAndTransform([rec]);
+    expect(ex.meta?.semanticErrorCount).toBe(0);
+  });
+
+  it('meta.semanticErrorCount отражает число ошибок', () => {
+    const rec = makeSuccessRecord({
+      buildReport: {
+        success: true,
+        compilerSuccess: true,
+        semanticErrors: [
+          { kind: 'undeclared_var', message: 'x' },
+          { kind: 'syscall_argc', message: 'y' },
+        ],
+      },
+    });
+    const [ex] = filterAndTransform([rec]);
+    expect(ex.meta?.semanticErrorCount).toBe(2);
+  });
+
+  it('meta.category берётся из intent.appType', () => {
+    const rec = makeSuccessRecord({ intent: { appType: 'утилита', features: [] } });
+    const [ex] = filterAndTransform([rec]);
+    expect(ex.meta?.category).toBe('утилита');
+  });
+
+  it('meta.category = первый feature если нет appType', () => {
+    const rec = makeSuccessRecord({
+      intent: {
+        description: 'd',
+        features: ['калькулятор', 'история'],
+      },
+    });
+    const [ex] = filterAndTransform([rec]);
+    expect(ex.meta?.category).toBe('калькулятор');
+  });
+
+  it('meta.category = "unknown" если нет intent', () => {
+    const rec = makeSuccessRecord({ intent: undefined });
+    const [ex] = filterAndTransform([rec]);
+    expect(ex.meta?.category).toBe('unknown');
   });
 });
