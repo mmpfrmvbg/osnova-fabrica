@@ -233,6 +233,47 @@ describe('isMockTrace', () => {
   });
 });
 
+describe('legacy_gate_bug exclusion', () => {
+  it('трейс с legacy_gate_bug=true не попадает в semantic_errors_in_success', () => {
+    const traces = [
+      {
+        status: 'success',
+        legacy_gate_bug: true,
+        buildReport: {
+          success: true,
+          semanticErrors: [{ kind: 'redeclare_var', message: 'test' }],
+        },
+        repairAttempts: 0,
+      },
+      {
+        status: 'success',
+        buildReport: {
+          success: true,
+          semanticErrors: [],
+        },
+        repairAttempts: 0,
+      },
+    ];
+    const m = computeHealthMetrics(traces as Parameters<typeof computeHealthMetrics>[0]);
+    expect(m.semantic_errors_in_success).toBe(0);
+  });
+
+  it('трейс без legacy_gate_bug с blocking errors ПОПАДАЕТ в счётчик', () => {
+    const traces = [
+      {
+        status: 'success',
+        buildReport: {
+          success: true,
+          semanticErrors: [{ kind: 'redeclare_var', message: 'test' }],
+        },
+        repairAttempts: 0,
+      },
+    ];
+    const m = computeHealthMetrics(traces as Parameters<typeof computeHealthMetrics>[0]);
+    expect(m.semantic_errors_in_success).toBe(1);
+  });
+});
+
 describe('computeHealthMetrics — mock traces excluded', () => {
   it('мок-трейс не попадает в teachability', () => {
     const traces = [

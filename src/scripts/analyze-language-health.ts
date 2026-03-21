@@ -15,6 +15,8 @@ import {
 interface TraceRecord {
   runId?: string;
   status?: string;
+  /** true = баг гейта до исправления, исключить из semantic счётчика */
+  legacy_gate_bug?: boolean;
   task?: string;
   modelId?: string;
   repairAttempts?: number;
@@ -116,15 +118,21 @@ export function computeHealthMetrics(
 
     // Только blocking semantic errors — стоп-сигнал (остальные не блокируют gate)
     if (status === 'success') {
-      const sem = t.buildReport?.semanticErrors ?? [];
-      const blockingInSuccess = sem.filter(
-        (e) => e.kind && BLOCKING_KINDS.has(e.kind as BlockingSemanticKind),
-      );
-      const nonBlockingInSuccess = sem.filter(
-        (e) => e.kind && !BLOCKING_KINDS.has(e.kind as BlockingSemanticKind),
-      );
-      if (blockingInSuccess.length > 0) semanticErrorsInSuccess++;
-      if (nonBlockingInSuccess.length > 0) nonBlockingSemanticInSuccess++;
+      // legacy_gate_bug=true — трейсы помечены как исторический баг гейта,
+      // они не учитываются в semantic_errors_in_success
+      if (t.legacy_gate_bug === true) {
+        // skip — legacy gate bug, не учитывать
+      } else {
+        const sem = t.buildReport?.semanticErrors ?? [];
+        const blockingInSuccess = sem.filter(
+          (e) => e.kind && BLOCKING_KINDS.has(e.kind as BlockingSemanticKind),
+        );
+        const nonBlockingInSuccess = sem.filter(
+          (e) => e.kind && !BLOCKING_KINDS.has(e.kind as BlockingSemanticKind),
+        );
+        if (blockingInSuccess.length > 0) semanticErrorsInSuccess++;
+        if (nonBlockingInSuccess.length > 0) nonBlockingSemanticInSuccess++;
+      }
     }
 
     if (typeof t.goldenReport?.qualityScore === 'number') {

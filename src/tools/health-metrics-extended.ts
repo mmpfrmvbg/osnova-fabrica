@@ -1,6 +1,8 @@
 // src/tools/health-metrics-extended.ts
 // Расширение computeHealthMetrics: RFC rates + shadow rates.
 // Не импортируется компилятором, только health-pipeline.
+// semantic_errors_in_success в base наследует исключение трейсов с legacy_gate_bug=true
+// (см. computeHealthMetrics в analyze-language-health.ts).
 
 import * as fs from 'fs';
 import * as path from 'path';
