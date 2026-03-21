@@ -63,6 +63,41 @@ describe('computeHealthMetrics', () => {
     ]);
     expect(m.build_success_rate).toBe(0.5);
   });
+
+  it('sinceDate фильтрует старые трейсы', () => {
+    const old = {
+      status: 'success',
+      timestamp: '2026-03-19T00:00:00.000Z',
+      repairAttempts: 0,
+      buildReport: {
+        success: true,
+        semanticErrors: [{ kind: 'redeclare_var', message: 'x' }],
+      },
+    };
+    const fresh = {
+      status: 'success',
+      timestamp: '2026-03-21T12:00:00.000Z',
+      repairAttempts: 0,
+      buildReport: { success: true, semanticErrors: [] },
+    };
+    const all = computeHealthMetrics([old, fresh]);
+    expect(all.semantic_errors_in_success).toBe(1);
+
+    const filtered = computeHealthMetrics([old, fresh], new Date('2026-03-21T00:00:00.000Z'));
+    expect(filtered.semantic_errors_in_success).toBe(0);
+    expect(filtered.total).toBe(1);
+  });
+
+  it('sinceDate undefined — поведение как раньше', () => {
+    const t = {
+      status: 'success',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      repairAttempts: 0,
+      buildReport: { success: true, semanticErrors: [] },
+    };
+    const m = computeHealthMetrics([t], undefined);
+    expect(m.total).toBe(1);
+  });
 });
 
 describe('top_workaround_patterns (S-1)', () => {

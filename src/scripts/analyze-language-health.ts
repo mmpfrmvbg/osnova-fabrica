@@ -30,6 +30,15 @@ interface TraceRecord {
   forbiddenPatterns?: string[]; // паттерны из repair-лога если есть
 }
 
+/** Второй аргумент: дата «с какой» ИЛИ объект опций (lastN, lastHours24, sinceDate). */
+function resolveMetricsOptions(
+  sinceOrOptions?: Date | { lastN?: number; lastHours24?: boolean; sinceDate?: Date },
+): { lastN?: number; lastHours24?: boolean; sinceDate?: Date } {
+  if (sinceOrOptions === undefined) return {};
+  if (sinceOrOptions instanceof Date) return { sinceDate: sinceOrOptions };
+  return sinceOrOptions;
+}
+
 function loadTraces(tracePath: string): TraceRecord[] {
   if (!fs.existsSync(tracePath)) return [];
   return fs
@@ -47,7 +56,7 @@ function loadTraces(tracePath: string): TraceRecord[] {
 
 export function computeHealthMetrics(
   traces: TraceRecord[],
-  options: { lastN?: number; lastHours24?: boolean } = {},
+  sinceOrOptions?: Date | { lastN?: number; lastHours24?: boolean; sinceDate?: Date },
 ): {
   total: number;
   byStatus: Record<string, number>;
@@ -61,15 +70,22 @@ export function computeHealthMetrics(
   teachability_score: number; // доля задач решённых с первой попытки (repairAttempts=0) среди success
   // S-7: поддержка window-режима передаётся снаружи через параметр, не внутри метрики
 } {
+  const options = resolveMetricsOptions(sinceOrOptions);
   let windowedTraces = traces;
+  if (options.sinceDate) {
+    const since = options.sinceDate;
+    windowedTraces = traces.filter(
+      (t) => Boolean(t.timestamp) && new Date(t.timestamp as string) >= since,
+    );
+  }
   if (options.lastHours24) {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    windowedTraces = traces.filter((t) => {
+    windowedTraces = windowedTraces.filter((t) => {
       const ts = t.timestamp ? new Date(t.timestamp).getTime() : 0;
       return ts >= cutoff;
     });
   } else if (options.lastN && options.lastN > 0) {
-    windowedTraces = traces.slice(-options.lastN);
+    windowedTraces = windowedTraces.slice(-options.lastN);
   }
 
   const byStatus: Record<string, number> = {};
@@ -148,7 +164,32 @@ export function computeHealthMetrics(
 
 function main(): void {
   const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Usage: tsx src/scripts/analyze-language-health.ts [options]
+
+Options:
+  --input <path>   Путь к traces.jsonl (по умолчанию: runs/traces.jsonl)
+  --json           Вывод метрик в JSON
+  --since <ISO>    Учитывать только трейсы с timestamp >= указанной даты
+  --help, -h       Эта справка
+`);
+    process.exit(0);
+  }
+
   const jsonMode = args.includes('--json');
+  let sinceDate: Date | undefined;
+  if (args.includes('--since') && args[args.indexOf('--since') + 1]) {
+    const raw = args[args.indexOf('--since') + 1]!;
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      sinceDate = parsed;
+    } else {
+      console.error(`--since: невалидная дата "${raw}"`);
+      process.exit(1);
+    }
+  }
+
   const tracePath = path.resolve(
     args.includes('--input') ? (args[args.indexOf('--input') + 1] ?? 'runs/traces.jsonl') : 'runs/traces.jsonl',
   );
@@ -164,16 +205,21 @@ function main(): void {
     process.exit(0);
   }
 
-  const m = computeHealthMetrics(traces);
+  const m = computeHealthMetrics(traces, sinceDate);
 
   if (jsonMode) {
-    console.log(JSON.stringify(m, null, 2));
+    const payload = sinceDate ? { ...m, since: sinceDate.toISOString() } : m;
+    console.log(JSON.stringify(payload, null, 2));
     // Выход 1 если стоп-сигнал
     if (m.semantic_errors_in_success > 0) process.exit(1);
     return;
   }
 
   console.log('\n═══ LANGUAGE HEALTH REPORT ═══');
+  if (sinceDate) {
+    console.log(`Фильтр: трейсы с ${sinceDate.toISOString()}`);
+    console.log(`Трейсов после фильтра:    ${m.total}`);
+  }
   console.log(`Трейсов всего:              ${m.total}`);
   console.log('');
   console.log('По статусу:');
