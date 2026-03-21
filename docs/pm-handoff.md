@@ -113,3 +113,46 @@ git add <файлы> && git commit -m "<тип>(<scope>): <описание>" &&
 
 Типы коммитов: feat, fix, docs, test, chore, refactor
 ---
+
+## Технический долг — актуально (2026-03-21)
+
+### Batch-run команда
+
+```bash
+# Переменные окружения (один из вариантов):
+OSNOVA_PROVIDER=deepseek DEEPSEEK_API_KEY=<key> npm run batch-run
+OSNOVA_PROVIDER=qwen     QWEN_API_KEY=<key>     npm run batch-run
+OSNOVA_PROVIDER=ollama                           npm run batch-run
+
+# После batch-run:
+npm run dataset-stats          # баланс категорий
+npm run analyze-language-health -- --since 2026-03-21  # Beta-gate
+```
+
+Файл задач для batch-run: src/scripts/batch-tasks.txt (редактируется вручную).
+Результаты пишутся в runs/traces.jsonl (не коммитится).
+
+### Решение PM по sentinel_pattern
+
+**Выбран вариант A** (2026-03-21):
+
+- sentinel_pattern остаётся non-blocking
+- Детектор работает, kind виден в трейсах и репортах
+- repair-цикл не зацикливается
+- golden-тесты не затронуты
+- Пересмотр: после Beta-gate, если sentinel rate > 5% при ≥ 200 новых трейсах
+
+### Слабые категории датасета (до L-6)
+
+| Категория | Ожидалась слабой | Действие |
+|-----------|-----------------|----------|
+| files | да | +3 few-shot (L-6) |
+| network | да | +3 few-shot (L-6) |
+| objects | да | +3 few-shot (L-6) |
+| storage | нет (T-5) | ✅ |
+| strings | нет (T-5) | ✅ |
+| procedures | нет (T-5) | ✅ |
+| errors | нет (T-5) | ✅ |
+
+Фактический баланс — проверить после batch-run:
+`npm run dataset-stats`
