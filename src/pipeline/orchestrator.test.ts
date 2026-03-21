@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runPipeline, compileToBuildReport, hasBlockingSemanticErrors } from './orchestrator';
+import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport } from './types';
 import { compileSource } from '../compiler/compiler';
@@ -396,5 +397,99 @@ describe('Gates: G1, G2, G3', () => {
     };
     const g3 = checkG3(goldenReport);
     expect(g3.passed).toBe(false);
+  });
+});
+
+const minimalModule = {
+  version: 1,
+  moduleName: 'T',
+  constants: [] as unknown[],
+  procedures: [] as { name: string; codeOffset: number; argc: number; localsCount: number }[],
+  code: [] as unknown[],
+};
+
+describe('compileToBuildReport — blocking semantic errors', () => {
+  it('success=false при redeclare_var (blocking)', () => {
+    const result = compileToBuildReport({
+      compilerSuccess: true,
+      lexerErrors: [],
+      parserErrors: [],
+      compilerErrors: [],
+      semanticErrors: [
+        {
+          kind: 'redeclare_var',
+          message: "повторное объявление 'x' через пусть",
+        },
+      ],
+      module: minimalModule,
+      durationMs: 100,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('success=false при syscall_argc (blocking)', () => {
+    const result = compileToBuildReport({
+      compilerSuccess: true,
+      lexerErrors: [],
+      parserErrors: [],
+      compilerErrors: [],
+      semanticErrors: [
+        { kind: 'syscall_argc', message: 'неверное число аргументов' },
+      ],
+      module: minimalModule,
+      durationMs: 100,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('success=true при non-blocking semantic error', () => {
+    const nonBlockingKind = 'chained_compare';
+    expect((BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(nonBlockingKind)).toBe(false);
+    const result = compileToBuildReport({
+      compilerSuccess: true,
+      lexerErrors: [],
+      parserErrors: [],
+      compilerErrors: [],
+      semanticErrors: [{ kind: nonBlockingKind, message: 'warning' }],
+      module: minimalModule,
+      durationMs: 100,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('hasBlockingSemanticErrors', () => {
+  it('true при blocking kind в semanticErrors', () => {
+    expect(
+      hasBlockingSemanticErrors({
+        success: false,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [{ kind: 'redeclare_var', message: '' }],
+        bytecode: null,
+        compilerSuccess: true,
+        durationMs: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it('false при пустом semanticErrors', () => {
+    expect(
+      hasBlockingSemanticErrors({
+        success: true,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [],
+        bytecode: minimalModule,
+        compilerSuccess: true,
+        durationMs: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it('false при undefined buildReport', () => {
+    expect(hasBlockingSemanticErrors(undefined)).toBe(false);
   });
 });
