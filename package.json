@@ -31,7 +31,10 @@
     "center": "tsx src/center/index.ts",
     "batch": "tsx src/scripts/batch-run.ts",
     "export-dataset": "tsx src/scripts/export-dataset.ts",
-    "analyze-language-health": "tsx src/scripts/analyze-language-health.ts"
+    "analyze-language-health": "tsx src/scripts/analyze-language-health.ts",
+    "blame-mode-bisect": "echo '[blame-mode-bisect] stub — no implementation yet' && exit 0",
+    "report-to-pm": "echo '[report-to-pm] stub — no implementation yet' && exit 0",
+    "cvt-snapshot": "tsx src/intelligence/sources/hh.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
