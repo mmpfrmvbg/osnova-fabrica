@@ -14,7 +14,7 @@ const SNAPSHOTS_DIR = path.resolve('runs', 'health-snapshots');
 
 // ── Тип snapshot ──────────────────────────────────────────
 
-interface HealthSnapshot {
+export interface HealthSnapshot {
   total: number;
   semantic_errors_in_success: number;
   avg_quality_score?: number;
@@ -23,6 +23,10 @@ interface HealthSnapshot {
   teachability_score?: number;
   byStatus?: Record<string, number>;
   generated_at?: string;
+  sentinel_rate?: number | null;
+  invented_syntax_rate?: number | null;
+  shadow_rfc002_correct_rate?: number | null;
+  shadow_rfc003_correct_rate?: number | null;
 }
 
 // ── Загрузка snapshots ────────────────────────────────────
@@ -71,7 +75,7 @@ export function findPreviousSnapshot(currentDate: string, dir = SNAPSHOTS_DIR): 
 
 // ── Метрики для сравнения ─────────────────────────────────
 
-interface MetricRow {
+export interface MetricRow {
   key: string;
   label: string;
   current: number;
@@ -79,6 +83,7 @@ interface MetricRow {
   delta: number;
   isRate: boolean; // true = умножать на 100 для отображения %
   higherIsBetter: boolean;
+  threshold?: number;
 }
 
 export function buildMetricRows(cur: HealthSnapshot, prev: HealthSnapshot): MetricRow[] {
@@ -91,11 +96,6 @@ export function buildMetricRows(cur: HealthSnapshot, prev: HealthSnapshot): Metr
   const sr_prev = prev.total > 0 ? successPrev / prev.total : 0;
   const re_cur = cur.total > 0 ? exhaustCur / cur.total : 0;
   const re_prev = prev.total > 0 ? exhaustPrev / prev.total : 0;
-
-  // sentinel_rate и invented_syntax_rate — в снапшоте нет напрямую,
-  // используем workaround_patterns если есть, иначе 0
-  const sentCur = 0; // TODO: добавить в snapshot когда появится в health-метриках
-  const sentPrev = 0;
 
   return [
     {
@@ -155,11 +155,44 @@ export function buildMetricRows(cur: HealthSnapshot, prev: HealthSnapshot): Metr
     {
       key: 'sentinel_rate',
       label: 'Sentinel rate',
-      current: sentCur,
-      previous: sentPrev,
-      delta: sentCur - sentPrev,
+      current: cur.sentinel_rate ?? 0,
+      previous: prev.sentinel_rate ?? 0,
+      delta: (cur.sentinel_rate ?? 0) - (prev.sentinel_rate ?? 0),
       isRate: true,
       higherIsBetter: false,
+      threshold: 0.05,
+    },
+    {
+      key: 'invented_syntax_rate',
+      label: 'Invented syntax',
+      current: cur.invented_syntax_rate ?? 0,
+      previous: prev.invented_syntax_rate ?? 0,
+      delta: (cur.invented_syntax_rate ?? 0) - (prev.invented_syntax_rate ?? 0),
+      isRate: true,
+      higherIsBetter: false,
+      threshold: 0.01,
+    },
+    {
+      key: 'shadow_rfc002_correct_rate',
+      label: 'RFC-002 correct',
+      current: cur.shadow_rfc002_correct_rate ?? 0,
+      previous: prev.shadow_rfc002_correct_rate ?? 0,
+      delta:
+        (cur.shadow_rfc002_correct_rate ?? 0) - (prev.shadow_rfc002_correct_rate ?? 0),
+      isRate: true,
+      higherIsBetter: true,
+      threshold: 0.8,
+    },
+    {
+      key: 'shadow_rfc003_correct_rate',
+      label: 'RFC-003 correct',
+      current: cur.shadow_rfc003_correct_rate ?? 0,
+      previous: prev.shadow_rfc003_correct_rate ?? 0,
+      delta:
+        (cur.shadow_rfc003_correct_rate ?? 0) - (prev.shadow_rfc003_correct_rate ?? 0),
+      isRate: true,
+      higherIsBetter: true,
+      threshold: 0.95,
     },
   ];
 }
@@ -186,8 +219,24 @@ export function buildDiffMessage(
       ? `${r.delta >= 0 ? '+' : ''}${(r.delta * 100).toFixed(1)}%`
       : `${r.delta >= 0 ? '+' : ''}${r.delta.toFixed(3)}`;
 
-    const isBetter = r.higherIsBetter ? r.delta > 0 : r.delta < 0;
-    const isWorse = r.higherIsBetter ? r.delta < 0 : r.delta > 0;
+    const overThreshold =
+      r.threshold !== undefined
+        ? r.higherIsBetter
+          ? r.current >= r.threshold
+          : r.current < r.threshold
+        : null;
+    const isBetter =
+      overThreshold !== null
+        ? overThreshold
+        : r.higherIsBetter
+          ? r.delta > 0
+          : r.delta < 0;
+    const isWorse =
+      overThreshold !== null
+        ? !overThreshold
+        : r.higherIsBetter
+          ? r.delta < 0
+          : r.delta > 0;
     const icon = isBetter ? '🟢' : isWorse ? '🔴' : '⚪';
 
     lines.push(
