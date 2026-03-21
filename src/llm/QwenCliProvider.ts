@@ -15,6 +15,7 @@ import type {
   LLMModelInfo,
   LLMProviderStatus,
 } from './types.js';
+import { parseQwenStdout } from './qwen-stdout-parser.js';
 
 const isWindows = platform() === 'win32';
 const QWEN_TIMEOUT_MS = Number(process.env.QWEN_TIMEOUT_MS ?? 300_000);
@@ -70,34 +71,9 @@ export class QwenCliProvider implements LLMProvider {
     try {
       const output = await this.runQwenWithStdin(prompt, args, env);
 
-      // Qwen Code (--output-format=json) returns a JSON array of events.
-      // We need the last { type: "result", subtype: "success", result: string }.
-      let text = '';
-      try {
-        const events = JSON.parse(output) as Array<{
-          type?: string;
-          subtype?: string;
-          result?: string;
-        }>;
-        const resultEvent = [...events]
-          .reverse()
-          .find((e) => e.type === 'result' && e.subtype === 'success');
-        if (resultEvent?.result) {
-          text = resultEvent.result;
-        }
-      } catch {
-        text = output;
-      }
-
-      if (!text) {
-        text = output;
-      }
-
-      // Strip optional ```json ... ``` fences from result
-      text = text
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
+      // I-5: парсинг stdout вынесен в qwen-stdout-parser
+      let text = parseQwenStdout(output);
+      if (!text) text = output;
 
       const promptTokens = this.estimateTokens(prompt);
       const completionTokens = this.estimateTokens(text);
