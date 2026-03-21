@@ -137,6 +137,15 @@ describe('checkG2', () => {
     expect(r.failedChecks.some(f => f.includes('g2_semantic_clean'))).toBe(true);
   });
 
+  it('блокирует при blocking semantic errors (redeclare_var)', () => {
+    const r = checkG2(makeBuildReport({
+      semanticErrors: [{ kind: 'redeclare_var', message: "повторное объявление 'x' через пусть" }],
+    }));
+    expect(r.passed).toBe(false);
+    expect(r.action).toBe('route_to_repair');
+    expect(r.failedChecks.some(f => f.includes('g2_semantic_clean'))).toBe(true);
+  });
+
   it('предупреждает (не блокирует) при медленном билде', () => {
     const r = checkG2(makeBuildReport({ durationMs: 35000 }));
     expect(r.passed).toBe(true);

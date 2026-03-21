@@ -68,7 +68,7 @@ export function checkG2(buildReport: BuildReport): GateResult {
     failed.push('g2_compiler_success: no bytecode → route_to_repair');
 
   const blockingSemantic = (buildReport.semanticErrors ?? []).filter(
-    e => BLOCKING_SEMANTIC_KINDS.some(kind => kind === e.kind),
+    e => (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
   );
   if (blockingSemantic.length > 0) {
     const details = blockingSemantic.map(e => e.message).join('; ');

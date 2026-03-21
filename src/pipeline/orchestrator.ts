@@ -37,7 +37,7 @@ const MAX_REPAIR_LOOPS = 3;
  */
 export function compileToBuildReport(r: CompileResult): BuildReport {
   const blockingSemanticErrors = (r.semanticErrors ?? []).filter(
-    e => BLOCKING_SEMANTIC_KINDS.some(kind => kind === e.kind),
+    e => (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
   );
   return {
     success:
@@ -118,9 +118,7 @@ export async function runPipeline(
           }
         }
         if (buildReport.semanticErrors?.length) {
-          for (const e of buildReport.semanticErrors.filter(
-            se => BLOCKING_SEMANTIC_KINDS.some(kind => kind === se.kind),
-          )) {
+          for (const e of buildReport.semanticErrors) {
             log.info(`semantic error [${e.kind}]: ${e.message}`);
           }
         }

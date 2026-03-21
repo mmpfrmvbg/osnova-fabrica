@@ -76,11 +76,9 @@ const SYSTEM_PROMPT = `
   - "Отсутствует обязательное поле: X" → добавить поле X в литерал объекта
   - "Неизвестное поле: X (тип Y)" → убрать лишнее поле X из литерала
 
-✓ ошибки системного вызова по числу аргументов (syscall_argc):
-  - "система.X ожидает N аргументов, передано M" → передай ровно N аргументов
-
-✓ ошибки повторного объявления переменной (redeclare_var):
-  - "повторное объявление 'X' через пусть" → замени на присваивание 'X = ...' или переименуй
+═══ ОШИБКИ АРГУМЕНТОВ И ПЕРЕОПРЕДЕЛЕНИЯ ═══
+- syscall_argc: неверное число аргументов syscall → исправить число аргументов согласно system-api
+- redeclare_var: переменная уже объявлена → переименовать или убрать дубль пусть
 
 ═══ ПЕРВЫЙ ПРОХОД (глобальные замены) ═══
 система.число.остаток(x, y) → x % y
@@ -110,7 +108,7 @@ export class RepairEngineerAgent {
       for (const e of buildReport.compilerErrors)
         errors.push(`Компилятор: ${e.message}`);
       for (const e of (buildReport.semanticErrors ?? []).filter(
-        se => BLOCKING_SEMANTIC_KINDS.some(kind => kind === se.kind),
+        se => (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(se.kind),
       )) {
         errors.push(`Семантика [${e.kind}]: ${e.message}`);
       }
