@@ -448,3 +448,47 @@
 - [x] Автозапуск `npm run golden` в CI при изменении фикстур — отдельный job `golden-fixtures` в `.github/workflows/ci.yml`
 
 ---
+
+## Уровень 9 — Автономия (Cursor Cloud Agent)
+
+**Статус:** planned — не начинать до Beta-gate passed.  
+**Цель:** языковой агент работает полностью автономно через Cursor Cloud API,  
+без ручного copy-paste промптов от PM.
+
+---
+
+### A-8: Cursor Cloud Agent API интеграция
+
+**Файлы:** `src/agents/cursor-client.ts`, `src/agents/pm-gateway.ts`,
+           `src/agents/result-watcher.ts`
+
+- `cursor-client.ts` — HTTP-клиент к Cursor Cloud Agent API:
+  создание сессии, отправка промпта, polling статуса
+- `pm-gateway.ts` — принимает задание от PM (webhook/CLI),
+  форматирует промпт по стандартному шаблону, отправляет в cursor-client
+- `result-watcher.ts` — следит за результатом агента,
+  парсит доклад, пишет в runs/agent-sessions.jsonl
+
+**Критерии готовности:**
+- Beta-gate passed: true
+- Cursor Cloud API доступен с нужными правами
+- Тест: 1 задание отправлено → агент выполнил → доклад получен
+
+---
+
+### A-9: agent-router — маршрутизация задач
+
+**Файл:** `src/agents/agent-router.ts`
+
+Маршрутизатор решает: какой агент обрабатывает задание —
+языковой (компилятор/промпты/трейсы) или инфра (CI/деплой/мониторинг).
+
+- Классификация по тегам задания: `[lang]`, `[infra]`, `[docs]`, `[test]`
+- Fallback: языковой агент обрабатывает всё без тега
+- Лог маршрутизации в runs/routing-log.jsonl
+
+**Критерии готовности:**
+- A-8 завершён
+- 10+ реальных заданий прошли через router без ошибок
+
+---
