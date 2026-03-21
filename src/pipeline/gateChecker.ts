@@ -5,6 +5,7 @@
 // ============================================================
 
 import { QUALITY_PASS, QUALITY_PARTIAL } from './thresholds';
+import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport } from './types';
 
 export type GateId = 'G1_spec_ready' | 'G2_build_pass' | 'G3_golden_pass';
@@ -67,7 +68,7 @@ export function checkG2(buildReport: BuildReport): GateResult {
     failed.push('g2_compiler_success: no bytecode → route_to_repair');
 
   const blockingSemantic = (buildReport.semanticErrors ?? []).filter(
-    e => e.kind === 'unknown_syscall' || e.kind === 'undeclared_var' || e.kind === 'unknown_procedure',
+    e => BLOCKING_SEMANTIC_KINDS.some(kind => kind === e.kind),
   );
   if (blockingSemantic.length > 0) {
     const details = blockingSemantic.map(e => e.message).join('; ');

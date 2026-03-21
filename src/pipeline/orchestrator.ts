@@ -10,6 +10,7 @@ import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { RepairEngineerAgent } from '../agents/RepairEngineer';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
+import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import { saveTrace } from '../trace/traceStore';
 import { logger } from '../logger';
 import { compileSource, type CompileResult } from '../compiler/compiler';
@@ -36,7 +37,7 @@ const MAX_REPAIR_LOOPS = 3;
  */
 export function compileToBuildReport(r: CompileResult): BuildReport {
   const blockingSemanticErrors = (r.semanticErrors ?? []).filter(
-    e => e.kind === 'unknown_syscall' || e.kind === 'undeclared_var' || e.kind === 'unknown_procedure',
+    e => BLOCKING_SEMANTIC_KINDS.some(kind => kind === e.kind),
   );
   return {
     success:
@@ -118,7 +119,7 @@ export async function runPipeline(
         }
         if (buildReport.semanticErrors?.length) {
           for (const e of buildReport.semanticErrors.filter(
-            se => se.kind === 'unknown_syscall' || se.kind === 'undeclared_var' || se.kind === 'unknown_procedure',
+            se => BLOCKING_SEMANTIC_KINDS.some(kind => kind === se.kind),
           )) {
             log.info(`semantic error [${e.kind}]: ${e.message}`);
           }

@@ -128,11 +128,13 @@ describe('checkG2', () => {
     expect(r.failedChecks.some(f => f.includes('g2_semantic_clean'))).toBe(true);
   });
 
-  it('не блокирует при non-blocking semantic errors', () => {
+  it('блокирует при blocking semantic errors (syscall_argc)', () => {
     const r = checkG2(makeBuildReport({
       semanticErrors: [{ kind: 'syscall_argc', message: 'неверное число аргументов' }],
     }));
-    expect(r.passed).toBe(true);
+    expect(r.passed).toBe(false);
+    expect(r.action).toBe('route_to_repair');
+    expect(r.failedChecks.some(f => f.includes('g2_semantic_clean'))).toBe(true);
   });
 
   it('предупреждает (не блокирует) при медленном билде', () => {

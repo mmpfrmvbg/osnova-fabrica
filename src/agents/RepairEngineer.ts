@@ -7,6 +7,7 @@
 
 import { getLLMProvider } from '../llm/index';
 import type { OsnovaSource, BuildReport, GoldenReport } from '../pipeline/types';
+import { BLOCKING_SEMANTIC_KINDS } from '../pipeline/semanticKinds';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
 import { buildOsnovaRepairPrompt } from '../pipeline-llm/buildOsnovaPrompt';
@@ -75,6 +76,12 @@ const SYSTEM_PROMPT = `
   - "Отсутствует обязательное поле: X" → добавить поле X в литерал объекта
   - "Неизвестное поле: X (тип Y)" → убрать лишнее поле X из литерала
 
+✓ ошибки системного вызова по числу аргументов (syscall_argc):
+  - "система.X ожидает N аргументов, передано M" → передай ровно N аргументов
+
+✓ ошибки повторного объявления переменной (redeclare_var):
+  - "повторное объявление 'X' через пусть" → замени на присваивание 'X = ...' или переименуй
+
 ═══ ПЕРВЫЙ ПРОХОД (глобальные замены) ═══
 система.число.остаток(x, y) → x % y
 arr[индекс] уже поддерживается парсером — не заменяй на система.массив.получить
@@ -103,7 +110,7 @@ export class RepairEngineerAgent {
       for (const e of buildReport.compilerErrors)
         errors.push(`Компилятор: ${e.message}`);
       for (const e of (buildReport.semanticErrors ?? []).filter(
-        se => se.kind === 'unknown_syscall' || se.kind === 'undeclared_var' || se.kind === 'unknown_procedure',
+        se => BLOCKING_SEMANTIC_KINDS.some(kind => kind === se.kind),
       )) {
         errors.push(`Семантика [${e.kind}]: ${e.message}`);
       }

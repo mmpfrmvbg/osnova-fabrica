@@ -90,18 +90,18 @@ describe('RepairEngineerAgent.fix', () => {
     expect(errors.some((e: string) => e.includes('expected конец'))).toBe(true);
   });
 
-  it('передаёт только blocking semantic errors (unknown_syscall)', async () => {
+  it('передаёт только blocking semantic errors', async () => {
     const agent = new RepairEngineerAgent();
     const report = makeBuildReport({
       semanticErrors: [
         { kind: 'unknown_syscall', message: 'система.foo.bar неизвестен' },
-        { kind: 'syscall_argc', message: 'неверное число аргументов' }, // non-blocking for RepairEngineer
+        { kind: 'chained_compare', message: 'цепочечные сравнения' }, // non-blocking for RepairEngineer
       ],
     });
     await agent.fix(makeSource(), report);
     const errors = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][1] as string[];
     expect(errors.some((e: string) => e.includes('система.foo.bar'))).toBe(true);
-    expect(errors.some((e: string) => e.includes('неверное число аргументов'))).toBe(false);
+    expect(errors.some((e: string) => e.includes('цепочечные сравнения'))).toBe(false);
   });
 
   it('передаёт VM ошибки из goldenReport', async () => {
