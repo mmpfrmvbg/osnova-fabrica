@@ -36,7 +36,7 @@
     "llm-usage-report": "python3 scripts/llm_usage_report.py",
     "llm-usage-report:notg": "python3 scripts/llm_usage_report.py --no-telegram",
     "blame-mode-bisect": "npx tsx scripts/blame-mode-bisect.ts",
-    "report-to-pm": "echo '[report-to-pm] stub — no implementation yet' && exit 0",
+    "report-to-pm": "npx tsx scripts/report-to-pm.ts",
     "cvt-snapshot": "tsx src/intelligence/sources/hh.ts"
   },
   "dependencies": {
