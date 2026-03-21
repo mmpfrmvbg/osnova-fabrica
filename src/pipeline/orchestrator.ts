@@ -67,6 +67,29 @@ export function hasBlockingSemanticErrors(report: BuildReport | undefined): bool
   );
 }
 
+/**
+ * A-2: Извлекает kind последней ошибки из buildReport.
+ * Приоритет: semantic (blocking) → compiler → parser → lexer → semantic (non-blocking).
+ * Если ничего нет → 'unknown'.
+ */
+export function extractLastErrorKind(report: BuildReport | undefined): string {
+  if (!report) return 'unknown';
+  const blocking = (report.semanticErrors ?? []).filter(e =>
+    (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
+  );
+  if (blocking.length > 0) return blocking[blocking.length - 1]!.kind;
+  if ((report.compilerErrors ?? []).length > 0) {
+    const last = report.compilerErrors![report.compilerErrors!.length - 1]!;
+    return (last as { kind?: string }).kind ?? 'compiler_error';
+  }
+  if ((report.parserErrors ?? []).length > 0) return 'parser_error';
+  if ((report.lexerErrors ?? []).length > 0) return 'lexer_error';
+  if ((report.semanticErrors ?? []).length > 0) {
+    return report.semanticErrors![report.semanticErrors!.length - 1]!.kind ?? 'semantic_warning';
+  }
+  return 'unknown';
+}
+
 export async function runPipeline(
   task: string,
 ): Promise<PipelineResult> {
@@ -210,10 +233,28 @@ export async function runPipeline(
       return result;
     }
 
-    // repair exhausted
-    log.error('repair loop exhausted', { repairAttempts });
+    // repair exhausted — A-2: сохраняем kind последней ошибки
+    const lastErrorKind = extractLastErrorKind(buildReport);
+    if (lastErrorKind === 'unknown') {
+      log.warn('A-2: repair_exhausted без определённого error.kind — buildReport пустой или нет ошибок');
+    } else {
+      log.error('repair loop exhausted', { repairAttempts, lastErrorKind });
+    }
     const result = finish('repair_exhausted', 'max repair loops reached');
-    await saveTrace({ runId, status: result.status, task, intent, spec, source: lastSource, buildReport, goldenReport, repairAttempts, modelId });
+    await saveTrace({
+      runId,
+      status: result.status,
+      task,
+      intent,
+      spec,
+      source: lastSource,
+      buildReport,
+      goldenReport,
+      repairAttempts,
+      modelId,
+      lastErrorKind,
+      semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+    });
     return result;
 
   } catch (err) {

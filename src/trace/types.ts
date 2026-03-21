@@ -28,4 +28,6 @@ export interface TraceEntry {
   readonly repairAttempts: number;
   /** Всего семантических ошибок в build (A-3) */
   readonly semanticErrorCount?: number;
+  /** Kind последней доминирующей ошибки при repair_exhausted (A-2) */
+  readonly lastErrorKind?: string;
 }

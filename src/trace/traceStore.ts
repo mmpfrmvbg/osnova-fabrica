@@ -150,6 +150,7 @@ export const TraceEntrySchema = z.object({
   goldenReport: GoldenReportSchema.optional(),
   repairAttempts: z.number().int().min(0),
   semanticErrorCount: z.number().int().min(0).optional(),
+  lastErrorKind: z.string().optional(),
 });
 
 export type TraceEntryParsed = z.infer<typeof TraceEntrySchema>;
@@ -171,6 +172,7 @@ export async function saveTrace(data: {
   goldenReport?: GoldenReport;
   repairAttempts: number;
   semanticErrorCount?: number;
+  lastErrorKind?: string;
 }): Promise<void> {
   const entry: TraceEntry = {
     ...data,

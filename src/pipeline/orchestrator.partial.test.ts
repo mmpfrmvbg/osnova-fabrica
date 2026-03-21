@@ -236,3 +236,57 @@ describe('Pipeline: A-3 — success с non-blocking semanticErrors НЕ явля
   });
 });
 
+describe('A-2: extractLastErrorKind', () => {
+  it('undefined buildReport → "unknown"', async () => {
+    const { extractLastErrorKind } = await import('./orchestrator');
+    expect(extractLastErrorKind(undefined)).toBe('unknown');
+  });
+
+  it('пустой buildReport без ошибок → "unknown"', async () => {
+    const { extractLastErrorKind } = await import('./orchestrator');
+    const report = {
+      success: true,
+      lexerErrors: [],
+      parserErrors: [],
+      compilerErrors: [],
+      semanticErrors: [],
+      bytecode: null,
+      compilerSuccess: true,
+      durationMs: 1,
+    };
+    expect(extractLastErrorKind(report)).toBe('unknown');
+  });
+
+  it('lexer error → "lexer_error"', async () => {
+    const { extractLastErrorKind } = await import('./orchestrator');
+    const report = {
+      success: false,
+      lexerErrors: [{ line: 1, column: 1, message: 'err' }],
+      parserErrors: [],
+      compilerErrors: [],
+      semanticErrors: [],
+      bytecode: null,
+      compilerSuccess: false,
+      durationMs: 1,
+    };
+    expect(extractLastErrorKind(report)).toBe('lexer_error');
+  });
+
+  it('blocking semantic error → возвращает kind', async () => {
+    const { extractLastErrorKind } = await import('./orchestrator');
+    const { BLOCKING_SEMANTIC_KINDS } = await import('./semanticKinds');
+    const kind = BLOCKING_SEMANTIC_KINDS[0]!;
+    const report = {
+      success: false,
+      lexerErrors: [],
+      parserErrors: [],
+      compilerErrors: [],
+      semanticErrors: [{ kind, message: 'block' }],
+      bytecode: null,
+      compilerSuccess: false,
+      durationMs: 1,
+    };
+    expect(extractLastErrorKind(report)).toBe(kind);
+  });
+});
+
