@@ -33,6 +33,23 @@ function buildSpecSystemPrompt(): string {
 ВАЖНО: "syscalls" — только из этого списка (stable syscalls):
 ${stableSyscalls}
 
+ПРИМЕРЫ (задача → правильный JSON):
+
+Пример 1 — счётчик:
+Вход: {"description":"считать от 1 до 10 и вывести сумму","features":["arithmetic loop","print result"],"appType":"утилита"}
+Выход:
+{"modules":[{"name":"Счётчик","description":"Суммирует числа от 1 до 10","isMain":true}],"mainModule":"Счётчик","types":[],"procedures":[{"name":"главная","params":{},"returnType":"Целое32"}],"syscalls":["система.лог.вывести"],"conventions":{}}
+
+Пример 2 — хранилище задач:
+Вход: {"description":"сохранить список задач в хранилище и вывести их","features":["storage write","storage read","list output"],"appType":"утилита"}
+Выход:
+{"modules":[{"name":"Задачи","description":"Сохраняет и читает задачи из хранилища","isMain":true}],"mainModule":"Задачи","types":[],"procedures":[{"name":"главная","params":{},"returnType":"Логический"},{"name":"сохранитьЗадачу","params":{"ключ":"Строка","название":"Строка"},"returnType":"пусто"}],"syscalls":["система.хранилище.записать","система.хранилище.прочитать","система.лог.вывести"],"conventions":{}}
+
+Пример 3 — обработка ошибок:
+Вход: {"description":"прочитать файл и обработать ошибку если файл не найден","features":["file read","error handling"],"appType":"утилита"}
+Выход:
+{"modules":[{"name":"ЧтениеФайла","description":"Читает файл с обработкой ошибки","isMain":true}],"mainModule":"ЧтениеФайла","types":[],"procedures":[{"name":"главная","params":{},"returnType":"Целое32"}],"syscalls":["система.файлы.прочитать_все","система.файлы.существует","система.лог.вывести"],"conventions":{}}
+
 Верни ТОЛЬКО этот JSON, без объяснений:
 {
   "modules": [{"name": "Главный", "description": "описание", "isMain": true}],
