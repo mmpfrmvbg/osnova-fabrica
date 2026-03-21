@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { IntakeAgent } from './IntakeAgent';
+import { IntakeAgent, detectAppTypeFromPrefix } from './IntakeAgent';
 import type { OsnovaIntent } from '../pipeline/types';
 
 // Mock LLM: всегда возвращаем невалидный JSON.
@@ -119,6 +119,46 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     // должен вернуть fallback, не упасть
     expect(intent.description).toBe('любая задача');
     expect(intent.appType).toBe('утилита');
+  });
+
+  it('fallback учитывает префикс Алгоритм:', async () => {
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'Алгоритм: сортировка' });
+    expect(intent.appType).toBe('алгоритм');
+  });
+});
+
+describe('detectAppTypeFromPrefix', () => {
+  it('Алгоритм: сортировка списка → "алгоритм"', () => {
+    expect(detectAppTypeFromPrefix('Алгоритм: сортировка списка')).toBe('алгоритм');
+  });
+
+  it('алгоритм: (lowercase) → "алгоритм"', () => {
+    expect(detectAppTypeFromPrefix('алгоритм: поиск в массиве')).toBe('алгоритм');
+  });
+
+  it('Тест: проверить что сумма → "тест"', () => {
+    expect(detectAppTypeFromPrefix('Тест: проверить что сумма равна 10')).toBe('тест');
+  });
+
+  it('Модуль: работа с файлами → "модуль"', () => {
+    expect(detectAppTypeFromPrefix('Модуль: работа с файлами')).toBe('модуль');
+  });
+
+  it('Библиотека: математика → "библиотека"', () => {
+    expect(detectAppTypeFromPrefix('Библиотека: математические функции')).toBe('библиотека');
+  });
+
+  it('Модуль типов: ... → "модуль_типов"', () => {
+    expect(detectAppTypeFromPrefix('Модуль типов: базовые типы')).toBe('модуль_типов');
+  });
+
+  it('обычная задача без префикса → null', () => {
+    expect(detectAppTypeFromPrefix('Посчитать сумму от 1 до 10')).toBeNull();
+  });
+
+  it('Утилита без явного префикса → null', () => {
+    expect(detectAppTypeFromPrefix('сохранить задачи в хранилище')).toBeNull();
   });
 });
 
