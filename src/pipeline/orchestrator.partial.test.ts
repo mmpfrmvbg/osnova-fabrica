@@ -38,7 +38,7 @@ const createMockProvider = () => ({
           modules: [{ name: 'M', description: 'd', isMain: true }],
           mainModule: 'main',
           types: [],
-          procedures: [{ name: 'main', params: {}, returnType: 'Ничто' }],
+          procedures: [{ name: 'главная', params: {}, returnType: 'Ничто' }],
           syscalls: [],
           conventions: {},
         }),
@@ -116,6 +116,26 @@ describe('Pipeline: repair cycle', () => {
         const messages = req.messages;
         const systemContent =
           messages[0]?.role === 'system' ? (messages[0].content as string) : '';
+
+        // generateSpec (Intake): валидный spec — иначе checkSpec (T-7) отклонит пустые procedures
+        if (
+          messages.length === 2 &&
+          systemContent.includes('модули') &&
+          systemContent.includes('JSON')
+        ) {
+          return {
+            content: JSON.stringify({
+              modules: [{ name: 'M', description: 'd', isMain: true }],
+              mainModule: 'M',
+              types: [],
+              procedures: [{ name: 'главная', params: {}, returnType: 'Логический' }],
+              syscalls: [],
+              conventions: {},
+            }),
+            model: 'mock-repair',
+            done: true,
+          };
+        }
 
         // OsnovaCodegen: первый вызов — вернуть заведомо невалидный код,
         // чтобы build упал и запустился repair.

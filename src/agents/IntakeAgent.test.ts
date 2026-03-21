@@ -55,7 +55,9 @@ describe('IntakeAgent.fallbackSpec', () => {
     expect(spec.modules[0].isMain).toBe(true);
     expect(spec.mainModule).toBe('main');
     expect(spec.types).toEqual([]);
-    expect(spec.procedures).toEqual([]);
+    expect(spec.procedures).toEqual([
+      { name: 'главная', params: {}, returnType: 'Логический' },
+    ]);
     expect(spec.syscalls).toEqual([]);
     expect(typeof spec.specId).toBe('string');
   });

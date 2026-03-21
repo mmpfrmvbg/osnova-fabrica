@@ -116,6 +116,7 @@ export async function runPipeline(
     // ─── Фаза 2: spec_generation ───
     log.info('phase: spec_generation');
     spec = await intake.generateSpec(intent);
+    intake.checkSpec(spec);
 
     // ─── Gate G1 ───
     const g1 = checkG1(intent, spec);

@@ -62,6 +62,20 @@ ${stableSyscalls}
 `.trim();
 }
 
+export class SpecValidationError extends Error {
+  constructor(
+    public readonly missing: string[],
+    public readonly specId: string,
+  ) {
+    super(
+      `[T-7:checkSpec] Spec неполный (specId=${specId}). ` +
+      `Отсутствует: ${missing.join(', ')}. ` +
+      'Codegen без полной spec запрещён.',
+    );
+    this.name = 'SpecValidationError';
+  }
+}
+
 export class IntakeAgent {
   constructor(private registryContext: string = '') {}
 
@@ -192,6 +206,34 @@ export class IntakeAgent {
     };
   }
 
+  /**
+   * T-7: Валидация полноты spec перед codegen.
+   * Выбрасывает SpecValidationError если spec неполный.
+   */
+  checkSpec(spec: OsnovaSpec): void {
+    const missing: string[] = [];
+
+    if (!spec.mainModule || spec.mainModule.trim() === '') {
+      missing.push('mainModule (пусто или отсутствует)');
+    }
+    if (!Array.isArray(spec.modules) || spec.modules.length === 0) {
+      missing.push('modules (пустой массив)');
+    }
+    if (!Array.isArray(spec.procedures) || spec.procedures.length === 0) {
+      missing.push('procedures (пустой массив — нет ни одной процедуры)');
+    }
+    const hasMain = (spec.procedures ?? []).some(
+      (p) => p.name === 'главная',
+    );
+    if (!hasMain) {
+      missing.push('procedures[].name="главная" (обязательная процедура отсутствует)');
+    }
+
+    if (missing.length > 0) {
+      throw new SpecValidationError(missing, spec.specId ?? 'unknown');
+    }
+  }
+
   private fallbackIntent(text: string): OsnovaIntent {
     return {
       intentId: randomUUID(),
@@ -209,7 +251,7 @@ export class IntakeAgent {
       modules: [{ name: 'main', description: intent.description, isMain: true }],
       mainModule: 'main',
       types: [],
-      procedures: [],
+      procedures: [{ name: 'главная', params: {}, returnType: 'Логический' }],
       syscalls: [],
       conventions: {},
     };
