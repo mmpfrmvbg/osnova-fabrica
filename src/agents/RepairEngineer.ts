@@ -5,35 +5,30 @@
 // Правило: исправлять только проблемные строки, не переписывать весь файл
 // ============================================================
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { getLLMProvider } from '../llm/index';
 import type { OsnovaSource, BuildReport, GoldenReport } from '../pipeline/types';
 import { BLOCKING_SEMANTIC_KINDS } from '../pipeline/semanticKinds';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
-import {
-  buildOsnovaRepairPrompt,
-  type RepairTargetBlock,
-} from '../pipeline-llm/buildOsnovaPrompt';
+import { buildOsnovaRepairPrompt } from '../pipeline-llm/buildOsnovaPrompt';
 import { stripMarkdownFence } from '../llm/stripMarkdownFence';
 import { logLlmUsage } from '../lib/usage-logger';
 
 const log = logger('repair-agent');
 
-function collectRepairTarget(buildReport?: BuildReport): RepairTargetBlock | undefined {
+function collectErrorKinds(buildReport?: BuildReport): string[] | undefined {
   const sem = buildReport?.semanticErrors ?? [];
   if (sem.length === 0) return undefined;
   const allow = BLOCKING_SEMANTIC_KINDS as readonly string[];
-  const blockingKinds: string[] = [];
+  const kinds: string[] = [];
   const seen = new Set<string>();
   for (const e of sem) {
     if (!allow.includes(e.kind) || seen.has(e.kind)) continue;
     seen.add(e.kind);
-    blockingKinds.push(e.kind);
+    kinds.push(e.kind);
   }
-  if (blockingKinds.length === 0) return undefined;
-  return { blockingKinds, primaryKind: blockingKinds[0] };
+  if (kinds.length === 0) return undefined;
+  return kinds;
 }
 
 const SYSTEM_PROMPT = `
@@ -143,8 +138,8 @@ export class RepairEngineerAgent {
     }
 
     const prefix = attempt ? `// Попытка #${attempt}: предыдущие попытки не исправили проблему.` : undefined;
-    const repairTarget = collectRepairTarget(buildReport);
-    const userPrompt = buildOsnovaRepairPrompt(source.source, errors, prefix, repairTarget);
+    const errorKinds = collectErrorKinds(buildReport);
+    const userPrompt = buildOsnovaRepairPrompt(source.source, errors, prefix, errorKinds);
 
     let response;
     const t0 = Date.now();

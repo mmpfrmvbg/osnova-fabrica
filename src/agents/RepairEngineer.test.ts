@@ -18,8 +18,9 @@ vi.mock('../llm/index', () => ({
 }));
 
 vi.mock('../pipeline-llm/buildOsnovaPrompt', () => ({
-  buildOsnovaRepairPrompt: vi.fn((source: string, errors: string[], prefix?: string) =>
-    JSON.stringify({ source, errors, prefix }),
+  buildOsnovaRepairPrompt: vi.fn(
+    (source: string, errors: string[], prefix?: string, errorKinds?: unknown) =>
+      JSON.stringify({ source, errors, prefix, errorKinds }),
   ),
 }));
 
@@ -67,6 +68,7 @@ describe('RepairEngineerAgent.fix', () => {
       'код',
       expect.any(Array),
       undefined,
+      undefined,
     );
   });
 
@@ -88,6 +90,20 @@ describe('RepairEngineerAgent.fix', () => {
     await agent.fix(makeSource(), report);
     const errors = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][1] as string[];
     expect(errors.some((e: string) => e.includes('expected конец'))).toBe(true);
+  });
+
+  it('передаёт errorKinds (blocking) в buildOsnovaRepairPrompt', async () => {
+    const agent = new RepairEngineerAgent();
+    const report = makeBuildReport({
+      semanticErrors: [
+        { kind: 'unknown_syscall', message: 'bad syscall' },
+        { kind: 'undeclared_var', message: 'x' },
+      ],
+    });
+    await agent.fix(makeSource(), report);
+    const errorKinds = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][3] as string[];
+    expect(errorKinds).toBeDefined();
+    expect(errorKinds).toEqual(['unknown_syscall', 'undeclared_var']);
   });
 
   it('передаёт только blocking semantic errors', async () => {

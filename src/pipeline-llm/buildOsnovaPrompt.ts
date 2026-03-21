@@ -1,5 +1,6 @@
 import { LANGUAGE_REGISTRY, LANGUAGE_VERSION } from '../compiler/language-registry';
 import type { KeywordSpec, ConstructSpec } from '../compiler/language-registry';
+import { formatRepairTarget } from './repairTarget';
 
 function buildPromptSections(): {
   keywords: string;
@@ -293,6 +294,7 @@ export function buildOsnovaRepairPrompt(
   currentSource: string,
   errors: string[],
   prefix?: string,
+  errorKinds?: string[],
 ): string {
   const s = buildPromptSections();
   const constructs = LANGUAGE_REGISTRY.constructs
@@ -319,6 +321,9 @@ export function buildOsnovaRepairPrompt(
   if (errors.some((e) => e.includes('Процедура не экспортирована'))) {
     errorTips.push('Если ошибка содержит "Процедура не экспортирована": добавь `экспорт` перед процедурой в импортируемом модуле.');
   }
+
+  const repairTargetBlock =
+    errorKinds && errorKinds.length > 0 ? formatRepairTarget(errorKinds) + '\n' : '';
 
   const parts = [
     prefix ? prefix + '\n\n' : '',
@@ -364,6 +369,7 @@ export function buildOsnovaRepairPrompt(
     'STABLE SYSCALLS (имя(argc)):',
     stableSyscalls,
     '',
+    repairTargetBlock ? repairTargetBlock : '',
     'Текущий код:',
     '---',
     currentSource,
