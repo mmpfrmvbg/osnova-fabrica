@@ -7,6 +7,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  BLOCKING_SEMANTIC_KINDS,
+  type BlockingSemanticKind,
+} from '../compiler/semanticKinds';
 
 interface TraceRecord {
   runId?: string;
@@ -61,6 +65,7 @@ export function computeHealthMetrics(
   total: number;
   byStatus: Record<string, number>;
   semantic_errors_in_success: number;
+  non_blocking_semantic_in_success: number;
   avg_quality_score: number;
   avg_repair_attempts: number;
   build_success_rate: number;
@@ -89,7 +94,9 @@ export function computeHealthMetrics(
   }
 
   const byStatus: Record<string, number> = {};
+  const BLOCKING_KINDS = new Set<string>(BLOCKING_SEMANTIC_KINDS);
   let semanticErrorsInSuccess = 0;
+  let nonBlockingSemanticInSuccess = 0;
   let qualitySum = 0;
   let qualityCount = 0;
   let repairSum = 0;
@@ -99,9 +106,17 @@ export function computeHealthMetrics(
     const status = t.status ?? 'unknown';
     byStatus[status] = (byStatus[status] ?? 0) + 1;
 
-    // Стоп-сигнал: success + семантические ошибки одновременно
-    if (status === 'success' && (t.buildReport?.semanticErrors?.length ?? 0) > 0) {
-      semanticErrorsInSuccess++;
+    // Только blocking semantic errors — стоп-сигнал (остальные не блокируют gate)
+    if (status === 'success') {
+      const sem = t.buildReport?.semanticErrors ?? [];
+      const blockingInSuccess = sem.filter(
+        (e) => e.kind && BLOCKING_KINDS.has(e.kind as BlockingSemanticKind),
+      );
+      const nonBlockingInSuccess = sem.filter(
+        (e) => e.kind && !BLOCKING_KINDS.has(e.kind as BlockingSemanticKind),
+      );
+      if (blockingInSuccess.length > 0) semanticErrorsInSuccess++;
+      if (nonBlockingInSuccess.length > 0) nonBlockingSemanticInSuccess++;
     }
 
     if (typeof t.goldenReport?.qualityScore === 'number') {
@@ -154,6 +169,7 @@ export function computeHealthMetrics(
     total: windowedTraces.length,
     byStatus,
     semantic_errors_in_success: semanticErrorsInSuccess,
+    non_blocking_semantic_in_success: nonBlockingSemanticInSuccess,
     avg_quality_score: qualityCount > 0 ? qualitySum / qualityCount : 0,
     avg_repair_attempts: windowedTraces.length > 0 ? repairSum / windowedTraces.length : 0,
     build_success_rate: windowedTraces.length > 0 ? buildSuccessCount / windowedTraces.length : 0,
@@ -198,7 +214,13 @@ Options:
 
   if (traces.length === 0) {
     if (jsonMode) {
-      console.log(JSON.stringify({ total: 0, semantic_errors_in_success: 0 }));
+      console.log(
+        JSON.stringify({
+          total: 0,
+          semantic_errors_in_success: 0,
+          non_blocking_semantic_in_success: 0,
+        }),
+      );
     } else {
       console.log('traces.jsonl пуст или не найден — метрик нет.');
     }

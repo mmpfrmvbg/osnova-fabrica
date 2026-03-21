@@ -6,6 +6,7 @@ describe('computeHealthMetrics', () => {
     const m = computeHealthMetrics([]);
     expect(m.total).toBe(0);
     expect(m.semantic_errors_in_success).toBe(0);
+    expect(m.non_blocking_semantic_in_success).toBe(0);
   });
 
   it('success без семантических ошибок → semantic_errors_in_success=0', () => {
@@ -18,10 +19,11 @@ describe('computeHealthMetrics', () => {
       },
     ]);
     expect(m.semantic_errors_in_success).toBe(0);
+    expect(m.non_blocking_semantic_in_success).toBe(0);
     expect(m.avg_quality_score).toBe(1.0);
   });
 
-  it('СТОП-СИГНАЛ: success + семантические ошибки → semantic_errors_in_success=1', () => {
+  it('СТОП-СИГНАЛ: success + blocking semantic → semantic_errors_in_success=1', () => {
     const m = computeHealthMetrics([
       {
         status: 'success',
@@ -33,6 +35,22 @@ describe('computeHealthMetrics', () => {
       },
     ]);
     expect(m.semantic_errors_in_success).toBe(1);
+    expect(m.non_blocking_semantic_in_success).toBe(0);
+  });
+
+  it('success + только non-blocking semantic → стоп-сигнала нет, non_blocking=1', () => {
+    const m = computeHealthMetrics([
+      {
+        status: 'success',
+        buildReport: {
+          success: true,
+          semanticErrors: [{ kind: 'chained_compare', message: 'цепочка сравнений' }],
+        },
+        repairAttempts: 0,
+      },
+    ]);
+    expect(m.semantic_errors_in_success).toBe(0);
+    expect(m.non_blocking_semantic_in_success).toBe(1);
   });
 
   it('failure + семантические ошибки → НЕ стоп-сигнал', () => {
