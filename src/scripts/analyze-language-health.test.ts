@@ -64,3 +64,96 @@ describe('computeHealthMetrics', () => {
     expect(m.build_success_rate).toBe(0.5);
   });
 });
+
+describe('top_workaround_patterns (S-1)', () => {
+  it('catchVar: пусть ошибка = без попробовать', () => {
+    const m = computeHealthMetrics([
+      {
+        status: 'success',
+        repairAttempts: 0,
+        buildReport: { success: true },
+        source: { source: 'пусть ошибка = пусто\nесли ошибка == пусто' },
+      } as any,
+    ]);
+    const cv = m.top_workaround_patterns.find((p) => p.pattern === 'catchVar');
+    expect(cv?.count).toBe(1);
+  });
+
+  it('sentinel: == пусто в коде', () => {
+    const m = computeHealthMetrics([
+      {
+        status: 'success',
+        repairAttempts: 0,
+        buildReport: { success: true },
+        source: { source: 'если x == пусто' },
+      } as any,
+    ]);
+    const s = m.top_workaround_patterns.find((p) => p.pattern === 'sentinel');
+    expect(s?.count).toBe(1);
+  });
+
+  it('flag_loop: флаговый цикл', () => {
+    const m = computeHealthMetrics([
+      {
+        status: 'success',
+        repairAttempts: 0,
+        buildReport: { success: true },
+        source: { source: 'пусть найдено = ложь\nпока i < 10\nнайдено = истина\nконец' },
+      } as any,
+    ]);
+    const fl = m.top_workaround_patterns.find((p) => p.pattern === 'flag_loop');
+    expect(fl?.count).toBe(1);
+  });
+});
+
+describe('teachability_score (T-8)', () => {
+  it('все success с 0 попыток → 1.0', () => {
+    const m = computeHealthMetrics([
+      { status: 'success', repairAttempts: 0, buildReport: { success: true } },
+      { status: 'success', repairAttempts: 0, buildReport: { success: true } },
+    ]);
+    expect(m.teachability_score).toBe(1.0);
+  });
+
+  it('половина с 0 попыток → 0.5', () => {
+    const m = computeHealthMetrics([
+      { status: 'success', repairAttempts: 0, buildReport: { success: true } },
+      { status: 'success', repairAttempts: 2, buildReport: { success: true } },
+    ]);
+    expect(m.teachability_score).toBe(0.5);
+  });
+
+  it('нет success → 0', () => {
+    const m = computeHealthMetrics([
+      { status: 'failure', repairAttempts: 0, buildReport: { success: false } },
+    ]);
+    expect(m.teachability_score).toBe(0);
+  });
+});
+
+describe('windowMode (S-7)', () => {
+  it('lastN=1 берёт только последний трейс', () => {
+    const m = computeHealthMetrics(
+      [
+        { status: 'failure', repairAttempts: 0, buildReport: { success: false } },
+        { status: 'success', repairAttempts: 0, buildReport: { success: true } },
+      ],
+      { lastN: 1 },
+    );
+    expect(m.total).toBe(1);
+    expect(m.byStatus['success']).toBe(1);
+  });
+
+  it('lastHours24 фильтрует старые трейсы', () => {
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const fresh = new Date().toISOString();
+    const m = computeHealthMetrics(
+      [
+        { status: 'success', repairAttempts: 0, buildReport: { success: true }, timestamp: old },
+        { status: 'success', repairAttempts: 0, buildReport: { success: true }, timestamp: fresh },
+      ],
+      { lastHours24: true },
+    );
+    expect(m.total).toBe(1);
+  });
+});
