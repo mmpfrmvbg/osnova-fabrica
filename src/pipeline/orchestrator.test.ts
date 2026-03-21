@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runPipeline, compileToBuildReport } from './orchestrator';
+import { runPipeline, compileToBuildReport, hasBlockingSemanticErrors } from './orchestrator';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport } from './types';
 import { compileSource } from '../compiler/compiler';
@@ -203,6 +203,72 @@ describe('Pipeline integration (mock LLM)', () => {
 
     const result = await runPipeline('тест G1 failure');
     expect(result.status).toBe('failure');
+  });
+});
+
+describe('hasBlockingSemanticErrors', () => {
+  it('undefined buildReport → false', () => {
+    expect(hasBlockingSemanticErrors(undefined)).toBe(false);
+  });
+
+  it('пустой semanticErrors → false', () => {
+    expect(
+      hasBlockingSemanticErrors({
+        success: true,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [],
+        bytecode: null,
+        compilerSuccess: true,
+        durationMs: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it('non-blocking kind → false', () => {
+    expect(
+      hasBlockingSemanticErrors({
+        success: true,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [{ kind: 'chained_compare', message: 'x' }],
+        bytecode: null,
+        compilerSuccess: true,
+        durationMs: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it('redeclare_var → true', () => {
+    expect(
+      hasBlockingSemanticErrors({
+        success: false,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [{ kind: 'redeclare_var', message: 'x уже объявлен' }],
+        bytecode: null,
+        compilerSuccess: false,
+        durationMs: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it('syscall_argc → true', () => {
+    expect(
+      hasBlockingSemanticErrors({
+        success: false,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [{ kind: 'syscall_argc', message: 'неверное число аргументов' }],
+        bytecode: null,
+        compilerSuccess: false,
+        durationMs: 0,
+      }),
+    ).toBe(true);
   });
 });
 

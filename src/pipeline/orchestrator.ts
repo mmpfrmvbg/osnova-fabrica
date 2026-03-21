@@ -55,6 +55,17 @@ export function compileToBuildReport(r: CompileResult): BuildReport {
   };
 }
 
+/**
+ * Проверяет наличие blocking semantic errors в buildReport.
+ * Если есть хотя бы один — финальный статус не может быть 'success'.
+ */
+export function hasBlockingSemanticErrors(report: BuildReport | undefined): boolean {
+  if (!report) return false;
+  return (report.semanticErrors ?? []).some(
+    e => (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
+  );
+}
+
 export async function runPipeline(
   task: string,
 ): Promise<PipelineResult> {
@@ -156,7 +167,13 @@ export async function runPipeline(
       log.info('gate G3 passed — pipeline complete');
       source = lastSource;
 
-      const result = finish(goldenReport.passed ? 'success' : 'partial');
+      // Если golden прошёл, но есть blocking semantic errors — только partial
+      const hasSemErrors = hasBlockingSemanticErrors(buildReport);
+      if (hasSemErrors) {
+        log.warn('gate G3 passed but blocking semantic errors present → partial');
+      }
+      const finalStatus = goldenReport.passed && !hasSemErrors ? 'success' : 'partial';
+      const result = finish(finalStatus);
       await saveTrace({ runId, status: result.status, task, modelId, intent, spec, source, buildReport, goldenReport, repairAttempts });
       return result;
     }
