@@ -39,7 +39,7 @@ function resolveMetricsOptions(
   return sinceOrOptions;
 }
 
-function loadTraces(tracePath: string): TraceRecord[] {
+export function loadTraces(tracePath: string): TraceRecord[] {
   if (!fs.existsSync(tracePath)) return [];
   return fs
     .readFileSync(tracePath, 'utf-8')
