@@ -1,10 +1,9 @@
-export const BLOCKING_SEMANTIC_KINDS = [
-  'unknown_syscall',
-  'undeclared_var',
-  'unknown_procedure',
-  'syscall_argc',
-  'redeclare_var',
-] as const;
-
-export type BlockingSemanticKind = typeof BLOCKING_SEMANTIC_KINDS[number];
-
+// ============================================================
+// src/pipeline/semanticKinds.ts — реэкспорт из src/compiler
+// Источник правды: src/compiler/semanticKinds.ts
+// Этот файл существует только для обратной совместимости импортов.
+// ============================================================
+export {
+  BLOCKING_SEMANTIC_KINDS,
+  type BlockingSemanticKind,
+} from '../compiler/semanticKinds';
