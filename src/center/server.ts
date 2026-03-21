@@ -2,6 +2,28 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// ─── I-6: Auth guard ──────────────────────────────────────
+function isLocalhost(req: http.IncomingMessage): boolean {
+  const addr = req.socket.remoteAddress ?? '';
+  return (
+    addr === '127.0.0.1' ||
+    addr === '::1' ||
+    addr === '::ffff:127.0.0.1'
+  );
+}
+
+function checkAuth(req: http.IncomingMessage): boolean {
+  const apiKey = process.env.OSNOVA_API_KEY;
+  if (!apiKey) return true;                    // dev-mode: ключ не задан
+  if (isLocalhost(req)) return true;           // localhost без ключа
+  const hk = req.headers['x-api-key'];
+  if (typeof hk === 'string' && hk === apiKey) return true;
+  const auth = req.headers['authorization'];
+  if (typeof auth === 'string' && auth === `Bearer ${apiKey}`) return true;
+  return false;
+}
+// ──────────────────────────────────────────────────────────
+
 const REGISTRY_PATH = path.join(process.cwd(), 'src/runtime/registry.json');
 const TRACES_PATH = path.join(process.cwd(), 'runs/traces.jsonl');
 const PORT = parseInt(process.env.OSNOVA_CENTER_PORT ?? '7777', 10);
@@ -259,6 +281,11 @@ export function startCenter(): void {
     }
 
     if (req.method === 'POST' && req.url === '/api/new-app') {
+      if (!checkAuth(req)) {
+        res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
       let body = '';
       req.on('data', chunk => {
         body += chunk;
