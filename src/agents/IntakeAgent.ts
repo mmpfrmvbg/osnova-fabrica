@@ -6,6 +6,7 @@
 // ============================================================
 
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
 import { getLLMProvider } from '../llm/index';
 import type { RawText, OsnovaIntent, OsnovaSpec, AppType } from '../pipeline/types';
 import { wrapLlmError } from '../llm/errors';
@@ -14,6 +15,19 @@ import { logLlmUsage } from '../lib/usage-logger';
 import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
 
 const log = logger('intake-agent');
+
+function loadAbPromptOverride(): string | null {
+  const promptFile = process.env.OSNOVA_AB_PROMPT_FILE;
+  if (!promptFile) return null;
+  try {
+    return fs.readFileSync(promptFile, 'utf-8').trim();
+  } catch {
+    process.stderr.write(
+      `[ab-prompt] не удалось прочитать ${promptFile} — используется встроенный промпт\n`,
+    );
+    return null;
+  }
+}
 
 function buildSpecSystemPrompt(): string {
   const stableSyscalls = LANGUAGE_REGISTRY.syscalls
@@ -85,35 +99,38 @@ export class IntakeAgent {
     const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('parseIntent', { model });
 
+    const abSystem = loadAbPromptOverride();
+    const userContent = [
+      'Analyze this programming task and return ONLY a JSON object with fields: intent, confidence, language, features, params.',
+      '',
+      'Return ONLY this JSON, nothing else:',
+      '{',
+      '  "intent": "brief description",',
+      '  "confidence": 0.9,',
+      '  "language": "osnova",',
+      '  "features": ["feature1", "feature2"],',
+      '  "appType": "утилита",',
+      '  "params": {}',
+      '}',
+      '',
+      'features — list of 1-3 key capabilities the program must have.',
+      'Example for "calculate sum 1 to 10": features: ["arithmetic loop","print result"]',
+      '',
+      `Task: "${input.text}"`,
+      this.registryContext ? '\n\n' + this.registryContext : '',
+    ].join('\n');
+
     let response;
     const t0 = Date.now();
     try {
       response = await provider.complete({
         model,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              'Analyze this programming task and return ONLY a JSON object with fields: intent, confidence, language, features, params.',
-              '',
-              'Return ONLY this JSON, nothing else:',
-              '{',
-              '  "intent": "brief description",',
-              '  "confidence": 0.9,',
-              '  "language": "osnova",',
-              '  "features": ["feature1", "feature2"],',
-              '  "appType": "утилита",',
-              '  "params": {}',
-              '}',
-              '',
-              'features — list of 1-3 key capabilities the program must have.',
-              'Example for "calculate sum 1 to 10": features: ["arithmetic loop","print result"]',
-              '',
-              `Task: "${input.text}"`,
-              this.registryContext ? '\n\n' + this.registryContext : '',
-            ].join('\n'),
-          },
-        ],
+        messages: abSystem
+          ? [
+              { role: 'system', content: abSystem },
+              { role: 'user', content: userContent },
+            ]
+          : [{ role: 'user', content: userContent }],
         responseFormat: { type: 'json_object' },
         maxTokens: 2000,
       });
@@ -167,6 +184,10 @@ export class IntakeAgent {
     const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('generateSpec', { model, intentId: intent.intentId });
 
+    const systemPrompt =
+      loadAbPromptOverride() ??
+      buildSpecSystemPrompt() + (this.registryContext ? '\n\n' + this.registryContext : '');
+
     let response;
     const t0 = Date.now();
     try {
@@ -175,7 +196,7 @@ export class IntakeAgent {
         messages: [
           {
             role: 'system',
-            content: buildSpecSystemPrompt() + (this.registryContext ? '\n\n' + this.registryContext : ''),
+            content: systemPrompt,
           },
           {
             role: 'user',

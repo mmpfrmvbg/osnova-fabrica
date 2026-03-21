@@ -203,6 +203,19 @@ const SYSTEM_PROMPT = `
 пусть заказ: Заказ = { стол: 3, гость: "Иван", оплачен: ложь }
 `.trim();
 
+function loadAbPromptOverride(): string | null {
+  const promptFile = process.env.OSNOVA_AB_PROMPT_FILE;
+  if (!promptFile) return null;
+  try {
+    return fs.readFileSync(promptFile, 'utf-8').trim();
+  } catch {
+    process.stderr.write(
+      `[ab-prompt] не удалось прочитать ${promptFile} — используется встроенный промпт\n`,
+    );
+    return null;
+  }
+}
+
 export class OsnovaCodegenAgent {
   constructor(private registryContext: string = '') {}
 
@@ -215,6 +228,8 @@ export class OsnovaCodegenAgent {
     assertFewShotNotEmpty(fewShot, 'OsnovaCodegen.generate');
     const specPrompt = buildOsnovaPrompt(JSON.stringify(spec, null, 2));
 
+    const systemPrompt = loadAbPromptOverride() ?? SYSTEM_PROMPT;
+
     let response;
     const t0 = Date.now();
     try {
@@ -223,7 +238,7 @@ export class OsnovaCodegenAgent {
         messages: [
           {
             role: 'system',
-            content: SYSTEM_PROMPT + (this.registryContext ? '\n\n' + this.registryContext : ''),
+            content: systemPrompt + (this.registryContext ? '\n\n' + this.registryContext : ''),
           },
           {
             role: 'user',
