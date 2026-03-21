@@ -1,0 +1,65 @@
+name: Canary on Prompt/Docs Change
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/prompts/**'
+      - 'docs/**'
+
+jobs:
+  canary:
+    name: canary batch + shadow report
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Canary batch run (20 tasks, dry-run)
+        run: OSNOVA_DRY_RUN=1 npm run batch-run
+
+      - name: Shadow report
+        id: shadow
+        run: |
+          SHADOW_OUT=$(npm run shadow-report 2>&1)
+          echo "$SHADOW_OUT"
+          # RFC-002: correctRate
+          RFC002=$(echo "$SHADOW_OUT" | grep -i 'RFC-002' | grep -oP '\d+\.\d+(?=%)' | head -1)
+          # RFC-003: correctRate
+          RFC003=$(echo "$SHADOW_OUT" | grep -i 'RFC-003' | grep -oP '\d+\.\d+(?=%)' | head -1)
+          echo "rfc002=${RFC002:-100}" >> "$GITHUB_OUTPUT"
+          echo "rfc003=${RFC003:-100}" >> "$GITHUB_OUTPUT"
+
+      - name: Warn PM on RFC-002 < 80%
+        if: ${{ fromJson(steps.shadow.outputs.rfc002) < 80 }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          npm run report-to-pm -- \
+            --priority WARN \
+            --metric "RFC-002.correctRate=${{ steps.shadow.outputs.rfc002 }}%" \
+            --actions-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Warn PM on RFC-003 < 95%
+        if: ${{ fromJson(steps.shadow.outputs.rfc003) < 95 }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          npm run report-to-pm -- \
+            --priority WARN \
+            --metric "RFC-003.correctRate=${{ steps.shadow.outputs.rfc003 }}%" \
+            --actions-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
