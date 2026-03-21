@@ -49,6 +49,7 @@ export function compileToBuildReport(r: CompileResult): BuildReport {
     parserErrors: r.parserErrors,
     compilerErrors: r.compilerErrors,
     semanticErrors: r.semanticErrors ?? [],
+    semanticErrorCount: (r.semanticErrors ?? []).length,
     bytecode: r.module ?? null,
     compilerSuccess: r.compilerSuccess,
     durationMs: r.durationMs,
@@ -153,7 +154,19 @@ export async function runPipeline(
           log.info('qualityScore in [0.5, 0.7) — partial_success, no repair');
           source = lastSource;
           const result = finish('partial');
-          await saveTrace({ runId, status: result.status, task, modelId, intent, spec, source, buildReport, goldenReport, repairAttempts });
+          await saveTrace({
+            runId,
+            status: result.status,
+            task,
+            modelId,
+            intent,
+            spec,
+            source,
+            buildReport,
+            goldenReport,
+            repairAttempts,
+            semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+          });
           return result;
         }
         log.warn(`gate G3 FAIL (attempt ${loop + 1})`, g3.failedChecks);
@@ -167,14 +180,33 @@ export async function runPipeline(
       log.info('gate G3 passed — pipeline complete');
       source = lastSource;
 
-      // Если golden прошёл, но есть blocking semantic errors — только partial
-      const hasSemErrors = hasBlockingSemanticErrors(buildReport);
-      if (hasSemErrors) {
-        log.warn('gate G3 passed but blocking semantic errors present → partial');
+      const blockingSemErrors = hasBlockingSemanticErrors(buildReport);
+      const anySemErrors = (buildReport?.semanticErrors ?? []).length > 0;
+      if (blockingSemErrors) {
+        log.warn('gate G3 passed but BLOCKING semantic errors present → partial');
       }
-      const finalStatus = goldenReport.passed && !hasSemErrors ? 'success' : 'partial';
+      if (!blockingSemErrors && anySemErrors) {
+        log.info(
+          `gate G3 passed with ${buildReport!.semanticErrors!.length} non-blocking semantic errors → success allowed`,
+        );
+      }
+      // success только если: golden passed + нет blocking sem errors
+      // non-blocking sem errors не блокируют success (по дизайну языка)
+      const finalStatus = goldenReport.passed && !blockingSemErrors ? 'success' : 'partial';
       const result = finish(finalStatus);
-      await saveTrace({ runId, status: result.status, task, modelId, intent, spec, source, buildReport, goldenReport, repairAttempts });
+      await saveTrace({
+        runId,
+        status: result.status,
+        task,
+        modelId,
+        intent,
+        spec,
+        source,
+        buildReport,
+        goldenReport,
+        repairAttempts,
+        semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+      });
       return result;
     }
 

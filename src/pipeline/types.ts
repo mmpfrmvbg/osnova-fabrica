@@ -86,6 +86,8 @@ export interface BuildReport {
   readonly parserErrors: readonly ParserError[];
   readonly compilerErrors: readonly CompilerError[];
   readonly semanticErrors?: readonly import('../compiler/semantic').SemanticError[];
+  /** Всего семантических ошибок (blocking + non-blocking), для трейсов и аналитики */
+  readonly semanticErrorCount?: number;
   readonly bytecode: unknown | null;  // OsvbcModule JSON
   readonly compilerSuccess: boolean;
   readonly durationMs: number;

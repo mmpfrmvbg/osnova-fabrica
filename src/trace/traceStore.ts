@@ -119,6 +119,7 @@ const BuildReportSchema = z
     parserErrors: z.array(ParserErrorSchema),
     compilerErrors: z.array(CompilerErrorSchema),
     semanticErrors: z.array(SemanticErrorSchema).optional(),
+    semanticErrorCount: z.number().int().min(0).optional(),
     bytecode: z.unknown().nullable(),
     compilerSuccess: z.boolean(),
     durationMs: z.number(),
@@ -148,6 +149,7 @@ export const TraceEntrySchema = z.object({
   buildReport: BuildReportSchema.optional(),
   goldenReport: GoldenReportSchema.optional(),
   repairAttempts: z.number().int().min(0),
+  semanticErrorCount: z.number().int().min(0).optional(),
 });
 
 export type TraceEntryParsed = z.infer<typeof TraceEntrySchema>;
@@ -168,6 +170,7 @@ export async function saveTrace(data: {
   buildReport?: BuildReport;
   goldenReport?: GoldenReport;
   repairAttempts: number;
+  semanticErrorCount?: number;
 }): Promise<void> {
   const entry: TraceEntry = {
     ...data,

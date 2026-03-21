@@ -26,4 +26,6 @@ export interface TraceEntry {
   readonly buildReport?: BuildReport;
   readonly goldenReport?: GoldenReport;
   readonly repairAttempts: number;
+  /** Всего семантических ошибок в build (A-3) */
+  readonly semanticErrorCount?: number;
 }
