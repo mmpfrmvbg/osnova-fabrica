@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import { passesPrefilter, type RawItem } from './prefilter';
 import { summarizeItem } from './summarizer';
 import { upsertSignal, type IntelligenceSignal } from './store';
+import { fetchRssGeneric } from './sources/rss-generic';
 
 // ── HTTP хелпер (переиспользуем паттерн из hh.ts) ────────
 
@@ -120,10 +121,8 @@ async function fetchGithubReleases(): Promise<RawItem[]> {
 
 // ── Заглушки ──────────────────────────────────────────────
 
-async function fetchRss(_feedUrl: string): Promise<RawItem[]> {
-  // TODO: реализовать RSS-парсер
-  console.log('[collector:rss] TODO — не реализован');
-  return [];
+async function fetchRss(feedUrl: string): Promise<RawItem[]> {
+  return fetchRssGeneric(feedUrl);
 }
 
 async function fetchHuggingface(): Promise<RawItem[]> {
@@ -148,7 +147,14 @@ export async function runCollector(opts: CollectorOptions = {}): Promise<Intelli
   const sources: Array<{ name: string; fetch: () => Promise<RawItem[]> }> = [
     { name: 'arxiv', fetch: fetchArxiv },
     { name: 'github-releases', fetch: fetchGithubReleases },
-    { name: 'rss-generic', fetch: () => fetchRss('') },
+    {
+      name: 'rss-habr',
+      fetch: () => fetchRss('https://habr.com/ru/rss/hubs/programming/all/'),
+    },
+    {
+      name: 'rss-3dnews',
+      fetch: () => fetchRss('https://3dnews.ru/software-news/rss/'),
+    },
     { name: 'huggingface', fetch: fetchHuggingface },
   ];
 
