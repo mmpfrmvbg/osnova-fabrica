@@ -1,0 +1,49 @@
+name: Steward on Change
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'docs/**'
+      - 'docs/golden-tests.json'
+
+jobs:
+  golden-gate:
+    name: Golden Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run golden tests
+        run: npm run golden
+
+  language-surface:
+    name: Language Surface Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Detect changed files
+        id: changed
+        uses: tj-actions/changed-files@v44
+        with:
+          files: |
+            src/compiler/**
+            docs/language-v1.md
+            docs/golden-tests.json
+            src/pipeline-llm/buildOsnovaPrompt.ts
+      - name: Analyze language health (if language files changed)
+        if: steps.changed.outputs.any_changed == 'true'
+        run: npm run analyze-language-health -- --input runs/traces.jsonl || true
+      - name: Typecheck
+        run: npm run typecheck
