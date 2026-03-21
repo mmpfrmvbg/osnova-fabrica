@@ -48,7 +48,7 @@ export async function saveTrace(data: {
 
   const r = TraceEntrySchema.safeParse(entry);
   if (!r.success) {
-    console.warn('[traceStore] невалидная запись:', r.error.errors);
+    console.warn('[traceStore] невалидная запись:', r.error.issues);
     return;
   }
 
