@@ -11,6 +11,7 @@ import type { OsnovaSpec, OsnovaSource } from '../pipeline/types';
 import { buildOsnovaPrompt, assertFewShotNotEmpty } from '../pipeline-llm/buildOsnovaPrompt';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
+import { logLlmUsage } from '../lib/usage-logger';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -215,6 +216,7 @@ export class OsnovaCodegenAgent {
     const specPrompt = buildOsnovaPrompt(JSON.stringify(spec, null, 2));
 
     let response;
+    const t0 = Date.now();
     try {
       response = await provider.complete({
         model,
@@ -234,6 +236,18 @@ export class OsnovaCodegenAgent {
     } catch (err) {
       throw wrapLlmError(err, 'OsnovaCodegen.generate', { model });
     }
+
+    logLlmUsage({
+      timestamp: new Date().toISOString(),
+      role: 'OsnovaCodegen',
+      model,
+      tokenUsage: {
+        prompt:     response.tokensUsed?.prompt     ?? 0,
+        completion: response.tokensUsed?.completion ?? 0,
+        total:      response.tokensUsed?.total      ?? 0,
+      },
+      durationMs: Date.now() - t0,
+    });
 
     const source = stripMarkdownFence(response.content);
 

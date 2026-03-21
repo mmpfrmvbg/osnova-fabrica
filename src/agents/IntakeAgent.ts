@@ -10,6 +10,7 @@ import { getLLMProvider } from '../llm/index';
 import type { RawText, OsnovaIntent, OsnovaSpec, AppType } from '../pipeline/types';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
+import { logLlmUsage } from '../lib/usage-logger';
 import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
 
 const log = logger('intake-agent');
@@ -85,6 +86,7 @@ export class IntakeAgent {
     log.debug('parseIntent', { model });
 
     let response;
+    const t0 = Date.now();
     try {
       response = await provider.complete({
         model,
@@ -118,6 +120,18 @@ export class IntakeAgent {
     } catch (err) {
       throw wrapLlmError(err, 'IntakeAgent.parseIntent', { model });
     }
+
+    logLlmUsage({
+      timestamp: new Date().toISOString(),
+      role: 'IntakeAgent',
+      model,
+      tokenUsage: {
+        prompt:     response.tokensUsed?.prompt     ?? 0,
+        completion: response.tokensUsed?.completion ?? 0,
+        total:      response.tokensUsed?.total      ?? 0,
+      },
+      durationMs: Date.now() - t0,
+    });
 
     let parsed: Record<string, unknown>;
     try {
@@ -154,6 +168,7 @@ export class IntakeAgent {
     log.debug('generateSpec', { model, intentId: intent.intentId });
 
     let response;
+    const t0 = Date.now();
     try {
       response = await provider.complete({
         model,
@@ -177,6 +192,18 @@ export class IntakeAgent {
     } catch (err) {
       throw wrapLlmError(err, 'IntakeAgent.generateSpec', { model });
     }
+
+    logLlmUsage({
+      timestamp: new Date().toISOString(),
+      role: 'IntakeAgent',
+      model,
+      tokenUsage: {
+        prompt:     response.tokensUsed?.prompt     ?? 0,
+        completion: response.tokensUsed?.completion ?? 0,
+        total:      response.tokensUsed?.total      ?? 0,
+      },
+      durationMs: Date.now() - t0,
+    });
 
     let parsed: Record<string, unknown>;
     try {
