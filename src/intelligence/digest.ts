@@ -3,8 +3,10 @@
 // Запуск: npm run intelligence-digest [-- --no-telegram] [--top N]
 
 import * as https from 'https';
+import * as path from 'path';
 import { readSignals, type IntelligenceSignal } from './store';
 import { runLifecycle } from './lifecycle';
+import { computeExtendedHealthMetrics } from '../tools/health-metrics-extended';
 
 // ── Формирование дайджеста ────────────────────────────────
 
@@ -46,6 +48,36 @@ export function buildDigestMessage(
   }
 
   return lines.join('\n');
+}
+
+/** Формирует блок здоровья языка из extended metrics.
+ *  Возвращает null если метрики недоступны. */
+export function buildHealthBlock(): string | null {
+  try {
+    const m = computeExtendedHealthMetrics(
+      path.resolve('runs', 'traces.jsonl'),
+      path.resolve('runs', 'shadow-report.jsonl'),
+    );
+    if (m.total === 0) return null;
+
+    const pct = (v: number | null) =>
+      v === null ? 'n/a' : `${(v * 100).toFixed(1)}%`;
+    const icon = (v: number | null, threshold: number, higherIsBetter: boolean) => {
+      if (v === null) return '⚪';
+      return higherIsBetter ? (v >= threshold ? '🟢' : '🔴') : v < threshold ? '🟢' : '🔴';
+    };
+
+    const lines = [
+      '📊 <b>Здоровье языка (snapshot)</b>',
+      `teachability:           ${pct(m.teachability_score)}`,
+      `sentinel_rate:          ${pct(m.sentinel_rate)} ${icon(m.sentinel_rate, 0.05, false)}`,
+      `invented_syntax_rate:   ${pct(m.invented_syntax_rate)} ${icon(m.invented_syntax_rate, 0.01, false)}`,
+      `RFC-002: ${pct(m.shadow_rfc002_correct_rate)}  /  RFC-003: ${pct(m.shadow_rfc003_correct_rate)}`,
+    ];
+    return lines.join('\n');
+  } catch {
+    return null;
+  }
 }
 
 // ── Telegram ──────────────────────────────────────────────
@@ -115,7 +147,9 @@ async function main(): Promise<void> {
   const signals = readSignals();
   const top = selectTopSignals(signals, topN);
   const date = new Date().toISOString().slice(0, 10);
-  const message = buildDigestMessage(top, date);
+  const healthBlock = buildHealthBlock();
+  const signalsPart = buildDigestMessage(top, date);
+  const message = healthBlock ? `${healthBlock}\n\n${signalsPart}` : signalsPart;
 
   console.log(message);
   console.log(`\n[digest] Сигналов в дайджесте: ${top.length}`);
