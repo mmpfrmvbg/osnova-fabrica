@@ -5,6 +5,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { z } from 'zod';
 import type { TraceEntry } from './types';
 import type {
   OsnovaIntent,
@@ -14,6 +15,14 @@ import type {
   GoldenReport,
   PipelineStatus,
 } from '../pipeline/types';
+
+const TraceEntrySchema = z.object({
+  runId: z.string(),
+  timestamp: z.string(),
+  status: z.enum(['success', 'partial', 'failure', 'repair_exhausted']),
+  task: z.string(),
+  repairAttempts: z.number(),
+});
 
 function getTracePath(): string {
   const db = process.env.OSNOVA_TRACE_DB ?? './runs/traces.jsonl';
@@ -36,6 +45,12 @@ export async function saveTrace(data: {
     ...data,
     timestamp: new Date().toISOString(),
   };
+
+  const r = TraceEntrySchema.safeParse(entry);
+  if (!r.success) {
+    console.warn('[traceStore] невалидная запись:', r.error.errors);
+    return;
+  }
 
   const tracePath = getTracePath();
   const dir = path.dirname(tracePath);
