@@ -39,7 +39,9 @@
     "report-to-pm": "npx tsx scripts/report-to-pm.ts",
     "weekly-health-diff": "npx tsx src/tools/weekly-health-diff.ts",
     "weekly-health-diff:notg": "npx tsx src/tools/weekly-health-diff.ts --no-telegram",
-    "cvt-snapshot": "tsx src/intelligence/sources/hh.ts"
+    "cvt-snapshot": "tsx src/intelligence/sources/hh.ts",
+    "cvt-weekly-report": "npx tsx src/intelligence/sources/cvt-weekly.ts",
+    "cvt-weekly-report:notg": "npx tsx src/intelligence/sources/cvt-weekly.ts --no-telegram --no-fetch"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
