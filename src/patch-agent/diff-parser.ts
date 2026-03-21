@@ -1,22 +1,20 @@
+import * as fss from 'fs'
+
 export function extractDiff(qwenResponse: string): string {
-  const response = qwenResponse.replace(/\r\n/g, '\n')
-
-  // вариант 1: ```diff ... ```
-  const fenced = response.match(/```diff\s*\n([\s\S]*?)```/)
-  if (fenced) return validateNonEmpty(fenced[1].trim())
-
-  // вариант 2: сырой unified diff
-  const rawMatch = response.match(/(--- a\/.+[\s\S]*)$/)
-  if (rawMatch) return validateNonEmpty(rawMatch[1].trim())
-
-  throw new Error(
-    `Не удалось извлечь diff из ответа Qwen:\n${response.slice(0, 500)}`
-  )
+  fss.writeFileSync('last-raw.txt', qwenResponse, 'utf8')
+  const s = qwenResponse.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+  const f = s.match(/```diff\s*\n([\s\S]*?)```/)
+  if (f) return save(f[1].trim())
+  const m = s.match(/^(?:diff\s*\n)?(---[\s\S]+)/)
+  if (m) return save(m[1].trim())
+  fss.writeFileSync('last-diff.txt', 'No diff found in:\n' + s.slice(0, 800), 'utf8')
+  throw new Error('No diff found:\n' + s.slice(0, 400))
 }
 
-function validateNonEmpty(diff: string): string {
-  if (!diff || !diff.includes('@@')) {
-    throw new Error(`Diff пустой или не содержит hunks (@@): "${diff.slice(0, 200)}"`)
-  }
-  return diff
+function save(diff: string): string {
+  let lf = diff.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  if (!lf.endsWith('\n')) lf = lf + '\n'
+  fss.writeFileSync('last-diff.txt', lf, 'utf8')
+  if (!lf.includes('@@')) throw new Error('No hunks: ' + lf.slice(0, 200))
+  return lf
 }

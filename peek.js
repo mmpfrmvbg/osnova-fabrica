@@ -1,0 +1,1 @@
+﻿const d=require("fs").readFileSync("qwen-out.json","utf8");const i=d.indexOf(String.fromCharCode(34)+"type"+String.fromCharCode(34)+":"+String.fromCharCode(34)+"result"+String.fromCharCode(34));console.log(d.slice(i-1,i+600))

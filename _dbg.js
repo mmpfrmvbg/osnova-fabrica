@@ -1,0 +1,1 @@
+﻿var fs=require("fs");var c=fs.readFileSync("src/patch-agent/diff-parser.ts","utf8").replace("const response = qwenResponse.replace","console.log(\"QWEN RAW:\",qwenResponse.slice(0,1000));\n  const response = qwenResponse.replace");fs.writeFileSync("src/patch-agent/diff-parser.ts",c);console.log("OK");
