@@ -4,6 +4,18 @@
 Версия языка здесь — логический уровень фич, не номер npm‑пакета.
 
 ---
+### [v1.8.0] — прервать (break из цикла)
+
+**Дата:** 2026-03-22
+**Статус:** реализована в компиляторе, golden-тест пройден.
+
+- feat: конструкция `прервать` — немедленный выход из `пока`/`цикл`
+- impl: lexer (TokenKind), ast (Stmt), parser (parseStmt), codegen (breakTargets-стек + jmp patchExit)
+- registry: ConstructId "break", KeywordSpec since 1.8.0
+- test: golden-тест `break_from_while` (счётчик 0→10, прервать при == 3, expected_return: 3)
+
+---
+
 ### [v1.7.0] — Сеть, JSON, ввод пользователя
 
 **Дата:** 2026-03-22
