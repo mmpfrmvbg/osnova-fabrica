@@ -6,7 +6,9 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "db:smoke": "tsx src/db/smoke-test.ts"
   },
   "dependencies": {
     "grammy": "^1.26.0",

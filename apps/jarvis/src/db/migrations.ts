@@ -1,39 +1,42 @@
 // apps/jarvis/src/db/migrations.ts
-// Применяет schema.sql к SQLite БД через better-sqlite3.
-// TODO: установить better-sqlite3 в apps/jarvis/
+// Применяет schema.sql через better-sqlite3.
+// Экспортирует getDb() для использования в memory-engine.
 
 import * as fs from 'fs';
 import * as path from 'path';
+import BetterSqlite3 from 'better-sqlite3';
 
-// Lazy import: better-sqlite3 не установлен до npm install в apps/jarvis/
-type BetterSqlite3Database = {
-  exec(sql: string): void;
-  prepare(sql: string): { run(...args: unknown[]): unknown };
-};
+type SqliteDatabase = InstanceType<typeof BetterSqlite3>;
 
-let _db: BetterSqlite3Database | null = null;
+const DB_PATH = process.env.JARVIS_DB_PATH
+  ? path.resolve(process.env.JARVIS_DB_PATH)
+  : path.resolve(__dirname, '..', '..', 'jarvis.db');
 
-function getDb(): BetterSqlite3Database {
+let _db: SqliteDatabase | null = null;
+let _schemaApplied = false;
+
+export function getDb(): SqliteDatabase {
   if (_db) return _db;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const Database = require('better-sqlite3') as new (
-    path: string,
-    opts?: object,
-  ) => BetterSqlite3Database;
-  const dbPath = path.resolve(__dirname, '..', '..', 'data', 'jarvis.db');
-  const dir = path.dirname(dbPath);
+  const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  _db = new Database(dbPath);
+  _db = new BetterSqlite3(DB_PATH);
+  _db.pragma('journal_mode = WAL');
   return _db;
 }
 
-/**
- * Применяет schema.sql к БД.
- * Идемпотентна — использует IF NOT EXISTS.
- */
 export function migrate(): void {
+  if (_schemaApplied) return;
   const schemaPath = path.resolve(__dirname, 'schema.sql');
   const sql = fs.readFileSync(schemaPath, 'utf-8');
   getDb().exec(sql);
-  console.log('[jarvis:migrate] schema applied');
+  _schemaApplied = true;
+  console.log('[jarvis:migrate] schema applied →', DB_PATH);
+}
+
+export function closeDb(): void {
+  if (_db) {
+    _db.close();
+    _db = null;
+  }
+  _schemaApplied = false;
 }

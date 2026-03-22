@@ -58,3 +58,8 @@ center-err.txt
 # Extra batch task files
 src/scripts/batch-tasks-*.txt
 !src/scripts/batch-tasks.txt
+
+# Jarvis app (apps/jarvis)
+apps/jarvis/jarvis.db
+apps/jarvis/node_modules/
+apps/jarvis/.env
