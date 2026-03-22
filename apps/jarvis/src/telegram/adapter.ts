@@ -30,11 +30,27 @@ function getDbPath(): string {
     : path.resolve('jarvis.db');
 }
 
+/** Ограничение по владельцу только если JARVIS_OWNER_ID задан и не 0. */
+function ownerRestrictionActive(): boolean {
+  const raw = process.env.JARVIS_OWNER_ID;
+  if (raw === undefined || raw.trim() === '') return false;
+  const n = Number(raw.trim());
+  if (!Number.isFinite(n) || n === 0) return false;
+  return true;
+}
+
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
 
   // Применить миграции при старте
   migrate();
+
+  bot.use(async (ctx, next) => {
+    if (!ownerRestrictionActive()) return next();
+    const ownerId = Number(process.env.JARVIS_OWNER_ID);
+    if (ctx.from?.id !== ownerId) return;
+    return next();
+  });
 
   bot.command('ping', async (ctx) => {
     const count = getMessageCount();
@@ -96,8 +112,45 @@ export function createBot(token: string): Bot {
   });
 
   bot.catch((err) => {
-    console.error('[jarvis:bot] error:', err);
+    console.error('[jarvis:bot error]', err);
   });
 
+  return bot;
+}
+
+/**
+ * Запускает long polling. В grammY `await bot.start()` не завершится, пока бот
+ * не остановлен (внутри `await loop`). Ждём только `onStart`, затем возвращаем
+ * `bot`; опрос идёт в фоне. Ошибки до onStart — через reject; после — лог + exit.
+ */
+export async function startBot(token: string): Promise<Bot> {
+  const bot = createBot(token);
+  let ready = false;
+  let resolveReady!: () => void;
+  let rejectReady!: (e: unknown) => void;
+  const untilReady = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+
+  void bot
+    .start({
+      onStart: (info) => {
+        console.log(`[jarvis] session @${info.username}`);
+        if (!ready) {
+          ready = true;
+          resolveReady();
+        }
+      },
+    })
+    .catch((err: unknown) => {
+      if (!ready) rejectReady(err);
+      else {
+        console.error('[jarvis:fatal]', err);
+        process.exit(1);
+      }
+    });
+
+  await untilReady;
   return bot;
 }
