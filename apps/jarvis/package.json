@@ -10,17 +10,23 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
+    "jarvis:http": "cross-env TRANSPORT=http tsx src/index.ts",
+    "jarvis:tunnel": "cross-env TRANSPORT=http USE_TUNNEL=true tsx src/index.ts",
+    "jarvis:telegram": "cross-env TRANSPORT=telegram tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "db:smoke": "tsx src/db/smoke-test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "dotenv": "^16.6.1",
+    "express": "^4.18.2",
     "grammy": "^1.26.0",
     "tsx": "^4.7.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
+    "@types/express": "^4.17.21",
+    "cross-env": "^7.0.3",
     "@types/node": "^20.11.0",
     "typescript": "^5.3.3"
   }

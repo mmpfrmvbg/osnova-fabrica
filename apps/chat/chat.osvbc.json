@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "moduleName": "чат",
+  "constants": [
+    "http://localhost:3000/chat",
+    "android-user",
+    "Чат запущен",
+    "Подключение к Jarvis: http://localhost:3000"
+  ],
+  "procedures": [
+    {
+      "name": "главная",
+      "codeOffset": 0,
+      "argc": 0,
+      "localsCount": 2
+    }
+  ],
+  "code": [
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.set",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 1
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "ret"
+    }
+  ]
+}

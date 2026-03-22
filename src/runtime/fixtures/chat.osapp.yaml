@@ -1,0 +1,21 @@
+id: "osnova.chat"
+name: "Чат с Jarvis"
+version: "0.1.0"
+
+entry:
+  module: "chat"
+  procedure: "главная"
+  args: []
+
+category: "communication"
+
+ui:
+  kind: "service"
+  single_instance: true
+
+permissions:
+  network:
+    outbound: true
+
+runtime:
+  min_osnova_version: "0.1.0"

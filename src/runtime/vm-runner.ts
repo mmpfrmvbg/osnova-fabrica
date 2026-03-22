@@ -150,6 +150,114 @@ function createInvokeHandler(
         }
       }
 
+      case "система.сеть.получить": {
+        if (!sandbox.allowNetwork) throw new SandboxError("Network not allowed");
+        const url = String(args[0] ?? "");
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30_000);
+        try {
+          const res = await fetch(url, { method: "GET", signal: controller.signal });
+          const text = await res.text();
+          if (!res.ok) throw new SandboxError(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+          return text;
+        } catch (e) {
+          if (e instanceof SandboxError) throw e;
+          throw new SandboxError(`Network error: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
+      case "система.сеть.пост": {
+        if (!sandbox.allowNetwork) throw new SandboxError("Network not allowed");
+        const url = String(args[0] ?? "");
+        const body = String(args[1] ?? "");
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30_000);
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+            body,
+            signal: controller.signal,
+          });
+          const text = await res.text();
+          if (!res.ok) throw new SandboxError(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+          return text;
+        } catch (e) {
+          if (e instanceof SandboxError) throw e;
+          throw new SandboxError(`Network error: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
+      case "система.json.создать": {
+        try {
+          return JSON.stringify(args[0] ?? null);
+        } catch (e) {
+          throw new SandboxError(`JSON serialize error: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      case "система.json.разобрать": {
+        const raw = String(args[0] ?? "");
+        try {
+          return JSON.parse(raw) as StackValue;
+        } catch (e) {
+          throw new SandboxError(`JSON parse error: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      case "система.ввод.текст": {
+        const prompt = String(args[0] ?? "");
+        const inputMode = process.env.OSNOVA_INPUT_MODE ?? "stdin";
+
+        if (inputMode === "storage") {
+          // Android/Termux: UI-слой пишет текст в хранилище по ключу __ввод__
+          // VM полит каждые 100мс до появления значения, затем очищает ключ
+          const POLL_INTERVAL_MS = 100;
+          const POLL_TIMEOUT_MS = 60_000;
+          if (prompt) process.stdout.write(prompt);
+          const deadline = Date.now() + POLL_TIMEOUT_MS;
+          while (Date.now() < deadline) {
+            const val = await storage.storageRead(
+              appContext.storageRoot,
+              appContext.appId,
+              "__ввод__"
+            );
+            if (val !== null && val !== "") {
+              await storage.storageDelete(
+                appContext.storageRoot,
+                appContext.appId,
+                "__ввод__"
+              );
+              return val;
+            }
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+          }
+          throw new SandboxError("система.ввод.текст: timeout waiting for storage input");
+        }
+
+        // stdin-режим (CLI по умолчанию)
+        if (prompt) process.stdout.write(prompt);
+        const buf = Buffer.alloc(1024);
+        let line = "";
+        try {
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const n = (await import("fs")).default.readSync(0, buf, 0, 1, null);
+            if (n === 0) break;
+            const ch = buf.toString("utf8", 0, n);
+            if (ch === "\n") break;
+            line += ch;
+          }
+        } catch {
+          // stdin недоступен (тест/pipe) — вернуть пустую строку
+        }
+        return line.replace(/\r$/, "");
+      }
+
       case "система.окно.создать_окно": {
         const title = String(args[0] ?? "");
         const width = Number(args[1]) || 400;
