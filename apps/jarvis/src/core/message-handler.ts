@@ -15,6 +15,40 @@ const SYSTEM_PROMPT =
   'Ты — Jarvis, персональный AI-ассистент. Отвечай кратко и по делу. ' +
   'Помни контекст разговора.';
 
+// ── Intent detection ───────────────────────────────────────────────────────
+
+function detectIntent(
+  text: string,
+): { type: 'add_task'; title: string }
+  | { type: 'list_tasks' }
+  | { type: 'complete_task'; num: number }
+  | null {
+  let m: RegExpMatchArray | null;
+
+  m = text.match(/добавь задачу\s+(.+)/i)
+    ?? text.match(/нужно сделать\s+(.+)/i)
+    ?? text.match(/запомни\s+(.+?)\s+нужно сделать/i);
+  if (m) return { type: 'add_task', title: m[1].trim() };
+
+  if (/покажи задачи|мои задачи|что нужно сделать/i.test(text)) {
+    return { type: 'list_tasks' };
+  }
+
+  m = text.match(/выполнено\s+(\d+)/i)
+    ?? text.match(/закрой задачу\s+(\d+)/i)
+    ?? text.match(/сделал\s+(\d+)/i);
+  if (m) return { type: 'complete_task', num: parseInt(m[1], 10) };
+
+  return null;
+}
+
+function formatTaskList(tasks: memory.Task[]): string {
+  if (tasks.length === 0) return 'Открытых задач нет.';
+  return tasks.map((t, i) => `${i + 1}. [#${t.id}] ${t.title}`).join('\n');
+}
+
+// ── Суммаризация ───────────────────────────────────────────────────────────
+
 async function maybeSummarize(userId: string): Promise<void> {
   try {
     const count = memory.countUserMessages(userId);
@@ -24,8 +58,7 @@ async function maybeSummarize(userId: string): Promise<void> {
     const result = await callLlm([
       {
         role: 'system',
-        content:
-          'Ты — помощник по суммаризации диалогов. Отвечай только текстом резюме.',
+        content: 'Ты — помощник по суммаризации диалогов. Отвечай только текстом резюме.',
       },
       {
         role: 'user',
@@ -50,24 +83,74 @@ async function maybeSummarize(userId: string): Promise<void> {
   }
 }
 
+// ── Main handler ───────────────────────────────────────────────────────────
+
 export async function handleMessage(
   message: IncomingMessage,
   _mode: JarvisMode = 'chat',
 ): Promise<HandleResult> {
-  // 1. Загрузить последний summary для контекста
-  const summary = await memory.getLatestSummaryByUser(message.userId);
+  const userId = message.userId;
+  const intent = detectIntent(message.text);
 
-  // 2. Загрузить последние 20 сообщений
-  const recent = await memory.getRecentMessages(message.userId, 20);
+  // ── Structured intents (no LLM needed) ──────────────────────────────────
+  if (intent?.type === 'add_task') {
+    const task = memory.addTask(userId, intent.title);
+    return {
+      reply: `Задача добавлена: #${task.id} ${task.title}`,
+      mode: _mode,
+      trackedFacts: 0,
+      trackedTasks: 1,
+    };
+  }
 
-  // 3. Собрать messages[] для LLM
+  if (intent?.type === 'list_tasks') {
+    const tasks = memory.getTasks(userId, 'open');
+    return {
+      reply: formatTaskList(tasks),
+      mode: _mode,
+      trackedFacts: 0,
+      trackedTasks: tasks.length,
+    };
+  }
+
+  if (intent?.type === 'complete_task') {
+    // num — это порядковый номер из списка, нужно найти реальный id
+    const tasks = memory.getTasks(userId, 'open');
+    const task = tasks[intent.num - 1];
+    if (!task) {
+      return {
+        reply: `Задача #${intent.num} не найдена. Используй "мои задачи" чтобы увидеть список.`,
+        mode: _mode,
+        trackedFacts: 0,
+        trackedTasks: 0,
+      };
+    }
+    memory.completeTask(userId, task.id);
+    return {
+      reply: `Задача выполнена: ${task.title}`,
+      mode: _mode,
+      trackedFacts: 0,
+      trackedTasks: 1,
+    };
+  }
+
+  // ── LLM path ────────────────────────────────────────────────────────────
+
+  // Контекст: summary + открытые задачи в системный промпт
+  const summary = await memory.getLatestSummaryByUser(userId);
+  const openTasks = memory.getTasks(userId, 'open');
+  const taskContext = openTasks.length > 0
+    ? `\nОткрытые задачи:\n${formatTaskList(openTasks)}`
+    : '\nОткрытых задач нет.';
+
+  const recent = await memory.getRecentMessages(userId, 20);
   const history: ChatMessage[] = recent
     .slice()
     .reverse()
     .map((r) => ({ role: r.role as ChatMessage['role'], content: r.text }));
 
   const messages: ChatMessage[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: SYSTEM_PROMPT + taskContext },
     ...(summary
       ? [{ role: 'system' as const, content: `Контекст предыдущих разговоров: ${summary.text}` }]
       : []),
@@ -75,10 +158,9 @@ export async function handleMessage(
     { role: 'user', content: message.text },
   ];
 
-  // 4. Сохранить входящее сообщение
   await memory.saveMessage({
-    userId: message.userId,
-    chatId: message.chatId ?? message.userId,
+    userId,
+    chatId: message.chatId ?? userId,
     messageId: message.id,
     role: 'user',
     text: message.text,
@@ -89,7 +171,6 @@ export async function handleMessage(
     rawJson: null,
   });
 
-  // 5. Вызвать LLM
   let reply: string;
   try {
     const result = await callLlm(messages, _mode);
@@ -100,10 +181,9 @@ export async function handleMessage(
     reply = `[ошибка LLM] ${msg}`;
   }
 
-  // 6. Сохранить ответ
   await memory.saveMessage({
-    userId: message.userId,
-    chatId: message.chatId ?? message.userId,
+    userId,
+    chatId: message.chatId ?? userId,
     messageId: null,
     role: 'assistant',
     text: reply,
@@ -114,8 +194,7 @@ export async function handleMessage(
     rawJson: null,
   });
 
-  // 7. Суммаризация — асинхронно, не блокирует ответ
-  setImmediate(() => { void maybeSummarize(message.userId); });
+  setImmediate(() => { void maybeSummarize(userId); });
 
   return { reply, mode: _mode, trackedFacts: 0, trackedTasks: 0 };
 }

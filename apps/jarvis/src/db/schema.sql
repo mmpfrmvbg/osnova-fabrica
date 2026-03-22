@@ -47,3 +47,13 @@ CREATE TABLE IF NOT EXISTS task_links (
 
 CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts
   USING fts5(text, project, content='facts', content_rowid='id');
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     TEXT    NOT NULL,
+  title       TEXT    NOT NULL,
+  status      TEXT    NOT NULL DEFAULT 'open'
+                      CHECK(status IN ('open','done')),
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+  done_at     TEXT
+);

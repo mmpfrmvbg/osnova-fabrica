@@ -4,6 +4,15 @@
 import { getDb, migrate } from '../db/migrations';
 import type { MessageRecord, FactDraft, Fact, Summary } from '../types';
 
+export interface Task {
+  id: number;
+  userId: string;
+  title: string;
+  status: 'open' | 'done';
+  createdAt: string;
+  doneAt: string | null;
+}
+
 let _initialized = false;
 function ensureInit(): void {
   if (_initialized) return;
@@ -280,4 +289,52 @@ export async function getLatestSummaryByUser(
     )
     .get(userId) as Record<string, unknown> | undefined;
   return row ? rowToSummary(row) : null;
+}
+
+export function addTask(userId: string, title: string): Task {
+  ensureInit();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const r = db
+    .prepare(
+      `INSERT INTO tasks (user_id, title, status, created_at)
+       VALUES (?, ?, 'open', ?)`,
+    )
+    .run(userId, title, now);
+  return { id: Number(r.lastInsertRowid), userId, title, status: 'open', createdAt: now, doneAt: null };
+}
+
+export function getTasks(userId: string, status: 'open' | 'done' = 'open'): Task[] {
+  ensureInit();
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT * FROM tasks WHERE user_id = ? AND status = ?
+       ORDER BY created_at ASC`,
+    )
+    .all(userId, status) as Record<string, unknown>[];
+  return rows.map((r) => ({
+    id: r['id'] as number,
+    userId: r['user_id'] as string,
+    title: r['title'] as string,
+    status: r['status'] as 'open' | 'done',
+    createdAt: r['created_at'] as string,
+    doneAt: (r['done_at'] as string | null) ?? null,
+  }));
+}
+
+export function completeTask(userId: string, id: number): void {
+  ensureInit();
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE tasks SET status = 'done', done_at = ?
+     WHERE id = ? AND user_id = ?`,
+  ).run(now, id, userId);
+}
+
+export function deleteTask(userId: string, id: number): void {
+  ensureInit();
+  const db = getDb();
+  db.prepare(`DELETE FROM tasks WHERE id = ? AND user_id = ?`).run(id, userId);
 }
