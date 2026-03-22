@@ -239,3 +239,45 @@ export async function getLatestSummary(project: string, scope: string): Promise<
     .get(project, scope) as Record<string, unknown> | undefined;
   return row ? rowToSummary(row) : null;
 }
+
+export function countUserMessages(userId: string): number {
+  ensureInit();
+  const db = getDb();
+  const row = db
+    .prepare('SELECT COUNT(*) as cnt FROM messages WHERE user_id = ?')
+    .get(userId) as { cnt: number };
+  return row.cnt;
+}
+
+export function getMessagesForSummary(userId: string, limit = 50): string {
+  ensureInit();
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT role, text FROM messages
+       WHERE user_id = ?
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+    )
+    .all(userId, limit) as { role: string; text: string }[];
+  return rows
+    .reverse()
+    .map((r) => `${r.role === 'user' ? 'Пользователь' : 'Jarvis'}: ${r.text}`)
+    .join('\n');
+}
+
+export async function getLatestSummaryByUser(
+  userId: string,
+): Promise<Summary | null> {
+  ensureInit();
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT * FROM summaries
+       WHERE user_id = ?
+       ORDER BY generated_at DESC
+       LIMIT 1`,
+    )
+    .get(userId) as Record<string, unknown> | undefined;
+  return row ? rowToSummary(row) : null;
+}
