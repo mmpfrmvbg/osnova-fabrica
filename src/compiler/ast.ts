@@ -36,6 +36,7 @@ export type Stmt =
       collection: Expr;
     }
   | { kind: "цикл"; body: Stmt[] }
+  | { kind: "прервать" }
   | { kind: "вернуть"; value?: Expr };
 
 export interface Procedure {

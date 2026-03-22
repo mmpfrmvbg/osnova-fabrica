@@ -135,6 +135,7 @@ export function compile(ast: Module): OsVbcModule {
     const codeOffset = code.length;
     const locals = buildLocals(proc);
     const localsCount = Math.max(proc.params.length, locals.size);
+    const breakTargets: { patches: number[] }[] = [];
     let emitForCounter = 0;
     let emitArrLiteralCounter = 0;
 
@@ -351,6 +352,7 @@ export function compile(ast: Module): OsVbcModule {
           emit({ op: "throw" } as RawInstruction);
           break;
         case "пока": {
+          breakTargets.push({ patches: [] });
           const loopStart = code.length;
           emitExpr(s.condition, locals);
           const patchExit = code.length;
@@ -358,6 +360,8 @@ export function compile(ast: Module): OsVbcModule {
           for (const b of s.body) emitStmt(b);
           emit({ op: "jmp", off: loopStart } as RawInstruction);
           (code[patchExit] as { off: number }).off = code.length;
+          const bt = breakTargets.pop()!;
+          for (const p of bt.patches) (code[p] as { off: number }).off = code.length;
           break;
         }
         case "для_каждого": {
@@ -400,9 +404,19 @@ export function compile(ast: Module): OsVbcModule {
           break;
         }
         case "цикл": {
+          breakTargets.push({ patches: [] });
           const loopStart = code.length;
           for (const b of s.body) emitStmt(b);
           emit({ op: "jmp", off: loopStart } as RawInstruction);
+          const btCikl = breakTargets.pop()!;
+          for (const p of btCikl.patches) (code[p] as { off: number }).off = code.length;
+          break;
+        }
+        case "прервать": {
+          const target = breakTargets[breakTargets.length - 1];
+          if (!target) throw new Error("прервать вне цикла");
+          target.patches.push(code.length);
+          emit({ op: "jmp", off: 0 } as RawInstruction);
           break;
         }
         case "вернуть":

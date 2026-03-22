@@ -560,6 +560,17 @@
       "specSnippet": { "meta": { "name": "Чат", "type": "network" } },
       "expectCompiler": { "success": true },
       "expectKeywords": ["модуль", "процедура", "система.сеть.пост", "система.json.создать"]
+    },
+    {
+      "id": "break_from_while",
+      "description": "прервать выходит из пока при счётчик == 3",
+      "category": "control_flow",
+      "since": "1.8.0",
+      "source": "модуль Тест\nпроцедура главная()\n  пусть счёт = 0\n  пока счёт < 10\n    если счёт == 3\n      прервать\n    конец\n    счёт = счёт + 1\n  конец\n  вернуть счёт\nконец\nконец",
+      "expected_return": 3,
+      "status": "active",
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 3 }
     }
   ]
 }

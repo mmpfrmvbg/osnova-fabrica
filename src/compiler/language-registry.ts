@@ -38,6 +38,7 @@ export type ConstructId =
   | "for_each"
   | "for_each_indexed"
   | "loop"
+  | "break"
   | "return"
   | "proc_call"
   | "proc_call_recursive"
@@ -145,6 +146,8 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "или", kind: "expr", implemented: true, since: "0.1.0", description: "логическое ИЛИ, short-circuit" },
   { lexeme: "не", kind: "expr", implemented: true, since: "0.1.0", description: "логическое НЕ" },
   { lexeme: "тогда", kind: "stmt", implemented: true, since: "1.1.0", description: "опциональное слово после условия в если/иначе_если/пока" },
+  { lexeme: "прервать", kind: "stmt", implemented: true, since: "1.8.0",
+    description: "выход из текущего цикла пока/цикл" },
 ];
 
 /** Конструкции v0.1 с привязкой к AST и синтаксису. */
@@ -319,6 +322,20 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     since: "0.1.0",
     bytecodePattern: "loop: body; jmp loop",
     implemented: true,
+  },
+  {
+    id: "break",
+    syntax: "прервать",
+    example:
+      "пока истина\n  пусть ввод = система.ввод.текст(\"> \")\n  если ввод == \"/выход\"\n    прервать\n  конец\n  система.лог.вывести(ввод)\nконец",
+    astNode: {
+      kind: "прервать",
+      fields: [],
+    },
+    since: "1.8.0",
+    bytecodePattern: "jmp patchExit  // адрес сразу за телом цикла",
+    implemented: true,
+    description: "Немедленный выход из ближайшего охватывающего цикла пока или цикл",
   },
   {
     id: "return",
@@ -508,6 +525,9 @@ const SYSCALLS_V01: SyscallSpec[] = [
   { name: "система.строка.обрезать", argc: 1, status: "stable", description: "Удалить пробелы по краям строки", since: "0.1.0" },
   { name: "система.строка.заменить", argc: 3, status: "stable", description: "Заменить подстроку в строке", since: "0.1.0" },
   { name: "система.строка.разделить", argc: 2, status: "stable", description: "Разделить строку по разделителю", since: "0.1.0" },
+  { name: "система.строка.найти", argc: 2, status: "stable",
+    description: "Найти индекс первого вхождения подстроки; -1 если не найдено",
+    since: "1.7.0" },
   { name: "система.json.создать", argc: 1, status: "stable", description: "Сериализация значения в JSON-строку", since: "1.7.0" },
   { name: "система.json.разобрать", argc: 1, status: "stable", description: "Десериализация JSON-строки в значение", since: "1.7.0" },
   { name: "система.ввод.текст", argc: 1, status: "experimental", description: "Читает строку ввода от пользователя", since: "1.7.0" },
