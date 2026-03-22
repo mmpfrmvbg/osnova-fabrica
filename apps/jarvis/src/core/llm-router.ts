@@ -30,12 +30,20 @@ async function callQwenCli(messages: ChatMessage[]): Promise<LlmResponse> {
   const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
   const prompt = buildPrompt(messages);
 
-  const result = spawnSync('qwen', [prompt, '-y', '--output-format', 'text'], {
+  // На Windows .cmd-шимы не работают через spawnSync без shell.
+  // Вызываем cmd.exe /c явно — shell:false, инъекция через
+  // shell-интерпретатор исключена, cmd.exe получает промпт как
+  // отдельный аргумент argv (не через shell-конкатенацию).
+  const isWin = process.platform === 'win32';
+  const [cmd, args] = isWin
+    ? ['cmd.exe', ['/c', 'qwen', prompt, '-y', '--output-format', 'text']]
+    : ['qwen', [prompt, '-y', '--output-format', 'text']];
+
+  const result = spawnSync(cmd, args, {
     encoding: 'utf8',
     timeout: CLI_TIMEOUT_MS,
     windowsHide: true,
-    // Windows: npm global `qwen` is a .cmd shim; spawn без shell даёт EINVAL
-    shell: process.platform === 'win32',
+    shell: false,
   });
 
   if (result.error) {
