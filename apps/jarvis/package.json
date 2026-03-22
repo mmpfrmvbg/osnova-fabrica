@@ -11,8 +11,9 @@
     "db:smoke": "tsx src/db/smoke-test.ts"
   },
   "dependencies": {
-    "grammy": "^1.26.0",
     "better-sqlite3": "^9.4.3",
+    "dotenv": "^16.6.1",
+    "grammy": "^1.26.0",
     "tsx": "^4.7.0"
   },
   "devDependencies": {
