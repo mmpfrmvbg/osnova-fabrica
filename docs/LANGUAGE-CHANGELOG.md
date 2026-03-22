@@ -1,4 +1,4 @@
-﻿## Changelog языка «Основа»
+## Changelog языка «Основа»
 
 Формат: в духе [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), но кратко.  
 Версия языка здесь — логический уровень фич, не номер npm‑пакета.
@@ -76,6 +76,24 @@
 - feat: `выбросить <значение>`
 - feat: опкоды VM `try_begin / try_end / throw`
 - docs: `bytecode-v1.md` обновлён
+
+---
+
+### [v1.7.0] — Сеть, JSON, ввод пользователя
+
+**Дата:** 2026-03-22
+**Статус:** выпущена, реализована в реестре и документации.
+
+- feat: `система.сеть.получить(url)` (argc:1, stable) — HTTP GET
+- feat: `система.сеть.пост(url, тело)` (argc:2, stable) — HTTP POST
+- feat: `система.json.создать(значение)` (argc:1, stable) — сериализация в JSON
+- feat: `система.json.разобрать(строка)` (argc:1, stable) — десериализация из JSON
+- feat: `система.ввод.текст(подсказка)` (argc:1, experimental) — ввод пользователя
+- feat: Android-режим ввода: `OSNOVA_INPUT_MODE=storage` — polling ключа `__ввод__` из хранилища
+- docs: `docs/system-api-v1.md` — раздел 8 переписан (8.1 stable + 8.2 experimental)
+- docs: `docs/language-v1.md` — добавлены разделы JSON v1.7 и Ввод пользователя v1.7
+- docs: `docs/golden-app-chat.md` — создан golden-тест `osnova.chat_client`
+- test: `docs/golden-tests.json` — добавлен тест `osnova.chat_client` (category: network)
 
 ---
 
