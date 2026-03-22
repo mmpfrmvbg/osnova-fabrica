@@ -471,6 +471,8 @@ const SYSCALLS_V01: SyscallSpec[] = [
   { name: "система.хранилище.удалить", argc: 1, status: "stable", description: "Удалить значение по ключу", since: "0.1.0" },
   { name: "система.хранилище.ключи", argc: 0, status: "stable", description: "Получить список ключей хранилища", since: "0.1.0" },
   { name: "система.сеть.запрос", argc: 4, status: "experimental", description: "Выполнить сетевой HTTP-запрос", since: "0.1.0" },
+  { name: "система.сеть.получить", argc: 1, status: "stable", description: "HTTP GET-запрос, возвращает тело ответа", since: "1.7.0" },
+  { name: "система.сеть.пост", argc: 2, status: "stable", description: "HTTP POST-запрос с телом, возвращает тело ответа", since: "1.7.0" },
   { name: "система.окно.создать_окно", argc: 3, status: "experimental", description: "Создать окно интерфейса", since: "0.1.0" },
   { name: "система.окно.показать", argc: 1, status: "experimental", description: "Показать окно", since: "0.1.0" },
   { name: "система.окно.скрыть", argc: 1, status: "experimental", description: "Скрыть окно", since: "0.1.0" },
@@ -506,6 +508,9 @@ const SYSCALLS_V01: SyscallSpec[] = [
   { name: "система.строка.обрезать", argc: 1, status: "stable", description: "Удалить пробелы по краям строки", since: "0.1.0" },
   { name: "система.строка.заменить", argc: 3, status: "stable", description: "Заменить подстроку в строке", since: "0.1.0" },
   { name: "система.строка.разделить", argc: 2, status: "stable", description: "Разделить строку по разделителю", since: "0.1.0" },
+  { name: "система.json.создать", argc: 1, status: "stable", description: "Сериализация значения в JSON-строку", since: "1.7.0" },
+  { name: "система.json.разобрать", argc: 1, status: "stable", description: "Десериализация JSON-строки в значение", since: "1.7.0" },
+  { name: "система.ввод.текст", argc: 1, status: "experimental", description: "Читает строку ввода от пользователя", since: "1.7.0" },
 ];
 
 const LITERALS_V01: LiteralSpec[] = [

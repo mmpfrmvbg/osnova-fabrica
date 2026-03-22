@@ -551,6 +551,15 @@
       "specSnippet": { "meta": { "name": "ТудуЛист", "type": "cli" } },
       "expectCompiler": { "success": true },
       "expectKeywords": ["пусть", "система.массив.добавить"]
+    },
+    {
+      "id": "osnova.chat_client",
+      "description": "Чат-клиент: POST-запрос через система.сеть.пост и система.json.создать",
+      "category": "network",
+      "source": "модуль Чат\nпроцедура главная()\n  пусть сервер = \"https://example.com/chat\"\n  пусть тело = система.json.создать(\"привет\")\n  пусть ответ = система.сеть.пост(сервер, тело)\n  система.лог.вывести(ответ)\nконец\nконец",
+      "specSnippet": { "meta": { "name": "Чат", "type": "network" } },
+      "expectCompiler": { "success": true },
+      "expectKeywords": ["модуль", "процедура", "система.сеть.пост", "система.json.создать"]
     }
   ]
 }
