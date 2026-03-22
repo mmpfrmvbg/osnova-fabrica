@@ -136,7 +136,7 @@ export function compile(ast: Module): OsVbcModule {
     const locals = buildLocals(proc);
     const localsCount = Math.max(proc.params.length, locals.size);
     const breakTargets: { patches: number[] }[] = [];
-    const continueTargets: { loopStart: number }[] = [];
+    const continueTargets: { loopStart: number; foreachPatches?: number[] }[] = [];
     let emitForCounter = 0;
     let emitArrLiteralCounter = 0;
 
@@ -382,7 +382,9 @@ export function compile(ast: Module): OsVbcModule {
           const k0 = constIndex(0);
           emit({ op: "const", type: "i32", k: k0 } as RawInstruction);
           emit({ op: "local.set", i: idxSlot } as RawInstruction);
+          breakTargets.push({ patches: [] });
           const loopStart = code.length;
+          const continueStart = loopStart + 0; // адрес для продолжить = начало проверки idx < len
           emit({ op: "local.get", i: idxSlot } as RawInstruction);
           emit({ op: "local.get", i: lenSlot } as RawInstruction);
           emit({ op: "lt" } as RawInstruction);
@@ -396,7 +398,11 @@ export function compile(ast: Module): OsVbcModule {
             emit({ op: "local.get", i: idxSlot } as RawInstruction);
             emit({ op: "local.set", i: indexSlot } as RawInstruction);
           }
+          const foreachContinue = { loopStart: continueStart, foreachPatches: [] as number[] };
+          continueTargets.push(foreachContinue);
           for (const b of s.body) emitStmt(b);
+          const incStart = code.length;
+          for (const p of foreachContinue.foreachPatches) (code[p] as { off: number }).off = incStart;
           emit({ op: "local.get", i: idxSlot } as RawInstruction);
           const k1 = constIndex(1);
           emit({ op: "const", type: "i32", k: k1 } as RawInstruction);
@@ -404,6 +410,9 @@ export function compile(ast: Module): OsVbcModule {
           emit({ op: "local.set", i: idxSlot } as RawInstruction);
           emit({ op: "jmp", off: loopStart } as RawInstruction);
           (code[patchExit] as { off: number }).off = code.length;
+          const btForEach = breakTargets.pop()!;
+          for (const p of btForEach.patches) (code[p] as { off: number }).off = code.length;
+          continueTargets.pop();
           break;
         }
         case "цикл": {
@@ -427,7 +436,12 @@ export function compile(ast: Module): OsVbcModule {
         case "продолжить": {
           const ct = continueTargets[continueTargets.length - 1];
           if (!ct) throw new Error("продолжить вне цикла");
-          emit({ op: "jmp", off: ct.loopStart } as RawInstruction);
+          if (ct.foreachPatches) {
+            ct.foreachPatches.push(code.length);
+            emit({ op: "jmp", off: 0 } as RawInstruction);
+          } else {
+            emit({ op: "jmp", off: ct.loopStart } as RawInstruction);
+          }
           break;
         }
         case "вернуть":

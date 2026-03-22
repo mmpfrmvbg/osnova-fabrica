@@ -582,6 +582,28 @@
       "expectCompiler": { "success": true },
       "expectVM": { "success": true, "returnValue": 25 },
       "status": "active"
+    },
+    {
+      "id": "break_in_foreach",
+      "description": "прервать выходит из для_каждого при элемент == 30, результат = 10+20 = 30",
+      "category": "control_flow",
+      "since": "1.9.1",
+      "source": "модуль Тест\nпроцедура главная()\n  пусть список = [10, 20, 30, 40, 50]\n  пусть результат = 0\n  для_каждого элемент в список\n    если элемент == 30\n      прервать\n    конец\n    результат = результат + элемент\n  конец\n  вернуть результат\nконец\nконец",
+      "expected_return": 30,
+      "expectCompiler": { "success": true },
+      "expectVM": { "success": true, "returnValue": 30 },
+      "status": "active"
+    },
+    {
+      "id": "continue_in_foreach",
+      "description": "продолжить пропускает чётные, суммирует нечётные 1+3+5 = 9",
+      "category": "control_flow",
+      "since": "1.9.1",
+      "source": "модуль Тест\nпроцедура главная()\n  пусть список = [1, 2, 3, 4, 5]\n  пусть сумма = 0\n  для_каждого элемент в список\n    если элемент % 2 == 0\n      продолжить\n    конец\n    сумма = сумма + элемент\n  конец\n  вернуть сумма\nконец\nконец",
+      "expected_return": 9,
+      "expectCompiler": { "success": true },
+      "expectVM": { "success": true, "returnValue": 9 },
+      "status": "active"
     }
   ]
 }
