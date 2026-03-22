@@ -22,6 +22,7 @@ export interface StartHttpServerOptions {
 export async function startHttpServer(opts?: StartHttpServerOptions): Promise<void> {
   const app = express();
   app.use(express.json());
+  app.use(express.text({ type: 'text/plain' }));
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', version: JARVIS_VERSION });
@@ -29,7 +30,17 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
 
   app.post('/chat', async (req: Request, res: Response) => {
     try {
-      const body = req.body as ChatRequestBody;
+      let body: ChatRequestBody = {};
+      if (typeof req.body === 'string') {
+        try {
+          body = JSON.parse(req.body) as ChatRequestBody;
+        } catch {
+          res.status(400).json({ error: 'invalid JSON in text/plain body' });
+          return;
+        }
+      } else if (req.body && typeof req.body === 'object') {
+        body = req.body as ChatRequestBody;
+      }
 
       if (!isNonEmptyString(body.userId) || !isNonEmptyString(body.message)) {
         res.status(400).json({ error: 'userId and message are required strings' });

@@ -286,6 +286,23 @@ async function runVliwExampleCheck(): Promise<void> {
     throw new Error(`[osnova-golden] VLIW пример must return 2, got ${JSON.stringify(result)}`);
 }
 
+async function runChatAppCompileOnly(): Promise<void> {
+  console.error('[osnova-golden] chat: compile check...');
+  // Только проверяем компиляцию — без реального HTTP к Jarvis
+  const { execSync } = await import('child_process');
+  const outPath = path.join(os.tmpdir(), 'chat-golden-check.osvbc.json');
+  try {
+    execSync(`npx tsx src/cli.ts compile apps/chat/chat.osnova -o ${outPath}`, {
+      stdio: 'pipe',
+      cwd: path.join(__dirname, '..', '..'),
+    });
+    console.error('[osnova-golden] chat: compile OK');
+  } catch (e) {
+    const err = e as { stderr?: Buffer };
+    throw new Error(`[osnova-golden] chat compile failed: ${err.stderr?.toString() ?? String(e)}`);
+  }
+}
+
 async function main() {
   console.error('[osnova-golden] running TODO app...');
   await runTodoApp();
@@ -310,6 +327,9 @@ async function main() {
   console.error('[osnova-golden] running VLIW v2 example check...');
   await runVliwExampleCheck();
   console.error('[osnova-golden] VLIW v2 example OK');
+
+  console.error('[osnova-golden] running Chat compile check...');
+  await runChatAppCompileOnly();
 }
 
 if (require.main === module) {

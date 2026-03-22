@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "moduleName": "чат",
+  "constants": [
+    "Чат запущен",
+    "android-user",
+    "привет от Основы",
+    "{\"userId\":\"",
+    "\",\"message\":\"",
+    "\"}",
+    "Тело запроса:",
+    "Ответ Jarvis:",
+    "Ошибка соединения:"
+  ],
+  "procedures": [
+    {
+      "name": "главная",
+      "codeOffset": 0,
+      "argc": 1,
+      "localsCount": 6
+    }
+  ],
+  "code": [
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 1
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 5
+    },
+    {
+      "op": "invoke",
+      "name": "система.строка.объединить"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "try_begin",
+      "off": 39
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.сеть.пост"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 7
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "try_end"
+    },
+    {
+      "op": "jmp",
+      "off": 44
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 8
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "ret"
+    }
+  ]
+}

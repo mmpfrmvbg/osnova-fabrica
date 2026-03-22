@@ -3,9 +3,9 @@ name: "Чат с Jarvis"
 version: "0.1.0"
 
 entry:
-  module: "chat"
+  module: "чат"
   procedure: "главная"
-  args: []
+  args: ["http://localhost:3000/chat"]
 
 category: "communication"
 
