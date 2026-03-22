@@ -9,6 +9,7 @@ export type ProjectHint =
   | 'vm'
   | 'fabric'
   | 'assistant'
+  | 'chat'
   | 'life'
   | 'unknown';
 
