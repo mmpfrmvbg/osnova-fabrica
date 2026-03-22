@@ -37,6 +37,7 @@ export type Stmt =
     }
   | { kind: "цикл"; body: Stmt[] }
   | { kind: "прервать" }
+  | { kind: "продолжить" }
   | { kind: "вернуть"; value?: Expr };
 
 export interface Procedure {

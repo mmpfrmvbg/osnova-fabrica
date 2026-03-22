@@ -574,6 +574,10 @@ export function parse(tokens: Token[]): ParseResult {
       advance();
       return { kind: "прервать" };
     }
+    if (peek().kind === "продолжить") {
+      advance();
+      return { kind: "продолжить" };
+    }
     if (peek().kind === "цикл") {
       advance();
       skipNewlines();

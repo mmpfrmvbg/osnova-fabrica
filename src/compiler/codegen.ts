@@ -136,6 +136,7 @@ export function compile(ast: Module): OsVbcModule {
     const locals = buildLocals(proc);
     const localsCount = Math.max(proc.params.length, locals.size);
     const breakTargets: { patches: number[] }[] = [];
+    const continueTargets: { loopStart: number }[] = [];
     let emitForCounter = 0;
     let emitArrLiteralCounter = 0;
 
@@ -354,6 +355,7 @@ export function compile(ast: Module): OsVbcModule {
         case "пока": {
           breakTargets.push({ patches: [] });
           const loopStart = code.length;
+          continueTargets.push({ loopStart });
           emitExpr(s.condition, locals);
           const patchExit = code.length;
           emit({ op: "jmp_if_not", off: 0 } as RawInstruction);
@@ -362,6 +364,7 @@ export function compile(ast: Module): OsVbcModule {
           (code[patchExit] as { off: number }).off = code.length;
           const bt = breakTargets.pop()!;
           for (const p of bt.patches) (code[p] as { off: number }).off = code.length;
+          continueTargets.pop();
           break;
         }
         case "для_каждого": {
@@ -406,10 +409,12 @@ export function compile(ast: Module): OsVbcModule {
         case "цикл": {
           breakTargets.push({ patches: [] });
           const loopStart = code.length;
+          continueTargets.push({ loopStart });
           for (const b of s.body) emitStmt(b);
           emit({ op: "jmp", off: loopStart } as RawInstruction);
           const btCikl = breakTargets.pop()!;
           for (const p of btCikl.patches) (code[p] as { off: number }).off = code.length;
+          continueTargets.pop();
           break;
         }
         case "прервать": {
@@ -417,6 +422,12 @@ export function compile(ast: Module): OsVbcModule {
           if (!target) throw new Error("прервать вне цикла");
           target.patches.push(code.length);
           emit({ op: "jmp", off: 0 } as RawInstruction);
+          break;
+        }
+        case "продолжить": {
+          const ct = continueTargets[continueTargets.length - 1];
+          if (!ct) throw new Error("продолжить вне цикла");
+          emit({ op: "jmp", off: ct.loopStart } as RawInstruction);
           break;
         }
         case "вернуть":

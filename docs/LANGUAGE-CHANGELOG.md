@@ -4,6 +4,18 @@
 Версия языка здесь — логический уровень фич, не номер npm‑пакета.
 
 ---
+### [v1.9.0] — продолжить (continue в цикле)
+
+**Дата:** 2026-03-22
+**Статус:** реализована в компиляторе, golden-тест пройден.
+
+- feat: конструкция `продолжить` — переход к следующей итерации `пока`/`цикл`
+- impl: lexer (TokenKind), ast (Stmt), parser (parseStmt), codegen (continueTargets-стек + jmp loopStart)
+- registry: ConstructId "continue", KeywordSpec since 1.9.0
+- test: golden-тест `continue_in_while` (нечётные 1..9, expected_return: 25)
+
+---
+
 ### [v1.8.0] — прервать (break из цикла)
 
 **Дата:** 2026-03-22

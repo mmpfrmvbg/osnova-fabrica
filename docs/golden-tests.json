@@ -571,6 +571,17 @@
       "status": "active",
       "expectCompiler": { "success": true },
       "expectVM": { "returnValue": 3 }
+    },
+    {
+      "id": "continue_in_while",
+      "description": "продолжить пропускает чётные, суммирует нечётные 1+3+5+7+9=25",
+      "category": "control_flow",
+      "since": "1.9.0",
+      "source": "модуль Тест\nпроцедура главная()\n  пусть индекс = 0\n  пусть сумма = 0\n  пока индекс < 10\n    если индекс % 2 == 0\n      индекс = индекс + 1\n      продолжить\n    конец\n    сумма = сумма + индекс\n    индекс = индекс + 1\n  конец\n  вернуть сумма\nконец\nконец",
+      "expected_return": 25,
+      "expectCompiler": { "success": true },
+      "expectVM": { "success": true, "returnValue": 25 },
+      "status": "active"
     }
   ]
 }

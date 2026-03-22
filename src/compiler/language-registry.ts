@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "1.8.0";
+export const LANGUAGE_VERSION = "1.9.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -39,6 +39,7 @@ export type ConstructId =
   | "for_each_indexed"
   | "loop"
   | "break"
+  | "continue"
   | "return"
   | "proc_call"
   | "proc_call_recursive"
@@ -148,6 +149,8 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "тогда", kind: "stmt", implemented: true, since: "1.1.0", description: "опциональное слово после условия в если/иначе_если/пока" },
   { lexeme: "прервать", kind: "stmt", implemented: true, since: "1.8.0",
     description: "выход из текущего цикла пока/цикл" },
+  { lexeme: "продолжить", kind: "stmt", implemented: true, since: "1.9.0",
+    description: "переход к следующей итерации цикла пока/цикл (continue)" },
 ];
 
 /** Конструкции v0.1 с привязкой к AST и синтаксису. */
@@ -336,6 +339,16 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     bytecodePattern: "jmp patchExit  // адрес сразу за телом цикла",
     implemented: true,
     description: "Немедленный выход из ближайшего охватывающего цикла пока или цикл",
+  },
+  {
+    id: "continue",
+    syntax: "продолжить",
+    example: "пока i < 10\n  если i % 2 == 0\n    продолжить\n  конец\n  сумма = сумма + i\nконец",
+    astNode: { kind: "продолжить", fields: [] },
+    since: "1.9.0",
+    bytecodePattern: "jmp loopStart  // переход к началу итерации",
+    implemented: true,
+    description: "Переход к следующей итерации ближайшего охватывающего цикла пока/цикл",
   },
   {
     id: "return",
