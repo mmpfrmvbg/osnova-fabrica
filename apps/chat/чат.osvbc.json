@@ -8,16 +8,16 @@
     "{\"userId\":\"",
     "\",\"message\":\"",
     "\"}",
-    "Тело запроса:",
-    "Ответ Jarvis:",
-    "Ошибка соединения:"
+    "reply",
+    "Jarvis:",
+    "Ошибка:"
   ],
   "procedures": [
     {
       "name": "главная",
       "codeOffset": 0,
       "argc": 1,
-      "localsCount": 6
+      "localsCount": 8
     }
   ],
   "code": [
@@ -124,25 +124,8 @@
       "i": 3
     },
     {
-      "op": "const",
-      "type": "str",
-      "k": 6
-    },
-    {
-      "op": "invoke",
-      "name": "система.лог.вывести"
-    },
-    {
-      "op": "local.get",
-      "i": 3
-    },
-    {
-      "op": "invoke",
-      "name": "система.лог.вывести"
-    },
-    {
       "op": "try_begin",
-      "off": 39
+      "off": 42
     },
     {
       "op": "local.get",
@@ -161,6 +144,35 @@
       "i": 5
     },
     {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "invoke",
+      "name": "система.json.разобрать"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "invoke",
+      "name": "система.объект.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
       "op": "const",
       "type": "str",
       "k": 7
@@ -171,7 +183,7 @@
     },
     {
       "op": "local.get",
-      "i": 5
+      "i": 7
     },
     {
       "op": "invoke",
@@ -182,7 +194,7 @@
     },
     {
       "op": "jmp",
-      "off": 44
+      "off": 47
     },
     {
       "op": "local.set",
