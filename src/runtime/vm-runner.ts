@@ -239,6 +239,10 @@ function createInvokeHandler(
           throw new SandboxError("система.ввод.текст: timeout waiting for storage input");
         }
 
+        if (inputMode === "test") {
+          return process.env.OSNOVA_TEST_INPUT ?? "";
+        }
+
         // stdin-режим (CLI по умолчанию)
         if (prompt) process.stdout.write(prompt);
         const buf = Buffer.alloc(1024);
@@ -453,6 +457,11 @@ function createInvokeHandler(
         const s = String(args[0] ?? "");
         const sep = String(args[1] ?? "");
         return s.split(sep);
+      }
+      case "система.строка.найти": {
+        const haystack = String(args[0] ?? "");
+        const needle = String(args[1] ?? "");
+        return haystack.indexOf(needle);
       }
 
       default:
