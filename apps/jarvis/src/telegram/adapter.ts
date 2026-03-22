@@ -1,39 +1,66 @@
 // apps/jarvis/src/telegram/adapter.ts
-// Заглушка Telegram-адаптера.
-// Принимает grammy Update, преобразует в IncomingMessage.
+// Telegram-бот через grammy с персистентностью в SQLite.
 
-import type { IncomingMessage } from '../types';
+import { Bot } from 'grammy';
+import { saveMessage, getRelevantFacts } from '../core/memory-engine';
+import type { ProjectHint } from '../types';
 
-// grammy Update shape (минимальный subset без зависимости от grammy в этом файле)
-export interface TelegramUpdate {
-  update_id: number;
-  message?: {
-    message_id: number;
-    from?: { id: number; is_bot: boolean; username?: string };
-    chat: { id: number };
-    text?: string;
-    voice?: { file_id: string; duration: number };
-    date: number;
-  };
+function detectProject(_text: string): ProjectHint {
+  return 'unknown';
 }
 
-/**
- * Преобразует Telegram Update в IncomingMessage.
- * Возвращает null если update не содержит текстового или голосового сообщения.
- */
-export function adaptUpdate(update: TelegramUpdate): IncomingMessage | null {
-  const msg = update.message;
-  if (!msg) return null;
+export function createBot(token: string): Bot {
+  const bot = new Bot(token);
 
-  const text = msg.text ?? (msg.voice ? '[voice]' : null);
-  if (text === null) return null;
+  bot.command('ping', async (ctx) => {
+    await ctx.reply('Jarvis online 🟢');
+  });
 
-  return {
-    id: String(msg.message_id),
-    userId: String(msg.from?.id ?? 'unknown'),
-    chatId: String(msg.chat.id),
-    text,
-    timestamp: new Date(msg.date * 1000).toISOString(),
-    isVoice: Boolean(msg.voice),
-  };
+  bot.command('facts', async (ctx) => {
+    const query = ctx.message?.text?.replace('/facts', '').trim() || 'проект';
+    const facts = await getRelevantFacts(query, 'unknown', 3);
+    if (facts.length === 0) {
+      await ctx.reply('Фактов пока нет. Напишите мне что-нибудь!');
+      return;
+    }
+    const lines = facts.map(
+      (f, i) => `${i + 1}. [${f.kind}] ${f.text} (важность: ${f.importance})`,
+    );
+    await ctx.reply('📚 Последние факты:\n' + lines.join('\n'));
+  });
+
+  bot.on('message:text', async (ctx) => {
+    const text = ctx.message.text;
+    const userId = String(ctx.from?.id ?? 'unknown');
+    const chatId = String(ctx.chat.id);
+    const messageId = String(ctx.message.message_id);
+    const timestamp = new Date(ctx.message.date * 1000).toISOString();
+    const project = detectProject(text);
+
+    let savedId = 0;
+    try {
+      savedId = await saveMessage({
+        userId,
+        chatId,
+        messageId,
+        role: 'user',
+        text,
+        timestamp,
+        tags: [],
+        projectHint: project,
+        sessionId: null,
+        rawJson: JSON.stringify(ctx.message),
+      });
+    } catch (err) {
+      console.error('[jarvis:bot] saveMessage failed:', err);
+    }
+
+    await ctx.reply(`[Jarvis] Получено: ${text}\n[Saved: message #${savedId}]`);
+  });
+
+  bot.catch((err) => {
+    console.error('[jarvis:bot] error:', err);
+  });
+
+  return bot;
 }
