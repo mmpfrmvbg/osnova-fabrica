@@ -1,7 +1,15 @@
 // apps/jarvis/src/index.ts
 // Точка входа Jarvis Core.
-import 'dotenv/config';
+import * as path from 'path';
+import dotenv from 'dotenv';
 import { createBot } from './telegram/adapter';
+
+// cwd при `npm start` — apps/jarvis; dotenv по умолчанию не читает корень монорепо.
+// Сначала apps/jarvis/.env, затем корень репозитория (../../.. от src/).
+const jarvisRoot = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(__dirname, '..', '..', '..');
+dotenv.config({ path: path.join(jarvisRoot, '.env') });
+dotenv.config({ path: path.join(repoRoot, '.env') });
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
