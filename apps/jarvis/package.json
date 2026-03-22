@@ -1,0 +1,21 @@
+{
+  "name": "@osnova/jarvis",
+  "version": "0.1.0",
+  "description": "Jarvis — персональный ИИ-ассистент на основе ОС-НОВА",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "grammy": "^1.26.0",
+    "better-sqlite3": "^9.4.3",
+    "tsx": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}

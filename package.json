@@ -42,6 +42,7 @@
     "patch-legacy-traces": "tsx src/scripts/patch-legacy-traces.ts",
     "analyze-health-extended": "npx tsx src/tools/health-metrics-extended.ts --json",
     "beta-gate": "npx tsx src/scripts/beta-gate.ts",
+    "jarvis": "tsx apps/jarvis/src/index.ts",
     "llm-usage-report": "python3 scripts/llm_usage_report.py",
     "llm-usage-report:notg": "python3 scripts/llm_usage_report.py --no-telegram",
     "blame-mode-bisect": "npx tsx scripts/blame-mode-bisect.ts",
