@@ -30,6 +30,7 @@ export function createBot(token: string): Bot {
   migrate();
 
   bot.use(async (ctx, next) => {
+    console.log('[jarvis:debug] update from:', ctx.from?.id, 'type:', Object.keys(ctx.update).find((k) => k !== 'update_id'));
     if (!ownerRestrictionActive()) return next();
     const ownerId = Number(process.env.JARVIS_OWNER_ID);
     if (ctx.from?.id !== ownerId) return;
