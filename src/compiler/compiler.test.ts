@@ -707,6 +707,27 @@ describe("semantic checker", () => {
     expect(() => compileSource(src)).not.toThrow();
   });
 
+  it('«и» как имя переменной: отказ парсера или keyword_as_identifier (L-9)', () => {
+    const src = [
+      'модуль т',
+      'процедура главная()',
+      '  пусть и = 0',
+      '  вернуть 0',
+      'конец',
+      'конец',
+    ].join('\n');
+    const result = compileSource(src);
+    const hasError =
+      !result.compilerSuccess ||
+      (result.semanticErrors ?? []).some((e) => e.kind === 'keyword_as_identifier');
+    if (!hasError) {
+      console.warn(
+        'TODO: компилятор пока не отклоняет «и» как идентификатор — зафиксировано',
+      );
+    }
+    expect(hasError).toBe(true);
+  });
+
   it("no redeclare for normal assign", () => {
     const src = `модуль t
 процедура главная()
