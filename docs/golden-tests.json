@@ -372,7 +372,7 @@
       "expectVM": { "returnValue": 15 }
     },
     {
-      "id": "main_with_args",
+      "id": "main_with_args_v1_1",
       "description": "главная(аргументы) — точка входа с CLI-аргументами (v1.1)",
       "category": "generic",
       "source": "модуль т\nпроцедура главная(аргументы)\n  система.лог.вывести(\"старт\")\n  вернуть 0\nконец\nконец",
