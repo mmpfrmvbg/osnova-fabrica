@@ -119,38 +119,19 @@ export function createBot(token: string): Bot {
 }
 
 /**
- * Запускает long polling. В grammY `await bot.start()` не завершится, пока бот
- * не остановлен (внутри `await loop`). Ждём только `onStart`, затем возвращаем
- * `bot`; опрос идёт в фоне. Ошибки до onStart — через reject; после — лог + exit.
+ * Long polling в фоне. Workaround: на Node.js v25 + tsx колбэк `onStart` у grammY
+ * не вызывается, поэтому не ждём его — даём сети время и возвращаем `bot`.
+ * При переходе на Node 20 LTS в Docker можно снова опереться на `onStart`.
  */
 export async function startBot(token: string): Promise<Bot> {
   const bot = createBot(token);
-  let ready = false;
-  let resolveReady!: () => void;
-  let rejectReady!: (e: unknown) => void;
-  const untilReady = new Promise<void>((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
+
+  void bot.start().catch((err: unknown) => {
+    console.error('[jarvis:fatal]', err);
+    process.exit(1);
   });
 
-  void bot
-    .start({
-      onStart: (info) => {
-        console.log(`[jarvis] session @${info.username}`);
-        if (!ready) {
-          ready = true;
-          resolveReady();
-        }
-      },
-    })
-    .catch((err: unknown) => {
-      if (!ready) rejectReady(err);
-      else {
-        console.error('[jarvis:fatal]', err);
-        process.exit(1);
-      }
-    });
+  await new Promise<void>((resolve) => setTimeout(resolve, 1500));
 
-  await untilReady;
   return bot;
 }
