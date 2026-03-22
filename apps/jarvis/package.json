@@ -4,6 +4,9 @@
   "description": "Jarvis — персональный ИИ-ассистент на основе ОС-НОВА",
   "private": true,
   "main": "src/index.ts",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
@@ -11,7 +14,7 @@
     "db:smoke": "tsx src/db/smoke-test.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^12.8.0",
     "dotenv": "^16.6.1",
     "grammy": "^1.26.0",
     "tsx": "^4.7.0"
