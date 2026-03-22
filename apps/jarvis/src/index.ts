@@ -2,7 +2,12 @@
 // Точка входа Jarvis Core.
 import * as path from 'path';
 import dotenv from 'dotenv';
-import { startBot } from './telegram/adapter';
+import {
+  createBot,
+  installJarvisMessageHandlers,
+  startExistingBot,
+} from './telegram/adapter';
+import { registerCommands } from './telegram/commands';
 
 // cwd при `npm start` — apps/jarvis; dotenv по умолчанию не читает корень монорепо.
 // Сначала apps/jarvis/.env, затем корень репозитория (../../.. от src/).
@@ -27,7 +32,10 @@ async function main(): Promise<void> {
   console.log('Mode: Telegram bot');
 
   try {
-    const bot = await startBot(BOT_TOKEN);
+    const bot = createBot(BOT_TOKEN);
+    registerCommands(bot);
+    installJarvisMessageHandlers(bot);
+    await startExistingBot(bot);
     console.log('Jarvis bot started, polling...');
 
     process.on('SIGINT', () => {
