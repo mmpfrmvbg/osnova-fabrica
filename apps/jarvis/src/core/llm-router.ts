@@ -1,4 +1,5 @@
 // apps/jarvis/src/core/llm-router.ts
+import { spawnSync } from 'child_process';
 import type { JarvisMode } from '../types';
 
 export interface ChatMessage {
@@ -12,12 +13,46 @@ export interface LlmResponse {
   model: string;
 }
 
-const TIMEOUT_MS = 30_000;
+const HTTP_TIMEOUT_MS = 30_000;
+const CLI_TIMEOUT_MS = 60_000;
 
-export async function call(
-  messages: ChatMessage[],
-  _mode: JarvisMode = 'chat',
-): Promise<LlmResponse> {
+function buildPrompt(messages: ChatMessage[]): string {
+  return messages
+    .map((m) => {
+      if (m.role === 'system') return `[системный промпт]: ${m.content}`;
+      if (m.role === 'assistant') return `Jarvis: ${m.content}`;
+      return m.content;
+    })
+    .join('\n');
+}
+
+async function callQwenCli(messages: ChatMessage[]): Promise<LlmResponse> {
+  const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
+  const prompt = buildPrompt(messages);
+
+  const result = spawnSync('qwen', [prompt, '-y', '--output-format', 'text'], {
+    encoding: 'utf8',
+    timeout: CLI_TIMEOUT_MS,
+    windowsHide: true,
+    // Windows: npm global `qwen` is a .cmd shim; spawn без shell даёт EINVAL
+    shell: process.platform === 'win32',
+  });
+
+  if (result.error) {
+    throw new Error(`[llm-router] qwen CLI error: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const stderr = result.stderr?.trim() ?? '';
+    throw new Error(
+      `[llm-router] qwen CLI exit ${result.status ?? 'null'}: ${stderr.slice(0, 300)}`,
+    );
+  }
+
+  const text = (result.stdout ?? '').trim();
+  return { text, tokensUsed: { prompt: 0, completion: 0 }, model };
+}
+
+async function callHttpApi(messages: ChatMessage[]): Promise<LlmResponse> {
   const apiKey = process.env.LLM_API_KEY ?? '';
   const baseUrl = process.env.LLM_BASE_URL ?? 'https://api.deepseek.com';
   const model = process.env.LLM_MODEL ?? 'deepseek-chat';
@@ -29,7 +64,7 @@ export async function call(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
 
   try {
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
@@ -66,10 +101,21 @@ export async function call(
     };
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') {
-      throw new Error(`[llm-router] timeout after ${TIMEOUT_MS}ms`);
+      throw new Error(`[llm-router] timeout after ${HTTP_TIMEOUT_MS}ms`);
     }
     throw e;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function call(
+  messages: ChatMessage[],
+  _mode: JarvisMode = 'chat',
+): Promise<LlmResponse> {
+  const provider = process.env.OSNOVA_PROVIDER ?? 'openai-compatible';
+  if (provider === 'qwen-cli') {
+    return callQwenCli(messages);
+  }
+  return callHttpApi(messages);
 }
