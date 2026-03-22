@@ -182,7 +182,7 @@ export async function getRelevantFacts(
 }
 
 export async function getRecentMessages(
-  project: string,
+  userId: string,
   limit = 20,
 ): Promise<MessageRecord[]> {
   ensureInit();
@@ -191,12 +191,12 @@ export async function getRecentMessages(
     .prepare(
       `
     SELECT * FROM messages
-    WHERE project_hint = ?
+    WHERE user_id = ?
     ORDER BY timestamp DESC
     LIMIT ?
   `,
     )
-    .all(project, limit) as Record<string, unknown>[];
+    .all(userId, limit) as Record<string, unknown>[];
   return rows.map(rowToMessageRecord);
 }
 
