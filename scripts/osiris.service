@@ -1,0 +1,20 @@
+[Unit]
+Description=ОСИРИС backend (HTTP + Cloudflare tunnel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=osnova
+WorkingDirectory=/opt/osnova/apps/osiris
+ExecStart=/usr/bin/npm run osiris:tunnel
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/osiris/osiris.log
+StandardError=append:/var/log/osiris/osiris.err.log
+
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/osnova/apps/osiris/.env
+
+[Install]
+WantedBy=multi-user.target

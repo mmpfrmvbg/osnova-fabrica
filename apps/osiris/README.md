@@ -89,3 +89,48 @@ npx tsx scripts/pipeline-metrics.ts --file ./osiris.out.log --from 2026-03-01 --
 - рост `repair_exhausted` и `error` — главный тревожный сигнал;
 - рост `partial` при стабильном `error` — обычно признак деградации качества, но не полного отказа;
 - падение общего числа запусков может означать сбой маршрута/клиентского потока, а не только качество генерации.
+
+## Деплой (Linux / Raspberry Pi / VPS)
+
+### Подготовка сервера
+
+    # Создать пользователя
+    sudo useradd -r -s /bin/false osnova
+
+    # Создать директорию приложения
+    sudo mkdir -p /opt/osnova
+    sudo chown osnova:osnova /opt/osnova
+
+    # Клонировать репозиторий
+    sudo -u osnova git clone https://github.com/mmpfrmvbg/osnova-fabrica /opt/osnova
+
+    # Установить зависимости
+    cd /opt/osnova/apps/osiris && sudo -u osnova npm install
+
+    # Создать .env
+    sudo -u osnova cp /opt/osnova/.env.example /opt/osnova/apps/osiris/.env
+    # Отредактировать /opt/osnova/apps/osiris/.env — прописать OPENAI_API_KEY и другие ключи
+
+    # Создать директорию логов
+    sudo mkdir -p /var/log/osiris
+    sudo chown osnova:osnova /var/log/osiris
+
+### Установка systemd unit
+
+    sudo cp /opt/osnova/scripts/osiris.service /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable osiris
+    sudo systemctl start osiris
+
+### Управление
+
+    sudo systemctl status osiris      # статус
+    sudo systemctl restart osiris     # перезапуск
+    sudo journalctl -u osiris -f      # live-логи systemd
+    tail -f /var/log/osiris/osiris.log # stdout ОСИРИСА (включая tunnel URL)
+
+### Получить публичный URL tunnel
+
+    grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /var/log/osiris/osiris.log | tail -1
+    # или
+    cat /opt/osnova/apps/osiris/tunnel-url.txt
