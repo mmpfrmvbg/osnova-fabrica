@@ -15,115 +15,153 @@
 </form>
 <script>
 (async () => {
-  window.OSIRIS_SERVER_URL = localStorage.getItem('osiris_url') || '';
+  async function tryConnect(url) {
+    try {
+      const r = await fetch(url + '/health', { signal: AbortSignal.timeout(3000) });
+      if (r.ok) return url;
+    } catch { }
+    return null;
+  }
 
+  function startChat(BASE) {
+    window.__OSIRIS_BASE = BASE;
+    document.body.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'header';
+    header.textContent = 'Осирис';
+
+    const msgs = document.createElement('div');
+    msgs.id = 'messages';
+
+    const form = document.createElement('form');
+    form.className = 'bar';
+    form.id = 'form';
+    const inp = document.createElement('input');
+    inp.id = 'input';
+    inp.type = 'text';
+    inp.autocomplete = 'off';
+    inp.placeholder = 'Сообщение...';
+    const btn = document.createElement('button');
+    btn.type = 'submit';
+    btn.textContent = 'Отправить';
+    form.appendChild(inp);
+    form.appendChild(btn);
+
+    document.body.appendChild(header);
+    document.body.appendChild(msgs);
+    document.body.appendChild(form);
+
+    function add(text, cls) {
+      const d = document.createElement('div');
+      d.className = 'msg ' + cls;
+      d.textContent = text;
+      msgs.appendChild(d);
+      msgs.scrollTop = msgs.scrollHeight;
+      return d;
+    }
+
+    function isPipelineRequest(text) {
+      const lower = text.toLowerCase();
+      return [
+        'сделай приложение', 'создай приложение', 'напиши приложение',
+        'сгенерируй приложение', 'нужно приложение', 'создать приложение',
+        'сделай ос-приложение',
+      ].some(p => lower.includes(p));
+    }
+
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const t = inp.value.trim();
+      if (!t) return;
+      inp.value = '';
+      add(t, 'msg-user');
+      const dot = add('...', 'msg-bot');
+
+      if (isPipelineRequest(t)) {
+        const url = BASE + '/pipeline/stream?task=' + encodeURIComponent(t);
+        try {
+          const es = new EventSource(url);
+          es.onmessage = ev => {
+            try {
+              const data = JSON.parse(ev.data);
+              if (data.phase === 'done' || data.phase === 'error') {
+                dot.textContent = data.message || '[готово]';
+                es.close();
+              } else {
+                const status = document.createElement('div');
+                status.className = 'msg msg-status';
+                status.textContent = '⟳ ' + (data.message || data.phase);
+                msgs.insertBefore(status, dot);
+                msgs.scrollTop = msgs.scrollHeight;
+              }
+            } catch { dot.textContent = '[ошибка парсинга]'; es.close(); }
+          };
+          es.onerror = () => { dot.textContent = '[ошибка соединения с Фабрикой]'; es.close(); };
+        } catch (err) {
+          dot.textContent = '[ошибка] ' + err.message;
+        }
+      } else {
+        try {
+          const r = await fetch(BASE + '/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: 'android-user', message: t })
+          });
+          const j = await r.json();
+          dot.textContent = j.reply || '[пустой ответ]';
+        } catch (err) {
+          dot.textContent = '[ошибка] ' + err.message;
+        }
+      }
+    };
+  }
+
+  function showConnectForm(defaultUrl) {
+    document.body.innerHTML =
+      '<div style="padding:24px;font-family:sans-serif">' +
+      '<p style="color:#c00">Сервер не найден. Введите адрес:</p>' +
+      '<input id="url-inp" style="width:100%;padding:8px;font-size:16px" ' +
+      '       placeholder="http://90.156.210.111:3000" value="' + (defaultUrl || '') + '"/><br><br>' +
+      '<button id="connect-btn" style="padding:8px 16px">Подключить</button>' +
+      '<p id="connect-status" style="color:#c00;margin-top:8px"></p>' +
+      '</div>';
+
+    document.getElementById('connect-btn').onclick = async () => {
+      const url = document.getElementById('url-inp').value.trim().replace(/\/$/, '');
+      const status = document.getElementById('connect-status');
+      status.textContent = 'Подключаюсь...';
+      const result = await tryConnect(url);
+      if (result) {
+        localStorage.setItem('osiris_url', url);
+        startChat(url);
+      } else {
+        status.textContent = 'Не удалось подключиться. Проверьте адрес.';
+      }
+    };
+  }
+
+  // Автопоиск
+  const saved = localStorage.getItem('osiris_url');
   const CANDIDATES = [
-    window.OSIRIS_SERVER_URL,
+    saved,
+    'http://90.156.210.111:3000',
     'http://10.0.2.2:3000',
     'http://localhost:3000',
   ].filter(Boolean);
 
   let BASE = null;
   for (const candidate of CANDIDATES) {
-    try {
-      const r = await fetch(candidate + '/server-url',
-        { signal: AbortSignal.timeout(1500) });
-      if (r.ok) {
-        const j = await r.json();
-        BASE = (j && typeof j.url === 'string' && j.url) ? j.url : candidate;
-        break;
-      }
-    } catch { /* продолжаем */ }
+    const result = await tryConnect(candidate);
+    if (result) { BASE = result; break; }
   }
 
-  if (!BASE) {
-    // Показать форму ввода URL вместо падения
-    document.body.innerHTML =
-      '<div style="padding:24px;font-family:sans-serif">' +
-      '<p style="color:#c00">Сервер не найден. Введите адрес:</p>' +
-      '<input id="url-inp" style="width:100%;padding:8px;font-size:16px" ' +
-      '       placeholder="http://192.168.1.X:3000" /><br><br>' +
-      '<button onclick="localStorage.setItem(\'osiris_url\',' +
-      'document.getElementById(\'url-inp\').value);location.reload()"' +
-      '        style="padding:8px 16px">Подключить</button>' +
-      '</div>';
-    const saved = localStorage.getItem('osiris_url');
-    if (saved) document.getElementById('url-inp').value = saved;
-    return;
+  if (BASE) {
+    localStorage.setItem('osiris_url', BASE);
+    startChat(BASE);
+  } else {
+    showConnectForm(saved || 'http://90.156.210.111:3000');
   }
-
-  window.__OSIRIS_BASE = BASE;
-
-  const msgs = document.getElementById("messages");
-  const form = document.getElementById("form");
-  const inp = document.getElementById("input");
-  function add(text, cls) {
-    const d = document.createElement("div");
-    d.className = "msg " + cls;
-    d.textContent = text;
-    msgs.appendChild(d);
-    msgs.scrollTop = msgs.scrollHeight;
-    return d;
-  }
-  function isPipelineRequest(text) {
-    const lower = text.toLowerCase();
-    return [
-      'сделай приложение', 'создай приложение', 'напиши приложение',
-      'сгенерируй приложение', 'нужно приложение', 'создать приложение',
-      'сделай ос-приложение',
-    ].some(p => lower.includes(p));
-  }
-  form.onsubmit = async e => {
-    e.preventDefault();
-    const t = inp.value.trim();
-    if (!t) return;
-    inp.value = "";
-    add(t, "msg-user");
-    const dot = add("...", "msg-bot");
-
-    if (isPipelineRequest(t)) {
-      // SSE path для pipeline
-      const url = window.__OSIRIS_BASE + "/pipeline/stream?task=" + encodeURIComponent(t);
-      try {
-        const es = new EventSource(url);
-        es.onmessage = ev => {
-          try {
-            const data = JSON.parse(ev.data);
-            if (data.phase === 'done' || data.phase === 'error') {
-              dot.textContent = data.message || "[готово]";
-              es.close();
-            } else {
-              // промежуточный статус — добавить серую строку
-              const status = document.createElement("div");
-              status.className = "msg msg-status";
-              status.textContent = "⟳ " + (data.message || data.phase);
-              msgs.insertBefore(status, dot);
-              msgs.scrollTop = msgs.scrollHeight;
-            }
-          } catch { dot.textContent = "[ошибка парсинга]"; es.close(); }
-        };
-        es.onerror = () => {
-          dot.textContent = "[ошибка соединения с Фабрикой]";
-          es.close();
-        };
-      } catch (err) {
-        dot.textContent = "[ошибка] " + err.message;
-      }
-    } else {
-      // Обычный chat path (без изменений)
-      try {
-        const r = await fetch(window.__OSIRIS_BASE + "/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: "android-user", message: t })
-        });
-        const j = await r.json();
-        dot.textContent = j.reply || "[пустой ответ]";
-      } catch (err) {
-        dot.textContent = "[ошибка] " + err.message;
-      }
-    }
-  };
 })();
 </script>
 </body>
