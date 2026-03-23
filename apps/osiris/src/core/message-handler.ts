@@ -9,6 +9,7 @@ import { buildContext } from './context-builder';
 import { extractActions } from './action-extractor';
 import { runSummarizerIfNeeded } from './memory-summarizer';
 import { checkConnectivity } from './connectivity';
+import { buildOsirisContext, setLastError } from './osiris-context';
 
 export interface HandleResult {
   reply: string;
@@ -216,8 +217,16 @@ export async function handleMessage(
     ? `\nОткрытые задачи:\n${formatTaskList(openTasks)}`
     : '\nОткрытых задач нет.';
 
+  const osirisCtx = await buildOsirisContext(userId);
+  const osirisCtxJson = JSON.stringify(osirisCtx, null, 2);
+
   const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT + taskContext },
+    {
+      role: 'system',
+      content:
+        `SYSTEM CONTEXT (machine-generated, always up to date):\n<json>\n${osirisCtxJson}\n</json>`,
+    },
     { role: 'system', content: `Контекст диалога:\n${llmContext}` },
     { role: 'user', content: message.text },
   ];
@@ -243,6 +252,7 @@ export async function handleMessage(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[osiris:handler] LLM error:', msg);
+    setLastError(msg);
     reply = `[ошибка LLM] ${msg}`;
   }
 
