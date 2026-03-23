@@ -101,5 +101,78 @@ describe("parser: базовые конструкции MVP", () => {
     expect(forEachStmt.index).toBe("idx");
     expect(forEachStmt.source.kind).toBe("переменная");
   });
+
+  it("парсит пустой массив-литерал", () => {
+    const src = [
+      "модуль t",
+      "процедура main()",
+      "  пусть x = []",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+
+    const { ast, errors } = parseModule(src);
+    expect(errors.length).toBe(0);
+    const m = ast as Module;
+    const letStmt = m.procedures[0]?.body.find((s: Stmt) => s.kind === "пусть");
+    expect(letStmt).toBeDefined();
+    if (!letStmt || letStmt.kind !== "пусть") return;
+    const expr = letStmt.init;
+    expect(expr.kind).toBe("массив");
+    if (expr.kind !== "массив") return;
+    expect(expr.elements.length).toBe(0);
+  });
+
+  it("парсит простой массив [1, 2, 3]", () => {
+    const src = [
+      "модуль t",
+      "процедура main()",
+      "  пусть x = [1, 2, 3]",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+
+    const { ast, errors } = parseModule(src);
+    expect(errors.length).toBe(0);
+    const m = ast as Module;
+    const letStmt = m.procedures[0]?.body.find((s: Stmt) => s.kind === "пусть");
+    expect(letStmt).toBeDefined();
+    if (!letStmt || letStmt.kind !== "пусть") return;
+    const expr = letStmt.init;
+    expect(expr.kind).toBe("массив");
+    if (expr.kind !== "массив") return;
+    expect(expr.elements.length).toBe(3);
+    expect(expr.elements[0]).toEqual({ kind: "число", value: 1 });
+    expect(expr.elements[1]).toEqual({ kind: "число", value: 2 });
+    expect(expr.elements[2]).toEqual({ kind: "число", value: 3 });
+  });
+
+  it("парсит индексирование arr[i] как вызов система.массив.получить", () => {
+    const src = [
+      "модуль t",
+      "процедура main()",
+      "  пусть arr = [10]",
+      "  arr[0]",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+
+    const { ast, errors } = parseModule(src);
+    expect(errors.length).toBe(0);
+    const m = ast as Module;
+    const exprStmt = m.procedures[0]?.body.find((s: Stmt) => s.kind === "выражение");
+    expect(exprStmt).toBeDefined();
+    if (!exprStmt || exprStmt.kind !== "выражение") return;
+    const expr = exprStmt.expr;
+    expect(expr.kind).toBe("вызов");
+    if (expr.kind !== "вызов") return;
+    expect(expr.name).toBe("система.массив.получить");
+    expect(expr.args.length).toBe(2);
+    expect(expr.args[0]).toEqual({ kind: "переменная", name: "arr" });
+    expect(expr.args[1]).toEqual({ kind: "число", value: 0 });
+  });
 });
 
