@@ -1,17 +1,23 @@
 # Cursorrules для osnova-fabrica
 
 ## Канон документации
-- Язык: `docs/language-v1.md` (единственный источник истины)
+- Язык (human-readable): `docs/language-v2.md`
+- Язык (machine-readable): `docs/osnova/language-schema.json`
+- Источник истины: код компилятора `src/compiler/**`
 - Трейсы: `docs/traces-v1.md` + `src/trace/types.ts`
-- Пайплайн: `src/pipeline/orchestrator.ts` (не docs/pipeline-llm-osnova.md)
+- Пайплайн: `src/pipeline/orchestrator.ts`
 - Статусы документов: `docs/doc-status-plan.md`
 - История языка: `docs/LANGUAGE-CHANGELOG.md`
 
+Приоритет источников для ИИ:
+1) `docs/osnova/language-schema.json`
+2) `docs/language-v2.md`
+3) `docs/pipeline-v1.md` и `docs/traces-v1.md`
+4) прочие документы проекта
+
 ## Deprecated документы (не редактировать, не использовать как источник)
-- `docs/grammatika-v0.1.md` → заменён: `docs/language-v1.md`
-- `docs/trace-format-v0.1.md` → заменён: `docs/traces-v1.md`
-- `docs/pipeline-llm-osnova.md` → исторический референс, канон: `docs/pipeline-v1.md` + `src/pipeline/orchestrator.ts`
-- `docs/roadmap-osnova-ideal-os.md` → vision-документ, канон: `docs/roadmap.md`
+- Все архивные документы находятся только в `docs/legacy/**`
+- `docs/legacy/**` — только исторический контекст; запрещено использовать как источник истины для генерации кода.
 
 ## Запрещённые конструкции языка Основа
 Не генерировать: `{ }`, `вызвать`, `функция`, `:=`, `конец_пока`, `конец_процедуры`

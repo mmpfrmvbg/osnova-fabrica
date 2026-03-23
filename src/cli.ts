@@ -68,7 +68,7 @@ async function runTaskMode(task: string): Promise<void> {
     console.log('\n─── Сгенерированный .osnova ───');
     console.log(result.source.source);
   }
-  process.exit(result.status === 'failure' ? 1 : 0);
+  process.exit(result.status === 'error' ? 1 : 0);
 }
 
 function runCompileMode(cliArgs: string[]): number {
@@ -176,7 +176,7 @@ async function runNewApp(cliArgs: string[]): Promise<void> {
   console.log('Repair попыток: ', result.repairAttempts);
   console.log('Время:          ', result.totalDurationMs, 'ms');
 
-  if (result.status === 'failure' || !result.source) {
+  if (result.status === 'error' || !result.source) {
     console.error('Генерация не удалась — приложение не сохранено.');
     if (result.error) console.error('Ошибка:', result.error);
     process.exit(1);

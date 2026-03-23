@@ -191,7 +191,7 @@ describe('Pipeline integration (mock LLM)', () => {
     expect(result.status).toBe('repair_exhausted');
   });
 
-  it('runPipeline: failure — G1 падает при пустых features', async () => {
+  it('runPipeline: error — G1 падает при пустых features', async () => {
     // mock IntakeAgent возвращает intent с features=[] → G1 блокирует
     vi.spyOn(IntakeAgent.prototype, 'parseIntent').mockResolvedValueOnce({
       intentId: 'test',
@@ -202,8 +202,8 @@ describe('Pipeline integration (mock LLM)', () => {
       confidence: 0.9,
     } as OsnovaIntent);
 
-    const result = await runPipeline('тест G1 failure');
-    expect(result.status).toBe('failure');
+    const result = await runPipeline('тест G1 error');
+    expect(result.status).toBe('error');
   });
 });
 

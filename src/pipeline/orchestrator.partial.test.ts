@@ -1,5 +1,5 @@
 /**
- * Тест partial_success: при qualityScore в [0.5, 0.7) pipeline возвращает status partial без repair.
+ * Тест partial: при qualityScore в [0.5, 0.7) pipeline возвращает status partial без repair.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { runPipeline } from './orchestrator';
@@ -81,7 +81,7 @@ vi.mock('../runtime/goldenApps', () => ({
   }),
 }));
 
-describe('Pipeline: partial_success', () => {
+describe('Pipeline: partial', () => {
   it('при qualityScore в [0.5, 0.7) возвращает status partial без repair', async () => {
     const result = await runPipeline('__test__partial__mock__');
 
@@ -94,7 +94,7 @@ describe('Pipeline: partial_success', () => {
  * Тест repair-цикла: первый код не компилируется, RepairEngineer исправляет его, pipeline завершаетcя с успехом.
  */
 describe('Pipeline: repair cycle', () => {
-  it('при ошибке компиляции запускает RepairEngineer и завершаетcя не в failure', async () => {
+  it('при ошибке компиляции запускает RepairEngineer и завершаетcя не в error', async () => {
     const llm = await import('../llm/index');
     const originalGetProvider = llm.getLLMProvider;
 

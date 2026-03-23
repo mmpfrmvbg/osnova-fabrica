@@ -36,8 +36,8 @@ describe('calcHealthScore', () => {
     expect(calcHealthScore({ status: 'success', repairAttempts: 0 })).toBe(1.0);
   });
 
-  it('failure → 0.0', () => {
-    expect(calcHealthScore({ status: 'failure', repairAttempts: 0 })).toBe(0.0);
+  it('error → 0.0', () => {
+    expect(calcHealthScore({ status: 'error', repairAttempts: 0 })).toBe(0.0);
   });
 
   it('partial без repair → 0.6', () => {
@@ -66,7 +66,7 @@ describe('calcHealthScore', () => {
   it('всегда возвращает значение в [0, 1]', () => {
     const cases = [
       { status: 'success' as const, repairAttempts: 0, goldenQualityScore: 2.0 },
-      { status: 'failure' as const, repairAttempts: 100 },
+      { status: 'error' as const, repairAttempts: 100 },
       { status: 'partial' as const, repairAttempts: 0, goldenQualityScore: -0.5 },
     ];
     for (const c of cases) {

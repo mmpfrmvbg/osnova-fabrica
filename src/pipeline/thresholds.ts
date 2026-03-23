@@ -6,5 +6,5 @@
 /** Минимальный qualityScore для успешного прохода G3. */
 export const QUALITY_PASS = 0.7;
 
-/** Минимальный qualityScore для partial_success (без repair). */
+/** Минимальный qualityScore для partial (без repair). */
 export const QUALITY_PARTIAL = 0.5;

@@ -34,7 +34,7 @@ export function calcHealthScore(input: HealthScoreInput): number {
     success: 1.0,
     partial: 0.6,
     repair_exhausted: 0.2,
-    failure: 0.0,
+    error: 0.0,
   };
 
   let base = BASE[input.status];

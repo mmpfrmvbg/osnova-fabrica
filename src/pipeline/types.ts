@@ -126,7 +126,7 @@ export interface GoldenReport {
 
 // ─── Результат всего прогона ───
 
-export type PipelineStatus = 'success' | 'partial' | 'failure' | 'repair_exhausted';
+export type PipelineStatus = 'success' | 'partial' | 'repair_exhausted' | 'error';
 
 export interface PipelineResult {
   readonly status: PipelineStatus;

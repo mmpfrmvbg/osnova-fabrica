@@ -149,7 +149,7 @@ const ShadowHitSchema = z.object({
 export const TraceEntrySchema = z.object({
   runId: z.string().uuid(),
   timestamp: z.string().datetime({ offset: true }),
-  status: z.enum(['success', 'partial', 'failure', 'repair_exhausted']),
+  status: z.enum(['success', 'partial', 'repair_exhausted', 'error']),
   task: z.string().min(1),
   modelId: z.string().optional(),
   intent: OsnovaIntentSchema.optional(),

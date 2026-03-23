@@ -153,7 +153,7 @@ export async function runPipeline(
     const g1 = checkG1(intent, spec);
     if (!g1.passed) {
       log.error('gate G1 FAIL', g1.failedChecks);
-      return finish('failure', `G1 failed: ${g1.failedChecks[0]}`);
+      return finish('error', `G1 failed: ${g1.failedChecks[0]}`);
     }
     log.info('gate G1 passed');
 
@@ -214,7 +214,7 @@ export async function runPipeline(
       const { qualityScore } = goldenReport;
       if (!g3.passed) {
         if (qualityScore >= QUALITY_PARTIAL && qualityScore < QUALITY_PASS) {
-          log.info('qualityScore in [0.5, 0.7) — partial_success, no repair');
+          log.info('qualityScore in [0.5, 0.7) — partial, no repair');
           source = lastSource;
           const result = finish('partial');
           await saveTrace({
@@ -312,7 +312,7 @@ export async function runPipeline(
     log.error('unhandled error', message);
     await saveTrace({
       runId,
-      status: 'failure',
+      status: 'error',
       task,
       modelId,
       intent,
@@ -323,7 +323,7 @@ export async function runPipeline(
       repairAttempts,
       shadow_hits: shadowHits,
     }).catch(() => {});
-    return finish('failure', message);
+    return finish('error', message);
   }
 
   function finish(status: PipelineResult['status'], error?: string): PipelineResult {
