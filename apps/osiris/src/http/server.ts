@@ -2,6 +2,7 @@
 import * as crypto from 'crypto';
 import express, { type Request, type Response } from 'express';
 import { handleMessage } from '../core/message-handler';
+import { runOsnovaPipeline } from '../osnova/client';
 import { startTunnel } from './tunnel';
 
 const OSIRIS_VERSION = '0.1.0';
@@ -9,6 +10,10 @@ const OSIRIS_VERSION = '0.1.0';
 interface ChatRequestBody {
   userId?: unknown;
   message?: unknown;
+}
+
+interface PipelineRequestBody {
+  task?: unknown;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -75,6 +80,35 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
     } catch (e) {
       console.error('[osiris:http] POST /chat failed', e);
       res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.post('/pipeline', async (req: Request, res: Response) => {
+    try {
+      let body: PipelineRequestBody = {};
+      if (typeof req.body === 'string') {
+        try {
+          body = JSON.parse(req.body) as PipelineRequestBody;
+        } catch {
+          res.status(400).json({ status: 'error', error: 'invalid JSON in text/plain body' });
+          return;
+        }
+      } else if (req.body && typeof req.body === 'object') {
+        body = req.body as PipelineRequestBody;
+      }
+
+      if (!body.task || typeof body.task !== 'string' || body.task.trim().length === 0) {
+        res.status(400).json({ status: 'error', error: 'task is required string' });
+        return;
+      }
+
+      const task = body.task.trim();
+      console.log(`[osiris:http] POST /pipeline task="${task}"`);
+      const result = await runOsnovaPipeline(task);
+      res.json({ status: result.status === 'success' ? 'ok' : 'error', result });
+    } catch (e) {
+      console.error('[osiris:http] POST /pipeline failed', e);
+      res.status(500).json({ status: 'error', error: 'internal server error' });
     }
   });
 
