@@ -140,3 +140,15 @@ describe('Program semantics (multi-module)', () => {
     expect(sem.errors.some((e) => e.kind === 'export_collision')).toBe(true);
   });
 });
+
+describe('Loop control semantic diagnostics', () => {
+  it('прервать вне цикла -> break_outside_loop', () => {
+    const src = wrap('  прервать');
+    expect(hasKind(src, 'break_outside_loop')).toBe(true);
+  });
+
+  it('продолжить вне цикла -> continue_outside_loop', () => {
+    const src = wrap('  продолжить');
+    expect(hasKind(src, 'continue_outside_loop')).toBe(true);
+  });
+});

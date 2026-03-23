@@ -428,14 +428,22 @@ export function compile(ast: Module): OsVbcModule {
         }
         case "прервать": {
           const target = breakTargets[breakTargets.length - 1];
-          if (!target) throw new Error("прервать вне цикла");
+          if (!target) {
+            log.warn("прервать вне цикла дошел до codegen; emit const.null fallback");
+            emit({ op: "const.null" } as RawInstruction);
+            break;
+          }
           target.patches.push(code.length);
           emit({ op: "jmp", off: 0 } as RawInstruction);
           break;
         }
         case "продолжить": {
           const ct = continueTargets[continueTargets.length - 1];
-          if (!ct) throw new Error("продолжить вне цикла");
+          if (!ct) {
+            log.warn("продолжить вне цикла дошел до codegen; emit const.null fallback");
+            emit({ op: "const.null" } as RawInstruction);
+            break;
+          }
           if (ct.foreachPatches) {
             ct.foreachPatches.push(code.length);
             emit({ op: "jmp", off: 0 } as RawInstruction);

@@ -20,3 +20,14 @@ export const BLOCKING_SEMANTIC_KINDS = [
 ] as const;
 
 export type BlockingSemanticKind = typeof BLOCKING_SEMANTIC_KINDS[number];
+
+/**
+ * Non-blocking semantic diagnostics.
+ * Не запускают repair-цикл, но должны попадать в отчеты.
+ */
+export const NON_BLOCKING_SEMANTIC_KINDS = [
+  'break_outside_loop',     // прервать вне цикла
+  'continue_outside_loop',  // продолжить вне цикла
+] as const;
+
+export type NonBlockingSemanticKind = typeof NON_BLOCKING_SEMANTIC_KINDS[number];

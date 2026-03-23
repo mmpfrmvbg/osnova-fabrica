@@ -15,7 +15,9 @@ export interface SemanticError {
     | "invented_syntax"
     | "sentinel_pattern"
     | "unknown_module"
-    | "export_collision";
+    | "export_collision"
+    | "break_outside_loop"
+    | "continue_outside_loop";
 }
 
 export interface SemanticResult {
@@ -290,7 +292,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
     }
   }
 
-  function checkStmts(stmts: Stmt[], declared: Set<string>): void {
+  function checkStmts(stmts: Stmt[], declared: Set<string>, inLoop = false): void {
     for (const stmt of stmts) {
       switch (stmt.kind) {
         case "пусть":
@@ -323,21 +325,21 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           break;
         case "если":
           checkExpr(stmt.condition, declared);
-          checkStmts(stmt.body, new Set(declared));
+          checkStmts(stmt.body, new Set(declared), inLoop);
           if (stmt.elseIfClauses) {
             for (const clause of stmt.elseIfClauses) {
               checkExpr(clause.condition, declared);
-              checkStmts(clause.body, new Set(declared));
+              checkStmts(clause.body, new Set(declared), inLoop);
             }
           }
-          if (stmt.elseBody) checkStmts(stmt.elseBody, new Set(declared));
+          if (stmt.elseBody) checkStmts(stmt.elseBody, new Set(declared), inLoop);
           break;
         case "пока":
           checkExpr(stmt.condition, declared);
-          checkStmts(stmt.body, new Set(declared));
+          checkStmts(stmt.body, new Set(declared), true);
           break;
         case "цикл":
-          checkStmts(stmt.body, new Set(declared));
+          checkStmts(stmt.body, new Set(declared), true);
           break;
         case "для_каждого": {
           const col = stmt.source ?? stmt.collection;
@@ -345,17 +347,33 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           const loopScope = new Set(declared);
           const v = stmt.item ?? stmt.variable;
           loopScope.add(v);
-          checkStmts(stmt.body, loopScope);
+          checkStmts(stmt.body, loopScope, true);
           break;
         }
         case "попробовать": {
-          checkStmts(stmt.body, new Set(declared));
+          checkStmts(stmt.body, new Set(declared), inLoop);
 
           const catchScope = new Set(declared);
           catchScope.add(stmt.catchVar);
-          checkStmts(stmt.catchBody, catchScope);
+          checkStmts(stmt.catchBody, catchScope, inLoop);
           break;
         }
+        case "прервать":
+          if (!inLoop) {
+            errors.push({
+              kind: "break_outside_loop",
+              message: "оператор 'прервать' допустим только внутри цикла",
+            });
+          }
+          break;
+        case "продолжить":
+          if (!inLoop) {
+            errors.push({
+              kind: "continue_outside_loop",
+              message: "оператор 'продолжить' допустим только внутри цикла",
+            });
+          }
+          break;
         case "выражение":
           checkExpr(stmt.expr, declared);
           break;
