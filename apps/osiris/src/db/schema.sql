@@ -57,3 +57,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
   done_at     TEXT
 );
+
+CREATE TABLE IF NOT EXISTS connectivity_log (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp  TEXT    NOT NULL,
+  online     INTEGER NOT NULL CHECK(online IN (0, 1)),
+  latency_ms INTEGER
+);
+
