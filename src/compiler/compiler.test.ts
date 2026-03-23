@@ -330,6 +330,70 @@ describe("Compiler: массивы (array literals)", () => {
   });
 });
 
+describe("массивы end-to-end", () => {
+  it("литерал, индексация, запись, для_каждого и длина работают сквозь tokenize/parse/compile/VM", async () => {
+    const source = `
+модуль Тест
+процедура главная()
+  пусть arr = [1, 2, 3]
+  пусть первый = arr[0]
+  arr[1] = 99
+  пусть длина = система.массив.длина(arr)
+  пусть сумма = 0
+  для_каждого x в arr
+    сумма = сумма + x
+  конец
+  система.лог.вывести(первый)
+  вернуть сумма + длина
+конец
+конец`.trim();
+
+    const { tokens, errors: lexerErrors } = tokenize(source);
+    expect(lexerErrors).toHaveLength(0);
+
+    const { ast, errors: parserErrors } = parse(tokens);
+    expect(parserErrors).toHaveLength(0);
+    expect(ast).toBeTruthy();
+
+    const result = compileSource(source);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+
+    const invoked: string[] = [];
+    const logs: unknown[] = [];
+    const invoke = (name: string, args: unknown[]): unknown => {
+      invoked.push(name);
+      if (name === "система.массив.создать") return [];
+      if (name === "система.массив.добавить") {
+        const arr = args[0] as unknown[];
+        if (Array.isArray(arr)) arr.push(args[1]);
+        return null;
+      }
+      if (name === "система.массив.получить") return (args[0] as unknown[])[Number(args[1]) | 0];
+      if (name === "система.массив.установить") {
+        const arr = args[0] as unknown[];
+        const idx = Number(args[1]) | 0;
+        if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr[idx] = args[2];
+        return null;
+      }
+      if (name === "система.массив.длина") return Array.isArray(args[0]) ? (args[0] as unknown[]).length : 0;
+      if (name === "система.лог.вывести") {
+        logs.push(args[0]);
+        return null;
+      }
+      return null;
+    };
+
+    const vm = new VM(result.module!, { invoke, maxSteps: 10000 });
+    expect(await vm.runProcedure(0, [])).toBe(106);
+    expect(logs).toEqual([1]);
+    expect(invoked).toContain("система.массив.создать");
+    expect(invoked).toContain("система.массив.получить");
+    expect(invoked).toContain("система.массив.установить");
+    expect(invoked).toContain("система.массив.длина");
+  });
+});
+
 describe("Compiler: для_каждого", () => {
   const arrayInvoke = (name: string, args: unknown[]): unknown => {
     if (name === "система.массив.длина") return (args[0] != null ? (args[0] as unknown[]) : []).length;
