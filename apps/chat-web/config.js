@@ -1,1 +1,3 @@
-window.OSIRIS_URL = "https://stud-wma-how-because.trycloudflare.com";
+// Этот файл больше не используется для URL — Осирис отдаёт его через GET /server-url
+// Оставлен для обратной совместимости
+window.OSIRIS_URL = "";

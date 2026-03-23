@@ -24,8 +24,17 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
   app.use(express.json());
   app.use(express.text({ type: 'text/plain' }));
 
+  const port = Number(process.env.HTTP_PORT ?? 3000);
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid HTTP_PORT: ${process.env.HTTP_PORT ?? ''}`);
+  }
+
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', version: OSIRIS_VERSION });
+  });
+
+  app.get('/server-url', (_req: Request, res: Response) => {
+    res.json({ url: process.env.TUNNEL_URL ?? `http://localhost:${port}` });
   });
 
   app.post('/chat', async (req: Request, res: Response) => {
@@ -68,11 +77,6 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
       res.status(500).json({ error: 'internal server error' });
     }
   });
-
-  const port = Number(process.env.HTTP_PORT ?? 3000);
-  if (!Number.isFinite(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid HTTP_PORT: ${process.env.HTTP_PORT ?? ''}`);
-  }
 
   await new Promise<void>((resolve, reject) => {
     const server = app.listen(port, () => {

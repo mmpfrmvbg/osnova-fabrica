@@ -13,14 +13,51 @@
   <input id="input" type="text" autocomplete="off" placeholder="Сообщение..."/>
   <button type="submit">Отправить</button>
 </form>
-<script src="config.js"></script>
 <script>
-const BASE=window.OSIRIS_URL||"http://localhost:3000";
-const msgs=document.getElementById("messages");
-const form=document.getElementById("form");
-const inp=document.getElementById("input");
-function add(text,cls){const d=document.createElement("div");d.className="msg "+cls;d.textContent=text;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
-form.onsubmit=async e=>{e.preventDefault();const t=inp.value.trim();if(!t)return;inp.value="";add(t,"msg-user");const dot=add("...","msg-bot");try{const r=await fetch(BASE+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:"android-user",message:t})});const j=await r.json();dot.textContent=j.reply||"[пустой ответ]";}catch(err){dot.textContent="[ошибка] "+err.message;}};
+(async () => {
+  let BASE = "http://localhost:3000";
+  try {
+    const r = await fetch("http://localhost:3000/server-url", { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      const j = await r.json();
+      if (j && typeof j.url === "string" && j.url) BASE = j.url;
+    }
+  } catch {
+    // fallback: используем localhost:3000
+  }
+  window.__OSIRIS_BASE = BASE;
+
+  const msgs = document.getElementById("messages");
+  const form = document.getElementById("form");
+  const inp = document.getElementById("input");
+  function add(text, cls) {
+    const d = document.createElement("div");
+    d.className = "msg " + cls;
+    d.textContent = text;
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    return d;
+  }
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const t = inp.value.trim();
+    if (!t) return;
+    inp.value = "";
+    add(t, "msg-user");
+    const dot = add("...", "msg-bot");
+    try {
+      const r = await fetch(window.__OSIRIS_BASE + "/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "android-user", message: t })
+      });
+      const j = await r.json();
+      dot.textContent = j.reply || "[пустой ответ]";
+    } catch (err) {
+      dot.textContent = "[ошибка] " + err.message;
+    }
+  };
+})();
 </script>
 </body>
 </html>
