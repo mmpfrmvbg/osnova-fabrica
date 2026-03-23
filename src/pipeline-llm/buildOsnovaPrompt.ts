@@ -64,6 +64,9 @@ function buildPromptSections(): {
 export function buildOsnovaPrompt(text: string): string {
   const s = buildPromptSections();
   return [
+    `Ты работаешь с языком Основа версии ${LANGUAGE_VERSION} (текущая версия: 2.0.0).`,
+    'Генерируй код только в рамках этой версии.',
+    '',
     '═══ КЛЮЧЕВЫЕ СЛОВА ═══',
     s.keywords,
     '',
