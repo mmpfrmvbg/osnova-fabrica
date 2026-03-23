@@ -4,7 +4,7 @@
  */
 
 import type { OsVbcModule, RawInstruction } from "../runtime/vm/bytecode";
-import type { Module, Procedure, Stmt, Expr } from "./ast";
+import type { Program, Module, Procedure, Stmt, Expr } from "./ast";
 import { logger } from "../logger";
 
 const log = logger("codegen");
@@ -470,4 +470,204 @@ export function compile(ast: Module): OsVbcModule {
     procedures,
     code,
   };
+}
+
+function cloneExprWithResolver(expr: Expr, resolveCall: (name: string) => string): Expr {
+  switch (expr.kind) {
+    case "число":
+    case "строка":
+    case "булево":
+    case "пусто":
+    case "переменная":
+      return { ...expr };
+    case "бинарное":
+      return {
+        kind: "бинарное",
+        op: expr.op,
+        left: cloneExprWithResolver(expr.left, resolveCall),
+        right: cloneExprWithResolver(expr.right, resolveCall),
+      };
+    case "унарное":
+      return {
+        kind: "унарное",
+        op: expr.op,
+        arg: cloneExprWithResolver(expr.arg, resolveCall),
+      };
+    case "вызов":
+      return {
+        kind: "вызов",
+        name: resolveCall(expr.name),
+        args: expr.args.map((a) => cloneExprWithResolver(a, resolveCall)),
+      };
+    case "массив":
+      return {
+        kind: "массив",
+        elements: expr.elements.map((e) => cloneExprWithResolver(e, resolveCall)),
+      };
+    case "объект":
+      return {
+        kind: "объект",
+        entries: expr.entries.map((entry) => ({
+          key: entry.key,
+          value: cloneExprWithResolver(entry.value, resolveCall),
+        })),
+      };
+    case "поле":
+      return {
+        kind: "поле",
+        object: cloneExprWithResolver(expr.object, resolveCall),
+        field: expr.field,
+      };
+  }
+}
+
+function cloneStmtWithResolver(stmt: Stmt, resolveCall: (name: string) => string): Stmt {
+  switch (stmt.kind) {
+    case "пусть":
+      return {
+        kind: "пусть",
+        name: stmt.name,
+        init: cloneExprWithResolver(stmt.init, resolveCall),
+        typeAnnotation: stmt.typeAnnotation ? { ...stmt.typeAnnotation } : undefined,
+      };
+    case "присвоить":
+      return {
+        kind: "присвоить",
+        name: stmt.name,
+        value: cloneExprWithResolver(stmt.value, resolveCall),
+      };
+    case "поле_присвоить":
+      return {
+        kind: "поле_присвоить",
+        object: stmt.object,
+        field: stmt.field,
+        value: cloneExprWithResolver(stmt.value, resolveCall),
+      };
+    case "выражение":
+      return { kind: "выражение", expr: cloneExprWithResolver(stmt.expr, resolveCall) };
+    case "если":
+      return {
+        kind: "если",
+        condition: cloneExprWithResolver(stmt.condition, resolveCall),
+        body: stmt.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
+        elseIfClauses: stmt.elseIfClauses?.map((cl) => ({
+          condition: cloneExprWithResolver(cl.condition, resolveCall),
+          body: cl.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
+        })),
+        elseBody: stmt.elseBody?.map((s) => cloneStmtWithResolver(s, resolveCall)),
+      };
+    case "попробовать":
+      return {
+        kind: "попробовать",
+        body: stmt.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
+        catchVar: stmt.catchVar,
+        catchBody: stmt.catchBody.map((s) => cloneStmtWithResolver(s, resolveCall)),
+      };
+    case "выбросить":
+      return { kind: "выбросить", value: cloneExprWithResolver(stmt.value, resolveCall) };
+    case "пока":
+      return {
+        kind: "пока",
+        condition: cloneExprWithResolver(stmt.condition, resolveCall),
+        body: stmt.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
+      };
+    case "для_каждого": {
+      const source = cloneExprWithResolver(stmt.source, resolveCall);
+      return {
+        kind: "для_каждого",
+        item: stmt.item,
+        index: stmt.index,
+        source,
+        body: stmt.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
+        variable: stmt.variable,
+        collection: source,
+      };
+    }
+    case "цикл":
+      return { kind: "цикл", body: stmt.body.map((s) => cloneStmtWithResolver(s, resolveCall)) };
+    case "прервать":
+      return { kind: "прервать" };
+    case "продолжить":
+      return { kind: "продолжить" };
+    case "вернуть":
+      return {
+        kind: "вернуть",
+        value: stmt.value ? cloneExprWithResolver(stmt.value, resolveCall) : undefined,
+      };
+  }
+}
+
+function prefixProcedure(moduleName: string, procName: string): string {
+  return `${moduleName}__${procName}`;
+}
+
+export function compileProgram(program: Program): OsVbcModule[] {
+  const modulesByName = new Map<string, Module>();
+  for (const m of program.modules) {
+    if (!modulesByName.has(m.name)) modulesByName.set(m.name, m);
+  }
+
+  return program.modules.map((mod) => {
+    const ownProcNames = new Set(mod.procedures.map((p) => p.name));
+    const importedModules = mod.imports
+      .map((imp) => modulesByName.get(imp.module))
+      .filter((m): m is Module => !!m);
+    const importedProcNames = new Set<string>();
+    for (const imported of importedModules) {
+      for (const p of imported.procedures) importedProcNames.add(p.name);
+    }
+
+    const compileProcedures: Procedure[] = [];
+    const seenPrefixed = new Set<string>();
+
+    const appendProcedure = (sourceModule: Module, proc: Procedure): void => {
+      const prefixedName = prefixProcedure(sourceModule.name, proc.name);
+      if (seenPrefixed.has(prefixedName)) return;
+      seenPrefixed.add(prefixedName);
+
+      const resolveCall = (name: string): string => {
+        if (name.startsWith("система.")) return name;
+        if (name.includes(".")) {
+          const [ns, p] = name.split(".", 2);
+          if (modulesByName.has(ns)) return prefixProcedure(ns, p ?? "");
+          return name;
+        }
+        if (sourceModule.name === mod.name) {
+          if (ownProcNames.has(name)) return prefixProcedure(mod.name, name);
+          if (importedProcNames.has(name)) {
+            for (const imported of importedModules) {
+              if (imported.procedures.some((ip) => ip.name === name)) {
+                return prefixProcedure(imported.name, name);
+              }
+            }
+          }
+          return name;
+        }
+        if (sourceModule.procedures.some((sp) => sp.name === name)) {
+          return prefixProcedure(sourceModule.name, name);
+        }
+        return name;
+      };
+
+      compileProcedures.push({
+        name: prefixedName,
+        params: [...proc.params],
+        body: proc.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
+        exported: proc.exported,
+      });
+    };
+
+    for (const proc of mod.procedures) appendProcedure(mod, proc);
+    for (const imported of importedModules) {
+      for (const proc of imported.procedures) appendProcedure(imported, proc);
+    }
+
+    const compileModuleAst: Module = {
+      name: mod.name,
+      imports: [],
+      typeDeclarations: [...mod.typeDeclarations],
+      procedures: compileProcedures,
+    };
+    return compile(compileModuleAst);
+  });
 }

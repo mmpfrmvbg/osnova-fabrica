@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import { compileSource } from "./compiler";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
+import { compileProgram } from "./codegen";
 import { VM, InterpreterError } from "../runtime/vm/interpreter";
 import type { OsVbcModule } from "../runtime/vm/bytecode";
 
@@ -40,6 +41,56 @@ describe("Compiler smoke: todo.osnova", () => {
     const result = compileSource(src);
     expect(result.parserErrors).toHaveLength(0);
     expect(result.compilerSuccess).toBe(true);
+  });
+});
+
+describe("Compiler: multi-module codegen", () => {
+  it("два модуля -> compileProgram возвращает два OsVbcModule", () => {
+    const src = `
+модуль A
+процедура экспорт ping()
+  вернуть 1
+конец
+конец
+
+модуль B
+использовать модуль A из "a.osnova"
+процедура main()
+  вернуть A.ping()
+конец
+конец`.trim();
+    const { tokens } = tokenize(src);
+    const { ast, errors } = parse(tokens);
+    expect(errors).toHaveLength(0);
+    expect(ast).toBeTruthy();
+    const modules = compileProgram(ast!);
+    expect(modules).toHaveLength(2);
+  });
+
+  it("в модуле B импортированные процедуры доступны как A__ping", () => {
+    const src = `
+модуль A
+процедура экспорт ping()
+  вернуть 7
+конец
+конец
+
+модуль B
+использовать модуль A из "a.osnova"
+процедура main()
+  вернуть A.ping()
+конец
+конец`.trim();
+    const { tokens } = tokenize(src);
+    const { ast, errors } = parse(tokens);
+    expect(errors).toHaveLength(0);
+    expect(ast).toBeTruthy();
+    const modules = compileProgram(ast!);
+    const modB = modules.find((m) => m.moduleName === "B");
+    expect(modB).toBeTruthy();
+    const names = modB!.procedures.map((p) => p.name);
+    expect(names).toContain("A__ping");
+    expect(names).toContain("B__main");
   });
 });
 
