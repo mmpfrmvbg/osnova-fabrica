@@ -7,6 +7,7 @@ import { runOsirisPipeline } from '../osnova/client';
 import { buildPipelineSpecContext } from '../osnova/context-builder';
 import { buildContext } from './context-builder';
 import { extractActions } from './action-extractor';
+import { runSummarizerIfNeeded } from './memory-summarizer';
 
 export interface HandleResult {
   reply: string;
@@ -49,42 +50,6 @@ function detectIntent(
 function formatTaskList(tasks: memory.Task[]): string {
   if (tasks.length === 0) return 'Открытых задач нет.';
   return tasks.map((t, i) => `${i + 1}. [#${t.id}] ${t.title}`).join('\n');
-}
-
-// ── Суммаризация ───────────────────────────────────────────────────────────
-
-async function maybeSummarize(userId: string): Promise<void> {
-  try {
-    const count = memory.countUserMessages(userId);
-    if (count === 0 || count % 50 !== 0) return;
-
-    const dialog = memory.getMessagesForSummary(userId, 50);
-    const result = await callLlm([
-      {
-        role: 'system',
-        content: 'Ты — помощник по суммаризации диалогов. Отвечай только текстом резюме.',
-      },
-      {
-        role: 'user',
-        content:
-          `Сожми этот диалог в краткое резюме фактов о пользователе ` +
-          `и ключевых темах разговора. Максимум 200 слов.\n\n${dialog}`,
-      },
-    ]);
-
-    await memory.saveSummary({
-      userId,
-      scope: 'session',
-      project: null,
-      periodStart: null,
-      periodEnd: null,
-      text: result.text,
-      generatedAt: new Date().toISOString(),
-    });
-    console.log(`[osiris:memory] summary saved for userId=${userId} at msg#${count}`);
-  } catch (e) {
-    console.error('[osiris:memory] summarize error:', e instanceof Error ? e.message : e);
-  }
 }
 
 // ── Main handler ───────────────────────────────────────────────────────────
@@ -182,6 +147,7 @@ export async function handleMessage(
       sessionId: null,
       rawJson: null,
     });
+    setImmediate(() => { void runSummarizerIfNeeded(userId); });
 
     try {
       const specContext = await buildPipelineSpecContext(message);
@@ -266,6 +232,7 @@ export async function handleMessage(
     sessionId: null,
     rawJson: null,
   });
+  setImmediate(() => { void runSummarizerIfNeeded(userId); });
 
   let reply: string;
   try {
@@ -289,8 +256,6 @@ export async function handleMessage(
     sessionId: null,
     rawJson: null,
   });
-
-  setImmediate(() => { void maybeSummarize(userId); });
 
   return { reply, mode: _mode, trackedFacts: 0, trackedTasks: 0 };
 }
