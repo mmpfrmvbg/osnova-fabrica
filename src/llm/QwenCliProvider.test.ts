@@ -94,4 +94,15 @@ describe('QwenCliProvider: empty output guard', () => {
       provider.complete({ messages: [{ role: 'user', content: 'test' }] }),
     ).rejects.toThrow('QwenCliProvider: failed to extract code from output');
   });
+
+  it('JSON-мусор в stdout уходит в fallback и не падает', async () => {
+    const { spawn } = await import('node:child_process');
+    const junkMock = createMockSpawn('[{"type":"assistant","content":"what"}]', '', 0);
+    vi.mocked(spawn).mockImplementation(junkMock as never);
+    const provider = new QwenCliProvider();
+    const response = await provider.complete({
+      messages: [{ role: 'user', content: 'test' }],
+    });
+    expect(response.content).toBe('[{"type":"assistant","content":"what"}]');
+  });
 });

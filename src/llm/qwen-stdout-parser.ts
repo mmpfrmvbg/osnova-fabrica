@@ -27,9 +27,9 @@ export function parseQwenJsonEvents(stdout: string): QwenParseResult {
     if (resultEvent?.result) {
       return { text: resultEvent.result, format: 'json-events', found: true };
     }
-    return { text: stdout, format: 'json-events', found: false };
+    return { text: '', format: 'json-events', found: false };
   } catch {
-    return { text: stdout, format: 'json-events', found: false };
+    return { text: '', format: 'json-events', found: false };
   }
 }
 
