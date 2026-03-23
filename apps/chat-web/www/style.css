@@ -51,3 +51,10 @@ body { background: #1a1a1a; color: #fff; font-family: system-ui, sans-serif; hei
 }
 .task-actions .danger { background: #5c1f1f; border-color: #7a2a2a; }
 .task-empty { color: #bdbdbd; font-size: 14px; padding: 10px 0; }
+
+.msg-status {
+  color: #888;
+  font-size: 0.85em;
+  font-style: italic;
+  padding: 2px 12px;
+}

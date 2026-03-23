@@ -65,6 +65,14 @@
     msgs.scrollTop = msgs.scrollHeight;
     return d;
   }
+  function isPipelineRequest(text) {
+    const lower = text.toLowerCase();
+    return [
+      'сделай приложение', 'создай приложение', 'напиши приложение',
+      'сгенерируй приложение', 'нужно приложение', 'создать приложение',
+      'сделай ос-приложение',
+    ].some(p => lower.includes(p));
+  }
   form.onsubmit = async e => {
     e.preventDefault();
     const t = inp.value.trim();
@@ -72,16 +80,48 @@
     inp.value = "";
     add(t, "msg-user");
     const dot = add("...", "msg-bot");
-    try {
-      const r = await fetch(window.__OSIRIS_BASE + "/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: "android-user", message: t })
-      });
-      const j = await r.json();
-      dot.textContent = j.reply || "[пустой ответ]";
-    } catch (err) {
-      dot.textContent = "[ошибка] " + err.message;
+
+    if (isPipelineRequest(t)) {
+      // SSE path для pipeline
+      const url = window.__OSIRIS_BASE + "/pipeline/stream?task=" + encodeURIComponent(t);
+      try {
+        const es = new EventSource(url);
+        es.onmessage = ev => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (data.phase === 'done' || data.phase === 'error') {
+              dot.textContent = data.message || "[готово]";
+              es.close();
+            } else {
+              // промежуточный статус — добавить серую строку
+              const status = document.createElement("div");
+              status.className = "msg msg-status";
+              status.textContent = "⟳ " + (data.message || data.phase);
+              msgs.insertBefore(status, dot);
+              msgs.scrollTop = msgs.scrollHeight;
+            }
+          } catch { dot.textContent = "[ошибка парсинга]"; es.close(); }
+        };
+        es.onerror = () => {
+          dot.textContent = "[ошибка соединения с Фабрикой]";
+          es.close();
+        };
+      } catch (err) {
+        dot.textContent = "[ошибка] " + err.message;
+      }
+    } else {
+      // Обычный chat path (без изменений)
+      try {
+        const r = await fetch(window.__OSIRIS_BASE + "/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: "android-user", message: t })
+        });
+        const j = await r.json();
+        dot.textContent = j.reply || "[пустой ответ]";
+      } catch (err) {
+        dot.textContent = "[ошибка] " + err.message;
+      }
     }
   };
 })();
