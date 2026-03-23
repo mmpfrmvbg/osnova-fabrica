@@ -29,7 +29,7 @@ interface LanguageSchema {
     spelling: string;
     tokenKind: TokenKind | string;
     relatedConstructions: string[];
-    status: "stable" | "experimental" | "deprecated";
+    status: Status;
   }>;
   operators: Array<{
     symbol: string;
@@ -200,7 +200,7 @@ export function buildLanguageSchema(): LanguageSchema {
         spelling,
         tokenKind: KEYWORDS[spelling],
         relatedConstructions: KEYWORD_TO_CONSTRUCTION[spelling] ?? [],
-        status: spec?.implemented ? "stable" : "experimental",
+        status: (spec?.implemented ? "stable" : "experimental") as Status,
       };
     });
 
@@ -211,7 +211,7 @@ export function buildLanguageSchema(): LanguageSchema {
     associativity: op.associativity,
     relatedTokens: [op.symbol],
     relatedAstNodes: ["бинарное", "унарное", "присвоить"],
-    status: op.implemented ? "stable" : "planned",
+    status: (op.implemented ? "stable" : "planned") as Status,
   }));
 
   const syscalls = Object.keys(INVOKE_ARG_COUNT)
