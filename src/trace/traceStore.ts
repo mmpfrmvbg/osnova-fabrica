@@ -16,6 +16,7 @@ import type {
   PipelineStatus,
 } from '../pipeline/types';
 import type { ShadowHit } from '../pipeline/shadowMode';
+import { BLOCKING_SEMANTIC_KINDS, NON_BLOCKING_SEMANTIC_KINDS } from '../compiler/semanticKinds';
 
 const LexerErrorSchema = z.object({
   line: z.number(),
@@ -39,19 +40,11 @@ const CompilerErrorSchema = z
   })
   .passthrough();
 
-const SemanticErrorKindSchema = z.enum([
-  'undeclared_var',
-  'syscall_argc',
-  'chained_compare',
-  'unknown_syscall',
-  'unknown_procedure',
-  'redeclare_var',
-  'keyword_param',
-  'invented_syntax',
-  'sentinel_pattern',
-  'break_outside_loop',
-  'continue_outside_loop',
-]);
+const ALL_SEMANTIC_KINDS = [
+  ...BLOCKING_SEMANTIC_KINDS,
+  ...NON_BLOCKING_SEMANTIC_KINDS,
+] as unknown as [string, ...string[]];
+const SemanticErrorKindSchema = z.enum(ALL_SEMANTIC_KINDS);
 
 const SemanticErrorSchema = z
   .object({
