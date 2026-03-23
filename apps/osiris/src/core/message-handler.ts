@@ -8,6 +8,7 @@ import { buildPipelineSpecContext } from '../osnova/context-builder';
 import { buildContext } from './context-builder';
 import { extractActions } from './action-extractor';
 import { runSummarizerIfNeeded } from './memory-summarizer';
+import { checkConnectivity } from './connectivity';
 
 export interface HandleResult {
   reply: string;
@@ -58,6 +59,7 @@ export async function handleMessage(
   message: IncomingMessage,
   _mode: JarvisMode = 'chat',
 ): Promise<HandleResult> {
+  void checkConnectivity().then((result) => console.log('[osiris:connectivity]', result));
   const userId = message.userId;
   const intent = detectIntent(message.text);
 
