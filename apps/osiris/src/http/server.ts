@@ -156,8 +156,32 @@ export function createHttpApp(): Express {
     res.json({ status: 'ok', version: OSIRIS_VERSION });
   });
 
-  app.get('/server-url', (_req: Request, res: Response) => {
-    res.json({ url: process.env.TUNNEL_URL ?? `http://localhost:${port}` });
+  const MAX_WAIT_MS = 20_000;
+  const POLL_INTERVAL_MS = 500;
+
+  app.get('/server-url', async (_req: Request, res: Response) => {
+    const port = Number(process.env.HTTP_PORT ?? 3000);
+    // Если TUNNEL_URL уже есть — вернуть сразу
+    if (process.env.TUNNEL_URL) {
+      res.json({ url: process.env.TUNNEL_URL });
+      return;
+    }
+    // Если tunnel не запущен (USE_TUNNEL !== true) — вернуть localhost
+    if (process.env.USE_TUNNEL !== 'true') {
+      res.json({ url: `http://localhost:${port}` });
+      return;
+    }
+    // Tunnel запущен но URL ещё не готов — ждём до MAX_WAIT_MS
+    const deadline = Date.now() + MAX_WAIT_MS;
+    while (Date.now() < deadline) {
+      await new Promise<void>(r => setTimeout(r, POLL_INTERVAL_MS));
+      if (process.env.TUNNEL_URL) {
+        res.json({ url: process.env.TUNNEL_URL });
+        return;
+      }
+    }
+    // Timeout — вернуть localhost как fallback
+    res.json({ url: `http://localhost:${port}` });
   });
 
   app.post('/chat', async (req: Request, res: Response) => {

@@ -35,7 +35,11 @@ export function isCloudflaredInstalled(): boolean {
   }
 }
 
-export function startTunnel(port: number, urlFile?: string): void {
+export function startTunnel(
+  port: number,
+  urlFile?: string,
+  onUrlReady?: (url: string) => void,
+): void {
   if (!isCloudflaredInstalled()) {
     console.log(
       '[osiris:tunnel] cloudflared not found.',
@@ -85,6 +89,7 @@ export function startTunnel(port: number, urlFile?: string): void {
       if (url) {
         console.log(`[osiris:tunnel] Public URL: ${url}`);
         process.env.TUNNEL_URL = url;
+        onUrlReady?.(url);
         try {
           fs.writeFileSync(saveUrlTo, url, 'utf8');
           console.log(`[osiris:tunnel] URL saved → ${saveUrlTo}`);
