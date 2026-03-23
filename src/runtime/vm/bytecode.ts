@@ -21,6 +21,11 @@ export const BYTECODE_VERSION = 1;
 
 export type ConstType = "i32" | "f64" | "str" | "bool" | "null";
 
+/**
+ * Полный список опкодов VM.
+ * ПРАВИЛО: добавлять новый op ТОЛЬКО после реализации case в interpreter.ts step().
+ * Опкод в типе без обработки → Unknown op в рантайме.
+ */
 export type Op =
   | "const"
   | "const.true"
@@ -28,8 +33,6 @@ export type Op =
   | "const.null"
   | "local.get"
   | "local.set"
-  | "global.get"
-  | "global.set"
   | "add"
   | "sub"
   | "mul"
@@ -50,8 +53,6 @@ export type Op =
   | "try_end"
   | "throw"
   | "ret"
-  | "result.unwrap"
-  | "result.tag"
   | "obj.new"
   | "obj.get"
   | "obj.set"
@@ -65,11 +66,6 @@ export interface InstructionConst {
 
 export interface InstructionLocal {
   op: "local.get" | "local.set";
-  i: number;
-}
-
-export interface InstructionGlobal {
-  op: "global.get" | "global.set";
   i: number;
 }
 
@@ -91,11 +87,10 @@ export interface InstructionJmp {
 export type RawInstruction =
   | InstructionConst
   | InstructionLocal
-  | InstructionGlobal
   | InstructionCall
   | InstructionInvoke
   | InstructionJmp
-  | { op: Exclude<Op, "const" | "local.get" | "local.set" | "global.get" | "global.set" | "call" | "invoke" | "jmp" | "jmp_if" | "jmp_if_not" | "try_begin"> };
+  | { op: Exclude<Op, "const" | "local.get" | "local.set" | "call" | "invoke" | "jmp" | "jmp_if" | "jmp_if_not" | "try_begin"> };
 
 /**
  * VLIW-пакет (format v2): несколько операций на одну позицию в code.
