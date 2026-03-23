@@ -534,6 +534,7 @@ const SYSCALLS_V01: SyscallSpec[] = [
   { name: "система.массив.получить", argc: 2, status: "stable", description: "Получить элемент массива по индексу", since: "0.1.0" },
   { name: "система.объект.получить", argc: 2, status: "stable", description: "Получить поле объекта по ключу", since: "0.1.0" },
   { name: "система.строка.объединить", argc: 2, status: "stable", description: "Объединить две строки", since: "0.1.0" },
+  { name: "система.строка.из_числа", argc: 1, status: "stable", description: "преобразует число в строку", since: "0.1.0" },
   { name: "система.строка.длина", argc: 1, status: "stable", description: "Получить длину строки", since: "0.1.0" },
   { name: "система.строка.содержит", argc: 2, status: "stable", description: "Проверить, содержит ли строка подстроку", since: "0.1.0" },
   { name: "система.строка.начинается_с", argc: 2, status: "stable", description: "Проверить префикс строки", since: "0.1.0" },
@@ -572,12 +573,6 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
   },
   { id: "walrus_assign", description: "оператор := не поддерживается", bad: "пусть x := 1", good: "пусть x = 1" },
   { id: "missing_converters", description: "конверторы строка()/число()/целое32() не поддерживаются", bad: "целое32(x)" },
-  {
-    id: "no_num_to_string_converter",
-    description: "нет система.строка.из_числа — для вывода числа используй система.строка.объединить",
-    bad: "система.строка.из_числа(x)",
-    good: 'система.строка.объединить("", x)',
-  },
   {
     id: "no_num_string_arith_concat",
     description: "число не конкатенируется со строкой напрямую — используй объединить",

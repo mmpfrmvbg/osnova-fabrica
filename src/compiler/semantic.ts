@@ -12,6 +12,7 @@ export interface SemanticError {
     | "unknown_procedure"
     | "redeclare_var"
     | "keyword_param"
+    | "keyword_as_identifier"
     | "invented_syntax"
     | "sentinel_pattern"
     | "unknown_module"
@@ -297,6 +298,13 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
       switch (stmt.kind) {
         case "пусть":
           checkExpr(stmt.init, declared);
+          if (kwSet.has(stmt.name)) {
+            errors.push({
+              kind: "keyword_as_identifier",
+              message: `«${stmt.name}» является ключевым словом — используйте другое имя переменной`,
+            });
+            break;
+          }
           if (declared.has(stmt.name)) {
             errors.push({
               kind: "redeclare_var",

@@ -774,7 +774,8 @@ describe("semantic checker", () => {
   });
 
   it("фиксирует unknown_syscall для несуществующего система.* вызова", () => {
-    const source = "модуль t\nпроцедура главная()\n  система.строка.из_числа(42)\nконец\nконец";
+    const source =
+      "модуль t\nпроцедура главная()\n  система.строка.нет_такого_syscall_для_теста(42)\nконец\nконец";
     const result = compileSource(source);
     expect(result.semanticErrors.some((e) => e.kind === "unknown_syscall")).toBe(true);
   });

@@ -28,6 +28,7 @@ export type BlockingSemanticKind = typeof BLOCKING_SEMANTIC_KINDS[number];
 export const NON_BLOCKING_SEMANTIC_KINDS = [
   'break_outside_loop',     // прервать вне цикла
   'continue_outside_loop',  // продолжить вне цикла
+  'keyword_as_identifier',  // ключевое слово как имя переменной
 ] as const;
 
 export type NonBlockingSemanticKind = typeof NON_BLOCKING_SEMANTIC_KINDS[number];

@@ -89,4 +89,28 @@ describe('runGoldenCheck — smoke сценарии', () => {
     expect(report.passed).toBe(true);
     expect(report.qualityScore).toBeGreaterThanOrEqual(0.9);
   });
+
+  it('спека 4: хранилище — записать → прочитать → удалить → прочитать возвращает null/\'\'', async () => {
+    const source = `
+модуль тест_удаления
+
+процедура главная()
+  система.хранилище.записать("_golden_keep", "1")
+  система.хранилище.записать("ключ", "значение")
+  система.хранилище.удалить("ключ")
+  вернуть система.хранилище.прочитать("ключ")
+конец
+    `.trim();
+    const compiled = compileSource(source);
+    expect(compiled.compilerSuccess).toBe(true);
+    const report = await runGoldenCheck(compiled.module, makeSpec({
+      syscalls: [
+        'система.хранилище.записать',
+        'система.хранилище.удалить',
+        'система.хранилище.прочитать',
+      ],
+    }));
+    expect(report.executed).toBe(true);
+    expect(report.passed).toBe(true);
+  });
 });

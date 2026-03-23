@@ -152,3 +152,45 @@ describe('Loop control semantic diagnostics', () => {
     expect(hasKind(src, 'continue_outside_loop')).toBe(true);
   });
 });
+
+describe('semantic checker: string syscalls & keyword_as_identifier', () => {
+  it('система.строка.объединить с 2 аргументами — нет ошибок', () => {
+    const source =
+      'модуль t\nпроцедура главная()\n  пусть s = система.строка.объединить("привет", " мир")\nконец\nконец';
+    const result = compileSource(source);
+    expect(result.semanticErrors.filter((e) => e.kind === 'unknown_syscall')).toHaveLength(0);
+  });
+
+  it('система.строка.из_числа с 1 аргументом — нет ошибок', () => {
+    const source =
+      'модуль t\nпроцедура главная()\n  пусть s = система.строка.из_числа(42)\nконец\nконец';
+    const result = compileSource(source);
+    expect(result.semanticErrors.filter((e) => e.kind === 'unknown_syscall')).toHaveLength(0);
+  });
+
+  it('объявление переменной с именем ключевого слова даёт keyword_as_identifier', () => {
+    const src = [
+      'модуль т',
+      'процедура главная()',
+      '  пусть если = 0',
+      '  вернуть 0',
+      'конец',
+      'конец',
+    ].join('\n');
+    const result = compileSource(src);
+    expect(result.semanticErrors.some((e) => e.kind === 'keyword_as_identifier')).toBe(true);
+  });
+
+  it('объявление переменной «и» даёт keyword_as_identifier', () => {
+    const src = [
+      'модуль т',
+      'процедура главная()',
+      '  пусть и = 0',
+      '  вернуть 0',
+      'конец',
+      'конец',
+    ].join('\n');
+    const result = compileSource(src);
+    expect(result.semanticErrors.some((e) => e.kind === 'keyword_as_identifier')).toBe(true);
+  });
+});

@@ -2,7 +2,7 @@
  * Парсер Основа MVP: newline как разделитель инструкций, блоки через конец.
  */
 
-import type { Token, TokenKind } from "./lexer";
+import { KEYWORDS, type Token, type TokenKind } from "./lexer";
 import type { Program, Module, Procedure, Stmt, Expr, ImportDeclaration, TypeDeclaration, TypeRef, TypeField } from "./ast";
 
 export type ParseErrorContext = "module" | "procedure" | "stmt" | "expr";
@@ -358,7 +358,15 @@ export function parse(tokens: Token[]): ParseResult {
 
     if (peek().kind === "пусть") {
       advance();
-      if (!isAt("идентификатор")) {
+      let name: string;
+      if (isAt("идентификатор")) {
+        const tokLet = advance();
+        name = String(tokLet.value ?? tokLet.lexeme);
+      } else if (KEYWORDS[peek().lexeme] !== undefined) {
+        // ключевое слово на месте имени — парсим как имя, семантика выдаст keyword_as_identifier
+        const tokLet = advance();
+        name = tokLet.lexeme;
+      } else {
         const t = peek();
         errors.push({
           message: "Ожидается имя переменной после 'пусть'",
@@ -371,8 +379,6 @@ export function parse(tokens: Token[]): ParseResult {
         });
         return null;
       }
-      const tokLet = advance();
-      const name = String(tokLet.value ?? tokLet.lexeme);
       let typeAnnotation: TypeRef | undefined;
       if (peek().kind === ":") {
         advance(); // consume ':'

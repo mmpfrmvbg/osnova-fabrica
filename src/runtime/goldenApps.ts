@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as fs from 'fs/promises';
 import * as fssync from 'fs';
 import { run as runCli } from './run';
-import { storageWrite, storageKeys, storageRead } from './storage';
+import { storageWrite, storageKeys, storageRead, storageDelete } from './storage';
 import { VM } from './vm/interpreter';
 import { isOsVbcModule, isVliwPacket } from './vm/bytecode';
 import type { OsVbcModule, VliwPacket } from './vm/bytecode';
@@ -73,6 +73,10 @@ export async function runGoldenCheck(
         // Хранилище — реальная реализация через tmpdir
         if (name === 'система.хранилище.записать') {
           await storageWrite(storageRoot, appId, String(args[0]), String(args[1]));
+          return null;
+        }
+        if (name === 'система.хранилище.удалить') {
+          await storageDelete(storageRoot, appId, String(args[0]));
           return null;
         }
         if (name === 'система.хранилище.прочитать') {
