@@ -59,7 +59,7 @@ center-err.txt
 src/scripts/batch-tasks-*.txt
 !src/scripts/batch-tasks.txt
 
-# Jarvis app (apps/jarvis)
-apps/jarvis/jarvis.db
-apps/jarvis/node_modules/
-apps/jarvis/.env
+# Osiris app (apps/osiris)
+apps/osiris/osiris.db
+apps/osiris/node_modules/
+apps/osiris/.env

@@ -1,4 +1,4 @@
-// apps/jarvis/src/core/message-handler.ts
+// apps/osiris/src/core/message-handler.ts
 import type { IncomingMessage, JarvisMode } from '../types';
 import * as memory from './memory-engine';
 import { call as callLlm } from './llm-router';
@@ -12,7 +12,7 @@ export interface HandleResult {
 }
 
 const SYSTEM_PROMPT =
-  'Ты — Jarvis, персональный AI-ассистент. Отвечай кратко и по делу. ' +
+  'Ты — Осирис, персональный AI-ассистент. Отвечай кратко и по делу. ' +
   'Помни контекст разговора.';
 
 // ── Intent detection ───────────────────────────────────────────────────────
@@ -77,9 +77,9 @@ async function maybeSummarize(userId: string): Promise<void> {
       text: result.text,
       generatedAt: new Date().toISOString(),
     });
-    console.log(`[jarvis:memory] summary saved for userId=${userId} at msg#${count}`);
+    console.log(`[osiris:memory] summary saved for userId=${userId} at msg#${count}`);
   } catch (e) {
-    console.error('[jarvis:memory] summarize error:', e instanceof Error ? e.message : e);
+    console.error('[osiris:memory] summarize error:', e instanceof Error ? e.message : e);
   }
 }
 
@@ -177,7 +177,7 @@ export async function handleMessage(
     reply = result.text;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[jarvis:handler] LLM error:', msg);
+    console.error('[osiris:handler] LLM error:', msg);
     reply = `[ошибка LLM] ${msg}`;
   }
 

@@ -1,4 +1,4 @@
-// apps/jarvis/src/core/context-builder.ts
+// apps/osiris/src/core/context-builder.ts
 // Заглушка: формирует JarvisContext для передачи в LLM.
 
 import type { IncomingMessage, JarvisContext, JarvisMode, ProjectHint } from '../types';
@@ -14,7 +14,7 @@ export async function buildContext(
 ): Promise<JarvisContext> {
   // stub
   return {
-    systemPrompt: 'Ты Jarvis — ассистент для проекта ОС-НОВА.',
+    systemPrompt: 'Ты Осирис — ассистент для проекта ОС-НОВА.',
     conversationHistory: [],
     memoryFacts: [],
     summarySnippet: undefined,

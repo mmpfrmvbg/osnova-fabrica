@@ -1,4 +1,4 @@
-// apps/jarvis/src/index.ts
+// apps/osiris/src/index.ts
 // Точка входа Jarvis Core.
 import * as path from 'path';
 import dotenv from 'dotenv';
@@ -10,11 +10,11 @@ import {
 } from './telegram/adapter';
 import { registerCommands } from './telegram/commands';
 
-// cwd при `npm start` — apps/jarvis; dotenv по умолчанию не читает корень монорепо.
-// Сначала apps/jarvis/.env, затем корень репозитория (../../.. от src/).
-const jarvisRoot = path.resolve(__dirname, '..');
+// cwd при `npm start` — apps/osiris; dotenv по умолчанию не читает корень монорепо.
+// Сначала apps/osiris/.env, затем корень репозитория (../../.. от src/).
+const osirisRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
-dotenv.config({ path: path.join(jarvisRoot, '.env') });
+dotenv.config({ path: path.join(osirisRoot, '.env') });
 dotenv.config({ path: path.join(repoRoot, '.env') });
 
 async function main(): Promise<void> {
@@ -23,14 +23,14 @@ async function main(): Promise<void> {
 
   if (transport === 'telegram') {
     if (!BOT_TOKEN) {
-      console.log('Jarvis ready');
+      console.log('Осирис ready');
       console.log('Version: 0.1.0');
       console.log('No BOT_TOKEN — cannot start Telegram bot');
       console.log('Set BOT_TOKEN env variable and TRANSPORT=telegram');
       return;
     }
 
-    console.log('Jarvis ready');
+    console.log('Осирис ready');
     console.log('Version: 0.1.0');
     console.log('Mode: Telegram bot');
 
@@ -39,21 +39,21 @@ async function main(): Promise<void> {
       registerCommands(bot);
       installJarvisMessageHandlers(bot);
       await startExistingBot(bot);
-      console.log('Jarvis bot started, polling...');
+      console.log('Осирис bot started, polling...');
 
       process.on('SIGINT', () => {
-        console.log('[jarvis] SIGINT received, stopping...');
+        console.log('[osiris] SIGINT received, stopping...');
         void bot.stop();
         process.exit(0);
       });
 
       process.on('SIGTERM', () => {
-        console.log('[jarvis] SIGTERM received, stopping...');
+        console.log('[osiris] SIGTERM received, stopping...');
         void bot.stop();
         process.exit(0);
       });
     } catch (e) {
-      console.error('[jarvis:fatal]', e);
+      console.error('[osiris:fatal]', e);
       process.exit(1);
     }
     return;
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   try {
     await startHttpServer({ tunnel: withTunnel });
   } catch (e) {
-    console.error('[jarvis:fatal]', e);
+    console.error('[osiris:fatal]', e);
     process.exit(1);
   }
 }

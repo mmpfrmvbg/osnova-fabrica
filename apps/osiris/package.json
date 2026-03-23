@@ -1,7 +1,7 @@
 {
-  "name": "@osnova/jarvis",
+  "name": "@osnova/osiris",
   "version": "0.1.0",
-  "description": "Jarvis — персональный ИИ-ассистент на основе ОС-НОВА",
+  "description": "Осирис — персональный ИИ-ассистент на основе ОС-НОВА",
   "private": true,
   "main": "src/index.ts",
   "engines": {
@@ -10,9 +10,9 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "jarvis:http": "cross-env TRANSPORT=http tsx src/index.ts",
-    "jarvis:tunnel": "cross-env TRANSPORT=http USE_TUNNEL=true tsx src/index.ts",
-    "jarvis:telegram": "cross-env TRANSPORT=telegram tsx src/index.ts",
+    "osiris:http": "cross-env TRANSPORT=http tsx src/index.ts",
+    "osiris:tunnel": "cross-env TRANSPORT=http USE_TUNNEL=true tsx src/index.ts",
+    "osiris:telegram": "cross-env TRANSPORT=telegram tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "db:smoke": "tsx src/db/smoke-test.ts"
   },

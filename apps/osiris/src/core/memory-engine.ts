@@ -1,4 +1,4 @@
-// apps/jarvis/src/core/memory-engine.ts
+// apps/osiris/src/core/memory-engine.ts
 // Реальная реализация на better-sqlite3.
 
 import { getDb, migrate } from '../db/migrations';
@@ -271,7 +271,7 @@ export function getMessagesForSummary(userId: string, limit = 50): string {
     .all(userId, limit) as { role: string; text: string }[];
   return rows
     .reverse()
-    .map((r) => `${r.role === 'user' ? 'Пользователь' : 'Jarvis'}: ${r.text}`)
+    .map((r) => `${r.role === 'user' ? 'Пользователь' : 'Осирис'}: ${r.text}`)
     .join('\n');
 }
 

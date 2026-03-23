@@ -1,10 +1,10 @@
-// apps/jarvis/src/http/server.ts
+// apps/osiris/src/http/server.ts
 import * as crypto from 'crypto';
 import express, { type Request, type Response } from 'express';
 import { handleMessage } from '../core/message-handler';
 import { startTunnel } from './tunnel';
 
-const JARVIS_VERSION = '0.1.0';
+const OSIRIS_VERSION = '0.1.0';
 
 interface ChatRequestBody {
   userId?: unknown;
@@ -25,7 +25,7 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
   app.use(express.text({ type: 'text/plain' }));
 
   app.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', version: JARVIS_VERSION });
+    res.json({ status: 'ok', version: OSIRIS_VERSION });
   });
 
   app.post('/chat', async (req: Request, res: Response) => {
@@ -50,7 +50,7 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
       const userId = body.userId.trim();
       const messageText = body.message.trim();
 
-      console.log(`[jarvis:http] POST /chat userId=${userId}`);
+      console.log(`[osiris:http] POST /chat userId=${userId}`);
 
       const incoming = {
         id: crypto.randomUUID(),
@@ -64,7 +64,7 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
       const result = await handleMessage(incoming);
       res.json({ reply: result.reply });
     } catch (e) {
-      console.error('[jarvis:http] POST /chat failed', e);
+      console.error('[osiris:http] POST /chat failed', e);
       res.status(500).json({ error: 'internal server error' });
     }
   });
@@ -76,8 +76,8 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
 
   await new Promise<void>((resolve, reject) => {
     const server = app.listen(port, () => {
-      console.log('Jarvis ready');
-      console.log(`Version: ${JARVIS_VERSION}`);
+      console.log('Осирис ready');
+      console.log(`Version: ${OSIRIS_VERSION}`);
       console.log(`Mode: HTTP (port ${port})`);
       if (opts?.tunnel === true) {
         startTunnel(port);
@@ -88,10 +88,10 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
     server.on('error', reject);
 
     const shutdown = (signal: string) => {
-      console.log(`[jarvis] ${signal} received, stopping...`);
+      console.log(`[osiris] ${signal} received, stopping...`);
       server.close((err) => {
         if (err) {
-          console.error('[jarvis:http] server.close error', err);
+          console.error('[osiris:http] server.close error', err);
           process.exit(1);
         } else {
           process.exit(0);

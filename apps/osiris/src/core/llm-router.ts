@@ -1,4 +1,4 @@
-// apps/jarvis/src/core/llm-router.ts
+// apps/osiris/src/core/llm-router.ts
 import { spawnSync } from 'child_process';
 import type { JarvisMode } from '../types';
 
@@ -20,7 +20,7 @@ function buildPrompt(messages: ChatMessage[]): string {
   return messages
     .map((m) => {
       if (m.role === 'system') return `[системный промпт]: ${m.content}`;
-      if (m.role === 'assistant') return `Jarvis: ${m.content}`;
+      if (m.role === 'assistant') return `Осирис: ${m.content}`;
       return m.content;
     })
     .join('\n');
@@ -67,7 +67,7 @@ async function callHttpApi(messages: ChatMessage[]): Promise<LlmResponse> {
 
   if (!apiKey) {
     throw new Error(
-      '[llm-router] LLM_API_KEY не задан. Задайте в apps/jarvis/.env',
+      '[llm-router] LLM_API_KEY не задан. Задайте в apps/osiris/.env',
     );
   }
 

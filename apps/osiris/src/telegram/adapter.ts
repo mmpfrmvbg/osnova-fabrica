@@ -1,4 +1,4 @@
-// apps/jarvis/src/telegram/adapter.ts
+// apps/osiris/src/telegram/adapter.ts
 // Telegram-бот через grammy с персистентностью в SQLite.
 
 import { Bot } from 'grammy';
@@ -11,9 +11,9 @@ function detectProject(_text: string): ProjectHint {
   return 'unknown';
 }
 
-/** Ограничение по владельцу только если JARVIS_OWNER_ID задан и не 0. */
+/** Ограничение по владельцу только если OSIRIS_OWNER_ID задан и не 0. */
 function ownerRestrictionActive(): boolean {
-  const raw = process.env.JARVIS_OWNER_ID;
+  const raw = process.env.OSIRIS_OWNER_ID;
   if (raw === undefined || raw.trim() === '') return false;
   const n = Number(raw.trim());
   if (!Number.isFinite(n) || n === 0) return false;
@@ -30,9 +30,9 @@ export function createBot(token: string): Bot {
   migrate();
 
   bot.use(async (ctx, next) => {
-    console.log('[jarvis:debug] update from:', ctx.from?.id, 'type:', Object.keys(ctx.update).find((k) => k !== 'update_id'));
+    console.log('[osiris:debug] update from:', ctx.from?.id, 'type:', Object.keys(ctx.update).find((k) => k !== 'update_id'));
     if (!ownerRestrictionActive()) return next();
-    const ownerId = Number(process.env.JARVIS_OWNER_ID);
+    const ownerId = Number(process.env.OSIRIS_OWNER_ID);
     if (ctx.from?.id !== ownerId) return;
     return next();
   });
@@ -65,14 +65,14 @@ export function installJarvisMessageHandlers(bot: Bot): void {
         rawJson: JSON.stringify(ctx.message),
       });
     } catch (err) {
-      console.error('[jarvis:bot] saveMessage failed:', err);
+      console.error('[osiris:bot] saveMessage failed:', err);
     }
 
-    await ctx.reply(`[Jarvis] Получено: ${text}\n[Saved: message #${savedId}]`);
+    await ctx.reply(`[Осирис] Получено: ${text}\n[Saved: message #${savedId}]`);
   });
 
   bot.catch((err) => {
-    console.error('[jarvis:bot error]', err);
+    console.error('[osiris:bot error]', err);
   });
 }
 
@@ -83,7 +83,7 @@ export function installJarvisMessageHandlers(bot: Bot): void {
  */
 export async function startExistingBot(bot: Bot): Promise<Bot> {
   void bot.start().catch((err: unknown) => {
-    console.error('[jarvis:fatal]', err);
+    console.error('[osiris:fatal]', err);
     process.exit(1);
   });
 

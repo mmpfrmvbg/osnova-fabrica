@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Jarvis</title>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="header">Jarvis</div>
+<div id="messages"></div>
+<form class="bar" id="form">
+  <input id="input" type="text" autocomplete="off" placeholder="Сообщение..."/>
+  <button type="submit">Отправить</button>
+</form>
+<script src="config.js"></script>
+<script>
+const BASE=window.JARVIS_URL||"http://localhost:3000";
+const msgs=document.getElementById("messages");
+const form=document.getElementById("form");
+const inp=document.getElementById("input");
+function add(text,cls){const d=document.createElement("div");d.className="msg "+cls;d.textContent=text;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
+form.onsubmit=async e=>{e.preventDefault();const t=inp.value.trim();if(!t)return;inp.value="";add(t,"msg-user");const dot=add("...","msg-bot");try{const r=await fetch(BASE+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:"android-user",message:t})});const j=await r.json();dot.textContent=j.reply||"[пустой ответ]";}catch(err){dot.textContent="[ошибка] "+err.message;}};
+</script>
+</body>
+</html>

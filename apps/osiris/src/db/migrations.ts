@@ -1,4 +1,4 @@
-// apps/jarvis/src/db/migrations.ts
+// apps/osiris/src/db/migrations.ts
 // Применяет schema.sql через better-sqlite3.
 // Экспортирует getDb() для использования в memory-engine.
 
@@ -8,9 +8,9 @@ import BetterSqlite3 from 'better-sqlite3';
 
 type SqliteDatabase = InstanceType<typeof BetterSqlite3>;
 
-const DB_PATH = process.env.JARVIS_DB_PATH
-  ? path.resolve(process.env.JARVIS_DB_PATH)
-  : path.resolve(__dirname, '..', '..', 'jarvis.db');
+const DB_PATH = process.env.OSIRIS_DB_PATH
+  ? path.resolve(process.env.OSIRIS_DB_PATH)
+  : path.resolve(__dirname, '..', '..', 'osiris.db');
 
 let _db: SqliteDatabase | null = null;
 let _schemaApplied = false;
@@ -30,7 +30,7 @@ export function migrate(): void {
   const sql = fs.readFileSync(schemaPath, 'utf-8');
   getDb().exec(sql);
   _schemaApplied = true;
-  console.log('[jarvis:migrate] schema applied →', DB_PATH);
+  console.log('[osiris:migrate] schema applied →', DB_PATH);
 }
 
 export function closeDb(): void {
