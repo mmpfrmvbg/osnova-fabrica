@@ -3,6 +3,9 @@ import type { IncomingMessage, JarvisMode } from '../types';
 import * as memory from './memory-engine';
 import { call as callLlm } from './llm-router';
 import type { ChatMessage } from './llm-router';
+import { extractAction } from '../osnova/action-extractor';
+import { runOsnovaPipeline } from '../osnova/client';
+import { buildPipelineSpecContext } from '../osnova/context-builder';
 
 export interface HandleResult {
   reply: string;
@@ -132,6 +135,75 @@ export async function handleMessage(
       trackedFacts: 0,
       trackedTasks: 1,
     };
+  }
+
+  const action = extractAction(message.text);
+  if (action.kind === 'build') {
+    await memory.saveMessage({
+      userId,
+      chatId: message.chatId ?? userId,
+      messageId: message.id,
+      role: 'user',
+      text: message.text,
+      timestamp: message.timestamp ?? new Date().toISOString(),
+      tags: ['pipeline'],
+      projectHint: 'fabric',
+      sessionId: null,
+      rawJson: null,
+    });
+
+    try {
+      const specContext = await buildPipelineSpecContext(message);
+      console.log(
+        `[osiris:pipeline] requested by userId=${userId}, history=${specContext.userHistory.length}, task="${action.task}"`,
+      );
+      const pipelineResult = await runOsnovaPipeline(action.task);
+      const reply = `Фабрика запущена, задача: ${specContext.task}\n\nРезультат: ${pipelineResult.summary}`;
+
+      await memory.saveMessage({
+        userId,
+        chatId: message.chatId ?? userId,
+        messageId: null,
+        role: 'assistant',
+        text: reply,
+        timestamp: new Date().toISOString(),
+        tags: ['pipeline'],
+        projectHint: 'fabric',
+        sessionId: null,
+        rawJson: JSON.stringify(pipelineResult.raw),
+      });
+
+      return {
+        reply,
+        mode: _mode,
+        trackedFacts: 0,
+        trackedTasks: 0,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[osiris:pipeline] failed in message-handler:', msg);
+      const reply = `Фабрика запущена, задача: ${action.task}\n\nРезультат: Pipeline завершился с ошибкой: ${msg}.`;
+
+      await memory.saveMessage({
+        userId,
+        chatId: message.chatId ?? userId,
+        messageId: null,
+        role: 'assistant',
+        text: reply,
+        timestamp: new Date().toISOString(),
+        tags: ['pipeline'],
+        projectHint: 'fabric',
+        sessionId: null,
+        rawJson: null,
+      });
+
+      return {
+        reply,
+        mode: _mode,
+        trackedFacts: 0,
+        trackedTasks: 0,
+      };
+    }
   }
 
   // ── LLM path ────────────────────────────────────────────────────────────
