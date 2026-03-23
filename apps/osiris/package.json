@@ -13,6 +13,8 @@
     "osiris:http": "cross-env TRANSPORT=http tsx src/index.ts",
     "osiris:tunnel": "cross-env TRANSPORT=http USE_TUNNEL=true tsx src/index.ts",
     "osiris:telegram": "cross-env TRANSPORT=telegram tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "db:smoke": "tsx src/db/smoke-test.ts"
   },
@@ -26,8 +28,9 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
     "@types/express": "^4.17.21",
-    "cross-env": "^7.0.3",
     "@types/node": "^20.11.0",
-    "typescript": "^5.3.3"
+    "cross-env": "^7.0.3",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.1"
   }
 }

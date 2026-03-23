@@ -1,4 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../db/migrations', () => ({
+  migrate: vi.fn(),
+  getDb: vi.fn(() => ({
+    prepare: vi.fn(() => ({
+      run: vi.fn(),
+    })),
+  })),
+}));
+
 import { checkConnectivity } from './connectivity';
 
 describe('checkConnectivity', () => {
