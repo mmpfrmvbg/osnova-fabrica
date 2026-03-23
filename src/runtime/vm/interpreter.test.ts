@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { VM, InterpreterError } from "./interpreter";
+import { VM, InterpreterError, runProgram } from "./interpreter";
 import type { StackValue, InvokeHandler } from "./interpreter";
 import type { OsVbcModule, RawInstruction, VliwPacket } from "./bytecode";
 import { isOsVbcModule, isVliwPacket } from "./bytecode";
@@ -430,5 +430,38 @@ describe("VLIW bytecode v2", () => {
     const m = JSON.parse(await fs.readFile(fixturePath, "utf-8")) as OsVbcModule;
     const vm = new VM(m, { maxSteps: 10_000 });
     await vm.runProcedure(vm.findProcedureIndex("пример"), []);
+  });
+});
+
+describe("runProgram multi-module execution", () => {
+  it("два модуля: B__главная вызывает A__ping без исключений", async () => {
+    const moduleA: OsVbcModule = {
+      version: 1,
+      moduleName: "A",
+      constants: [],
+      procedures: [{ name: "A__ping", codeOffset: 0, argc: 0, localsCount: 0 }],
+      code: [{ op: "ret" } as RawInstruction],
+    };
+    const moduleB: OsVbcModule = {
+      version: 1,
+      moduleName: "B",
+      constants: [],
+      procedures: [
+        { name: "A__ping", codeOffset: 0, argc: 0, localsCount: 0 },
+        { name: "B__главная", codeOffset: 1, argc: 0, localsCount: 0 },
+      ],
+      code: [
+        { op: "ret" } as RawInstruction,
+        { op: "call", fi: 0 } as RawInstruction,
+        { op: "ret" } as RawInstruction,
+      ],
+    };
+
+    await expect(runProgram([moduleA, moduleB], { preferredModuleName: "B" })).resolves.toBeUndefined();
+  });
+
+  it("одномодульный режим через runProgram работает как раньше", async () => {
+    const single = mod([pushK(0)], [42]);
+    await expect(runProgram([single])).resolves.toBeUndefined();
   });
 });

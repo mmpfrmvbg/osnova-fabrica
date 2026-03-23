@@ -190,6 +190,15 @@ export interface InterpreterOptions {
   maxSteps?: number;
 }
 
+export interface RunProgramOptions extends InterpreterOptions {
+  /** Явное имя процедуры точки входа (опционально). */
+  entryProcedure?: string;
+  /** Аргументы для точки входа. */
+  entryArgs?: StackValue[];
+  /** Предпочтительный модуль для поиска entry (по moduleName). */
+  preferredModuleName?: string;
+}
+
 interface CallFrame {
   procedureIndex: number;
   returnPc: number;
@@ -506,6 +515,85 @@ export class VM {
     }
   }
 
+}
+
+interface ProcedureLocation {
+  module: OsVbcModule;
+  moduleIndex: number;
+  procedureIndex: number;
+}
+
+function resolveProgramEntry(
+  modules: OsVbcModule[],
+  procedureRegistry: Map<string, ProcedureLocation>,
+  options: RunProgramOptions,
+): ProcedureLocation {
+  const firstModule = modules[0];
+  if (!firstModule || firstModule.procedures.length === 0) {
+    throw new InterpreterError("Program has no procedures in the first module");
+  }
+
+  if (options.entryProcedure) {
+    const direct = procedureRegistry.get(options.entryProcedure);
+    if (direct) return direct;
+    const prefixed = procedureRegistry.get(`${firstModule.moduleName}__${options.entryProcedure}`);
+    if (prefixed) return prefixed;
+  }
+
+  const preferredModule =
+    options.preferredModuleName != null
+      ? modules.find((m) => m.moduleName === options.preferredModuleName) ?? firstModule
+      : firstModule;
+
+  const preferredNames = new Set(preferredModule.procedures.map((p) => p.name));
+  const firstNames = new Set(firstModule.procedures.map((p) => p.name));
+
+  const lookupOrdered = [
+    "главная",
+    `${preferredModule.moduleName}__главная`,
+    `${firstModule.moduleName}__главная`,
+    "main",
+    `${preferredModule.moduleName}__main`,
+    `${firstModule.moduleName}__main`,
+  ];
+
+  for (const name of lookupOrdered) {
+    const loc = procedureRegistry.get(name);
+    if (loc && (preferredNames.has(name) || firstNames.has(name))) return loc;
+  }
+
+  const fallback = procedureRegistry.get(firstModule.procedures[0]!.name);
+  if (!fallback) {
+    throw new InterpreterError("Entry point not found: neither главная/main nor first procedure exists");
+  }
+  return fallback;
+}
+
+export async function runProgram(
+  modules: OsVbcModule[],
+  options: RunProgramOptions = {},
+): Promise<void> {
+  if (!Array.isArray(modules) || modules.length === 0) {
+    throw new InterpreterError("Program is empty: no modules provided");
+  }
+
+  const procedureRegistry = new Map<string, ProcedureLocation>();
+  for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex++) {
+    const module = modules[moduleIndex]!;
+    for (let procedureIndex = 0; procedureIndex < module.procedures.length; procedureIndex++) {
+      const proc = module.procedures[procedureIndex]!;
+      if (!procedureRegistry.has(proc.name)) {
+        procedureRegistry.set(proc.name, { module, moduleIndex, procedureIndex });
+      }
+    }
+  }
+
+  const entry = resolveProgramEntry(modules, procedureRegistry, options);
+  const vm = new VM(entry.module, {
+    invoke: options.invoke,
+    maxSteps: options.maxSteps,
+  });
+  await vm.runProcedure(entry.procedureIndex, options.entryArgs ?? []);
 }
 
 /** Загрузить модуль из файла .osvbc или .osvbc.json */
