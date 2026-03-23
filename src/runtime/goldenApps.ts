@@ -132,6 +132,28 @@ export async function runGoldenCheck(
           const diffDays = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
           return Math.floor(diffDays);
         }
+        if (name === 'система.массив.создать') {
+          const size = Number(args[0] ?? 0);
+          return new Array(size).fill(null);
+        }
+        if (name === 'система.массив.длина') {
+          return Array.isArray(args[0]) ? (args[0] as unknown[]).length : 0;
+        }
+        if (name === 'система.массив.получить') {
+          const arr = args[0] as unknown[];
+          const i = Number(args[1]) | 0;
+          return Array.isArray(arr) && i >= 0 && i < arr.length ? (arr[i] as never) : null;
+        }
+        if (name === 'система.массив.установить') {
+          const arr = args[0] as unknown[];
+          const i = Number(args[1]) | 0;
+          if (Array.isArray(arr) && i >= 0 && i < arr.length) arr[i] = args[2];
+          return null;
+        }
+        if (name === 'система.массив.добавить') {
+          if (Array.isArray(args[0])) (args[0] as unknown[]).push(args[1]);
+          return null;
+        }
         // Остальные syscall — заглушки (лог, UI и т.д.)
         if (name.startsWith('система.лог.')) return null;
         if (name.startsWith('система.окно.')) return null;
@@ -188,7 +210,7 @@ export async function runGoldenCheck(
           return (
             entry.op === 'invoke' &&
             typeof entry.name === 'string' &&
-            entry.name.startsWith(sc.split('.').slice(0, 2).join('.'))
+            entry.name === sc
           );
         })
       ).length >= Math.ceil(spec.syscalls.length / 2),
@@ -228,7 +250,7 @@ export async function runGoldenCheck(
       return (
         entry.op === 'invoke' &&
         typeof entry.name === 'string' &&
-        entry.name.startsWith(sc.split('.').slice(0, 2).join('.'))
+        entry.name === sc
       );
     })
   );
