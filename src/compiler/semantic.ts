@@ -1,4 +1,4 @@
-import type { Expr, Module, Stmt } from "./ast";
+import type { Expr, Program, Module, Stmt } from "./ast";
 import { LANGUAGE_REGISTRY } from "./language-registry";
 
 export interface SemanticError {
@@ -13,7 +13,13 @@ export interface SemanticError {
     | "redeclare_var"
     | "keyword_param"
     | "invented_syntax"
-    | "sentinel_pattern";
+    | "sentinel_pattern"
+    | "unknown_module"
+    | "export_collision";
+}
+
+export interface SemanticResult {
+  errors: SemanticError[];
 }
 
 const COMPARE_OPS = new Set(["==", "!=", "<", "<=", ">", ">="]);
@@ -22,9 +28,15 @@ function isCompareExpr(expr: Expr): boolean {
   return expr.kind === "бинарное" && COMPARE_OPS.has(expr.op);
 }
 
-export function checkSemantics(ast: Module): SemanticError[] {
+interface ModuleSemanticContext {
+  knownProcedures?: Set<string>;
+  namespaceProcedures?: Map<string, Set<string>>;
+}
+
+function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}): SemanticError[] {
   const errors: SemanticError[] = [];
-  const knownProcedures = new Set(ast.procedures.map((p) => p.name));
+  const knownProcedures = context.knownProcedures ?? new Set(ast.procedures.map((p) => p.name));
+  const namespaceProcedures = context.namespaceProcedures ?? new Map<string, Set<string>>();
   const kwSet = new Set(LANGUAGE_REGISTRY.keywords.map((k) => k.lexeme));
 
   // ─── RFC-003: invented syntax check ───
@@ -226,6 +238,20 @@ export function checkSemantics(ast: Module): SemanticError[] {
               message: `'${expr.name}' ожидает ${spec.argc} аргументов, передано ${expr.args.length}`,
             });
           }
+        } else if (expr.name.includes(".")) {
+          const [namespace, procName] = expr.name.split(".", 2);
+          const exported = namespaceProcedures.get(namespace);
+          if (!exported) {
+            errors.push({
+              kind: "unknown_module",
+              message: `модуль '${namespace}' не найден`,
+            });
+          } else if (!exported.has(procName ?? "")) {
+            errors.push({
+              kind: "unknown_procedure",
+              message: `процедура '${procName}' не экспортирована модулем '${namespace}'`,
+            });
+          }
         } else if (!knownProcedures.has(expr.name)) {
           errors.push({
             kind: "unknown_procedure",
@@ -356,4 +382,76 @@ export function checkSemantics(ast: Module): SemanticError[] {
     checkStmts(proc.body, declared);
   }
   return errors;
+}
+
+export function checkSemantics(ast: Module): SemanticError[] {
+  return checkModuleSemantics(ast);
+}
+
+interface ModuleExports {
+  procedures: Set<string>;
+  types: Set<string>;
+}
+
+export function analyzeProgram(program: Program): SemanticResult {
+  const errors: SemanticError[] = [];
+  const exportsByModuleName = new Map<string, ModuleExports[]>();
+
+  for (const mod of program.modules) {
+    const moduleExports: ModuleExports = {
+      procedures: new Set(mod.procedures.filter((p) => p.exported).map((p) => p.name)),
+      // На текущем этапе типы считаем доступными в пределах экспортирующего namespace.
+      types: new Set(mod.typeDeclarations.map((t) => t.name)),
+    };
+    const list = exportsByModuleName.get(mod.name) ?? [];
+    if (list.length > 0) {
+      for (const prev of list) {
+        for (const proc of moduleExports.procedures) {
+          if (prev.procedures.has(proc)) {
+            errors.push({
+              kind: "export_collision",
+              message: `коллизия экспортов: модуль '${mod.name}' экспортирует процедуру '${proc}' более одного раза`,
+            });
+          }
+        }
+      }
+    }
+    list.push(moduleExports);
+    exportsByModuleName.set(mod.name, list);
+  }
+
+  for (const mod of program.modules) {
+    const namespaceProcedures = new Map<string, Set<string>>();
+    for (const imp of mod.imports) {
+      const providers = exportsByModuleName.get(imp.module);
+      if (!providers || providers.length === 0) {
+        errors.push({
+          kind: "unknown_module",
+          message: `модуль '${imp.module}' не найден`,
+        });
+        continue;
+      }
+      const merged = new Set<string>();
+      for (const provider of providers) {
+        for (const proc of provider.procedures) {
+          if (merged.has(proc)) {
+            errors.push({
+              kind: "export_collision",
+              message: `коллизия экспортов: namespace '${imp.module}' содержит дубликат процедуры '${proc}'`,
+            });
+          }
+          merged.add(proc);
+        }
+      }
+      namespaceProcedures.set(imp.module, merged);
+    }
+    errors.push(
+      ...checkModuleSemantics(mod, {
+        knownProcedures: new Set(mod.procedures.map((p) => p.name)),
+        namespaceProcedures,
+      }),
+    );
+  }
+
+  return { errors };
 }

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { compileSource } from './compiler';
+import { tokenize } from './lexer';
+import { parse } from './parser';
+import { analyzeProgram } from './semantic';
 
 function hasKind(src: string, kind: string): boolean {
   const result = compileSource(src);
@@ -58,5 +61,82 @@ describe('RFC-002 Phase B: sentinel_pattern', () => {
   it('вернуть пусто (без пусть) → НЕ sentinel_pattern', () => {
     const src = wrap('  вернуть пусто');
     expect(hasKind(src, 'sentinel_pattern')).toBe(false);
+  });
+});
+
+describe('Program semantics (multi-module)', () => {
+  it('два модуля, импорт и вызов экспортированной процедуры -> success', () => {
+    const src = [
+      'модуль A',
+      'процедура экспорт ping()',
+      '  вернуть 1',
+      'конец',
+      'конец',
+      '',
+      'модуль B',
+      'использовать модуль A из "a.osnova"',
+      'процедура главная()',
+      '  вернуть A.ping()',
+      'конец',
+      'конец',
+      '',
+    ].join('\n');
+
+    const { tokens } = tokenize(src);
+    const { ast, errors } = parse(tokens);
+    expect(errors).toHaveLength(0);
+    expect(ast).not.toBeNull();
+    const sem = analyzeProgram(ast!);
+    expect(sem.errors).toHaveLength(0);
+  });
+
+  it('импорт несуществующего модуля -> ошибка unknown_module', () => {
+    const src = [
+      'модуль B',
+      'использовать модуль Unknown из "unknown.osnova"',
+      'процедура главная()',
+      '  вернуть 0',
+      'конец',
+      'конец',
+      '',
+    ].join('\n');
+
+    const { tokens } = tokenize(src);
+    const { ast, errors } = parse(tokens);
+    expect(errors).toHaveLength(0);
+    expect(ast).not.toBeNull();
+    const sem = analyzeProgram(ast!);
+    expect(sem.errors.some((e) => e.kind === 'unknown_module')).toBe(true);
+  });
+
+  it('коллизия экспортов в одном namespace -> ошибка export_collision', () => {
+    const src = [
+      'модуль A',
+      'процедура экспорт ping()',
+      '  вернуть 1',
+      'конец',
+      'конец',
+      '',
+      'модуль A',
+      'процедура экспорт ping()',
+      '  вернуть 2',
+      'конец',
+      'конец',
+      '',
+      'модуль B',
+      'использовать модуль A из "a.osnova"',
+      'процедура главная()',
+      '  вернуть A.ping()',
+      'конец',
+      'конец',
+      '',
+    ].join('\n');
+
+    const { tokens } = tokenize(src);
+    const { ast, errors } = parse(tokens);
+    expect(errors).toHaveLength(0);
+    expect(ast).not.toBeNull();
+    const sem = analyzeProgram(ast!);
+    expect(sem.errors.some((e) => e.kind === 'export_collision')).toBe(true);
   });
 });

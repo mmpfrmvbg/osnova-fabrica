@@ -82,12 +82,4 @@ export interface Module {
 
 export interface Program {
   modules: Module[];
-  /** @deprecated Для обратной совместимости: первый модуль как плоский AST */
-  name?: string;
-  /** @deprecated Для обратной совместимости: первый модуль как плоский AST */
-  imports?: ImportDeclaration[];
-  /** @deprecated Для обратной совместимости: первый модуль как плоский AST */
-  typeDeclarations?: TypeDeclaration[];
-  /** @deprecated Для обратной совместимости: первый модуль как плоский AST */
-  procedures?: Procedure[];
 }
