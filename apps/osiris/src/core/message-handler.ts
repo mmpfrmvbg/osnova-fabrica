@@ -4,7 +4,7 @@ import * as memory from './memory-engine';
 import { call as callLlm } from './llm-router';
 import type { ChatMessage } from './llm-router';
 import { extractAction } from '../osnova/action-extractor';
-import { runOsnovaPipeline } from '../osnova/client';
+import { runOsirisPipeline } from '../osnova/client';
 import { buildPipelineSpecContext } from '../osnova/context-builder';
 
 export interface HandleResult {
@@ -154,11 +154,15 @@ export async function handleMessage(
 
     try {
       const specContext = await buildPipelineSpecContext(message);
+      console.log(`[osiris] pipeline requested: "${action.task}"`);
       console.log(
-        `[osiris:pipeline] requested by userId=${userId}, history=${specContext.userHistory.length}, task="${action.task}"`,
+        `[osiris:pipeline] context prepared, userId=${userId}, history=${specContext.userHistory.length}`,
       );
-      const pipelineResult = await runOsnovaPipeline(action.task);
-      const reply = `Фабрика запущена, задача: ${specContext.task}\n\nРезультат: ${pipelineResult.summary}`;
+      const pipelineResult = await runOsirisPipeline(action.task);
+      const header = `Фабрика запущена, задача: "${action.task}".\n`;
+      const reply = pipelineResult.status === 'success'
+        ? `${header}Готово: ${pipelineResult.summary}`
+        : `${header}Ошибка при генерации: ${pipelineResult.summary}`;
 
       await memory.saveMessage({
         userId,
