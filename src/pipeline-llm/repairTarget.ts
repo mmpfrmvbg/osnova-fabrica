@@ -3,6 +3,8 @@
 // Целевые инструкции repair-промпту по last_error_kind
 // ============================================================
 
+import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
+
 export type RepairKind =
   | 'undeclared_var'
   | 'redeclare_var'
@@ -20,6 +22,10 @@ export interface RepairTarget {
   instruction: string;
   example?: string;
 }
+
+const STABLE_SYSCALL_NAMES = LANGUAGE_REGISTRY.syscalls
+  .filter((s) => s.status === 'stable')
+  .map((s) => s.name);
 
 const REPAIR_TARGETS: Record<RepairKind, RepairTarget> = {
   undeclared_var: {
@@ -44,7 +50,7 @@ const REPAIR_TARGETS: Record<RepairKind, RepairTarget> = {
   unknown_syscall: {
     kind: 'unknown_syscall',
     instruction:
-      'Системный вызов не существует. Используй только стабильные syscalls из реестра: система.лог.вывести, система.хранилище.прочитать/записать, система.массив.*, система.строка.*, система.файлы.*, система.время.сейчас, система.сеть.запрос.',
+      `Системный вызов не существует. Имя должно начинаться с "система." и быть из списка stable syscalls LANGUAGE_REGISTRY: ${STABLE_SYSCALL_NAMES.join(', ')}.`,
     example:
       '// НЕЛЬЗЯ: система.типы.создать("X") — не существует\n// ПРАВИЛЬНО: пусть obj = { поле: значение }',
   },
