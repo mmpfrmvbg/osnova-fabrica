@@ -3,7 +3,7 @@
  */
 
 import type { Token, TokenKind } from "./lexer";
-import type { Module, Procedure, Stmt, Expr, ImportDeclaration, TypeDeclaration, TypeRef, TypeField } from "./ast";
+import type { Program, Module, Procedure, Stmt, Expr, ImportDeclaration, TypeDeclaration, TypeRef, TypeField } from "./ast";
 
 export type ParseErrorContext = "module" | "procedure" | "stmt" | "expr";
 
@@ -18,7 +18,7 @@ export interface ParseError {
 }
 
 export interface ParseResult {
-  ast: Module | null;
+  ast: Program | null;
   errors: ParseError[];
 }
 
@@ -74,7 +74,7 @@ export function parse(tokens: Token[]): ParseResult {
   function syncToTopLevel(): void {
     while (pos < tokens.length) {
       const k = peek().kind;
-      if (k === "процедура" || k === "конец_файла") return;
+      if (k === "процедура" || k === "модуль" || k === "конец_файла") return;
       advance();
     }
   }
@@ -164,18 +164,6 @@ export function parse(tokens: Token[]): ParseResult {
     if (peek().kind === "конец") {
       advance();
       skipNewlines();
-    }
-    if (peek().kind !== "конец_файла") {
-      const t = peek();
-      errors.push({
-        message: "Ожидается конец файла или процедура",
-        line: t.line,
-        column: t.column,
-        context: "module",
-        expected: ["конец_файла", "процедура"],
-        actualKind: t.kind,
-        actualLexeme: t.lexeme,
-      });
     }
     return { name, imports, typeDeclarations, procedures };
   }
@@ -928,7 +916,53 @@ export function parse(tokens: Token[]): ParseResult {
   }
 
   skipNewlines();
-  const ast = parseModule();
+  const modules: Module[] = [];
+  while (peek().kind !== "конец_файла") {
+    if (!isAt("модуль")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается 'модуль'",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["модуль"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      advance();
+      syncToTopLevel();
+      skipNewlines();
+      continue;
+    }
+    const mod = parseModule();
+    if (mod) {
+      modules.push(mod);
+      if (peek().kind !== "модуль" && peek().kind !== "конец_файла") {
+        const t = peek();
+        errors.push({
+          message: "Ожидается начало следующего модуля или конец файла",
+          line: t.line,
+          column: t.column,
+          context: "module",
+          expected: ["модуль", "конец_файла"],
+          actualKind: t.kind,
+          actualLexeme: t.lexeme,
+        });
+        advance();
+        syncToTopLevel();
+      }
+    } else {
+      syncToTopLevel();
+    }
+    skipNewlines();
+  }
+  const ast = modules.length > 0
+    ? ({
+        modules,
+        // Обратная совместимость: старый код обращается к ast.procedures напрямую.
+        ...modules[0],
+      } as Program)
+    : null;
   return { ast, errors };
 }
 

@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
-import type { Module, Stmt } from "./ast";
+import type { Program, Module, Stmt } from "./ast";
 
-function parseModule(source: string) {
+function parseProgram(source: string) {
   const { tokens } = tokenize(source);
   const { ast, errors } = parse(tokens);
   return { ast, errors };
@@ -20,10 +20,12 @@ describe("parser: базовые конструкции MVP", () => {
       "",
     ].join("\n");
 
-    const { ast, errors } = parseModule(src);
+    const { ast, errors } = parseProgram(src);
     expect(errors.length).toBe(0);
     expect(ast).not.toBeNull();
-    const m = ast as Module;
+    const p = ast as Program;
+    expect(p.modules.length).toBe(1);
+    const m = p.modules[0] as Module;
     expect(m.name).toBe("Тест");
     expect(m.procedures.length).toBe(1);
     expect(m.procedures[0]?.name).toBe("главная");
@@ -40,9 +42,9 @@ describe("parser: базовые конструкции MVP", () => {
       "",
     ].join("\n");
 
-    const { ast, errors } = parseModule(src);
+    const { ast, errors } = parseProgram(src);
     expect(errors.length).toBe(0);
-    const m = ast as Module;
+    const m = (ast as Program).modules[0] as Module;
     const body = m.procedures[0]?.body ?? [];
     const kinds = body.map((s: Stmt) => s.kind);
     expect(kinds).toContain("пусть");
@@ -65,9 +67,9 @@ describe("parser: базовые конструкции MVP", () => {
       "",
     ].join("\n");
 
-    const { ast, errors } = parseModule(src);
+    const { ast, errors } = parseProgram(src);
     expect(errors.length).toBe(0);
-    const m = ast as Module;
+    const m = (ast as Program).modules[0] as Module;
     const body = m.procedures[0]?.body ?? [];
     const ifStmt = body.find((s: Stmt) => s.kind === "если") as Stmt | undefined;
     expect(ifStmt).toBeDefined();
@@ -76,7 +78,7 @@ describe("parser: базовые конструкции MVP", () => {
   it("некорректный модуль даёт parserErrors", () => {
     // нет имени модуля и процедур
     const src = "модуль\nпроцедура ()\nконец\n";
-    const { errors } = parseModule(src);
+    const { errors } = parseProgram(src);
     expect(errors.length).toBeGreaterThan(0);
   });
 
@@ -91,9 +93,9 @@ describe("parser: базовые конструкции MVP", () => {
       "конец",
       "",
     ].join("\n");
-    const { ast, errors } = parseModule(src);
+    const { ast, errors } = parseProgram(src);
     expect(errors.length).toBe(0);
-    const m = ast as Module;
+    const m = (ast as Program).modules[0] as Module;
     const forEachStmt = m.procedures[0]?.body.find((s: Stmt) => s.kind === "для_каждого");
     expect(forEachStmt).toBeDefined();
     if (!forEachStmt || forEachStmt.kind !== "для_каждого") return;
@@ -112,9 +114,9 @@ describe("parser: базовые конструкции MVP", () => {
       "",
     ].join("\n");
 
-    const { ast, errors } = parseModule(src);
+    const { ast, errors } = parseProgram(src);
     expect(errors.length).toBe(0);
-    const m = ast as Module;
+    const m = (ast as Program).modules[0] as Module;
     const letStmt = m.procedures[0]?.body.find((s: Stmt) => s.kind === "пусть");
     expect(letStmt).toBeDefined();
     if (!letStmt || letStmt.kind !== "пусть") return;
@@ -134,9 +136,9 @@ describe("parser: базовые конструкции MVP", () => {
       "",
     ].join("\n");
 
-    const { ast, errors } = parseModule(src);
+    const { ast, errors } = parseProgram(src);
     expect(errors.length).toBe(0);
-    const m = ast as Module;
+    const m = (ast as Program).modules[0] as Module;
     const letStmt = m.procedures[0]?.body.find((s: Stmt) => s.kind === "пусть");
     expect(letStmt).toBeDefined();
     if (!letStmt || letStmt.kind !== "пусть") return;
@@ -160,9 +162,9 @@ describe("parser: базовые конструкции MVP", () => {
       "",
     ].join("\n");
 
-    const { ast, errors } = parseModule(src);
+    const { ast, errors } = parseProgram(src);
     expect(errors.length).toBe(0);
-    const m = ast as Module;
+    const m = (ast as Program).modules[0] as Module;
     const exprStmt = m.procedures[0]?.body.find((s: Stmt) => s.kind === "выражение");
     expect(exprStmt).toBeDefined();
     if (!exprStmt || exprStmt.kind !== "выражение") return;
@@ -173,6 +175,45 @@ describe("parser: базовые конструкции MVP", () => {
     expect(expr.args.length).toBe(2);
     expect(expr.args[0]).toEqual({ kind: "переменная", name: "arr" });
     expect(expr.args[1]).toEqual({ kind: "число", value: 0 });
+  });
+
+  it("одномодульный файл -> Program.modules.length === 1", () => {
+    const src = [
+      "модуль Один",
+      "процедура главная()",
+      "  вернуть 0",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    expect(ast).not.toBeNull();
+    const p = ast as Program;
+    expect(p.modules.length).toBe(1);
+    expect(p.modules[0]?.name).toBe("Один");
+  });
+
+  it("два модуля в одном файле -> Program.modules.length === 2", () => {
+    const src = [
+      "модуль Первый",
+      "процедура главная()",
+      "конец",
+      "",
+      "модуль Второй",
+      "процедура другая()",
+      "конец",
+      "",
+    ].join("\n");
+
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    expect(ast).not.toBeNull();
+    const p = ast as Program;
+    expect(p.modules.length).toBe(2);
+    expect(p.modules[0]?.name).toBe("Первый");
+    expect(p.modules[1]?.name).toBe("Второй");
   });
 });
 
