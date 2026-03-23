@@ -2,3 +2,4 @@ node_modules/
 android/
 *.apk
 !release/jarvis.apk
+!release/osiris-v2.apk
