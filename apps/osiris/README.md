@@ -1,3 +1,53 @@
+## Первый запуск
+
+### 1. Скопировать и заполнить конфиг
+
+    cp apps/osiris/.env.example apps/osiris/.env
+
+Открыть apps/osiris/.env и заполнить:
+
+| Переменная       | Откуда взять                                      | Обязательна |
+|------------------|---------------------------------------------------|-------------|
+| LLM_API_KEY      | platform.deepseek.com → API Keys (или OpenAI)     | если openai-compatible |
+| LLM_BASE_URL     | https://api.deepseek.com или https://api.openai.com | если openai-compatible |
+| LLM_MODEL        | deepseek-chat / gpt-4o-mini / qwen-turbo          | если openai-compatible |
+| OSNOVA_PROVIDER  | qwen-cli (бесплатно) или openai-compatible        | да |
+| BOT_TOKEN        | @BotFather в Telegram                             | только для telegram-режима |
+
+Примечание: при OSNOVA_PROVIDER=qwen-cli ключи LLM не нужны —
+используется локальный Qwen Code CLI (1000 req/day бесплатно).
+Установка CLI: npm install -g @qwen-code/qwen-coder
+
+### 2. Проверить окружение
+
+    bash scripts/onboarding-check.sh
+
+### 3. Установить зависимости
+
+    cd apps/osiris && npm install
+
+### 4. Запустить
+
+С публичным URL (для Android-приложения):
+
+    cd apps/osiris && npm run osiris:tunnel
+
+Только локальная сеть (без cloudflared):
+
+    cd apps/osiris && npm run osiris:http
+
+После старта в логах появится строка вида:
+    https://xxxx.trycloudflare.com
+
+Этот URL вставить в Android-приложение при первом открытии.
+
+### 5. База данных
+
+Миграции запускаются автоматически при первом старте — ручных действий не нужно.
+Файл БД: apps/osiris/osiris.db (путь задаётся через OSIRIS_DB_PATH в .env).
+
+---
+
 # @osnova/osiris
 
 Персональный ИИ-ассистент Осирис на базе ОС-НОВА.
