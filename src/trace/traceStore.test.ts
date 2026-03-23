@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { TraceEntrySchema } from './traceStore';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { TraceEntrySchema, saveTrace } from './traceStore';
 
 // Минимально валидный трейс
 const minimalTrace = {
@@ -96,5 +99,71 @@ describe('TraceEntrySchema', () => {
       },
     });
     expect(r.success).toBe(false);
+  });
+
+  it('принимает buildReport.semanticErrors с break_outside_loop и continue_outside_loop', () => {
+    const r = TraceEntrySchema.safeParse({
+      ...minimalTrace,
+      buildReport: {
+        success: false,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [
+          { message: 'прервать вне цикла', kind: 'break_outside_loop' },
+          { message: 'продолжить вне цикла', kind: 'continue_outside_loop' },
+        ],
+        bytecode: null,
+        compilerSuccess: false,
+        durationMs: 0,
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe('saveTrace', () => {
+  let tmpDir: string;
+  let tracePath: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = path.join(os.tmpdir(), `osnova-trace-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tracePath = path.join(tmpDir, 'traces.jsonl');
+    prevEnv = process.env.OSNOVA_TRACE_DB;
+    process.env.OSNOVA_TRACE_DB = tracePath;
+  });
+
+  afterEach(async () => {
+    process.env.OSNOVA_TRACE_DB = prevEnv;
+    try {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it('при невалидной записи не пишет в файл и вызывает console.warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await saveTrace({
+      runId: 'not-a-uuid',
+      status: 'success',
+      task: 'task',
+      repairAttempts: 0,
+    });
+    expect(warnSpy).toHaveBeenCalled();
+    const warnArg = warnSpy.mock.calls[0]?.[0];
+    expect(String(warnArg)).toContain('[traceStore]');
+
+    let fileEmptyOrMissing = true;
+    try {
+      const buf = await fs.readFile(tracePath, 'utf-8');
+      fileEmptyOrMissing = buf.trim().length === 0;
+    } catch {
+      fileEmptyOrMissing = true;
+    }
+    expect(fileEmptyOrMissing).toBe(true);
+
+    warnSpy.mockRestore();
   });
 });

@@ -49,6 +49,8 @@ const SemanticErrorKindSchema = z.enum([
   'keyword_param',
   'invented_syntax',
   'sentinel_pattern',
+  'break_outside_loop',
+  'continue_outside_loop',
 ]);
 
 const SemanticErrorSchema = z
