@@ -11,8 +11,9 @@ import { setupWindow, setupService } from "./ui";
 import type { WindowApi } from "./ui";
 import * as storage from "./storage";
 import { isOsVbcModule } from "./vm/bytecode";
-import { VM, loadModule } from "./vm/interpreter";
+import { VM, loadModule, runProgram } from "./vm/interpreter";
 import type { StackValue } from "./vm/interpreter";
+import type { OsVbcModule } from "./vm/bytecode";
 
 const STORAGE_ROOT = path.join(os.tmpdir(), "osnova-storage");
 
@@ -66,6 +67,24 @@ interface GuiState {
   nextWindowId: number;
   nextWidgetId: number;
   widgetValues: Record<string, string>;
+}
+
+async function loadAllModulesFromAppDir(appDir: string): Promise<OsVbcModule[]> {
+  const entries = await fs.readdir(appDir, { withFileTypes: true }).catch(() => []);
+  const loaded: OsVbcModule[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith(".osvbc") && !entry.name.endsWith(".osvbc.json")) continue;
+    const fullPath = path.join(appDir, entry.name);
+    try {
+      const raw = await fs.readFile(fullPath, "utf-8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (isOsVbcModule(parsed)) loaded.push(parsed);
+    } catch {
+      // ignore unreadable/non-json module candidates
+    }
+  }
+  return loaded;
 }
 
 function createGuiState(): GuiState {
@@ -582,7 +601,18 @@ async function executeEntry(
   }
 
   try {
-    await vm.runProcedure(procIndex, callArgs);
+    const allModules = await loadAllModulesFromAppDir(appDir);
+    if (allModules.length > 1) {
+      const orderedModules: OsVbcModule[] = [mod, ...allModules.filter((m) => m.moduleName !== mod.moduleName)];
+      await runProgram(orderedModules, {
+        invoke: createInvokeHandler(sandbox, appContext, gui),
+        preferredModuleName: mod.moduleName,
+        entryProcedure,
+        entryArgs: callArgs,
+      });
+    } else {
+      await vm.runProcedure(procIndex, callArgs);
+    }
     return 0;
   } catch (e) {
     if (e instanceof SandboxError) {
