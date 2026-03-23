@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<meta http-equiv="Content-Security-Policy" content="default-src * 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http: https:;">
 <title>Осирис</title>
 <link rel="stylesheet" href="style.css"/>
 </head>
@@ -14,18 +13,28 @@
   <input id="input" type="text" autocomplete="off" placeholder="Сообщение..."/>
   <button type="submit">Отправить</button>
 </form>
+<script src="https://cdn.jsdelivr.net/npm/@capacitor/core@6/dist/capacitor.min.js"></script>
 <script>
-const DEFAULT_URL = 'http://90.156.210.111:3000';
+const BASE = 'http://90.156.210.111:3000';
 
-async function tryConnect(url) {
+async function nativeFetch(url, options) {
+  // Используем CapacitorHttp если доступен (обходит mixed content)
   try {
-    const r = await fetch(url + '/health', { signal: AbortSignal.timeout(4000) });
-    if (r.ok) return true;
-  } catch (e) { console.error('tryConnect failed', e); }
-  return false;
+    const { CapacitorHttp } = Capacitor.Plugins;
+    if (CapacitorHttp) {
+      const res = await CapacitorHttp.request({
+        method: options && options.method ? options.method : 'GET',
+        url: url,
+        headers: options && options.headers ? options.headers : {},
+        data: options && options.body ? JSON.parse(options.body) : undefined,
+      });
+      return { ok: res.status >= 200 && res.status < 300, json: async () => res.data, text: async () => JSON.stringify(res.data) };
+    }
+  } catch(e) { console.log('CapacitorHttp failed, falling back', e); }
+  return fetch(url, options);
 }
 
-function startChat(BASE) {
+(async () => {
   const msgs = document.getElementById('messages');
   const form = document.getElementById('form');
   const inp = document.getElementById('input');
@@ -39,12 +48,24 @@ function startChat(BASE) {
     return d;
   }
 
+  // Проверяем сервер
+  try {
+    const r = await nativeFetch(BASE + '/health');
+    if (r.ok) {
+      add('Подключено ✔', 'msg-bot');
+    } else {
+      add('Сервер недоступен (status ' + r.status + ')', 'msg-bot');
+      return;
+    }
+  } catch(e) {
+    add('Ошибка: ' + e.message, 'msg-bot');
+    return;
+  }
+
   function isPipelineRequest(text) {
     const lower = text.toLowerCase();
     return ['сделай приложение','создай приложение','напиши приложение','сгенерируй приложение','нужно приложение','создать приложение','сделай ос-приложение'].some(p => lower.includes(p));
   }
-
-  add('Подключено ✔', 'msg-bot');
 
   form.onsubmit = async e => {
     e.preventDefault();
@@ -77,7 +98,7 @@ function startChat(BASE) {
       } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
     } else {
       try {
-        const r = await fetch(BASE + '/chat', {
+        const r = await nativeFetch(BASE + '/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: 'android-user', message: t })
@@ -87,20 +108,6 @@ function startChat(BASE) {
       } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
     }
   };
-}
-
-(async () => {
-  const ok = await tryConnect(DEFAULT_URL);
-  if (ok) {
-    startChat(DEFAULT_URL);
-  } else {
-    document.body.innerHTML =
-      '<div style="padding:24px;font-family:sans-serif">' +
-      '<p style="color:#c00">Сервер недоступен.</p>' +
-      '<p style="font-size:13px;color:#888">' + DEFAULT_URL + '</p>' +
-      '<button onclick="location.reload()" style="padding:8px 16px;margin-top:12px">Повторить</button>' +
-      '</div>';
-  }
 })();
 </script>
 </body>
