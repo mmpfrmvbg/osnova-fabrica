@@ -4,7 +4,10 @@
   "description": "",
   "main": "config.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "cap:sync": "cap sync android",
+    "cap:build": "cap add android || true && cap sync android",
+    "apk:debug": "npm run cap:build && cd android && chmod +x gradlew && ./gradlew assembleDebug"
   },
   "keywords": [],
   "author": "",
