@@ -165,6 +165,22 @@ npx tsx scripts/pipeline-metrics.ts --file ./osiris.out.log --from 2026-03-01 --
     sudo mkdir -p /var/log/osiris
     sudo chown osnova:osnova /var/log/osiris
 
+### Запуск скрипта деплоя
+
+Репозиторий приватный — `curl | bash` через raw.githubusercontent.com не работает
+(возвращает 404 без авторизации). Правильный способ:
+
+    # 1. Скопировать скрипт на сервер
+    scp scripts/deploy-server.sh root@90.156.210.111:/tmp/deploy-server.sh
+
+    # 2. Запустить (GITHUB_TOKEN = значение GH_TOKEN из корневого .env)
+    ssh root@90.156.210.111 "GITHUB_TOKEN=ghp_... bash /tmp/deploy-server.sh"
+
+После успешного деплоя:
+
+    curl http://90.156.210.111:3000/health
+    # {"status":"ok","version":"0.1.0"}
+
 ### Установка systemd unit
 
     sudo cp /opt/osnova/scripts/osiris.service /etc/systemd/system/
