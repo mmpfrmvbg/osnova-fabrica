@@ -59,6 +59,10 @@ export interface OsnovaSpec {
   readonly types: readonly OsnovaType[];
   readonly procedures: readonly ProcedureSignature[];
   readonly syscalls: readonly string[]; // 'система.хранилище', 'система.окно', etc
+  readonly expectedReturnValue?: unknown;
+  readonly expectVM?: {
+    readonly returnValue?: unknown;
+  };
   readonly conventions: Record<string, unknown>;
 }
 

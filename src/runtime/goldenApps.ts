@@ -64,6 +64,7 @@ export async function runGoldenCheck(
 
   // ── 2. Запуск VM ──
   let executed = false;
+  let vmResult: unknown = null;
   try {
     const vm = new VM(module, {
       maxSteps: 50_000,
@@ -98,7 +99,7 @@ export async function runGoldenCheck(
       },
     });
     const idx = vm.findProcedureIndex(entryName);
-    await vm.runProcedure(idx, []);
+    vmResult = await vm.runProcedure(idx, []);
     executed = true;
   } catch (e) {
     vmErrors.push({ message: e instanceof Error ? e.message : String(e) });
@@ -116,6 +117,10 @@ export async function runGoldenCheck(
   }
 
   // ── 3. Структурные проверки ──
+  const expectedReturnValue =
+    spec.expectedReturnValue ?? spec.expectVM?.returnValue;
+  const hasExpectedReturnValue = expectedReturnValue !== undefined;
+
   const checks = await (async () => ({
     hasEntryProcedure: true,
 
@@ -161,6 +166,7 @@ export async function runGoldenCheck(
       const keys = await storageKeys(storageRoot, appId);
       return keys.length > 0;
     })(),
+    vmReturnMatches: !hasExpectedReturnValue || vmResult === expectedReturnValue,
   }))();
 
   const passedChecks = Object.values(checks).filter(Boolean).length;
@@ -190,6 +196,10 @@ export async function runGoldenCheck(
           missingSyscalls,
           procedureCount: module.procedures.length,
           codeLength: module.code.length,
+          vmReturnDiff:
+            checks.vmReturnMatches
+              ? null
+              : { expected: expectedReturnValue, actual: vmResult },
         })
       : null;
 
