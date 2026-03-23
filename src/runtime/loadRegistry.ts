@@ -15,6 +15,22 @@ export interface AppRegistry {
   entries: RegistryEntry[];
 }
 
+export interface AppRegistryItem {
+  id: string;
+  name: string;
+  type: string;
+  languageVersion: string;
+  mainModule: string;
+  modules: string[];
+  description?: string;
+  tags?: string[];
+}
+
+export interface AppCatalogRegistry {
+  version: string;
+  apps: AppRegistryItem[];
+}
+
 /**
  * Ищет корень монорепо от startDir вверх по дереву,
  * ориентируясь на package.json с "name": "osnova-fabrica".
@@ -63,8 +79,30 @@ export function loadRegistry(registryRoot?: string): AppRegistry {
   }
 }
 
-export function registryToContext(registry: AppRegistry): string {
-  if (registry.entries.length === 0) return '';
+export function loadAppRegistry(registryRoot?: string): AppCatalogRegistry {
+  let dir: string;
+  if (registryRoot) {
+    dir = registryRoot;
+  } else if (process.env.REGISTRY_ROOT) {
+    dir = process.env.REGISTRY_ROOT;
+  } else {
+    const fromDirname = findMonorepoRoot(path.resolve(__dirname));
+    const fromCwd = findMonorepoRoot(process.cwd());
+    const root = fromDirname ?? fromCwd;
+    dir = root ? path.join(root, 'src', 'runtime') : path.join(process.cwd(), 'src', 'runtime');
+  }
+
+  const filePath = path.join(dir, 'appRegistry.json');
+  if (!fs.existsSync(filePath)) return { version: '1.0.0', apps: [] };
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as AppCatalogRegistry;
+  } catch {
+    return { version: '1.0.0', apps: [] };
+  }
+}
+
+export function registryToContext(registry: AppRegistry, appRegistry?: AppCatalogRegistry): string {
+  if (registry.entries.length === 0 && (!appRegistry || appRegistry.apps.length === 0)) return '';
   const apps = registry.entries.filter(e => e.kind === 'app');
   const services = registry.entries.filter(e => e.kind === 'service');
   const lines: string[] = ['Доступные приложения и сервисы платформы:'];
@@ -77,6 +115,12 @@ export function registryToContext(registry: AppRegistry): string {
     for (const s of services) {
       const invokes = s.exports?.invokes?.join(', ') ?? '';
       lines.push(`  - ${s.id} («${s.name}»)${invokes ? ': ' + invokes : ''}`);
+    }
+  }
+  if (appRegistry && appRegistry.apps.length > 0) {
+    lines.push('Референсные приложения Основа (appRegistry):');
+    for (const app of appRegistry.apps) {
+      lines.push(`  - ${app.id} («${app.name}»), main: ${app.mainModule}`);
     }
   }
   return lines.join('\n');

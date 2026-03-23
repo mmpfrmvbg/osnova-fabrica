@@ -17,7 +17,7 @@ import { saveTrace } from '../trace/traceStore';
 import { logger } from '../logger';
 import { compileSource, type CompileResult } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
-import { loadRegistry, registryToContext } from '../runtime/loadRegistry';
+import { loadRegistry, loadAppRegistry, registryToContext } from '../runtime/loadRegistry';
 import type {
   OsnovaIntent,
   OsnovaSpec,
@@ -124,7 +124,8 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   const runId = randomUUID();
   const registry = loadRegistry();
-  const registryContext = registryToContext(registry);
+  const appRegistry = loadAppRegistry();
+  const registryContext = registryToContext(registry, appRegistry);
   const startTime = Date.now();
   const modelId = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
   let repairAttempts = 0;
