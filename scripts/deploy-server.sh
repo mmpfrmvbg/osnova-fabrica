@@ -31,6 +31,9 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# Git 2.35+: деплой от root + chown osnova — иначе «dubious ownership»
+git config --global --add safe.directory '*'
+
 # ── 2. Зависимости системы ──────────────────────────────────────────────────
 echo "[1/8] Установка системных зависимостей..."
 apt-get update -qq
