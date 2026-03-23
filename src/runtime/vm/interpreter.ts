@@ -21,15 +21,17 @@ export interface InvokeHandler {
   (name: string, args: StackValue[]): Promise<StackValue> | StackValue;
 }
 
-/** Обработчик по умолчанию для система.массив.* (используется когда invoke не передан). */
-function defaultInvokeHandler(name: string, args: StackValue[]): StackValue | null {
-  switch (name) {
+/** Обработчик по умолчанию (используется когда invoke не передан). */
+function createDefaultInvokeHandler(): InvokeHandler {
+  const storage = new Map<string, StackValue>();
+  return (name: string, args: StackValue[]): StackValue | null => {
+    switch (name) {
     case "система.массив.создать":
       return [];
     case "система.массив.добавить": {
       const arr = args[0] as StackValue[];
       if (Array.isArray(arr)) arr.push(args[1] as StackValue);
-      return null;
+      return Array.isArray(arr) ? arr : null;
     }
     case "система.массив.установить": {
       const arr = args[0] as StackValue[];
@@ -109,9 +111,32 @@ function defaultInvokeHandler(name: string, args: StackValue[]): StackValue | nu
       const parts = s.split(sep);
       return parts;
     }
+    case "система.хранилище.записать": {
+      const key = String(args[0] ?? "");
+      storage.set(key, (args[1] ?? null) as StackValue);
+      return null;
+    }
+    case "система.хранилище.прочитать": {
+      const key = String(args[0] ?? "");
+      return storage.get(key) ?? null;
+    }
+    case "система.хранилище.удалить": {
+      const key = String(args[0] ?? "");
+      storage.delete(key);
+      return null;
+    }
+    case "система.хранилище.ключи":
+      return Array.from(storage.keys());
+    case "система.хранилище.ключи_с_префиксом": {
+      const prefix = String(args[0] ?? "");
+      return Array.from(storage.keys()).filter((k) => k.startsWith(prefix));
+    }
+    case "система.время.метка":
+      return new Date().toISOString();
     default:
       return null;
-  }
+    }
+  };
 }
 
 export interface InterpreterOptions {
@@ -150,7 +175,7 @@ export class VM {
   constructor(module: OsVbcModule, options: InterpreterOptions = {}) {
     this.module = module;
     this.options = {
-      invoke: options.invoke ?? defaultInvokeHandler,
+      invoke: options.invoke ?? createDefaultInvokeHandler(),
       maxSteps: options.maxSteps ?? 1_000_000,
     };
   }
