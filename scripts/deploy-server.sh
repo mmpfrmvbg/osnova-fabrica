@@ -85,7 +85,12 @@ git -C "$INSTALL_DIR" remote set-url origin \
   "https://github.com/mmpfrmvbg/osnova-fabrica.git"
 
 # ── 6. npm install ──────────────────────────────────────────────────────────
-echo "[5/8] Установка зависимостей npm (включая компиляцию better-sqlite3)..."
+echo "[5/8] Установка зависимостей npm (корень монорепо + apps/osiris)..."
+cd "$INSTALL_DIR"
+# Корень: импорты Осириса тянут src/pipeline, src/trace и т.д.
+npm install --no-audit --no-fund
+chown -R "$OSIRIS_USER":"$OSIRIS_USER" "$INSTALL_DIR/node_modules" 2>/dev/null || true
+
 cd "$OSIRIS_DIR"
 # Устанавливаем от root чтобы node-gyp мог компилировать нативные модули
 npm install --no-audit --no-fund
