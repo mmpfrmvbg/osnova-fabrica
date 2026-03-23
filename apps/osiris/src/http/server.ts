@@ -2,7 +2,7 @@
 import * as crypto from 'crypto';
 import express, { type Request, type Response } from 'express';
 import { handleMessage } from '../core/message-handler';
-import { runOsnovaPipeline } from '../osnova/client';
+import { runOsirisPipeline } from '../osnova/client';
 import { startTunnel } from './tunnel';
 
 const OSIRIS_VERSION = '0.1.0';
@@ -104,7 +104,7 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
 
       const task = body.task.trim();
       console.log(`[osiris:http] POST /pipeline task="${task}"`);
-      const result = await runOsnovaPipeline(task);
+      const result = await runOsirisPipeline(task);
       res.json({ status: result.status === 'success' ? 'ok' : 'error', result });
     } catch (e) {
       console.error('[osiris:http] POST /pipeline failed', e);
