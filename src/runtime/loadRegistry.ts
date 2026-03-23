@@ -15,8 +15,45 @@ export interface AppRegistry {
   entries: RegistryEntry[];
 }
 
+/**
+ * Ищет корень монорепо от startDir вверх по дереву,
+ * ориентируясь на package.json с "name": "osnova-fabrica".
+ * Возвращает путь к директории или null если не нашёл.
+ */
+function findMonorepoRoot(startDir: string): string | null {
+  let dir = startDir;
+  for (let i = 0; i < 10; i++) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { name?: string };
+        if (pkg.name === 'osnova-fabrica') return dir;
+      } catch {
+        // ignore parse errors
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break; // достигли корня FS
+    dir = parent;
+  }
+  return null;
+}
+
 export function loadRegistry(registryRoot?: string): AppRegistry {
-  const dir = registryRoot ?? path.join(process.cwd(), 'src', 'runtime');
+  let dir: string;
+  if (registryRoot) {
+    dir = registryRoot;
+  } else if (process.env.REGISTRY_ROOT) {
+    dir = process.env.REGISTRY_ROOT;
+  } else {
+    // Сначала ищем от __dirname вверх (надёжно при запуске из apps/osiris)
+    const fromDirname = findMonorepoRoot(path.resolve(__dirname));
+    // Затем от cwd (работает при запуске из корня монорепо)
+    const fromCwd = findMonorepoRoot(process.cwd());
+    const root = fromDirname ?? fromCwd;
+    dir = root ? path.join(root, 'src', 'runtime') : path.join(process.cwd(), 'src', 'runtime');
+  }
+
   const filePath = path.join(dir, 'registry.json');
   if (!fs.existsSync(filePath)) return { entries: [] };
   try {
