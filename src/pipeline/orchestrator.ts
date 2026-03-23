@@ -45,8 +45,8 @@ function appendRepairFailure(entry: {
     const dir = path.dirname(target);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.appendFileSync(target, JSON.stringify(entry) + '\n', 'utf-8');
-  } catch {
-    // не блокируем основной пайплайн
+  } catch (err) {
+    console.warn('[orchestrator] appendRepairFailure failed:', err);
   }
 }
 
@@ -322,7 +322,7 @@ export async function runPipeline(
       goldenReport,
       repairAttempts,
       shadow_hits: shadowHits,
-    }).catch(() => {});
+    }).catch((err) => console.warn('[orchestrator] saveTrace failed:', err));
     return finish('error', message);
   }
 
