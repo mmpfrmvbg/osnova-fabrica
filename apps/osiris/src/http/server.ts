@@ -422,6 +422,43 @@ export function createHttpApp(): Express {
       res.status(500).json({ error: 'internal server error' });
     }
   });
+
+  app.get('/pipeline/stream', async (req: Request, res: Response) => {
+    const task = typeof req.query.task === 'string' ? req.query.task.trim() : '';
+    if (!task) {
+      res.status(400).json({ error: 'task query param is required' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const send = (data: object) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    send({ phase: 'queued', message: `Задача принята: "${task}"` });
+
+    try {
+      const result = await runOsirisPipeline(task, (phase, message) => {
+        send({ phase, message });
+      });
+      send({
+        phase: 'done',
+        message: result.status === 'ok' ? result.summary : `Ошибка: ${result.summary}`,
+        result,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      send({ phase: 'error', message: `Pipeline упал: ${msg}` });
+    } finally {
+      res.end();
+    }
+  });
+
   return app;
 }
 

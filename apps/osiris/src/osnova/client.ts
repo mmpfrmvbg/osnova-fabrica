@@ -31,7 +31,10 @@ function buildSummary(task: string, result: PipelineResult): string {
   return `Задача "${task}": pipeline завершился с ошибкой: ${reason}.`;
 }
 
-export async function runOsirisPipeline(task: string): Promise<OsirisPipelineResult> {
+export async function runOsirisPipeline(
+  task: string,
+  onProgress?: (phase: string, message: string) => void,
+): Promise<OsirisPipelineResult> {
   const normalizedTask = task.trim();
   if (!normalizedTask) {
     throw new Error('task must be a non-empty string');
@@ -39,7 +42,9 @@ export async function runOsirisPipeline(task: string): Promise<OsirisPipelineRes
 
   console.log(`[osiris:pipeline] starting, task="${normalizedTask}"`);
   try {
+    onProgress?.('start', `Запускаю Фабрику: "${normalizedTask}"...`);
     const rawResult = await runPipeline(normalizedTask);
+    onProgress?.('pipeline_done', 'Пайплайн завершён, формирую ответ...');
     const mapped: OsirisPipelineResult = {
       status: toCompatStatus(rawResult.status),
       pipelineStatus: rawResult.status,
