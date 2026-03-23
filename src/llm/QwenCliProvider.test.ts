@@ -73,3 +73,25 @@ describe('QwenCliProvider: stdout/stderr', () => {
     expect(response.content).toBe('hello');
   });
 });
+
+describe('QwenCliProvider: empty output guard', () => {
+  it('пустой stdout бросает ошибку с диагностикой', async () => {
+    const { spawn } = await import('node:child_process');
+    const emptyMock = createMockSpawn('', '', 0);
+    vi.mocked(spawn).mockImplementation(emptyMock as never);
+    const provider = new QwenCliProvider();
+    await expect(
+      provider.complete({ messages: [{ role: 'user', content: 'test' }] }),
+    ).rejects.toThrow('QwenCliProvider: failed to extract code from output');
+  });
+
+  it('whitespace-only stdout бросает ошибку с диагностикой', async () => {
+    const { spawn } = await import('node:child_process');
+    const wsMock = createMockSpawn('   \n  ', '', 0);
+    vi.mocked(spawn).mockImplementation(wsMock as never);
+    const provider = new QwenCliProvider();
+    await expect(
+      provider.complete({ messages: [{ role: 'user', content: 'test' }] }),
+    ).rejects.toThrow('QwenCliProvider: failed to extract code from output');
+  });
+});
