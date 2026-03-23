@@ -11,7 +11,7 @@ import { parse, type ParseError } from './parser';
 import { compile } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
 import { checkSemantics, type SemanticError } from './semantic';
-import type { Expr, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
+import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -123,13 +123,19 @@ function rewriteProcedureCalls(proc: Procedure, rewriter: (calleeName: string) =
   for (const s of proc.body) rewriteStmtCalls(s, rewriter);
 }
 
+function getFirstModuleOrThrow(program: Program | null): Module {
+  if (!program || program.modules.length === 0) {
+    throw new Error("Parser returned empty Program (no modules)");
+  }
+  return program.modules[0]!;
+}
+
 function parseModuleOrThrow(source: string): Module {
   const { tokens, errors: lexerErrors } = tokenize(source);
-  const { ast, errors: parserErrors } = parse(tokens);
+  const { ast: program, errors: parserErrors } = parse(tokens);
   if (lexerErrors.length > 0) throw new Error(lexerErrors[0]!.message);
   if (parserErrors.length > 0) throw new Error(parserErrors[0]!.message);
-  if (!ast) throw new Error("Не удалось распарсить модуль");
-  return ast;
+  return getFirstModuleOrThrow(program);
 }
 
 function expandModuleImports(ast: Module, baseDir: string, importStack: string[] = []): Module {
@@ -290,9 +296,9 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
 export function compileSource(source: string, options: CompileOptions = {}): CompileResult {
   const start = Date.now();
   const { tokens, errors: lexerErrors } = tokenize(source);
-  const { ast, errors: parserErrors } = parse(tokens);
+  const { ast: program, errors: parserErrors } = parse(tokens);
 
-  if (lexerErrors.length > 0 || parserErrors.length > 0 || !ast) {
+  if (lexerErrors.length > 0 || parserErrors.length > 0 || !program || program.modules.length === 0) {
     return {
       module: null,
       compilerSuccess: false,
@@ -306,6 +312,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
 
   let expandedAst: Module;
   try {
+    const ast = getFirstModuleOrThrow(program);
     expandedAst = expandModuleImports(ast, options.baseDir ?? process.cwd());
   } catch (e) {
     return {
