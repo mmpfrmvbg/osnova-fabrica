@@ -33,6 +33,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Check YAML drift
+        run: npx tsx src/scripts/check-yaml-drift.ts
+
       - name: Golden tests
         run: npm run golden
         env:

@@ -22,6 +22,7 @@
     "export:schema": "tsx src/compiler/export-language-schema.ts",
     "generate:language-schema": "tsx scripts/generate-language-schema.ts",
     "check:language-schema": "tsx scripts/check-language-schema.ts",
+    "check:yaml-drift": "tsx src/scripts/check-yaml-drift.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",
