@@ -7,7 +7,7 @@
 
 import { getLLMProvider } from '../llm/index';
 import type { OsnovaSource, BuildReport, GoldenReport } from '../pipeline/types';
-import { BLOCKING_SEMANTIC_KINDS } from '../pipeline/semanticKinds';
+import { BLOCKING_SEMANTIC_KINDS, NON_BLOCKING_SEMANTIC_KINDS } from '../pipeline/semanticKinds';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
 import { buildOsnovaRepairPrompt } from '../pipeline-llm/buildOsnovaPrompt';
@@ -19,7 +19,7 @@ const log = logger('repair-agent');
 function collectErrorKinds(buildReport?: BuildReport): string[] | undefined {
   const sem = buildReport?.semanticErrors ?? [];
   if (sem.length === 0) return undefined;
-  const allow = BLOCKING_SEMANTIC_KINDS as readonly string[];
+  const allow = [...BLOCKING_SEMANTIC_KINDS, ...NON_BLOCKING_SEMANTIC_KINDS] as readonly string[];
   const kinds: string[] = [];
   const seen = new Set<string>();
   for (const e of sem) {
@@ -96,6 +96,12 @@ const SYSTEM_PROMPT = `
 - syscall_argc: неверное число аргументов syscall → исправить число аргументов согласно system-api
 - redeclare_var: переменная уже объявлена → переименовать или убрать дубль пусть
 
+═══ ОШИБКИ ЦИКЛА ═══
+- break_outside_loop: прервать использован вне тела цикла → убрать прервать или
+  обернуть содержащий код в пока / для_каждого / цикл ... конец
+- continue_outside_loop: продолжить использован вне тела цикла → убрать продолжить
+  или обернуть содержащий код в пока / для_каждого / цикл ... конец
+
 ═══ ПЕРВЫЙ ПРОХОД (глобальные замены) ═══
 система.число.остаток(x, y) → x % y
 arr[индекс] уже поддерживается парсером — не заменяй на система.массив.получить
@@ -124,7 +130,7 @@ export class RepairEngineerAgent {
       for (const e of buildReport.compilerErrors)
         errors.push(`Компилятор: ${e.message}`);
       for (const e of (buildReport.semanticErrors ?? []).filter(
-        se => (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(se.kind),
+        se => ([...BLOCKING_SEMANTIC_KINDS, ...NON_BLOCKING_SEMANTIC_KINDS] as readonly string[]).includes(se.kind),
       )) {
         errors.push(`Семантика [${e.kind}]: ${e.message}`);
       }

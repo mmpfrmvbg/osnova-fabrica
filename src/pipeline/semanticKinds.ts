@@ -5,5 +5,7 @@
 // ============================================================
 export {
   BLOCKING_SEMANTIC_KINDS,
+  NON_BLOCKING_SEMANTIC_KINDS,
   type BlockingSemanticKind,
+  type NonBlockingSemanticKind,
 } from '../compiler/semanticKinds';
