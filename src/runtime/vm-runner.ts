@@ -78,6 +78,7 @@ function createInvokeHandler(
   gui: GuiState
 ) {
   const { windowApi } = appContext;
+  const pad2 = (n: number): string => String(Math.trunc(n)).padStart(2, "0");
 
   return async (name: string, args: StackValue[]): Promise<StackValue | null> => {
     switch (name) {
@@ -110,6 +111,49 @@ function createInvokeHandler(
         return Date.now();
       case "система.время.метка":
         return new Date().toISOString();
+      case "система.время.разобрать": {
+        const raw = String(args[0] ?? "");
+        const d = new Date(raw);
+        return {
+          год: d.getUTCFullYear(),
+          месяц: d.getUTCMonth() + 1,
+          день: d.getUTCDate(),
+          часы: d.getUTCHours(),
+          минуты: d.getUTCMinutes(),
+        };
+      }
+      case "система.время.форматировать": {
+        const dateObj = (args[0] ?? {}) as Record<string, unknown>;
+        const format = String(args[1] ?? "");
+        const year = Number(dateObj["год"] ?? 0);
+        const month = Number(dateObj["месяц"] ?? 1);
+        const day = Number(dateObj["день"] ?? 1);
+        const hours = Number(dateObj["часы"] ?? 0);
+        const minutes = Number(dateObj["минуты"] ?? 0);
+        const dd = pad2(day);
+        const mm = pad2(month);
+        const yyyy = String(Math.trunc(year));
+        const hh = pad2(hours);
+        const min = pad2(minutes);
+        if (format === "дд.мм.гггг") return `${dd}.${mm}.${yyyy}`;
+        if (format === "дд.мм.гггг чч:мм") return `${dd}.${mm}.${yyyy} ${hh}:${min}`;
+        return new Date(Date.UTC(year, month - 1, day, hours, minutes)).toISOString();
+      }
+      case "система.время.добавить_дни": {
+        const iso = String(args[0] ?? "");
+        const n = Number(args[1] ?? 0);
+        const d = new Date(iso);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString();
+      }
+      case "система.время.разница_дней": {
+        const iso1 = String(args[0] ?? "");
+        const iso2 = String(args[1] ?? "");
+        const d1 = new Date(iso1);
+        const d2 = new Date(iso2);
+        const diffDays = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
+        return Math.floor(diffDays);
+      }
       case "система.время.спать": {
         const ms = Number(args[0]) || 0;
         await new Promise((r) => setTimeout(r, ms));
