@@ -8,7 +8,7 @@
 
 import { tokenize } from './lexer';
 import { parse, type ParseError } from './parser';
-import { compile } from './codegen';
+import { compile, compileProgram } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
 import { analyzeProgram, type SemanticError } from './semantic';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
@@ -18,6 +18,8 @@ import * as path from 'path';
 export interface CompileResult {
   /** Скомпилированный модуль — null если есть ошибки */
   module: OsVbcModule | null;
+  /** Скомпилированные модули Program (multi-module path) */
+  modules?: OsVbcModule[];
   /** true если компилятор отработал без ошибок */
   compilerSuccess: boolean;
   /** Ошибки лексера */
@@ -301,6 +303,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   if (lexerErrors.length > 0 || parserErrors.length > 0 || !program || program.modules.length === 0) {
     return {
       module: null,
+      modules: [],
       compilerSuccess: false,
       lexerErrors,
       parserErrors,
@@ -317,6 +320,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   } catch (e) {
     return {
       module: null,
+      modules: [],
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
@@ -330,6 +334,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   if (namedTypeErrors.length > 0) {
     return {
       module: null,
+      modules: [],
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
@@ -342,10 +347,43 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   const semanticErrors = analyzeProgram({ modules: [expandedAst] }).errors;
   const semanticAsCompiler = semanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
 
+  if (program.modules.length > 1) {
+    const programSemanticErrors = analyzeProgram(program).errors;
+    const programSemanticAsCompiler = programSemanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
+    try {
+      const compiledModules = compileProgram(program);
+      return {
+        module: compiledModules[0] ?? null,
+        modules: compiledModules,
+        compilerSuccess: true,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: programSemanticAsCompiler,
+        semanticErrors: programSemanticErrors,
+        durationMs: Date.now() - start,
+      };
+    } catch (e) {
+      return {
+        module: null,
+        modules: [],
+        compilerSuccess: false,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [
+          ...programSemanticAsCompiler,
+          { message: e instanceof Error ? e.message : String(e) },
+        ],
+        semanticErrors: programSemanticErrors,
+        durationMs: Date.now() - start,
+      };
+    }
+  }
+
   try {
     const module = compile(expandedAst);
     return {
       module,
+      modules: [module],
       compilerSuccess: true,
       lexerErrors: [],
       parserErrors: [],
@@ -356,6 +394,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   } catch (e) {
     return {
       module: null,
+      modules: [],
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
