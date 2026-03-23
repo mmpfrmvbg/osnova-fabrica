@@ -3,9 +3,10 @@ import type { IncomingMessage, JarvisMode } from '../types';
 import * as memory from './memory-engine';
 import { call as callLlm } from './llm-router';
 import type { ChatMessage } from './llm-router';
-import { extractAction } from '../osnova/action-extractor';
 import { runOsirisPipeline } from '../osnova/client';
 import { buildPipelineSpecContext } from '../osnova/context-builder';
+import { buildContext } from './context-builder';
+import { extractActions } from './action-extractor';
 
 export interface HandleResult {
   reply: string;
@@ -137,8 +138,38 @@ export async function handleMessage(
     };
   }
 
-  const action = extractAction(message.text);
-  if (action.kind === 'build') {
+  const llmContext = await buildContext(message);
+  const extracted = await extractActions(message.text, llmContext);
+
+  if (extracted.intent === 'task' && extracted.tasks.length > 0) {
+    const created = extracted.tasks.map((title) => memory.addTask(userId, title));
+    return {
+      reply: `Добавил задачи:\n${created.map((t) => `#${t.id} ${t.title}`).join('\n')}`,
+      mode: _mode,
+      trackedFacts: 0,
+      trackedTasks: created.length,
+    };
+  }
+
+  if (extracted.intent === 'fact' && extracted.facts.length > 0) {
+    const saved = await memory.saveFacts(
+      extracted.facts.map((text) => ({
+        kind: 'user_profile',
+        project: 'assistant',
+        text,
+        importance: 3,
+      })),
+    );
+    return {
+      reply: `Запомнил ${saved.length} факт(ов).`,
+      mode: _mode,
+      trackedFacts: saved.length,
+      trackedTasks: 0,
+    };
+  }
+
+  if (extracted.intent === 'build') {
+    const buildTask = extracted.tasks[0] ?? message.text;
     await memory.saveMessage({
       userId,
       chatId: message.chatId ?? userId,
@@ -154,13 +185,13 @@ export async function handleMessage(
 
     try {
       const specContext = await buildPipelineSpecContext(message);
-      console.log(`[osiris] pipeline requested: "${action.task}"`);
+      console.log(`[osiris] pipeline requested: "${buildTask}"`);
       console.log(
         `[osiris:pipeline] context prepared, userId=${userId}, history=${specContext.userHistory.length}`,
       );
-      const pipelineResult = await runOsirisPipeline(action.task);
-      const header = `Фабрика запущена, задача: "${action.task}".\n`;
-      const reply = pipelineResult.status === 'success'
+      const pipelineResult = await runOsirisPipeline(buildTask);
+      const header = `Фабрика запущена, задача: "${buildTask}".\n`;
+      const reply = pipelineResult.status === 'ok'
         ? `${header}Готово: ${pipelineResult.summary}`
         : `${header}Ошибка при генерации: ${pipelineResult.summary}`;
 
@@ -186,7 +217,7 @@ export async function handleMessage(
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[osiris:pipeline] failed in message-handler:', msg);
-      const reply = `Фабрика запущена, задача: ${action.task}\n\nРезультат: Pipeline завершился с ошибкой: ${msg}.`;
+      const reply = `Фабрика запущена, задача: ${buildTask}\n\nРезультат: Pipeline завершился с ошибкой: ${msg}.`;
 
       await memory.saveMessage({
         userId,
@@ -212,25 +243,14 @@ export async function handleMessage(
 
   // ── LLM path ────────────────────────────────────────────────────────────
 
-  // Контекст: summary + открытые задачи в системный промпт
-  const summary = await memory.getLatestSummaryByUser(userId);
   const openTasks = memory.getTasks(userId, 'open');
   const taskContext = openTasks.length > 0
     ? `\nОткрытые задачи:\n${formatTaskList(openTasks)}`
     : '\nОткрытых задач нет.';
 
-  const recent = await memory.getRecentMessages(userId, 20);
-  const history: ChatMessage[] = recent
-    .slice()
-    .reverse()
-    .map((r) => ({ role: r.role as ChatMessage['role'], content: r.text }));
-
   const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT + taskContext },
-    ...(summary
-      ? [{ role: 'system' as const, content: `Контекст предыдущих разговоров: ${summary.text}` }]
-      : []),
-    ...history,
+    { role: 'system', content: `Контекст диалога:\n${llmContext}` },
     { role: 'user', content: message.text },
   ];
 
