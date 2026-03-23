@@ -2,7 +2,7 @@
 import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
-import express, { type Request, type Response } from 'express';
+import express, { type Express, type Request, type Response } from 'express';
 import { compileSource } from '../../../../src/compiler/compiler';
 import * as storage from '../../../../src/runtime/storage';
 import { VM, type StackValue } from '../../../../src/runtime/vm/interpreter';
@@ -10,6 +10,7 @@ import type { OsVbcModule } from '../../../../src/runtime/vm/bytecode';
 import { handleMessage } from '../core/message-handler';
 import { runOsirisPipeline } from '../osnova/client';
 import { startTunnel } from './tunnel';
+import { buildPipelineCompletedEvent, logPipelineCompletedEvent } from './pipeline-observability';
 
 const OSIRIS_VERSION = '0.1.0';
 
@@ -146,15 +147,10 @@ export interface StartHttpServerOptions {
   tunnel?: boolean;
 }
 
-export async function startHttpServer(opts?: StartHttpServerOptions): Promise<void> {
+export function createHttpApp(): Express {
   const app = express();
   app.use(express.json());
   app.use(express.text({ type: 'text/plain' }));
-
-  const port = Number(process.env.HTTP_PORT ?? 3000);
-  if (!Number.isFinite(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid HTTP_PORT: ${process.env.HTTP_PORT ?? ''}`);
-  }
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', version: OSIRIS_VERSION });
@@ -206,6 +202,7 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
   });
 
   app.post('/pipeline', async (req: Request, res: Response) => {
+    const startedAt = Date.now();
     try {
       let body: PipelineRequestBody = {};
       if (typeof req.body === 'string') {
@@ -213,6 +210,14 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
           body = JSON.parse(req.body) as PipelineRequestBody;
         } catch {
           res.status(400).json({ status: 'error', error: 'invalid JSON in text/plain body' });
+          logPipelineCompletedEvent(
+            buildPipelineCompletedEvent({
+              httpStatus: 400,
+              status: 'error',
+              pipelineStatus: 'error',
+              durationMs: Date.now() - startedAt,
+            }),
+          );
           return;
         }
       } else if (req.body && typeof req.body === 'object') {
@@ -221,16 +226,48 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
 
       if (!body.task || typeof body.task !== 'string' || body.task.trim().length === 0) {
         res.status(400).json({ status: 'error', error: 'task is required string' });
+        logPipelineCompletedEvent(
+          buildPipelineCompletedEvent({
+            httpStatus: 400,
+            status: 'error',
+            pipelineStatus: 'error',
+            durationMs: Date.now() - startedAt,
+          }),
+        );
         return;
       }
 
       const task = body.task.trim();
       console.log(`[osiris:http] POST /pipeline task="${task}"`);
       const result = await runOsirisPipeline(task);
-      res.json({ status: result.status === 'success' ? 'ok' : 'error', result });
+      // status остаётся бинарным для обратной совместимости клиентов.
+      console.log(
+        `[osiris:http] POST /pipeline completed status=${result.status} pipelineStatus=${result.pipelineStatus}`,
+      );
+      res.json({
+        status: result.status,
+        pipelineStatus: result.pipelineStatus,
+        result,
+      });
+      logPipelineCompletedEvent(
+        buildPipelineCompletedEvent({
+          httpStatus: 200,
+          status: result.status,
+          pipelineStatus: result.pipelineStatus,
+          durationMs: Date.now() - startedAt,
+        }),
+      );
     } catch (e) {
       console.error('[osiris:http] POST /pipeline failed', e);
       res.status(500).json({ status: 'error', error: 'internal server error' });
+      logPipelineCompletedEvent(
+        buildPipelineCompletedEvent({
+          httpStatus: 500,
+          status: 'error',
+          pipelineStatus: 'error',
+          durationMs: Date.now() - startedAt,
+        }),
+      );
     }
   });
 
@@ -361,6 +398,16 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
       res.status(500).json({ error: 'internal server error' });
     }
   });
+  return app;
+}
+
+export async function startHttpServer(opts?: StartHttpServerOptions): Promise<void> {
+  const app = createHttpApp();
+
+  const port = Number(process.env.HTTP_PORT ?? 3000);
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid HTTP_PORT: ${process.env.HTTP_PORT ?? ''}`);
+  }
 
   await new Promise<void>((resolve, reject) => {
     const server = app.listen(port, () => {

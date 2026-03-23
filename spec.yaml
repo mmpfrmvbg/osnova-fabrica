@@ -87,7 +87,7 @@ structure:
       description: "Компилятор языка Основа: .osnova → .osvbc (JSON байткод)"
       pipeline: "tokenize → parse → compile → JSON"
       status: "✅ реализовано в batch-2 (2026-03-17)"
-      source: "создано с нуля по docs/grammatika-v0.1.md"
+      source: "создано с нуля по docs/language-v2.md и docs/osnova/language-schema.json"
       files:
         - lexer.ts
         - parser.ts
@@ -165,7 +165,7 @@ structure:
 
   examples:
     description: "Примеры программ на языке Основа"
-    source: "docs/grammatika-v0.1.md"
+    source: "docs/language-v2.md"
 
 # ---------------------------------------------------------------------------
 # Pipeline (см. pipeline.yaml)
@@ -239,7 +239,7 @@ osnova_language:
     Синтаксис читается как структурированный русский текст.
     Целевая платформа: VLIW-процессоры (модель e2k).
   version: "0.1"
-  grammar_source: "docs/grammatika-v0.1.md"
+  grammar_source: "docs/language-v2.md (legacy: docs/legacy/grammatika-v0.1.md)"
   pipeline: ".osnova → компилятор → .osvbc (байткод JSON) → VM"
   builtin_types:
     integers: [Целоа8, Целое30, Целое32, Целое64]

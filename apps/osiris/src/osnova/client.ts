@@ -1,19 +1,24 @@
 import { runPipeline } from '../../../../src/pipeline/orchestrator';
-import type { PipelineResult } from '../../../../src/pipeline/types';
+import type { PipelineResult, PipelineStatus } from '../../../../src/pipeline/types';
 
 export interface OsirisPipelineResult {
-  status: 'success' | 'failed';
+  status: 'ok' | 'error';
+  pipelineStatus: PipelineStatus;
   task: string;
   summary: string;
   raw: unknown;
 }
 
-function isPipelineSuccess(result: PipelineResult): boolean {
-  return result.status === 'success';
+export function toCompatStatus(status: PipelineStatus): 'ok' | 'error' {
+  return status === 'success' || status === 'partial' ? 'ok' : 'error';
+}
+
+function isPipelineSuccessLike(status: PipelineStatus): boolean {
+  return toCompatStatus(status) === 'ok';
 }
 
 function buildSummary(task: string, result: PipelineResult): string {
-  if (result.status === 'success') {
+  if (isPipelineSuccessLike(result.status)) {
     const appName = result.source?.filename ?? 'неизвестное приложение';
     const goldenText = result.goldenReport?.passed === true ? 'passed' : 'not passed';
     return `Задача "${task}": сгенерировано приложение ${appName}, golden: ${goldenText}.`;
@@ -35,14 +40,16 @@ export async function runOsirisPipeline(task: string): Promise<OsirisPipelineRes
   console.log(`[osiris:pipeline] starting, task="${normalizedTask}"`);
   try {
     const rawResult = await runPipeline(normalizedTask);
-    const status: OsirisPipelineResult['status'] = isPipelineSuccess(rawResult) ? 'success' : 'failed';
     const mapped: OsirisPipelineResult = {
-      status,
+      status: toCompatStatus(rawResult.status),
+      pipelineStatus: rawResult.status,
       task: normalizedTask,
       summary: buildSummary(normalizedTask, rawResult),
       raw: rawResult,
     };
-    console.log(`[osiris:pipeline] completed, status=${mapped.status}`);
+    console.log(
+      `[osiris:pipeline] completed, status=${mapped.status}, pipelineStatus=${mapped.pipelineStatus}`,
+    );
     return mapped;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
