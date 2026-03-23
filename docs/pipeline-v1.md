@@ -3,6 +3,8 @@
 Пайплайн — это последовательность фаз преобразования пользовательского запроса в работающее приложение на языке Основа.
 
 Источник правды: `src/pipeline/orchestrator.ts`, `src/pipeline/types.ts`, `src/trace/traceStore.ts`.
+Канон языка для codegen: `docs/language-v2.md` и `docs/osnova/language-schema.json`.
+Архивные документы в `docs/legacy/**` не использовать как источник истины для генерации кода.
 
 ---
 
@@ -26,7 +28,7 @@ intake → spec_generation → codegen → build → golden_check → [repair �
 | repair | OsnovaSource + BuildReport + GoldenReport? | OsnovaSource | RepairEngineerAgent | да |
 | result | — | PipelineResult | — | да |
 
-**Gates:** между фазами выполняются проверки (G1, G2, G3). При провале G1 — пайплайн останавливается с `failure`. При провале G2 — запускается repair (если не исчерпаны попытки). При провале G3 — repair если `qualityScore < 0.5`, `partial` если `0.5 ≤ qualityScore < 0.7`, `success` если `qualityScore ≥ 0.7`. Blocking semantic errors (`unknown_syscall`, `undeclared_var`, `unknown_procedure`) в G2 также роутятся в repair.
+**Gates:** между фазами выполняются проверки (G1, G2, G3). При провале G1 — пайплайн останавливается с `error`. При провале G2 — запускается repair (если не исчерпаны попытки). При провале G3 — repair если `qualityScore < 0.5`, `partial` если `0.5 ≤ qualityScore < 0.7`, `success` если `qualityScore ≥ 0.7`. Blocking semantic errors (`unknown_syscall`, `undeclared_var`, `unknown_procedure`) в G2 также роутятся в repair.
 
 ---
 
@@ -43,7 +45,7 @@ intake → spec_generation → codegen → build → golden_check → [repair �
 | `success` | G3 пройден, `qualityScore ≥ 0.7` |
 | `partial` | G3 не пройден, `0.5 ≤ qualityScore < 0.7` — repair не запускается |
 | `repair_exhausted` | Исчерпаны все попытки repair (MAX_REPAIR_LOOPS) |
-| `failure` | G1 не пройден или unhandled error |
+| `error` | G1 не пройден или unhandled error |
 
 ---
 
@@ -152,7 +154,7 @@ intake → spec_generation → codegen → build → golden_check → [repair �
 
 | Поле | Тип | Описание |
 |------|-----|----------|
-| status | PipelineStatus | `success` \| `partial` \| `failure` \| `repair_exhausted` |
+| status | PipelineStatus | `success` \| `partial` \| `repair_exhausted` \| `error` |
 | intent | OsnovaIntent? | Результат intake |
 | spec | OsnovaSpec? | Результат spec |
 | source | OsnovaSource? | Финальный исходный код |
@@ -160,7 +162,7 @@ intake → spec_generation → codegen → build → golden_check → [repair �
 | goldenReport | GoldenReport? | Последний golden-отчёт |
 | repairAttempts | number | Количество вызовов repair |
 | totalDurationMs | number | Общее время прогона, мс |
-| error | string? | Сообщение об ошибке (при failure/repair_exhausted) |
+| error | string? | Сообщение об ошибке (при error/repair_exhausted) |
 
 ---
 

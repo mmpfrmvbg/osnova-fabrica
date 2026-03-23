@@ -5,6 +5,8 @@
 Трейсы — журнал работы LLM-пайплайна. Каждый запуск `osnova new-app` или прямой вызов `runPipeline` записывает одну строку JSONL. Используются для: отладки, анализа качества генерации, дообучения моделей.
 
 Источник правды: `src/trace/types.ts`, `src/trace/traceStore.ts`, `src/pipeline/types.ts`.
+Контекст языка для анализа трейсов: `docs/language-v2.md` и `docs/osnova/language-schema.json`.
+Архивные документы в `docs/legacy/**` не являются источником истины для нового кода.
 
 ---
 
@@ -22,7 +24,7 @@
 |------|-----|----------|
 | runId | string | UUID прогона |
 | timestamp | string | ISO 8601 (момент записи) |
-| status | PipelineStatus | Итоговый статус (`success` \| `partial` \| `failure` \| `repair_exhausted`) |
+| status | PipelineStatus | Итоговый статус (`success` \| `partial` \| `repair_exhausted` \| `error`) |
 | task | string | Исходный текстовый запрос пользователя |
 | modelId | string? | LLM-модель (OSNOVA_MODEL) — для анализа качества по провайдерам |
 | intent | OsnovaIntent? | Результат фазы intake |
@@ -47,7 +49,7 @@
 |--------|-----------------|
 | success | golden_check прошёл (passed=true или qualityScore ≥ 0.7) |
 | partial | qualityScore в [0.5, 0.7) — частичный успех, repair не вызывался |
-| failure | Gate G1 не прошёл (intent/spec) или необработанное исключение |
+| error | Gate G1 не прошёл (intent/spec) или необработанное исключение |
 | repair_exhausted | Исчерпаны MAX_REPAIR_LOOPS (3) попыток repair при провале G2 или G3 |
 
 ---

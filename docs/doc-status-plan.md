@@ -8,17 +8,15 @@
 
 | Документ              | Что описывает                                      | Синхронизирован с кодом?                              |
 |-----------------------|----------------------------------------------------|-------------------------------------------------------|
-| `language-v1.md`      | Минимальный язык Основа v1 (MVP‑подмножество)     | **Да.** Соответствует `src/compiler/{lexer,parser,codegen}.ts`. |
+| `language-v2.md`      | Человекочитаемый канон языка Основа v2.0.0        | **Да.** Следует `src/compiler/**` и `docs/osnova/language-schema.json`. |
+| `osnova/language-schema.json` | Machine-readable канон языка Основа        | **Да.** Генерируется из кода компилятора. |
 | `bytecode-v1.md`      | Формат байткода OsVbcModule и инструкции VM v1    | **Да.** Соответствует `src/runtime/vm/{bytecode,interpreter}.ts`. |
 | `system-api-v1.md`    | Системное API `система.*` (stable/experimental)   | **Да.** Согласован с `src/runtime/vm/invokeRegistry.ts`, `vm-runner.ts`. |
 | `pipeline-v1.md`      | LLM‑пайплайн `intake → spec → codegen → build → golden_check → repair` | **Да.** Реализован в `src/pipeline/orchestrator.ts`, `gateChecker.ts`, `thresholds.ts`. |
 | `traces-v1.md`        | Формат трейсов `runs/traces.jsonl`                | **Да.** Соответствует `src/trace/types.ts`, `traceStore.ts`. |
-| `lexer-v0.1.md`       | Спецификация лексера (MVP + расширенный список ключевых слов) | **Частично.** MVP‑часть реализована в `src/compiler/lexer.ts`; расширенная грамматика относится к будущему языку. |
-| `parser-v0.1.md`      | Спецификация парсера (MVP‑подмножество + полная EBNF) | **Частично.** Раздел «Границы v0.1» совпадает с `src/compiler/parser.ts`; полная EBNF — дизайн расширенного языка. |
-| `compiler-v0.1.md`    | Архитектура компилятора, байткод, рантайм         | **Частично.** Лексер/парсер/байткод/VM/invoke реализованы; typechecker, VLIW‑узлы в core и C/Rust‑бэкенд помечены как планы (см. статусы разделов в документе). |
-| `golden-tests.md`     | Набор golden‑кейсов для лексера/парсера/байткода и golden‑приложений | **Частично.** Содержит матрицу уровней (MVP/Extended/VLIW); MVP‑кейсы можно использовать сразу, Extended/VLIW — для будущих реализаций. |
+| `golden-tests.md`     | Набор golden‑кейсов для лексера/парсера/байткода и golden‑приложений | **Да.** Используется как тестовый ориентир, но язык для генерации брать из v2-канона. |
 | `llm-providers-v1.md` | Поддерживаемые LLM‑провайдеры и модели            | **Да.** Соответствует `src/llm/{index,defaults,*.ts}` и `.env`‑переменным. |
-| `roadmap.md`          | Текущая дорожная карта (Фазы 1–4)                 | **Да.** Обновляется вместе с кодом; содержит ссылку на vision‑док `roadmap-osnova-ideal-os.md`. |
+| `roadmap.md`          | Текущая дорожная карта (Фазы 1–4)                 | **Да.** Обновляется вместе с кодом. |
 
 ---
 
@@ -26,12 +24,16 @@
 
 | Документ                     | Статус                       | Заменён на / актуальный аналог              |
 |------------------------------|------------------------------|---------------------------------------------|
-| `grammatika-v0.1.md`        | `deprecated`                 | Заменён на MVP‑спеку `language-v1.md`; расширенный язык остаётся как дизайн. |
-| `trace-format-v0.1.md`      | `superseded-by: traces-v1.md`| Актуальный формат трейсов — `traces-v1.md` + `src/trace/types.ts`. |
-| `pipeline-llm-osnova.md`    | Исторический референтный дизайн‑документ | Актуальная реализация пайплайна — `src/pipeline/orchestrator.ts`; актуальная спека — `pipeline-v1.md`; трейс‑формат — `traces-v1.md`. |
-| `roadmap-osnova-ideal-os.md`| Vision‑документ              | Актуальная рабочая дорожная карта — `roadmap.md`. |
+| `docs/legacy/grammatika-v0.1.md`        | `deprecated`                 | Канон языка: `language-v2.md` + `osnova/language-schema.json`. |
+| `docs/legacy/trace-format-v0.1.md`      | `superseded-by: traces-v1.md`| Актуальный формат трейсов — `traces-v1.md` + `src/trace/types.ts`. |
+| `docs/legacy/pipeline-llm-osnova.md`    | Исторический референтный дизайн‑документ | Актуальная реализация пайплайна — `src/pipeline/orchestrator.ts`; актуальная спека — `pipeline-v1.md`; трейс‑формат — `traces-v1.md`. |
+| `docs/legacy/roadmap-osnova-ideal-os.md`| Vision‑документ              | Актуальная рабочая дорожная карта — `roadmap.md`. |
+| `compiler-v0.1.md`                      | Исторический design-doc       | Для текущего языка использовать `language-v2.md` + `osnova/language-schema.json`. |
+| `lexer-v0.1.md`                         | Историческая спецификация      | Для текущего языка использовать `language-v2.md` + `osnova/language-schema.json`. |
+| `parser-v0.1.md`                        | Историческая спецификация      | Для текущего языка использовать `language-v2.md` + `osnova/language-schema.json`. |
+| `tokenization-v0.1.md`                  | Историческая заметка           | Для текущего языка использовать `language-v2.md` + `osnova/language-schema.json`. |
 
-Эти файлы полезны как контекст и история архитектуры, но не должны использоваться как единственный источник правды о текущем поведении кода.
+Эти файлы полезны только как исторический контекст. Они не являются источником истины для генерации нового кода.
 
 ---
 
@@ -64,12 +66,13 @@ last-synced-with: <файлы>
 
 | Документ | Статус |
 |----------|--------|
-| `language-v1.md` | canonical |
+| `language-v2.md` | canonical |
+| `osnova/language-schema.json` | canonical |
 | `traces-v1.md` | canonical |
-| `grammatika-v0.1.md` | deprecated |
-| `trace-format-v0.1.md` | superseded-by: traces-v1.md |
+| `legacy/grammatika-v0.1.md` | deprecated |
+| `legacy/trace-format-v0.1.md` | superseded-by: traces-v1.md |
 | `spec-alignment.md` | canonical |
-| `pipeline-llm-osnova.md` | draft — не соответствует реальному orchestrator |
+| `legacy/pipeline-llm-osnova.md` | draft — не соответствует реальному orchestrator |
 | `training-llm-from-traces-v0.1.md` | canonical |
 
 **Остальные документы** — требуют проверки при реализации GETTING-STARTED.

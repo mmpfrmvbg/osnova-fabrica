@@ -108,7 +108,7 @@ npx tsx src/cli.ts run --manifest src/runtime/fixtures/file-viewer.osapp.yaml --
 
 ## Связь со спецификацией invoke
 
-File Viewer опирается на уже описанный системный API (`system-invoke-api-v0.2.md`):
+File Viewer опирается на уже описанный системный API (`system-api-v1.md`).
 
 - Файлы: `система.файлы.существует`, `система.файлы.прочитать_все`.
 - Хранилище: `система.хранилище.прочитать`, `система.хранилище.записать`.

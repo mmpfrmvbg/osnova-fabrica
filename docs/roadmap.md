@@ -73,7 +73,7 @@
 - **3.1. Сбор и инвентаризация invoke**
   - [x] Пройтись по `inferInvokeArgCount` в `src/runtime/vm/interpreter.ts`:
     - [x] Выписать все имена `система.*` и их арность в черновик (можно сразу в новый md‑файл).
-  - [x] Сверить этот список с существующими доками (`system-invoke-api-v0.2.md` и др.):
+  - [x] Сверить этот список с существующими доками (`system-api-v1.md` и др.):
     - [x] При расхождениях решить, что считается источником истины (и привести вторую сторону к нему).
 
 - **3.2. Документ системного API (`system-api-v1.md` или обновление существующей спеки)**
@@ -432,7 +432,7 @@
 - [x] Матрица MVP/Extended/VLIW в `golden-tests.md`
 - [x] `LANGUAGE-CHANGELOG.md` — реальный changelog языка
 - [x] `doc-status-plan.md` — карта статусов всей документации
-- [x] Deprecated-баннеры в `pipeline-llm-osnova.md` и `roadmap-osnova-ideal-os.md`
+- [x] Deprecated-баннеры в `docs/legacy/pipeline-llm-osnova.md` и `docs/legacy/roadmap-osnova-ideal-os.md`
 - [x] `.cursorrules` синхронизирован с результатами аудита
 
 ### Тесты
