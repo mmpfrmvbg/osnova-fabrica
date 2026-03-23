@@ -16,17 +16,17 @@ function buildSummary(task: string, result: PipelineResult): string {
   if (result.status === 'success') {
     const appName = result.source?.filename ?? 'неизвестное приложение';
     const goldenText = result.goldenReport?.passed === true ? 'passed' : 'not passed';
-    return `Сгенерировано приложение ${appName}, golden: ${goldenText}.`;
+    return `Задача "${task}": сгенерировано приложение ${appName}, golden: ${goldenText}.`;
   }
 
   const reason = result.error
     ?? result.buildReport?.compilerErrors?.[0]?.message
     ?? result.buildReport?.parserErrors?.[0]?.message
     ?? 'неизвестная причина';
-  return `Pipeline завершился с ошибкой: ${reason}.`;
+  return `Задача "${task}": pipeline завершился с ошибкой: ${reason}.`;
 }
 
-export async function runOsnovaPipeline(task: string): Promise<OsirisPipelineResult> {
+export async function runOsirisPipeline(task: string): Promise<OsirisPipelineResult> {
   const normalizedTask = task.trim();
   if (!normalizedTask) {
     throw new Error('task must be a non-empty string');
@@ -42,9 +42,7 @@ export async function runOsnovaPipeline(task: string): Promise<OsirisPipelineRes
       summary: buildSummary(normalizedTask, rawResult),
       raw: rawResult,
     };
-    console.log(
-      `[osiris:pipeline] finished, status=${mapped.status}, pipelineStatus=${rawResult.status}`,
-    );
+    console.log(`[osiris:pipeline] completed, status=${mapped.status}`);
     return mapped;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -52,4 +50,7 @@ export async function runOsnovaPipeline(task: string): Promise<OsirisPipelineRes
     throw e;
   }
 }
+
+// Backward-compatible alias for existing imports.
+export const runOsnovaPipeline = runOsirisPipeline;
 

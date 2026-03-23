@@ -8,16 +8,19 @@ const BUILD_PATTERNS: string[] = [
   'напиши приложение',
   'сгенерируй приложение',
   'сделай ос-приложение',
-  'сделай ос приложение',
-  'построй приложение',
+  'сделай приложение для',
+  'создать приложение',
+  'нужно приложение',
 ];
 
 export function extractAction(message: string): OsirisAction {
   const text = message.trim();
+  if (!text) return { kind: 'chat' };
   const lower = text.toLowerCase();
-  const isBuild = BUILD_PATTERNS.some((pattern) => lower.includes(pattern));
-  if (isBuild) {
-    return { kind: 'build', task: text };
+  for (const phrase of BUILD_PATTERNS) {
+    if (lower.includes(phrase)) {
+      return { kind: 'build', task: text };
+    }
   }
   return { kind: 'chat' };
 }
