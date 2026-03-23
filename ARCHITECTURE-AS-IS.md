@@ -47,15 +47,12 @@
   - `spec.yaml`
 - “Сгенерированные” артефакты:
   - `src/compiler/generated/` (фактически пустой placeholder: есть ` .gitkeep`).
-- Архивные/исторические docs с устаревшими контрактами синтаксиса (фактически не используются как канонический источник):
-  - `docs/grammatika-v0.1.md`
-  - `docs/compiler-v0.1.md`
-  - `docs/lexer-v0.1.md`
-  - `docs/parser-v0.1.md`
-  - `docs/tokenization-v0.1.md`
-  - `docs/pipeline-llm-osnova.md`
-  - `docs/trace-format-v0.1.md`
-  - `docs/roadmap-osnova-ideal-os.md` (vision/архив; канон — `docs/roadmap.md`)
+- Архивные/исторические docs находятся в `docs/legacy/**` и не являются источником истины для нового кода.
+- Каноничный набор документов для языка/LLM:
+  - `docs/language-v2.md`
+  - `docs/osnova/language-schema.json`
+  - `docs/pipeline-v1.md`
+  - `docs/traces-v1.md`
 
 ## Неявные контракты (вещи, которые “все знают” но нигде не написано)
 - “Что такое success” в контексте трейсов:
