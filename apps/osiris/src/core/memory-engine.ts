@@ -338,3 +338,32 @@ export function deleteTask(userId: string, id: number): void {
   const db = getDb();
   db.prepare(`DELETE FROM tasks WHERE id = ? AND user_id = ?`).run(id, userId);
 }
+
+export async function getRecentFacts(
+  userId: string,
+  limit = 5,
+): Promise<Fact[]> {
+  ensureInit();
+  const db = getDb();
+  // Сначала ищем факты конкретного пользователя
+  const rows = db
+    .prepare(
+      `SELECT * FROM facts
+       WHERE user_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+    )
+    .all(userId, limit) as Record<string, unknown>[];
+  // Если у пользователя нет фактов — возвращаем последние глобальные
+  if (rows.length === 0) {
+    const globalRows = db
+      .prepare(
+        `SELECT * FROM facts
+         ORDER BY importance DESC, created_at DESC
+         LIMIT ?`,
+      )
+      .all(limit) as Record<string, unknown>[];
+    return globalRows.map(rowToFact);
+  }
+  return rows.map(rowToFact);
+}

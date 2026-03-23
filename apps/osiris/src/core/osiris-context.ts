@@ -56,8 +56,17 @@ export async function buildOsirisContext(
     created: t.createdAt,
   }));
 
-  // В memory-engine нет getRecentFacts(userId); getRelevantFacts(query, project) не привязан к user.
-  const recent_facts: OsirisContext['state']['recent_facts'] = [];
+  let recent_facts: OsirisContext['state']['recent_facts'] = [];
+  try {
+    const facts = await memory.getRecentFacts(userId, 5);
+    recent_facts = facts.map((f) => ({
+      text: f.text,
+      importance: f.importance ?? 3,
+      saved: f.createdAt ?? '',
+    }));
+  } catch {
+    recent_facts = [];
+  }
 
   let session_summary: string | null = null;
   try {
@@ -73,10 +82,7 @@ export async function buildOsirisContext(
       role:
         process.env['OSIRIS_ROLE'] ??
         'персональный технический ассистент создателя Основа',
-      llm_provider:
-        process.env['OSNOVA_PROVIDER'] ??
-        process.env['LLM_PROVIDER'] ??
-        'unknown',
+      llm_provider: process.env['OSNOVA_PROVIDER'] ?? 'openai-compatible',
       capabilities: CAPABILITIES,
       limitations: LIMITATIONS,
     },
