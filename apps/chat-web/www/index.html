@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta http-equiv="Content-Security-Policy" content="default-src * 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http: https:;">
 <title>Осирис</title>
 <link rel="stylesheet" href="style.css"/>
 </head>
@@ -20,7 +21,7 @@ async function tryConnect(url) {
   try {
     const r = await fetch(url + '/health', { signal: AbortSignal.timeout(4000) });
     if (r.ok) return true;
-  } catch {}
+  } catch (e) { console.error('tryConnect failed', e); }
   return false;
 }
 
@@ -43,7 +44,7 @@ function startChat(BASE) {
     return ['сделай приложение','создай приложение','напиши приложение','сгенерируй приложение','нужно приложение','создать приложение','сделай ос-приложение'].some(p => lower.includes(p));
   }
 
-  add('Подключено: ' + BASE, 'msg-bot');
+  add('Подключено ✔', 'msg-bot');
 
   form.onsubmit = async e => {
     e.preventDefault();
@@ -95,7 +96,7 @@ function startChat(BASE) {
   } else {
     document.body.innerHTML =
       '<div style="padding:24px;font-family:sans-serif">' +
-      '<p style="color:#c00">Сервер недоступен. Проверьте сеть.</p>' +
+      '<p style="color:#c00">Сервер недоступен.</p>' +
       '<p style="font-size:13px;color:#888">' + DEFAULT_URL + '</p>' +
       '<button onclick="location.reload()" style="padding:8px 16px;margin-top:12px">Повторить</button>' +
       '</div>';
