@@ -79,6 +79,14 @@ export async function runGoldenCheck(
         if (name === 'система.хранилище.ключи') {
           return await storageKeys(storageRoot, appId);
         }
+        if (name === 'система.хранилище.ключи_с_префиксом') {
+          const prefix = String(args[0]);
+          const allKeys = await storageKeys(storageRoot, appId);
+          return allKeys.filter((k: string) => k.startsWith(prefix));
+        }
+        if (name === 'система.время.метка') {
+          return new Date().toISOString();
+        }
         // Остальные syscall — заглушки (лог, UI и т.д.)
         if (name.startsWith('система.лог.')) return null;
         if (name.startsWith('система.окно.')) return null;

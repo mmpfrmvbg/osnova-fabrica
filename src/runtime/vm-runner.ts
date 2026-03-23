@@ -108,6 +108,8 @@ function createInvokeHandler(
 
       case "система.время.сейчас":
         return Date.now();
+      case "система.время.метка":
+        return new Date().toISOString();
       case "система.время.спать": {
         const ms = Number(args[0]) || 0;
         await new Promise((r) => setTimeout(r, ms));
@@ -133,6 +135,11 @@ function createInvokeHandler(
       case "система.хранилище.ключи": {
         const keys = await storage.storageKeys(appContext.storageRoot, appContext.appId);
         return keys;
+      }
+      case "система.хранилище.ключи_с_префиксом": {
+        const prefix = String(args[0]);
+        const allKeys = await storage.storageKeys(appContext.storageRoot, appContext.appId);
+        return allKeys.filter((k: string) => k.startsWith(prefix));
       }
 
       case "система.сеть.запрос": {

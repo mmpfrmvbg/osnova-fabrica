@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "1.9.0";
+export const LANGUAGE_VERSION = "2.0.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -495,11 +495,13 @@ const SYSCALLS_V01: SyscallSpec[] = [
   { name: "система.файлы.записать_все", argc: 2, status: "experimental", description: "Записать данные в файл", since: "0.1.0" },
   { name: "система.файлы.существует", argc: 1, status: "experimental", description: "Проверить существование файла", since: "0.1.0" },
   { name: "система.время.сейчас", argc: 0, status: "stable", description: "Текущее время в миллисекундах", since: "0.1.0" },
+  { name: "система.время.метка", argc: 0, status: "stable", description: "Текущая дата-время в виде строки ISO 8601 (например 2026-03-23T17:59:00Z)", since: "2.0.0" },
   { name: "система.время.спать", argc: 1, status: "experimental", description: "Приостановить выполнение на N мс", since: "0.1.0" },
   { name: "система.хранилище.записать", argc: 2, status: "stable", description: "Записать значение по ключу", since: "0.1.0" },
   { name: "система.хранилище.прочитать", argc: 1, status: "stable", description: "Прочитать значение по ключу", since: "0.1.0" },
   { name: "система.хранилище.удалить", argc: 1, status: "stable", description: "Удалить значение по ключу", since: "0.1.0" },
   { name: "система.хранилище.ключи", argc: 0, status: "stable", description: "Получить список ключей хранилища", since: "0.1.0" },
+  { name: "система.хранилище.ключи_с_префиксом", argc: 1, status: "stable", description: "Получить список ключей хранилища с заданным префиксом", since: "2.0.0" },
   { name: "система.сеть.запрос", argc: 4, status: "experimental", description: "Выполнить сетевой HTTP-запрос", since: "0.1.0" },
   { name: "система.сеть.получить", argc: 1, status: "stable", description: "HTTP GET-запрос, возвращает тело ответа", since: "1.7.0" },
   { name: "система.сеть.пост", argc: 2, status: "stable", description: "HTTP POST-запрос с телом, возвращает тело ответа", since: "1.7.0" },
