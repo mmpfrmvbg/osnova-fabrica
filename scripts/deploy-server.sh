@@ -7,13 +7,23 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/mmpfrmvbg/osnova-fabrica.git"
 INSTALL_DIR="/opt/osnova"
 OSIRIS_DIR="$INSTALL_DIR/apps/osiris"
 LOG_DIR="/var/log/osiris"
 SERVICE_NAME="osiris"
 OSIRIS_USER="osnova"
 NODE_MIN_VERSION=20
+
+# ── GitHub Token ──────────────────────────────────────────────────────────
+# Передавать при запуске: GITHUB_TOKEN=ghp_xxx bash scripts/deploy-server.sh
+# Или: export GITHUB_TOKEN=ghp_xxx && bash scripts/deploy-server.sh
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "[ОШИБКА] GITHUB_TOKEN не задан."
+  echo "  Запуск: GITHUB_TOKEN=ghp_xxx bash scripts/deploy-server.sh"
+  echo "  Токен: https://github.com/settings/tokens → repo (read)"
+  exit 1
+fi
+REPO_URL="https://${GITHUB_TOKEN}@github.com/mmpfrmvbg/osnova-fabrica.git"
 
 echo ""
 echo "=== Деплой ОСИРИСА на сервер ==="
@@ -60,16 +70,22 @@ fi
 
 # ── 5. Репозиторий ──────────────────────────────────────────────────────────
 echo "[4/8] Репозиторий..."
+export GIT_TERMINAL_PROMPT=0
 if [ -d "$INSTALL_DIR/.git" ]; then
   echo "  Репозиторий существует — git pull..."
   cd "$INSTALL_DIR"
-  sudo -u "$OSIRIS_USER" git pull --rebase origin main || git pull origin main
+  # Обновляем remote URL с токеном на случай если изменился
+  git remote set-url origin "$REPO_URL"
+  git pull origin main
 else
-  echo "  Клонируем $REPO_URL → $INSTALL_DIR..."
-  mkdir -p "$INSTALL_DIR"
-  git clone "$REPO_URL" "$INSTALL_DIR"
-  chown -R "$OSIRIS_USER":"$OSIRIS_USER" "$INSTALL_DIR"
+  echo "  Клонируем приватный репозиторий → $INSTALL_DIR..."
+  mkdir -p "$(dirname "$INSTALL_DIR")"
+  git clone --depth=1 "$REPO_URL" "$INSTALL_DIR"
 fi
+chown -R "$OSIRIS_USER":"$OSIRIS_USER" "$INSTALL_DIR"
+# Убрать токен из remote URL после клонирования (безопасность)
+git -C "$INSTALL_DIR" remote set-url origin \
+  "https://github.com/mmpfrmvbg/osnova-fabrica.git"
 
 # ── 6. npm install ──────────────────────────────────────────────────────────
 echo "[5/8] Установка зависимостей npm (включая компиляцию better-sqlite3)..."
