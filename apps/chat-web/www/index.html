@@ -7,82 +7,57 @@
 <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
-<div class="header">
-  <div class="title">Осирис</div>
-  <div class="tabs">
-    <button id="tab-chat" class="tab tab-active" type="button">Чат</button>
-    <button id="tab-tasks" class="tab" type="button">Задачи</button>
-  </div>
-</div>
-
-<section id="chat-section" class="section">
-  <div id="messages"></div>
-  <form class="bar" id="form">
-    <input id="input" type="text" autocomplete="off" placeholder="Сообщение..."/>
-    <button type="submit">Отправить</button>
-  </form>
-</section>
-
-<section id="tasks-section" class="section section-hidden">
-  <form class="task-form" id="task-form">
-    <input id="task-title" type="text" placeholder="Название задачи" required />
-    <input id="task-description" type="text" placeholder="Описание (опционально)" />
-    <select id="task-priority">
-      <option value="low">low</option>
-      <option value="medium" selected>medium</option>
-      <option value="high">high</option>
-    </select>
-    <button type="submit">Добавить задачу</button>
-  </form>
-  <div id="tasks-list" class="tasks-list"></div>
-</section>
-
+<div class="header">Осирис</div>
+<div id="messages"></div>
+<form class="bar" id="form">
+  <input id="input" type="text" autocomplete="off" placeholder="Сообщение..."/>
+  <button type="submit">Отправить</button>
+</form>
 <script>
 (async () => {
-  let BASE = "http://localhost:3000";
-  try {
-    const r = await fetch("http://localhost:3000/server-url", { signal: AbortSignal.timeout(2000) });
-    if (r.ok) {
-      const j = await r.json();
-      if (j && typeof j.url === "string" && j.url) BASE = j.url;
-    }
-  } catch {
-    // fallback: localhost:3000
+  window.OSIRIS_SERVER_URL = localStorage.getItem('osiris_url') || '';
+
+  const CANDIDATES = [
+    window.OSIRIS_SERVER_URL,
+    'http://10.0.2.2:3000',
+    'http://localhost:3000',
+  ].filter(Boolean);
+
+  let BASE = null;
+  for (const candidate of CANDIDATES) {
+    try {
+      const r = await fetch(candidate + '/server-url',
+        { signal: AbortSignal.timeout(1500) });
+      if (r.ok) {
+        const j = await r.json();
+        BASE = (j && typeof j.url === 'string' && j.url) ? j.url : candidate;
+        break;
+      }
+    } catch { /* продолжаем */ }
   }
+
+  if (!BASE) {
+    // Показать форму ввода URL вместо падения
+    document.body.innerHTML =
+      '<div style="padding:24px;font-family:sans-serif">' +
+      '<p style="color:#c00">Сервер не найден. Введите адрес:</p>' +
+      '<input id="url-inp" style="width:100%;padding:8px;font-size:16px" ' +
+      '       placeholder="http://192.168.1.X:3000" /><br><br>' +
+      '<button onclick="localStorage.setItem(\'osiris_url\',' +
+      'document.getElementById(\'url-inp\').value);location.reload()"' +
+      '        style="padding:8px 16px">Подключить</button>' +
+      '</div>';
+    const saved = localStorage.getItem('osiris_url');
+    if (saved) document.getElementById('url-inp').value = saved;
+    return;
+  }
+
   window.__OSIRIS_BASE = BASE;
 
-  const chatSection = document.getElementById("chat-section");
-  const tasksSection = document.getElementById("tasks-section");
-  const tabChat = document.getElementById("tab-chat");
-  const tabTasks = document.getElementById("tab-tasks");
   const msgs = document.getElementById("messages");
   const form = document.getElementById("form");
   const inp = document.getElementById("input");
-  const taskForm = document.getElementById("task-form");
-  const taskTitle = document.getElementById("task-title");
-  const taskDescription = document.getElementById("task-description");
-  const taskPriority = document.getElementById("task-priority");
-  const tasksList = document.getElementById("tasks-list");
-
-  function switchTab(tab) {
-    if (tab === "chat") {
-      tabChat.classList.add("tab-active");
-      tabTasks.classList.remove("tab-active");
-      chatSection.classList.remove("section-hidden");
-      tasksSection.classList.add("section-hidden");
-      return;
-    }
-    tabTasks.classList.add("tab-active");
-    tabChat.classList.remove("tab-active");
-    tasksSection.classList.remove("section-hidden");
-    chatSection.classList.add("section-hidden");
-    void loadTasks();
-  }
-
-  tabChat.onclick = () => switchTab("chat");
-  tabTasks.onclick = () => switchTab("tasks");
-
-  function addMessage(text, cls) {
+  function add(text, cls) {
     const d = document.createElement("div");
     d.className = "msg " + cls;
     d.textContent = text;
@@ -90,119 +65,13 @@
     msgs.scrollTop = msgs.scrollHeight;
     return d;
   }
-
-  function taskCard(task) {
-    const card = document.createElement("div");
-    card.className = "task-card";
-
-    const title = document.createElement("div");
-    title.className = "task-title";
-    title.textContent = task.title || "[без названия]";
-
-    const meta = document.createElement("div");
-    meta.className = "task-meta";
-    meta.textContent = `priority: ${task.priority || "-"} • status: ${task.status || "-"}`;
-
-    const desc = document.createElement("div");
-    desc.className = "task-desc";
-    desc.textContent = task.description || "";
-
-    const actions = document.createElement("div");
-    actions.className = "task-actions";
-
-    const doneBtn = document.createElement("button");
-    doneBtn.type = "button";
-    doneBtn.textContent = "Выполнено";
-    doneBtn.onclick = async () => {
-      try {
-        await fetch(window.__OSIRIS_BASE + "/tasks/" + encodeURIComponent(task.key), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "done" })
-        });
-        await loadTasks();
-      } catch (err) {
-        alert("[ошибка] " + err.message);
-      }
-    };
-
-    const delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.textContent = "Удалить";
-    delBtn.className = "danger";
-    delBtn.onclick = async () => {
-      try {
-        await fetch(window.__OSIRIS_BASE + "/tasks/" + encodeURIComponent(task.key), {
-          method: "DELETE"
-        });
-        await loadTasks();
-      } catch (err) {
-        alert("[ошибка] " + err.message);
-      }
-    };
-
-    actions.appendChild(doneBtn);
-    actions.appendChild(delBtn);
-    card.appendChild(title);
-    card.appendChild(meta);
-    card.appendChild(desc);
-    card.appendChild(actions);
-    return card;
-  }
-
-  async function loadTasks() {
-    tasksList.innerHTML = "";
-    try {
-      const r = await fetch(window.__OSIRIS_BASE + "/tasks");
-      const tasks = await r.json();
-      if (!Array.isArray(tasks) || tasks.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "task-empty";
-        empty.textContent = "Задач пока нет.";
-        tasksList.appendChild(empty);
-        return;
-      }
-      for (const task of tasks) tasksList.appendChild(taskCard(task));
-    } catch (err) {
-      const error = document.createElement("div");
-      error.className = "task-empty";
-      error.textContent = "[ошибка] " + err.message;
-      tasksList.appendChild(error);
-    }
-  }
-
-  taskForm.onsubmit = async (e) => {
-    e.preventDefault();
-    const title = taskTitle.value.trim();
-    if (!title) return;
-    const description = taskDescription.value.trim();
-    const priority = taskPriority.value;
-    try {
-      const r = await fetch(window.__OSIRIS_BASE + "/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, priority })
-      });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        throw new Error(j.error || ("HTTP " + r.status));
-      }
-      taskTitle.value = "";
-      taskDescription.value = "";
-      taskPriority.value = "medium";
-      await loadTasks();
-    } catch (err) {
-      alert("[ошибка] " + err.message);
-    }
-  };
-
-  form.onsubmit = async (e) => {
+  form.onsubmit = async e => {
     e.preventDefault();
     const t = inp.value.trim();
     if (!t) return;
     inp.value = "";
-    addMessage(t, "msg-user");
-    const dot = addMessage("...", "msg-bot");
+    add(t, "msg-user");
+    const dot = add("...", "msg-bot");
     try {
       const r = await fetch(window.__OSIRIS_BASE + "/chat", {
         method: "POST",
