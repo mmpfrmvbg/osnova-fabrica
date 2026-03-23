@@ -10,7 +10,7 @@ import { tokenize } from './lexer';
 import { parse, type ParseError } from './parser';
 import { compile } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
-import { checkSemantics, type SemanticError } from './semantic';
+import { analyzeProgram, type SemanticError } from './semantic';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -339,7 +339,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     };
   }
 
-  const semanticErrors = checkSemantics(expandedAst);
+  const semanticErrors = analyzeProgram({ modules: [expandedAst] }).errors;
   const semanticAsCompiler = semanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
 
   try {
