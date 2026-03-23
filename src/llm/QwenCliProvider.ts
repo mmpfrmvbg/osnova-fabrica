@@ -72,8 +72,7 @@ export class QwenCliProvider implements LLMProvider {
       const output = await this.runQwenWithStdin(prompt, args, env);
 
       // I-5: парсинг stdout вынесен в qwen-stdout-parser
-      let text = parseQwenStdout(output);
-      if (!text) text = output;
+      const text = parseQwenStdout(output);
       if (!text || text.trim() === '') {
         throw new Error(
           `QwenCliProvider: failed to extract code from output. ` +
