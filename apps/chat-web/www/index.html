@@ -15,7 +15,7 @@
 </form>
 <script src="https://cdn.jsdelivr.net/npm/@capacitor/core@6/dist/capacitor.min.js"></script>
 <script>
-const BASE = 'http://90.156.210.111:3000';
+let BASE = '';
 
 async function nativeFetch(url, options) {
   // Используем CapacitorHttp если доступен (обходит mixed content)
@@ -34,7 +34,150 @@ async function nativeFetch(url, options) {
   return fetch(url, options);
 }
 
-(async () => {
+function normalizeBaseUrl(value) {
+  return (value || '').trim().replace(/\/+$/, '');
+}
+
+function showServerOverlay(onConnect) {
+  const overlay = document.createElement('div');
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100%';
+  overlay.style.height = '100%';
+  overlay.style.background = '#1a1a2e';
+  overlay.style.display = 'flex';
+  overlay.style.flexDirection = 'column';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.gap = '12px';
+  overlay.style.zIndex = '9999';
+
+  const title = document.createElement('h2');
+  title.textContent = 'Введите адрес сервера';
+  title.style.margin = '0';
+  title.style.color = '#fff';
+
+  const input = document.createElement('input');
+  input.type = 'url';
+  input.placeholder = 'http://192.168.1.100:3000';
+  input.style.width = '80%';
+  input.style.padding = '10px';
+  input.style.fontSize = '16px';
+  input.style.borderRadius = '8px';
+  input.value = localStorage.getItem('serverUrl') || '';
+
+  const connectButton = document.createElement('button');
+  connectButton.type = 'button';
+  connectButton.textContent = 'Подключиться';
+  connectButton.style.padding = '10px 24px';
+  connectButton.style.fontSize = '16px';
+  connectButton.style.borderRadius = '8px';
+  connectButton.style.background = '#4a90d9';
+  connectButton.style.color = 'white';
+  connectButton.style.border = 'none';
+  connectButton.style.cursor = 'pointer';
+
+  const switchButton = document.createElement('button');
+  switchButton.type = 'button';
+  switchButton.textContent = 'Сменить сервер';
+  switchButton.style.background = 'none';
+  switchButton.style.border = 'none';
+  switchButton.style.cursor = 'pointer';
+  switchButton.style.textDecoration = 'underline';
+  switchButton.style.color = '#9cc7ff';
+  switchButton.style.fontSize = '12px';
+
+  switchButton.onclick = () => {
+    localStorage.removeItem('serverUrl');
+    location.reload();
+  };
+
+  connectButton.onclick = () => {
+    const normalized = normalizeBaseUrl(input.value);
+    if (!normalized) {
+      input.focus();
+      return;
+    }
+    localStorage.setItem('serverUrl', normalized);
+    BASE = normalized;
+    overlay.remove();
+    onConnect();
+  };
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      connectButton.click();
+    }
+  });
+
+  overlay.appendChild(title);
+  overlay.appendChild(input);
+  overlay.appendChild(connectButton);
+  overlay.appendChild(switchButton);
+  document.body.appendChild(overlay);
+  input.focus();
+}
+
+async function runPipelineViaCapacitor(url, dot, msgs) {
+  const { CapacitorHttp } = Capacitor.Plugins || {};
+  if (CapacitorHttp) {
+    dot.textContent = '⟳ Запуск...';
+    const res = await CapacitorHttp.request({
+      method: 'GET',
+      url: url,
+      headers: { 'Accept': 'text/event-stream', 'Cache-Control': 'no-cache' },
+      responseType: 'text'
+    });
+    const lines = String(res.data || '').split('\n');
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      try {
+        const ev = JSON.parse(line.slice(5).trim());
+        if (ev.phase === 'done' || ev.phase === 'error') {
+          dot.textContent = ev.message || '[готово]';
+        } else {
+          const s = document.createElement('div');
+          s.className = 'msg msg-status';
+          s.textContent = '⟳ ' + (ev.message || ev.phase);
+          msgs.insertBefore(s, dot);
+          msgs.scrollTop = msgs.scrollHeight;
+        }
+      } catch {}
+    }
+    if (dot.textContent === '⟳ Запуск...') {
+      dot.textContent = '[готово]';
+    }
+    return;
+  }
+
+  const es = new EventSource(url);
+  es.onmessage = ev => {
+    try {
+      const data = JSON.parse(ev.data);
+      if (data.phase === 'done' || data.phase === 'error') {
+        dot.textContent = data.message || '[готово]';
+        es.close();
+      } else {
+        const s = document.createElement('div');
+        s.className = 'msg msg-status';
+        s.textContent = '⟳ ' + (data.message || data.phase);
+        msgs.insertBefore(s, dot);
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+    } catch {
+      dot.textContent = '[ошибка парсинга]';
+      es.close();
+    }
+  };
+  es.onerror = () => {
+    dot.textContent = '[ошибка соединения]';
+    es.close();
+  };
+}
+
+async function init() {
   const msgs = document.getElementById('messages');
   const form = document.getElementById('form');
   const inp = document.getElementById('input');
@@ -78,23 +221,7 @@ async function nativeFetch(url, options) {
     if (isPipelineRequest(t)) {
       const url = BASE + '/pipeline/stream?task=' + encodeURIComponent(t);
       try {
-        const es = new EventSource(url);
-        es.onmessage = ev => {
-          try {
-            const data = JSON.parse(ev.data);
-            if (data.phase === 'done' || data.phase === 'error') {
-              dot.textContent = data.message || '[готово]';
-              es.close();
-            } else {
-              const s = document.createElement('div');
-              s.className = 'msg msg-status';
-              s.textContent = '⟳ ' + (data.message || data.phase);
-              msgs.insertBefore(s, dot);
-              msgs.scrollTop = msgs.scrollHeight;
-            }
-          } catch { dot.textContent = '[ошибка парсинга]'; es.close(); }
-        };
-        es.onerror = () => { dot.textContent = '[ошибка соединения]'; es.close(); };
+        await runPipelineViaCapacitor(url, dot, msgs);
       } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
     } else {
       try {
@@ -108,7 +235,17 @@ async function nativeFetch(url, options) {
       } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
     }
   };
-})();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const savedBase = normalizeBaseUrl(localStorage.getItem('serverUrl'));
+  if (savedBase) {
+    BASE = savedBase;
+    init();
+    return;
+  }
+  showServerOverlay(() => { init(); });
+});
 </script>
 </body>
 </html>
