@@ -152,6 +152,15 @@ export function createHttpApp(): Express {
   app.use(express.json());
   app.use(express.text({ type: 'text/plain' }));
 
+  interface PipelineTask {
+    taskId: string;
+    status: 'pending' | 'running' | 'done' | 'error';
+    phase: string;
+    message: string;
+    result?: unknown;
+  }
+  const pipelineTasks = new Map<string, PipelineTask>();
+
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', version: OSIRIS_VERSION });
   });
@@ -222,6 +231,59 @@ export function createHttpApp(): Express {
     } catch (e) {
       console.error('[osiris:http] POST /chat failed', e);
       res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.post('/chat/stream', async (req: Request, res: Response) => {
+    try {
+      let body: ChatRequestBody = {};
+      if (typeof req.body === 'string') {
+        try {
+          body = JSON.parse(req.body) as ChatRequestBody;
+        } catch {
+          res.status(400).json({ error: 'invalid JSON in text/plain body' });
+          return;
+        }
+      } else if (req.body && typeof req.body === 'object') {
+        body = req.body as ChatRequestBody;
+      }
+
+      if (!isNonEmptyString(body.userId) || !isNonEmptyString(body.message)) {
+        res.status(400).json({ error: 'userId and message are required strings' });
+        return;
+      }
+
+      const userId = body.userId.trim();
+      const messageText = body.message.trim();
+      console.log(`[osiris:http] POST /chat/stream userId=${userId}`);
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      const incoming = {
+        id: crypto.randomUUID(),
+        userId,
+        chatId: userId,
+        text: messageText,
+        timestamp: new Date().toISOString(),
+        isVoice: false,
+      };
+
+      const result = await handleMessage(incoming);
+      const tokens = String(result.reply ?? '').split(/(\s+)/);
+      for (const token of tokens) {
+        res.write(`data: ${JSON.stringify({ token })}\n\n`);
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'internal error';
+      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+      res.end();
     }
   });
 
@@ -457,6 +519,94 @@ export function createHttpApp(): Express {
     } finally {
       res.end();
     }
+  });
+
+  app.post('/pipeline/start', async (req: Request, res: Response) => {
+    let body: PipelineRequestBody = {};
+    if (typeof req.body === 'string') {
+      try {
+        body = JSON.parse(req.body) as PipelineRequestBody;
+      } catch {
+        res.status(400).json({ error: 'invalid JSON in text/plain body' });
+        return;
+      }
+    } else if (req.body && typeof req.body === 'object') {
+      body = req.body as PipelineRequestBody;
+    }
+
+    if (!body.task || typeof body.task !== 'string' || body.task.trim().length === 0) {
+      res.status(400).json({ error: 'task is required string' });
+      return;
+    }
+
+    const task = body.task.trim();
+    const taskId = crypto.randomUUID();
+    pipelineTasks.set(taskId, {
+      taskId,
+      status: 'pending',
+      phase: 'queued',
+      message: 'Задача принята',
+      result: undefined,
+    });
+
+    console.log(`[osiris:http] POST /pipeline/start task="${task}" taskId=${taskId}`);
+
+    void runOsirisPipeline(task, (phase, message) => {
+      const t = pipelineTasks.get(taskId);
+      if (t) {
+        t.status = 'running';
+        t.phase = phase;
+        t.message = message;
+      }
+    })
+      .then((result) => {
+        const t = pipelineTasks.get(taskId);
+        if (t) {
+          t.status = result.status === 'ok' ? 'done' : 'error';
+          t.phase = 'done';
+          t.message = result.summary ?? '';
+          t.result = result;
+        }
+      })
+      .catch((e) => {
+        const t = pipelineTasks.get(taskId);
+        if (t) {
+          t.status = 'error';
+          t.phase = 'error';
+          t.message = e instanceof Error ? e.message : 'pipeline failed';
+        }
+      });
+
+    res.json({ taskId });
+  });
+
+  app.get('/pipeline/status', (req: Request, res: Response) => {
+    const taskId = typeof req.query.taskId === 'string' ? req.query.taskId : '';
+    const task = pipelineTasks.get(taskId);
+
+    if (!task) {
+      res.status(404).json({ error: 'task not found' });
+      return;
+    }
+
+    console.log(`[osiris:http] GET /pipeline/status taskId=${taskId} status=${task.status}`);
+    if (task.status === 'done' || task.status === 'error') {
+      res.json({
+        taskId: task.taskId,
+        status: task.status,
+        phase: task.phase,
+        message: task.message,
+        result: task.result,
+      });
+      return;
+    }
+
+    res.json({
+      taskId: task.taskId,
+      status: task.status,
+      phase: task.phase,
+      message: task.message,
+    });
   });
 
   return app;
