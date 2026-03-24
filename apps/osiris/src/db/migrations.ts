@@ -29,6 +29,12 @@ export function migrate(): void {
   const schemaPath = path.resolve(__dirname, 'schema.sql');
   const sql = fs.readFileSync(schemaPath, 'utf-8');
   getDb().exec(sql);
+  // Добавляем колонку если её ещё нет (идемпотентно)
+  try {
+    getDb().exec('ALTER TABLE facts ADD COLUMN last_accessed_at TEXT');
+  } catch {
+    // Колонка уже существует — игнорируем
+  }
   _schemaApplied = true;
   console.log('[osiris:migrate] schema applied →', DB_PATH);
 }

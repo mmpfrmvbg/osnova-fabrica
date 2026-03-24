@@ -62,6 +62,16 @@ function rowToSummary(row: Record<string, unknown>): Summary {
   };
 }
 
+function touchFacts(rows: Record<string, unknown>[]): void {
+  if (rows.length === 0) return;
+  const ids = rows.map((r) => r['id'] as number);
+  const placeholders = ids.map(() => '?').join(',');
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(`UPDATE facts SET last_accessed_at = ? WHERE id IN (${placeholders})`)
+    .run(now, ...ids);
+}
+
 export async function saveMessage(record: Omit<MessageRecord, 'id'>): Promise<number> {
   ensureInit();
   const db = getDb();
@@ -136,8 +146,8 @@ export async function getRelevantFacts(
   ensureInit();
   const db = getDb();
   const like = `%${query}%`;
+  let rows: Record<string, unknown>[] = [];
   try {
-    let rows: Record<string, unknown>[];
     if (project && project !== 'unknown') {
       rows = db
         .prepare(
@@ -164,10 +174,9 @@ export async function getRelevantFacts(
         )
         .all(query, limit) as Record<string, unknown>[];
     }
-    return rows.map(rowToFact);
   } catch {
     if (project && project !== 'unknown') {
-      const rows = db
+      rows = db
         .prepare(
           `
       SELECT * FROM facts
@@ -178,20 +187,21 @@ export async function getRelevantFacts(
     `,
         )
         .all(like, project, limit) as Record<string, unknown>[];
-      return rows.map(rowToFact);
-    }
-    const rows = db
-      .prepare(
-        `
+    } else {
+      rows = db
+        .prepare(
+          `
       SELECT * FROM facts
       WHERE text LIKE ?
       ORDER BY importance DESC
       LIMIT ?
     `,
-      )
-      .all(like, limit) as Record<string, unknown>[];
-    return rows.map(rowToFact);
+        )
+        .all(like, limit) as Record<string, unknown>[];
+    }
   }
+  touchFacts(rows);
+  return rows.map(rowToFact);
 }
 
 export async function getRecentMessages(
@@ -358,6 +368,7 @@ export async function getRecentFacts(
        LIMIT ?`,
     )
     .all(userId, limit) as Record<string, unknown>[];
+  if (rows.length > 0) touchFacts(rows);
   // Если у пользователя нет фактов — возвращаем последние глобальные
   if (rows.length === 0) {
     const globalRows = db

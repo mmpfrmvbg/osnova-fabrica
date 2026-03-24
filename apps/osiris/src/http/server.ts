@@ -8,6 +8,8 @@ import * as storage from '../../../../src/runtime/storage';
 import { VM, type StackValue } from '../../../../src/runtime/vm/interpreter';
 import type { OsVbcModule } from '../../../../src/runtime/vm/bytecode';
 import { handleMessage } from '../core/message-handler';
+import * as memory from '../core/memory-engine';
+import { buildOsirisContext } from '../core/osiris-context';
 import { runOsirisPipeline } from '../osnova/client';
 import { startTunnel } from './tunnel';
 import { buildPipelineCompletedEvent, logPipelineCompletedEvent } from './pipeline-observability';
@@ -607,6 +609,32 @@ export function createHttpApp(): Express {
       phase: task.phase,
       message: task.message,
     });
+  });
+
+  app.get('/debug/context', async (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+      if (!userId) {
+        res.status(400).json({ error: 'userId query param is required' });
+        return;
+      }
+      const [recentMessages, recentFacts, activeTasks, osirisContext] = await Promise.all([
+        memory.getRecentMessages(userId, 5),
+        memory.getRecentFacts(userId, 10),
+        Promise.resolve(memory.getTasks(userId, 'open')),
+        buildOsirisContext(userId),
+      ]);
+      res.json({
+        userId,
+        recentMessages,
+        recentFacts,
+        activeTasks,
+        osirisContext,
+      });
+    } catch (e) {
+      console.error('[osiris:debug] GET /debug/context failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
   });
 
   return app;

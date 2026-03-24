@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS facts (
   text TEXT NOT NULL,
   source_message_id INTEGER,
   importance INTEGER DEFAULT 3,
+  last_accessed_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY(source_message_id) REFERENCES messages(id)
