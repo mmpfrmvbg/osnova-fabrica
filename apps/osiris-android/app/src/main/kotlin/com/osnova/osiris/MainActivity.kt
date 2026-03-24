@@ -34,10 +34,16 @@ fun OsirisNavHost() {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = "chat") {
         composable("chat") {
-            ChatScreen(onOpenSettings = { navController.navigate("settings") })
+            ChatScreen(
+                onOpenSettings = { navController.navigate("settings") },
+                onOpenTasks = { navController.navigate("tasks") }
+            )
         }
         composable("settings") {
             SettingsScreen(onSave = { navController.popBackStack() })
+        }
+        composable("tasks") {
+            TasksScreen(onBack = { navController.popBackStack() })
         }
     }
 }
@@ -45,6 +51,7 @@ fun OsirisNavHost() {
 @Composable
 fun ChatScreen(
     onOpenSettings: () -> Unit,
+    onOpenTasks: () -> Unit,
     vm: ChatViewModel = viewModel()
 ) {
     val messages by vm.messages.collectAsStateWithLifecycle()
@@ -70,6 +77,9 @@ fun ChatScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("ОСИРИС", color = Color(0xFF7B68EE), fontSize = 20.sp)
+            TextButton(onClick = onOpenTasks) {
+                Text("☑", color = Color(0xFF7B68EE), fontSize = 20.sp)
+            }
             TextButton(onClick = onOpenSettings) {
                 Text("⚙", color = Color(0xFF7B68EE), fontSize = 20.sp)
             }

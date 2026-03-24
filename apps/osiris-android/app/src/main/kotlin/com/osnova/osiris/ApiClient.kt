@@ -38,4 +38,54 @@ object ApiClient {
             }
         }
     }
+
+    fun getTasks(): List<OsirisTask> {
+        val userId = AppPreferences.userId
+        val baseUrl = AppPreferences.baseUrl
+        val request = Request.Builder()
+            .url("$baseUrl/tasks?userId=$userId")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string() ?: return emptyList()
+            if (!response.isSuccessful) return emptyList()
+            return try {
+                val grouped = org.json.JSONObject(body)
+                val result = mutableListOf<OsirisTask>()
+                grouped.keys().forEach { project ->
+                    val arr = grouped.getJSONArray(project)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        result.add(
+                            OsirisTask(
+                                id = obj.getInt("id"),
+                                title = obj.getString("title"),
+                                status = obj.getString("status"),
+                                project = obj.optString("project", "general")
+                            )
+                        )
+                    }
+                }
+                result
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    fun completeTask(taskId: Int): Boolean {
+        val userId = AppPreferences.userId
+        val baseUrl = AppPreferences.baseUrl
+        val body = org.json.JSONObject()
+            .put("status", "done")
+            .toString()
+            .toRequestBody(JSON_TYPE)
+        val request = Request.Builder()
+            .url("$baseUrl/tasks/$taskId?userId=$userId")
+            .patch(body)
+            .build()
+        client.newCall(request).execute().use { response ->
+            return response.isSuccessful
+        }
+    }
 }
