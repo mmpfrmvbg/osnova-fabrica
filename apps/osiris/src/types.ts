@@ -83,11 +83,15 @@ export interface CoreMemoryProject {
   name: string | null;
   stack: string | null;
   state: string | null;
+  description?: string | null;
+  horizon?: string | null;
+  repo?: string | null;
 }
 
 export interface CoreMemoryMeta {
   interaction_count: number;
   last_session: string | null;
+  [key: string]: string | number | null | undefined;
 }
 
 export interface CoreMemoryContent {
