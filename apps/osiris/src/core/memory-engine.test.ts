@@ -51,3 +51,50 @@ describe('memory-engine saveFacts', () => {
     (await import('../db/migrations')).closeDb();
   });
 });
+
+describe('memory-engine core_memory', () => {
+  const tempRoot = path.join(os.tmpdir(), 'osiris-core-memory-tests');
+
+  afterEach(async () => {
+    vi.resetModules();
+    delete process.env.OSIRIS_DB_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it('updateCoreMemory merges patch and increments version', async () => {
+    await fs.promises.mkdir(tempRoot, { recursive: true });
+    const dbPath = path.join(tempRoot, `osiris-${Date.now()}.db`);
+    process.env.OSIRIS_DB_PATH = dbPath;
+
+    const memory = await import('./memory-engine');
+
+    // Первое обновление — запись создаётся
+    await memory.updateCoreMemory('user-cm-test', {
+      user: { name: 'Михаил', role: null, style: null, current_focus: null },
+    });
+
+    const first = await memory.getCoreMemory('user-cm-test');
+    expect(first.user.name).toBe('Михаил');
+    expect(first.meta.interaction_count).toBe(0); // не тронуто
+
+    // Второе обновление — merge поверх
+    await memory.updateCoreMemory('user-cm-test', {
+      user: { name: 'Михаил', role: null, style: null, current_focus: 'Осирис' },
+      meta: { interaction_count: 5, last_session: null },
+    });
+
+    const second = await memory.getCoreMemory('user-cm-test');
+    expect(second.user.name).toBe('Михаил');
+    expect(second.user.current_focus).toBe('Осирис');
+    expect(second.meta.interaction_count).toBe(5);
+
+    // Версия инкрементирована дважды
+    const db = (await import('../db/migrations')).getDb();
+    const row = db
+      .prepare('SELECT version FROM core_memory WHERE user_id = ?')
+      .get('user-cm-test') as { version: number };
+    expect(row.version).toBe(2);
+
+    (await import('../db/migrations')).closeDb();
+  });
+});

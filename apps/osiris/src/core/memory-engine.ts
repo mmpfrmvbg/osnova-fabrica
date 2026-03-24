@@ -2,7 +2,7 @@
 // Реальная реализация на better-sqlite3.
 
 import { getDb, migrate } from '../db/migrations';
-import type { MessageRecord, FactDraft, Fact, Summary } from '../types';
+import type { MessageRecord, FactDraft, Fact, Summary, CoreMemoryContent } from '../types';
 
 export interface Task {
   id: number;
@@ -71,6 +71,12 @@ function touchFacts(rows: Record<string, unknown>[]): void {
     .prepare(`UPDATE facts SET last_accessed_at = ? WHERE id IN (${placeholders})`)
     .run(now, ...ids);
 }
+
+const DEFAULT_CORE_MEMORY: CoreMemoryContent = {
+  user: { name: null, role: null, style: null, current_focus: null },
+  project: { name: null, stack: null, state: null },
+  meta: { interaction_count: 0, last_session: null },
+};
 
 export async function saveMessage(record: Omit<MessageRecord, 'id'>): Promise<number> {
   ensureInit();
@@ -303,6 +309,78 @@ export async function getLatestSummaryByUser(
     )
     .get(userId) as Record<string, unknown> | undefined;
   return row ? rowToSummary(row) : null;
+}
+
+export async function getCoreMemory(userId: string): Promise<CoreMemoryContent> {
+  ensureInit();
+  const db = getDb();
+  const row = db
+    .prepare('SELECT content FROM core_memory WHERE user_id = ?')
+    .get(userId) as { content: string } | undefined;
+  if (!row) return structuredClone(DEFAULT_CORE_MEMORY);
+  try {
+    return JSON.parse(row.content) as CoreMemoryContent;
+  } catch {
+    return structuredClone(DEFAULT_CORE_MEMORY);
+  }
+}
+
+function deepMerge<T extends Record<string, unknown>>(
+  target: T,
+  patch: Partial<T>,
+): T {
+  const result = { ...target };
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    const patchVal = patch[key];
+    const targetVal = result[key];
+    if (
+      patchVal !== null &&
+      typeof patchVal === 'object' &&
+      !Array.isArray(patchVal) &&
+      typeof targetVal === 'object' &&
+      targetVal !== null &&
+      !Array.isArray(targetVal)
+    ) {
+      result[key] = deepMerge(
+        targetVal as Record<string, unknown>,
+        patchVal as Record<string, unknown>,
+      ) as T[keyof T];
+    } else {
+      result[key] = patchVal as T[keyof T];
+    }
+  }
+  return result;
+}
+
+export async function updateCoreMemory(
+  userId: string,
+  patch: Partial<CoreMemoryContent>,
+): Promise<void> {
+  ensureInit();
+  const db = getDb();
+  const current = await getCoreMemory(userId);
+  const merged = deepMerge(
+    current as unknown as Record<string, unknown>,
+    patch as Record<string, unknown>,
+  ) as unknown as CoreMemoryContent;
+  const now = new Date().toISOString();
+
+  const existing = db
+    .prepare('SELECT version FROM core_memory WHERE user_id = ?')
+    .get(userId) as { version: number } | undefined;
+
+  if (existing) {
+    db.prepare(`
+      UPDATE core_memory
+      SET content = ?, updated_at = ?, version = version + 1
+      WHERE user_id = ?
+    `).run(JSON.stringify(merged), now, userId);
+  } else {
+    db.prepare(`
+      INSERT INTO core_memory (user_id, content, updated_at, version)
+      VALUES (?, ?, ?, 1)
+    `).run(userId, JSON.stringify(merged), now);
+  }
 }
 
 export function addTask(userId: string, title: string): Task {
