@@ -50,6 +50,9 @@ coverage/
 runs/*
 # decisions.jsonl tracked intentionally
 !runs/decisions.jsonl
+# health snapshots committed by Health Snapshot workflow
+!runs/health-snapshots/
+!runs/health-snapshots/**
 
 # Center temp files
 center-out.txt
