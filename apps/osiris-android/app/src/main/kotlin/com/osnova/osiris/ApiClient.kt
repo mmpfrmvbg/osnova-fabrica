@@ -8,24 +8,23 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 object ApiClient {
-    // Замени на IP своего VPS
-    private const val BASE_URL = "http://YOUR_VPS_IP:3000"
-
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    private val JSON = "application/json".toMediaType()
+    private val JSON_TYPE = "application/json".toMediaType()
 
-    fun sendMessage(userId: String, message: String): String {
+    fun sendMessage(message: String): String {
+        val baseUrl = AppPreferences.baseUrl
+        val userId = AppPreferences.userId
         val body = JSONObject().apply {
             put("userId", userId)
             put("message", message)
-        }.toString().toRequestBody(JSON)
+        }.toString().toRequestBody(JSON_TYPE)
 
         val request = Request.Builder()
-            .url("$BASE_URL/chat")
+            .url("$baseUrl/chat")
             .post(body)
             .build()
 

@@ -18,16 +18,35 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { OsirisApp() }
+        setContent { OsirisNavHost() }
     }
 }
 
 @Composable
-fun OsirisApp(vm: ChatViewModel = viewModel()) {
+fun OsirisNavHost() {
+    val navController = rememberNavController()
+    NavHost(navController = navController, startDestination = "chat") {
+        composable("chat") {
+            ChatScreen(onOpenSettings = { navController.navigate("settings") })
+        }
+        composable("settings") {
+            SettingsScreen(onSave = { navController.popBackStack() })
+        }
+    }
+}
+
+@Composable
+fun ChatScreen(
+    onOpenSettings: () -> Unit,
+    vm: ChatViewModel = viewModel()
+) {
     val messages by vm.messages.collectAsStateWithLifecycle()
     val isLoading by vm.isLoading.collectAsStateWithLifecycle()
     var inputText by remember { mutableStateOf("") }
@@ -43,33 +62,33 @@ fun OsirisApp(vm: ChatViewModel = viewModel()) {
             .background(Color(0xFF1A1A2E))
             .systemBarsPadding()
     ) {
-        // Заголовок
-        Text(
-            text = "ОСИРИС",
-            color = Color(0xFF7B68EE),
-            fontSize = 20.sp,
-            modifier = Modifier.padding(16.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("ОСИРИС", color = Color(0xFF7B68EE), fontSize = 20.sp)
+            TextButton(onClick = onOpenSettings) {
+                Text("⚙", color = Color(0xFF7B68EE), fontSize = 20.sp)
+            }
+        }
 
         HorizontalDivider(color = Color(0xFF2A2A4E))
 
-        // Список сообщений
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(vertical = 8.dp)
         ) {
-            items(messages) { msg ->
-                MessageBubble(msg)
-            }
+            items(messages) { msg -> MessageBubble(msg) }
             if (isLoading) {
                 item {
-                    Text(
-                        "...",
-                        color = Color(0xFF7B68EE),
-                        modifier = Modifier.padding(8.dp)
-                    )
+                    Text("...", color = Color(0xFF7B68EE), modifier = Modifier.padding(8.dp))
                 }
             }
         }
@@ -99,10 +118,7 @@ fun OsirisApp(vm: ChatViewModel = viewModel()) {
             )
             Spacer(Modifier.width(8.dp))
             Button(
-                onClick = {
-                    vm.sendMessage(inputText)
-                    inputText = ""
-                },
+                onClick = { vm.sendMessage(inputText); inputText = "" },
                 enabled = inputText.isNotBlank() && !isLoading,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B68EE))
             ) {
@@ -115,10 +131,9 @@ fun OsirisApp(vm: ChatViewModel = viewModel()) {
 @Composable
 fun MessageBubble(msg: ChatMessage) {
     val bgColor = if (msg.isUser) Color(0xFF2A2A4E) else Color(0xFF0F3460)
-    val align = if (msg.isUser) Arrangement.End else Arrangement.Start
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = align
+        horizontalArrangement = if (msg.isUser) Arrangement.End else Arrangement.Start
     ) {
         Box(
             modifier = Modifier

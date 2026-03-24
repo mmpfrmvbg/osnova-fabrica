@@ -20,16 +20,13 @@ class ChatViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val userId = "android-user"
-
     fun sendMessage(text: String) {
         if (text.isBlank()) return
-        val userMsg = ChatMessage(text = text, isUser = true)
-        _messages.value = _messages.value + userMsg
+        _messages.value = _messages.value + ChatMessage(text = text, isUser = true)
         _isLoading.value = true
         viewModelScope.launch(Dispatchers.IO) {
             val reply = try {
-                ApiClient.sendMessage(userId, text)
+                ApiClient.sendMessage(text)
             } catch (e: Exception) {
                 "[ошибка сети: ${e.message}]"
             }

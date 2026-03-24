@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <application
+        android:name=".OsirisApp"
         android:allowBackup="true"
         android:label="ОСИРИС"
         android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
