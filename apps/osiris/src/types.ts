@@ -72,6 +72,30 @@ export interface Summary {
   generatedAt: string;
 }
 
+export interface CoreMemoryUser {
+  name: string | null;
+  role: string | null;
+  style: string | null;
+  current_focus: string | null;
+}
+
+export interface CoreMemoryProject {
+  name: string | null;
+  stack: string | null;
+  state: string | null;
+}
+
+export interface CoreMemoryMeta {
+  interaction_count: number;
+  last_session: string | null;
+}
+
+export interface CoreMemoryContent {
+  user: CoreMemoryUser;
+  project: CoreMemoryProject;
+  meta: CoreMemoryMeta;
+}
+
 export interface JarvisContext {
   systemPrompt: string;
   conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;

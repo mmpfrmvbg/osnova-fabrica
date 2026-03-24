@@ -29,6 +29,19 @@ export function migrate(): void {
   const schemaPath = path.resolve(__dirname, 'schema.sql');
   const sql = fs.readFileSync(schemaPath, 'utf-8');
   getDb().exec(sql);
+  // core_memory table — idempotent
+  try {
+    getDb().exec(`
+      CREATE TABLE IF NOT EXISTS core_memory (
+        user_id    TEXT    PRIMARY KEY,
+        content    TEXT    NOT NULL DEFAULT '{}',
+        updated_at TEXT    NOT NULL,
+        version    INTEGER NOT NULL DEFAULT 1
+      )
+    `);
+  } catch {
+    // уже существует — игнорируем
+  }
   // Добавляем колонку если её ещё нет (идемпотентно)
   try {
     getDb().exec('ALTER TABLE facts ADD COLUMN last_accessed_at TEXT');

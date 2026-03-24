@@ -66,3 +66,10 @@ CREATE TABLE IF NOT EXISTS connectivity_log (
   latency_ms INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS core_memory (
+  user_id   TEXT    PRIMARY KEY,
+  content   TEXT    NOT NULL DEFAULT '{}',
+  updated_at TEXT   NOT NULL,
+  version   INTEGER NOT NULL DEFAULT 1
+);
+
