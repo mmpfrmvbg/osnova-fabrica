@@ -896,6 +896,35 @@ describe("Compiler: procedure calls", () => {
     const idx = vm.findProcedureIndex("главная");
     expect(await vm.runProcedure(idx, [])).toBe(120);
   });
+
+  it("три функции с параметрами: сложить + умножить + факториал → 152", async () => {
+    const src = `модуль т
+процедура сложить(а, б)
+  вернуть а + б
+конец
+процедура умножить(х, у)
+  вернуть х * у
+конец
+процедура факториал(н)
+  если н <= 1
+    вернуть 1
+  конец
+  вернуть н * факториал(н - 1)
+конец
+процедура главная()
+  пусть сумма = сложить(3, 5)
+  пусть произведение = умножить(4, 6)
+  пусть факт = факториал(5)
+  вернуть сумма + произведение + факт
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 10000 });
+    const idx = vm.findProcedureIndex("главная");
+    expect(await vm.runProcedure(idx, [])).toBe(152);
+  });
 });
 
 describe("Compiler negative: errors reported", () => {
