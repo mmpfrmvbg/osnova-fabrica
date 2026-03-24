@@ -283,7 +283,7 @@ async function loadTasks() {
 
     const byProject = {};
     tasks.forEach(t => {
-      const proj = (t.project || t.projectName || 'Без проекта');
+      const proj = t.project || 'general';
       if (!byProject[proj]) byProject[proj] = [];
       byProject[proj].push(t);
     });
@@ -343,7 +343,6 @@ async function loadTasks() {
 }
 
 async function nativeFetch(url, options) {
-  // Используем CapacitorHttp если доступен (обходит mixed content)
   try {
     const { CapacitorHttp } = Capacitor.Plugins;
     if (CapacitorHttp) {
@@ -369,11 +368,8 @@ function saveServer() {
 }
 
 async function runPipelineViaCapacitor(url, dot, msgs) {
-  // url приходит как BASE + '/pipeline/stream?task=...'
-  // извлекаем task из url
   const taskParam = new URL(url).searchParams.get('task') || '';
   try {
-    // 1. Запустить pipeline: POST /pipeline/start
     const startRes = await nativeFetch(BASE + '/pipeline/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -385,14 +381,12 @@ async function runPipelineViaCapacitor(url, dot, msgs) {
 
     dot.textContent = '⟳ Запуск...';
 
-    // 2. Polling каждые 1500ms
     while (true) {
       await new Promise(r => setTimeout(r, 1500));
       const pollRes = await nativeFetch(BASE + '/pipeline/status?taskId=' + encodeURIComponent(taskId));
       const pollData = await pollRes.json();
 
       if (pollData.phase && pollData.phase !== 'done' && pollData.phase !== 'error') {
-        // показываем промежуточный статус
         const existing = msgs.querySelector('[data-task-id="' + taskId + '"][data-phase="' + pollData.phase + '"]');
         if (!existing) {
           const s = document.createElement('div');
@@ -420,8 +414,6 @@ async function streamChat(message, dot, msgs) {
   try {
     const { CapacitorHttp } = Capacitor.Plugins;
     if (CapacitorHttp) {
-      // На Android: POST /chat/stream через CapacitorHttp, получаем весь ответ сразу,
-      // парсим data: строки и собираем токены
       dot.textContent = '';
       const res = await CapacitorHttp.request({
         method: 'POST',
@@ -451,7 +443,6 @@ async function streamChat(message, dot, msgs) {
         } catch { /* skip */ }
       }
     } else {
-      // Fallback для веб: обычный fetch + читаем SSE через ReadableStream
       dot.textContent = '';
       let text = '';
       const response = await fetch(BASE + '/chat/stream', {
@@ -589,7 +580,6 @@ async function init() {
     return d;
   }
 
-  // Проверяем сервер
   try {
     const r = await nativeFetch(BASE + '/health');
     if (r.ok) {
@@ -647,7 +637,7 @@ if (!BASE) {
   checkOtaAndInit();
 }
 </script>
-<div id="thinking-indicator" style="
+<div id="thinking-indicator" aria-live="polite" style="
   display:none; position:fixed; bottom:58px; left:50%; transform:translateX(-50%);
   background:#2a2a3e; color:#a0a0c0; padding:8px 18px; border-radius:20px;
   font-size:13px; pointer-events:none; z-index:100; box-shadow:0 2px 8px rgba(0,0,0,0.4);
