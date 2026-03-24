@@ -23,6 +23,7 @@ export interface Task {
   title: string;
   status: 'open' | 'done';
   project: string;
+  createdFrom: string | null;
   createdAt: string;
   doneAt: string | null;
 }
@@ -788,22 +789,24 @@ export function addTask(
   userId: string,
   title: string,
   project = 'general',
+  createdFrom: string | null = null,
 ): Task {
   ensureInit();
   const db = getDb();
   const now = new Date().toISOString();
   const r = db
     .prepare(
-      `INSERT INTO tasks (user_id, title, status, project, created_at)
-       VALUES (?, ?, 'open', ?, ?)`,
+      `INSERT INTO tasks (user_id, title, status, project, created_from, created_at)
+       VALUES (?, ?, 'open', ?, ?, ?)`,
     )
-    .run(userId, title, project, now);
+    .run(userId, title, project, createdFrom, now);
   return {
     id: Number(r.lastInsertRowid),
     userId,
     title,
     status: 'open',
     project,
+    createdFrom,
     createdAt: now,
     doneAt: null,
   };
@@ -824,6 +827,7 @@ export function getTasks(userId: string, status: 'open' | 'done' = 'open'): Task
     title: r['title'] as string,
     status: r['status'] as 'open' | 'done',
     project: (r['project'] as string | null) ?? 'general',
+    createdFrom: (r['created_from'] as string | null) ?? null,
     createdAt: r['created_at'] as string,
     doneAt: (r['done_at'] as string | null) ?? null,
   }));

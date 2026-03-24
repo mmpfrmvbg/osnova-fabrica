@@ -138,6 +138,13 @@ export function migrate(): void {
   } catch {
     // уже существует — игнорируем
   }
+  try {
+    getDb().exec(
+      'ALTER TABLE tasks ADD COLUMN created_from TEXT DEFAULT NULL',
+    );
+  } catch {
+    // уже существует — игнорируем
+  }
   // Добавляем колонку если её ещё нет (идемпотентно)
   try {
     getDb().exec('ALTER TABLE facts ADD COLUMN last_accessed_at TEXT');

@@ -437,7 +437,7 @@ export async function handleMessage(
       const project = typeof args.project === 'string' && args.project.trim()
         ? args.project.trim()
         : 'general';
-      const task = memory.addTask(userId, title, project);
+      const task = memory.addTask(userId, title, project, 'dialog');
       trackedTasks += 1;
       return `Задача добавлена: #${task.id}`;
     }
@@ -580,17 +580,20 @@ export async function handleMessage(
     reply = `[ошибка LLM] ${msg}`;
   }
 
+  let rawReply = reply;
+  let displayReply = rawReply;
+
   // ── Confidence assessment ────────────────────────────────────────────────
   try {
-    const confidence = await assessConfidence(reply, message.text);
+    const confidence = await assessConfidence(rawReply, message.text);
     console.log('[osiris:confidence]', userId, confidence.toFixed(2));
     if (confidence < 0.4) {
-      reply =
+      displayReply =
         '[Осирис не уверен] ' +
-        reply +
+        rawReply +
         `\n\n_Уверенность: ${(confidence * 100).toFixed(0)}%. Могу ошибаться._`;
     } else if (confidence < 0.7) {
-      reply = reply + `\n\n_Уверенность: ${(confidence * 100).toFixed(0)}%_`;
+      displayReply = rawReply + `\n\n_Уверенность: ${(confidence * 100).toFixed(0)}%_`;
     }
   } catch (e) {
     console.error('[osiris:confidence] failed:',
@@ -603,7 +606,7 @@ export async function handleMessage(
     chatId: message.chatId ?? userId,
     messageId: null,
     role: 'assistant',
-    text: reply,
+    text: rawReply,
     timestamp: new Date().toISOString(),
     tags: [],
     projectHint: 'chat',
@@ -611,5 +614,5 @@ export async function handleMessage(
     rawJson: null,
   });
 
-  return { reply, mode: _mode, trackedFacts, trackedTasks };
+  return { reply: displayReply, mode: _mode, trackedFacts, trackedTasks };
 }

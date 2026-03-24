@@ -169,6 +169,18 @@ export interface StartHttpServerOptions {
 export function createHttpApp(): Express {
   const app = express();
   app.use(express.json());
+  app.use((
+    err: { type?: string },
+    _req: import('express').Request,
+    res: import('express').Response,
+    _next: import('express').NextFunction,
+  ) => {
+    if (err.type === 'entity.parse.failed') {
+      res.status(400).json({ error: 'Invalid JSON' });
+      return;
+    }
+    _next(err);
+  });
   app.use(express.text({ type: 'text/plain' }));
 
   interface PipelineTask {
