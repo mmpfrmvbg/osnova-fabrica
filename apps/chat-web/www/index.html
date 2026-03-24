@@ -236,6 +236,112 @@ async function loadBrain() {
   }
 }
 
+async function loadTasks() {
+  const el = document.getElementById('tasks-content');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#666">Загрузка...</p>';
+  try {
+    const res = await nativeFetch(BASE + '/tasks?userId=' + encodeURIComponent(USER_ID));
+    if (!res.ok) { el.innerHTML = '<p style="color:#c00">Ошибка загрузки</p>'; return; }
+    const data = await res.json();
+    const tasks = Array.isArray(data) ? data : (data.tasks || []);
+
+    el.innerHTML = '';
+
+    const histBtn = document.createElement('button');
+    histBtn.textContent = '📋 История';
+    histBtn.style.cssText = 'margin-bottom:12px;padding:8px 16px;background:#2a2a3e;color:#aaa;border:1px solid #333;border-radius:8px;cursor:pointer;font-size:13px;';
+    histBtn.onclick = async () => {
+      histBtn.disabled = true;
+      try {
+        const hRes = await nativeFetch(BASE + '/tasks/history?userId=' + encodeURIComponent(USER_ID) + '&limit=20');
+        const hData = await hRes.json();
+        const hTasks = Array.isArray(hData) ? hData : (hData.tasks || []);
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;';
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#1e1e2e;border-radius:12px;padding:16px;max-width:400px;width:100%;max-height:70vh;overflow-y:auto;';
+        const title = document.createElement('div');
+        title.style.cssText = 'color:#ddd;font-weight:bold;margin-bottom:12px;display:flex;justify-content:space-between;';
+        title.innerHTML = 'История задач <span style="cursor:pointer;color:#888;" onclick="this.closest(\'div[style*=fixed]\').remove()">✕</span>';
+        box.appendChild(title);
+        hTasks.forEach(t => {
+          const row = document.createElement('div');
+          row.style.cssText = 'padding:8px 0;border-bottom:1px solid #2a2a3e;font-size:13px;color:#aaa;';
+          const ts = t.createdAt ? new Date(t.createdAt).toLocaleDateString('ru') : '';
+          row.textContent = (ts ? ts + ' — ' : '') + (t.title || t.text || JSON.stringify(t));
+          box.appendChild(row);
+        });
+        if (!hTasks.length) { box.innerHTML += '<p style="color:#666;text-align:center;">Пусто</p>'; }
+        modal.appendChild(box);
+        modal.onclick = e => { if (e.target === modal) modal.remove(); };
+        document.body.appendChild(modal);
+      } catch(e) { alert('Ошибка: ' + e.message); }
+      histBtn.disabled = false;
+    };
+    el.appendChild(histBtn);
+
+    const byProject = {};
+    tasks.forEach(t => {
+      const proj = (t.project || t.projectName || 'Без проекта');
+      if (!byProject[proj]) byProject[proj] = [];
+      byProject[proj].push(t);
+    });
+
+    Object.keys(byProject).forEach(projName => {
+      const group = document.createElement('div');
+      group.style.cssText = 'background:#1e1e2e;border-radius:10px;padding:12px;margin-bottom:12px;';
+      const projTitle = document.createElement('div');
+      projTitle.style.cssText = 'color:#a0a0d0;font-size:13px;font-weight:bold;margin-bottom:8px;';
+      projTitle.textContent = projName;
+      group.appendChild(projTitle);
+
+      byProject[projName].forEach(task => {
+        const row = document.createElement('div');
+        const isDone = task.status === 'done' || task.status === 'completed';
+        row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid #2a2a3e;';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = isDone;
+        cb.style.cssText = 'margin-top:3px;cursor:pointer;flex-shrink:0;';
+        cb.onchange = async () => {
+          if (!cb.checked) return;
+          cb.disabled = true;
+          try {
+            await nativeFetch(BASE + '/tasks/' + task.id + '?userId=' + encodeURIComponent(USER_ID), {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'done' })
+            });
+            txt.style.textDecoration = 'line-through';
+            txt.style.color = '#666';
+          } catch { cb.checked = false; cb.disabled = false; }
+        };
+        const info = document.createElement('div');
+        info.style.cssText = 'flex:1;';
+        const txt = document.createElement('div');
+        txt.style.cssText = 'font-size:14px;color:' + (isDone ? '#666' : '#ddd') + ';' + (isDone ? 'text-decoration:line-through;' : '');
+        txt.textContent = task.title || task.text || task.description || JSON.stringify(task);
+        const date = document.createElement('div');
+        date.style.cssText = 'font-size:11px;color:#555;margin-top:2px;';
+        date.textContent = task.createdAt ? new Date(task.createdAt).toLocaleDateString('ru') : '';
+        info.appendChild(txt);
+        info.appendChild(date);
+        row.appendChild(cb);
+        row.appendChild(info);
+        group.appendChild(row);
+      });
+      el.appendChild(group);
+    });
+
+    if (!tasks.length) {
+      el.innerHTML += '<p style="color:#666;text-align:center;margin-top:40px;">Задач нет</p>';
+    }
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c00">Ошибка: ' + e.message + '</p>';
+  }
+}
+
 async function nativeFetch(url, options) {
   // Используем CapacitorHttp если доступен (обходит mixed content)
   try {
