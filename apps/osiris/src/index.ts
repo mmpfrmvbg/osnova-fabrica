@@ -2,6 +2,7 @@
 import * as path from 'path';
 import dotenv from 'dotenv';
 import { startHttpServer } from './http/server';
+import { closeDb } from './db/migrations';
 
 const osirisRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -13,7 +14,16 @@ async function main(): Promise<void> {
   try {
     await startHttpServer({ tunnel: withTunnel });
     // startTelegramAdapter() уже запускается внутри startHttpServer()
-    // после startConsolidationCron() — дополнительно вызывать не нужно
+    process.on('SIGTERM', () => {
+      console.log('[osiris] SIGTERM received, shutting down...');
+      closeDb();
+      process.exit(0);
+    });
+    process.on('SIGINT', () => {
+      console.log('[osiris] SIGINT received, shutting down...');
+      closeDb();
+      process.exit(0);
+    });
   } catch (e) {
     console.error('[osiris:fatal]', e);
     process.exit(1);
