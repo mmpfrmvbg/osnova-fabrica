@@ -901,6 +901,14 @@ export function createHttpApp(): Express {
     }
   });
 
+  app.post('/internal/push-test', (req, res) => {
+    const { text, urgency } = req.body as { text?: string; urgency?: string };
+    const u = urgency || 'normal';
+    const t = text || '';
+    console.log(`[PUSH] ${u}: ${t}`);
+    res.json({ ok: true });
+  });
+
   return app;
 }
 
