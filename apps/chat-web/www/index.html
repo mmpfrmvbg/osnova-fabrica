@@ -167,6 +167,33 @@ async function streamChat(message, dot, msgs) {
   } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
 }
 
+async function checkOtaAndInit() {
+  try {
+    const res = await fetch(BASE + '/ota/version');
+    if (res.ok) {
+      const data = await res.json();
+      const remoteVersion = data.version || '';
+      const localVersion = localStorage.getItem('webVersion') || '';
+      if (remoteVersion && remoteVersion !== localVersion) {
+        // Новая версия — скачиваем bundle
+        console.log('[ota] new version', remoteVersion, 'local:', localVersion);
+        const bundleRes = await fetch(BASE + '/ota/bundle');
+        if (bundleRes.ok) {
+          // Сохраняем новую версию и перезагружаем
+          // Полноценная распаковка через JSZip — следующий этап (требует Capacitor.Filesystem)
+          // Сейчас: просто запоминаем версию, reload
+          localStorage.setItem('webVersion', remoteVersion);
+          location.reload();
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    console.log('[ota] check failed, proceeding normally', e);
+  }
+  init();
+}
+
 async function init() {
   const msgs = document.getElementById('messages');
   const form = document.getElementById('form');
@@ -220,7 +247,7 @@ async function init() {
 if (!BASE) {
   document.getElementById('server-overlay').style.display = 'flex';
 } else {
-  init();
+  checkOtaAndInit();
 }
 </script>
 </body>

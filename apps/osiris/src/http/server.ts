@@ -1,7 +1,9 @@
 // apps/osiris/src/http/server.ts
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import archiver from 'archiver';
 import express, { type Express, type Request, type Response } from 'express';
 import { compileSource } from '../../../../src/compiler/compiler';
 import * as storage from '../../../../src/runtime/storage';
@@ -17,6 +19,7 @@ import { startTunnel } from './tunnel';
 import { buildPipelineCompletedEvent, logPipelineCompletedEvent } from './pipeline-observability';
 
 const OSIRIS_VERSION = '0.1.0';
+const CHAT_WEB_WWW = path.resolve(__dirname, '..', '..', '..', '..', 'apps', 'chat-web', 'www');
 
 interface ChatRequestBody {
   userId?: unknown;
@@ -167,6 +170,42 @@ export function createHttpApp(): Express {
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', version: OSIRIS_VERSION });
+  });
+
+  app.get('/ota/version', (_req: Request, res: Response) => {
+    try {
+      const versionFile = path.join(CHAT_WEB_WWW, 'version.json');
+      if (!fs.existsSync(versionFile)) {
+        res.status(404).json({ error: 'version.json not found' });
+        return;
+      }
+      const content = fs.readFileSync(versionFile, 'utf-8');
+      res.json(JSON.parse(content));
+    } catch {
+      res.status(500).json({ error: 'failed to read version.json' });
+    }
+  });
+
+  app.get('/ota/bundle', (_req: Request, res: Response) => {
+    try {
+      if (!fs.existsSync(CHAT_WEB_WWW)) {
+        res.status(404).json({ error: 'www directory not found' });
+        return;
+      }
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename="osiris-web.zip"');
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.on('error', (err) => {
+        console.error('[osiris:http] /ota/bundle archiver error', err);
+        if (!res.headersSent) res.status(500).end();
+      });
+      archive.pipe(res);
+      archive.directory(CHAT_WEB_WWW, false);
+      void archive.finalize();
+    } catch (e) {
+      console.error('[osiris:http] /ota/bundle failed', e);
+      if (!res.headersSent) res.status(500).json({ error: 'failed to create bundle' });
+    }
   });
 
   const MAX_WAIT_MS = 20_000;
