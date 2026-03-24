@@ -26,6 +26,7 @@ import { buildOsirisContext } from '../core/osiris-context';
 import { runOsirisPipeline } from '../osnova/client';
 import { startTunnel } from './tunnel';
 import { buildPipelineCompletedEvent, logPipelineCompletedEvent } from './pipeline-observability';
+import { compileSource } from '../../../../src/compiler/compiler';
 
 const OSIRIS_VERSION = '0.1.0';
 const CHAT_WEB_WWW = path.resolve(__dirname, '..', '..', '..', '..', 'apps', 'chat-web', 'www');
@@ -649,6 +650,32 @@ export function createHttpApp(): Express {
     } catch (e) {
       console.error('[osiris:http] PATCH /tasks/:taskId failed', e);
       res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  // ── Compile API ──────────────────────────────────────────────────────────
+
+  app.post('/compile', (req: Request, res: Response) => {
+    try {
+      const source = req.body?.source;
+      if (!source || typeof source !== 'string' || source.trim().length === 0) {
+        res.status(400).json({ ok: false, errors: ['source is required string'] });
+        return;
+      }
+      const result = compileSource(source.trim());
+      if (!result.compilerSuccess) {
+        const errors = [
+          ...result.lexerErrors.map((e) => `[lexer] ${e.message}`),
+          ...result.parserErrors.map((e) => `[parser] ${e.message}`),
+          ...result.compilerErrors.map((e) => e.message),
+        ];
+        res.json({ ok: false, errors });
+        return;
+      }
+      res.json({ ok: true, bytecode: result.module });
+    } catch (e) {
+      console.error('[osiris:http] POST /compile failed', e);
+      res.status(500).json({ ok: false, errors: ['internal error'] });
     }
   });
 
