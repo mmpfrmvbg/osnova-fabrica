@@ -33,6 +33,7 @@
     "osnova-mini-os:e2e": "tsx src/scripts/osnova-mini-os-e2e.ts",
     "traces": "tsx src/scripts/trace-viewer.ts",
     "center": "tsx src/center/index.ts",
+    "osnova": "tsx src/cli/index.ts",
     "batch": "tsx src/scripts/batch-run.ts",
     "batch-run": "tsx src/scripts/batch-run.ts",
     "shadow-report": "tsx src/scripts/aggregate-shadow.ts",
