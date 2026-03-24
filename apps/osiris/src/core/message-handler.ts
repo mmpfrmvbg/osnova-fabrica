@@ -21,6 +21,7 @@ import {
   notifyPush,
 } from './tools/system-tools';
 import { startAutonomousJob } from './autonomous-runner';
+import { getDb } from '../db/migrations';
 
 export interface HandleResult {
   reply: string;
@@ -409,6 +410,7 @@ export async function handleMessage(
   let reply: string;
   let trackedFacts = 0;
   let trackedTasks = 0;
+  let toolCalls: ToolCall[] = [];
 
   async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
     if (name === 'remember_fact') {
@@ -526,7 +528,7 @@ export async function handleMessage(
       tool_choice: 'auto',
     });
 
-    const toolCalls = firstResult.toolCalls ?? [];
+    toolCalls = firstResult.toolCalls ?? [];
     if (toolCalls.length > 0) {
       const toolMessages: ChatMessage[] = [];
       for (const tc of toolCalls) {
@@ -613,6 +615,23 @@ export async function handleMessage(
     sessionId: null,
     rawJson: null,
   });
+
+  // ── Training data capture ────────────────────────────────────────────
+  try {
+    const recentFacts = memory.getRecentFacts(userId, 10);
+    const snapshot = JSON.stringify({ facts: recentFacts, coreMemory });
+    const toolCallsJson = toolCalls && toolCalls.length > 0
+      ? JSON.stringify(toolCalls)
+      : null;
+    getDb().prepare(
+      `INSERT INTO training_samples
+         (user_id, user_message, assistant_reply, tool_calls, context_snapshot)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(userId, message.text, rawReply, toolCallsJson, snapshot);
+  } catch (e) {
+    console.error('[osiris:training] failed to save sample:',
+      e instanceof Error ? e.message : String(e));
+  }
 
   return { reply: displayReply, mode: _mode, trackedFacts, trackedTasks };
 }

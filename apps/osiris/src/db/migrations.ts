@@ -151,6 +151,25 @@ export function migrate(): void {
   } catch {
     // Колонка уже существует — игнорируем
   }
+  try {
+    getDb().exec(`
+      CREATE TABLE IF NOT EXISTS training_samples (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+        user_id           TEXT    NOT NULL,
+        user_message      TEXT    NOT NULL,
+        assistant_reply   TEXT    NOT NULL,
+        tool_calls        TEXT,
+        context_snapshot  TEXT,
+        quality           INTEGER DEFAULT NULL
+      )
+    `);
+    getDb().exec(
+      'CREATE INDEX IF NOT EXISTS idx_training_user ON training_samples(user_id)'
+    );
+  } catch {
+    // уже существует — игнорируем
+  }
   _schemaApplied = true;
   console.log('[osiris:migrate] schema applied →', DB_PATH);
 }

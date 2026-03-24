@@ -660,6 +660,56 @@ export function createHttpApp(): Express {
     res.json({ ok: true });
   });
 
+  app.get('/export/training', (req, res) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string'
+        ? req.query['userId'].trim()
+        : '';
+      const limit = parseInt(String(req.query['limit'] ?? '1000'), 10);
+      const safeLimit = Number.isFinite(limit) && limit > 0
+        ? Math.min(limit, 10000)
+        : 1000;
+
+      type SampleRow = {
+        user_message: string;
+        assistant_reply: string;
+      };
+
+      const rows: SampleRow[] = userId
+        ? getDb()
+            .prepare(
+              'SELECT user_message, assistant_reply FROM training_samples WHERE user_id = ? ORDER BY id DESC LIMIT ?'
+            )
+            .all(userId, safeLimit) as SampleRow[]
+        : getDb()
+            .prepare(
+              'SELECT user_message, assistant_reply FROM training_samples ORDER BY id DESC LIMIT ?'
+            )
+            .all(safeLimit) as SampleRow[];
+
+      const jsonl = rows
+        .map((r) =>
+          JSON.stringify({
+            messages: [
+              { role: 'user', content: r.user_message },
+              { role: 'assistant', content: r.assistant_reply },
+            ],
+          })
+        )
+        .join('\n');
+
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename="osiris-training.jsonl"'
+      );
+      res.send(jsonl || '');
+    } catch (e) {
+      console.error('[osiris:export] training export failed', e);
+      res.status(500).json({ error: 'export failed' });
+    }
+  });
+
   return app;
 }
 
