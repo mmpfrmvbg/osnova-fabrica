@@ -3,14 +3,36 @@ import { spawnSync } from 'child_process';
 import type { JarvisMode } from '../types';
 
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
+
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
 }
 
 export interface LlmResponse {
   text: string;
   tokensUsed: { prompt: number; completion: number };
   model: string;
+  toolCalls?: ToolCall[];
 }
 
 const HTTP_TIMEOUT_MS = 30_000;
@@ -26,7 +48,10 @@ function buildPrompt(messages: ChatMessage[]): string {
     .join('\n');
 }
 
-async function callQwenCli(messages: ChatMessage[]): Promise<LlmResponse> {
+async function callQwenCli(
+  messages: ChatMessage[],
+  _options?: { tools?: ToolDefinition[]; tool_choice?: 'auto' | 'none' },
+): Promise<LlmResponse> {
   const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
   const prompt = buildPrompt(messages);
 
@@ -60,7 +85,10 @@ async function callQwenCli(messages: ChatMessage[]): Promise<LlmResponse> {
   return { text, tokensUsed: { prompt: 0, completion: 0 }, model };
 }
 
-async function callHttpApi(messages: ChatMessage[]): Promise<LlmResponse> {
+async function callHttpApi(
+  messages: ChatMessage[],
+  options?: { tools?: ToolDefinition[]; tool_choice?: 'auto' | 'none' },
+): Promise<LlmResponse> {
   const apiKey = process.env.LLM_API_KEY ?? '';
   const baseUrl = process.env.LLM_BASE_URL ?? 'https://api.deepseek.com';
   const model = process.env.LLM_MODEL ?? 'deepseek-chat';
@@ -81,12 +109,17 @@ async function callHttpApi(messages: ChatMessage[]): Promise<LlmResponse> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model, messages, stream: false }),
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: false,
+        ...(options?.tools ? { tools: options.tools, tool_choice: options.tool_choice ?? 'auto' } : {}),
+      }),
       signal: controller.signal,
     });
 
     const json = await res.json() as {
-      choices?: { message?: { content?: string } }[];
+      choices?: { message?: { content?: string; tool_calls?: ToolCall[] } }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number };
       model?: string;
       error?: { message?: string };
@@ -99,6 +132,7 @@ async function callHttpApi(messages: ChatMessage[]): Promise<LlmResponse> {
     }
 
     const text = json.choices?.[0]?.message?.content ?? '';
+    const rawToolCalls = json.choices?.[0]?.message?.tool_calls as ToolCall[] | undefined;
     return {
       text,
       tokensUsed: {
@@ -106,6 +140,7 @@ async function callHttpApi(messages: ChatMessage[]): Promise<LlmResponse> {
         completion: json.usage?.completion_tokens ?? 0,
       },
       model: json.model ?? model,
+      toolCalls: rawToolCalls,
     };
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') {
@@ -120,10 +155,11 @@ async function callHttpApi(messages: ChatMessage[]): Promise<LlmResponse> {
 export async function call(
   messages: ChatMessage[],
   _mode: JarvisMode = 'chat',
+  options?: { tools?: ToolDefinition[]; tool_choice?: 'auto' | 'none' },
 ): Promise<LlmResponse> {
   const provider = process.env.OSNOVA_PROVIDER ?? 'openai-compatible';
   if (provider === 'qwen-cli') {
-    return callQwenCli(messages);
+    return callQwenCli(messages, options);
   }
-  return callHttpApi(messages);
+  return callHttpApi(messages, options);
 }

@@ -2,11 +2,8 @@
 import type { IncomingMessage, JarvisMode } from '../types';
 import * as memory from './memory-engine';
 import { call as callLlm } from './llm-router';
-import type { ChatMessage } from './llm-router';
-import { runOsirisPipeline } from '../osnova/client';
-import { buildPipelineSpecContext } from '../osnova/context-builder';
+import type { ChatMessage, ToolCall, ToolDefinition } from './llm-router';
 import { buildContext } from './context-builder';
-import { extractActions } from './action-extractor';
 import { runSummarizerIfNeeded } from './memory-summarizer';
 import { checkConnectivity } from './connectivity';
 import { buildOsirisContext, setLastError } from './osiris-context';
@@ -22,32 +19,78 @@ const SYSTEM_PROMPT =
   'Ты — Осирис, персональный AI-ассистент. Отвечай кратко и по делу. ' +
   'Помни контекст разговора.';
 
-// ── Intent detection ───────────────────────────────────────────────────────
-
-function detectIntent(
-  text: string,
-): { type: 'add_task'; title: string }
-  | { type: 'list_tasks' }
-  | { type: 'complete_task'; num: number }
-  | null {
-  let m: RegExpMatchArray | null;
-
-  m = text.match(/добавь задачу\s+(.+)/i)
-    ?? text.match(/нужно сделать\s+(.+)/i)
-    ?? text.match(/запомни\s+(.+?)\s+нужно сделать/i);
-  if (m) return { type: 'add_task', title: m[1].trim() };
-
-  if (/покажи задачи|мои задачи|что нужно сделать/i.test(text)) {
-    return { type: 'list_tasks' };
-  }
-
-  m = text.match(/выполнено\s+(\d+)/i)
-    ?? text.match(/закрой задачу\s+(\d+)/i)
-    ?? text.match(/сделал\s+(\d+)/i);
-  if (m) return { type: 'complete_task', num: parseInt(m[1], 10) };
-
-  return null;
-}
+const OSIRIS_TOOLS: ToolDefinition[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'remember_fact',
+      description: 'Сохранить факт о пользователе или проекте в долгосрочную память',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: 'Текст факта' },
+          importance: { type: 'number', description: 'Важность 1-5, по умолчанию 3' },
+          project: { type: 'string', description: 'Проект (опционально)' },
+        },
+        required: ['content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'recall_facts',
+      description: 'Найти релевантные факты из памяти по запросу',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Поисковый запрос' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_task',
+      description: 'Добавить задачу пользователю',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Название задачи' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'complete_task',
+      description: 'Отметить задачу выполненной по её порядковому номеру из списка',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_number: { type: 'number', description: 'Порядковый номер задачи из списка' },
+        },
+        required: ['task_number'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_tasks',
+      description: 'Получить список открытых задач пользователя',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+];
 
 function formatTaskList(tasks: memory.Task[]): string {
   if (tasks.length === 0) return 'Открытых задач нет.';
@@ -62,155 +105,8 @@ export async function handleMessage(
 ): Promise<HandleResult> {
   void checkConnectivity().then((result) => console.log('[osiris:connectivity]', result));
   const userId = message.userId;
-  const intent = detectIntent(message.text);
-
-  // ── Structured intents (no LLM needed) ──────────────────────────────────
-  if (intent?.type === 'add_task') {
-    const task = memory.addTask(userId, intent.title);
-    return {
-      reply: `Задача добавлена: #${task.id} ${task.title}`,
-      mode: _mode,
-      trackedFacts: 0,
-      trackedTasks: 1,
-    };
-  }
-
-  if (intent?.type === 'list_tasks') {
-    const tasks = memory.getTasks(userId, 'open');
-    return {
-      reply: formatTaskList(tasks),
-      mode: _mode,
-      trackedFacts: 0,
-      trackedTasks: tasks.length,
-    };
-  }
-
-  if (intent?.type === 'complete_task') {
-    // num — это порядковый номер из списка, нужно найти реальный id
-    const tasks = memory.getTasks(userId, 'open');
-    const task = tasks[intent.num - 1];
-    if (!task) {
-      return {
-        reply: `Задача #${intent.num} не найдена. Используй "мои задачи" чтобы увидеть список.`,
-        mode: _mode,
-        trackedFacts: 0,
-        trackedTasks: 0,
-      };
-    }
-    memory.completeTask(userId, task.id);
-    return {
-      reply: `Задача выполнена: ${task.title}`,
-      mode: _mode,
-      trackedFacts: 0,
-      trackedTasks: 1,
-    };
-  }
 
   const llmContext = await buildContext(message);
-  const extracted = await extractActions(message.text, llmContext);
-
-  if (extracted.intent === 'task' && extracted.tasks.length > 0) {
-    const created = extracted.tasks.map((title) => memory.addTask(userId, title));
-    return {
-      reply: `Добавил задачи:\n${created.map((t) => `#${t.id} ${t.title}`).join('\n')}`,
-      mode: _mode,
-      trackedFacts: 0,
-      trackedTasks: created.length,
-    };
-  }
-
-  if (extracted.intent === 'fact' && extracted.facts.length > 0) {
-    const saved = await memory.saveFacts(
-      extracted.facts.map((text) => ({
-        kind: 'user_profile',
-        project: 'assistant',
-        text,
-        importance: 3,
-      })),
-      0,
-      userId,
-    );
-    return {
-      reply: `Запомнил ${saved.length} факт(ов).`,
-      mode: _mode,
-      trackedFacts: saved.length,
-      trackedTasks: 0,
-    };
-  }
-
-  if (extracted.intent === 'build') {
-    const buildTask = extracted.tasks[0] ?? message.text;
-    await memory.saveMessage({
-      userId,
-      chatId: message.chatId ?? userId,
-      messageId: message.id,
-      role: 'user',
-      text: message.text,
-      timestamp: message.timestamp ?? new Date().toISOString(),
-      tags: ['pipeline'],
-      projectHint: 'fabric',
-      sessionId: null,
-      rawJson: null,
-    });
-    setImmediate(() => { void runSummarizerIfNeeded(userId); });
-
-    try {
-      const specContext = await buildPipelineSpecContext(message);
-      console.log(`[osiris] pipeline requested: "${buildTask}"`);
-      console.log(
-        `[osiris:pipeline] context prepared, userId=${userId}, history=${specContext.userHistory.length}`,
-      );
-      const pipelineResult = await runOsirisPipeline(buildTask);
-      const header = `Фабрика запущена, задача: "${buildTask}".\n`;
-      const reply = pipelineResult.status === 'ok'
-        ? `${header}Готово: ${pipelineResult.summary}`
-        : `${header}Ошибка при генерации: ${pipelineResult.summary}`;
-
-      await memory.saveMessage({
-        userId,
-        chatId: message.chatId ?? userId,
-        messageId: null,
-        role: 'assistant',
-        text: reply,
-        timestamp: new Date().toISOString(),
-        tags: ['pipeline'],
-        projectHint: 'fabric',
-        sessionId: null,
-        rawJson: JSON.stringify(pipelineResult.raw),
-      });
-
-      return {
-        reply,
-        mode: _mode,
-        trackedFacts: 0,
-        trackedTasks: 0,
-      };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[osiris:pipeline] failed in message-handler:', msg);
-      const reply = `Фабрика запущена, задача: ${buildTask}\n\nРезультат: Pipeline завершился с ошибкой: ${msg}.`;
-
-      await memory.saveMessage({
-        userId,
-        chatId: message.chatId ?? userId,
-        messageId: null,
-        role: 'assistant',
-        text: reply,
-        timestamp: new Date().toISOString(),
-        tags: ['pipeline'],
-        projectHint: 'fabric',
-        sessionId: null,
-        rawJson: null,
-      });
-
-      return {
-        reply,
-        mode: _mode,
-        trackedFacts: 0,
-        trackedTasks: 0,
-      };
-    }
-  }
 
   // ── LLM path ────────────────────────────────────────────────────────────
 
@@ -248,10 +144,101 @@ export async function handleMessage(
   setImmediate(() => { void runSummarizerIfNeeded(userId); });
 
   let reply: string;
+  let trackedFacts = 0;
+  let trackedTasks = 0;
+
+  async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+    if (name === 'remember_fact') {
+      const content = typeof args.content === 'string' ? args.content.trim() : '';
+      if (!content) return 'Ошибка: content обязателен.';
+      const rawImportance = typeof args.importance === 'number' ? args.importance : 3;
+      const importance = Math.max(1, Math.min(5, Number(rawImportance) || 3));
+      const project = typeof args.project === 'string' && args.project.trim()
+        ? args.project.trim()
+        : 'assistant';
+      await memory.saveFacts(
+        [{ kind: 'user_profile', project, text: content, importance }],
+        0,
+        userId,
+      );
+      trackedFacts += 1;
+      return 'Факт сохранён.';
+    }
+    if (name === 'recall_facts') {
+      const query = typeof args.query === 'string' ? args.query.trim() : '';
+      if (!query) return 'Ошибка: query обязателен.';
+      const facts = await memory.getRelevantFacts(query, 'unknown', 5);
+      return JSON.stringify(facts);
+    }
+    if (name === 'add_task') {
+      const title = typeof args.title === 'string' ? args.title.trim() : '';
+      if (!title) return 'Ошибка: title обязателен.';
+      const task = memory.addTask(userId, title);
+      trackedTasks += 1;
+      return `Задача добавлена: #${task.id}`;
+    }
+    if (name === 'complete_task') {
+      const taskNumber = typeof args.task_number === 'number' ? args.task_number : Number.NaN;
+      if (!Number.isFinite(taskNumber)) return 'Ошибка: task_number обязателен.';
+      const tasks = memory.getTasks(userId, 'open');
+      const task = tasks[Math.trunc(taskNumber) - 1];
+      if (!task) return 'Задача не найдена.';
+      memory.completeTask(userId, task.id);
+      trackedTasks += 1;
+      return 'Задача выполнена.';
+    }
+    if (name === 'get_tasks') {
+      const tasks = memory.getTasks(userId, 'open');
+      return formatTaskList(tasks);
+    }
+    return 'Инструмент не найден.';
+  }
+
   try {
-    const result = await callLlm(messages, _mode);
-    reply = result.text;
-    setLastError(null);
+    const firstResult = await callLlm(messages, _mode, {
+      tools: OSIRIS_TOOLS,
+      tool_choice: 'auto',
+    });
+
+    const toolCalls = firstResult.toolCalls ?? [];
+    if (toolCalls.length > 0) {
+      const toolMessages: ChatMessage[] = [];
+      for (const tc of toolCalls) {
+        const toolName = tc.function?.name ?? '';
+        let args: Record<string, unknown> = {};
+        try {
+          args = tc.function?.arguments
+            ? JSON.parse(tc.function.arguments) as Record<string, unknown>
+            : {};
+        } catch {
+          args = {};
+        }
+        const toolResult = await executeTool(toolName, args);
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          name: toolName,
+          content: toolResult,
+        });
+      }
+
+      const extendedMessages: ChatMessage[] = [
+        ...messages,
+        {
+          role: 'assistant',
+          content: firstResult.text ?? '',
+          tool_calls: toolCalls as ToolCall[],
+        },
+        ...toolMessages,
+      ];
+
+      const secondResult = await callLlm(extendedMessages, _mode, { tool_choice: 'none' });
+      reply = secondResult.text;
+      setLastError(null);
+    } else {
+      reply = firstResult.text;
+      setLastError(null);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[osiris:handler] LLM error:', msg);
@@ -272,5 +259,5 @@ export async function handleMessage(
     rawJson: null,
   });
 
-  return { reply, mode: _mode, trackedFacts: 0, trackedTasks: 0 };
+  return { reply, mode: _mode, trackedFacts, trackedTasks };
 }
