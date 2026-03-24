@@ -1032,3 +1032,37 @@ describe("VM: invoke unknown", () => {
     await expect(vm.runProcedure(0, [])).rejects.toThrow(/Unknown invoke/);
   });
 });
+
+describe("Compiler: именованные записи (record constructor)", () => {
+  it("Точка { х: 3, у: 4 } → p.х + p.у == 7", async () => {
+    const src = `модуль т
+процедура главная()
+  пусть p = Точка { х: 3, у: 4 }
+  вернуть p.х + p.у
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    const idx = vm.findProcedureIndex("главная");
+    expect(await vm.runProcedure(idx, [])).toBe(7);
+  });
+
+  it("изменение поля: p.х = 10 → p.х + p.у == 14", async () => {
+    const src = `модуль т
+процедура главная()
+  пусть p = Точка { х: 3, у: 4 }
+  p.х = 10
+  вернуть p.х + p.у
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    const idx = vm.findProcedureIndex("главная");
+    expect(await vm.runProcedure(idx, [])).toBe(14);
+  });
+
+});

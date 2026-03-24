@@ -856,6 +856,31 @@ export function parse(tokens: Token[]): ParseResult {
       advance();
       const name = String(t.value ?? t.lexeme);
       let expr: Expr = { kind: "переменная", name };
+      // Именованный конструктор записи: Имя { поле: значение, ... }
+      // Компилируется как обычный объектный литерал — никаких новых AST-узлов.
+      if (peek().kind === "{") {
+        advance(); // consume "{"
+        skipNewlines();
+        const entries: Array<{ key: string; value: Expr }> = [];
+        while (peek().kind !== "}" && peek().kind !== "конец_файла") {
+          const keyTok = peek();
+          if (keyTok.kind !== "идентификатор") break;
+          advance();
+          const key = String(keyTok.value ?? keyTok.lexeme);
+          if (!consume(":", "Ожидается ':' после ключа записи")) return null;
+          skipNewlines();
+          const val = parseExpr();
+          if (!val) return null;
+          entries.push({ key, value: val });
+          skipNewlines();
+          if (peek().kind === ",") {
+            advance();
+            skipNewlines();
+          } else break;
+        }
+        if (!consume("}", "Ожидается '}' после тела записи")) return null;
+        return { kind: "объект", entries };
+      }
       while (peek().kind === "." && peek().kind !== "конец_файла") {
         advance();
         if (!isAt("идентификатор")) break;
