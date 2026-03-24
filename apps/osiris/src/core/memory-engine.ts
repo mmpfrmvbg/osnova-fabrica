@@ -10,6 +10,9 @@ import type {
   CoreMemoryContent,
   SessionSummary,
   WorkingMemoryResult,
+  Entity,
+  Relation,
+  GraphRecallResult,
 } from '../types';
 
 export interface Task {
@@ -78,6 +81,55 @@ function rowToSessionSummary(row: Record<string, unknown>): SessionSummary {
     messageCount: (row['message_count'] as number) ?? 0,
     createdAt: row['created_at'] as string,
   };
+}
+
+function rowToEntity(row: Record<string, unknown>): Entity {
+  let metadata: Record<string, unknown> = {};
+  try {
+    metadata = JSON.parse(row['metadata'] as string) as Record<string, unknown>;
+  } catch {
+    metadata = {};
+  }
+  return {
+    id: row['id'] as number,
+    userId: row['user_id'] as string,
+    name: row['name'] as string,
+    type: row['type'] as string,
+    metadata,
+    createdAt: row['created_at'] as string,
+  };
+}
+
+function rowToRelation(row: Record<string, unknown>): Relation {
+  return {
+    id: row['id'] as number,
+    userId: row['user_id'] as string,
+    fromId: row['from_id'] as number,
+    toId: row['to_id'] as number,
+    predicate: row['predicate'] as string,
+    weight: row['weight'] as number,
+    createdAt: row['created_at'] as string,
+  };
+}
+
+function upsertEntity(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  name: string,
+  type: string,
+  metadata: Record<string, unknown>,
+): number {
+  const now = new Date().toISOString();
+  // INSERT OR IGNORE если ещё нет
+  db.prepare(`
+    INSERT OR IGNORE INTO entities (user_id, name, type, metadata, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(userId, name, type, JSON.stringify(metadata), now);
+  // SELECT id
+  const row = db
+    .prepare('SELECT id FROM entities WHERE user_id = ? AND name = ?')
+    .get(userId, name) as { id: number };
+  return row.id;
 }
 
 export async function saveSessionSummary(
@@ -154,6 +206,67 @@ export async function summarizeSession(userId: string): Promise<void> {
   } catch (e) {
     console.error('[osiris:summarizeSession] failed:', e instanceof Error ? e.message : String(e));
   }
+}
+
+export async function graphRemember(
+  userId: string,
+  subject: string,
+  predicate: string,
+  object: string,
+  metadata: Record<string, unknown> = {},
+): Promise<{ fromId: number; toId: number; relationId: number }> {
+  ensureInit();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const fromId = upsertEntity(db, userId, subject, 'concept', metadata);
+  const toId = upsertEntity(db, userId, object, 'concept', {});
+  const result = db.prepare(`
+    INSERT INTO relations (user_id, from_id, to_id, predicate, weight, created_at)
+    VALUES (?, ?, ?, ?, 1.0, ?)
+  `).run(userId, fromId, toId, predicate, now);
+  return { fromId, toId, relationId: result.lastInsertRowid as number };
+}
+
+export async function graphRecall(
+  userId: string,
+  query: string,
+): Promise<GraphRecallResult> {
+  ensureInit();
+  const db = getDb();
+  const pattern = `%${query}%`;
+  // Найти сущности по имени или metadata
+  const entityRows = db.prepare(`
+    SELECT * FROM entities
+    WHERE user_id = ? AND (name LIKE ? OR metadata LIKE ?)
+    ORDER BY created_at DESC
+    LIMIT 20
+  `).all(userId, pattern, pattern) as Record<string, unknown>[];
+  const entities = entityRows.map(rowToEntity);
+  if (entities.length === 0) return { entities: [], relations: [] };
+
+  const ids = entities.map((e) => e.id);
+  // Подтянуть relations в обоих направлениях
+  const placeholders = ids.map(() => '?').join(', ');
+  const relRows = db.prepare(`
+    SELECT * FROM relations
+    WHERE user_id = ? AND (from_id IN (${placeholders}) OR to_id IN (${placeholders}))
+    ORDER BY created_at DESC
+    LIMIT 50
+  `).all(userId, ...ids, ...ids) as Record<string, unknown>[];
+  const relations = relRows.map(rowToRelation);
+  return { entities, relations };
+}
+
+export async function getRecentEntities(userId: string, limit = 10): Promise<Entity[]> {
+  ensureInit();
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT * FROM entities
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(userId, limit) as Record<string, unknown>[];
+  return rows.map(rowToEntity);
 }
 
 function touchFacts(rows: Record<string, unknown>[]): void {

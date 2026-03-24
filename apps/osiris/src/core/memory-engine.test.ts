@@ -131,3 +131,36 @@ describe('memory-engine session_summaries', () => {
     (await import('../db/migrations')).closeDb();
   });
 });
+
+describe('memory-engine graph', () => {
+  const tempRoot = path.join(os.tmpdir(), 'osiris-graph-tests');
+
+  afterEach(async () => {
+    vi.resetModules();
+    delete process.env.OSIRIS_DB_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it('graphRemember and graphRecall finds relation', async () => {
+    await fs.promises.mkdir(tempRoot, { recursive: true });
+    const dbPath = path.join(tempRoot, `osiris-${Date.now()}.db`);
+    process.env.OSIRIS_DB_PATH = dbPath;
+
+    const memory = await import('./memory-engine');
+
+    await memory.graphRemember('user-graph-test', 'Осирис', 'служит', 'Создателю');
+    await memory.graphRemember('user-graph-test', 'Проект Основа', 'использует', 'Capacitor');
+
+    const result = await memory.graphRecall('user-graph-test', 'Осирис');
+
+    expect(result.entities.length).toBeGreaterThan(0);
+    const names = result.entities.map((e) => e.name);
+    expect(names).toContain('Осирис');
+
+    expect(result.relations.length).toBeGreaterThan(0);
+    const predicates = result.relations.map((r) => r.predicate);
+    expect(predicates).toContain('служит');
+
+    (await import('../db/migrations')).closeDb();
+  });
+});
