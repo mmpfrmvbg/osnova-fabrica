@@ -114,3 +114,11 @@ CREATE TABLE IF NOT EXISTS consolidation_log (
   summary       TEXT    NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS thoughts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    TEXT    NOT NULL,
+  message_id INTEGER,
+  content    TEXT    NOT NULL,
+  created_at TEXT    NOT NULL
+);
+

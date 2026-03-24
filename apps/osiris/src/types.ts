@@ -140,6 +140,14 @@ export interface ConsolidationResult {
   summary: string;
 }
 
+export interface ThoughtRecord {
+  id: number;
+  userId: string;
+  messageId: number | null;
+  content: string;
+  createdAt: string;
+}
+
 export interface JarvisContext {
   systemPrompt: string;
   conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;

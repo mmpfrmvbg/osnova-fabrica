@@ -14,6 +14,7 @@ import type {
   Relation,
   GraphRecallResult,
   ConsolidationResult,
+  ThoughtRecord,
 } from '../types';
 
 export interface Task {
@@ -109,6 +110,16 @@ function rowToRelation(row: Record<string, unknown>): Relation {
     toId: row['to_id'] as number,
     predicate: row['predicate'] as string,
     weight: row['weight'] as number,
+    createdAt: row['created_at'] as string,
+  };
+}
+
+function rowToThought(row: Record<string, unknown>): ThoughtRecord {
+  return {
+    id: row['id'] as number,
+    userId: row['user_id'] as string,
+    messageId: (row['message_id'] as number | null) ?? null,
+    content: row['content'] as string,
     createdAt: row['created_at'] as string,
   };
 }
@@ -403,6 +414,36 @@ export function getDistinctUserIds(): string[] {
   const db = getDb();
   const rows = db.prepare('SELECT DISTINCT user_id FROM facts').all() as Array<{ user_id: string }>;
   return rows.map((r) => r.user_id);
+}
+
+export async function saveThought(
+  userId: string,
+  content: string,
+  messageId?: number,
+): Promise<number> {
+  ensureInit();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const result = db.prepare(`
+    INSERT INTO thoughts (user_id, message_id, content, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(userId, messageId ?? null, content, now);
+  return result.lastInsertRowid as number;
+}
+
+export async function getRecentThoughts(
+  userId: string,
+  limit = 5,
+): Promise<ThoughtRecord[]> {
+  ensureInit();
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT * FROM thoughts
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(userId, limit) as Record<string, unknown>[];
+  return rows.map(rowToThought);
 }
 
 function touchFacts(rows: Record<string, unknown>[]): void {
