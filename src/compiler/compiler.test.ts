@@ -1256,3 +1256,104 @@ describe("система.строка.* — строковые операции"
   });
 });
 
+describe("система.математика.* — математические операции", () => {
+  it("математика.округлить", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.округлить(3.7)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(4);
+  });
+
+  it("математика.пол", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.пол(3.9)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(3);
+  });
+
+  it("математика.потолок", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.потолок(3.1)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(4);
+  });
+
+  it("математика.абс", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.абс(-5)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(5);
+  });
+
+  it("математика.макс", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.макс(3, 7)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(7);
+  });
+
+  it("математика.мин", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.мин(3, 7)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(3);
+  });
+
+  it("математика.степень", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.степень(2, 10)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(1024);
+  });
+
+  it("математика.корень", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.корень(9)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(3);
+  });
+
+  it("математика.остаток", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть система.математика.остаток(10, 3)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(1);
+  });
+});
+

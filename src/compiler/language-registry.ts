@@ -551,6 +551,15 @@ const SYSCALLS_V01: SyscallSpec[] = [
   { name: "система.json.создать", argc: 1, status: "stable", description: "Сериализация значения в JSON-строку", since: "1.7.0" },
   { name: "система.json.разобрать", argc: 1, status: "stable", description: "Десериализация JSON-строки в значение", since: "1.7.0" },
   { name: "система.ввод.текст", argc: 1, status: "experimental", description: "Читает строку ввода от пользователя", since: "1.7.0" },
+  { name: "система.математика.округлить", argc: 1, status: "stable", description: "Округление до ближайшего целого", since: "2.0.1" },
+  { name: "система.математика.пол", argc: 1, status: "stable", description: "Округление вниз", since: "2.0.1" },
+  { name: "система.математика.потолок", argc: 1, status: "stable", description: "Округление вверх", since: "2.0.1" },
+  { name: "система.математика.абс", argc: 1, status: "stable", description: "Абсолютное значение", since: "2.0.1" },
+  { name: "система.математика.макс", argc: 2, status: "stable", description: "Максимум из двух чисел", since: "2.0.1" },
+  { name: "система.математика.мин", argc: 2, status: "stable", description: "Минимум из двух чисел", since: "2.0.1" },
+  { name: "система.математика.степень", argc: 2, status: "stable", description: "Возведение в степень", since: "2.0.1" },
+  { name: "система.математика.корень", argc: 1, status: "stable", description: "Квадратный корень", since: "2.0.1" },
+  { name: "система.математика.остаток", argc: 2, status: "stable", description: "Остаток от деления (а % б)", since: "2.0.1" },
 ];
 
 const LITERALS_V01: LiteralSpec[] = [

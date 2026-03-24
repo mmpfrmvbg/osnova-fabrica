@@ -182,6 +182,59 @@ function createDefaultInvokeHandler(): InvokeHandler {
       const diffDays = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
       return Math.floor(diffDays);
     }
+    case "система.лог.вывести": {
+      console.log(args[0]);
+      return null;
+    }
+    case "система.время.сейчас": {
+      return Date.now();
+    }
+    case "система.строка.из_числа": {
+      return String(args[0] ?? "");
+    }
+    case "система.объект.получить": {
+      const obj = args[0];
+      const key = String(args[1] ?? "");
+      if (obj !== null && typeof obj === "object" && !Array.isArray(obj)) {
+        return (obj as Record<string, unknown>)[key] as StackValue ?? null;
+      }
+      return null;
+    }
+    case "система.json.создать": {
+      try {
+        return JSON.stringify(args[0]);
+      } catch {
+        return "null";
+      }
+    }
+    case "система.json.разобрать": {
+      try {
+        return JSON.parse(String(args[0] ?? "null")) as StackValue;
+      } catch {
+        return null;
+      }
+    }
+    case "система.математика.округлить":
+      return Math.round(Number(args[0] ?? 0));
+    case "система.математика.пол":
+      return Math.floor(Number(args[0] ?? 0));
+    case "система.математика.потолок":
+      return Math.ceil(Number(args[0] ?? 0));
+    case "система.математика.абс":
+      return Math.abs(Number(args[0] ?? 0));
+    case "система.математика.макс":
+      return Math.max(Number(args[0] ?? 0), Number(args[1] ?? 0));
+    case "система.математика.мин":
+      return Math.min(Number(args[0] ?? 0), Number(args[1] ?? 0));
+    case "система.математика.степень":
+      return Math.pow(Number(args[0] ?? 0), Number(args[1] ?? 0));
+    case "система.математика.корень":
+      return Math.sqrt(Number(args[0] ?? 0));
+    case "система.математика.остаток": {
+      const a = Number(args[0] ?? 0);
+      const b = Number(args[1] ?? 1);
+      return a % b;
+    }
     default:
       return null;
     }
