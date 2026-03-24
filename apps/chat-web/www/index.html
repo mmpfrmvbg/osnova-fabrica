@@ -5,7 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Осирис</title>
 <link rel="stylesheet" href="style.css"/>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/build/styles/github-dark.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/build/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+.msg-bot code { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
+.msg-bot pre { background: #1e1e1e; border-radius: 6px; overflow-x: auto; padding: 0; margin: 8px 0; }
+.msg-bot pre code { display: block; padding: 12px; background: transparent; }
+.msg-bot ul, .msg-bot ol { padding-left: 20px; margin: 6px 0; }
+.msg-bot table { border-collapse: collapse; margin: 8px 0; }
+.msg-bot th, .msg-bot td { border: 1px solid #444; padding: 4px 10px; }
+</style>
 </head>
 <body>
 <div class="header">Осирис</div>
@@ -125,7 +136,11 @@ async function streamChat(message, dot, msgs) {
             text += ev.token;
             dot.textContent = text;
           } else if (ev.done) {
-            if (!text) dot.textContent = '[пустой ответ]';
+            if (!text) { dot.textContent = '[пустой ответ]'; }
+            else {
+              dot.innerHTML = (typeof marked !== 'undefined') ? marked.parse(text) : text;
+              if (typeof hljs !== 'undefined') setTimeout(() => hljs.highlightAll(), 0);
+            }
           } else if (ev.error) {
             dot.textContent = '[ошибка] ' + ev.error;
           }
@@ -158,9 +173,16 @@ async function streamChat(message, dot, msgs) {
           if (!line.startsWith('data:')) continue;
           try {
             const ev = JSON.parse(line.slice(5).trim());
-            if (ev.token !== undefined) { text += ev.token; dot.textContent = text; }
-            else if (ev.done && !text) dot.textContent = '[пустой ответ]';
-            else if (ev.error) dot.textContent = '[ошибка] ' + ev.error;
+            if (ev.token !== undefined) {
+              text += ev.token;
+              dot.textContent = text;
+            } else if (ev.done) {
+              if (!text) { dot.textContent = '[пустой ответ]'; }
+              else {
+                dot.innerHTML = (typeof marked !== 'undefined') ? marked.parse(text) : text;
+                if (typeof hljs !== 'undefined') setTimeout(() => hljs.highlightAll(), 0);
+              }
+            } else if (ev.error) { dot.textContent = '[ошибка] ' + ev.error; }
           } catch { /* skip */ }
         }
       }
@@ -227,7 +249,12 @@ async function init() {
   function add(text, cls) {
     const d = document.createElement('div');
     d.className = 'msg ' + cls;
-    d.textContent = text;
+    if (cls === 'msg-bot') {
+      d.innerHTML = (typeof marked !== 'undefined') ? marked.parse(text) : text;
+      if (typeof hljs !== 'undefined') hljs.highlightAll();
+    } else {
+      d.textContent = text;
+    }
     msgs.appendChild(d);
     msgs.scrollTop = msgs.scrollHeight;
     return d;
