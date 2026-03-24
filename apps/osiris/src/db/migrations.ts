@@ -130,6 +130,14 @@ export function migrate(): void {
   } catch {
     // уже существует — игнорируем
   }
+  // Add project column to tasks if not exists
+  try {
+    getDb().exec(
+      "ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT 'general'",
+    );
+  } catch {
+    // уже существует — игнорируем
+  }
   // Добавляем колонку если её ещё нет (идемпотентно)
   try {
     getDb().exec('ALTER TABLE facts ADD COLUMN last_accessed_at TEXT');

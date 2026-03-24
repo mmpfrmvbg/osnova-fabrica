@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   status      TEXT    NOT NULL DEFAULT 'open'
                       CHECK(status IN ('open','done')),
   created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-  done_at     TEXT
+  done_at     TEXT,
+  project     TEXT    NOT NULL DEFAULT 'general'
 );
 
 CREATE TABLE IF NOT EXISTS connectivity_log (

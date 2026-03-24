@@ -21,7 +21,7 @@ import {
   getSessionSummaries,
   updateCoreMemory,
   getTasks,
-  completeTask,
+  updateTask,
 } from '../core/memory-engine';
 import { getDb } from '../db/migrations';
 import * as memory from '../core/memory-engine';
@@ -820,8 +820,14 @@ export function createHttpApp(): Express {
       const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
       if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
       const tasks = getTasks(userId, 'open');
-      // Группировка: Task не имеет поля project — возвращаем под ключом "all"
-      res.json({ all: tasks });
+      const grouped = tasks.reduce<Record<string, typeof tasks>>((acc, t) => {
+        const key = t.project || 'general';
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(t);
+        return acc;
+      }, {});
+      if (Object.keys(grouped).length === 0) grouped['general'] = [];
+      res.json(grouped);
     } catch (e) {
       console.error('[osiris:http] GET /tasks failed', e);
       res.status(500).json({ error: 'internal server error' });
@@ -852,22 +858,16 @@ export function createHttpApp(): Express {
         return;
       }
       const status = req.body?.status as string | undefined;
-      if (status === 'done') {
-        completeTask(userId, taskId);
-      } else if (status === 'pending') {
-        // Reset done → open
-        const db = getDb();
-        db.prepare(
-          "UPDATE tasks SET status='open', done_at=NULL WHERE id=? AND user_id=?",
-        ).run(taskId, userId);
-      } else {
+      if (status !== 'done' && status !== 'pending') {
         res.status(400).json({ error: 'status must be "done" or "pending"' });
         return;
       }
-      const allTasks = [...getTasks(userId, 'open'), ...getTasks(userId, 'done')];
-      const updated = allTasks.find((t) => t.id === taskId);
+      const mappedStatus: 'open' | 'done' = status === 'pending' ? 'open' : 'done';
+      const updated = updateTask(userId, taskId, { status: mappedStatus });
       if (!updated) { res.status(404).json({ error: 'task not found' }); return; }
-      res.json({ task: updated });
+      const all = [...getTasks(userId, 'open'), ...getTasks(userId, 'done')];
+      const task = all.find((t) => t.id === taskId);
+      res.json({ task: task ?? null });
     } catch (e) {
       console.error('[osiris:http] PATCH /tasks/:taskId failed', e);
       res.status(500).json({ error: 'internal server error' });

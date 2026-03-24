@@ -49,7 +49,14 @@ async function buildTestApp() {
     const userId = String(req.query['userId'] ?? '');
     if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
     const tasks = getTasks(userId, 'open');
-    res.json({ all: tasks });
+    const grouped = tasks.reduce<Record<string, typeof tasks>>((acc, t) => {
+      const key = t.project || 'general';
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(t);
+      return acc;
+    }, {});
+    if (Object.keys(grouped).length === 0) grouped['general'] = [];
+    res.json(grouped);
   });
 
   return { app, tempDir };
@@ -98,7 +105,8 @@ describe('Brain + Tasks API', () => {
   it('GET /tasks → возвращает объект с ключом all', async () => {
     const res = await request(app).get('/tasks?userId=test-tasks-user');
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('all');
-    expect(Array.isArray(res.body.all)).toBe(true);
+    expect(typeof res.body).toBe('object');
+    expect(res.body).toHaveProperty('general');
+    expect(Array.isArray(res.body['general'])).toBe(true);
   });
 });

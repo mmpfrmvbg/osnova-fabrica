@@ -22,6 +22,7 @@ export interface Task {
   userId: string;
   title: string;
   status: 'open' | 'done';
+  project: string;
   createdAt: string;
   doneAt: string | null;
 }
@@ -783,17 +784,29 @@ export async function updateCoreMemory(
   }
 }
 
-export function addTask(userId: string, title: string): Task {
+export function addTask(
+  userId: string,
+  title: string,
+  project = 'general',
+): Task {
   ensureInit();
   const db = getDb();
   const now = new Date().toISOString();
   const r = db
     .prepare(
-      `INSERT INTO tasks (user_id, title, status, created_at)
-       VALUES (?, ?, 'open', ?)`,
+      `INSERT INTO tasks (user_id, title, status, project, created_at)
+       VALUES (?, ?, 'open', ?, ?)`,
     )
-    .run(userId, title, now);
-  return { id: Number(r.lastInsertRowid), userId, title, status: 'open', createdAt: now, doneAt: null };
+    .run(userId, title, project, now);
+  return {
+    id: Number(r.lastInsertRowid),
+    userId,
+    title,
+    status: 'open',
+    project,
+    createdAt: now,
+    doneAt: null,
+  };
 }
 
 export function getTasks(userId: string, status: 'open' | 'done' = 'open'): Task[] {
@@ -810,6 +823,7 @@ export function getTasks(userId: string, status: 'open' | 'done' = 'open'): Task
     userId: r['user_id'] as string,
     title: r['title'] as string,
     status: r['status'] as 'open' | 'done',
+    project: (r['project'] as string | null) ?? 'general',
     createdAt: r['created_at'] as string,
     doneAt: (r['done_at'] as string | null) ?? null,
   }));
@@ -823,6 +837,39 @@ export function completeTask(userId: string, id: number): void {
     `UPDATE tasks SET status = 'done', done_at = ?
      WHERE id = ? AND user_id = ?`,
   ).run(now, id, userId);
+}
+
+export function updateTask(
+  userId: string,
+  taskId: number,
+  patch: { status?: 'open' | 'done'; title?: string },
+): boolean {
+  ensureInit();
+  const db = getDb();
+  const setParts: string[] = [];
+  const values: unknown[] = [];
+  if (patch.status !== undefined) {
+    setParts.push('status = ?');
+    values.push(patch.status);
+    if (patch.status === 'done') {
+      setParts.push('done_at = ?');
+      values.push(new Date().toISOString());
+    } else {
+      setParts.push('done_at = NULL');
+    }
+  }
+  if (patch.title !== undefined) {
+    setParts.push('title = ?');
+    values.push(patch.title);
+  }
+  if (setParts.length === 0) return false;
+  values.push(taskId, userId);
+  const result = db
+    .prepare(
+      `UPDATE tasks SET ${setParts.join(', ')} WHERE id = ? AND user_id = ?`,
+    )
+    .run(...values);
+  return result.changes > 0;
 }
 
 export function deleteTask(userId: string, id: number): void {

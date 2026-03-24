@@ -78,6 +78,7 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
         type: 'object',
         properties: {
           title: { type: 'string', description: 'Название задачи' },
+          project: { type: 'string', description: 'Проект (опционально, default: general)' },
         },
         required: ['title'],
       },
@@ -433,7 +434,10 @@ export async function handleMessage(
     if (name === 'add_task') {
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       if (!title) return 'Ошибка: title обязателен.';
-      const task = memory.addTask(userId, title);
+      const project = typeof args.project === 'string' && args.project.trim()
+        ? args.project.trim()
+        : 'general';
+      const task = memory.addTask(userId, title, project);
       trackedTasks += 1;
       return `Задача добавлена: #${task.id}`;
     }
