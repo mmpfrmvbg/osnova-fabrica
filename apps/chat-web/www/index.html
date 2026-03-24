@@ -244,7 +244,13 @@ async function loadTasks() {
     const res = await nativeFetch(BASE + '/tasks?userId=' + encodeURIComponent(USER_ID));
     if (!res.ok) { el.innerHTML = '<p style="color:#c00">Ошибка загрузки</p>'; return; }
     const data = await res.json();
-    const tasks = Array.isArray(data) ? data : (data.tasks || []);
+    let tasks = [];
+    if (Array.isArray(data)) {
+      tasks = data;
+    } else if (data && typeof data === 'object') {
+      // формат memory-engine: { projectName: [task, ...], ... }
+      tasks = Object.values(data).flat();
+    }
 
     el.innerHTML = '';
 

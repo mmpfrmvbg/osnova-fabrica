@@ -496,17 +496,6 @@ export function createHttpApp(): Express {
     }
   });
 
-  app.get('/tasks', async (_req: Request, res: Response) => {
-    try {
-      console.log('[osiris:http:tasks] GET /tasks');
-      const tasks = await listTaskDtos();
-      res.json(tasks);
-    } catch (e) {
-      console.error('[osiris:http:tasks] GET /tasks failed', e);
-      res.status(500).json({ error: 'internal server error' });
-    }
-  });
-
   app.patch('/tasks/:key', async (req: Request, res: Response) => {
     try {
       const key = String(req.params.key ?? '').trim();
