@@ -10,6 +10,7 @@ export interface SemanticError {
     | "chained_compare"
     | "unknown_syscall"
     | "unknown_procedure"
+    | "arg_count_mismatch"
     | "redeclare_var"
     | "keyword_param"
     | "keyword_as_identifier"
@@ -33,12 +34,16 @@ function isCompareExpr(expr: Expr): boolean {
 
 interface ModuleSemanticContext {
   knownProcedures?: Set<string>;
+  procedureArity?: Map<string, number>;
   namespaceProcedures?: Map<string, Set<string>>;
 }
 
 function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}): SemanticError[] {
   const errors: SemanticError[] = [];
   const knownProcedures = context.knownProcedures ?? new Set(ast.procedures.map((p) => p.name));
+  const procedureArity: Map<string, number> =
+    context.procedureArity ??
+    new Map(ast.procedures.map((p) => [p.name, p.params.length]));
   const namespaceProcedures = context.namespaceProcedures ?? new Map<string, Set<string>>();
   const kwSet = new Set(LANGUAGE_REGISTRY.keywords.map((k) => k.lexeme));
 
@@ -260,6 +265,15 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
             kind: "unknown_procedure",
             message: `процедура '${expr.name}' не объявлена в модуле`,
           });
+        } else {
+          // Процедура известна — проверяем число аргументов
+          const expectedArity = procedureArity.get(expr.name);
+          if (expectedArity !== undefined && expr.args.length !== expectedArity) {
+            errors.push({
+              kind: "arg_count_mismatch",
+              message: `процедура '${expr.name}' ожидает ${expectedArity} аргументов, получено ${expr.args.length}`,
+            });
+          }
         }
         for (const arg of expr.args) checkExpr(arg, declared);
         return;
@@ -474,6 +488,7 @@ export function analyzeProgram(program: Program): SemanticResult {
     errors.push(
       ...checkModuleSemantics(mod, {
         knownProcedures: new Set(mod.procedures.map((p) => p.name)),
+        procedureArity: new Map(mod.procedures.map((p) => [p.name, p.params.length])),
         namespaceProcedures,
       }),
     );

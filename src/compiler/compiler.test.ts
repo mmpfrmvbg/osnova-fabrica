@@ -803,6 +803,21 @@ describe("semantic checker", () => {
     expect(result.semanticErrors.filter((e) => e.kind === "unknown_procedure")).toHaveLength(0);
   });
 
+  it("arg_count_mismatch: вызов с неверным числом аргументов → ошибка", () => {
+    const src = `модуль t
+процедура сложить(а, б)
+  вернуть а + б
+конец
+процедура главная()
+  пусть р = сложить(1)
+конец
+конец`;
+    const result = compileSource(src);
+    expect(
+      result.semanticErrors.some((e) => e.kind === "arg_count_mismatch"),
+    ).toBe(true);
+  });
+
   it("redeclare var via пусть", () => {
     const src = `модуль t
 процедура главная()
@@ -924,6 +939,33 @@ describe("Compiler: procedure calls", () => {
     const vm = new VM(result.module!, { maxSteps: 10000 });
     const idx = vm.findProcedureIndex("главная");
     expect(await vm.runProcedure(idx, [])).toBe(152);
+  });
+
+  it("взаимная рекурсия: чётный/нечётный до 4 → истина", async () => {
+    const src = `модуль т
+процедура чётный(н)
+  если н == 0
+    вернуть 1
+  конец
+  вернуть нечётный(н - 1)
+конец
+процедура нечётный(н)
+  если н == 0
+    вернуть 0
+  конец
+  вернуть чётный(н - 1)
+конец
+процедура главная()
+  вернуть чётный(4)
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 10000 });
+    const idx = vm.findProcedureIndex("главная");
+    // чётный(4) → нечётный(3) → чётный(2) → нечётный(1) → чётный(0) → 1
+    expect(await vm.runProcedure(idx, [])).toBe(1);
   });
 });
 
