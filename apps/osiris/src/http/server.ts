@@ -618,11 +618,12 @@ export function createHttpApp(): Express {
         res.status(400).json({ error: 'userId query param is required' });
         return;
       }
-      const [recentMessages, recentFacts, activeTasks, osirisContext] = await Promise.all([
+      const [recentMessages, recentFacts, activeTasks, osirisContext, coreMemory] = await Promise.all([
         memory.getRecentMessages(userId, 5),
         memory.getRecentFacts(userId, 10),
         Promise.resolve(memory.getTasks(userId, 'open')),
         buildOsirisContext(userId),
+        memory.getCoreMemory(userId),
       ]);
       res.json({
         userId,
@@ -630,6 +631,7 @@ export function createHttpApp(): Express {
         recentFacts,
         activeTasks,
         osirisContext,
+        coreMemory,
       });
     } catch (e) {
       console.error('[osiris:debug] GET /debug/context failed', e);

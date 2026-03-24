@@ -1,5 +1,5 @@
 // apps/osiris/src/core/message-handler.ts
-import type { IncomingMessage, JarvisMode, ProjectHint } from '../types';
+import type { CoreMemoryContent, IncomingMessage, JarvisMode, ProjectHint } from '../types';
 import * as memory from './memory-engine';
 import { call as callLlm } from './llm-router';
 import type { ChatMessage, ToolCall, ToolDefinition } from './llm-router';
@@ -95,6 +95,23 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'update_core_memory',
+      description: 'Обновить постоянную память о пользователе/проекте. Вызывать когда узнал что-то важное о создателе, его целях или проекте.',
+      parameters: {
+        type: 'object',
+        properties: {
+          patch: {
+            type: 'object',
+            description: 'Частичный объект CoreMemoryContent для merge. Пример: { "user": { "name": "Михаил" } }',
+          },
+        },
+        required: ['patch'],
+      },
+    },
+  },
 ];
 
 const PROJECT_HINTS: ProjectHint[] = [
@@ -138,10 +155,17 @@ export async function handleMessage(
     ? `\nОткрытые задачи:\n${formatTaskList(openTasks)}`
     : '\nОткрытых задач нет.';
 
-  const osirisCtx = await buildOsirisContext(userId);
+  const [coreMemory, osirisCtx] = await Promise.all([
+    memory.getCoreMemory(userId),
+    buildOsirisContext(userId),
+  ]);
   const osirisCtxJson = JSON.stringify(osirisCtx, null, 2);
 
   const messages: ChatMessage[] = [
+    {
+      role: 'system',
+      content: `[CORE MEMORY]\n${JSON.stringify(coreMemory, null, 2)}`,
+    },
     { role: 'system', content: SYSTEM_PROMPT + taskContext },
     {
       role: 'system',
@@ -211,6 +235,13 @@ export async function handleMessage(
     if (name === 'get_tasks') {
       const tasks = memory.getTasks(userId, 'open');
       return formatTaskList(tasks);
+    }
+    if (name === 'update_core_memory') {
+      const patch = typeof args.patch === 'object' && args.patch !== null
+        ? args.patch as Partial<CoreMemoryContent>
+        : {};
+      await memory.updateCoreMemory(userId, patch);
+      return 'Память обновлена.';
     }
     return 'Инструмент не найден.';
   }
