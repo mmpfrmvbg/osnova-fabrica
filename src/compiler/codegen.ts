@@ -53,9 +53,13 @@ export function compile(ast: Module): OsVbcModule {
     const locals = new Map<string, number>();
     let forCounter = 0;
     let arrLiteralCounter = 0;
+    let objLiteralCounter = 0;
     proc.params.forEach((p, i) => locals.set(p, i));
     function scanExpr(expr: Expr): void {
       if (expr.kind === "объект") {
+        if (!locals.has(`__obj_literal_${objLiteralCounter}`))
+          locals.set(`__obj_literal_${objLiteralCounter}`, locals.size);
+        objLiteralCounter++;
         for (const { value } of expr.entries) scanExpr(value);
         return;
       }
@@ -139,6 +143,7 @@ export function compile(ast: Module): OsVbcModule {
     const continueTargets: { loopStart: number; foreachPatches?: number[] }[] = [];
     let emitForCounter = 0;
     let emitArrLiteralCounter = 0;
+    let emitObjLiteralCounter = 0;
 
     function emitExpr(expr: Expr, l: Map<string, number>): void {
       switch (expr.kind) {
@@ -224,14 +229,20 @@ export function compile(ast: Module): OsVbcModule {
           break;
         }
         case "объект": {
+          const slotKey = `__obj_literal_${emitObjLiteralCounter++}`;
+          const objSlot = l.get(slotKey);
+          if (objSlot === undefined) throw new Error(`Нет слота для объекта: ${slotKey}`);
           emit({ op: "obj.new" } as RawInstruction);
+          emit({ op: "local.set", i: objSlot } as RawInstruction);
           for (const { key, value } of expr.entries) {
-            emit({ op: "dup" } as RawInstruction);
+            emit({ op: "local.get", i: objSlot } as RawInstruction);
             const k = constIndex(key);
             emit({ op: "const", type: "str", k } as RawInstruction);
             emitExpr(value, l);
             emit({ op: "obj.set" } as RawInstruction);
+            emit({ op: "local.set", i: objSlot } as RawInstruction);
           }
+          emit({ op: "local.get", i: objSlot } as RawInstruction);
           break;
         }
         case "поле": {
