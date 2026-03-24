@@ -20,6 +20,8 @@ import {
   getRecentEntities,
   getSessionSummaries,
   updateCoreMemory,
+  getTasks,
+  completeTask,
 } from '../core/memory-engine';
 import { getDb } from '../db/migrations';
 import * as memory from '../core/memory-engine';
@@ -807,6 +809,67 @@ export function createHttpApp(): Express {
       res.json({ deleted: true });
     } catch (e) {
       console.error('[osiris:http] DELETE /brain/facts/:factId failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  // ── Tasks API ────────────────────────────────────────────────────────────
+
+  app.get('/tasks', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+      const tasks = getTasks(userId, 'open');
+      // Группировка: Task не имеет поля project — возвращаем под ключом "all"
+      res.json({ all: tasks });
+    } catch (e) {
+      console.error('[osiris:http] GET /tasks failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.get('/tasks/history', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+      const limit = parseInt(String(req.query['limit'] ?? '20'), 10);
+      const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 20;
+      const tasks = getTasks(userId, 'done').slice(0, safeLimit);
+      res.json({ tasks });
+    } catch (e) {
+      console.error('[osiris:http] GET /tasks/history failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.patch('/tasks/:taskId', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+      const taskId = parseInt(req.params['taskId'] ?? '', 10);
+      if (!Number.isFinite(taskId)) {
+        res.status(400).json({ error: 'invalid taskId' });
+        return;
+      }
+      const status = req.body?.status as string | undefined;
+      if (status === 'done') {
+        completeTask(userId, taskId);
+      } else if (status === 'pending') {
+        // Reset done → open
+        const db = getDb();
+        db.prepare(
+          "UPDATE tasks SET status='open', done_at=NULL WHERE id=? AND user_id=?",
+        ).run(taskId, userId);
+      } else {
+        res.status(400).json({ error: 'status must be "done" or "pending"' });
+        return;
+      }
+      const allTasks = [...getTasks(userId, 'open'), ...getTasks(userId, 'done')];
+      const updated = allTasks.find((t) => t.id === taskId);
+      if (!updated) { res.status(404).json({ error: 'task not found' }); return; }
+      res.json({ task: updated });
+    } catch (e) {
+      console.error('[osiris:http] PATCH /tasks/:taskId failed', e);
       res.status(500).json({ error: 'internal server error' });
     }
   });
