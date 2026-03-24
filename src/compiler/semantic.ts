@@ -337,12 +337,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           checkExpr(stmt.value, declared);
           break;
         case "поле_присвоить":
-          if (!declared.has(stmt.object)) {
-            errors.push({
-              kind: "undeclared_var",
-              message: `переменная '${stmt.object}' используется без объявления через пусть`,
-            });
-          }
+          checkExpr(stmt.object, declared);
           checkExpr(stmt.value, declared);
           break;
         case "если":

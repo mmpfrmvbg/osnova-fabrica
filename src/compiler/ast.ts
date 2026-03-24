@@ -18,7 +18,7 @@ export type Expr =
 export type Stmt =
   | { kind: "пусть"; name: string; init: Expr; typeAnnotation?: TypeRef }
   | { kind: "присвоить"; name: string; value: Expr }
-  | { kind: "поле_присвоить"; object: string; field: string; value: Expr }
+  | { kind: "поле_присвоить"; object: Expr; field: string; value: Expr }
   | { kind: "выражение"; expr: Expr }
   | { kind: "если"; condition: Expr; body: Stmt[]; elseIfClauses?: Array<{ condition: Expr; body: Stmt[] }>; elseBody?: Stmt[] }
   | { kind: "попробовать"; body: Stmt[]; catchVar: string; catchBody: Stmt[] }

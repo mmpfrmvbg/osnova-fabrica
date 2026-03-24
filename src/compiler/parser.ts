@@ -637,33 +637,49 @@ export function parse(tokens: Token[]): ParseResult {
         rewinded = true;
       }
       if (peek().kind === ".") {
+        // Смотрим вперёд: есть ли в конце цепочки присваивание?
+        // Стратегия: строим цепочку полей, на каждом шаге проверяем оператор.
+        // Откат через savePos если не присваивание.
         const savePos = pos;
-        advance();
-        if (isAt("идентификатор")) {
-          const fieldTok = advance();
-          const field = String(fieldTok.value ?? fieldTok.lexeme);
+        // Строим left-hand side как цепочку expr.field.field...
+        let lhsObject: Expr = baseVarExpr;
+        let lastField: string | null = null;
+        let chainOk = true;
+
+        while (peek().kind === "." && chainOk) {
+          const dotPos = pos;
+          advance(); // consume "."
+          if (!isAt("идентификатор")) {
+            pos = dotPos;
+            chainOk = false;
+            break;
+          }
+          const fTok = advance();
+          const fName = String(fTok.value ?? fTok.lexeme);
           const opKind = peek().kind;
           if (opKind === "=" || opKind === "+=" || opKind === "-=" || opKind === "*=" || opKind === "/=") {
-            advance();
+            // Нашли присваивание — lhsObject уже накоплен, lastField = fName
+            lastField = fName;
+            advance(); // consume op
             const rhs = parseExpr();
             if (!rhs) return null;
             if (opKind === "=") {
-              return { kind: "поле_присвоить", object: name, field, value: rhs };
+              return { kind: "поле_присвоить", object: lhsObject, field: lastField, value: rhs };
             }
             const value: Expr = {
               kind: "бинарное",
               op: compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="],
-              left: {
-                kind: "поле",
-                object: { kind: "переменная", name },
-                field,
-              },
+              left: { kind: "поле", object: lhsObject, field: lastField },
               right: rhs,
             };
-            return { kind: "поле_присвоить", object: name, field, value };
+            return { kind: "поле_присвоить", object: lhsObject, field: lastField, value };
           }
+          // Не присваивание — накапливаем поле как промежуточный объект
+          lhsObject = { kind: "поле", object: lhsObject, field: fName };
         }
-        pos = savePos - 1; // rewind to identifier for parseExpr
+
+        // Нет присваивания в цепочке — откатываемся
+        pos = savePos - 1; // rewind to identifier
         rewinded = true;
       }
       if (

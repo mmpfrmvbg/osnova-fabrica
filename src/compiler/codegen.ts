@@ -271,16 +271,11 @@ export function compile(ast: Module): OsVbcModule {
           break;
         }
         case "поле_присвоить": {
-          const objIdx = locals.get(s.object);
-          if (objIdx === undefined) {
-            throw new Error(`Переменная "${s.object}" не объявлена`);
-          }
-          emit({ op: "local.get", i: objIdx } as RawInstruction);
+          emitExpr(s.object, locals);
           const k = constIndex(s.field);
           emit({ op: "const", type: "str", k } as RawInstruction);
           emitExpr(s.value, locals);
           emit({ op: "obj.set" } as RawInstruction);
-          emit({ op: "local.set", i: objIdx } as RawInstruction);
           break;
         }
         case "выражение":
@@ -547,7 +542,7 @@ function cloneStmtWithResolver(stmt: Stmt, resolveCall: (name: string) => string
     case "поле_присвоить":
       return {
         kind: "поле_присвоить",
-        object: stmt.object,
+        object: cloneExprWithResolver(stmt.object, resolveCall),
         field: stmt.field,
         value: cloneExprWithResolver(stmt.value, resolveCall),
       };
