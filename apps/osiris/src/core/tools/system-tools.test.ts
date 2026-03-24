@@ -13,18 +13,31 @@ describe('system-tools', () => {
     expect(result.stdout).toContain('hello');
   });
 
-  it('shellExec blocks rm -rf /', async () => {
+  it('shellExec blocks rm -rf / (not in whitelist)', async () => {
     const { shellExec } = await loadTools();
     const result = await shellExec('rm -rf /');
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('запрещена');
+    expect(result.stderr).toContain('не в списке');
   });
 
-  it('shellExec blocks shutdown', async () => {
+  it('shellExec blocks sudo shutdown (not in whitelist)', async () => {
     const { shellExec } = await loadTools();
     const result = await shellExec('sudo shutdown now');
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('запрещена');
+    expect(result.stderr).toContain('не в списке');
+  });
+
+  it('shellExec allows git status', async () => {
+    const { shellExec } = await loadTools();
+    const result = await shellExec('git status');
+    // Может вернуть ненулевой exitCode если нет репо — но не должен быть заблокирован
+    expect(result.stderr).not.toContain('не в списке');
+  });
+
+  it('shellExec allows npm commands', async () => {
+    const { shellExec } = await loadTools();
+    const result = await shellExec('npm --version');
+    expect(result.stderr).not.toContain('не в списке');
   });
 
   it('fileRead blocks path traversal', async () => {

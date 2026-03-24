@@ -9,12 +9,29 @@ const execAsync = promisify(exec);
 const REPO_ROOT = process.env['REPO_ROOT'] ?? '/opt/osnova';
 const SHELL_TIMEOUT = 15_000;
 
-const FORBIDDEN_PATTERNS = [
-  'rm -rf /',
-  'shutdown',
-  'reboot',
-  'mkfs',
-  'dd if=',
+const ALLOWED_PREFIXES = [
+  'git ',
+  'npm ',
+  'npx ',
+  'node ',
+  'tsx ',
+  'pm2 ',
+  'ls ',
+  'ls\n',
+  'cat ',
+  'echo ',
+  'pwd',
+  'whoami',
+  'curl ',
+  'df ',
+  'free ',
+  'ps ',
+  'top -b',
+  'tail ',
+  'head ',
+  'grep ',
+  'find ',
+  'wc ',
 ];
 
 export interface ShellResult {
@@ -24,15 +41,14 @@ export interface ShellResult {
 }
 
 export async function shellExec(cmd: string): Promise<ShellResult> {
-  const lower = cmd.toLowerCase();
-  for (const pattern of FORBIDDEN_PATTERNS) {
-    if (lower.includes(pattern)) {
-      return {
-        stdout: '',
-        stderr: `Команда запрещена: содержит "${pattern}"`,
-        exitCode: 1,
-      };
-    }
+  const trimmed = cmd.trim().toLowerCase();
+  const allowed = ALLOWED_PREFIXES.some((p) => trimmed.startsWith(p));
+  if (!allowed) {
+    return {
+      stdout: '',
+      stderr: `Команда не в списке разрешённых: "${cmd.trim()}"`,
+      exitCode: 1,
+    };
   }
   try {
     const { stdout, stderr } = await execAsync(cmd, {
