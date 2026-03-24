@@ -1,9 +1,15 @@
 // apps/osiris/src/core/message-handler.ts
-import type { CoreMemoryContent, IncomingMessage, JarvisMode, ProjectHint } from '../types';
+import type {
+  CoreMemoryContent,
+  IncomingMessage,
+  JarvisMode,
+  ProjectHint,
+  SessionSummary,
+  WorkingMemoryResult,
+} from '../types';
 import * as memory from './memory-engine';
 import { call as callLlm } from './llm-router';
 import type { ChatMessage, ToolCall, ToolDefinition } from './llm-router';
-import { buildContext } from './context-builder';
 import { runSummarizerIfNeeded } from './memory-summarizer';
 import { checkConnectivity } from './connectivity';
 import { buildOsirisContext, setLastError } from './osiris-context';
@@ -145,8 +151,7 @@ export async function handleMessage(
 ): Promise<HandleResult> {
   void checkConnectivity().then((result) => console.log('[osiris:connectivity]', result));
   const userId = message.userId;
-
-  const llmContext = await buildContext(message);
+  const workingMemory: WorkingMemoryResult = await memory.getWorkingMemory(userId, 20);
 
   // ── LLM path ────────────────────────────────────────────────────────────
 
@@ -159,6 +164,7 @@ export async function handleMessage(
     memory.getCoreMemory(userId),
     buildOsirisContext(userId),
   ]);
+  const previousSummaries: SessionSummary[] = workingMemory.summaries;
   const osirisCtxJson = JSON.stringify(osirisCtx, null, 2);
 
   const messages: ChatMessage[] = [
@@ -172,8 +178,14 @@ export async function handleMessage(
       content:
         `SYSTEM CONTEXT (machine-generated, always up to date):\n<json>\n${osirisCtxJson}\n</json>`,
     },
-    { role: 'system', content: `Контекст диалога:\n${llmContext}` },
-    { role: 'user', content: message.text },
+    ...(previousSummaries.length > 0
+      ? [{
+        role: 'system' as const,
+        content: `[PREVIOUS SESSIONS]\n${previousSummaries.map((s) => s.summary).join('\n---\n')}`,
+      }]
+      : []),
+    ...workingMemory.messages,
+    { role: 'user' as const, content: message.text },
   ];
 
   await memory.saveMessage({
@@ -287,9 +299,17 @@ export async function handleMessage(
       const secondResult = await callLlm(extendedMessages, _mode, { tool_choice: 'none' });
       reply = secondResult.text;
       setLastError(null);
+      const msgCount = memory.countUserMessages(userId);
+      if (msgCount > 0 && msgCount % 20 === 0) {
+        setImmediate(() => { void memory.summarizeSession(userId); });
+      }
     } else {
       reply = firstResult.text;
       setLastError(null);
+      const msgCount = memory.countUserMessages(userId);
+      if (msgCount > 0 && msgCount % 20 === 0) {
+        setImmediate(() => { void memory.summarizeSession(userId); });
+      }
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
