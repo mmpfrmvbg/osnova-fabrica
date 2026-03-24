@@ -96,6 +96,19 @@ export interface CoreMemoryContent {
   meta: CoreMemoryMeta;
 }
 
+export interface SessionSummary {
+  id: number;
+  userId: string;
+  summary: string;
+  messageCount: number;
+  createdAt: string;
+}
+
+export interface WorkingMemoryResult {
+  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
+  summaries: SessionSummary[];
+}
+
 export interface JarvisContext {
   systemPrompt: string;
   conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;

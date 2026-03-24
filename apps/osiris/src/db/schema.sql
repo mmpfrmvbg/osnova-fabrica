@@ -73,3 +73,11 @@ CREATE TABLE IF NOT EXISTS core_memory (
   version   INTEGER NOT NULL DEFAULT 1
 );
 
+CREATE TABLE IF NOT EXISTS session_summaries (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       TEXT    NOT NULL,
+  summary       TEXT    NOT NULL,
+  message_count INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT    NOT NULL
+);
+

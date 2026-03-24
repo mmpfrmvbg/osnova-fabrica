@@ -98,3 +98,36 @@ describe('memory-engine core_memory', () => {
     (await import('../db/migrations')).closeDb();
   });
 });
+
+describe('memory-engine session_summaries', () => {
+  const tempRoot = path.join(os.tmpdir(), 'osiris-session-summary-tests');
+
+  afterEach(async () => {
+    vi.resetModules();
+    delete process.env.OSIRIS_DB_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it('saveSessionSummary and getSessionSummaries returns DESC order', async () => {
+    await fs.promises.mkdir(tempRoot, { recursive: true });
+    const dbPath = path.join(tempRoot, `osiris-${Date.now()}.db`);
+    process.env.OSIRIS_DB_PATH = dbPath;
+
+    const memory = await import('./memory-engine');
+
+    await memory.saveSessionSummary('user-ss-test', 'Первое резюме сессии', 10);
+    // небольшая задержка чтобы created_at различался
+    await new Promise<void>((r) => setTimeout(r, 10));
+    await memory.saveSessionSummary('user-ss-test', 'Второе резюме сессии', 20);
+
+    const summaries = await memory.getSessionSummaries('user-ss-test', 3);
+
+    expect(summaries.length).toBe(2);
+    // DESC: последнее первым
+    expect(summaries[0].summary).toBe('Второе резюме сессии');
+    expect(summaries[1].summary).toBe('Первое резюме сессии');
+    expect(summaries[0].messageCount).toBe(20);
+
+    (await import('../db/migrations')).closeDb();
+  });
+});

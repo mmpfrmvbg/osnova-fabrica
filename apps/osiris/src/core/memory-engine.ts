@@ -2,7 +2,15 @@
 // Реальная реализация на better-sqlite3.
 
 import { getDb, migrate } from '../db/migrations';
-import type { MessageRecord, FactDraft, Fact, Summary, CoreMemoryContent } from '../types';
+import type {
+  MessageRecord,
+  FactDraft,
+  Fact,
+  Summary,
+  CoreMemoryContent,
+  SessionSummary,
+  WorkingMemoryResult,
+} from '../types';
 
 export interface Task {
   id: number;
@@ -60,6 +68,92 @@ function rowToSummary(row: Record<string, unknown>): Summary {
     text: row['text'] as string,
     generatedAt: row['generated_at'] as string,
   };
+}
+
+function rowToSessionSummary(row: Record<string, unknown>): SessionSummary {
+  return {
+    id: row['id'] as number,
+    userId: row['user_id'] as string,
+    summary: row['summary'] as string,
+    messageCount: (row['message_count'] as number) ?? 0,
+    createdAt: row['created_at'] as string,
+  };
+}
+
+export async function saveSessionSummary(
+  userId: string,
+  summary: string,
+  messageCount: number,
+): Promise<void> {
+  ensureInit();
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO session_summaries (user_id, summary, message_count, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(userId, summary, messageCount, now);
+}
+
+export async function getSessionSummaries(
+  userId: string,
+  limit = 3,
+): Promise<SessionSummary[]> {
+  ensureInit();
+  const db = getDb();
+  const rows = db
+    .prepare(`
+      SELECT * FROM session_summaries
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `)
+    .all(userId, limit) as Record<string, unknown>[];
+  return rows.map(rowToSessionSummary);
+}
+
+export async function getWorkingMemory(
+  userId: string,
+  softLimit = 20,
+): Promise<WorkingMemoryResult> {
+  ensureInit();
+  const recent = await getRecentMessages(userId, softLimit);
+  // getRecentMessages возвращает DESC, переворачиваем в хронологический порядок
+  const ordered = recent.slice().reverse();
+  const messages = ordered.map((m) => ({
+    role: m.role as 'user' | 'assistant' | 'system',
+    content: m.text,
+  }));
+  const summaries = await getSessionSummaries(userId, 3);
+  return { messages, summaries };
+}
+
+export async function summarizeSession(userId: string): Promise<void> {
+  // Импорт здесь чтобы избежать циклической зависимости на верхнем уровне
+  const { call: callLlm } = await import('./llm-router');
+  const recent = await getRecentMessages(userId, 20);
+  if (recent.length === 0) return;
+  const ordered = recent.slice().reverse();
+  const dialogue = ordered
+    .map((m) => `${m.role === 'user' ? 'Пользователь' : 'Осирис'}: ${m.text}`)
+    .join('\n');
+  const prompt = [
+    {
+      role: 'system' as const,
+      content:
+        'Ты — система сжатия диалога. Сожми следующий диалог в 3-4 предложения. ' +
+        'Сохрани ключевые факты, решения и контекст. Только текст резюме, без вступлений.',
+    },
+    { role: 'user' as const, content: dialogue },
+  ];
+  try {
+    const result = await callLlm(prompt, 'chat');
+    const summary = result.text.trim();
+    if (summary) {
+      await saveSessionSummary(userId, summary, recent.length);
+    }
+  } catch (e) {
+    console.error('[osiris:summarizeSession] failed:', e instanceof Error ? e.message : String(e));
+  }
 }
 
 function touchFacts(rows: Record<string, unknown>[]): void {
