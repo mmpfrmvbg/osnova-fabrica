@@ -41,3 +41,16 @@ jobs:
           name: osiris-debug-apk
           path: apps/osiris-android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+
+      - name: Create GitHub Release with APK
+        if: github.ref == 'refs/heads/main'
+        run: |
+          TAG="osiris-android-$(date +'%Y%m%d-%H%M%S')"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Osiris Android $TAG" \
+            --notes "Автоматический релиз ОСИРИС Android из CI" \
+            apps/osiris-android/app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GH_TOKEN: ${{ env.GH_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
