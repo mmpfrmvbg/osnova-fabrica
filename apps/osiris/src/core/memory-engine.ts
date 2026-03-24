@@ -414,7 +414,13 @@ export async function consolidateFacts(userId: string): Promise<ConsolidationRes
 export function getDistinctUserIds(): string[] {
   ensureInit();
   const db = getDb();
-  const rows = db.prepare('SELECT DISTINCT user_id FROM facts').all() as Array<{ user_id: string }>;
+  const rows = db.prepare(`
+    SELECT DISTINCT user_id FROM facts
+    UNION
+    SELECT DISTINCT user_id FROM tasks
+    UNION
+    SELECT DISTINCT user_id FROM messages
+  `).all() as Array<{ user_id: string }>;
   return rows.map((r) => r.user_id);
 }
 
