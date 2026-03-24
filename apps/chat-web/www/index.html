@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Осирис</title>
 <link rel="stylesheet" href="style.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 <div class="header">Осирис</div>
@@ -175,21 +176,45 @@ async function checkOtaAndInit() {
       const remoteVersion = data.version || '';
       const localVersion = localStorage.getItem('webVersion') || '';
       if (remoteVersion && remoteVersion !== localVersion) {
-        // Новая версия — скачиваем bundle
         console.log('[ota] new version', remoteVersion, 'local:', localVersion);
-        const bundleRes = await fetch(BASE + '/ota/bundle');
-        if (bundleRes.ok) {
-          // Сохраняем новую версию и перезагружаем
-          // Полноценная распаковка через JSZip — следующий этап (требует Capacitor.Filesystem)
-          // Сейчас: просто запоминаем версию, reload
-          localStorage.setItem('webVersion', remoteVersion);
-          location.reload();
-          return;
+        try {
+          const bundleRes = await fetch(BASE + '/ota/bundle');
+          if (bundleRes.ok) {
+            const hasFilesystem = typeof Capacitor !== 'undefined' &&
+              Capacitor.Plugins &&
+              Capacitor.Plugins.Filesystem;
+            if (hasFilesystem) {
+              const { Filesystem, Directory } = Capacitor.Plugins;
+              const arrayBuffer = await bundleRes.arrayBuffer();
+              const zip = await JSZip.loadAsync(arrayBuffer);
+              const writePromises = [];
+              zip.forEach((relativePath, zipEntry) => {
+                if (!zipEntry.dir) {
+                  const p = zipEntry.async('base64').then(base64 => {
+                    return Filesystem.writeFile({
+                      path: relativePath,
+                      data: base64,
+                      directory: Directory.Data,
+                      recursive: true
+                    });
+                  });
+                  writePromises.push(p);
+                }
+              });
+              await Promise.all(writePromises);
+              console.log('[ota] files written, reloading');
+            }
+            localStorage.setItem('webVersion', remoteVersion);
+            location.reload();
+            return;
+          }
+        } catch (bundleErr) {
+          console.log('[ota] bundle failed, proceeding normally', bundleErr);
         }
       }
     }
   } catch (e) {
-    console.log('[ota] check failed, proceeding normally', e);
+    console.log('[ota] version check failed, proceeding normally', e);
   }
   init();
 }
