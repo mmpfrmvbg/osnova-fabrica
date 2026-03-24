@@ -118,6 +118,41 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'graph_remember',
+      description:
+        'Record a fact as a graph triple: subject → predicate → object. ' +
+        'Use for relationships between people, projects, decisions, events.',
+      parameters: {
+        type: 'object',
+        properties: {
+          subject: { type: 'string', description: 'Субъект (кто/что)' },
+          predicate: { type: 'string', description: 'Предикат (отношение)' },
+          object: { type: 'string', description: 'Объект (к кому/чему)' },
+          metadata: { type: 'object', description: 'Доп. метаданные (опционально)' },
+        },
+        required: ['subject', 'predicate', 'object'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'graph_recall',
+      description:
+        'Search the knowledge graph by entity name or metadata. ' +
+        'Returns related entities and their connections.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Поисковый запрос' },
+        },
+        required: ['query'],
+      },
+    },
+  },
 ];
 
 const PROJECT_HINTS: ProjectHint[] = [
@@ -254,6 +289,25 @@ export async function handleMessage(
         : {};
       await memory.updateCoreMemory(userId, patch);
       return 'Память обновлена.';
+    }
+    if (name === 'graph_remember') {
+      const subject = typeof args.subject === 'string' ? args.subject.trim() : '';
+      const predicate = typeof args.predicate === 'string' ? args.predicate.trim() : '';
+      const object = typeof args.object === 'string' ? args.object.trim() : '';
+      if (!subject || !predicate || !object) {
+        return 'Ошибка: subject, predicate и object обязательны.';
+      }
+      const meta = typeof args.metadata === 'object' && args.metadata !== null
+        ? args.metadata as Record<string, unknown>
+        : {};
+      const ids = await memory.graphRemember(userId, subject, predicate, object, meta);
+      return `Граф обновлён: ${subject} → ${predicate} → ${object} (ids: ${ids.fromId},${ids.toId},${ids.relationId})`;
+    }
+    if (name === 'graph_recall') {
+      const query = typeof args.query === 'string' ? args.query.trim() : '';
+      if (!query) return 'Ошибка: query обязателен.';
+      const result = await memory.graphRecall(userId, query);
+      return JSON.stringify(result);
     }
     return 'Инструмент не найден.';
   }
