@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'apps/osiris-android/**'
+      - '.github/workflows/android.yml'
   workflow_dispatch:
 
 jobs:
@@ -27,30 +28,38 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Set version from workflow run
+        working-directory: apps/osiris-android/app
+        run: |
+          sed -i 's/versionCode = [0-9][0-9]*/versionCode = ${{ github.run_number }}/' build.gradle.kts
+          sed -i 's/versionName = "[^"]*"/versionName = "0.1.${{ github.run_number }}"/' build.gradle.kts
+
       - name: Make gradlew executable
         working-directory: apps/osiris-android
         run: chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build Release APK
         working-directory: apps/osiris-android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: osiris-debug-apk
-          path: apps/osiris-android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 14
+          name: osiris-release-apk
+          path: apps/osiris-android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
 
       - name: Create GitHub Release with APK
         if: github.ref == 'refs/heads/main'
         run: |
-          TAG="osiris-android-$(date +'%Y%m%d-%H%M%S')"
+          TAG="osiris-android-${{ github.run_number }}-$(date -u +'%Y%m%d-%H%M%S')"
+          APK="apps/osiris-android/app/build/outputs/apk/release/app-release.apk"
+          cp "$APK" osiris-android-release.apk
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Osiris Android $TAG" \
-            --notes "Автоматический релиз ОСИРИС Android из CI" \
-            apps/osiris-android/app/build/outputs/apk/debug/app-debug.apk
+            --title "Osiris Android 0.1.${{ github.run_number }}" \
+            --notes "Автосборка с main (run #${{ github.run_number }}). Установка: скачайте **osiris-android-release.apk**." \
+            osiris-android-release.apk
         env:
           GH_TOKEN: ${{ env.GH_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

@@ -18,6 +18,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // В GitHub Actions подписываем release debug-keystore — APK ставится без своих секретов
+            if (System.getenv("GITHUB_ACTIONS") == "true") {
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 
