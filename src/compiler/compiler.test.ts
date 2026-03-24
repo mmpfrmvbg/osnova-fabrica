@@ -1470,3 +1470,29 @@ describe("система.объект.* и система.json.* и для_ка�
   });
 });
 
+describe("task_stats fixture — статистика задач", () => {
+  it("подсчитать статистику по задачам", async () => {
+    const src = `модуль тест
+использовать модуль статистика из "task_stats.osnova"
+процедура главная()
+  пусть задачи = [{ статус: "готово" }, { статус: "готово" }, { статус: "в_работе" }, { статус: "новая" }]
+  вернуть статистика.подсчитать(задачи)
+конец
+конец`;
+    const result = compileSource(src, { baseDir: FIXTURES_DIR });
+    expect(result.lexerErrors).toHaveLength(0);
+    expect(result.parserErrors).toHaveLength(0);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).not.toBeNull();
+
+    const vm = new VM(result.module!);
+    const idx = vm.findProcedureIndex("главная");
+    const value = await vm.runProcedure(idx, []);
+    expect(value && typeof value === "object").toBe(true);
+    const obj = value as Record<string, unknown>;
+    expect(obj["всего"]).toBe(4);
+    expect(obj["выполнено"]).toBe(2);
+    expect(obj["в_работе"]).toBe(1);
+  });
+});
+
