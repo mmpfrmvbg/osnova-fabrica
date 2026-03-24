@@ -568,6 +568,7 @@ export function createHttpApp(): Express {
           t.phase = 'done';
           t.message = result.summary ?? '';
           t.result = result;
+          setTimeout(() => pipelineTasks.delete(taskId), 3600000);
         }
       })
       .catch((e) => {
@@ -576,6 +577,7 @@ export function createHttpApp(): Express {
           t.status = 'error';
           t.phase = 'error';
           t.message = e instanceof Error ? e.message : 'pipeline failed';
+          setTimeout(() => pipelineTasks.delete(taskId), 3600000);
         }
       });
 
@@ -618,12 +620,13 @@ export function createHttpApp(): Express {
         res.status(400).json({ error: 'userId query param is required' });
         return;
       }
-      const [recentMessages, recentFacts, activeTasks, osirisContext, coreMemory] = await Promise.all([
+      const [recentMessages, recentFacts, activeTasks, osirisContext, coreMemory, recentEntities] = await Promise.all([
         memory.getRecentMessages(userId, 5),
         memory.getRecentFacts(userId, 10),
         Promise.resolve(memory.getTasks(userId, 'open')),
         buildOsirisContext(userId),
         memory.getCoreMemory(userId),
+        memory.getRecentEntities(userId, 10),
       ]);
       res.json({
         userId,
@@ -632,6 +635,7 @@ export function createHttpApp(): Express {
         activeTasks,
         osirisContext,
         coreMemory,
+        recentEntities,
       });
     } catch (e) {
       console.error('[osiris:debug] GET /debug/context failed', e);
