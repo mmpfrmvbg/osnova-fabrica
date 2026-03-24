@@ -112,6 +112,11 @@ function createDefaultInvokeHandler(): InvokeHandler {
       const parts = s.split(sep);
       return parts;
     }
+    case "система.строка.найти": {
+      const s = String(args[0] ?? "");
+      const sub = String(args[1] ?? "");
+      return s.indexOf(sub);
+    }
     case "система.хранилище.записать": {
       const key = String(args[0] ?? "");
       storage.set(key, (args[1] ?? null) as StackValue);

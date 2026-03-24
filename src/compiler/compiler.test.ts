@@ -1151,3 +1151,108 @@ describe("Compiler: именованные записи (record constructor)", (
   });
 
 });
+
+describe("система.строка.* — строковые операции", () => {
+  it("строка.длина", async () => {
+    const src = `модуль т
+процедура длина()
+  вернуть система.строка.длина("привет")
+конец
+конец`;
+    const r = compileSource(src);
+    expect(r.module).not.toBeNull();
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(6);
+  });
+
+  it("строка.подстрока", async () => {
+    const src = `модуль т
+процедура часть()
+  вернуть система.строка.подстрока("привет", 0, 3)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe("при");
+  });
+
+  it("строка.найти — найдено", async () => {
+    const src = `модуль т
+процедура найти()
+  вернуть система.строка.найти("привет мир", "мир")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(7);
+  });
+
+  it("строка.найти — не найдено", async () => {
+    const src = `модуль т
+процедура найти_нет()
+  вернуть система.строка.найти("привет", "xyz")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(-1);
+  });
+
+  it("строка.заменить", async () => {
+    const src = `модуль т
+процедура заменить()
+  вернуть система.строка.заменить("аб-аб", "аб", "ВВ")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe("ВВ-ВВ");
+  });
+
+  it("строка.разделить", async () => {
+    const src = `модуль т
+процедура разделить()
+  вернуть система.строка.разделить("а,б,в", ",")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    const res = await vm.runProcedure(0, []);
+    expect(Array.isArray(res)).toBe(true);
+    expect((res as string[]).length).toBe(3);
+  });
+
+  it("строка.в_верхний", async () => {
+    const src = `модуль т
+процедура верхний()
+  вернуть система.строка.в_верхний("привет")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe("ПРИВЕТ");
+  });
+
+  it("строка.в_нижний", async () => {
+    const src = `модуль т
+процедура нижний()
+  вернуть система.строка.в_нижний("ПРИВЕТ")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe("привет");
+  });
+
+  it("строка.обрезать", async () => {
+    const src = `модуль т
+процедура обрезать()
+  вернуть система.строка.обрезать("  пробел  ")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe("пробел");
+  });
+});
+
