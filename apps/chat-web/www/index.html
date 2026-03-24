@@ -57,51 +57,112 @@ function saveServer() {
 }
 
 async function runPipelineViaCapacitor(url, dot, msgs) {
+  // url приходит как BASE + '/pipeline/stream?task=...'
+  // извлекаем task из url
+  const taskParam = new URL(url).searchParams.get('task') || '';
+  try {
+    // 1. Запустить pipeline: POST /pipeline/start
+    const startRes = await nativeFetch(BASE + '/pipeline/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: taskParam })
+    });
+    const startData = await startRes.json();
+    const taskId = startData.taskId;
+    if (!taskId) { dot.textContent = '[ошибка] taskId не получен'; return; }
+
+    dot.textContent = '⟳ Запуск...';
+
+    // 2. Polling каждые 1500ms
+    while (true) {
+      await new Promise(r => setTimeout(r, 1500));
+      const pollRes = await nativeFetch(BASE + '/pipeline/status?taskId=' + encodeURIComponent(taskId));
+      const pollData = await pollRes.json();
+
+      if (pollData.phase && pollData.phase !== 'done' && pollData.phase !== 'error') {
+        // показываем промежуточный статус
+        const existing = msgs.querySelector('[data-task-id="' + taskId + '"][data-phase="' + pollData.phase + '"]');
+        if (!existing) {
+          const s = document.createElement('div');
+          s.className = 'msg msg-status';
+          s.textContent = '⟳ ' + (pollData.message || pollData.phase);
+          s.setAttribute('data-task-id', taskId);
+          s.setAttribute('data-phase', pollData.phase);
+          msgs.insertBefore(s, dot);
+          msgs.scrollTop = msgs.scrollHeight;
+        }
+      }
+
+      if (pollData.status === 'done' || pollData.status === 'error') {
+        dot.textContent = pollData.message || (pollData.status === 'done' ? '[готово]' : '[ошибка]');
+        break;
+      }
+    }
+  } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
+}
+
+async function streamChat(message, dot, msgs) {
   try {
     const { CapacitorHttp } = Capacitor.Plugins;
     if (CapacitorHttp) {
-      dot.textContent = '⟳ Запуск...';
+      // На Android: POST /chat/stream через CapacitorHttp, получаем весь ответ сразу,
+      // парсим data: строки и собираем токены
+      dot.textContent = '';
       const res = await CapacitorHttp.request({
-        method: 'GET',
-        url: url,
-        headers: { 'Accept': 'text/event-stream', 'Cache-Control': 'no-cache' },
-        responseType: 'text'
+        method: 'POST',
+        url: BASE + '/chat/stream',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        data: { userId: 'android-user', message: message }
       });
       const lines = (res.data || '').split('\n');
+      let text = '';
       for (const line of lines) {
         if (!line.startsWith('data:')) continue;
         try {
           const ev = JSON.parse(line.slice(5).trim());
-          if (ev.phase === 'done' || ev.phase === 'error') {
-            dot.textContent = ev.message || '[готово]';
-          } else {
-            const s = document.createElement('div');
-            s.className = 'msg msg-status';
-            s.textContent = '⟳ ' + (ev.message || ev.phase);
-            msgs.insertBefore(s, dot);
-            msgs.scrollTop = msgs.scrollHeight;
+          if (ev.token !== undefined) {
+            text += ev.token;
+            dot.textContent = text;
+          } else if (ev.done) {
+            if (!text) dot.textContent = '[пустой ответ]';
+          } else if (ev.error) {
+            dot.textContent = '[ошибка] ' + ev.error;
           }
-        } catch { /* skip malformed line */ }
+        } catch { /* skip */ }
       }
     } else {
-      // fallback: браузерный EventSource (веб/десктоп)
-      const es = new EventSource(url);
-      es.onmessage = ev => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (data.phase === 'done' || data.phase === 'error') {
-            dot.textContent = data.message || '[готово]';
-            es.close();
-          } else {
-            const s = document.createElement('div');
-            s.className = 'msg msg-status';
-            s.textContent = '⟳ ' + (data.message || data.phase);
-            msgs.insertBefore(s, dot);
-            msgs.scrollTop = msgs.scrollHeight;
-          }
-        } catch { dot.textContent = '[ошибка парсинга]'; es.close(); }
-      };
-      es.onerror = () => { dot.textContent = '[ошибка соединения]'; es.close(); };
+      // Fallback для веб: обычный fetch + читаем SSE через ReadableStream
+      dot.textContent = '';
+      let text = '';
+      const response = await fetch(BASE + '/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        body: JSON.stringify({ userId: 'web-user', message: message })
+      });
+      if (!response.body) {
+        dot.textContent = '[ошибка] пустой поток';
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+          try {
+            const ev = JSON.parse(line.slice(5).trim());
+            if (ev.token !== undefined) { text += ev.token; dot.textContent = text; }
+            else if (ev.done && !text) dot.textContent = '[пустой ответ]';
+            else if (ev.error) dot.textContent = '[ошибка] ' + ev.error;
+          } catch { /* skip */ }
+        }
+      }
     }
   } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
 }
@@ -151,15 +212,7 @@ async function init() {
       const url = BASE + '/pipeline/stream?task=' + encodeURIComponent(t);
       await runPipelineViaCapacitor(url, dot, msgs);
     } else {
-      try {
-        const r = await nativeFetch(BASE + '/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: 'android-user', message: t })
-        });
-        const j = await r.json();
-        dot.textContent = j.reply || '[пустой ответ]';
-      } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
+      await streamChat(t, dot, msgs);
     }
   };
 }
