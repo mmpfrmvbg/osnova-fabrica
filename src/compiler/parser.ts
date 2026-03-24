@@ -854,8 +854,10 @@ export function parse(tokens: Token[]): ParseResult {
     }
     if (t.kind === "[") {
       advance();
+      skipNewlines();
       const elements: Expr[] = [];
       while (peek().kind !== "]" && peek().kind !== "конец_файла") {
+        skipNewlines();
         const el = parseExpr();
         if (!el) return null;
         elements.push(el);

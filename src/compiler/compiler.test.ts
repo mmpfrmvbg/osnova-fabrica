@@ -1475,7 +1475,12 @@ describe("task_stats fixture — статистика задач", () => {
     const src = `модуль тест
 использовать модуль статистика из "task_stats.osnova"
 процедура главная()
-  пусть задачи = [{ статус: "готово" }, { статус: "готово" }, { статус: "в_работе" }, { статус: "новая" }]
+  пусть задачи = [
+    { статус: "готово" },
+    { статус: "готово" },
+    { статус: "в_работе" },
+    { статус: "новая" },
+  ]
   вернуть статистика.подсчитать(задачи)
 конец
 конец`;
@@ -1488,6 +1493,64 @@ describe("task_stats fixture — статистика задач", () => {
     const vm = new VM(result.module!);
     const idx = vm.findProcedureIndex("главная");
     const value = await vm.runProcedure(idx, []);
+    expect(value && typeof value === "object").toBe(true);
+    const obj = value as Record<string, unknown>;
+    expect(obj["всего"]).toBe(4);
+    expect(obj["выполнено"]).toBe(2);
+    expect(obj["в_работе"]).toBe(1);
+  });
+});
+
+describe("parser: multiline array literals", () => {
+  it("многострочный массив чисел", async () => {
+    const src = `модуль тест
+процедура главная()
+  пусть числа = [
+    1,
+    2,
+    3,
+  ]
+  вернуть числа[0] + числа[1] + числа[2]
+конец
+конец`;
+
+    const result = compileSource(src);
+    expect(result.lexerErrors).toHaveLength(0);
+    expect(result.parserErrors).toHaveLength(0);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).not.toBeNull();
+
+    const modules = [result.module!];
+    const vm = new VM(modules[0]!);
+    const value = await vm.runProcedure(vm.findProcedureIndex("главная"), []);
+    expect(value).toBe(6);
+  });
+
+  it("многострочный массив объектов задач", async () => {
+    const src = `модуль тест
+использовать модуль статистика из "task_stats.osnova"
+
+процедура главная()
+  пусть задачи = [
+    { статус: "готово" },
+    { статус: "готово" },
+    { статус: "в_работе" },
+    { статус: "новая" },
+  ]
+  вернуть статистика.подсчитать(задачи)
+конец
+конец`;
+
+    const result = compileSource(src, { baseDir: FIXTURES_DIR });
+    expect(result.lexerErrors).toHaveLength(0);
+    expect(result.parserErrors).toHaveLength(0);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).not.toBeNull();
+
+    const modules = [result.module!];
+    const vm = new VM(modules[0]!);
+    const value = await vm.runProcedure(vm.findProcedureIndex("главная"), []);
+
     expect(value && typeof value === "object").toBe(true);
     const obj = value as Record<string, unknown>;
     expect(obj["всего"]).toBe(4);
