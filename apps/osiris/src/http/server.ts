@@ -27,6 +27,8 @@ import { runOsirisPipeline } from '../osnova/client';
 import { startTunnel } from './tunnel';
 import { buildPipelineCompletedEvent, logPipelineCompletedEvent } from './pipeline-observability';
 import { compileSource } from '../../../../src/compiler/compiler';
+import { VM, type StackValue } from '../../../../src/runtime/vm/interpreter';
+import type { OsVbcModule } from '../../../../src/runtime/vm/bytecode';
 
 const OSIRIS_VERSION = '0.1.0';
 const CHAT_WEB_WWW = path.resolve(__dirname, '..', '..', '..', '..', 'apps', 'chat-web', 'www');
@@ -676,6 +678,43 @@ export function createHttpApp(): Express {
     } catch (e) {
       console.error('[osiris:http] POST /compile failed', e);
       res.status(500).json({ ok: false, errors: ['internal error'] });
+    }
+  });
+
+  const osInvoke = (name: string, args: StackValue[]): StackValue | null => {
+    if (name === 'система.лог.вывести') { console.log(...args); return null; }
+    if (name === 'система.массив.создать') return [];
+    if (name === 'система.массив.добавить') {
+      const arr = args[0] as unknown[]; if (Array.isArray(arr)) arr.push(args[1]); return null;
+    }
+    if (name === 'система.массив.длина') return Array.isArray(args[0]) ? (args[0] as unknown[]).length : 0;
+    if (name === 'система.массив.получить') { const v = (args[0] as unknown[])[args[1] as number]; return v === undefined ? null : v as StackValue; }
+    if (name === 'система.массив.установить') {
+      const arr = args[0] as unknown[]; const idx = Number(args[1]) | 0;
+      if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr[idx] = args[2]; return null;
+    }
+    return null;
+  };
+
+  app.post('/run', async (req: Request, res: Response) => {
+    try {
+      const bytecode = req.body?.bytecode as OsVbcModule | undefined;
+      if (!bytecode || typeof bytecode !== 'object') {
+        res.status(400).json({ ok: false, error: 'bytecode object is required' });
+        return;
+      }
+      const vm = new VM(bytecode, { invoke: osInvoke, maxSteps: 1_000_000 });
+      const mainIdx = (() => {
+        try { return vm.findProcedureIndex('главная'); } catch { /* */ }
+        try { return vm.findProcedureIndex('старт'); } catch { /* */ }
+        try { return vm.findProcedureIndex('main'); } catch { /* */ }
+        return 0;
+      })();
+      const result = await vm.runProcedure(mainIdx, []);
+      res.json({ ok: true, result: result ?? null });
+    } catch (e) {
+      console.error('[osiris:http] POST /run failed', e);
+      res.status(500).json({ ok: false, error: e instanceof Error ? e.message : 'internal error' });
     }
   });
 
