@@ -16,6 +16,14 @@ import type { OsVbcModule } from "../runtime/vm/bytecode";
 
 const FIXTURES_DIR = join(__dirname, "..", "runtime", "fixtures");
 
+/** Логика система.итератор.из — для урезанных invoke в тестах с arrayInvoke. */
+function syscallIteratorFrom(args: unknown[]): unknown[] {
+  const src = args[0];
+  if (Array.isArray(src)) return src as unknown[];
+  if (src !== null && typeof src === "object") return Object.keys(src as Record<string, unknown>);
+  return [];
+}
+
 describe("Compiler smoke: todo.osnova", () => {
   it("компилирует без ошибок и содержит процедуры запуск, handle_event, handle_add", () => {
     const source = readFileSync(join(FIXTURES_DIR, "todo.osnova"), "utf-8");
@@ -264,6 +272,7 @@ describe("Compiler: иначе (if/else)", () => {
 
 describe("Compiler: массивы (array literals)", () => {
   const arrayInvoke = (name: string, args: unknown[]): unknown => {
+    if (name === "система.итератор.из") return syscallIteratorFrom(args);
     if (name === "система.массив.создать") return [];
     if (name === "система.массив.добавить") {
       const arr = args[0] as unknown[];
@@ -415,6 +424,7 @@ describe("массивы end-to-end", () => {
     const logs: unknown[] = [];
     const invoke = (name: string, args: unknown[]): unknown => {
       invoked.push(name);
+      if (name === "система.итератор.из") return syscallIteratorFrom(args);
       if (name === "система.массив.создать") return [];
       if (name === "система.массив.добавить") {
         const arr = args[0] as unknown[];
@@ -443,11 +453,13 @@ describe("массивы end-to-end", () => {
     expect(invoked).toContain("система.массив.получить");
     expect(invoked).toContain("система.массив.установить");
     expect(invoked).toContain("система.массив.длина");
+    expect(invoked).toContain("система.итератор.из");
   });
 });
 
 describe("Compiler: для_каждого", () => {
   const arrayInvoke = (name: string, args: unknown[]): unknown => {
+    if (name === "система.итератор.из") return syscallIteratorFrom(args);
     if (name === "система.массив.длина") return (args[0] != null ? (args[0] as unknown[]) : []).length;
     if (name === "система.массив.получить") return (args[0] as unknown[])[args[1] as number];
     return null;
@@ -1122,6 +1134,7 @@ describe("Compiler: именованные записи (record constructor)", (
 
   it("массив записей: [Точка{х:1,у:10}, Точка{х:2,у:20}] → для_каждого → сумма == 33", async () => {
     const arrayInvoke = (name: string, args: unknown[]): unknown => {
+      if (name === "система.итератор.из") return syscallIteratorFrom(args);
       if (name === "система.массив.создать") return [];
       if (name === "система.массив.добавить") {
         const arr = args[0] as unknown[];
@@ -1354,6 +1367,106 @@ describe("система.математика.* — математические
     const r = compileSource(src);
     const vm = new VM(r.module!);
     expect(await vm.runProcedure(0, [])).toBe(1);
+  });
+});
+
+describe("система.объект.* и система.json.* и для_каждого по объекту", () => {
+  it("объект.получить", async () => {
+    const src = `модуль т
+процедура р()
+  пусть о = { имя: "Основа" }
+  вернуть система.объект.получить(о, "имя")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe("Основа");
+  });
+
+  it("объект.установить", async () => {
+    const src = `модуль т
+процедура р()
+  пусть о = { а: 1 }
+  система.объект.установить(о, "а", 99)
+  вернуть система.объект.получить(о, "а")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(99);
+  });
+
+  it("объект.ключи", async () => {
+    const src = `модуль т
+процедура р()
+  пусть о = { а: 1, б: 2, г: 3 }
+  пусть список = система.объект.ключи(о)
+  вернуть система.массив.длина(список)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(3);
+  });
+
+  it("json.создать", async () => {
+    const src = `модуль т
+процедура р()
+  пусть о = { х: 1 }
+  вернуть система.json.создать(о)
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    const res = await vm.runProcedure(0, []);
+    expect(typeof res).toBe("string");
+    expect(res as string).toContain("\"х\"");
+  });
+
+  it("json.разобрать", async () => {
+    const src = `модуль т
+процедура р()
+  пусть j = "{\\"а\\":42}"
+  пусть о = система.json.разобрать(j)
+  вернуть система.объект.получить(о, "а")
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(42);
+  });
+
+  it("для_каждого по массиву — не сломано", async () => {
+    const src = `модуль т
+процедура р()
+  пусть а = [10, 20, 30]
+  пусть сумма = 0
+  для_каждого эл в а
+    сумма = сумма + эл
+  конец
+  вернуть сумма
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(60);
+  });
+
+  it("для_каждого по ключам объекта — сумма значений", async () => {
+    const src = `модуль т
+процедура р()
+  пусть о = { а: 1, б: 2, г: 3 }
+  пусть ключи = система.объект.ключи(о)
+  пусть сумма = 0
+  для_каждого имяКлюча в ключи
+    сумма = сумма + система.объект.получить(о, имяКлюча)
+  конец
+  вернуть сумма
+конец
+конец`;
+    const r = compileSource(src);
+    const vm = new VM(r.module!);
+    expect(await vm.runProcedure(0, [])).toBe(6);
   });
 });
 

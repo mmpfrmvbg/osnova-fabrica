@@ -200,6 +200,30 @@ function createDefaultInvokeHandler(): InvokeHandler {
       }
       return null;
     }
+    case "система.объект.ключи": {
+      const obj = args[0];
+      if (obj !== null && typeof obj === "object" && !Array.isArray(obj)) {
+        return Object.keys(obj as Record<string, unknown>);
+      }
+      return [];
+    }
+    case "система.объект.установить": {
+      const obj = args[0];
+      const key = String(args[1] ?? "");
+      const val = args[2] ?? null;
+      if (obj !== null && typeof obj === "object" && !Array.isArray(obj)) {
+        (obj as Record<string, unknown>)[key] = val;
+      }
+      return null;
+    }
+    case "система.итератор.из": {
+      const src = args[0];
+      if (Array.isArray(src)) return src as StackValue[];
+      if (src !== null && typeof src === "object") {
+        return Object.keys(src as Record<string, unknown>);
+      }
+      return [];
+    }
     case "система.json.создать": {
       try {
         return JSON.stringify(args[0]);

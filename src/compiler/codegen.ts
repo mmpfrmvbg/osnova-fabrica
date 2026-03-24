@@ -381,6 +381,7 @@ export function compile(ast: Module): OsVbcModule {
           const itemSlot = locals.get(s.item)!;
           const indexSlot = s.index ? locals.get(s.index) : undefined;
           emitExpr(s.source, locals);
+          emit({ op: "invoke", name: "система.итератор.из" } as RawInstruction);
           emit({ op: "local.set", i: srcSlot } as RawInstruction);
           emit({ op: "local.get", i: srcSlot } as RawInstruction);
           emit({ op: "invoke", name: "система.массив.длина" } as RawInstruction);
