@@ -178,6 +178,17 @@ function formatTaskList(tasks: memory.Task[]): string {
   return tasks.map((t, i) => `${i + 1}. [#${t.id}] ${t.title}`).join('\n');
 }
 
+export function needsDeepThought(text: string): boolean {
+  if (text.trim().endsWith('?')) return true;
+  if (text.length > 100) return true;
+  const lower = text.toLowerCase();
+  const triggers = [
+    'почему', 'как ', 'объясни', 'проанализируй', 'сравни', 'реши',
+    'plan', 'analyze', 'why', 'how ', 'explain',
+  ];
+  return triggers.some((t) => lower.includes(t));
+}
+
 // ── Main handler ───────────────────────────────────────────────────────────
 
 export async function handleMessage(
@@ -222,6 +233,37 @@ export async function handleMessage(
     ...workingMemory.messages,
     { role: 'user' as const, content: message.text },
   ];
+
+  // ── Chain of Thought (скрытый монолог) ──────────────────────────────────
+  let thoughtContent: string | null = null;
+  if (needsDeepThought(message.text)) {
+    try {
+      const thoughtMessages: ChatMessage[] = [
+        {
+          role: 'system',
+          content:
+            'Ты думаешь вслух перед ответом. Проанализируй запрос пользователя. ' +
+            'Что ты знаешь? Чего не знаешь? Какой подход выбрать? ' +
+            'Пиши кратко, 3-5 предложений.',
+        },
+        { role: 'user', content: message.text },
+      ];
+      const thoughtResult = await callLlm(thoughtMessages, 'chat', { tool_choice: 'none' });
+      thoughtContent = thoughtResult.text.trim();
+      if (thoughtContent) {
+        await memory.saveThought(userId, thoughtContent);
+        // Инжектировать мысль в основной контекст
+        messages.push({
+          role: 'system',
+          content: `[МЫСЛЬ ОСИРИСА]\n${thoughtContent}`,
+        });
+      }
+    } catch (e) {
+      console.error('[osiris:thought] failed:',
+        e instanceof Error ? e.message : String(e));
+      // Не блокируем основной ответ
+    }
+  }
 
   await memory.saveMessage({
     userId,
