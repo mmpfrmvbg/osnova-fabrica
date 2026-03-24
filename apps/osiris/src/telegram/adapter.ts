@@ -3,6 +3,7 @@
 
 import { Bot } from 'grammy';
 import { saveMessage } from '../core/memory-engine';
+import { handleMessage } from '../core/message-handler';
 import { migrate } from '../db/migrations';
 import type { ProjectHint } from '../types';
 import { registerCommands } from './commands';
@@ -50,9 +51,8 @@ export function installJarvisMessageHandlers(bot: Bot): void {
     const timestamp = new Date(ctx.message.date * 1000).toISOString();
     const project = detectProject(text);
 
-    let savedId = 0;
     try {
-      savedId = await saveMessage({
+      await saveMessage({
         userId,
         chatId,
         messageId,
@@ -68,7 +68,22 @@ export function installJarvisMessageHandlers(bot: Bot): void {
       console.error('[osiris:bot] saveMessage failed:', err);
     }
 
-    await ctx.reply(`[Осирис] Получено: ${text}\n[Saved: message #${savedId}]`);
+    let reply: string;
+    try {
+      const result = await handleMessage({
+        userId,
+        chatId,
+        id: messageId,
+        text,
+        timestamp,
+        isVoice: false,
+      });
+      reply = result.reply;
+    } catch (err) {
+      console.error('[osiris:bot] handleMessage failed:', err);
+      reply = '[Осирис] Внутренняя ошибка. Попробуй ещё раз.';
+    }
+    await ctx.reply(reply);
   });
 
   bot.catch((err) => {

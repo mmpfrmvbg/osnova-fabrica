@@ -86,7 +86,11 @@ export async function saveMessage(record: Omit<MessageRecord, 'id'>): Promise<nu
   return Number(result.lastInsertRowid);
 }
 
-export async function saveFacts(facts: FactDraft[], messageId = 0): Promise<Fact[]> {
+export async function saveFacts(
+  facts: FactDraft[],
+  messageId = 0,
+  userId = 'system',
+): Promise<Fact[]> {
   ensureInit();
   const db = getDb();
   const insertFact = db.prepare(`
@@ -106,7 +110,7 @@ export async function saveFacts(facts: FactDraft[], messageId = 0): Promise<Fact
     for (const f of facts) {
       const sourceId = (f.sourceMessageId ?? messageId) || null;
       const r = insertFact.run(
-        'system',
+        userId,
         f.kind,
         f.project ?? null,
         f.text,

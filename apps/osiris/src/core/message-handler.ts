@@ -127,6 +127,8 @@ export async function handleMessage(
         text,
         importance: 3,
       })),
+      0,
+      userId,
     );
     return {
       reply: `Запомнил ${saved.length} факт(ов).`,
@@ -249,6 +251,7 @@ export async function handleMessage(
   try {
     const result = await callLlm(messages, _mode);
     reply = result.text;
+    setLastError(null);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[osiris:handler] LLM error:', msg);
