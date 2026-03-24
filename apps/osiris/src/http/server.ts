@@ -13,6 +13,14 @@ import { callHttpApiStream } from '../core/llm-router';
 import { handleMessage } from '../core/message-handler';
 import { startConsolidationCron, runConsolidationNow } from '../core/consolidation-runner';
 import { getJobStatus } from '../core/autonomous-runner';
+import {
+  getCoreMemoryWithVersion,
+  deleteFact,
+  getRecentFacts,
+  getRecentEntities,
+  getSessionSummaries,
+  updateCoreMemory,
+} from '../core/memory-engine';
 import { getDb } from '../db/migrations';
 import * as memory from '../core/memory-engine';
 import { buildOsirisContext } from '../core/osiris-context';
@@ -742,6 +750,63 @@ export function createHttpApp(): Express {
       res.json(job);
     } catch (e) {
       console.error('[osiris:http] GET /jobs/:jobId failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  // ── Brain API ────────────────────────────────────────────────────────────
+
+  app.get('/brain', async (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+      const [{ content: coreMemory }, recentFacts, recentEntities, sessionSummaries] =
+        await Promise.all([
+          getCoreMemoryWithVersion(userId),
+          getRecentFacts(userId, 20),
+          getRecentEntities(userId, 20),
+          getSessionSummaries(userId, 5),
+        ]);
+      res.json({ coreMemory, recentFacts, recentEntities, sessionSummaries });
+    } catch (e) {
+      console.error('[osiris:http] GET /brain failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.patch('/brain/core-memory', async (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+      const patch = req.body?.patch;
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        res.status(400).json({ error: 'patch must be an object' });
+        return;
+      }
+      await updateCoreMemory(userId, patch as Parameters<typeof updateCoreMemory>[1]);
+      const { content, version } = await getCoreMemoryWithVersion(userId);
+      res.set('X-Core-Memory-Version', String(version));
+      res.json({ coreMemory: content, version });
+    } catch (e) {
+      console.error('[osiris:http] PATCH /brain/core-memory failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.delete('/brain/facts/:factId', async (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+      const factId = parseInt(req.params['factId'] ?? '', 10);
+      if (!Number.isFinite(factId)) {
+        res.status(400).json({ error: 'invalid factId' });
+        return;
+      }
+      const deleted = deleteFact(userId, factId);
+      if (!deleted) { res.status(404).json({ error: 'fact not found' }); return; }
+      res.json({ deleted: true });
+    } catch (e) {
+      console.error('[osiris:http] DELETE /brain/facts/:factId failed', e);
       res.status(500).json({ error: 'internal server error' });
     }
   });

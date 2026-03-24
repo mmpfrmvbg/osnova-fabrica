@@ -65,6 +65,26 @@ async function flushOfflineQueue() {
 }
 window.addEventListener('online', () => { flushOfflineQueue(); });
 
+let thinkingTimers = [];
+function showThinking() {
+  const el = document.getElementById('thinking-indicator');
+  if (!el) return;
+  thinkingTimers.forEach(clearTimeout);
+  thinkingTimers = [];
+  el.textContent = '⋯';
+  el.style.display = 'block';
+  thinkingTimers.push(setTimeout(() => { el.textContent = 'Осирис думает...'; }, 2000));
+  thinkingTimers.push(setTimeout(() => { el.textContent = 'Осирис ищет в памяти...'; }, 5000));
+  thinkingTimers.push(setTimeout(() => { el.textContent = 'Осирис выполняет действие...'; }, 10000));
+}
+function hideThinking() {
+  const el = document.getElementById('thinking-indicator');
+  if (!el) return;
+  thinkingTimers.forEach(clearTimeout);
+  thinkingTimers = [];
+  el.style.display = 'none';
+}
+
 async function nativeFetch(url, options) {
   // Используем CapacitorHttp если доступен (обходит mixed content)
   try {
@@ -162,6 +182,7 @@ async function streamChat(message, dot, msgs) {
             text += ev.token;
             dot.textContent = text;
           } else if (ev.done) {
+            hideThinking();
             if (!text) { dot.textContent = '[пустой ответ]'; }
             else {
               dot.innerHTML = (typeof marked !== 'undefined') ? marked.parse(text) : text;
@@ -203,6 +224,7 @@ async function streamChat(message, dot, msgs) {
               text += ev.token;
               dot.textContent = text;
             } else if (ev.done) {
+              hideThinking();
               if (!text) { dot.textContent = '[пустой ответ]'; }
               else {
                 dot.innerHTML = (typeof marked !== 'undefined') ? marked.parse(text) : text;
@@ -336,14 +358,18 @@ async function init() {
     inp.value = '';
     add(t, 'msg-user');
     const dot = add('...', 'msg-bot');
+    showThinking();
 
     if (isPipelineRequest(t)) {
       const url = BASE + '/pipeline/stream?task=' + encodeURIComponent(t);
       await runPipelineViaCapacitor(url, dot, msgs);
+      hideThinking();
     } else {
       try {
         await streamChat(t, dot, msgs);
+        hideThinking();
       } catch (netErr) {
+        hideThinking();
         if (!navigator.onLine || netErr.message === 'Failed to fetch') {
           dot.textContent = 'Отправлено в очередь (нет соединения)';
           dot.className = 'msg msg-bot';
@@ -364,5 +390,10 @@ if (!BASE) {
   checkOtaAndInit();
 }
 </script>
+<div id="thinking-indicator" style="
+  display:none; position:fixed; bottom:70px; left:50%; transform:translateX(-50%);
+  background:#2a2a3e; color:#a0a0c0; padding:8px 18px; border-radius:20px;
+  font-size:13px; pointer-events:none; z-index:100; box-shadow:0 2px 8px rgba(0,0,0,0.4);
+"></div>
 </body>
 </html>

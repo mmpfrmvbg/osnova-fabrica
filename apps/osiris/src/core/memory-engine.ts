@@ -709,6 +709,22 @@ export async function getCoreMemory(userId: string): Promise<CoreMemoryContent> 
   }
 }
 
+export async function getCoreMemoryWithVersion(
+  userId: string,
+): Promise<{ content: CoreMemoryContent; version: number }> {
+  ensureInit();
+  const db = getDb();
+  const row = db
+    .prepare('SELECT content, version FROM core_memory WHERE user_id = ?')
+    .get(userId) as { content: string; version: number } | undefined;
+  if (!row) return { content: structuredClone(DEFAULT_CORE_MEMORY), version: 0 };
+  try {
+    return { content: JSON.parse(row.content) as CoreMemoryContent, version: row.version };
+  } catch {
+    return { content: structuredClone(DEFAULT_CORE_MEMORY), version: 0 };
+  }
+}
+
 function deepMerge<T extends Record<string, unknown>>(
   target: T,
   patch: Partial<T>,
@@ -813,6 +829,15 @@ export function deleteTask(userId: string, id: number): void {
   ensureInit();
   const db = getDb();
   db.prepare(`DELETE FROM tasks WHERE id = ? AND user_id = ?`).run(id, userId);
+}
+
+export function deleteFact(userId: string, factId: number): boolean {
+  ensureInit();
+  const db = getDb();
+  const result = db
+    .prepare('DELETE FROM facts WHERE id = ? AND user_id = ?')
+    .run(factId, userId);
+  return result.changes > 0;
 }
 
 export async function getRecentFacts(
