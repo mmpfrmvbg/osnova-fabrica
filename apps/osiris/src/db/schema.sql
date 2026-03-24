@@ -104,3 +104,13 @@ CREATE INDEX IF NOT EXISTS idx_entities_user ON entities(user_id, name);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to   ON relations(to_id);
 
+CREATE TABLE IF NOT EXISTS consolidation_log (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       TEXT    NOT NULL,
+  ran_at        TEXT    NOT NULL,
+  facts_before  INTEGER NOT NULL DEFAULT 0,
+  facts_after   INTEGER NOT NULL DEFAULT 0,
+  removed_ids   TEXT    NOT NULL DEFAULT '[]',
+  summary       TEXT    NOT NULL DEFAULT ''
+);
+

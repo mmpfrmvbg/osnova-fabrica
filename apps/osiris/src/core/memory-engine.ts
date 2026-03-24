@@ -13,6 +13,7 @@ import type {
   Entity,
   Relation,
   GraphRecallResult,
+  ConsolidationResult,
 } from '../types';
 
 export interface Task {
@@ -267,6 +268,141 @@ export async function getRecentEntities(userId: string, limit = 10): Promise<Ent
     LIMIT ?
   `).all(userId, limit) as Record<string, unknown>[];
   return rows.map(rowToEntity);
+}
+
+export async function consolidateFacts(userId: string): Promise<ConsolidationResult> {
+  ensureInit();
+  const db = getDb();
+
+  // 1. Факты старше 24 часов
+  const oldRows = db.prepare(`
+    SELECT id, text FROM facts
+    WHERE user_id = ?
+      AND created_at < datetime('now', '-1 day')
+    ORDER BY created_at ASC
+  `).all(userId) as Array<{ id: number; text: string }>;
+
+  if (oldRows.length < 5) {
+    return { skipped: true, factsRemoved: 0, coreUpdated: false, summary: 'too few facts' };
+  }
+
+  const factsBefore = oldRows.length;
+
+  // 2. Найти дубли (нормализованный текст)
+  const seen = new Map<string, number>(); // normalized → первый id
+  const dupeIds: number[] = [];
+  for (const row of oldRows) {
+    const key = row.text.trim().toLowerCase();
+    if (seen.has(key)) {
+      dupeIds.push(row.id);
+    } else {
+      seen.set(key, row.id);
+    }
+  }
+  // 3. Удалить дубли сразу
+  if (dupeIds.length > 0) {
+    const placeholders = dupeIds.map(() => '?').join(', ');
+    db.prepare(`DELETE FROM facts WHERE id IN (${placeholders})`).run(...dupeIds);
+  }
+
+  // 4. Оставшиеся факты (до 50) для LLM-анализа
+  const remaining = db.prepare(`
+    SELECT id, text FROM facts
+    WHERE user_id = ?
+      AND created_at < datetime('now', '-1 day')
+    ORDER BY created_at ASC
+    LIMIT 50
+  `).all(userId) as Array<{ id: number; text: string }>;
+
+  let llmRemovedIds: number[] = [];
+  let coreUpdated = false;
+  let llmSummary = '';
+
+  if (remaining.length > 0) {
+    // 5. LLM-анализ
+    const { call: callLlm } = await import('./llm-router');
+    const factsList = remaining
+      .map((f) => `[${f.id}] ${f.text}`)
+      .join('\n');
+    const prompt = [
+      {
+        role: 'system' as const,
+        content:
+          'Ты — система консолидации памяти. Проанализируй список фактов о пользователе. ' +
+          'Найди дубли, устаревшие или малоинформативные факты для удаления. ' +
+          'Верни ТОЛЬКО валидный JSON (без markdown, без пояснений) в формате:\n' +
+          '{"keep":[ids],"remove":[ids],"core_memory_update":{},"summary":"..."}\n' +
+          'Если нечего удалять — remove:[], core_memory_update:{}',
+      },
+      { role: 'user' as const, content: `Факты:\n${factsList}` },
+    ];
+
+    try {
+      const result = await callLlm(prompt, 'chat');
+      // Извлечь JSON из ответа (LLM иногда добавляет текст вокруг)
+      const jsonMatch = result.text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as {
+          keep?: number[];
+          remove?: number[];
+          core_memory_update?: Record<string, unknown>;
+          summary?: string;
+        };
+        llmRemovedIds = Array.isArray(parsed.remove) ? parsed.remove.map(Number) : [];
+        llmSummary = typeof parsed.summary === 'string' ? parsed.summary : '';
+        // 6. Удалить по рекомендации LLM
+        if (llmRemovedIds.length > 0) {
+          const ph = llmRemovedIds.map(() => '?').join(', ');
+          db.prepare(`DELETE FROM facts WHERE id IN (${ph}) AND user_id = ?`)
+            .run(...llmRemovedIds, userId);
+        }
+        // 7. Обновить core memory если patch не пустой
+        const patch = parsed.core_memory_update ?? {};
+        if (Object.keys(patch).length > 0) {
+          await updateCoreMemory(userId, patch as Parameters<typeof updateCoreMemory>[1]);
+          coreUpdated = true;
+        }
+      }
+    } catch (e) {
+      console.error('[osiris:consolidate] LLM step failed:',
+        e instanceof Error ? e.message : String(e));
+      // Продолжаем без LLM — дубли уже удалены
+    }
+  }
+
+  const factsAfter = db.prepare(
+    'SELECT COUNT(*) as cnt FROM facts WHERE user_id = ?',
+  ).get(userId) as { cnt: number };
+
+  const allRemovedIds = [...dupeIds, ...llmRemovedIds];
+  const now = new Date().toISOString();
+
+  // 8. Записать в лог
+  db.prepare(`
+    INSERT INTO consolidation_log
+      (user_id, ran_at, facts_before, facts_after, removed_ids, summary)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    userId,
+    now,
+    factsBefore,
+    factsAfter.cnt,
+    JSON.stringify(allRemovedIds),
+    llmSummary,
+  );
+
+  return {
+    factsRemoved: allRemovedIds.length,
+    coreUpdated,
+    summary: llmSummary || `removed ${allRemovedIds.length} duplicates`,
+  };
+}
+
+export function getDistinctUserIds(): string[] {
+  ensureInit();
+  const db = getDb();
+  const rows = db.prepare('SELECT DISTINCT user_id FROM facts').all() as Array<{ user_id: string }>;
+  return rows.map((r) => r.user_id);
 }
 
 function touchFacts(rows: Record<string, unknown>[]): void {

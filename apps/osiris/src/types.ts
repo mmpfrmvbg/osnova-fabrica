@@ -133,6 +133,13 @@ export interface GraphRecallResult {
   relations: Relation[];
 }
 
+export interface ConsolidationResult {
+  skipped?: boolean;
+  factsRemoved: number;
+  coreUpdated: boolean;
+  summary: string;
+}
+
 export interface JarvisContext {
   systemPrompt: string;
   conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
