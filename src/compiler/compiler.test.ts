@@ -1065,4 +1065,50 @@ describe("Compiler: именованные записи (record constructor)", (
     expect(await vm.runProcedure(idx, [])).toBe(14);
   });
 
+  it("вложенная запись + присваивание: seg.б.х = 10 → 10", async () => {
+    const src = `модуль т
+процедура главная()
+  пусть seg = Отрезок { а: Точка { х: 1, у: 2 }, б: Точка { х: 3, у: 4 } }
+  seg.б.х = 10
+  вернуть seg.б.х
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { maxSteps: 1000 });
+    const idx = vm.findProcedureIndex("главная");
+    expect(await vm.runProcedure(idx, [])).toBe(10);
+  });
+
+  it("массив записей: [Точка{х:1,у:10}, Точка{х:2,у:20}] → для_каждого → сумма == 33", async () => {
+    const arrayInvoke = (name: string, args: unknown[]): unknown => {
+      if (name === "система.массив.создать") return [];
+      if (name === "система.массив.добавить") {
+        const arr = args[0] as unknown[];
+        if (Array.isArray(arr)) arr.push(args[1]);
+        return null;
+      }
+      if (name === "система.массив.длина") return (args[0] != null ? (args[0] as unknown[]) : []).length;
+      if (name === "система.массив.получить") return (args[0] as unknown[])[args[1] as number];
+      return null;
+    };
+    const src = `модуль т
+процедура главная()
+  пусть точки = [ Точка { х: 1, у: 10 }, Точка { х: 2, у: 20 } ]
+  пусть сумма = 0
+  для_каждого т в точки
+    сумма = сумма + т.х + т.у
+  конец
+  вернуть сумма
+конец
+конец`;
+    const result = compileSource(src);
+    expect(result.compilerSuccess).toBe(true);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 5000 });
+    const idx = vm.findProcedureIndex("главная");
+    expect(await vm.runProcedure(idx, [])).toBe(33);
+  });
+
 });
