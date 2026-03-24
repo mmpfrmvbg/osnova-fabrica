@@ -669,23 +669,45 @@ export function createHttpApp(): Express {
       const safeLimit = Number.isFinite(limit) && limit > 0
         ? Math.min(limit, 10000)
         : 1000;
+      const qualityParam = req.query['quality'];
+      const qualityFilter =
+        qualityParam === '1' ? 1 :
+        qualityParam === '0' ? 0 :
+        null;
 
       type SampleRow = {
         user_message: string;
         assistant_reply: string;
       };
 
-      const rows: SampleRow[] = userId
-        ? getDb()
+      const rows: SampleRow[] = (() => {
+        if (userId && qualityFilter !== null) {
+          return getDb()
+            .prepare(
+              'SELECT user_message, assistant_reply FROM training_samples WHERE user_id = ? AND quality = ? ORDER BY id DESC LIMIT ?'
+            )
+            .all(userId, qualityFilter, safeLimit) as SampleRow[];
+        }
+        if (userId) {
+          return getDb()
             .prepare(
               'SELECT user_message, assistant_reply FROM training_samples WHERE user_id = ? ORDER BY id DESC LIMIT ?'
             )
-            .all(userId, safeLimit) as SampleRow[]
-        : getDb()
+            .all(userId, safeLimit) as SampleRow[];
+        }
+        if (qualityFilter !== null) {
+          return getDb()
             .prepare(
-              'SELECT user_message, assistant_reply FROM training_samples ORDER BY id DESC LIMIT ?'
+              'SELECT user_message, assistant_reply FROM training_samples WHERE quality = ? ORDER BY id DESC LIMIT ?'
             )
-            .all(safeLimit) as SampleRow[];
+            .all(qualityFilter, safeLimit) as SampleRow[];
+        }
+        return getDb()
+          .prepare(
+            'SELECT user_message, assistant_reply FROM training_samples ORDER BY id DESC LIMIT ?'
+          )
+          .all(safeLimit) as SampleRow[];
+      })();
 
       const jsonl = rows
         .map((r) =>

@@ -623,11 +623,18 @@ export async function handleMessage(
     const toolCallsJson = toolCalls && toolCalls.length > 0
       ? JSON.stringify(toolCalls)
       : null;
+    const replyLower = rawReply.toLowerCase();
+    const quality =
+      rawReply.length > 20 &&
+      !replyLower.includes('ошибка') &&
+      !replyLower.includes('не знаю')
+        ? 1
+        : 0;
     getDb().prepare(
       `INSERT INTO training_samples
-         (user_id, user_message, assistant_reply, tool_calls, context_snapshot)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(userId, message.text, rawReply, toolCallsJson, snapshot);
+         (user_id, user_message, assistant_reply, tool_calls, context_snapshot, quality)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(userId, message.text, rawReply, toolCallsJson, snapshot, quality);
   } catch (e) {
     console.error('[osiris:training] failed to save sample:',
       e instanceof Error ? e.message : String(e));
