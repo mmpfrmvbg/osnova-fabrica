@@ -1,5 +1,6 @@
 // apps/osiris/src/core/consolidation-runner.ts
 import { consolidateFacts, getDistinctUserIds } from './memory-engine';
+import { checkProactiveTriggers } from './proactive-engine';
 
 const INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 часа
 
@@ -28,6 +29,12 @@ export async function runConsolidationNow(userId?: string): Promise<void> {
       }
     } catch (e) {
       console.error(`[osiris:consolidation] userId=${uid} failed:`,
+        e instanceof Error ? e.message : String(e));
+    }
+    try {
+      await checkProactiveTriggers(uid);
+    } catch (e) {
+      console.error(`[osiris:proactive] userId=${uid} failed:`,
         e instanceof Error ? e.message : String(e));
     }
   }

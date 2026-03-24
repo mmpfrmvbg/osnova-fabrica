@@ -13,6 +13,7 @@ import { callHttpApiStream } from '../core/llm-router';
 import { handleMessage } from '../core/message-handler';
 import { startConsolidationCron, runConsolidationNow } from '../core/consolidation-runner';
 import { getJobStatus } from '../core/autonomous-runner';
+import { checkProactiveTriggers } from '../core/proactive-engine';
 import {
   getCoreMemoryWithVersion,
   deleteFact,
@@ -745,6 +746,19 @@ export function createHttpApp(): Express {
       res.json({ ok: true, userId: userId ?? 'all' });
     } catch (e) {
       console.error('[osiris:debug] POST /debug/consolidate failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.post('/debug/proactive', async (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string'
+        ? req.query['userId']
+        : 'default';
+      await checkProactiveTriggers(userId);
+      res.json({ triggered: true });
+    } catch (e) {
+      console.error('[osiris:http] POST /debug/proactive failed', e);
       res.status(500).json({ error: 'internal server error' });
     }
   });
