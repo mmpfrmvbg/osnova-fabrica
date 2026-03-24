@@ -1,0 +1,15 @@
+---
+description: VPS deployment checklist for Osiris service
+alwaysApply: true
+---
+
+# Деплой на VPS
+
+- SSH подключение уже настроено через ключ (`~/.ssh/id_rsa` или `~/.ssh/osnova`).
+- Host: `90.156.210.111`.
+- User: `root` (или `ubuntu` — уточни).
+- Port: `22`.
+- Путь к репо: `/opt/osnova` (уточни если иначе).
+- PM2 процесс называется: `osiris`.
+- После `git pull` всегда: `cd apps/osiris && npm install && pm2 restart osiris`.
+- Проверка: `curl http://localhost:3000/health`.
