@@ -13,6 +13,13 @@ import type { ChatMessage, ToolCall, ToolDefinition } from './llm-router';
 import { runSummarizerIfNeeded } from './memory-summarizer';
 import { checkConnectivity } from './connectivity';
 import { buildOsirisContext, setLastError } from './osiris-context';
+import {
+  shellExec,
+  fileRead,
+  gitStatus,
+  gitCommitDiff,
+  notifyPush,
+} from './tools/system-tools';
 
 export interface HandleResult {
   reply: string;
@@ -150,6 +157,81 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
           query: { type: 'string', description: 'Поисковый запрос' },
         },
         required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'shell_exec',
+      description:
+        'Execute a shell command on the server. Use for checking logs, running tests, ' +
+        'deploying, reading process status. NEVER use for destructive operations.',
+      parameters: {
+        type: 'object',
+        properties: {
+          cmd: { type: 'string', description: 'Shell-команда для выполнения' },
+        },
+        required: ['cmd'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'file_read',
+      description: 'Read a file from the repository. Use to inspect source code, configs, logs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Путь к файлу относительно REPO_ROOT' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'git_status',
+      description: 'Get current git status and last 5 commits of the repository.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'git_commit_diff',
+      description: 'Get the file changes in a specific git commit.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sha: { type: 'string', description: 'SHA коммита (6-40 hex символов)' },
+        },
+        required: ['sha'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'notify_push',
+      description: "Send a push notification to the creator's phone.",
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Текст уведомления' },
+          urgency: {
+            type: 'string',
+            enum: ['low', 'normal', 'high'],
+            description: 'Срочность: low, normal, high',
+          },
+        },
+        required: ['text'],
       },
     },
   },
@@ -350,6 +432,36 @@ export async function handleMessage(
       if (!query) return 'Ошибка: query обязателен.';
       const result = await memory.graphRecall(userId, query);
       return JSON.stringify(result);
+    }
+    if (name === 'shell_exec') {
+      const cmd = typeof args.cmd === 'string' ? args.cmd.trim() : '';
+      if (!cmd) return 'Ошибка: cmd обязателен.';
+      const result = await shellExec(cmd);
+      return JSON.stringify(result);
+    }
+    if (name === 'file_read') {
+      const filePath = typeof args.path === 'string' ? args.path.trim() : '';
+      if (!filePath) return 'Ошибка: path обязателен.';
+      const result = await fileRead(filePath);
+      if (result.error) return `Ошибка: ${result.error}`;
+      return result.content.slice(0, 8000);
+    }
+    if (name === 'git_status') {
+      return await gitStatus();
+    }
+    if (name === 'git_commit_diff') {
+      const sha = typeof args.sha === 'string' ? args.sha.trim() : '';
+      if (!sha) return 'Ошибка: sha обязателен.';
+      return await gitCommitDiff(sha);
+    }
+    if (name === 'notify_push') {
+      const text = typeof args.text === 'string' ? args.text.trim() : '';
+      if (!text) return 'Ошибка: text обязателен.';
+      const urgency = args.urgency === 'low' || args.urgency === 'high'
+        ? args.urgency
+        : 'normal';
+      await notifyPush(text, urgency);
+      return 'Уведомление отправлено.';
     }
     return 'Инструмент не найден.';
   }
