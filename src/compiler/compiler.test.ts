@@ -10,6 +10,7 @@ import { compileSource } from "./compiler";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { compileProgram } from "./codegen";
+import { analyzeProgram } from "./semantic";
 import { VM, InterpreterError } from "../runtime/vm/interpreter";
 import type { OsVbcModule } from "../runtime/vm/bytecode";
 
@@ -868,6 +869,44 @@ describe("semantic checker", () => {
 конец`;
     const result = compileSource(src);
     expect(result.semanticErrors.filter((e) => e.kind === "redeclare_var")).toHaveLength(0);
+  });
+
+  it("межмодульный вызов: неверное число аргументов → arg_count_mismatch", () => {
+    const src = `модуль А
+процедура экспорт сложить(а, б)
+  вернуть а + б
+конец
+конец
+
+модуль Б
+использовать модуль А из "а.osnova"
+процедура главная()
+  пусть р = А.сложить(1)
+конец
+конец`;
+    const { tokens } = tokenize(src);
+    const { ast } = parse(tokens);
+    const result = analyzeProgram(ast!);
+    expect(result.errors.some((e) => e.kind === "arg_count_mismatch")).toBe(true);
+  });
+
+  it("межмодульный вызов: верное число аргументов → no arg_count_mismatch", () => {
+    const src = `модуль А
+процедура экспорт сложить(а, б)
+  вернуть а + б
+конец
+конец
+
+модуль Б
+использовать модуль А из "а.osnova"
+процедура главная()
+  пусть р = А.сложить(1, 2)
+конец
+конец`;
+    const { tokens } = tokenize(src);
+    const { ast } = parse(tokens);
+    const result = analyzeProgram(ast!);
+    expect(result.errors.filter((e) => e.kind === "arg_count_mismatch")).toHaveLength(0);
   });
 });
 

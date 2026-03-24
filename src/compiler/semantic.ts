@@ -35,7 +35,7 @@ function isCompareExpr(expr: Expr): boolean {
 interface ModuleSemanticContext {
   knownProcedures?: Set<string>;
   procedureArity?: Map<string, number>;
-  namespaceProcedures?: Map<string, Set<string>>;
+  namespaceProcedures?: Map<string, Map<string, number>>;
 }
 
 function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}): SemanticError[] {
@@ -44,7 +44,8 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
   const procedureArity: Map<string, number> =
     context.procedureArity ??
     new Map(ast.procedures.map((p) => [p.name, p.params.length]));
-  const namespaceProcedures = context.namespaceProcedures ?? new Map<string, Set<string>>();
+  const namespaceProcedures = context.namespaceProcedures
+    ?? new Map<string, Map<string, number>>();
   const kwSet = new Set(LANGUAGE_REGISTRY.keywords.map((k) => k.lexeme));
 
   // ─── RFC-003: invented syntax check ───
@@ -259,6 +260,14 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
               kind: "unknown_procedure",
               message: `процедура '${procName}' не экспортирована модулем '${namespace}'`,
             });
+          } else {
+            const expectedArity = exported.get(procName ?? "");
+            if (expectedArity !== undefined && expr.args.length !== expectedArity) {
+              errors.push({
+                kind: "arg_count_mismatch",
+                message: `процедура '${namespace}.${procName}' ожидает ${expectedArity} аргументов, получено ${expr.args.length}`,
+              });
+            }
           }
         } else if (!knownProcedures.has(expr.name)) {
           errors.push({
@@ -424,7 +433,7 @@ export function checkSemantics(ast: Module): SemanticError[] {
 }
 
 interface ModuleExports {
-  procedures: Set<string>;
+  procedures: Map<string, number>;
   types: Set<string>;
 }
 
@@ -434,14 +443,18 @@ export function analyzeProgram(program: Program): SemanticResult {
 
   for (const mod of program.modules) {
     const moduleExports: ModuleExports = {
-      procedures: new Set(mod.procedures.filter((p) => p.exported).map((p) => p.name)),
+      procedures: new Map(
+        mod.procedures
+          .filter((p) => p.exported)
+          .map((p) => [p.name, p.params.length]),
+      ),
       // На текущем этапе типы считаем доступными в пределах экспортирующего namespace.
       types: new Set(mod.typeDeclarations.map((t) => t.name)),
     };
     const list = exportsByModuleName.get(mod.name) ?? [];
     if (list.length > 0) {
       for (const prev of list) {
-        for (const proc of moduleExports.procedures) {
+        for (const [proc] of moduleExports.procedures) {
           if (prev.procedures.has(proc)) {
             errors.push({
               kind: "export_collision",
@@ -456,7 +469,7 @@ export function analyzeProgram(program: Program): SemanticResult {
   }
 
   for (const mod of program.modules) {
-    const namespaceProcedures = new Map<string, Set<string>>();
+    const namespaceProcedures = new Map<string, Map<string, number>>();
     for (const imp of mod.imports) {
       const providers = exportsByModuleName.get(imp.module);
       if (!providers || providers.length === 0) {
@@ -466,16 +479,16 @@ export function analyzeProgram(program: Program): SemanticResult {
         });
         continue;
       }
-      const merged = new Set<string>();
+      const merged = new Map<string, number>();
       for (const provider of providers) {
-        for (const proc of provider.procedures) {
+        for (const [proc, arity] of provider.procedures) {
           if (merged.has(proc)) {
             errors.push({
               kind: "export_collision",
               message: `коллизия экспортов: namespace '${imp.module}' содержит дубликат процедуры '${proc}'`,
             });
           }
-          merged.add(proc);
+          merged.set(proc, arity);
         }
       }
       namespaceProcedures.set(imp.module, merged);
