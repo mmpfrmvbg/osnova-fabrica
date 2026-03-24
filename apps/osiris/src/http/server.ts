@@ -12,6 +12,7 @@ import type { OsVbcModule } from '../../../../src/runtime/vm/bytecode';
 import { callHttpApiStream } from '../core/llm-router';
 import { handleMessage } from '../core/message-handler';
 import { startConsolidationCron, runConsolidationNow } from '../core/consolidation-runner';
+import { getJobStatus } from '../core/autonomous-runner';
 import * as memory from '../core/memory-engine';
 import { buildOsirisContext } from '../core/osiris-context';
 import { runOsirisPipeline } from '../osnova/client';
@@ -721,6 +722,25 @@ export function createHttpApp(): Express {
       res.json({ ok: true, userId: userId ?? 'all' });
     } catch (e) {
       console.error('[osiris:debug] POST /debug/consolidate failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.get('/jobs/:jobId', async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params;
+      if (!jobId || typeof jobId !== 'string') {
+        res.status(400).json({ error: 'jobId required' });
+        return;
+      }
+      const job = await getJobStatus(jobId);
+      if (!job) {
+        res.status(404).json({ error: 'job not found' });
+        return;
+      }
+      res.json(job);
+    } catch (e) {
+      console.error('[osiris:http] GET /jobs/:jobId failed', e);
       res.status(500).json({ error: 'internal server error' });
     }
   });

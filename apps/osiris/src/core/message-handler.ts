@@ -20,6 +20,7 @@ import {
   gitCommitDiff,
   notifyPush,
 } from './tools/system-tools';
+import { startAutonomousJob } from './autonomous-runner';
 
 export interface HandleResult {
   reply: string;
@@ -232,6 +233,22 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
           },
         },
         required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_autonomous_job',
+      description:
+        'Start a background autonomous job. Use when the task requires multiple steps, ' +
+        'file operations, or analysis that would take too long for a single response.',
+      parameters: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: 'Цель задачи — что именно нужно выполнить' },
+        },
+        required: ['goal'],
       },
     },
   },
@@ -462,6 +479,12 @@ export async function handleMessage(
         : 'normal';
       await notifyPush(text, urgency);
       return 'Уведомление отправлено.';
+    }
+    if (name === 'run_autonomous_job') {
+      const goal = typeof args.goal === 'string' ? args.goal.trim() : '';
+      if (!goal) return 'Ошибка: goal обязателен.';
+      const jobId = await startAutonomousJob(userId, goal);
+      return `Автономная задача запущена в фоне. ID: ${jobId}. Проверить статус: GET /jobs/${jobId}`;
     }
     return 'Инструмент не найден.';
   }
