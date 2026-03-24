@@ -20,7 +20,7 @@ import {
   getTasks,
   updateTask,
 } from '../core/memory-engine';
-import { getDb } from '../db/migrations';
+import { getDb, migrate } from '../db/migrations';
 import * as memory from '../core/memory-engine';
 import { buildOsirisContext } from '../core/osiris-context';
 import { runOsirisPipeline } from '../osnova/client';
@@ -662,6 +662,7 @@ export function createHttpApp(): Express {
 
   app.get('/export/training', (req, res) => {
     try {
+      migrate();
       const userId = typeof req.query['userId'] === 'string'
         ? req.query['userId'].trim()
         : '';
