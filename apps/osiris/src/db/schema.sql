@@ -81,3 +81,26 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   created_at    TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS entities (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    TEXT    NOT NULL,
+  name       TEXT    NOT NULL,
+  type       TEXT    NOT NULL DEFAULT 'concept',
+  metadata   TEXT    NOT NULL DEFAULT '{}',
+  created_at TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS relations (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    TEXT    NOT NULL,
+  from_id    INTEGER NOT NULL REFERENCES entities(id),
+  to_id      INTEGER NOT NULL REFERENCES entities(id),
+  predicate  TEXT    NOT NULL,
+  weight     REAL    NOT NULL DEFAULT 1.0,
+  created_at TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_entities_user ON entities(user_id, name);
+CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_id);
+CREATE INDEX IF NOT EXISTS idx_relations_to   ON relations(to_id);
+

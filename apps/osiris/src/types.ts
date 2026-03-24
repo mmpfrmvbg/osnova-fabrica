@@ -109,6 +109,30 @@ export interface WorkingMemoryResult {
   summaries: SessionSummary[];
 }
 
+export interface Entity {
+  id: number;
+  userId: string;
+  name: string;
+  type: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface Relation {
+  id: number;
+  userId: string;
+  fromId: number;
+  toId: number;
+  predicate: string;
+  weight: number;
+  createdAt: string;
+}
+
+export interface GraphRecallResult {
+  entities: Entity[];
+  relations: Relation[];
+}
+
 export interface JarvisContext {
   systemPrompt: string;
   conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
