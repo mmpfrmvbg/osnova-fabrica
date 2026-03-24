@@ -122,3 +122,17 @@ CREATE TABLE IF NOT EXISTS thoughts (
   created_at TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS autonomous_jobs (
+  id             TEXT    PRIMARY KEY,
+  user_id        TEXT    NOT NULL,
+  goal           TEXT    NOT NULL,
+  status         TEXT    NOT NULL DEFAULT 'pending',
+  steps          TEXT    NOT NULL DEFAULT '[]',
+  result         TEXT,
+  error          TEXT,
+  iteration      INTEGER NOT NULL DEFAULT 0,
+  max_iterations INTEGER NOT NULL DEFAULT 20,
+  created_at     TEXT    NOT NULL,
+  updated_at     TEXT    NOT NULL
+);
+

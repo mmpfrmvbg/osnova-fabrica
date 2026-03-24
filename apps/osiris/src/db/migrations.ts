@@ -111,6 +111,25 @@ export function migrate(): void {
   } catch {
     // уже существует — игнорируем
   }
+  try {
+    getDb().exec(`
+      CREATE TABLE IF NOT EXISTS autonomous_jobs (
+        id             TEXT    PRIMARY KEY,
+        user_id        TEXT    NOT NULL,
+        goal           TEXT    NOT NULL,
+        status         TEXT    NOT NULL DEFAULT 'pending',
+        steps          TEXT    NOT NULL DEFAULT '[]',
+        result         TEXT,
+        error          TEXT,
+        iteration      INTEGER NOT NULL DEFAULT 0,
+        max_iterations INTEGER NOT NULL DEFAULT 20,
+        created_at     TEXT    NOT NULL,
+        updated_at     TEXT    NOT NULL
+      )
+    `);
+  } catch {
+    // уже существует — игнорируем
+  }
   // Добавляем колонку если её ещё нет (идемпотентно)
   try {
     getDb().exec('ALTER TABLE facts ADD COLUMN last_accessed_at TEXT');
@@ -119,6 +138,10 @@ export function migrate(): void {
   }
   _schemaApplied = true;
   console.log('[osiris:migrate] schema applied →', DB_PATH);
+}
+
+export function ensureInit(): void {
+  migrate();
 }
 
 export function closeDb(): void {

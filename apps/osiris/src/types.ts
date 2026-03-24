@@ -148,6 +148,29 @@ export interface ThoughtRecord {
   createdAt: string;
 }
 
+export interface JobStep {
+  iteration: number;
+  thought: string;
+  action: string;
+  args: Record<string, unknown>;
+  observation: string;
+  timestamp: string;
+}
+
+export interface AutonomousJob {
+  id: string;
+  userId: string;
+  goal: string;
+  status: 'pending' | 'running' | 'done' | 'stalled' | 'error';
+  steps: JobStep[];
+  result: string | null;
+  error: string | null;
+  iteration: number;
+  maxIterations: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface JarvisContext {
   systemPrompt: string;
   conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
