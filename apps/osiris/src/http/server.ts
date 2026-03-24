@@ -13,6 +13,7 @@ import { callHttpApiStream } from '../core/llm-router';
 import { handleMessage } from '../core/message-handler';
 import { startConsolidationCron, runConsolidationNow } from '../core/consolidation-runner';
 import { getJobStatus } from '../core/autonomous-runner';
+import { getDb } from '../db/migrations';
 import * as memory from '../core/memory-engine';
 import { buildOsirisContext } from '../core/osiris-context';
 import { runOsirisPipeline } from '../osnova/client';
@@ -761,6 +762,14 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
       console.log('Осирис ready');
       console.log(`Version: ${OSIRIS_VERSION}`);
       console.log(`Mode: HTTP (port ${port})`);
+      // Cleanup stale running jobs after restart
+      try {
+        getDb().exec(
+          "UPDATE autonomous_jobs SET status='error', error='Server restarted' WHERE status='running'",
+        );
+      } catch {
+        // таблица может не существовать при первом запуске до миграции — игнорируем
+      }
       if (opts?.tunnel === true) {
         startTunnel(port);
       }

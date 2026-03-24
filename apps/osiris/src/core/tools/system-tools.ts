@@ -17,7 +17,6 @@ const ALLOWED_PREFIXES = [
   'tsx ',
   'pm2 ',
   'ls ',
-  'ls\n',
   'cat ',
   'echo ',
   'pwd',
