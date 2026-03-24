@@ -20,7 +20,7 @@ import {
   getTasks,
   updateTask,
 } from '../core/memory-engine';
-import { getDb, migrate } from '../db/migrations';
+import { getDb, migrate, seedCoreMemoryIfEmpty } from '../db/migrations';
 import * as memory from '../core/memory-engine';
 import { buildOsirisContext } from '../core/osiris-context';
 import { runOsirisPipeline } from '../osnova/client';
@@ -737,6 +737,7 @@ export function createHttpApp(): Express {
 
 export async function startHttpServer(opts?: StartHttpServerOptions): Promise<void> {
   migrate();
+  seedCoreMemoryIfEmpty('web-user');
   const app = createHttpApp();
 
   const port = Number(process.env.HTTP_PORT ?? 3000);

@@ -185,3 +185,38 @@ export function closeDb(): void {
   }
   _schemaApplied = false;
 }
+
+export function seedCoreMemoryIfEmpty(userId: string): void {
+  const db = getDb();
+  const existing = db
+    .prepare('SELECT COUNT(*) as cnt FROM core_memory WHERE user_id = ?')
+    .get(userId) as { cnt: number };
+  if (existing.cnt > 0) return;
+
+  const content = JSON.stringify({
+    user: {
+      name: 'Создатель',
+      role: 'основатель проекта Основа',
+      style: null,
+      current_focus: 'разработка языка Основа и экосистемы'
+    },
+    project: {
+      name: 'Основа',
+      stack: 'TypeScript, язык Основа, SQLite, Android',
+      state: 'активная разработка',
+      description: 'Закрытая технологическая экосистема с языком программирования на русском. Фабрика генерирует приложения автономно. ОСИРИС — персональный ассистент. Репозиторий: mmpfrmvbg/osnova-fabrica.',
+      horizon: 'собственная ОС, всё на языке Основа, VLIW-ready'
+    },
+    meta: {
+      interaction_count: 0,
+      last_session: null
+    }
+  });
+
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT OR IGNORE INTO core_memory (user_id, content, updated_at, version) VALUES (?, ?, ?, 1)'
+  ).run(userId, content, now);
+
+  console.log('[osiris:seed] coreMemory seeded for', userId);
+}
