@@ -14,6 +14,7 @@ import { handleMessage } from '../core/message-handler';
 import { startConsolidationCron, runConsolidationNow } from '../core/consolidation-runner';
 import { getJobStatus } from '../core/autonomous-runner';
 import { checkProactiveTriggers } from '../core/proactive-engine';
+import { startTelegramAdapter } from '../adapters/telegram';
 import {
   getCoreMemoryWithVersion,
   deleteFact,
@@ -928,6 +929,7 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
         startTunnel(port);
       }
       startConsolidationCron();
+      startTelegramAdapter(); // фоновый polling, не await
       resolve();
     });
 
