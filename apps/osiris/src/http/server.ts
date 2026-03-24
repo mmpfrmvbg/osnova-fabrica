@@ -662,7 +662,6 @@ export function createHttpApp(): Express {
 
   app.get('/export/training', (req, res) => {
     try {
-      migrate();
       const userId = typeof req.query['userId'] === 'string'
         ? req.query['userId'].trim()
         : '';
@@ -715,6 +714,7 @@ export function createHttpApp(): Express {
 }
 
 export async function startHttpServer(opts?: StartHttpServerOptions): Promise<void> {
+  migrate();
   const app = createHttpApp();
 
   const port = Number(process.env.HTTP_PORT ?? 3000);
