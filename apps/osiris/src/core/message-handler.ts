@@ -288,6 +288,33 @@ export function needsDeepThought(text: string): boolean {
   return triggers.some((t) => lower.includes(t));
 }
 
+export async function assessConfidence(
+  reply: string,
+  context: string,
+): Promise<number> {
+  try {
+    const result = await callLlm(
+      [
+        {
+          role: 'system',
+          content:
+            'Оцени уверенность в следующем ответе от 0.0 до 1.0.\n' +
+            `Контекст: ${context.slice(0, 200)}\n` +
+            `Ответ: ${reply.slice(0, 300)}\n` +
+            'Верни только число от 0.0 до 1.0, без пояснений.',
+        },
+      ],
+      'chat',
+      { tool_choice: 'none' },
+    );
+    const parsed = parseFloat(result.text.trim());
+    if (!Number.isFinite(parsed)) return 0.7;
+    return Math.min(1.0, Math.max(0.0, parsed));
+  } catch {
+    return 0.7;
+  }
+}
+
 // ── Main handler ───────────────────────────────────────────────────────────
 
 export async function handleMessage(
@@ -547,6 +574,24 @@ export async function handleMessage(
     console.error('[osiris:handler] LLM error:', msg);
     setLastError(msg);
     reply = `[ошибка LLM] ${msg}`;
+  }
+
+  // ── Confidence assessment ────────────────────────────────────────────────
+  try {
+    const confidence = await assessConfidence(reply, message.text);
+    console.log('[osiris:confidence]', userId, confidence.toFixed(2));
+    if (confidence < 0.4) {
+      reply =
+        '[Осирис не уверен] ' +
+        reply +
+        `\n\n_Уверенность: ${(confidence * 100).toFixed(0)}%. Могу ошибаться._`;
+    } else if (confidence < 0.7) {
+      reply = reply + `\n\n_Уверенность: ${(confidence * 100).toFixed(0)}%_`;
+    }
+  } catch (e) {
+    console.error('[osiris:confidence] failed:',
+      e instanceof Error ? e.message : String(e));
+    // не блокируем ответ
   }
 
   await memory.saveMessage({
