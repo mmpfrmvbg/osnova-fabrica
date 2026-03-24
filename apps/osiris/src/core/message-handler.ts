@@ -1,5 +1,5 @@
 // apps/osiris/src/core/message-handler.ts
-import type { IncomingMessage, JarvisMode } from '../types';
+import type { IncomingMessage, JarvisMode, ProjectHint } from '../types';
 import * as memory from './memory-engine';
 import { call as callLlm } from './llm-router';
 import type { ChatMessage, ToolCall, ToolDefinition } from './llm-router';
@@ -97,6 +97,24 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
   },
 ];
 
+const PROJECT_HINTS: ProjectHint[] = [
+  'osnova',
+  'lang',
+  'vm',
+  'fabric',
+  'assistant',
+  'chat',
+  'life',
+  'unknown',
+];
+
+function toProjectHint(value: unknown): ProjectHint {
+  if (typeof value === 'string' && PROJECT_HINTS.includes(value as ProjectHint)) {
+    return value as ProjectHint;
+  }
+  return 'assistant';
+}
+
 function formatTaskList(tasks: memory.Task[]): string {
   if (tasks.length === 0) return 'Открытых задач нет.';
   return tasks.map((t, i) => `${i + 1}. [#${t.id}] ${t.title}`).join('\n');
@@ -158,9 +176,7 @@ export async function handleMessage(
       if (!content) return 'Ошибка: content обязателен.';
       const rawImportance = typeof args.importance === 'number' ? args.importance : 3;
       const importance = Math.max(1, Math.min(5, Number(rawImportance) || 3));
-      const project = typeof args.project === 'string' && args.project.trim()
-        ? args.project.trim()
-        : 'assistant';
+      const project = toProjectHint(args.project);
       await memory.saveFacts(
         [{ kind: 'user_profile', project, text: content, importance }],
         0,
