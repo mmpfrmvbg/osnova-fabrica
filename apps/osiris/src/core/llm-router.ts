@@ -152,6 +152,71 @@ async function callHttpApi(
   }
 }
 
+export async function callHttpApiStream(
+  messages: ChatMessage[],
+  onToken: (token: string) => void,
+): Promise<void> {
+  const apiKey = process.env.LLM_API_KEY ?? '';
+  const baseUrl = process.env.LLM_BASE_URL ?? 'https://api.deepseek.com';
+  const model = process.env.LLM_MODEL ?? 'deepseek-chat';
+
+  if (!apiKey) {
+    throw new Error('[llm-router] LLM_API_KEY не задан');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  try {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ model, messages, stream: true }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      const text = await res.text();
+      throw new Error(`[llm-router] stream HTTP ${res.status}: ${text.slice(0, 300)}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') return;
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: { delta?: { content?: string } }[];
+          };
+          const token = parsed.choices?.[0]?.delta?.content;
+          if (token) onToken(token);
+        } catch {}
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error('[llm-router] stream timeout after 60s');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function call(
   messages: ChatMessage[],
   _mode: JarvisMode = 'chat',

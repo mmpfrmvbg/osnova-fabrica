@@ -164,3 +164,63 @@ describe('memory-engine graph', () => {
     (await import('../db/migrations')).closeDb();
   });
 });
+
+describe('memory-engine consolidateFacts', () => {
+  const tempRoot = path.join(os.tmpdir(), 'osiris-consolidate-tests');
+
+  afterEach(async () => {
+    vi.resetModules();
+    delete process.env.OSIRIS_DB_PATH;
+    await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it('removes duplicate facts', async () => {
+    await fs.promises.mkdir(tempRoot, { recursive: true });
+    const dbPath = path.join(tempRoot, `osiris-${Date.now()}.db`);
+    process.env.OSIRIS_DB_PATH = dbPath;
+
+    // Мокаем llm-router ПЕРЕД импортом memory-engine
+    vi.doMock('./llm-router', () => ({
+      call: async () => ({
+        text: '{"keep":[],"remove":[],"core_memory_update":{},"summary":"test"}',
+        tokensUsed: { prompt: 0, completion: 0 },
+        model: 'mock',
+      }),
+    }));
+
+    const memory = await import('./memory-engine');
+    await memory.getRecentFacts('user-con-test', 1);
+
+    // Записать 6 фактов через saveFacts, 2 из которых дубли
+    // Чтобы попасть в фильтр "старше 24 часов" — записать с created_at в прошлом напрямую через БД
+    const { getDb } = await import('../db/migrations');
+    const db = getDb();
+    const past = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(); // 2 дня назад
+    const insertFact = db.prepare(`
+      INSERT INTO facts (user_id, kind, project, text, importance, created_at, updated_at)
+      VALUES (?, 'user_profile', 'assistant', ?, 3, ?, ?)
+    `);
+    insertFact.run('user-con-test', 'Любит TypeScript', past, past);
+    insertFact.run('user-con-test', 'Любит TypeScript', past, past); // дубль
+    insertFact.run('user-con-test', 'Работает над Осирис', past, past);
+    insertFact.run('user-con-test', 'Любит краткость', past, past);
+    insertFact.run('user-con-test', 'Любит TypeScript', past, past); // ещё дубль
+    insertFact.run('user-con-test', 'Использует DeepSeek', past, past);
+
+    const before = db.prepare('SELECT COUNT(*) as cnt FROM facts WHERE user_id = ?')
+      .get('user-con-test') as { cnt: number };
+    expect(before.cnt).toBe(6);
+
+    const result = await memory.consolidateFacts('user-con-test');
+
+    expect(result.skipped).toBeUndefined();
+    expect(result.factsRemoved).toBeGreaterThan(0);
+
+    const after = db.prepare('SELECT COUNT(*) as cnt FROM facts WHERE user_id = ?')
+      .get('user-con-test') as { cnt: number };
+    // После удаления дублей должно быть меньше 6
+    expect(after.cnt).toBeLessThan(6);
+
+    (await import('../db/migrations')).closeDb();
+  });
+});

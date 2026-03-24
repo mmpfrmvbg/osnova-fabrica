@@ -7,7 +7,9 @@ import { compileSource } from '../../../../src/compiler/compiler';
 import * as storage from '../../../../src/runtime/storage';
 import { VM, type StackValue } from '../../../../src/runtime/vm/interpreter';
 import type { OsVbcModule } from '../../../../src/runtime/vm/bytecode';
+import { callHttpApiStream } from '../core/llm-router';
 import { handleMessage } from '../core/message-handler';
+import { startConsolidationCron, runConsolidationNow } from '../core/consolidation-runner';
 import * as memory from '../core/memory-engine';
 import { buildOsirisContext } from '../core/osiris-context';
 import { runOsirisPipeline } from '../osnova/client';
@@ -274,14 +276,42 @@ export function createHttpApp(): Express {
         isVoice: false,
       };
 
+      // 1. Сначала handleMessage для tool calls, памяти, контекста
       const result = await handleMessage(incoming);
-      const tokens = String(result.reply ?? '').split(/(\s+)/);
-      for (const token of tokens) {
-        res.write(`data: ${JSON.stringify({ token })}\n\n`);
-        await new Promise((r) => setTimeout(r, 30));
+
+      // 2. Определить провайдер — если qwen-cli или нет LLM_API_KEY, стримить нельзя
+      const provider = process.env.OSNOVA_PROVIDER ?? 'openai-compatible';
+      const hasApiKey = !!process.env.LLM_API_KEY;
+
+      if (provider !== 'qwen-cli' && hasApiKey) {
+        // Реальный стриминг через DeepSeek API
+        try {
+          await callHttpApiStream([{ role: 'user', content: messageText }], (token) => {
+            res.write(`data: ${JSON.stringify({ token })}\n\n`);
+          });
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          res.end();
+        } catch (streamErr) {
+          // Fallback: стримим готовый reply из handleMessage если стриминг упал
+          console.error('[osiris:http] stream failed, falling back to split', streamErr);
+          const tokens = result.reply.split(/(\s+)/);
+          for (const token of tokens) {
+            res.write(`data: ${JSON.stringify({ token })}\n\n`);
+            await new Promise((r) => setTimeout(r, 30));
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          res.end();
+        }
+      } else {
+        // Fallback: имитация для qwen-cli или если нет API ключа
+        const tokens = result.reply.split(/(\s+)/);
+        for (const token of tokens) {
+          res.write(`data: ${JSON.stringify({ token })}\n\n`);
+          await new Promise((r) => setTimeout(r, 30));
+        }
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        res.end();
       }
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'internal error';
       res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
@@ -643,6 +673,17 @@ export function createHttpApp(): Express {
     }
   });
 
+  app.post('/debug/consolidate', async (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
+      await runConsolidationNow(userId);
+      res.json({ ok: true, userId: userId ?? 'all' });
+    } catch (e) {
+      console.error('[osiris:debug] POST /debug/consolidate failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
   return app;
 }
 
@@ -662,6 +703,7 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
       if (opts?.tunnel === true) {
         startTunnel(port);
       }
+      startConsolidationCron();
       resolve();
     });
 
