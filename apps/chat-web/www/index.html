@@ -117,6 +117,125 @@ function switchTab(name) {
   if (name === 'tasks') loadTasks();
 }
 
+async function loadBrain() {
+  const el = document.getElementById('brain-content');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#666">Загрузка...</p>';
+  try {
+    const res = await nativeFetch(BASE + '/brain?userId=' + encodeURIComponent(USER_ID));
+    if (!res.ok) { el.innerHTML = '<p style="color:#c00">Ошибка загрузки</p>'; return; }
+    const data = await res.json();
+    const cm = data.coreMemory || {};
+    const u = cm.user || {};
+    const p = cm.project || {};
+    const facts = data.recentFacts || [];
+
+    el.innerHTML = '';
+
+    const cmSection = document.createElement('div');
+    cmSection.style.cssText = 'background:#1e1e2e;border-radius:10px;padding:14px;margin-bottom:16px;';
+
+    const cmTitle = document.createElement('div');
+    cmTitle.style.cssText = 'color:#a0a0d0;font-size:13px;margin-bottom:10px;font-weight:bold;';
+    cmTitle.textContent = 'Core Memory';
+    cmSection.appendChild(cmTitle);
+
+    const fields = [
+      { label:'Имя', group:'user', key:'name', val: u.name || '' },
+      { label:'Роль', group:'user', key:'role', val: u.role || '' },
+      { label:'Фокус', group:'user', key:'current_focus', val: u.current_focus || '' },
+      { label:'Проект', group:'project', key:'name', val: p.name || '' },
+      { label:'Статус', group:'project', key:'state', val: p.state || '' },
+    ];
+    const inputs = {};
+    fields.forEach(f => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;';
+      const lbl = document.createElement('span');
+      lbl.style.cssText = 'color:#888;font-size:12px;min-width:56px;';
+      lbl.textContent = f.label;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = f.val;
+      inp.style.cssText = 'flex:1;background:#12122a;border:1px solid #333;border-radius:6px;padding:6px 8px;color:#ddd;font-size:14px;outline:none;';
+      inputs[f.group + '.' + f.key] = inp;
+      row.appendChild(lbl);
+      row.appendChild(inp);
+      cmSection.appendChild(row);
+    });
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Сохранить';
+    saveBtn.style.cssText = 'margin-top:6px;padding:8px 20px;background:#4a90d9;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;';
+    saveBtn.onclick = async () => {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '...';
+      try {
+        await nativeFetch(BASE + '/brain/core-memory?userId=' + encodeURIComponent(USER_ID), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ patch: {
+            user: {
+              name: inputs['user.name'].value,
+              role: inputs['user.role'].value,
+              current_focus: inputs['user.current_focus'].value,
+            },
+            project: {
+              name: inputs['project.name'].value,
+              state: inputs['project.state'].value,
+            }
+          }})
+        });
+        saveBtn.textContent = '✓ Сохранено';
+        setTimeout(() => { saveBtn.textContent = 'Сохранить'; saveBtn.disabled = false; }, 2000);
+      } catch {
+        saveBtn.textContent = 'Ошибка';
+        saveBtn.disabled = false;
+      }
+    };
+    cmSection.appendChild(saveBtn);
+    el.appendChild(cmSection);
+
+    const factsSection = document.createElement('div');
+    factsSection.style.cssText = 'background:#1e1e2e;border-radius:10px;padding:14px;';
+    const factsTitle = document.createElement('div');
+    factsTitle.style.cssText = 'color:#a0a0d0;font-size:13px;margin-bottom:10px;font-weight:bold;';
+    factsTitle.textContent = 'Факты (' + facts.length + ')';
+    factsSection.appendChild(factsTitle);
+
+    function renderFacts(list) {
+      Array.from(factsSection.querySelectorAll('.fact-row')).forEach(r => r.remove());
+      list.forEach(fact => {
+        const row = document.createElement('div');
+        row.className = 'fact-row';
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #2a2a3e;';
+        const txt = document.createElement('span');
+        txt.style.cssText = 'flex:1;font-size:13px;color:#ccc;word-break:break-word;';
+        txt.textContent = fact.content || fact.text || JSON.stringify(fact);
+        const del = document.createElement('button');
+        del.textContent = '🗑';
+        del.style.cssText = 'background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;opacity:0.6;';
+        del.onclick = async () => {
+          if (!fact.id) return;
+          del.disabled = true;
+          try {
+            await nativeFetch(BASE + '/brain/facts/' + fact.id + '?userId=' + encodeURIComponent(USER_ID), { method: 'DELETE' });
+            row.remove();
+          } catch { del.disabled = false; }
+        };
+        row.appendChild(txt);
+        row.appendChild(del);
+        factsSection.appendChild(row);
+      });
+    }
+    renderFacts(facts.slice(0, 20));
+    el.appendChild(factsSection);
+
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c00">Ошибка: ' + e.message + '</p>';
+  }
+}
+
 async function nativeFetch(url, options) {
   // Используем CapacitorHttp если доступен (обходит mixed content)
   try {
