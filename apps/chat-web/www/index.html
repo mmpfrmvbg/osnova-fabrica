@@ -23,6 +23,7 @@
 <div id="messages"></div>
 <form class="bar" id="form">
   <input id="input" type="text" autocomplete="off" placeholder="Сообщение..."/>
+  <button type="button" id="mic-btn" title="Голосовой ввод" style="font-size:18px;background:none;border:none;cursor:pointer;padding:0 6px;">🎤</button>
   <button type="submit">Отправить</button>
 </form>
 <div id="server-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#1a1a2e;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:9999;">
@@ -41,6 +42,28 @@
 <script src="https://cdn.jsdelivr.net/npm/@capacitor/core@6/dist/capacitor.min.js"></script>
 <script>
 let BASE = (localStorage.getItem('serverUrl') || '').replace(/\/$/, '');
+
+function getOfflineQueue() {
+  try { return JSON.parse(localStorage.getItem('offlineQueue') || '[]'); } catch { return []; }
+}
+function saveOfflineQueue(q) {
+  localStorage.setItem('offlineQueue', JSON.stringify(q));
+}
+async function flushOfflineQueue() {
+  const q = getOfflineQueue();
+  if (!q.length) return;
+  for (const msg of q) {
+    try {
+      await nativeFetch(BASE + '/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: 'web-user', message: msg })
+      });
+    } catch { return; }
+  }
+  saveOfflineQueue([]);
+}
+window.addEventListener('online', () => { flushOfflineQueue(); });
 
 async function nativeFetch(url, options) {
   // Используем CapacitorHttp если доступен (обходит mixed content)
@@ -110,7 +133,10 @@ async function runPipelineViaCapacitor(url, dot, msgs) {
         break;
       }
     }
-  } catch (err) { dot.textContent = '[ошибка] ' + err.message; }
+  } catch (err) {
+    if (err && err.name === 'TypeError' && err.message && err.message.includes('fetch')) throw err;
+    dot.textContent = '[ошибка] ' + err.message;
+  }
 }
 
 async function streamChat(message, dot, msgs) {
@@ -245,6 +271,30 @@ async function init() {
   const msgs = document.getElementById('messages');
   const form = document.getElementById('form');
   const inp = document.getElementById('input');
+  const micBtn = document.getElementById('mic-btn');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    micBtn.disabled = true;
+    micBtn.title = 'Голосовой ввод недоступен';
+    micBtn.style.opacity = '0.3';
+  } else {
+    micBtn.addEventListener('click', () => {
+      const recognition = new SR();
+      recognition.lang = 'ru-RU';
+      recognition.interimResults = false;
+      recognition.onstart = () => { micBtn.textContent = '🔴'; };
+      recognition.onend = () => { micBtn.textContent = '🎤'; };
+      recognition.onresult = e => {
+        inp.value = e.results[0][0].transcript;
+        inp.focus();
+      };
+      recognition.onerror = () => {
+        micBtn.textContent = '🎤';
+        add('Голосовой ввод недоступен', 'msg-bot');
+      };
+      recognition.start();
+    });
+  }
 
   function add(text, cls) {
     const d = document.createElement('div');
@@ -291,7 +341,19 @@ async function init() {
       const url = BASE + '/pipeline/stream?task=' + encodeURIComponent(t);
       await runPipelineViaCapacitor(url, dot, msgs);
     } else {
-      await streamChat(t, dot, msgs);
+      try {
+        await streamChat(t, dot, msgs);
+      } catch (netErr) {
+        if (!navigator.onLine || netErr.message === 'Failed to fetch') {
+          dot.textContent = 'Отправлено в очередь (нет соединения)';
+          dot.className = 'msg msg-bot';
+          const q = getOfflineQueue();
+          q.push(t);
+          saveOfflineQueue(q);
+        } else {
+          dot.textContent = '[ошибка] ' + netErr.message;
+        }
+      }
     }
   };
 }
