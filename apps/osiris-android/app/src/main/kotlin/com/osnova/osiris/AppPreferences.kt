@@ -5,7 +5,8 @@ import android.content.SharedPreferences
 
 object AppPreferences {
     private const val PREFS_NAME = "osiris_prefs"
-    const val DEFAULT_URL = "http://5.35.80.100:3000"
+    // Default Osiris backend URL. Used in Settings screen as initial value.
+    const val DEFAULT_URL = "http://90.156.210.111:3000"
     const val DEFAULT_USER_ID = "android-user"
 
     private lateinit var prefs: SharedPreferences

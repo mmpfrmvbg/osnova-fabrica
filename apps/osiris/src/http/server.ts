@@ -116,6 +116,40 @@ export function createHttpApp(): Express {
     }
   });
 
+  // ── Android OTA API ──────────────────────────────────────────────────────
+
+  const ANDROID_OTA_DIR = '/opt/osnova/android-ota';
+  const ANDROID_OTA_LATEST_PATH = path.join(ANDROID_OTA_DIR, 'latest.json');
+  const ANDROID_OTA_APK_PATH = path.join(ANDROID_OTA_DIR, 'app.apk');
+
+  app.get('/ota/android/latest', (_req: Request, res: Response) => {
+    try {
+      if (!fs.existsSync(ANDROID_OTA_LATEST_PATH)) {
+        res.status(404).json({ error: 'latest.json not found' });
+        return;
+      }
+      const content = fs.readFileSync(ANDROID_OTA_LATEST_PATH, 'utf-8');
+      res.json(JSON.parse(content));
+    } catch (e) {
+      console.error('[osiris:http] GET /ota/android/latest failed', e);
+      res.status(500).json({ error: 'failed to read latest.json' });
+    }
+  });
+
+  app.get('/ota/android/app.apk', (_req: Request, res: Response) => {
+    try {
+      if (!fs.existsSync(ANDROID_OTA_APK_PATH)) {
+        res.status(404).json({ error: 'app.apk not found' });
+        return;
+      }
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      res.sendFile(ANDROID_OTA_APK_PATH);
+    } catch (e) {
+      console.error('[osiris:http] GET /ota/android/app.apk failed', e);
+      res.status(500).json({ error: 'failed to send apk' });
+    }
+  });
+
   const MAX_WAIT_MS = 20_000;
   const POLL_INTERVAL_MS = 500;
 
