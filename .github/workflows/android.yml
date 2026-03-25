@@ -94,6 +94,7 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
+          # shellcheck disable=SC2029
           ssh "$SSH_USER@$SSH_HOST" "mkdir -p $LATEST_DIR"
           scp "$APK_PATH" "$SSH_USER@$SSH_HOST:$LATEST_DIR/app.apk"
 
