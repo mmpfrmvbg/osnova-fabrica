@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ''
+      install_command:
+        description: Command used to install dependencies in bootstrap step
+        required: false
+        type: string
+        default: npm ci
       commands:
         description: Newline-separated shell commands to execute
         required: false
@@ -85,6 +90,7 @@ jobs:
         with:
           working-directory: ${{ inputs.working-directory }}
           cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          install_command: ${{ inputs.install_command }}
 
       - name: Validate command source
         shell: bash
