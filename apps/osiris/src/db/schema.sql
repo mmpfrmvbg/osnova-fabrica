@@ -57,9 +57,51 @@ CREATE TABLE IF NOT EXISTS tasks (
                        CHECK(status IN ('open','done')),
   created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
   done_at      TEXT,
+  -- Canonical workflow status for the new task system.
+  -- Keep legacy `status` (open/done) for backward compatibility.
+  workflow_status TEXT NOT NULL DEFAULT 'todo',
+  updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+  description  TEXT    NOT NULL DEFAULT '',
+  type         TEXT    NOT NULL DEFAULT 'task',
+  priority     INTEGER NOT NULL DEFAULT 3,
+  size         TEXT    NOT NULL DEFAULT 'm',
+  deadline     TEXT,
+  assignee     TEXT,
+  tags         TEXT    NOT NULL DEFAULT '[]',
+  metadata     TEXT    NOT NULL DEFAULT '{}',
+  recurrence_rule TEXT,
+  recurrence_parent_id INTEGER,
+  recurrence_root_id   INTEGER,
+  recurrence_next_due_at TEXT,
+  recurrence_last_generated_at TEXT,
   project      TEXT    NOT NULL DEFAULT 'general',
   created_from TEXT    DEFAULT NULL
 );
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        TEXT    NOT NULL,
+  task_id        INTEGER NOT NULL,
+  dependency_id INTEGER NOT NULL,
+  kind           TEXT    NOT NULL DEFAULT 'blocking',
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(task_id, dependency_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS task_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     TEXT    NOT NULL,
+  task_id     INTEGER NOT NULL,
+  event_type  TEXT    NOT NULL,
+  actor       TEXT    NOT NULL DEFAULT 'system',
+  note        TEXT,
+  payload     TEXT    NOT NULL DEFAULT '{}',
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_task ON task_dependencies(task_id, kind);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_dep  ON task_dependencies(dependency_id, kind);
+CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS connectivity_log (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

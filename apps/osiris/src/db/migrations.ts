@@ -145,6 +145,73 @@ export function migrate(): void {
   } catch {
     // уже существует — игнорируем
   }
+
+  // ── New task system columns (workflow_status + rich fields) ──────────
+  // Legacy DB might already have some of these columns; ALTER is wrapped for idempotency.
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN workflow_status TEXT NOT NULL DEFAULT 'todo'"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN description TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN type TEXT NOT NULL DEFAULT 'task'"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 3"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN size TEXT NOT NULL DEFAULT 'm'"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN deadline TEXT"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN assignee TEXT"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'"); } catch {}
+  try { getDb().exec("ALTER TABLE tasks ADD COLUMN recurrence_rule TEXT"); } catch {}
+  try { getDb().exec('ALTER TABLE tasks ADD COLUMN recurrence_parent_id INTEGER'); } catch {}
+  try { getDb().exec('ALTER TABLE tasks ADD COLUMN recurrence_root_id INTEGER'); } catch {}
+  try { getDb().exec('ALTER TABLE tasks ADD COLUMN recurrence_next_due_at TEXT'); } catch {}
+  try { getDb().exec('ALTER TABLE tasks ADD COLUMN recurrence_last_generated_at TEXT'); } catch {}
+
+  // Bootstrap workflow_status for legacy rows.
+  try {
+    getDb().exec(
+      `UPDATE tasks
+       SET workflow_status = CASE
+         WHEN status = 'done' THEN 'done'
+         ELSE COALESCE(workflow_status, 'todo')
+       END
+       WHERE workflow_status IS NULL`,
+    );
+  } catch {
+    // no-op
+  }
+
+  // ── New task system tables ────────────────────────────────────────────
+  // (Usually created by schema.sql, but keep idempotent safety for older DBs)
+  try {
+    getDb().exec(`
+      CREATE TABLE IF NOT EXISTS task_dependencies (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id        TEXT    NOT NULL,
+        task_id        INTEGER NOT NULL,
+        dependency_id INTEGER NOT NULL,
+        kind           TEXT    NOT NULL DEFAULT 'blocking',
+        created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(task_id, dependency_id, kind)
+      )
+    `);
+  } catch {}
+  try {
+    getDb().exec(`
+      CREATE TABLE IF NOT EXISTS task_events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     TEXT    NOT NULL,
+        task_id     INTEGER NOT NULL,
+        event_type  TEXT    NOT NULL,
+        actor       TEXT    NOT NULL DEFAULT 'system',
+        note        TEXT,
+        payload     TEXT    NOT NULL DEFAULT '{}',
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+  } catch {}
+  try {
+    getDb().exec('CREATE INDEX IF NOT EXISTS idx_task_dependencies_task ON task_dependencies(task_id, kind)');
+    getDb().exec('CREATE INDEX IF NOT EXISTS idx_task_dependencies_dep  ON task_dependencies(dependency_id, kind)');
+    getDb().exec('CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, created_at DESC)');
+  } catch {}
   // Добавляем колонку если её ещё нет (идемпотентно)
   try {
     getDb().exec('ALTER TABLE facts ADD COLUMN last_accessed_at TEXT');

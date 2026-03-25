@@ -85,7 +85,17 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
         type: 'object',
         properties: {
           title: { type: 'string', description: 'Название задачи' },
+          description: { type: 'string', description: 'Описание (опционально)' },
           project: { type: 'string', description: 'Проект (опционально, default: general)' },
+          type: { type: 'string', description: 'Тип задачи (опционально, default: task)' },
+          priority: { type: 'number', description: 'Приоритет (1-5, опционально)' },
+          size: { type: 'string', description: 'Размер (xs|s|m|l|xl, опционально)' },
+          status: { type: 'string', description: 'Workflow status (опционально, default: todo)' },
+          deadline: { type: 'string', description: 'Дедлайн ISO 8601 (опционально)' },
+          assignee: { type: 'string', description: 'Назначение (опционально)' },
+          recurrence_rule: { type: 'object', description: 'Правило повтора (опционально)' },
+          tags: { type: 'array', items: { type: 'string' }, description: 'Теги (опционально)' },
+          metadata: { type: 'object', description: 'Произвольные метаданные (опционально)' },
         },
         required: ['title'],
       },
@@ -100,6 +110,7 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
         type: 'object',
         properties: {
           task_number: { type: 'number', description: 'Порядковый номер задачи из списка' },
+          note: { type: 'string', description: 'Комментарий к завершению (опционально)' },
         },
         required: ['task_number'],
       },
@@ -114,6 +125,83 @@ const OSIRIS_TOOLS: ToolDefinition[] = [
         type: 'object',
         properties: {},
         required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'transition_task',
+      description: 'Выполнить валидированный переход статуса задачи',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'number', description: 'ID задачи' },
+          status: { type: 'string', description: 'Новый workflow статус' },
+          note: { type: 'string', description: 'Комментарий (опционально)' },
+        },
+        required: ['task_id', 'status'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'link_tasks',
+      description: 'Создать blocking-зависимость между задачами',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'number', description: 'ID задачи' },
+          dependency_id: { type: 'number', description: 'ID зависимости' },
+        },
+        required: ['task_id', 'dependency_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_task_fields',
+      description: 'Обновить поля задачи',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'number', description: 'ID задачи' },
+          patch: { type: 'object', description: 'Частичный патч полей' },
+        },
+        required: ['task_id', 'patch'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_task_history',
+      description: 'Получить историю событий по задаче',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'number', description: 'ID задачи' },
+          limit: { type: 'number', description: 'Лимит (опционально)' },
+        },
+        required: ['task_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'merge_tasks',
+      description: 'Объединить несколько задач в одну (dedupe/merge)',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_ids: { type: 'array', items: { type: 'number' }, description: 'ID задач' },
+          survivor_id: { type: 'number', description: 'ID задачи-победителя (опционально)' },
+          note: { type: 'string', description: 'Комментарий (опционально)' },
+        },
+        required: ['task_ids'],
       },
     },
   },
@@ -270,6 +358,7 @@ const PROJECT_HINTS: ProjectHint[] = [
   'assistant',
   'chat',
   'life',
+  'general',
   'unknown',
 ];
 
@@ -443,9 +532,37 @@ export async function handleMessage(
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       if (!title) return 'Ошибка: title обязателен.';
       const project = typeof args.project === 'string' && args.project.trim()
-        ? args.project.trim()
-        : 'general';
-      const task = memory.addTask(userId, title, project, 'dialog');
+        ? toProjectHint(args.project)
+        : ('general' as any);
+      const workflowStatus = typeof args.status === 'string' ? args.status : 'todo';
+      const priorityRaw = typeof args.priority === 'number' ? args.priority : 3;
+      const priority = Math.max(1, Math.min(5, Number(priorityRaw) || 3));
+      const size = typeof args.size === 'string' ? args.size : 'm';
+      const taskType = typeof args.type === 'string' ? args.type : 'task';
+
+      const task = memory.createTask(
+        userId,
+        {
+          title,
+          description: typeof args.description === 'string' ? args.description : '',
+          project,
+          type: taskType,
+          priority,
+          size: (size as any),
+          status: (workflowStatus as any),
+          deadline: typeof args.deadline === 'string' ? args.deadline : undefined,
+          assignee: typeof args.assignee === 'string' ? args.assignee : undefined,
+          recurrence_rule: typeof args.recurrence_rule === 'object' && args.recurrence_rule !== null
+            ? args.recurrence_rule as Record<string, unknown>
+            : null,
+          tags: Array.isArray(args.tags) ? args.tags.map(String) : undefined,
+          metadata: typeof args.metadata === 'object' && args.metadata !== null
+            ? args.metadata as Record<string, unknown>
+            : null,
+        },
+        'dialog',
+        'llm',
+      );
       trackedTasks += 1;
       return `Задача добавлена: #${task.id}`;
     }
@@ -455,13 +572,55 @@ export async function handleMessage(
       const tasks = memory.getTasks(userId, 'open');
       const task = tasks[Math.trunc(taskNumber) - 1];
       if (!task) return 'Задача не найдена.';
-      memory.completeTask(userId, task.id);
+      const note = typeof args.note === 'string' ? args.note : undefined;
+      memory.transitionTask(userId, task.id, 'done', { actor: 'llm', note });
       trackedTasks += 1;
       return 'Задача выполнена.';
     }
     if (name === 'get_tasks') {
       const tasks = memory.getTasks(userId, 'open');
       return formatTaskList(tasks);
+    }
+    if (name === 'transition_task') {
+      const taskId = typeof args.task_id === 'number' ? Math.trunc(args.task_id) : Number.NaN;
+      if (!Number.isFinite(taskId)) return 'Ошибка: task_id обязателен.';
+      const status = typeof args.status === 'string' ? args.status : '';
+      if (!status) return 'Ошибка: status обязателен.';
+      const note = typeof args.note === 'string' ? args.note : undefined;
+      const task = memory.transitionTask(userId, taskId, status as any, { actor: 'llm', note });
+      trackedTasks += 1;
+      return `Переход выполнен. task#${task.id} → ${task.workflowStatus}`;
+    }
+    if (name === 'link_tasks') {
+      const taskId = typeof args.task_id === 'number' ? Math.trunc(args.task_id) : Number.NaN;
+      const depId = typeof args.dependency_id === 'number' ? Math.trunc(args.dependency_id) : Number.NaN;
+      if (!Number.isFinite(taskId) || !Number.isFinite(depId)) return 'Ошибка: task_id и dependency_id обязателены.';
+      const ok = memory.linkDependency(userId, taskId, depId);
+      return ok ? 'Зависимость добавлена.' : 'Не удалось добавить зависимость.';
+    }
+    if (name === 'update_task_fields') {
+      const taskId = typeof args.task_id === 'number' ? Math.trunc(args.task_id) : Number.NaN;
+      if (!Number.isFinite(taskId)) return 'Ошибка: task_id обязателен.';
+      const patch = typeof args.patch === 'object' && args.patch !== null ? args.patch as Record<string, unknown> : null;
+      if (!patch) return 'Ошибка: patch обязателен.';
+      const ok = memory.updateTaskFields(userId, taskId, patch as any, 'llm');
+      return ok ? 'Поля задачи обновлены.' : 'Поля не обновлены (ничего не изменилось или задача не найдена).';
+    }
+    if (name === 'get_task_history') {
+      const taskId = typeof args.task_id === 'number' ? Math.trunc(args.task_id) : Number.NaN;
+      if (!Number.isFinite(taskId)) return 'Ошибка: task_id обязателен.';
+      const limit = typeof args.limit === 'number' ? Math.trunc(args.limit) : 50;
+      const events = memory.getTaskHistory(userId, taskId, limit);
+      return JSON.stringify(events);
+    }
+    if (name === 'merge_tasks') {
+      const ids = Array.isArray(args.task_ids) ? args.task_ids.map((n) => Number(n)).filter((n) => Number.isFinite(n)) : [];
+      if (ids.length === 0) return 'Ошибка: task_ids обязателены.';
+      const survivorId = typeof args.survivor_id === 'number' ? Math.trunc(args.survivor_id) : undefined;
+      const note = typeof args.note === 'string' ? args.note : undefined;
+      const task = memory.mergeTasks(userId, ids, survivorId, { actor: 'llm', note });
+      trackedTasks += 1;
+      return `Merge выполнен. survivor #${task.id}`;
     }
     if (name === 'update_core_memory') {
       const patch = typeof args.patch === 'object' && args.patch !== null

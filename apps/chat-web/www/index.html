@@ -245,12 +245,9 @@ async function loadTasks() {
     if (!res.ok) { el.innerHTML = '<p style="color:#c00">Ошибка загрузки</p>'; return; }
     const data = await res.json();
     let tasks = [];
-    if (Array.isArray(data)) {
-      tasks = data;
-    } else if (data && typeof data === 'object') {
-      // формат memory-engine: { projectName: [task, ...], ... }
-      tasks = Object.values(data).flat();
-    }
+      if (Array.isArray(data)) tasks = data;
+      else if (data && typeof data === 'object' && Array.isArray(data.tasks)) tasks = data.tasks;
+      else if (data && typeof data === 'object') tasks = Object.values(data).flat();
 
     el.innerHTML = '';
 
@@ -304,7 +301,7 @@ async function loadTasks() {
 
       byProject[projName].forEach(task => {
         const row = document.createElement('div');
-        const isDone = task.status === 'done' || task.status === 'completed';
+        const isDone = task.status === 'done' || task.status === 'cancelled';
         row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid #2a2a3e;';
         const cb = document.createElement('input');
         cb.type = 'checkbox';
@@ -314,8 +311,8 @@ async function loadTasks() {
           if (!cb.checked) return;
           cb.disabled = true;
           try {
-            await nativeFetch(BASE + '/tasks/' + task.id + '?userId=' + encodeURIComponent(USER_ID), {
-              method: 'PATCH',
+            await nativeFetch(BASE + '/tasks/' + task.id + '/transition?userId=' + encodeURIComponent(USER_ID), {
+              method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ status: 'done' })
             });

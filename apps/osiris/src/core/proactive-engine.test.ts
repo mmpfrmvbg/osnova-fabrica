@@ -39,9 +39,9 @@ describe('proactive-engine: stale task trigger', () => {
     const staleDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
     const { getDb } = await import('../db/migrations');
     getDb().prepare(
-      `INSERT INTO tasks (user_id, title, status, project, created_at)
-       VALUES (?, ?, 'open', 'general', ?)`,
-    ).run('test-proactive-user', 'Старая задача', staleDate);
+      `INSERT INTO tasks (user_id, title, status, project, created_at, updated_at)
+       VALUES (?, ?, 'open', 'general', ?, ?)`,
+    ).run('test-proactive-user', 'Старая задача', staleDate, staleDate);
 
     const { checkProactiveTriggers } = await import('./proactive-engine');
     await checkProactiveTriggers('test-proactive-user');

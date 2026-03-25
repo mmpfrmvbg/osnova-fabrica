@@ -17,8 +17,15 @@ import {
   getRecentEntities,
   getSessionSummaries,
   updateCoreMemory,
-  getTasks,
-  updateTask,
+  listTasks,
+  getTask,
+  createTask,
+  getBlockingDependencies,
+  transitionTask,
+  updateTaskFields,
+  linkDependency,
+  unlinkDependency,
+  getTaskHistory,
 } from '../core/memory-engine';
 import { getDb, migrate, seedCoreMemoryIfEmpty } from '../db/migrations';
 import * as memory from '../core/memory-engine';
@@ -634,15 +641,38 @@ export function createHttpApp(): Express {
     try {
       const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
       if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
-      const tasks = getTasks(userId, 'open');
-      const grouped = tasks.reduce<Record<string, typeof tasks>>((acc, t) => {
-        const key = t.project || 'general';
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(t);
-        return acc;
-      }, {});
-      if (Object.keys(grouped).length === 0) grouped['general'] = [];
-      res.json(grouped);
+
+      const statusParam = typeof req.query['status'] === 'string' ? req.query['status'] : 'active';
+      const project = typeof req.query['project'] === 'string' ? req.query['project'] : null;
+      const search = typeof req.query['search'] === 'string' ? req.query['search'] : null;
+      const sort = typeof req.query['sort'] === 'string'
+        ? req.query['sort'] as 'created_at_asc' | 'created_at_desc' | 'priority_desc'
+        : undefined;
+      const limit = parseInt(String(req.query['limit'] ?? '50'), 10);
+      const offset = parseInt(String(req.query['offset'] ?? '0'), 10);
+
+      const tasks = listTasks(userId, {
+        status: statusParam === 'active' ? 'active' : (statusParam as any),
+        project,
+        search,
+        sort,
+        limit,
+        offset,
+      });
+
+      res.json({
+        tasks: tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.workflowStatus,
+          project: t.project,
+          priority: t.priority,
+          deadline: t.deadline,
+          assignee: t.assignee,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+        })),
+      });
     } catch (e) {
       console.error('[osiris:http] GET /tasks failed', e);
       res.status(500).json({ error: 'internal server error' });
@@ -653,38 +683,229 @@ export function createHttpApp(): Express {
     try {
       const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
       if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+
       const limit = parseInt(String(req.query['limit'] ?? '20'), 10);
       const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 20;
-      const tasks = getTasks(userId, 'done').slice(0, safeLimit);
-      res.json({ tasks });
+
+      const done = listTasks(userId, { status: 'done', sort: 'created_at_desc', limit: safeLimit, offset: 0 });
+      const cancelled = listTasks(userId, { status: 'cancelled', sort: 'created_at_desc', limit: safeLimit, offset: 0 });
+      const merged = [...done, ...cancelled]
+        .sort((a, b) => String(b.doneAt ?? b.updatedAt).localeCompare(String(a.doneAt ?? a.updatedAt)))
+        .slice(0, safeLimit);
+
+      res.json({
+        tasks: merged.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.workflowStatus,
+          project: t.project,
+          createdAt: t.createdAt,
+          doneAt: t.doneAt,
+        })),
+      });
     } catch (e) {
       console.error('[osiris:http] GET /tasks/history failed', e);
       res.status(500).json({ error: 'internal server error' });
     }
   });
 
-  app.patch('/tasks/:taskId', (req: Request, res: Response) => {
+  app.get('/tasks/:taskId', (req: Request, res: Response) => {
     try {
       const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
       if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+
       const taskId = parseInt(req.params['taskId'] ?? '', 10);
       if (!Number.isFinite(taskId)) {
         res.status(400).json({ error: 'invalid taskId' });
         return;
       }
-      const status = req.body?.status as string | undefined;
-      if (status !== 'done' && status !== 'pending') {
-        res.status(400).json({ error: 'status must be "done" or "pending"' });
+
+      const task = getTask(userId, taskId);
+      if (!task) { res.status(404).json({ error: 'task not found' }); return; }
+
+      const dependencies = getBlockingDependencies(userId, taskId);
+      res.json({ task: { ...task, status: task.workflowStatus }, dependencies });
+    } catch (e) {
+      console.error('[osiris:http] GET /tasks/:taskId failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.get('/tasks/:taskId/history', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+
+      const taskId = parseInt(req.params['taskId'] ?? '', 10);
+      if (!Number.isFinite(taskId)) {
+        res.status(400).json({ error: 'invalid taskId' });
         return;
       }
-      const mappedStatus: 'open' | 'done' = status === 'pending' ? 'open' : 'done';
-      const updated = updateTask(userId, taskId, { status: mappedStatus });
-      if (!updated) { res.status(404).json({ error: 'task not found' }); return; }
-      const all = [...getTasks(userId, 'open'), ...getTasks(userId, 'done')];
-      const task = all.find((t) => t.id === taskId);
-      res.json({ task: task ?? null });
+
+      const limit = parseInt(String(req.query['limit'] ?? '50'), 10);
+      const events = getTaskHistory(userId, taskId, limit);
+      res.json({ events });
+    } catch (e) {
+      console.error('[osiris:http] GET /tasks/:taskId/history failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.post('/tasks', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+
+      const body = req.body ?? {};
+      const title = typeof body.title === 'string' ? body.title.trim() : '';
+      if (!title) { res.status(400).json({ error: 'title required' }); return; }
+
+      const project = typeof body.project === 'string' ? body.project : 'general';
+      const status = typeof body.status === 'string' ? body.status : 'todo';
+
+      const task = createTask(userId, {
+        title,
+        description: typeof body.description === 'string' ? body.description : '',
+        project,
+        type: typeof body.type === 'string' ? body.type : 'task',
+        priority: Number.isFinite(body.priority) ? Number(body.priority) : 3,
+        size: typeof body.size === 'string' ? body.size : 'm',
+        status,
+        deadline: typeof body.deadline === 'string' ? body.deadline : undefined,
+        assignee: typeof body.assignee === 'string' ? body.assignee : undefined,
+        recurrence_rule: typeof body.recurrence_rule === 'object' && body.recurrence_rule !== null
+          ? body.recurrence_rule
+          : null,
+        tags: Array.isArray(body.tags) ? body.tags.map(String) : undefined,
+        metadata: typeof body.metadata === 'object' && body.metadata !== null ? body.metadata : null,
+      }, 'api', 'user');
+
+      res.json({ task });
+    } catch (e) {
+      console.error('[osiris:http] POST /tasks failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.post('/tasks/:taskId/transition', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+
+      const taskId = parseInt(req.params['taskId'] ?? '', 10);
+      if (!Number.isFinite(taskId)) {
+        res.status(400).json({ error: 'invalid taskId' });
+        return;
+      }
+
+      const status = typeof req.body?.status === 'string' ? req.body.status : '';
+      const note = typeof req.body?.note === 'string' ? req.body.note : undefined;
+      if (!status) { res.status(400).json({ error: 'status required' }); return; }
+
+      const updated = transitionTask(userId, taskId, status as any, { note, actor: 'user' });
+      res.json({ task: updated, status: updated.workflowStatus });
+    } catch (e) {
+      console.error('[osiris:http] POST /tasks/:taskId/transition failed', e);
+      const msg = e instanceof Error ? e.message : 'internal server error';
+      if (msg === 'dependencies_not_done' || msg.includes('invalid transition')) {
+        res.status(409).json({ error: msg });
+        return;
+      }
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // Backward compatible endpoint (legacy clients): { status: "done" | "pending" }
+  app.patch('/tasks/:taskId', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+
+      const taskId = parseInt(req.params['taskId'] ?? '', 10);
+      if (!Number.isFinite(taskId)) {
+        res.status(400).json({ error: 'invalid taskId' });
+        return;
+      }
+
+      const body = req.body ?? {};
+      const status = typeof body.status === 'string' ? body.status : undefined;
+
+      if (status === 'done') {
+        const updated = transitionTask(userId, taskId, 'done', { actor: 'user', note: 'legacy done' });
+        res.json({ task: updated });
+        return;
+      }
+      if (status === 'pending') {
+        const updated = transitionTask(userId, taskId, 'todo', { actor: 'user', note: 'legacy pending->todo' });
+        res.json({ task: updated });
+        return;
+      }
+
+      const ok = updateTaskFields(userId, taskId, {
+        title: typeof body.title === 'string' ? body.title : undefined,
+        description: typeof body.description === 'string' ? body.description : undefined,
+        priority: Number.isFinite(body.priority) ? Number(body.priority) : undefined,
+        size: typeof body.size === 'string' ? body.size : undefined,
+        deadline: typeof body.deadline === 'string' ? body.deadline : undefined,
+        assignee: typeof body.assignee === 'string' ? body.assignee : undefined,
+        type: typeof body.type === 'string' ? body.type : undefined,
+        recurrence_rule: typeof body.recurrence_rule === 'object' && body.recurrence_rule !== null
+          ? body.recurrence_rule
+          : undefined,
+        tags: Array.isArray(body.tags) ? body.tags.map(String) : undefined,
+        metadata: typeof body.metadata === 'object' && body.metadata !== null ? body.metadata : undefined,
+      }, 'user');
+
+      if (!ok) { res.status(404).json({ error: 'task not found or nothing to update' }); return; }
+      const task = getTask(userId, taskId);
+      res.json({ task });
     } catch (e) {
       console.error('[osiris:http] PATCH /tasks/:taskId failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.post('/tasks/:taskId/dependencies', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+
+      const taskId = parseInt(req.params['taskId'] ?? '', 10);
+      const dependencyId = typeof req.body?.dependencyId === 'number'
+        ? req.body.dependencyId
+        : parseInt(req.body?.dependencyId ?? '', 10);
+
+      if (!Number.isFinite(taskId) || !Number.isFinite(dependencyId)) {
+        res.status(400).json({ error: 'invalid taskId/dependencyId' });
+        return;
+      }
+
+      const ok = linkDependency(userId, taskId, dependencyId);
+      res.json({ ok });
+    } catch (e) {
+      console.error('[osiris:http] POST /tasks/:taskId/dependencies failed', e);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  app.delete('/tasks/:taskId/dependencies', (req: Request, res: Response) => {
+    try {
+      const userId = typeof req.query['userId'] === 'string' ? req.query['userId'] : '';
+      if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
+
+      const taskId = parseInt(req.params['taskId'] ?? '', 10);
+      const dependencyIdRaw = typeof req.query['dependencyId'] === 'string' ? req.query['dependencyId'] : '';
+      const dependencyId = parseInt(dependencyIdRaw, 10);
+
+      if (!Number.isFinite(taskId) || !Number.isFinite(dependencyId)) {
+        res.status(400).json({ error: 'invalid taskId/dependencyId' });
+        return;
+      }
+
+      const ok = unlinkDependency(userId, taskId, dependencyId);
+      res.json({ ok });
+    } catch (e) {
+      console.error('[osiris:http] DELETE /tasks/:taskId/dependencies failed', e);
       res.status(500).json({ error: 'internal server error' });
     }
   });

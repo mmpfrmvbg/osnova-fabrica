@@ -5,8 +5,10 @@ import {
   getRecentFacts,
   getCoreMemory,
   updateCoreMemory,
+  generateRecurrenceNextIfNeeded,
 } from './memory-engine';
 import { shellExec, notifyPush } from './tools/system-tools';
+import { getDb } from '../db/migrations';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -27,7 +29,7 @@ function todayIso(): string {
 async function triggerStaleTask(userId: string): Promise<void> {
   const tasks = getTasks(userId, 'open');
   const now = new Date().toISOString();
-  const stale = tasks.find((t) => daysBetween(t.createdAt, now) > 3);
+  const stale = tasks.find((t) => daysBetween(t.updatedAt, now) > 3);
   if (!stale) return;
   await notifyPush(`Задача без активности: "${stale.title}"`, 'low');
   console.log(`[osiris:proactive] stale task triggered userId=${userId} taskId=${stale.id}`);
@@ -121,6 +123,40 @@ async function triggerDailySummary(userId: string): Promise<void> {
   console.log(`[osiris:proactive] daily summary triggered userId=${userId}`);
 }
 
+async function triggerBlockedTasks(userId: string): Promise<void> {
+  const tasks = getTasks(userId, 'open');
+  const now = new Date().toISOString();
+  const blocked = tasks.find((t) => t.workflowStatus === 'blocked' && daysBetween(t.updatedAt, now) >= 1);
+  if (!blocked) return;
+  await notifyPush(`Задача заблокирована: "${blocked.title}"`, 'normal');
+  console.log(`[osiris:proactive] blocked task triggered userId=${userId} taskId=${blocked.id}`);
+}
+
+async function triggerRecurrenceDue(userId: string): Promise<void> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const rows = db.prepare(
+    `SELECT id
+     FROM tasks
+     WHERE user_id = ?
+       AND workflow_status = 'done'
+       AND recurrence_rule IS NOT NULL
+       AND recurrence_last_generated_at IS NULL
+     LIMIT 20`,
+  ).all(userId) as Array<{ id: number }>;
+
+  for (const r of rows) {
+    try {
+      const newTaskId = generateRecurrenceNextIfNeeded(userId, r.id, { actor: 'system' });
+      if (newTaskId) {
+        console.log(`[osiris:proactive] recurrence generated userId=${userId} fromTaskId=${r.id} newTaskId=${newTaskId}`);
+      }
+    } catch (e) {
+      console.error(`[osiris:proactive] recurrence failed for taskId=${r.id}:`, e instanceof Error ? e.message : String(e));
+    }
+  }
+}
+
 // ── public API ─────────────────────────────────────────────────────────────
 
 export async function checkProactiveTriggers(userId: string): Promise<void> {
@@ -135,5 +171,11 @@ export async function checkProactiveTriggers(userId: string): Promise<void> {
   }
   try { await triggerDailySummary(userId); } catch (e) {
     console.error('[osiris:proactive] triggerDailySummary failed:', e instanceof Error ? e.message : String(e));
+  }
+  try { await triggerBlockedTasks(userId); } catch (e) {
+    console.error('[osiris:proactive] triggerBlockedTasks failed:', e instanceof Error ? e.message : String(e));
+  }
+  try { await triggerRecurrenceDue(userId); } catch (e) {
+    console.error('[osiris:proactive] triggerRecurrenceDue failed:', e instanceof Error ? e.message : String(e));
   }
 }

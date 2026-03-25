@@ -53,6 +53,9 @@ export async function buildOsirisContext(
   const open_tasks = rawTasks.map((t) => ({
     id: t.id,
     title: t.title,
+    status: t.workflowStatus,
+    priority: t.priority,
+    deadline: t.deadline,
     created: t.createdAt,
   }));
 

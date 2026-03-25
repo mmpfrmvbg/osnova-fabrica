@@ -12,7 +12,10 @@ data class OsirisTask(
     val id: Int,
     val title: String,
     val status: String,
-    val project: String
+    val project: String,
+    val priority: Int? = null,
+    val deadline: String? = null,
+    val assignee: String? = null,
 )
 
 class TasksViewModel : ViewModel() {
@@ -44,8 +47,20 @@ class TasksViewModel : ViewModel() {
     fun completeTask(taskId: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                ApiClient.completeTask(taskId)
+                ApiClient.transitionTask(taskId, "done")
                 loadTasks()
+            } catch (e: Exception) {
+                _error.value = "Ошибка: ${e.message}"
+            }
+        }
+    }
+
+    fun transitionTask(taskId: Int, status: String, onDone: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ApiClient.transitionTask(taskId, status)
+                loadTasks()
+                onDone()
             } catch (e: Exception) {
                 _error.value = "Ошибка: ${e.message}"
             }

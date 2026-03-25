@@ -19,7 +19,7 @@ async function buildTestApp() {
   app.use(express.json());
 
   const { getCoreMemoryWithVersion, updateCoreMemory, getRecentFacts,
-    getRecentEntities, getSessionSummaries, getTasks } = await import('../core/memory-engine');
+    getRecentEntities, getSessionSummaries, listTasks } = await import('../core/memory-engine');
 
   // Регистрируем только тестируемые эндпоинты
   app.get('/brain', async (req, res) => {
@@ -48,15 +48,15 @@ async function buildTestApp() {
   app.get('/tasks', (req, res) => {
     const userId = String(req.query['userId'] ?? '');
     if (!userId) { res.status(400).json({ error: 'userId required' }); return; }
-    const tasks = getTasks(userId, 'open');
-    const grouped = tasks.reduce<Record<string, typeof tasks>>((acc, t) => {
-      const key = t.project || 'general';
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(t);
-      return acc;
-    }, {});
-    if (Object.keys(grouped).length === 0) grouped['general'] = [];
-    res.json(grouped);
+    const tasks = listTasks(userId, { status: 'active' });
+    res.json({
+      tasks: tasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.workflowStatus,
+        project: t.project,
+      })),
+    });
   });
 
   return { app, tempDir };
@@ -106,7 +106,7 @@ describe('Brain + Tasks API', () => {
     const res = await request(app).get('/tasks?userId=test-tasks-user');
     expect(res.status).toBe(200);
     expect(typeof res.body).toBe('object');
-    expect(res.body).toHaveProperty('general');
-    expect(Array.isArray(res.body['general'])).toBe(true);
+    expect(res.body).toHaveProperty('tasks');
+    expect(Array.isArray(res.body['tasks'])).toBe(true);
   });
 });

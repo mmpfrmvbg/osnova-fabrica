@@ -11,6 +11,7 @@ export type ProjectHint =
   | 'assistant'
   | 'chat'
   | 'life'
+  | 'general'
   | 'unknown';
 
 export interface IncomingMessage {
@@ -57,9 +58,21 @@ export interface TaskDraft {
   type: string; // 'задача' | 'баг' | 'идея' | ...
   priority: number; // 1–5
   size: 'xs' | 's' | 'm' | 'l' | 'xl';
-  status: string; // 'inbox' | 'todo' | 'in_progress' | 'done'
-  deadline?: string; // ISO 8601 date
+  status: TaskWorkflowStatus;
+  deadline?: string; // ISO 8601 date or datetime
+  assignee?: string;
+  recurrence_rule?: Record<string, unknown> | null; // JSON rule; interpreted by server
+  tags?: string[];
+  metadata?: Record<string, unknown> | null;
 }
+
+export type TaskWorkflowStatus =
+  | 'inbox'
+  | 'todo'
+  | 'in_progress'
+  | 'blocked'
+  | 'done'
+  | 'cancelled';
 
 export interface Summary {
   id: number;
@@ -190,4 +203,25 @@ export interface TelegramUpdate {
     chat: { id: number };
     from: { id: number };
   };
+}
+
+export type TaskEventType =
+  | 'created'
+  | 'transition'
+  | 'field_update'
+  | 'dependency_link'
+  | 'dependency_unlink'
+  | 'recurrence_generated'
+  | 'merged'
+  | 'cancelled';
+
+export interface TaskEvent {
+  id: number;
+  userId: string;
+  taskId: number;
+  eventType: TaskEventType;
+  actor: string;
+  note: string | null;
+  payload: Record<string, unknown>;
+  createdAt: string;
 }
