@@ -1,10 +1,13 @@
 package com.osnova.osiris
 
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 data class OsirisTaskEvent(
@@ -54,16 +57,28 @@ object ApiClient {
 
     private val JSON_TYPE = "application/json".toMediaType()
 
+    private fun baseUrl(): String = AppPreferences.baseUrl.trimEnd('/')
+
+    private fun authHeader(): String? {
+        val t = AppPreferences.deviceToken
+        return if (t.isNullOrBlank()) null else "Bearer $t"
+    }
+
+    private fun requireAuthOrThrow(): String {
+        return authHeader() ?: throw IllegalStateException("No device token. Restart app or re-register.")
+    }
+
+    private fun requestId(): String = java.util.UUID.randomUUID().toString()
+
     fun sendMessage(message: String): String {
-        val baseUrl = AppPreferences.baseUrl
-        val userId = AppPreferences.userId
         val body = JSONObject().apply {
-            put("userId", userId)
             put("message", message)
         }.toString().toRequestBody(JSON_TYPE)
 
         val request = Request.Builder()
-            .url("$baseUrl/chat")
+            .url("${baseUrl()}/chat")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .post(body)
             .build()
 
@@ -78,11 +93,111 @@ object ApiClient {
         }
     }
 
-    fun getTasks(): List<OsirisTask> {
-        val userId = AppPreferences.userId
-        val baseUrl = AppPreferences.baseUrl
+    fun sendMessageStream(
+        message: String,
+        onToken: (String) -> Unit,
+        onActions: (actions: org.json.JSONArray, explanation: String?) -> Unit,
+    ): String {
+        val body = JSONObject().apply {
+            put("message", message)
+            put("previewActions", true)
+        }.toString().toRequestBody(JSON_TYPE)
+
         val request = Request.Builder()
-            .url("$baseUrl/tasks?userId=$userId")
+            .url("${baseUrl()}/chat/stream")
+            .header("Authorization", requireAuthOrThrow())
+            .header("Accept", "text/event-stream")
+            .header("X-Request-Id", requestId())
+            .post(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("http ${response.code}")
+            val stream = response.body?.byteStream() ?: throw IllegalStateException("empty body")
+            val reader = BufferedReader(InputStreamReader(stream))
+            val acc = StringBuilder()
+            while (true) {
+                val line = reader.readLine() ?: break
+                if (!line.startsWith("data:")) continue
+                val payload = line.removePrefix("data:").trim()
+                if (payload.isBlank()) continue
+                val json = try { JSONObject(payload) } catch (_: Exception) { null } ?: continue
+                if (json.optBoolean("done", false)) break
+                val token = json.optString("token", "")
+                if (token.isNotEmpty()) {
+                    acc.append(token)
+                    onToken(token)
+                }
+                if (json.has("actions") && !json.isNull("actions")) {
+                    val actions = json.getJSONArray("actions")
+                    val explanation = json.optString("explanation", null)
+                    onActions(actions, explanation)
+                }
+                val err = json.optString("error", "")
+                if (err.isNotEmpty()) throw IllegalStateException(err)
+            }
+            return acc.toString()
+        }
+    }
+
+    fun applyActions(actions: org.json.JSONArray): String {
+        val body = JSONObject()
+            .put("clientActionBatchId", java.util.UUID.randomUUID().toString())
+            .put("actions", actions)
+            .toString()
+            .toRequestBody(JSON_TYPE)
+
+        val request = Request.Builder()
+            .url("${baseUrl()}/actions/apply")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
+            .post(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
+            if (!response.isSuccessful) throw IllegalStateException("http ${response.code}")
+            val json = JSONObject(responseBody)
+            val batchId = json.optString("batchId", "")
+            if (batchId.isBlank()) throw IllegalStateException("no batchId")
+            return batchId
+        }
+    }
+
+    fun undoBatch(batchId: String): Boolean {
+        val body = JSONObject()
+            .put("batchId", batchId)
+            .toString()
+            .toRequestBody(JSON_TYPE)
+
+        val request = Request.Builder()
+            .url("${baseUrl()}/actions/undo")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
+            .post(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            return response.isSuccessful
+        }
+    }
+
+    fun getTasks(
+        status: String? = null,
+        project: String? = null,
+        search: String? = null,
+        sort: String? = null,
+    ): List<OsirisTask> {
+        val urlBuilder = "${baseUrl()}/tasks".toHttpUrl().newBuilder()
+        if (!status.isNullOrBlank()) urlBuilder.addQueryParameter("status", status)
+        if (!project.isNullOrBlank()) urlBuilder.addQueryParameter("project", project)
+        if (!search.isNullOrBlank()) urlBuilder.addQueryParameter("search", search)
+        if (!sort.isNullOrBlank()) urlBuilder.addQueryParameter("sort", sort)
+
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .get()
             .build()
         client.newCall(request).execute().use { response ->
@@ -114,9 +229,6 @@ object ApiClient {
     }
 
     fun createTask(draft: OsirisTaskDraft): Boolean {
-        val userId = AppPreferences.userId
-        val baseUrl = AppPreferences.baseUrl
-
         val jsonBody = JSONObject()
             .put("title", draft.title)
             .put("description", draft.description)
@@ -128,7 +240,9 @@ object ApiClient {
 
         val body = jsonBody.toString().toRequestBody(JSON_TYPE)
         val request = Request.Builder()
-            .url("$baseUrl/tasks?userId=$userId")
+            .url("${baseUrl()}/tasks")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .post(body)
             .build()
 
@@ -138,9 +252,6 @@ object ApiClient {
     }
 
     fun updateTaskFields(taskId: Int, patch: Map<String, Any?>): Boolean {
-        val userId = AppPreferences.userId
-        val baseUrl = AppPreferences.baseUrl
-
         val jsonBody = JSONObject()
         patch.forEach { (k, v) ->
             if (v == null) return@forEach
@@ -149,7 +260,9 @@ object ApiClient {
 
         val body = jsonBody.toString().toRequestBody(JSON_TYPE)
         val request = Request.Builder()
-            .url("$baseUrl/tasks/$taskId?userId=$userId")
+            .url("${baseUrl()}/tasks/$taskId")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .patch(body)
             .build()
 
@@ -159,13 +272,12 @@ object ApiClient {
     }
 
     fun linkDependency(taskId: Int, dependencyId: Int): Boolean {
-        val userId = AppPreferences.userId
-        val baseUrl = AppPreferences.baseUrl
-
         val jsonBody = JSONObject().put("dependencyId", dependencyId)
         val body = jsonBody.toString().toRequestBody(JSON_TYPE)
         val request = Request.Builder()
-            .url("$baseUrl/tasks/$taskId/dependencies?userId=$userId")
+            .url("${baseUrl()}/tasks/$taskId/dependencies")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .post(body)
             .build()
 
@@ -175,11 +287,10 @@ object ApiClient {
     }
 
     fun unlinkDependency(taskId: Int, dependencyId: Int): Boolean {
-        val userId = AppPreferences.userId
-        val baseUrl = AppPreferences.baseUrl
-
         val request = Request.Builder()
-            .url("$baseUrl/tasks/$taskId/dependencies?userId=$userId&dependencyId=$dependencyId")
+            .url("${baseUrl()}/tasks/$taskId/dependencies?dependencyId=$dependencyId")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .delete()
             .build()
 
@@ -189,14 +300,14 @@ object ApiClient {
     }
 
     fun transitionTask(taskId: Int, status: String, note: String? = null): Boolean {
-        val userId = AppPreferences.userId
-        val baseUrl = AppPreferences.baseUrl
         val jsonBody = org.json.JSONObject()
             .put("status", status)
         if (note != null) jsonBody.put("note", note)
         val body = jsonBody.toString().toRequestBody(JSON_TYPE)
         val request = Request.Builder()
-            .url("$baseUrl/tasks/$taskId/transition?userId=$userId")
+            .url("${baseUrl()}/tasks/$taskId/transition")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .post(body)
             .build()
         client.newCall(request).execute().use { response ->
@@ -209,10 +320,10 @@ object ApiClient {
     }
 
     fun getTaskDetails(taskId: Int): OsirisTaskDetailsResponse? {
-        val userId = AppPreferences.userId
-        val baseUrl = AppPreferences.baseUrl
         val request = Request.Builder()
-            .url("$baseUrl/tasks/$taskId?userId=$userId")
+            .url("${baseUrl()}/tasks/$taskId")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .get()
             .build()
         client.newCall(request).execute().use { response ->
@@ -251,10 +362,10 @@ object ApiClient {
     }
 
     fun getTaskHistory(taskId: Int, limit: Int = 20): List<OsirisTaskEvent> {
-        val userId = AppPreferences.userId
-        val baseUrl = AppPreferences.baseUrl
         val request = Request.Builder()
-            .url("$baseUrl/tasks/$taskId/history?userId=$userId&limit=$limit")
+            .url("${baseUrl()}/tasks/$taskId/history?limit=$limit")
+            .header("Authorization", requireAuthOrThrow())
+            .header("X-Request-Id", requestId())
             .get()
             .build()
         client.newCall(request).execute().use { response ->

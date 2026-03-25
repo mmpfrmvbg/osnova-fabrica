@@ -18,7 +18,6 @@ fun SettingsScreen(onSave: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var urlInput by remember { mutableStateOf(AppPreferences.baseUrl) }
-    var userIdInput by remember { mutableStateOf(AppPreferences.userId) }
     var otaLoading by remember { mutableStateOf(false) }
 
     Column(
@@ -53,25 +52,11 @@ fun SettingsScreen(onSave: () -> Unit) {
             )
         )
 
-        Text("User ID", color = Color.Gray, fontSize = 13.sp)
-        TextField(
-            value = userIdInput,
-            onValueChange = { userIdInput = it },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFF2A2A4E),
-                unfocusedContainerColor = Color(0xFF2A2A4E),
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                cursorColor = Color(0xFF7B68EE)
-            )
-        )
-
         Button(
             onClick = {
                 AppPreferences.baseUrl = urlInput.trim()
-                AppPreferences.userId = userIdInput.trim()
+                // Force re-registration for new backend.
+                AppPreferences.deviceToken = null
                 onSave()
             },
             modifier = Modifier.fillMaxWidth(),
