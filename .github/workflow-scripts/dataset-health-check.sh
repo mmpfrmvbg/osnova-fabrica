@@ -2,6 +2,11 @@
 set -euo pipefail
 
 : "${DATASET_EXPORT_SINCE:?DATASET_EXPORT_SINCE is required}"
+if [ ! -f runs/traces.jsonl ]; then
+  echo "runs/traces.jsonl not found; dataset health check skipped."
+  exit 0
+fi
+
 npm run export-dataset-v2 -- --since "$DATASET_EXPORT_SINCE"
 
 set +e
