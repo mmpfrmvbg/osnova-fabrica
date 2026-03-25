@@ -13,7 +13,8 @@ if ! command -v actionlint >/dev/null 2>&1; then
     sudo apt-get update
     sudo apt-get install -y golang-go
   fi
-  export PATH="$PATH:$(go env GOPATH)/bin"
+  GOPATH_BIN="$(go env GOPATH)/bin"
+  export PATH="$PATH:$GOPATH_BIN"
   go install github.com/rhysd/actionlint/cmd/actionlint@latest
 fi
 
