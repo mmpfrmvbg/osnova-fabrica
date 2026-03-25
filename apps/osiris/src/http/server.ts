@@ -1068,7 +1068,10 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
   }
 
   await new Promise<void>((resolve, reject) => {
-    const server = app.listen(port, () => {
+    let server: any = null;
+    let shuttingDown = false;
+
+    const onReady = () => {
       console.log('Осирис ready');
       console.log(`Version: ${OSIRIS_VERSION}`);
       console.log(`Mode: HTTP (port ${port})`);
@@ -1086,13 +1089,38 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
       startConsolidationCron();
       startTelegramAdapter(); // фоновый polling, не await
       resolve();
-    });
-
-    server.on('error', reject);
+    };
 
     const shutdown = (signal: string) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
       console.log(`[osiris] ${signal} received, stopping...`);
-      server.close((err) => {
+      try {
+        closeDb();
+      } catch {
+        // ignore
+      }
+
+      const s = server;
+      if (!s) return process.exit(0);
+
+      // Node 18+ (incl. 20): helps drop keep-alive quickly.
+      try {
+        if (typeof s.closeIdleConnections === 'function') s.closeIdleConnections();
+        if (typeof s.closeAllConnections === 'function') s.closeAllConnections();
+      } catch {
+        // ignore
+      }
+
+      const forceTimer = setTimeout(() => {
+        console.error('[osiris:http] shutdown timeout, forcing exit');
+        process.exit(1);
+      }, 8_000);
+      // don't keep event loop alive only for the timer
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      if (typeof forceTimer.unref === 'function') forceTimer.unref();
+
+      s.close((err: any) => {
         if (err) {
           console.error('[osiris:http] server.close error', err);
           process.exit(1);
@@ -1104,5 +1132,28 @@ export async function startHttpServer(opts?: StartHttpServerOptions): Promise<vo
 
     process.once('SIGINT', () => shutdown('SIGINT'));
     process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+    const tryListen = (attempt: number) => {
+      server = app.listen(port, onReady);
+      server.once('error', (err: any) => {
+        const code = err?.code;
+        if (code === 'EADDRINUSE' && attempt < 6 && !shuttingDown) {
+          const delayMs = 400 * attempt;
+          console.warn(
+            `[osiris:http] port ${port} busy (EADDRINUSE), retry in ${delayMs}ms (attempt ${attempt}/6)`,
+          );
+          try {
+            server?.close?.();
+          } catch {
+            // ignore
+          }
+          setTimeout(() => tryListen(attempt + 1), delayMs);
+          return;
+        }
+        reject(err);
+      });
+    };
+
+    tryListen(1);
   });
 }

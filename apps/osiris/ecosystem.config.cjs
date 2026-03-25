@@ -11,6 +11,7 @@ module.exports = {
         TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
         PUSH_WEBHOOK_URL: 'http://localhost:3000/internal/push-test',
       },
+      kill_timeout: 8000,
       restart_delay: 3000,
       max_restarts: 10,
       watch: false,
