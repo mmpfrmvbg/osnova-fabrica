@@ -84,7 +84,7 @@ object OtaUpdater {
         return try {
             val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pInfo.longVersionCode.toInt() else pInfo.versionCode
-        } catch {
+        } catch (_: Throwable) {
             0
         }
     }
