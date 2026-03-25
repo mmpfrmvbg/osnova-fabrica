@@ -12,9 +12,6 @@ concurrency:
   group: health-snapshot-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  HEALTH_ANALYSIS_SINCE: '2026-01-01T00:00:00.000Z'
-
 jobs:
   snapshot:
     name: save health snapshot
@@ -22,5 +19,5 @@ jobs:
     with:
       fetch-depth: 0
       commands-file: .github/workflow-scripts/health-snapshot.sh
-      health-analysis-since: ${{ env.HEALTH_ANALYSIS_SINCE }}
+      health-analysis-since: ${{ vars.HEALTH_ANALYSIS_SINCE || '2026-01-01T00:00:00.000Z' }}
     secrets: inherit

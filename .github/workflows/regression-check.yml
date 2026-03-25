@@ -10,9 +10,6 @@ on:
 permissions:
   contents: read
 
-env:
-  REGRESSION_HEALTH_SINCE: '2026-03-21T00:00:00.000Z'
-
 jobs:
   regression-check:
     name: language health gate
@@ -20,5 +17,5 @@ jobs:
     with:
       fetch-depth: 0
       commands-file: .github/workflow-scripts/regression-check.sh
-      regression-health-since: ${{ env.REGRESSION_HEALTH_SINCE }}
+      regression-health-since: ${{ vars.REGRESSION_HEALTH_SINCE || '2026-03-21T00:00:00.000Z' }}
     secrets: inherit
