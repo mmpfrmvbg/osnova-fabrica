@@ -43,6 +43,11 @@ on:
         required: false
         type: string
         default: ''
+      dataset_export_since:
+        description: Optional value exported to DATASET_EXPORT_SINCE
+        required: false
+        type: string
+        default: ''
       artifact-name:
         description: Optional artifact name to upload
         required: false
@@ -138,6 +143,7 @@ jobs:
           OSNOVA_API_KEY: ${{ secrets.OSNOVA_API_KEY }}
           REGRESSION_HEALTH_SINCE: ${{ inputs.regression-health-since }}
           HEALTH_ANALYSIS_SINCE: ${{ inputs.health-analysis-since }}
+          DATASET_EXPORT_SINCE: ${{ inputs.dataset_export_since }}
         shell: bash
         run: |
           set -euo pipefail
