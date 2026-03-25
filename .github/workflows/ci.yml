@@ -27,6 +27,6 @@ jobs:
     with:
       working-directory: apps/osiris
       cache-dependency-path: apps/osiris/package-lock.json
-      install-command: npm install --no-audit
+      install_command: npm install --no-audit
       commands-file: .github/workflow-scripts/ci-osiris.sh
     secrets: inherit

@@ -10,7 +10,7 @@ inputs:
     description: Optional dependency lock path for npm cache key
     required: false
     default: ''
-  install-command:
+  install_command:
     description: Command used to install dependencies
     required: false
     default: npm ci
@@ -39,4 +39,4 @@ runs:
         if [ "${{ inputs.working-directory }}" != "." ]; then
           cd "${{ inputs.working-directory }}"
         fi
-        ${{ inputs.install-command }}
+        ${{ inputs.install_command }}
