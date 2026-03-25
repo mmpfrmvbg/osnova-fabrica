@@ -31,5 +31,8 @@ object AppPreferences {
 
     var deviceToken: String?
         get() = prefs.getString("device_token", null)
-        set(value) = prefs.edit().putString("device_token", value).apply()
+        set(value) {
+            // commit() — токен должен быть виден сразу следующему запросу (apply() даёт гонку с API).
+            prefs.edit().putString("device_token", value).commit()
+        }
 }

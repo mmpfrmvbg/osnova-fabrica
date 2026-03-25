@@ -57,6 +57,9 @@ object ApiClient {
 
     private val JSON_TYPE = "application/json".toMediaType()
 
+    /** Сериализация повторной регистрации при первых параллельных запросах */
+    private val deviceRegisterLock = Any()
+
     private fun baseUrl(): String = AppPreferences.baseUrl.trimEnd('/')
 
     private fun authHeader(): String? {
@@ -64,8 +67,29 @@ object ApiClient {
         return if (t.isNullOrBlank()) null else "Bearer $t"
     }
 
+    /**
+     * Регистрация устройства, если токена ещё нет (гонка со стартом приложения, смена URL, сброс в настройках).
+     */
+    private fun ensureDeviceTokenOrThrow() {
+        if (!AppPreferences.deviceToken.isNullOrBlank()) return
+        synchronized(deviceRegisterLock) {
+            if (!AppPreferences.deviceToken.isNullOrBlank()) return
+            try {
+                val reg = AuthClient.registerDevice(baseUrl())
+                AppPreferences.deviceToken = reg.deviceToken
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "Не удалось получить токен устройства. Проверьте «Server URL» в настройках (доступен ли сервер по HTTPS), сеть и что на бекенде есть POST /auth/device/register. Причина: ${e.message}",
+                    e
+                )
+            }
+        }
+    }
+
     private fun requireAuthOrThrow(): String {
-        return authHeader() ?: throw IllegalStateException("No device token. Restart app or re-register.")
+        ensureDeviceTokenOrThrow()
+        return authHeader()
+            ?: throw IllegalStateException("Токен устройства не сохранён после регистрации.")
     }
 
     private fun requestId(): String = java.util.UUID.randomUUID().toString()
