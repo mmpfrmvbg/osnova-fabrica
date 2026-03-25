@@ -102,7 +102,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: apps/osiris
-        run: npm ci
+        run: npm install --no-audit
 
       - name: Run tests
         working-directory: apps/osiris
