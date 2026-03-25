@@ -4,16 +4,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(onSave: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var urlInput by remember { mutableStateOf(AppPreferences.baseUrl) }
     var userIdInput by remember { mutableStateOf(AppPreferences.userId) }
+    var otaLoading by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -72,6 +78,24 @@ fun SettingsScreen(onSave: () -> Unit) {
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B68EE))
         ) {
             Text("Сохранить")
+        }
+
+        Button(
+            onClick = {
+                scope.launch {
+                    otaLoading = true
+                    try {
+                        OtaUpdater.checkAndPromptInstall(context)
+                    } finally {
+                        otaLoading = false
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !otaLoading,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F37A6))
+        ) {
+            Text(if (otaLoading) "Обновление..." else "Обновить")
         }
     }
 }

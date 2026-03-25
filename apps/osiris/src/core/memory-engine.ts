@@ -1216,7 +1216,7 @@ export function listTasks(
 export function updateTaskFields(
   userId: string,
   taskId: number,
-  patch: Partial<Pick<TaskDraft, 'title' | 'description' | 'priority' | 'size' | 'deadline' | 'assignee' | 'type' | 'recurrence_rule' | 'tags' | 'metadata'>> & {
+  patch: Partial<Pick<TaskDraft, 'title' | 'description' | 'project' | 'priority' | 'size' | 'deadline' | 'assignee' | 'type' | 'recurrence_rule' | 'tags' | 'metadata'>> & {
     title?: string;
   } & { workflow_status?: TaskWorkflowStatus } = {},
   actor = 'user',
@@ -1238,6 +1238,10 @@ export function updateTaskFields(
   if (patch.type !== undefined) {
     setParts.push('type = ?');
     values.push(patch.type);
+  }
+  if (patch.project !== undefined) {
+    setParts.push('project = ?');
+    values.push(patch.project);
   }
   if (patch.priority !== undefined) {
     setParts.push('priority = ?');

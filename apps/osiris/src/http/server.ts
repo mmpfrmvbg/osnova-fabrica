@@ -844,6 +844,7 @@ export function createHttpApp(): Express {
       const ok = updateTaskFields(userId, taskId, {
         title: typeof body.title === 'string' ? body.title : undefined,
         description: typeof body.description === 'string' ? body.description : undefined,
+        project: typeof body.project === 'string' ? body.project : undefined,
         priority: Number.isFinite(body.priority) ? Number(body.priority) : undefined,
         size: typeof body.size === 'string' ? body.size : undefined,
         deadline: typeof body.deadline === 'string' ? body.deadline : undefined,

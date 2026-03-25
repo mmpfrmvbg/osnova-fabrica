@@ -37,6 +37,15 @@ data class OsirisTaskDetailsResponse(
     val dependencies: List<OsirisTaskDependency>,
 )
 
+data class OsirisTaskDraft(
+    val title: String,
+    val description: String,
+    val project: String = "general",
+    val priority: Int? = null,
+    val deadline: String? = null,
+    val type: String = "task",
+)
+
 object ApiClient {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -101,6 +110,81 @@ object ApiClient {
             } catch (e: Exception) {
                 emptyList()
             }
+        }
+    }
+
+    fun createTask(draft: OsirisTaskDraft): Boolean {
+        val userId = AppPreferences.userId
+        val baseUrl = AppPreferences.baseUrl
+
+        val jsonBody = JSONObject()
+            .put("title", draft.title)
+            .put("description", draft.description)
+            .put("project", draft.project)
+            .put("type", draft.type)
+
+        if (draft.priority != null) jsonBody.put("priority", draft.priority)
+        if (draft.deadline != null) jsonBody.put("deadline", draft.deadline)
+
+        val body = jsonBody.toString().toRequestBody(JSON_TYPE)
+        val request = Request.Builder()
+            .url("$baseUrl/tasks?userId=$userId")
+            .post(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            return response.isSuccessful
+        }
+    }
+
+    fun updateTaskFields(taskId: Int, patch: Map<String, Any?>): Boolean {
+        val userId = AppPreferences.userId
+        val baseUrl = AppPreferences.baseUrl
+
+        val jsonBody = JSONObject()
+        patch.forEach { (k, v) ->
+            if (v == null) return@forEach
+            jsonBody.put(k, v)
+        }
+
+        val body = jsonBody.toString().toRequestBody(JSON_TYPE)
+        val request = Request.Builder()
+            .url("$baseUrl/tasks/$taskId?userId=$userId")
+            .patch(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            return response.isSuccessful
+        }
+    }
+
+    fun linkDependency(taskId: Int, dependencyId: Int): Boolean {
+        val userId = AppPreferences.userId
+        val baseUrl = AppPreferences.baseUrl
+
+        val jsonBody = JSONObject().put("dependencyId", dependencyId)
+        val body = jsonBody.toString().toRequestBody(JSON_TYPE)
+        val request = Request.Builder()
+            .url("$baseUrl/tasks/$taskId/dependencies?userId=$userId")
+            .post(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            return response.isSuccessful
+        }
+    }
+
+    fun unlinkDependency(taskId: Int, dependencyId: Int): Boolean {
+        val userId = AppPreferences.userId
+        val baseUrl = AppPreferences.baseUrl
+
+        val request = Request.Builder()
+            .url("$baseUrl/tasks/$taskId/dependencies?userId=$userId&dependencyId=$dependencyId")
+            .delete()
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            return response.isSuccessful
         }
     }
 

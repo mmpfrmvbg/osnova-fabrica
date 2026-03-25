@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 data class OsirisTask(
@@ -60,7 +61,69 @@ class TasksViewModel : ViewModel() {
             try {
                 ApiClient.transitionTask(taskId, status)
                 loadTasks()
-                onDone()
+                withContext(Dispatchers.Main) { onDone() }
+            } catch (e: Exception) {
+                _error.value = "Ошибка: ${e.message}"
+            }
+        }
+    }
+
+    fun createTask(draft: OsirisTaskDraft, onDone: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ApiClient.createTask(draft)
+                loadTasks()
+                withContext(Dispatchers.Main) { onDone() }
+            } catch (e: Exception) {
+                _error.value = "Ошибка: ${e.message}"
+            }
+        }
+    }
+
+    fun updateTaskFields(
+        taskId: Int,
+        title: String?,
+        description: String?,
+        project: String?,
+        priority: Int?,
+        deadline: String?,
+        onDone: () -> Unit = {}
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val patch = mutableMapOf<String, Any?>()
+                patch["title"] = title
+                patch["description"] = description
+                patch["project"] = project
+                patch["priority"] = priority
+                patch["deadline"] = deadline
+                ApiClient.updateTaskFields(taskId, patch)
+                loadTasks()
+                withContext(Dispatchers.Main) { onDone() }
+            } catch (e: Exception) {
+                _error.value = "Ошибка: ${e.message}"
+            }
+        }
+    }
+
+    fun linkDependency(taskId: Int, dependencyId: Int, onDone: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ApiClient.linkDependency(taskId, dependencyId)
+                loadTasks()
+                withContext(Dispatchers.Main) { onDone() }
+            } catch (e: Exception) {
+                _error.value = "Ошибка: ${e.message}"
+            }
+        }
+    }
+
+    fun unlinkDependency(taskId: Int, dependencyId: Int, onDone: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ApiClient.unlinkDependency(taskId, dependencyId)
+                loadTasks()
+                withContext(Dispatchers.Main) { onDone() }
             } catch (e: Exception) {
                 _error.value = "Ошибка: ${e.message}"
             }
