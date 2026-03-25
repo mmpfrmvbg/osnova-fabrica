@@ -11,7 +11,7 @@ import { parse, type ParseError } from './parser';
 import { compile, compileProgram } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
 import { analyzeProgram, type SemanticError } from './semantic';
-import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
+import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
 import * as fs from 'fs';
 import * as path from 'path';
 

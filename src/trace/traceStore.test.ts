@@ -20,7 +20,8 @@ describe('TraceEntrySchema', () => {
   });
 
   it('отклоняет трейс без runId', () => {
-    const { runId: _, ...noId } = minimalTrace;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { runId: _runId, ...noId } = minimalTrace;
     const r = TraceEntrySchema.safeParse(noId);
     expect(r.success).toBe(false);
   });
