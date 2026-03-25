@@ -20,4 +20,5 @@ jobs:
     with:
       fetch-depth: 0
       commands-file: .github/workflow-scripts/regression-check.sh
+      regression-health-since: ${{ env.REGRESSION_HEALTH_SINCE }}
     secrets: inherit

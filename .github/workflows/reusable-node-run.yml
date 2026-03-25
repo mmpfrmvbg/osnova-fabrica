@@ -28,6 +28,16 @@ on:
         required: false
         type: string
         default: ''
+      regression-health-since:
+        description: Optional value exported to REGRESSION_HEALTH_SINCE
+        required: false
+        type: string
+        default: ''
+      health-analysis-since:
+        description: Optional value exported to HEALTH_ANALYSIS_SINCE
+        required: false
+        type: string
+        default: ''
       artifact-name:
         description: Optional artifact name to upload
         required: false
@@ -120,6 +130,8 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           OSNOVA_MODEL: ${{ secrets.OSNOVA_MODEL }}
           OSNOVA_API_KEY: ${{ secrets.OSNOVA_API_KEY }}
+          REGRESSION_HEALTH_SINCE: ${{ inputs.regression-health-since }}
+          HEALTH_ANALYSIS_SINCE: ${{ inputs.health-analysis-since }}
         shell: bash
         run: |
           set -euo pipefail

@@ -1,7 +1,10 @@
+#!/usr/bin/env bash
 set +e
+
 : "${REGRESSION_HEALTH_SINCE:?REGRESSION_HEALTH_SINCE is required}"
 npm run analyze-language-health -- --since "$REGRESSION_HEALTH_SINCE"
 HEALTH_EXIT=$?
+
 if [ "$HEALTH_EXIT" -ne 0 ]; then
   BISECT_OUT=$(npm run blame-mode-bisect 2>&1 || true)
   echo "$BISECT_OUT"
@@ -17,4 +20,5 @@ if [ "$HEALTH_EXIT" -ne 0 ]; then
   fi
   "${REPORT_ARGS[@]}"
 fi
+
 exit "$HEALTH_EXIT"
