@@ -31,7 +31,7 @@ jobs:
       - uses: ./.github/actions/node-bootstrap
       - name: Detect changed files
         id: changed
-        uses: tj-actions/changed-files@2d756ea4c53f7f6b397767d8723b3a10a9f35bf2 # v44
+        uses: tj-actions/changed-files@22103cc46bda19c2b464ffe86db46df6922fd323 # v47.0.5
         with:
           files: |
             src/compiler/**
