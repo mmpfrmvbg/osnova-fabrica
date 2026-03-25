@@ -68,6 +68,11 @@ on:
         required: false
         type: string
         default: warn
+      timeout_minutes:
+        description: Job timeout in minutes
+        required: false
+        type: number
+        default: 40
     secrets:
       TELEGRAM_BOT_TOKEN:
         required: false
@@ -83,6 +88,9 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
