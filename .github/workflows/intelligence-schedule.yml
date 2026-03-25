@@ -5,35 +5,17 @@ on:
     - cron: '0 6 * * 1' # каждый понедельник 06:00 UTC
   workflow_dispatch: # ручной запуск для тестирования
 
+# collector.ts: HTTPS к arxiv / RSS и GitHub API repos/*/releases/latest (публичные репо).
+permissions:
+  contents: read
+
 jobs:
   intelligence:
     name: collect signals + send digest
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Collect intelligence signals
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run intelligence-collect
-
-      - name: Send intelligence digest
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: npm run intelligence-digest
+    uses: ./.github/workflows/reusable-node-run.yml
+    with:
+      fetch-depth: 0
+      commands: |
+        npm run intelligence-collect
+        npm run intelligence-digest
+    secrets: inherit

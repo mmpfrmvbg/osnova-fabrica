@@ -1,0 +1,138 @@
+name: Reusable Node Run
+
+on:
+  workflow_call:
+    inputs:
+      fetch-depth:
+        description: Git fetch depth for checkout
+        required: false
+        type: number
+        default: 1
+      working-directory:
+        description: Working directory for command execution
+        required: false
+        type: string
+        default: '.'
+      cache-dependency-path:
+        description: Optional dependency lock path for npm cache key
+        required: false
+        type: string
+        default: ''
+      commands:
+        description: Newline-separated shell commands to execute
+        required: false
+        type: string
+        default: ''
+      commands-file:
+        description: Path to shell script file in repository (alternative to commands)
+        required: false
+        type: string
+        default: ''
+      artifact-name:
+        description: Optional artifact name to upload
+        required: false
+        type: string
+        default: ''
+      artifact-path:
+        description: Optional artifact file/path/glob to upload
+        required: false
+        type: string
+        default: ''
+      artifact-retention-days:
+        description: Artifact retention days
+        required: false
+        type: number
+        default: 30
+      artifact-if-no-files-found:
+        description: Action when artifact path has no files (warn, error, ignore)
+        required: false
+        type: string
+        default: warn
+    secrets:
+      GITHUB_TOKEN:
+        required: false
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
+      DEEPSEEK_API_KEY:
+        required: false
+      OSNOVA_MODEL:
+        required: false
+      OSNOVA_API_KEY:
+        required: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: ${{ inputs.fetch-depth }}
+          token: ${{ secrets.GITHUB_TOKEN != '' && secrets.GITHUB_TOKEN || github.token }}
+
+      - name: Setup Node + install dependencies
+        uses: ./.github/actions/node-bootstrap
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Validate command source
+        shell: bash
+        run: |
+          if [ -z "${{ inputs.commands }}" ] && [ -z "${{ inputs.commands-file }}" ]; then
+            echo "Either inputs.commands or inputs.commands-file must be provided."
+            exit 1
+          fi
+          if [ -n "${{ inputs.commands }}" ] && [ -n "${{ inputs.commands-file }}" ]; then
+            echo "Use only one input source: commands OR commands-file."
+            exit 1
+          fi
+
+      - name: Prepare commands from inline input
+        if: ${{ inputs.commands != '' }}
+        shell: bash
+        run: |
+          SCRIPT_PATH="$RUNNER_TEMP/github-reusable-commands.sh"
+          cat > "$SCRIPT_PATH" <<'EOF'
+          ${{ inputs.commands }}
+          EOF
+          echo "REUSABLE_COMMANDS_FILE=$SCRIPT_PATH" >> "$GITHUB_ENV"
+
+      - name: Prepare commands from file input
+        if: ${{ inputs.commands-file != '' }}
+        shell: bash
+        run: |
+          SOURCE_FILE="${{ github.workspace }}/${{ inputs.commands-file }}"
+          SCRIPT_PATH="$RUNNER_TEMP/github-reusable-commands.sh"
+          if [ ! -f "$SOURCE_FILE" ]; then
+            echo "commands-file not found: ${{ inputs.commands-file }}"
+            exit 1
+          fi
+          cp "$SOURCE_FILE" "$SCRIPT_PATH"
+          echo "REUSABLE_COMMANDS_FILE=$SCRIPT_PATH" >> "$GITHUB_ENV"
+
+      - name: Run commands
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OSNOVA_MODEL: ${{ secrets.OSNOVA_MODEL }}
+          OSNOVA_API_KEY: ${{ secrets.OSNOVA_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x "$REUSABLE_COMMANDS_FILE"
+          bash "$REUSABLE_COMMANDS_FILE"
+
+      - name: Upload artifact
+        if: ${{ inputs.artifact-path != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ inputs.artifact-name != '' && inputs.artifact-name || format('artifact-{0}', github.run_id) }}
+          path: ${{ inputs.artifact-path }}
+          retention-days: ${{ inputs.artifact-retention-days }}
+          if-no-files-found: ${{ inputs.artifact-if-no-files-found }}

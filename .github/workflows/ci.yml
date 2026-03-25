@@ -6,104 +6,26 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     name: typecheck + test + lint + golden
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm install --no-audit
-
-      - name: Install dependencies (apps/osiris)
-        working-directory: apps/osiris
-        run: npm install --no-audit
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Tests
-        run: npm test
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Check YAML drift
-        run: npx tsx src/scripts/check-yaml-drift.ts
-
-      - name: Golden tests
-        run: npm run golden
-        env:
-          OSNOVA_STORAGE_ROOT: /tmp/osnova-storage-ci
-
-      - name: Validate language registry
-        run: npm run validate:spec
-
-      - name: Coverage
-        run: npm run coverage
-        env:
-          OSNOVA_STORAGE_ROOT: /tmp/osnova-storage-ci
-
-  golden-fixtures:
-    name: golden fixtures check
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Check if fixtures changed
-        id: fixtures_changed
-        run: |
-          git diff --name-only HEAD~1 HEAD | grep -q "src/runtime/fixtures/" && echo "changed=true" >> $GITHUB_OUTPUT || echo "changed=false" >> $GITHUB_OUTPUT
-
-      - name: Setup Node.js
-        if: steps.fixtures_changed.outputs.changed == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        if: steps.fixtures_changed.outputs.changed == 'true'
-        run: npm ci
-
-      - name: Run golden (fixtures changed)
-        if: steps.fixtures_changed.outputs.changed == 'true'
-        run: npm run golden
-        env:
-          OSNOVA_STORAGE_ROOT: /tmp/osnova-storage-ci
+    uses: ./.github/workflows/reusable-node-run.yml
+    with:
+      commands-file: .github/workflow-scripts/ci-main.sh
+    secrets: inherit
 
   test-osiris:
     name: osiris tests (27)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: apps/osiris/package-lock.json
-
-      - name: Install dependencies
-        working-directory: apps/osiris
-        run: npm install --no-audit
-
-      - name: Run tests
-        working-directory: apps/osiris
-        run: npm test
+    uses: ./.github/workflows/reusable-node-run.yml
+    with:
+      working-directory: apps/osiris
+      cache-dependency-path: apps/osiris/package-lock.json
+      commands-file: .github/workflow-scripts/ci-osiris.sh
+    secrets: inherit

@@ -7,17 +7,17 @@ on:
       - 'docs/**'
       - 'docs/golden-tests.json'
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   golden-gate:
     name: Golden Gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/node-bootstrap
       - name: Run golden tests
         run: npm run golden
 
@@ -25,17 +25,13 @@ jobs:
     name: Language Surface Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
+      - uses: ./.github/actions/node-bootstrap
       - name: Detect changed files
         id: changed
-        uses: tj-actions/changed-files@v44
+        uses: tj-actions/changed-files@2d756ea4c53f7f6b397767d8723b3a10a9f35bf2 # v44
         with:
           files: |
             src/compiler/**

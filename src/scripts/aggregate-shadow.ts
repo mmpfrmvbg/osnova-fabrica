@@ -18,6 +18,19 @@ interface TraceRecord {
   ts?: string;
 }
 
+function writeGateJson(gatePath: string, aggregates: ReturnType<typeof aggregateShadow>[]): void {
+  const pct = (rfc: ShadowRfc): number => {
+    const agg = aggregates.find((a) => a.rfc === rfc);
+    const raw = agg?.correctRate;
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return 100;
+    return Math.round(raw * 1000) / 10;
+  };
+  const gate = { rfc002: pct('RFC-002'), rfc003: pct('RFC-003') };
+  const dir = path.dirname(gatePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(gatePath, JSON.stringify(gate) + '\n', 'utf-8');
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const tracePath = path.resolve(
@@ -26,9 +39,13 @@ function main(): void {
       : 'runs/traces.jsonl',
   );
   const outputPath = path.resolve('runs/shadow-report.jsonl');
+  const gateIx = args.indexOf('--gate-json');
+  const gatePath =
+    gateIx >= 0 ? path.resolve(args[gateIx + 1] ?? 'runs/shadow-gate.json') : '';
 
   if (!fs.existsSync(tracePath)) {
     console.log('traces.jsonl не найден, нет данных для агрегации.');
+    if (gatePath) writeGateJson(gatePath, []);
     return;
   }
 
@@ -87,6 +104,7 @@ function main(): void {
   };
   fs.writeFileSync(outputPath, JSON.stringify(report) + '\n', 'utf-8');
   console.log(`Отчёт записан: ${outputPath}`);
+  if (gatePath) writeGateJson(gatePath, aggregates);
 }
 
 main();

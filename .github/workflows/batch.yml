@@ -12,35 +12,19 @@ on:
         required: false
         default: '1'
 
+permissions:
+  contents: read
+
 jobs:
   batch:
     name: batch-run
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run batch
-        run: npx tsx src/scripts/batch-run.ts ${{ github.event.inputs.tasks_file }}
-        env:
-          OSNOVA_DRY_RUN: ${{ github.event.inputs.dry_run }}
-          OSNOVA_MODEL: ${{ secrets.OSNOVA_MODEL }}
-          OSNOVA_API_KEY: ${{ secrets.OSNOVA_API_KEY }}
-          OSNOVA_STORAGE_ROOT: /tmp/osnova-storage-ci
-
-      - name: Upload batch results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: batch-results-${{ github.run_id }}
-          path: runs/batch-*.json
-          retention-days: 30
-
+    uses: ./.github/workflows/reusable-node-run.yml
+    with:
+      commands: |
+        OSNOVA_DRY_RUN="${{ github.event.inputs.dry_run }}" \
+        OSNOVA_STORAGE_ROOT="/tmp/osnova-storage-ci" \
+        npx tsx src/scripts/batch-run.ts "${{ github.event.inputs.tasks_file }}"
+      artifact-name: batch-results-${{ github.run_id }}
+      artifact-path: runs/batch-*.json
+      artifact-retention-days: 30
+    secrets: inherit

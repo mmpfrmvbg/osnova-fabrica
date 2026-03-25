@@ -3,63 +3,23 @@ name: Health Snapshot
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: health-snapshot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HEALTH_ANALYSIS_SINCE: '2026-01-01T00:00:00.000Z'
 
 jobs:
   snapshot:
     name: save health snapshot
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write # нужно для git push
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Generate health snapshot
-        run: |
-          DATE=$(date -u +%Y-%m-%d)
-          mkdir -p runs/health-snapshots
-          SNAP_FILE="runs/health-snapshots/${DATE}.json"
-          # Если runs/traces.jsonl нет — создаём пустой snapshot
-          if [ ! -f runs/traces.jsonl ]; then
-            echo '{"total":0,"semantic_errors_in_success":0,"generated_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' > "$SNAP_FILE"
-          else
-            npx tsx src/scripts/analyze-language-health.ts \
-              --json \
-              --since 2026-01-01T00:00:00.000Z \
-              > "$SNAP_FILE" || true
-            # Добавляем generated_at через node (jq может не быть)
-            node -e "
-              const fs = require('fs');
-              const data = JSON.parse(fs.readFileSync('${SNAP_FILE}', 'utf-8'));
-              data.generated_at = new Date().toISOString();
-              fs.writeFileSync('${SNAP_FILE}', JSON.stringify(data, null, 2));
-            "
-          fi
-          echo "SNAP_FILE=${SNAP_FILE}" >> "$GITHUB_ENV"
-          echo "DATE=${DATE}" >> "$GITHUB_ENV"
-
-      - name: Commit snapshot if changed
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f "$SNAP_FILE"
-          if git diff --cached --quiet; then
-            echo "Snapshot не изменился — коммит пропущен"
-          else
-            git commit -m "chore(snapshot): health snapshot ${DATE} [skip ci]"
-            git push
-          fi
+    uses: ./.github/workflows/reusable-node-run.yml
+    with:
+      fetch-depth: 0
+      commands-file: .github/workflow-scripts/health-snapshot.sh
+    secrets: inherit

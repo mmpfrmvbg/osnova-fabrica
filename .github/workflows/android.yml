@@ -8,25 +8,34 @@ on:
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    permissions:
-      contents: write
     runs-on: ubuntu-latest
 
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Переопределите в GitHub Variables при смене VPS (repo → Settings → Variables).
+      OSIRIS_VPS_HOST: ${{ vars.OSIRIS_VPS_HOST }}
+      OSIRIS_VPS_USER: ${{ vars.OSIRIS_VPS_USER }}
+      OSIRIS_VPS_OTA_DIR: ${{ vars.OSIRIS_VPS_OTA_DIR }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@6cfc8b8e8bb586cc164bef1c478c1eea3a4d6a19 # v3
 
       - name: Set version from workflow run
         working-directory: apps/osiris-android/app
@@ -43,7 +52,7 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: osiris-release-apk
           path: apps/osiris-android/app/build/outputs/apk/release/app-release.apk
@@ -66,7 +75,7 @@ jobs:
 
       - name: Setup SSH agent for VPS upload
         if: github.ref == 'refs/heads/main'
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
         with:
           ssh-private-key: ${{ secrets.OSIRIS_VPS_SSH_KEY }}
 
@@ -74,19 +83,19 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           set -e
-          SSH_HOST="90.156.210.111"
-          SSH_USER="root"
+          SSH_HOST="${OSIRIS_VPS_HOST:-90.156.210.111}"
+          SSH_USER="${OSIRIS_VPS_USER:-root}"
+          LATEST_DIR="${OSIRIS_VPS_OTA_DIR:-/opt/osnova/android-ota}"
           APK_PATH="apps/osiris-android/app/build/outputs/apk/release/app-release.apk"
-          APK_URL="http://$SSH_HOST:3000/ota/android/app.apk"
+          APK_URL="http://${SSH_HOST}:3000/ota/android/app.apk"
           VERSION_CODE="${{ github.run_number }}"
-          LATEST_DIR="/opt/osnova/android-ota"
           LATEST_PATH="$LATEST_DIR/latest.json"
 
           mkdir -p ~/.ssh
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
           ssh "$SSH_USER@$SSH_HOST" "mkdir -p $LATEST_DIR"
-          scp "$APK_PATH" "$SSH_USER@$SSH_HOST:/opt/osnova/android-ota/app.apk"
+          scp "$APK_PATH" "$SSH_USER@$SSH_HOST:$LATEST_DIR/app.apk"
 
           echo "{\"versionCode\":$VERSION_CODE,\"apkUrl\":\"$APK_URL\"}" > latest.json
           scp latest.json "$SSH_USER@$SSH_HOST:$LATEST_PATH"

@@ -5,53 +5,19 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGRESSION_HEALTH_SINCE: '2026-03-21T00:00:00.000Z'
 
 jobs:
   regression-check:
     name: language health gate
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout (full history for bisect)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Language health gate
-        id: health
-        run: npm run analyze-language-health -- --since 2026-03-21T00:00:00.000Z
-
-      - name: Blame-mode bisect
-        id: bisect
-        if: failure() && steps.health.outcome == 'failure'
-        run: |
-          set +e
-          BISECT_OUT=$(npm run blame-mode-bisect 2>&1)
-          echo "$BISECT_OUT"
-          BLAME_SHA=$(echo "$BISECT_OUT" | grep -o '"blame_sha": "[^"]*"' | head -1 | sed 's/"blame_sha": "\([^"]*\)"/\1/')
-          BLAME_MSG=$(echo "$BISECT_OUT" | grep -o '"blame_message": "[^"]*"' | head -1 | sed 's/"blame_message": "\([^"]*\)"/\1/')
-          echo "blame_sha=${BLAME_SHA}" >> "$GITHUB_OUTPUT"
-          echo "blame_message=${BLAME_MSG}" >> "$GITHUB_OUTPUT"
-          set -e
-
-      - name: Report to PM
-        if: failure()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          npm run report-to-pm -- \
-            --priority CRITICAL \
-            --stop-factory \
-            --actions-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            ${{ steps.bisect.outputs.blame_sha && format('--blame-sha {0}', steps.bisect.outputs.blame_sha) || '' }} \
-            ${{ steps.bisect.outputs.blame_message && format('--blame-message "{0}"', steps.bisect.outputs.blame_message) || '' }}
+    uses: ./.github/workflows/reusable-node-run.yml
+    with:
+      fetch-depth: 0
+      commands-file: .github/workflow-scripts/regression-check.sh
+    secrets: inherit
