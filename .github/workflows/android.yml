@@ -68,7 +68,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets['osiris-vps'] }}
+          ssh-private-key: ${{ secrets["osiris-vps"] }}
 
       - name: Upload APK + latest.json to VPS for Android OTA
         if: github.ref == 'refs/heads/main'
