@@ -21,6 +21,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import org.json.JSONArray
+import org.json.JSONObject
 
 // TODO: theme tuning
 
@@ -58,6 +60,9 @@ fun ChatScreen(
 ) {
     val messages by vm.messages.collectAsStateWithLifecycle()
     val isLoading by vm.isLoading.collectAsStateWithLifecycle()
+    val pendingActions by vm.pendingActions.collectAsStateWithLifecycle()
+    val pendingExplanation by vm.pendingExplanation.collectAsStateWithLifecycle()
+    val lastBatchId by vm.lastBatchId.collectAsStateWithLifecycle()
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -98,6 +103,23 @@ fun ChatScreen(
             contentPadding = PaddingValues(vertical = 8.dp)
         ) {
             items(messages) { msg -> MessageBubble(msg) }
+            if (pendingActions != null) {
+                item {
+                    ActionCard(
+                        actions = pendingActions,
+                        explanation = pendingExplanation,
+                        onApply = { vm.applyPendingActions() },
+                        onDismiss = { vm.dismissPendingActions() }
+                    )
+                }
+            }
+            if (lastBatchId != null) {
+                item {
+                    TextButton(onClick = { vm.undoLastBatch() }) {
+                        Text("Undo", color = Color(0xFF7B68EE))
+                    }
+                }
+            }
             if (isLoading) {
                 item {
                     Text("...", color = Color(0xFF7B68EE), modifier = Modifier.padding(8.dp))
@@ -138,6 +160,101 @@ fun ChatScreen(
             }
         }
     }
+}
+
+@Composable
+fun ActionCard(
+    actions: JSONArray?,
+    explanation: String?,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2A2A4E)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Действия", color = Color.White, fontSize = 14.sp)
+            if (!explanation.isNullOrBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(explanation, color = Color(0xFFCCCCCC), fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+            val lines = remember(actions) { actionsToLines(actions) }
+            if (lines.isEmpty()) {
+                Text("Нет действий", color = Color.Gray, fontSize = 12.sp)
+            } else {
+                lines.take(12).forEach { line ->
+                    Text(text = "• $line", color = Color(0xFFCCCCCC), fontSize = 12.sp)
+                    Spacer(Modifier.height(2.dp))
+                }
+                if (lines.size > 12) {
+                    Text(text = "+ ещё ${lines.size - 12}", color = Color.Gray, fontSize = 12.sp)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onApply,
+                    enabled = !lines.isNullOrEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B68EE))
+                ) { Text("Применить") }
+                TextButton(onClick = onDismiss) { Text("Скрыть", color = Color(0xFF7B68EE)) }
+            }
+        }
+    }
+}
+
+private fun actionsToLines(actions: JSONArray?): List<String> {
+    if (actions == null) return emptyList()
+    val out = mutableListOf<String>()
+    for (i in 0 until actions.length()) {
+        val a = actions.optJSONObject(i) ?: continue
+        val kind = a.optString("kind", "")
+        val payload = a.optJSONObject("payload") ?: JSONObject()
+        out += when (kind) {
+            "create_task" -> {
+                val title = payload.optString("title", "")
+                val project = payload.optString("project", "general")
+                val deadline = payload.optString("deadline", "")
+                val prio = if (payload.has("priority")) payload.optInt("priority") else -1
+                buildString {
+                    append("Создать задачу")
+                    if (title.isNotBlank()) append(": \"$title\"")
+                    append(" (project=$project")
+                    if (prio > 0) append(", P$prio")
+                    if (deadline.isNotBlank()) append(", deadline=$deadline")
+                    append(")")
+                }
+            }
+            "update_task_fields" -> {
+                val taskId = payload.optInt("taskId", -1)
+                val patch = payload.optJSONObject("patch") ?: JSONObject()
+                val keys = patch.keys().asSequence().toList().sorted()
+                val changes = if (keys.isEmpty()) "нет изменений" else keys.take(8).joinToString(", ")
+                "Обновить задачу #$taskId: $changes"
+            }
+            "transition_task" -> {
+                val taskId = payload.optInt("taskId", -1)
+                val status = payload.optString("status", "")
+                "Перевести задачу #$taskId → $status"
+            }
+            "link_dependency" -> {
+                val taskId = payload.optInt("taskId", -1)
+                val depId = payload.optInt("dependencyId", -1)
+                "Связать зависимость: #$taskId зависит от #$depId"
+            }
+            "unlink_dependency" -> {
+                val taskId = payload.optInt("taskId", -1)
+                val depId = payload.optInt("dependencyId", -1)
+                "Убрать зависимость: #$taskId больше не зависит от #$depId"
+            }
+            else -> "Действие: $kind"
+        }
+    }
+    return out
 }
 
 @Composable
