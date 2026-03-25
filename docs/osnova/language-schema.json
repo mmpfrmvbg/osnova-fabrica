@@ -1570,6 +1570,20 @@
       "status": "experimental"
     },
     {
+      "id": "система.итератор.из",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Нормализация к массиву: массив → как есть, объект → Object.keys",
+      "status": "stable"
+    },
+    {
       "id": "система.лог.вывести",
       "signature": {
         "args": [
@@ -1705,6 +1719,162 @@
       "status": "stable"
     },
     {
+      "id": "система.математика.абс",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Абсолютное значение",
+      "status": "stable"
+    },
+    {
+      "id": "система.математика.корень",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Квадратный корень",
+      "status": "stable"
+    },
+    {
+      "id": "система.математика.макс",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Максимум из двух чисел",
+      "status": "stable"
+    },
+    {
+      "id": "система.математика.мин",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Минимум из двух чисел",
+      "status": "stable"
+    },
+    {
+      "id": "система.математика.округлить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Округление до ближайшего целого",
+      "status": "stable"
+    },
+    {
+      "id": "система.математика.остаток",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Остаток от деления (а % б)",
+      "status": "stable"
+    },
+    {
+      "id": "система.математика.пол",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Округление вниз",
+      "status": "stable"
+    },
+    {
+      "id": "система.математика.потолок",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Округление вверх",
+      "status": "stable"
+    },
+    {
+      "id": "система.математика.степень",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Возведение в степень",
+      "status": "stable"
+    },
+    {
+      "id": "система.объект.ключи",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Массив ключей объекта",
+      "status": "stable"
+    },
+    {
       "id": "система.объект.получить",
       "signature": {
         "args": [
@@ -1720,6 +1890,28 @@
         "returns": "any"
       },
       "description": "Получить поле объекта по ключу",
+      "status": "stable"
+    },
+    {
+      "id": "система.объект.установить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          },
+          {
+            "name": "arg3",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Установить значение поля объекта",
       "status": "stable"
     },
     {
@@ -1951,6 +2143,20 @@
         "returns": "any"
       },
       "description": "Заменить подстроку в строке",
+      "status": "stable"
+    },
+    {
+      "id": "система.строка.из_числа",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "преобразует число в строку",
       "status": "stable"
     },
     {
