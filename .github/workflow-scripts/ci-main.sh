@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-npm --prefix apps/osiris ci
+npm --prefix apps/osiris install --no-audit
 
 if ! command -v shellcheck >/dev/null 2>&1; then
   sudo apt-get update
