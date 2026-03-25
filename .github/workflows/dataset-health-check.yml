@@ -10,9 +10,6 @@ on:
 permissions:
   contents: read
 
-env:
-  DATASET_EXPORT_SINCE: '2026-03-21'
-
 jobs:
   dataset-health:
     name: dataset health gate
@@ -20,7 +17,7 @@ jobs:
     uses: ./.github/workflows/reusable-node-run.yml
     with:
       commands: |
-        npm run export-dataset-v2 -- --since "${{ env.DATASET_EXPORT_SINCE }}"
+        npm run export-dataset-v2 -- --since "${{ vars.DATASET_EXPORT_SINCE || '2026-03-21' }}"
         set +e
         npm run dataset-stats
         STATS_EXIT=$?
