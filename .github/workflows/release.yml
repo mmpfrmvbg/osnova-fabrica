@@ -46,9 +46,11 @@ jobs:
           CURRENT_VERSION="$(node scripts/get-version.mjs --raw)"
           NEXT_VERSION="$(node scripts/get-version.mjs --bump "${{ inputs.bump }}" --write --sync --raw)"
           NEXT_TAG="v${NEXT_VERSION}"
-          echo "current=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "next=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
+          {
+            echo "current=${CURRENT_VERSION}"
+            echo "next=${NEXT_VERSION}"
+            echo "tag=${NEXT_TAG}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Commit version bump
         shell: bash
