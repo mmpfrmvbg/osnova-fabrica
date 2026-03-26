@@ -35,7 +35,7 @@ jobs:
          github.event.workflow_run.run_attempt < 2) ||
         github.event_name == 'workflow_dispatch'
       }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, osnova]
     timeout-minutes: 10
     steps:
       - name: Resolve target run

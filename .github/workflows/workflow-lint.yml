@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, osnova]
     timeout-minutes: 15
     steps:
       - name: Checkout

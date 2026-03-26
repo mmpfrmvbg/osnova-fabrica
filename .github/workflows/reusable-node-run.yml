@@ -73,6 +73,11 @@ on:
         required: false
         type: number
         default: 40
+      runs_on:
+        description: Runner labels as JSON array
+        required: false
+        type: string
+        default: '["self-hosted","Linux","X64","osnova"]'
     secrets:
       TELEGRAM_BOT_TOKEN:
         required: false
@@ -87,7 +92,7 @@ on:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
