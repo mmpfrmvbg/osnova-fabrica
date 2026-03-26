@@ -5,19 +5,20 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 concurrency:
   group: health-snapshot-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   snapshot:
+    if: github.ref == 'refs/heads/main'
     name: save health snapshot
+    permissions:
+      contents: write
     uses: ./.github/workflows/reusable-node-run.yml
     with:
+      runs_on: '["ubuntu-latest"]'
       fetch-depth: 0
+      checkout-persist-credentials: true
       commands-file: .github/workflow-scripts/health-snapshot.sh
       health-analysis-since: ${{ vars.HEALTH_ANALYSIS_SINCE || '2026-01-01T00:00:00.000Z' }}
-    secrets: inherit

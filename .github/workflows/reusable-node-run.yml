@@ -8,6 +8,11 @@ on:
         required: false
         type: number
         default: 1
+      checkout-persist-credentials:
+        description: Keep checkout credentials for subsequent git commands
+        required: false
+        type: boolean
+        default: false
       working-directory:
         description: Working directory for command execution
         required: false
@@ -102,6 +107,7 @@ jobs:
         with:
           fetch-depth: ${{ inputs.fetch-depth }}
           token: ${{ github.token }}
+          persist-credentials: ${{ inputs.checkout-persist-credentials }}
 
       - name: Setup Node + install dependencies
         uses: ./.github/actions/node-bootstrap

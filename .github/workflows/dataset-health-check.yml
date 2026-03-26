@@ -7,9 +7,6 @@ on:
       - 'src/prompts/few-shot/**'
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 concurrency:
   group: dataset-health-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,9 +14,13 @@ concurrency:
 jobs:
   dataset-health:
     name: dataset health gate
+    permissions:
+      contents: read
     # Не блокирует merge: даже при dataset WARN workflow завершается успешно.
     uses: ./.github/workflows/reusable-node-run.yml
     with:
       commands-file: .github/workflow-scripts/dataset-health-check.sh
       dataset_export_since: ${{ vars.DATASET_EXPORT_SINCE || '2026-03-21' }}
-    secrets: inherit
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

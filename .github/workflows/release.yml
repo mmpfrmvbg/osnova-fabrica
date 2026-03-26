@@ -15,9 +15,6 @@ on:
 
 run-name: Release • ${{ inputs.bump }}
 
-permissions:
-  contents: write
-
 concurrency:
   group: release-${{ github.workflow }}
   cancel-in-progress: false
@@ -26,6 +23,8 @@ jobs:
   release:
     runs-on: [self-hosted, Linux, X64, osnova]
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5

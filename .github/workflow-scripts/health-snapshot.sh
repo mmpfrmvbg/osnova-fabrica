@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+  echo "Health snapshot runs only on main; skip."
+  exit 0
+fi
+
 DATE=$(date -u +%Y-%m-%d)
 : "${HEALTH_ANALYSIS_SINCE:?HEALTH_ANALYSIS_SINCE is required}"
+git fetch origin main
+git checkout -B main origin/main
 mkdir -p runs/health-snapshots
 SNAP_FILE="runs/health-snapshots/${DATE}.json"
 
@@ -21,12 +28,12 @@ else
   "
 fi
 
-git config user.name "github-actions[bot]"
-git config user.email "github-actions[bot]@users.noreply.github.com"
+git config --local user.name "github-actions[bot]"
+git config --local user.email "github-actions[bot]@users.noreply.github.com"
 git add -f "$SNAP_FILE"
 if git diff --cached --quiet; then
   echo "Snapshot не изменился — коммит пропущен"
 else
   git commit -m "chore(snapshot): health snapshot ${DATE} [skip ci]"
-  git push
+  git push origin HEAD:main
 fi

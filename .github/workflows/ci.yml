@@ -9,9 +9,6 @@ on:
 
 run-name: CI • ${{ github.event_name }} • ${{ github.ref_name }}
 
-permissions:
-  contents: read
-
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -19,17 +16,21 @@ concurrency:
 jobs:
   ci:
     name: typecheck + test + lint + golden
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-node-run.yml
     with:
+      runs_on: ${{ github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["self-hosted","Linux","X64","osnova"]' }}
       commands-file: .github/workflow-scripts/ci-main.sh
-    secrets: inherit
 
   test-osiris:
     name: osiris tests (27)
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-node-run.yml
     with:
+      runs_on: ${{ github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["self-hosted","Linux","X64","osnova"]' }}
       working-directory: apps/osiris
       cache-dependency-path: apps/osiris/package-lock.json
-      install_command: npm install --no-audit
+      install_command: npm ci --no-audit
       commands-file: .github/workflow-scripts/ci-osiris.sh
-    secrets: inherit

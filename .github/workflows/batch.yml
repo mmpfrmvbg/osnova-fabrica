@@ -12,9 +12,6 @@ on:
         required: false
         default: '1'
 
-permissions:
-  contents: read
-
 concurrency:
   group: batch-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,6 +19,8 @@ concurrency:
 jobs:
   batch:
     name: batch-run
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-node-run.yml
     with:
       commands: |
@@ -31,4 +30,7 @@ jobs:
       artifact-name: batch-results-${{ github.run_id }}
       artifact-path: runs/batch-*.json
       artifact-retention-days: 30
-    secrets: inherit
+    secrets:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      OSNOVA_MODEL: ${{ secrets.OSNOVA_MODEL }}
+      OSNOVA_API_KEY: ${{ secrets.OSNOVA_API_KEY }}

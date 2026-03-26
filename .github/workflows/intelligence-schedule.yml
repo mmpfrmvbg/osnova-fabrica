@@ -6,8 +6,6 @@ on:
   workflow_dispatch: # ручной запуск для тестирования
 
 # collector.ts: HTTPS к arxiv / RSS и GitHub API repos/*/releases/latest (публичные репо).
-permissions:
-  contents: read
 
 concurrency:
   group: intelligence-${{ github.workflow }}-${{ github.ref }}
@@ -16,10 +14,17 @@ concurrency:
 jobs:
   intelligence:
     name: collect signals + send digest
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-node-run.yml
     with:
       fetch-depth: 0
       commands: |
         npm run intelligence-collect
         npm run intelligence-digest
-    secrets: inherit
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      OSNOVA_MODEL: ${{ secrets.OSNOVA_MODEL }}
+      OSNOVA_API_KEY: ${{ secrets.OSNOVA_API_KEY }}

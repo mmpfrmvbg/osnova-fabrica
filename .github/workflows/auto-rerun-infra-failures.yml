@@ -18,10 +18,6 @@ on:
 
 run-name: Auto Rerun • ${{ github.event_name }}
 
-permissions:
-  actions: write
-  contents: read
-
 concurrency:
   group: auto-rerun-${{ github.event.workflow_run.id || github.run_id }}
   cancel-in-progress: true
@@ -37,6 +33,9 @@ jobs:
       }}
     runs-on: [self-hosted, Linux, X64, osnova]
     timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
     steps:
       - name: Resolve target run
         id: target

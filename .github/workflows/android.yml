@@ -8,9 +8,6 @@ on:
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 concurrency:
   group: android-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -19,6 +16,8 @@ jobs:
   build:
     runs-on: [self-hosted, Linux, X64, osnova]
     timeout-minutes: 60
+    permissions:
+      contents: read
 
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -26,14 +25,22 @@ jobs:
       OSIRIS_VPS_HOST: ${{ vars.OSIRIS_VPS_HOST }}
       OSIRIS_VPS_USER: ${{ vars.OSIRIS_VPS_USER }}
       OSIRIS_VPS_OTA_DIR: ${{ vars.OSIRIS_VPS_OTA_DIR }}
+      OSIRIS_OTA_BASE_URL: ${{ vars.OSIRIS_OTA_BASE_URL }}
+      OSIRIS_VPS_KNOWN_HOSTS: ${{ vars.OSIRIS_VPS_KNOWN_HOSTS }}
 
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           java-version: '17'
           distribution: 'temurin'
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@6cfc8b8e8bb586cc164bef1c478c1eea3a4d6a19 # v3
@@ -60,48 +67,87 @@ jobs:
           path: apps/osiris-android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
 
-      - name: Create GitHub Release with APK
-        if: github.ref == 'refs/heads/main'
+  release-and-ota:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: [self-hosted, Linux, X64, osnova]
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OSIRIS_VPS_HOST: ${{ vars.OSIRIS_VPS_HOST }}
+      OSIRIS_VPS_USER: ${{ vars.OSIRIS_VPS_USER }}
+      OSIRIS_VPS_OTA_DIR: ${{ vars.OSIRIS_VPS_OTA_DIR }}
+      OSIRIS_OTA_BASE_URL: ${{ vars.OSIRIS_OTA_BASE_URL }}
+      OSIRIS_VPS_KNOWN_HOSTS: ${{ vars.OSIRIS_VPS_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: osiris-release-apk
+          path: apps/osiris-android/app/build/outputs/apk/release
+
+      - name: Create or update GitHub Release with APK
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
+          set -euo pipefail
           OSNOVA_VERSION="$(node scripts/get-version.mjs --raw)"
           TAG="osiris-android-v${OSNOVA_VERSION}-build-${{ github.run_number }}"
           APK="apps/osiris-android/app/build/outputs/apk/release/app-release.apk"
           cp "$APK" osiris-android-release.apk
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Osiris Android ${OSNOVA_VERSION}" \
-            --notes "Автосборка с main (run #${{ github.run_number }}). Установка: скачайте **osiris-android-release.apk**." \
-            osiris-android-release.apk
-        env:
-          GH_TOKEN: ${{ env.GH_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" osiris-android-release.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Osiris Android ${OSNOVA_VERSION}" \
+              --notes "Автосборка с main (run #${{ github.run_number }}). Установка: скачайте **osiris-android-release.apk**." \
+              osiris-android-release.apk
+          fi
 
       - name: Setup SSH agent for VPS upload
-        if: github.ref == 'refs/heads/main'
         uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
         with:
           ssh-private-key: ${{ secrets.OSIRIS_VPS_SSH_KEY }}
 
       - name: Upload APK + latest.json to VPS for Android OTA
-        if: github.ref == 'refs/heads/main'
         run: |
-          set -e
+          set -euo pipefail
           OSNOVA_VERSION="$(node scripts/get-version.mjs --raw)"
           SSH_HOST="${OSIRIS_VPS_HOST:-90.156.210.111}"
-          SSH_USER="${OSIRIS_VPS_USER:-root}"
+          SSH_USER="${OSIRIS_VPS_USER:-ubuntu}"
           LATEST_DIR="${OSIRIS_VPS_OTA_DIR:-/opt/osnova/android-ota}"
           APK_PATH="apps/osiris-android/app/build/outputs/apk/release/app-release.apk"
-          APK_URL="http://${SSH_HOST}:3000/ota/android/app.apk"
+          OTA_BASE_URL="${OSIRIS_OTA_BASE_URL:-https://${SSH_HOST}:3000}"
+          APK_URL="${OTA_BASE_URL%/}/ota/android/app.apk"
           VERSION_CODE="${{ github.run_number }}"
           LATEST_PATH="$LATEST_DIR/latest.json"
+          KNOWN_HOSTS_PATH="$RUNNER_TEMP/osiris_known_hosts"
 
-          mkdir -p ~/.ssh
-          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          if [ -z "${OSIRIS_VPS_KNOWN_HOSTS:-}" ]; then
+            echo "OSIRIS_VPS_KNOWN_HOSTS is required (pinned SSH host key line)."
+            exit 1
+          fi
+          printf '%s\n' "$OSIRIS_VPS_KNOWN_HOSTS" > "$KNOWN_HOSTS_PATH"
+          chmod 600 "$KNOWN_HOSTS_PATH"
 
           # shellcheck disable=SC2029
-          ssh "$SSH_USER@$SSH_HOST" "mkdir -p $LATEST_DIR"
-          scp "$APK_PATH" "$SSH_USER@$SSH_HOST:$LATEST_DIR/app.apk"
+          ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_PATH" \
+            "$SSH_USER@$SSH_HOST" "mkdir -p $LATEST_DIR"
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_PATH" \
+            "$APK_PATH" "$SSH_USER@$SSH_HOST:$LATEST_DIR/app.apk"
 
           echo "{\"version\":\"${OSNOVA_VERSION}\",\"versionCode\":$VERSION_CODE,\"apkUrl\":\"$APK_URL\"}" > latest.json
-          scp latest.json "$SSH_USER@$SSH_HOST:$LATEST_PATH"
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_PATH" \
+            latest.json "$SSH_USER@$SSH_HOST:$LATEST_PATH"
           rm -f latest.json
