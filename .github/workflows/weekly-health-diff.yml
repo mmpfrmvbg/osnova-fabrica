@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: weekly-health-diff-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   weekly-diff:
     name: weekly health diff to Telegram

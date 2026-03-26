@@ -1,0 +1,57 @@
+name: Workflow Lint
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.github/workflow-scripts/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.github/workflow-scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install shellcheck
+        shell: bash
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
+
+      - name: Install actionlint
+        shell: bash
+        run: |
+          if ! command -v go >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y golang-go
+          fi
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          echo "$GOPATH_BIN" >> "$GITHUB_PATH"
+          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+
+      - name: Shellcheck scripts
+        shell: bash
+        run: shellcheck .github/workflow-scripts/*.sh
+
+      - name: Lint workflows
+        shell: bash
+        run: actionlint -color

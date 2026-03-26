@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: batch-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   batch:
     name: batch-run
