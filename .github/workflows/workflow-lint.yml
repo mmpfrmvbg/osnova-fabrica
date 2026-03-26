@@ -6,14 +6,14 @@ on:
       - '.github/workflows/**'
       - '.github/actions/**'
       - '.github/workflow-scripts/**'
-      - 'actionlint.yaml'
+      - '.github/actionlint.yaml'
   push:
     branches: [main]
     paths:
       - '.github/workflows/**'
       - '.github/actions/**'
       - '.github/workflow-scripts/**'
-      - 'actionlint.yaml'
+      - '.github/actionlint.yaml'
   workflow_dispatch:
 
 run-name: Workflow Lint • ${{ github.event_name }} • ${{ github.ref_name }}
