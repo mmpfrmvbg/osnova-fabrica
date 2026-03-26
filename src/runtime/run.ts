@@ -28,12 +28,25 @@
  */
 
 import * as fs from "fs/promises";
+import * as fsSync from "fs";
 import * as path from "path";
 import yaml from "js-yaml";
 import type { AppManifest, RunOptions, ResolvedRunConfig } from "./types";
 import { createSubprocessRunner } from "./runner";
 
-const RUNTIME_VERSION = "0.1.0";
+function readRuntimeVersion(): string {
+  const fallback = "0.0.0";
+  try {
+    const versionPath = path.resolve(__dirname, "..", "..", "VERSION");
+    if (!fsSync.existsSync(versionPath)) return fallback;
+    const raw = fsSync.readFileSync(versionPath, "utf-8").trim();
+    return raw || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const RUNTIME_VERSION = process.env.OSNOVA_VERSION?.trim() || readRuntimeVersion();
 
 function parseArgv(argv: string[]): RunOptions {
   const opts: RunOptions = {};

@@ -37,7 +37,19 @@ import { compileSource } from '../../../../src/compiler/compiler';
 import { VM, type StackValue } from '../../../../src/runtime/vm/interpreter';
 import type { OsVbcModule } from '../../../../src/runtime/vm/bytecode';
 
-const OSIRIS_VERSION = '0.1.0';
+function readProductVersion(): string {
+  const fallback = '0.0.0';
+  try {
+    const versionPath = path.resolve(__dirname, '..', '..', '..', '..', 'VERSION');
+    if (!fs.existsSync(versionPath)) return fallback;
+    const raw = fs.readFileSync(versionPath, 'utf-8').trim();
+    return raw || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const OSIRIS_VERSION = process.env.OSNOVA_VERSION?.trim() || readProductVersion();
 const CHAT_WEB_WWW = path.resolve(__dirname, '..', '..', '..', '..', 'apps', 'chat-web', 'www');
 
 interface ChatRequestBody {

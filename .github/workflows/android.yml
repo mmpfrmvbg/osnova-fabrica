@@ -38,11 +38,12 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@6cfc8b8e8bb586cc164bef1c478c1eea3a4d6a19 # v3
 
-      - name: Set version from workflow run
+      - name: Set version from VERSION source
         working-directory: apps/osiris-android/app
         run: |
+          OSNOVA_VERSION="$(node ../../../scripts/get-version.mjs --raw)"
           sed -i 's/versionCode = [0-9][0-9]*/versionCode = ${{ github.run_number }}/' build.gradle.kts
-          sed -i 's/versionName = "[^"]*"/versionName = "0.1.${{ github.run_number }}"/' build.gradle.kts
+          sed -i "s/versionName = \"[^\"]*\"/versionName = \"${OSNOVA_VERSION}\"/" build.gradle.kts
 
       - name: Make gradlew executable
         working-directory: apps/osiris-android
@@ -62,12 +63,13 @@ jobs:
       - name: Create GitHub Release with APK
         if: github.ref == 'refs/heads/main'
         run: |
-          TAG="osiris-android-${{ github.run_number }}-$(date -u +'%Y%m%d-%H%M%S')"
+          OSNOVA_VERSION="$(node scripts/get-version.mjs --raw)"
+          TAG="osiris-android-v${OSNOVA_VERSION}-build-${{ github.run_number }}"
           APK="apps/osiris-android/app/build/outputs/apk/release/app-release.apk"
           cp "$APK" osiris-android-release.apk
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Osiris Android 0.1.${{ github.run_number }}" \
+            --title "Osiris Android ${OSNOVA_VERSION}" \
             --notes "Автосборка с main (run #${{ github.run_number }}). Установка: скачайте **osiris-android-release.apk**." \
             osiris-android-release.apk
         env:
@@ -84,6 +86,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           set -e
+          OSNOVA_VERSION="$(node scripts/get-version.mjs --raw)"
           SSH_HOST="${OSIRIS_VPS_HOST:-90.156.210.111}"
           SSH_USER="${OSIRIS_VPS_USER:-root}"
           LATEST_DIR="${OSIRIS_VPS_OTA_DIR:-/opt/osnova/android-ota}"
@@ -99,6 +102,6 @@ jobs:
           ssh "$SSH_USER@$SSH_HOST" "mkdir -p $LATEST_DIR"
           scp "$APK_PATH" "$SSH_USER@$SSH_HOST:$LATEST_DIR/app.apk"
 
-          echo "{\"versionCode\":$VERSION_CODE,\"apkUrl\":\"$APK_URL\"}" > latest.json
+          echo "{\"version\":\"${OSNOVA_VERSION}\",\"versionCode\":$VERSION_CODE,\"apkUrl\":\"$APK_URL\"}" > latest.json
           scp latest.json "$SSH_USER@$SSH_HOST:$LATEST_PATH"
           rm -f latest.json

@@ -63,7 +63,8 @@
     "intelligence-collect": "npx tsx src/intelligence/collector.ts",
     "intelligence-digest": "npx tsx src/intelligence/digest.ts",
     "intelligence-digest:notg": "npx tsx src/intelligence/digest.ts --no-telegram",
-    "pipeline:metrics": "npx tsx scripts/pipeline-metrics.ts --file ./osiris.out.log --days 7"
+    "pipeline:metrics": "npx tsx scripts/pipeline-metrics.ts --file ./osiris.out.log --days 7",
+    "get-version": "node scripts/get-version.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

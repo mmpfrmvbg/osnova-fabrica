@@ -1,6 +1,6 @@
 {
   "name": "@osnova/osiris",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Осирис — персональный ИИ-ассистент на основе ОС-НОВА",
   "private": true,
   "main": "src/index.ts",

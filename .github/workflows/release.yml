@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Semver bump type'
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+run-name: Release • ${{ inputs.bump }}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: [self-hosted, Linux, X64, osnova]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Prepare new version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION="$(node scripts/get-version.mjs --raw)"
+          NEXT_VERSION="$(node scripts/get-version.mjs --bump "${{ inputs.bump }}" --write --sync --raw)"
+          NEXT_TAG="v${NEXT_VERSION}"
+          echo "current=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "next=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION package.json apps/osiris/package.json apps/osiris-android/app/build.gradle.kts
+          if git diff --cached --quiet; then
+            echo "No version changes detected."
+            exit 0
+          fi
+          git commit -m "chore(release): ${{ steps.version.outputs.tag }}"
+          git push origin HEAD:main
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Tag already exists: ${{ steps.version.outputs.tag }}"
+            exit 1
+          fi
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes "Automated release from CI. Bump: ${{ inputs.bump }}."
