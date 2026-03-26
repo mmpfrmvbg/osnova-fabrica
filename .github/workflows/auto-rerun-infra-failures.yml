@@ -58,7 +58,12 @@ jobs:
         run: |
           set -euo pipefail
           RUN_ID="${{ steps.target.outputs.run_id }}"
-          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100" > jobs.json
+          API_URL="${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100"
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API_URL" > jobs.json
 
           node <<'NODE'
           const fs = require('fs');
@@ -99,7 +104,12 @@ jobs:
         run: |
           set -euo pipefail
           TARGET_RUN_ID="${{ steps.target.outputs.run_id }}"
-          gh api -X POST "repos/${{ github.repository }}/actions/runs/${TARGET_RUN_ID}/rerun"
+          API_URL="${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${TARGET_RUN_ID}/rerun"
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API_URL" > /dev/null
           echo "Rerun requested for run ${TARGET_RUN_ID}"
 
       - name: No rerun needed
