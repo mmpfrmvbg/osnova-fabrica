@@ -59,6 +59,27 @@ npm run compile:fixtures   # компилировать fixtures (.osnova → .o
 npm run validate:spec      # валидировать spec.yaml
 ```
 
+## Версионирование и релизы
+
+- Единый источник версии: `VERSION` (корень репозитория).
+- Helper: `node scripts/get-version.mjs`
+  - `--raw` -> `0.1.1`
+  - `--tag` -> `v0.1.1`
+  - `--android-code` -> числовой `versionCode`
+- Синхронизация версий в проекты:
+
+```bash
+node scripts/get-version.mjs --sync --raw
+```
+
+- Ручной релиз через CI:
+
+```bash
+gh workflow run release.yml --ref main -f bump=patch
+```
+
+Подробно: `docs/release-process.md`.
+
 ## Зависимости
 
 - **Node.js** >= 20
