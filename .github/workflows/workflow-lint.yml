@@ -14,6 +14,8 @@ on:
       - '.github/workflow-scripts/**'
   workflow_dispatch:
 
+run-name: Workflow Lint • ${{ github.event_name }} • ${{ github.ref_name }}
+
 permissions:
   contents: read
 
