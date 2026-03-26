@@ -1,0 +1,110 @@
+name: Auto Rerun Infra Failures
+
+on:
+  workflow_run:
+    workflows: ['CI', 'Workflow Lint']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Workflow run ID to inspect/rerun'
+        required: true
+        type: string
+      run_attempt:
+        description: 'Run attempt number (for manual context only)'
+        required: false
+        default: '1'
+        type: string
+
+run-name: Auto Rerun • ${{ github.event_name }}
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: auto-rerun-${{ github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  auto-rerun:
+    if: >-
+      ${{
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'failure' &&
+         github.event.workflow_run.run_attempt < 2) ||
+        github.event_name == 'workflow_dispatch'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve target run
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "run_id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+            echo "attempt=${{ github.event.workflow_run.run_attempt }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
+            echo "attempt=${{ inputs.run_attempt }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Inspect failed jobs
+        id: inspect
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RUN_ID="${{ steps.target.outputs.run_id }}"
+          gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100" > jobs.json
+
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('jobs.json', 'utf-8'));
+          const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+          const failed = jobs.filter((job) => job.conclusion === 'failure');
+
+          const bootstrapOnly = (stepName) => {
+            if (!stepName) return true;
+            return (
+              stepName === 'Set up job' ||
+              stepName === 'Complete job' ||
+              stepName.startsWith('Post ') ||
+              stepName === 'Checkout'
+            );
+          };
+
+          const infraLikeFailure =
+            failed.length > 0 &&
+            failed.every((job) => {
+              const steps = Array.isArray(job.steps) ? job.steps : [];
+              if (steps.length === 0) return true;
+              return steps.every((step) => bootstrapOnly(step.name));
+            });
+
+          const output = [
+            `failed_jobs=${failed.length}`,
+            `should_rerun=${infraLikeFailure ? 'true' : 'false'}`,
+          ].join('\n') + '\n';
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, output);
+          NODE
+
+      - name: Rerun failed workflow
+        if: steps.inspect.outputs.should_rerun == 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TARGET_RUN_ID="${{ steps.target.outputs.run_id }}"
+          gh api -X POST "repos/${{ github.repository }}/actions/runs/${TARGET_RUN_ID}/rerun"
+          echo "Rerun requested for run ${TARGET_RUN_ID}"
+
+      - name: No rerun needed
+        if: steps.inspect.outputs.should_rerun != 'true'
+        shell: bash
+        run: |
+          echo "Skipping rerun: failed_jobs=${{ steps.inspect.outputs.failed_jobs }}, infra_like=${{ steps.inspect.outputs.should_rerun }}"
