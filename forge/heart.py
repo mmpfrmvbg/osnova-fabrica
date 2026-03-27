@@ -16,6 +16,10 @@ except ImportError:  # pragma: no cover
 
 LOG = setup_logging("heart")
 
+# On Windows without FORGE_RESTART_CMD, stale heartbeat logs the same hint every loop;
+# repeat the long hint at most this often (seconds). Override via HEART_STALE_HINT_INTERVAL.
+_last_win_stale_hint_at = 0.0
+
 
 def _heartbeat_age_seconds(path: Path) -> float:
     if not path.exists():
@@ -29,6 +33,7 @@ def _restart_forge(state: dict) -> bool:
     FORGE_RESTART_CMD (shell string) to your own command, or restart manually.
     Returns True if a restart command ran with exit code 0.
     """
+    global _last_win_stale_hint_at
     custom = os.environ.get("FORGE_RESTART_CMD", "").strip()
     if custom:
         proc = subprocess.run(custom, shell=True, check=False)
@@ -36,10 +41,14 @@ def _restart_forge(state: dict) -> bool:
         if not ok:
             LOG.warning("FORGE_RESTART_CMD exited with %s", proc.returncode)
     elif sys.platform == "win32":
-        LOG.error(
-            "Heartbeat stale — Windows has no systemctl. Start `python forge/forge.py` again, "
-            "or set FORGE_RESTART_CMD to a command that restarts forge (Task Scheduler, nssm, etc.)."
-        )
+        now = time.time()
+        interval = float(os.environ.get("HEART_STALE_HINT_INTERVAL", "900"))
+        if now - _last_win_stale_hint_at >= max(60.0, interval):
+            _last_win_stale_hint_at = now
+            LOG.error(
+                "Heartbeat stale — Windows has no systemctl. Start `python forge/forge.py` again, "
+                "or set FORGE_RESTART_CMD to a command that restarts forge (see forge/.env.example)."
+            )
         return False
     elif shutil.which("systemctl"):
         proc = subprocess.run(["systemctl", "restart", "osnova-forge"], check=False)
@@ -104,7 +113,7 @@ def loop() -> None:
                 continue
             age = _heartbeat_age_seconds(primary)
             if age > max_silence:
-                LOG.error("Forge heartbeat stale: %.1fs", age)
+                LOG.error("Forge heartbeat stale: %.1fs (HEART_MAX_SILENCE=%ss)", age, max_silence)
                 _restart_forge(state)
                 if int(state.get("heart_restarts", 0)) >= 3:
                     _create_alert_issue(state)
