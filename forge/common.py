@@ -18,32 +18,41 @@ import yaml
 SUBPROCESS_TEXT: dict[str, Any] = {"encoding": "utf-8", "errors": "replace"}
 
 
+def _parse_dotenv_file(path: Path, into: dict[str, str]) -> None:
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip("'").strip('"').lstrip("\ufeff")
+            if key:
+                into[key] = value
+    except Exception:
+        pass
+
+
 def _load_dotenv_defaults() -> dict[str, str]:
     """
-    Load KEY=VALUE pairs from forge/.env (or /opt/osnova-forge/.env)
-    without overriding already exported environment variables.
+    Merge KEY=VALUE from (in order, later overrides): forge/.env, /opt/osnova-forge/.env,
+    then ``<OSNOVA_PROJECT>/.env`` so repo-root secrets (e.g. CURSOR_API_KEY) load when only
+    ``forge/.env`` sets OSNOVA_PROJECT.
+    ``os.environ`` still wins where callers use ``os.environ.get`` first.
     """
-    candidates: list[Path] = []
-    here = Path(__file__).resolve().parent
-    candidates.append(here / ".env")
-    candidates.append(Path("/opt/osnova-forge/.env"))
     data: dict[str, str] = {}
-    for p in candidates:
-        if not p.exists():
-            continue
-        try:
-            for raw in p.read_text(encoding="utf-8").splitlines():
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                key = key.strip()
-                value = value.strip().strip("'").strip('"').lstrip("\ufeff")
-                if key:
-                    data[key] = value
-            break
-        except Exception:
-            continue
+    forge_dir = Path(__file__).resolve().parent
+    fi = forge_dir / ".env"
+    if fi.exists():
+        _parse_dotenv_file(fi, data)
+    opt = Path("/opt/osnova-forge/.env")
+    if opt.exists():
+        _parse_dotenv_file(opt, data)
+    project = (os.environ.get("OSNOVA_PROJECT") or data.get("OSNOVA_PROJECT") or "").strip()
+    if project:
+        pe = Path(project) / ".env"
+        if pe.exists():
+            _parse_dotenv_file(pe, data)
     return data
 
 
@@ -77,7 +86,7 @@ def env_paths() -> dict[str, str]:
 
 
 def secret_from_env_or_forge_dotenv(key: str) -> str:
-    """Secrets for child processes: ``os.environ`` wins, else ``forge/.env`` (same discovery as env_paths)."""
+    """Secrets for child processes: ``os.environ`` wins, else merged forge + project ``.env`` (see _load_dotenv_defaults)."""
     v = os.environ.get(key, "").strip()
     if v:
         return v
