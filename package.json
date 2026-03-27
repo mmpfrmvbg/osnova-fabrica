@@ -67,8 +67,8 @@
     "get-version": "node scripts/get-version.mjs",
     "atm": "tsx src/atm/cli.ts",
     "atm:report": "tsx src/atm/cli.ts report .osnova/epics/EPK-260327-001",
-    "test:forge:compiler": "vitest run --config vitest.config.ts --pool=threads --maxWorkers=1 --no-file-parallelism --no-isolate src/compiler/",
-    "test:forge:agents": "vitest run --config vitest.config.ts --pool=threads --maxWorkers=1 --no-file-parallelism --no-isolate src/agents/",
+    "test:forge:compiler": "node ./node_modules/vitest/vitest.mjs run --config vitest.config.ts --pool=threads --maxWorkers=1 --no-file-parallelism --no-isolate src/compiler/",
+    "test:forge:agents": "node ./node_modules/vitest/vitest.mjs run --config vitest.config.ts --pool=threads --maxWorkers=1 --no-file-parallelism --no-isolate src/agents/",
     "test:forge:done": "npm run -s test:forge:compiler && npm run -s test:forge:agents"
   },
   "dependencies": {

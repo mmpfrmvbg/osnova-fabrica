@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import Any
+
+# str = shell on Windows; list = argv (no cmd.exe shim) — Vitest suite registration on some setups.
+DoneCmd = str | list[str]
 
 try:
     from forge.common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
@@ -28,7 +32,13 @@ def _is_forge_default_vitest_done(cmd: str) -> bool:
     return True
 
 
-def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[str, dict[str, str]]:
+def _npm_run_argv(script: str) -> list[str]:
+    """Windows: must use cmd.exe to run npm.cmd; argv list avoids Python shell= metacharacter quirks."""
+    npm = shutil.which("npm.cmd") or shutil.which("npm") or "npm"
+    return ["cmd", "/c", npm, "run", "-s", script]
+
+
+def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[DoneCmd, dict[str, str]]:
     """
     Build shell command + env for atom `done` checks. On Windows, harden Vitest when spawned
     from Forge (avoid empty suites / wrong npx resolution / inherited NODE_OPTIONS).
@@ -60,7 +70,7 @@ def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[str, dict[st
         not in ("1", "true", "yes")
         and _is_forge_default_vitest_done(cmd)
     ):
-        return "npm run -s test:forge:done", done_env
+        return _npm_run_argv("test:forge:done"), done_env
 
     if "npx vitest run" in cmd and "--pool=forks" not in cmd:
         cmd = cmd.replace(
@@ -148,19 +158,32 @@ def review(
         elapsed = int(time.time() - start)
         return llm_pass, llm_reason, elapsed
     cmd_eff, done_env = _prepare_done_invocation(project, done_cmd)
+    log_cmd = " ".join(cmd_eff) if isinstance(cmd_eff, list) else cmd_eff
     LOG.info(
         "reviewer: running ATM done-command (up to 900s, no log until finish): %s",
-        cmd_eff[:500] + ("…" if len(cmd_eff) > 500 else ""),
+        log_cmd[:500] + ("…" if len(log_cmd) > 500 else ""),
     )
-    done = subprocess.run(
-        cmd_eff,
-        cwd=project,
-        shell=True,
-        timeout=900,
-        check=False,
-        env=done_env,
-        stdin=subprocess.DEVNULL,
-    )
+    cwd = str(project.resolve())
+    if isinstance(cmd_eff, list):
+        done = subprocess.run(
+            cmd_eff,
+            cwd=cwd,
+            shell=False,
+            timeout=900,
+            check=False,
+            env=done_env,
+            stdin=subprocess.DEVNULL,
+        )
+    else:
+        done = subprocess.run(
+            cmd_eff,
+            cwd=cwd,
+            shell=True,
+            timeout=900,
+            check=False,
+            env=done_env,
+            stdin=subprocess.DEVNULL,
+        )
     passed = llm_pass and done.returncode == 0
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"
     elapsed = int(time.time() - start)
