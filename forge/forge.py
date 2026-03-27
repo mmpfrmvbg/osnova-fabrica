@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,34 @@ except ImportError:  # pragma: no cover
     from router import choose_executor
 
 LOG = setup_logging("forge")
+
+
+def _git_pull_project(dry_run: bool) -> None:
+    if dry_run:
+        LOG.info("[dry-run] Would run: git pull --rebase")
+        return
+    project = Path(env_paths()["OSNOVA_PROJECT"])
+    try:
+        proc = subprocess.run(
+            ["git", "pull", "--rebase"],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if proc.returncode != 0:
+            LOG.warning(
+                "git pull --rebase failed (%s): %s",
+                proc.returncode,
+                (proc.stderr or proc.stdout or "").strip(),
+            )
+        else:
+            LOG.info("git pull --rebase ok")
+    except subprocess.TimeoutExpired:
+        LOG.warning("git pull --rebase timed out after 30s")
+    except Exception as exc:
+        LOG.warning("git pull --rebase error: %s", exc)
 
 
 def _heartbeat() -> None:
@@ -66,6 +95,7 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool) ->
 
 def cycle(dry_run: bool = False) -> None:
     state = load_forge_state()
+    _git_pull_project(dry_run=dry_run)
     _heartbeat()
     if state.get("paused"):
         LOG.info("Forge paused")

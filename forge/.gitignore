@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.env
+forge.heartbeat
+state-backups/
