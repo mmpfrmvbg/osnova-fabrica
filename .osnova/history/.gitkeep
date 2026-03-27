@@ -1,0 +1,13 @@
+# История ATM-выполнений
+# Каждый файл: YYYY-MM-DDTHHMMSS-ATM-id.yaml
+# Brain читает последние 5 файлов для анализа BLK-паттернов
+#
+# Формат записи:
+# id: ATM-EPK260327-001-001
+# epic: EPK-260327-001
+# s: OK | BLK | PARTIAL
+# zone: lang | infra
+# elapsed: 12m
+# executor: cursor | qwen
+# err: null | "описание ошибки"
+# createdat: 2026-03-27T16:00:00Z

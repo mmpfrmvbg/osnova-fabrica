@@ -1,0 +1,20 @@
+# EPIC-файлы
+# Каждый файл: EPK-YYMMDD-NNN.yaml
+# Brain проверяет этот каталог для защиты от дублей
+#
+# Формат EPIC:
+# v: 5
+# t: EPK
+# id: EPK-260327-001
+# origin: auto-planner | self-fix | research
+# zone: lang | infra
+# goal: ...
+# scope: [...]
+# notouch: [...]
+# done: npx vitest run src/compiler/
+# priority: P0 | P1 | P2 | P3
+# context: ...
+# risk: LOW | MEDIUM | HIGH
+# status: PENDING | RUNNING | DONE | BLK
+# githubissue: null
+# createdat: ...
