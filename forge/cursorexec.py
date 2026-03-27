@@ -134,7 +134,8 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
     if not success:
         err = (report.get("err") or "").strip()
         LOG.warning(
-            "smith ATM %s → BLK (cursor-agent exit=%s). err=%s\n--- stderr tail ---\n%s\n--- stdout tail ---\n%s",
+            "smith ATM %s → BLK (smith.sh/bash exit=%s; report.s from report.yaml). err=%s\n"
+            "--- stderr tail ---\n%s\n--- stdout tail ---\n%s",
             atom.get("id"),
             proc.returncode,
             err or "(see report.yaml)",

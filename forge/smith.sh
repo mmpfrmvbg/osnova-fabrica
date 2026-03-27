@@ -8,8 +8,9 @@ REPORT_FILE="$PROJECT_DIR/.osnova/report.yaml"
 PROMPT_FILE="$PROJECT_DIR/.osnova/smith-agent-prompt.txt"
 CURSORBIN="${CURSORBIN:-cursor-agent}"
 TIMEOUT_SEC="${SMITH_TIMEOUT:-300}"
-# Space-separated model names; use "_" for "omit --model" (CLI default). Example: SMITH_MODELS="auto _"
-SMITH_MODELS="${SMITH_MODELS:-auto _}"
+# Space-separated model names; "_" = omit --model (CLI default). Try "_" first — "auto" fails on some Windows CLI builds.
+# Example: SMITH_MODELS="auto" or SMITH_MODELS="gpt-4.1 _"
+SMITH_MODELS="${SMITH_MODELS:-_ auto}"
 ID="UNKNOWN"
 
 if command -v python3 >/dev/null 2>&1; then
