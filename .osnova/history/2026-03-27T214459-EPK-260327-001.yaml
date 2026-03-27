@@ -1,0 +1,36 @@
+epic: EPK-260327-001
+summary:
+  status: BLK
+  passrate: 0.0
+  atomsdone: 0
+  atomstotal: 2
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-001
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 0
+  err: 'cursor-agent failed on model: composer-2'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-002
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 0
+  err: 'cursor-agent failed on model: composer-2'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+createdat: '2026-03-27T21:44:59.628153+03:00'
