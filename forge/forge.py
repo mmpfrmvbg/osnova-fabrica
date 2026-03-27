@@ -4,6 +4,7 @@ import argparse
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -268,58 +269,84 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
     state["current_epic"] = epic.get("id")
     state["current_epic_issue"] = epic.get("githubissue")
     save_forge_state(state)
-    atoms = atomize(epic, dry_run=dry_run)
-    waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))))
-    LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
-    results: list[dict[str, Any]] = []
 
-    def _run_one(atom: dict[str, Any]) -> None:
-        aid = atom.get("id")
-        executor = choose_executor(atom, avail)
-        atom["executor"] = executor
-        LOG.info("ATM %s — executor=%s (long silence here = smith/qwen or review `done`)", aid, executor)
-        if executor == "none":
-            report = {
-                "id": atom.get("id"),
-                "s": "BLK",
-                "err": "No executor available",
-                "changed": [],
-            }
-            process_result(atom, report, dry_run=dry_run)
-            results.append(report)
-            return
-        if executor == "qwen":
-            success, report = run_qwen_atom(atom, dry_run=dry_run)
-        else:
-            success, report = run_cursor_atom(atom, dry_run=dry_run)
-        LOG.info(
-            "ATM %s — executor finished (report s=%s), starting review",
-            aid,
-            report.get("s"),
+    # cycle() only touches heartbeat at loop start; atomize / smith / qwen can block for many minutes.
+    # Pulse while the epic runs so heart.py does not report a false stale Forge.
+    hb_thread: threading.Thread | None = None
+    hb_stop: threading.Event | None = None
+    if not dry_run:
+        _heartbeat()
+        hb_stop = threading.Event()
+
+        def _epic_heartbeat_pulse() -> None:
+            assert hb_stop is not None
+            while not hb_stop.wait(60.0):
+                _heartbeat()
+
+        hb_thread = threading.Thread(
+            target=_epic_heartbeat_pulse, daemon=True, name="forge-epic-heartbeat"
         )
-        # Источник истины — поле s в report.yaml (не bool success: так надёжнее при любых рассинхронах).
-        exec_report_ok = str(report.get("s") or "").strip().upper() == "OK"
-        run_done = exec_report_ok
-        if not run_done:
+        hb_thread.start()
+    try:
+        atoms = atomize(epic, dry_run=dry_run)
+        waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))))
+        LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
+        results: list[dict[str, Any]] = []
+
+        def _run_one(atom: dict[str, Any]) -> None:
+            aid = atom.get("id")
+            executor = choose_executor(atom, avail)
+            atom["executor"] = executor
+            LOG.info("ATM %s — executor=%s (long silence here = smith/qwen or review `done`)", aid, executor)
+            if executor == "none":
+                report = {
+                    "id": atom.get("id"),
+                    "s": "BLK",
+                    "err": "No executor available",
+                    "changed": [],
+                }
+                process_result(atom, report, dry_run=dry_run)
+                results.append(report)
+                return
+            if executor == "qwen":
+                success, report = run_qwen_atom(atom, dry_run=dry_run)
+            else:
+                success, report = run_cursor_atom(atom, dry_run=dry_run)
             LOG.info(
-                "ATM %s — review fast-path (success=%s report.s=%s)",
+                "ATM %s — executor finished (report s=%s), starting review",
                 aid,
-                success,
                 report.get("s"),
             )
-        passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
-        report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
-        report["s"] = "OK" if (success and passed) else "BLK"
-        LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
-        process_result(atom, report, dry_run=dry_run)
-        results.append(report)
+            # Источник истины — поле s в report.yaml (не bool success: так надёжнее при любых рассинхронах).
+            exec_report_ok = str(report.get("s") or "").strip().upper() == "OK"
+            run_done = exec_report_ok
+            if not run_done:
+                LOG.info(
+                    "ATM %s — review fast-path (success=%s report.s=%s)",
+                    aid,
+                    success,
+                    report.get("s"),
+                )
+            passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
+            report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
+            report["s"] = "OK" if (success and passed) else "BLK"
+            LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
+            process_result(atom, report, dry_run=dry_run)
+            results.append(report)
 
-    run_waves_sequential(waves, _run_one)
-    finalize_epic(epic, results, dry_run=dry_run, forge_state=state)
-    state["current_epic"] = None
-    state["current_epic_issue"] = None
-    state["epic_popped_from_queue"] = False
-    save_forge_state(state)
+        run_waves_sequential(waves, _run_one)
+        finalize_epic(epic, results, dry_run=dry_run, forge_state=state)
+        state["current_epic"] = None
+        state["current_epic_issue"] = None
+        state["epic_popped_from_queue"] = False
+        save_forge_state(state)
+    finally:
+        if hb_stop is not None:
+            hb_stop.set()
+        if hb_thread is not None:
+            hb_thread.join(timeout=5.0)
+        if not dry_run:
+            _heartbeat()
 
 
 def cycle(dry_run: bool = False) -> None:
