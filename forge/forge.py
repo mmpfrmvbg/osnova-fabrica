@@ -174,6 +174,38 @@ def _heartbeat() -> None:
     atomic_write_text(heartbeat_path(), now_iso() + "\n")
 
 
+def _snapshot_epic_queue_lines() -> list[str]:
+    q = epic_queue_path()
+    if not q.exists():
+        return []
+    text = q.read_text(encoding="utf-8-sig")
+    return [x.strip().lstrip("\ufeff") for x in text.splitlines() if x.strip()]
+
+
+def _merge_epic_queue_after_git_pull(pre_lines: list[str]) -> None:
+    """`git pull` replaces tracked forge/epic-queue.txt; re-apply lines that only existed locally."""
+    if not pre_lines:
+        return
+    q = epic_queue_path()
+    if not q.exists():
+        q.parent.mkdir(parents=True, exist_ok=True)
+        post_lines: list[str] = []
+    else:
+        raw = q.read_text(encoding="utf-8-sig")
+        post_lines = [x.strip().lstrip("\ufeff") for x in raw.splitlines() if x.strip()]
+    post_set = set(post_lines)
+    lost = [x for x in pre_lines if x not in post_set]
+    if not lost:
+        return
+    merged = lost + [x for x in post_lines if x not in set(lost)]
+    q.write_text("\n".join(merged) + ("\n" if merged else ""), encoding="utf-8")
+    LOG.info(
+        "epic-queue: restored local issue row(s) %s after git pull — "
+        "push queue to origin or GHA will overwrite on next intake",
+        lost,
+    )
+
+
 def _alert_executors_halt(dry_run: bool) -> None:
     LOG.critical(
         "All executors unavailable — halting cycle (install Qwen/Cursor, set QWENBIN/CURSORBIN, "
@@ -278,7 +310,10 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
 
 def cycle(dry_run: bool = False) -> None:
     _heartbeat()
+    pre_queue = _snapshot_epic_queue_lines()
     _git_pull_project(dry_run=dry_run)
+    if not dry_run:
+        _merge_epic_queue_after_git_pull(pre_queue)
     state = load_forge_state()
     save_forge_state(state)
 

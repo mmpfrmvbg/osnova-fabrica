@@ -1,23 +1,23 @@
-id: ATM-EPK-260327-001-001
+id: ATM-EPK-260327-001-003
 epic: EPK-260327-001
-seq: 1
+seq: 3
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Добавить тесты для операции % в VM на базовые случаи (положительные числа, ноль)
+goal: Покрыть тестами сценарии низкой уверенности IntakeAgent (Issues
 scope:
-- src/compiler/vm.test.ts — добавить describe('modulo') с тестами на базовые случаи
-- src/compiler/vm.ts — убедиться что OP_MOD корректно обрабатывает базовые случаи
+- src/agents/intake-agent.test.ts — тесты на low-confidence сценарии
+- src/agents/intake-agent.ts — логика confidence scoring
 notouch:
 - .github/
 - infra/
 - deploy/
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Открыть src/compiler/vm.test.ts и изучить существующие тесты арифметических операций
-- Добавить блок describe('modulo %') с тестами: 10%3=1, 15%5=0, 7%1=0
-- Добавить тесты с нулём: 0%5=0
-- Запустить тесты, убедиться что проходят
+- Изучить Issues
+- Добавить тесты на пустые/неоднозначные задачи
+- Добавить тесты на задачи без чёткой категории (intent/spec)
+- Проверить что confidence < порога正确处理
 deps: []
 maxiter: 3
 retries: 0
