@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -9,8 +10,10 @@ import yaml
 
 try:
     from forge.common import atomic_write_yaml, env_paths, gh_request, load_yaml, now_iso, setup_logging
+    from forge.epicwatcher import prepend_issue_to_queue
 except ImportError:  # pragma: no cover
     from common import atomic_write_yaml, env_paths, gh_request, load_yaml, now_iso, setup_logging
+    from epicwatcher import prepend_issue_to_queue
 
 LOG = setup_logging("retrospective")
 
@@ -68,6 +71,22 @@ def finalize_epic(
     status = _status(atom_total, atom_ok)
     passrate = atom_ok / atom_total if atom_total else 0.0
     summary = {"status": status, "passrate": passrate, "atomsdone": atom_ok, "atomstotal": atom_total}
+
+    requeue = (
+        not dry_run
+        and atom_total > 0
+        and atom_ok == 0
+        and bool((forge_state or {}).get("epic_popped_from_queue"))
+        and epic.get("githubissue") is not None
+        and os.environ.get("FORGE_REQUEUE_FAILED_QUEUE_EPIC", "1").strip().lower()
+        not in ("0", "false", "no")
+    )
+    if requeue:
+        n = int(epic["githubissue"])
+        prepend_issue_to_queue(n)
+        LOG.warning(
+            "All ATMs failed — re-queued GitHub issue %s at the front of forge/epic-queue.txt", n
+        )
 
     project = Path(env_paths()["OSNOVA_PROJECT"])
     stamp = datetime.now().strftime("%Y-%m-%dT%H%M%S")

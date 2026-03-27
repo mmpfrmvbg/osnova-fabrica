@@ -233,9 +233,11 @@ def _alert_executors_halt(dry_run: bool) -> None:
 
 
 def _resolve_epic(state: dict[str, Any], dry_run: bool) -> dict[str, Any] | None:
+    state["epic_popped_from_queue"] = False
     epic = watch_once()
     if epic:
         state["brain_source"] = "perplexity"
+        state["epic_popped_from_queue"] = True
         return epic
     if dry_run:
         state["brain_source"] = "idle"
@@ -251,6 +253,7 @@ def _resolve_epic(state: dict[str, Any], dry_run: bool) -> dict[str, Any] | None
     epic = watch_once()
     if epic:
         state["brain_source"] = "perplexity"
+        state["epic_popped_from_queue"] = True
         return epic
     fb = generate_fallback_epic(state)
     if fb:
@@ -315,6 +318,7 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
     finalize_epic(epic, results, dry_run=dry_run, forge_state=state)
     state["current_epic"] = None
     state["current_epic_issue"] = None
+    state["epic_popped_from_queue"] = False
     save_forge_state(state)
 
 

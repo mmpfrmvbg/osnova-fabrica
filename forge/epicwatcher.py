@@ -77,6 +77,23 @@ def pop_issue_number(queue_file: Path) -> int | None:
     return issue
 
 
+def prepend_issue_to_queue(issue_num: int, queue_file: Path | None = None) -> None:
+    """Put issue number at the front of the FIFO; drop duplicate lines of the same issue."""
+    q = queue_file or epic_queue_path()
+    q.parent.mkdir(parents=True, exist_ok=True)
+    key = str(int(issue_num))
+    rest: list[str] = []
+    if q.exists():
+        text = q.read_text(encoding="utf-8-sig")
+        for line in text.splitlines():
+            s = line.strip().lstrip("\ufeff")
+            if not s or s == key:
+                continue
+            rest.append(s)
+    out = [key, *rest]
+    q.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+
+
 def fetch_epic(issue_num: int) -> dict[str, Any]:
     repo = env_paths()["GHREPO"]
     url = f"https://api.github.com/repos/{repo}/issues/{issue_num}"
