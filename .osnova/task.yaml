@@ -1,26 +1,23 @@
-id: ATM-EPK-260327-001-002
+id: ATM-EPK-260327-001-004
 epic: EPK-260327-001
-seq: 2
+seq: 4
 zone: lang
-risk: HIGH
+risk: LOW
 executor: cursor
-goal: Добавить тесты для операции % на граничные случаи и регресс багов Issues
+goal: Обновить документацию и добавить regression-run в CI
 scope:
-- src/compiler/vm.test.ts — тесты на отрицательные числа, деление на ноль, большие
-  числа
-- src/compiler/vm.ts — фикс обработки граничных случаев если нужно
-notouch:
-- .github/
-- infra/
-- deploy/
+- docs/regression-tests.md — документация по новым тестам
+- .github/workflows/ci.yml — добавить запуск regression тестов
+notouch: []
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Добавить тесты на отрицательные операнды: -10%3, 10%-3
-- Добавить тест на деление на ноль: X%0 должно выбрасывать ошибку
-- Добавить тесты на большие числа (ближе к MAX_INT32)
-- Воспроизвести баги из Issues
+- Создать docs/regression-tests.md с описанием новых тестов %
+- Обновить CI workflow для запуска regression тестов
+- Добавить упоминание в ARCHITECTURE-AS-IS.md
 deps:
 - ATM-EPK-260327-001-001
+- ATM-EPK-260327-001-002
+- ATM-EPK-260327-001-003
 maxiter: 3
 retries: 0
 status: PENDING
