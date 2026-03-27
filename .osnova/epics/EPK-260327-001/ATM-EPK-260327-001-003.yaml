@@ -2,21 +2,17 @@ id: ATM-EPK-260327-001-003
 epic: EPK-260327-001
 seq: 3
 zone: lang
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Добавить тесты low-confidence сценариев для IntakeAgent
-scope:
-- src/agents/intake-agent.test.ts
-- src/agents/intake-agent.ts
+goal: ''
+scope: []
 notouch:
 - .github/
 - infra/
 - deploy/
+- Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
-steps:
-- Изучить intaka-agent.ts и логи low-confidence случаев из Issues
-- Добавить тесты: пустой task, неоднозначный intent, противоречивые требования
-- Проверить корректность fallback-поведения
+steps: []
 deps: []
 maxiter: 3
 retries: 0

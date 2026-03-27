@@ -64,7 +64,9 @@
     "intelligence-digest": "npx tsx src/intelligence/digest.ts",
     "intelligence-digest:notg": "npx tsx src/intelligence/digest.ts --no-telegram",
     "pipeline:metrics": "npx tsx scripts/pipeline-metrics.ts --file ./osiris.out.log --days 7",
-    "get-version": "node scripts/get-version.mjs"
+    "get-version": "node scripts/get-version.mjs",
+    "atm": "tsx src/atm/cli.ts",
+    "atm:report": "tsx src/atm/cli.ts report .osnova/epics/EPK-260327-001"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

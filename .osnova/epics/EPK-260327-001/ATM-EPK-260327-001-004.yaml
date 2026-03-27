@@ -3,24 +3,17 @@ epic: EPK-260327-001
 seq: 4
 zone: lang
 risk: LOW
-executor: qwen
-goal: Запустить полный регрессионный прогон и зафиксировать passrate
-scope:
-- src/compiler/vm.test.ts
-- src/agents/intake-agent.test.ts
+executor: cursor
+goal: ''
+scope: []
 notouch:
 - .github/
 - infra/
 - deploy/
+- Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
-steps:
-- Запустить npx vitest run src/compiler/ && npx vitest run src/agents/
-- Задокументировать результаты в .osnova/history/
-- Обновить метрики в state.yaml
-deps:
-- ATM-EPK-260327-001-001
-- ATM-EPK-260327-001-002
-- ATM-EPK-260327-001-003
+steps: []
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

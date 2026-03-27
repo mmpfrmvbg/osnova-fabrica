@@ -2,23 +2,18 @@ id: ATM-EPK-260327-001-002
 epic: EPK-260327-001
 seq: 2
 zone: lang
-risk: HIGH
+risk: LOW
 executor: cursor
-goal: Добавить тесты для операции % в vm.test.ts — краш-сценарии из Issues
-scope:
-- src/compiler/vm.test.ts
-- src/compiler/vm.ts
+goal: ''
+scope: []
 notouch:
 - .github/
 - infra/
 - deploy/
+- Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
-steps:
-- Воспроизвести кейсы из Issues
-- Добавить тесты с ожидаемыми ошибками/исключениями
-- Проверить покрытие всех веток кода vm.ts
-deps:
-- ATM-EPK-260327-001-001
+steps: []
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING
