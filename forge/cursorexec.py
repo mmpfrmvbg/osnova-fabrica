@@ -80,6 +80,16 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         LOG.warning("smith failed: %s", proc.stderr.strip())
     report = load_yaml(report_file, default={}) or {}
     success = report.get("s") == "OK"
+    if not success:
+        err = (report.get("err") or "").strip()
+        LOG.warning(
+            "smith ATM %s → BLK (cursor-agent exit=%s). err=%s\n--- stderr tail ---\n%s\n--- stdout tail ---\n%s",
+            atom.get("id"),
+            proc.returncode,
+            err or "(see report.yaml)",
+            (proc.stderr or "")[-1500:],
+            (proc.stdout or "")[-1500:],
+        )
     return success, report
 
 

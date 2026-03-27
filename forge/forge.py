@@ -294,7 +294,8 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
             aid,
             report.get("s"),
         )
-        passed, reason, elapsed = review(atom, dry_run=dry_run)
+        run_done = bool(success) and report.get("s") == "OK"
+        passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
         report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
         report["s"] = "OK" if (success and passed) else "BLK"
         LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)

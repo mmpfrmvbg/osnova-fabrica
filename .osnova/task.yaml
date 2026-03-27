@@ -1,24 +1,26 @@
-id: ATM-EPK-260327-001-003
+id: ATM-EPK-260327-001-002
 epic: EPK-260327-001
-seq: 3
+seq: 2
 zone: lang
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Покрыть тестами сценарии низкой уверенности IntakeAgent (Issues
+goal: Добавить тесты для операции % на граничные случаи и регресс багов Issues
 scope:
-- src/agents/intake-agent.test.ts — тесты на low-confidence сценарии
-- src/agents/intake-agent.ts — логика confidence scoring
+- src/compiler/vm.test.ts — тесты на отрицательные числа, деление на ноль, большие
+  числа
+- src/compiler/vm.ts — фикс обработки граничных случаев если нужно
 notouch:
 - .github/
 - infra/
 - deploy/
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить Issues
-- Добавить тесты на пустые/неоднозначные задачи
-- Добавить тесты на задачи без чёткой категории (intent/spec)
-- Проверить что confidence < порога正确处理
-deps: []
+- Добавить тесты на отрицательные операнды: -10%3, 10%-3
+- Добавить тест на деление на ноль: X%0 должно выбрасывать ошибку
+- Добавить тесты на большие числа (ближе к MAX_INT32)
+- Воспроизвести баги из Issues
+deps:
+- ATM-EPK-260327-001-001
 maxiter: 3
 retries: 0
 status: PENDING

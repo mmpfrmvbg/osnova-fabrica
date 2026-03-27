@@ -59,7 +59,12 @@ def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
     return passed, reason
 
 
-def review(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, str, int]:
+def review(
+    atom: dict[str, Any],
+    dry_run: bool = False,
+    *,
+    run_done: bool = True,
+) -> tuple[bool, str, int]:
     start = time.time()
     project = Path(env_paths()["OSNOVA_PROJECT"])
     if dry_run:
@@ -70,6 +75,10 @@ def review(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, str, int]
     if not done_cmd:
         elapsed = int(time.time() - start)
         return llm_pass, llm_reason, elapsed
+    if not run_done:
+        LOG.info("reviewer: skipping ATM done-command — executor already failed (tree may be broken)")
+        elapsed = int(time.time() - start)
+        return False, f"{llm_reason}; done-cmd skipped (executor BLK)", elapsed
     LOG.info(
         "reviewer: running ATM done-command (up to 900s, no log until finish): %s",
         done_cmd[:500] + ("…" if len(done_cmd) > 500 else ""),
