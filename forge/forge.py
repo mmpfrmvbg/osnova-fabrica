@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ except ImportError:  # pragma: no cover
     from router import choose_executor
 
 LOG = setup_logging("forge")
+_NO_EXECUTOR_WARN_EMITTED = False
 
 
 def _origin_is_ssh(url: str) -> bool:
@@ -170,12 +172,16 @@ def _heartbeat() -> None:
 
 
 def _alert_executors_halt(dry_run: bool) -> None:
-    LOG.critical("All executors unavailable — halting cycle")
+    LOG.critical(
+        "All executors unavailable — halting cycle (install Qwen/Cursor, set QWENBIN/CURSORBIN, "
+        "or set FORGE_ALLOW_NO_EXECUTORS=1 / on Windows omit FORGE_STRICT_EXECUTORS to continue)"
+    )
     if dry_run:
         return
     repo = env_paths()["GHREPO"]
     token = _github_bearer_value(env_paths().get("GH_TOKEN", ""))
-    if not token:
+    if not token or len(token) < 8:
+        LOG.warning("Skip executor-halt GitHub issue: set GH_TOKEN or GITHUB_TOKEN (repo scope)")
         return
     try:
         gh_request(
@@ -273,13 +279,28 @@ def cycle(dry_run: bool = False) -> None:
         avail = {"qwen": True, "cursor": True, "healthy": True, "executors": ["qwen", "cursor"]}
     else:
         avail = get_available()
-    allow_no_exec = os.environ.get("FORGE_ALLOW_NO_EXECUTORS", "").lower() in ("1", "true", "yes")
+
+    raw_allow = os.environ.get("FORGE_ALLOW_NO_EXECUTORS", "").strip().lower()
+    strict = os.environ.get("FORGE_STRICT_EXECUTORS", "").strip().lower() in ("1", "true", "yes")
+    if raw_allow in ("1", "true", "yes"):
+        allow_no_exec = True
+    elif raw_allow in ("0", "false", "no"):
+        allow_no_exec = False
+    elif sys.platform == "win32" and not strict:
+        allow_no_exec = True
+    else:
+        allow_no_exec = False
+
     if not avail.get("healthy"):
         if allow_no_exec:
-            LOG.warning(
-                "No executors in PATH (FORGE_ALLOW_NO_EXECUTORS=1): set QWENBIN/CURSORBIN or install tools; "
-                "ATM steps will BLOCK until executors work"
-            )
+            global _NO_EXECUTOR_WARN_EMITTED
+            if not _NO_EXECUTOR_WARN_EMITTED:
+                LOG.warning(
+                    "No Qwen/Cursor in PATH — continuing this cycle. "
+                    "ATM/atomizer will fail until tools exist or QWENBIN/CURSORBIN are set. "
+                    "Set FORGE_STRICT_EXECUTORS=1 on Windows to halt instead."
+                )
+                _NO_EXECUTOR_WARN_EMITTED = True
         else:
             _alert_executors_halt(dry_run=dry_run)
             time.sleep(60)

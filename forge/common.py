@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import tempfile
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,10 +55,17 @@ def env_paths() -> dict[str, str]:
         or dot.get("GH_REPO")
         or "mmpfrmvbg/osnova-fabrica"
     )
+    gh_token = (
+        os.environ.get("GH_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+        or dot.get("GH_TOKEN")
+        or dot.get("GITHUB_TOKEN")
+        or ""
+    )
     return {
         "OSNOVA_PROJECT": project,
         "OSNOVA_FORGE": forge,
-        "GH_TOKEN": os.environ.get("GH_TOKEN", dot.get("GH_TOKEN", "")),
+        "GH_TOKEN": gh_token,
         "GHREPO": ghrepo.strip(),
         "QWENBIN": os.environ.get("QWENBIN", dot.get("QWENBIN", "qwen")),
         "CURSORBIN": os.environ.get("CURSORBIN", dot.get("CURSORBIN", "cursor-agent")),
@@ -203,7 +211,24 @@ def gh_request(method: str, api_path: str, payload: dict[str, Any] | None = None
             "User-Agent": "osnova-forge",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        body = resp.read().decode("utf-8")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        err_txt = ""
+        try:
+            err_txt = exc.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            pass
+        if exc.code == 401:
+            logging.getLogger("forge.common").warning(
+                "GitHub API 401 Unauthorized — check GH_TOKEN or GITHUB_TOKEN (repo scope, not expired). %s",
+                err_txt or exc.reason,
+            )
+        elif exc.code not in (404,):
+            logging.getLogger("forge.common").warning(
+                "GitHub API HTTP %s: %s %s", exc.code, exc.reason, err_txt
+            )
+        raise
     return json.loads(body) if body else {}
 
