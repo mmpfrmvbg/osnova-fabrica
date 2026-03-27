@@ -1,10 +1,10 @@
 v: 5
 t: RPT
-id: ATM-EPK-260327-001-002
+id: ATM-EPK-260327-001-001
 s: BLK
 tests:
   passed: 0
   total: 0
 changed: []
-elapsed: 3
-err: 'cursor-agent failed on model: composer-2'
+elapsed: 5
+err: 'agent -p failed (model token: _)'
