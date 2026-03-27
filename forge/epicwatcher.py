@@ -12,15 +12,15 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import atomic_write_yaml, env_paths, setup_logging
+    from forge.common import _github_bearer_value, atomic_write_yaml, env_paths, setup_logging
 except ImportError:  # pragma: no cover
-    from common import atomic_write_yaml, env_paths, setup_logging
+    from common import _github_bearer_value, atomic_write_yaml, env_paths, setup_logging
 
 LOG = setup_logging("epicwatcher")
 
 
 def _headers() -> dict[str, str]:
-    token = env_paths()["GH_TOKEN"]
+    token = _github_bearer_value(env_paths()["GH_TOKEN"])
     return {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",

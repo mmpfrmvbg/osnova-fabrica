@@ -10,7 +10,7 @@ from typing import Any
 try:
     from forge.atomizer import atomize
     from forge.brain_fallback import generate_fallback_epic
-    from forge.common import atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from forge.common import _github_bearer_value, atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from forge.courier import process_result
     from forge.cursorexec import run_atom as run_cursor_atom
     from forge.degradation import get_available
@@ -24,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover
     from atomizer import atomize
     from brain_fallback import generate_fallback_epic
-    from common import atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from common import _github_bearer_value, atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from courier import process_result
     from cursorexec import run_atom as run_cursor_atom
     from degradation import get_available
@@ -44,13 +44,20 @@ def _origin_is_ssh(url: str) -> bool:
     return u.startswith("git@") or u.startswith("ssh://")
 
 
+def _git_pull_rebase_argv() -> list[str]:
+    argv = ["pull", "--rebase"]
+    if os.environ.get("FORGE_GIT_PULL_AUTOSTASH", "1").lower() not in ("0", "false", "no"):
+        argv.append("--autostash")
+    return argv
+
+
 def _git_pull_project(dry_run: bool) -> None:
     if dry_run:
         LOG.info("[dry-run] Would run: git pull --rebase")
         return
     project = Path(env_paths()["OSNOVA_PROJECT"])
     paths = env_paths()
-    token = (paths.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")).strip().lstrip("\ufeff")
+    token = _github_bearer_value(paths.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
     ghrepo = paths.get("GHREPO", "mmpfrmvbg/osnova-fabrica").strip()
     pat_only = os.environ.get("FORGE_GIT_PULL_PAT_ONLY", "").lower() in ("1", "true", "yes")
 
@@ -61,7 +68,7 @@ def _git_pull_project(dry_run: bool) -> None:
     try:
         if not pat_only:
             proc = subprocess.run(
-                ["git", "pull", "--rebase"],
+                ["git", *_git_pull_rebase_argv()],
                 cwd=project,
                 env=run_env,
                 capture_output=True,
@@ -123,7 +130,7 @@ def _git_pull_project(dry_run: bool) -> None:
             return
         try:
             proc2 = subprocess.run(
-                git_no_prompt + ["pull", "--rebase"],
+                git_no_prompt + _git_pull_rebase_argv(),
                 cwd=project,
                 env=run_pat,
                 capture_output=True,
@@ -167,7 +174,7 @@ def _alert_executors_halt(dry_run: bool) -> None:
     if dry_run:
         return
     repo = env_paths()["GHREPO"]
-    token = env_paths().get("GH_TOKEN", "")
+    token = _github_bearer_value(env_paths().get("GH_TOKEN", ""))
     if not token:
         return
     try:
@@ -266,10 +273,17 @@ def cycle(dry_run: bool = False) -> None:
         avail = {"qwen": True, "cursor": True, "healthy": True, "executors": ["qwen", "cursor"]}
     else:
         avail = get_available()
+    allow_no_exec = os.environ.get("FORGE_ALLOW_NO_EXECUTORS", "").lower() in ("1", "true", "yes")
     if not avail.get("healthy"):
-        _alert_executors_halt(dry_run=dry_run)
-        time.sleep(60)
-        return
+        if allow_no_exec:
+            LOG.warning(
+                "No executors in PATH (FORGE_ALLOW_NO_EXECUTORS=1): set QWENBIN/CURSORBIN or install tools; "
+                "ATM steps will BLOCK until executors work"
+            )
+        else:
+            _alert_executors_halt(dry_run=dry_run)
+            time.sleep(60)
+            return
 
     epic = _resolve_epic(state, dry_run=dry_run)
     if not epic:

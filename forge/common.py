@@ -179,9 +179,15 @@ def backup_file(src: str | Path, dst_dir: str | Path) -> Path | None:
     return dst
 
 
+def _github_bearer_value(token: str) -> str:
+    """GitHub PATs are ASCII; strip BOM and drop non–latin-1 chars so urllib headers never choke."""
+    t = (token or "").strip().lstrip("\ufeff")
+    return "".join(ch for ch in t if ord(ch) < 128)
+
+
 def gh_request(method: str, api_path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     paths = env_paths()
-    token = paths["GH_TOKEN"]
+    token = _github_bearer_value(paths["GH_TOKEN"])
     url = f"https://api.github.com{api_path}"
     data = None
     if payload is not None:
