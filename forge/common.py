@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -85,6 +86,31 @@ def epic_socket_path() -> Path:
     if p:
         return Path(p)
     return Path(env_paths()["OSNOVA_FORGE"]) / "epic.sock"
+
+
+def resolve_executable(name_or_path: str) -> str:
+    """
+    Resolve a command to a path subprocess can run on Windows (npm publishes .cmd shims;
+    bare ``qwen`` often raises WinError 2 from CreateProcess without this).
+    """
+    s = (name_or_path or "").strip()
+    if not s:
+        return s
+    p = Path(s)
+    try:
+        if p.is_file():
+            return str(p.resolve())
+    except OSError:
+        pass
+    found = shutil.which(s)
+    if found:
+        return found
+    if sys.platform == "win32":
+        for suf in (".CMD", ".cmd", ".exe", ".bat"):
+            found = shutil.which(s + suf)
+            if found:
+                return found
+    return s
 
 
 def ensure_dir(path: str | Path) -> Path:

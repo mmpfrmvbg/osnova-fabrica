@@ -8,10 +8,10 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import env_paths, setup_logging
+    from forge.common import env_paths, resolve_executable, setup_logging
     from forge.qwenbudget import can_call, record
 except ImportError:  # pragma: no cover
-    from common import env_paths, setup_logging
+    from common import env_paths, resolve_executable, setup_logging
     from qwenbudget import can_call, record
 
 LOG = setup_logging("qwenexec")
@@ -52,7 +52,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         return True, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "OK", "changed": [], "elapsed": 0}
     if not can_call():
         return False, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "BLK", "err": "Qwen daily budget exhausted"}
-    cmd = [env_paths()["QWENBIN"], "run", _prompt(atom)]
+    cmd = [resolve_executable(env_paths()["QWENBIN"]), "run", _prompt(atom)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
     record()
     if proc.returncode != 0:

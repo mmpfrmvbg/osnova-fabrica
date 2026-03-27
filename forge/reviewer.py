@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from forge.common import env_paths, setup_logging
+    from forge.common import env_paths, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import env_paths, setup_logging
+    from common import env_paths, resolve_executable, setup_logging
 
 LOG = setup_logging("reviewer")
 
@@ -32,7 +32,7 @@ def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
         f"Done command: {atom.get('done')}\nDiff:\n{diff}\n"
     )
     proc = subprocess.run(
-        [env_paths()["QWENBIN"], "run", prompt],
+        [resolve_executable(env_paths()["QWENBIN"]), "run", prompt],
         capture_output=True,
         text=True,
         timeout=120,

@@ -10,9 +10,9 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import env_paths, setup_logging
+    from forge.common import env_paths, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import env_paths, setup_logging
+    from common import env_paths, resolve_executable, setup_logging
 
 LOG = setup_logging("brain_fallback")
 
@@ -93,7 +93,7 @@ def run_qwen_planner(context_yaml: str) -> dict[str, Any] | None:
     prompt = FALLBACK_PLANNER_PROMPT.format(context_yaml=context_yaml)
     try:
         result = subprocess.run(
-            [env_paths()["QWENBIN"], "--yolo", "--model", "qwen3-coder-plus", "-p", prompt],
+            [resolve_executable(env_paths()["QWENBIN"]), "--yolo", "--model", "qwen3-coder-plus", "-p", prompt],
             capture_output=True,
             text=True,
             timeout=120,
@@ -106,29 +106,45 @@ def run_qwen_planner(context_yaml: str) -> dict[str, Any] | None:
     return None
 
 
+def _cursor_cli_candidates() -> list[str]:
+    seen: list[str] = []
+    for name in (env_paths()["CURSORBIN"], "agent", "cursor-agent"):
+        n = (name or "").strip()
+        if not n:
+            continue
+        exe = resolve_executable(n)
+        if exe and exe not in seen:
+            seen.append(exe)
+    return seen
+
+
 def run_cursor_planner(context_yaml: str) -> dict[str, Any] | None:
     forge = _forge_dir()
     prompt_file = forge / "fallback-prompt.txt"
     try:
         prompt_file.write_text(FALLBACK_PLANNER_PROMPT.format(context_yaml=context_yaml), encoding="utf-8")
-        result = subprocess.run(
-            [
-                env_paths()["CURSORBIN"],
-                "-p",
-                "--force",
-                "--model",
-                "auto",
-                "--output-format",
-                "text",
-                str(prompt_file),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-            cwd=str(_project_dir()),
-        )
-        if result.returncode == 0:
-            return parse_epic_from_output((result.stdout or "") + (result.stderr or ""))
+        for cursor_exe in _cursor_cli_candidates():
+            try:
+                result = subprocess.run(
+                    [
+                        cursor_exe,
+                        "-p",
+                        "--force",
+                        "--model",
+                        "auto",
+                        "--output-format",
+                        "text",
+                        str(prompt_file),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    cwd=str(_project_dir()),
+                )
+                if result.returncode == 0:
+                    return parse_epic_from_output((result.stdout or "") + (result.stderr or ""))
+            except FileNotFoundError:
+                continue
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         LOG.warning("Cursor planner failed: %s", exc)
     return None

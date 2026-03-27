@@ -4,11 +4,17 @@ import subprocess
 from typing import Any
 
 try:
-    from forge.common import env_paths, setup_logging
+    from forge.common import env_paths, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import env_paths, setup_logging
+    from common import env_paths, resolve_executable, setup_logging
 
 LOG = setup_logging("degradation")
+
+_CURSOR_PROBE_HINT = (
+    "Install Cursor Agent CLI (headless), not only the IDE: "
+    "https://cursor.com/docs/cli/installation - then `agent` or `cursor-agent` on PATH, "
+    "or set CURSORBIN to that binary's full path."
+)
 
 
 def _probe(cmd: list[str], timeout: int = 5) -> bool:
@@ -21,13 +27,30 @@ def _probe(cmd: list[str], timeout: int = 5) -> bool:
 
 
 def probe_qwen() -> bool:
-    qwen = env_paths()["QWENBIN"]
-    return _probe([qwen, "--version"], timeout=5)
+    qwen = resolve_executable(env_paths()["QWENBIN"])
+    ok = _probe([qwen, "--version"], timeout=15)
+    if not ok:
+        LOG.warning("Qwen not runnable as %s — check QWENBIN or npm global @qwen-code/qwen-code", qwen)
+    return ok
 
 
 def probe_cursor() -> bool:
-    cursor = env_paths()["CURSORBIN"]
-    return _probe([cursor, "--help"], timeout=5)
+    paths = env_paths()
+    tried: list[str] = []
+    for name in (paths["CURSORBIN"], "agent", "cursor-agent"):
+        name = (name or "").strip()
+        if not name:
+            continue
+        exe = resolve_executable(name)
+        if exe in tried:
+            continue
+        tried.append(exe)
+        if _probe([exe, "--help"], timeout=10):
+            return True
+        if _probe([exe, "--version"], timeout=10):
+            return True
+    LOG.warning("Cursor agent CLI not found. %s", _CURSOR_PROBE_HINT)
+    return False
 
 
 def get_available() -> dict[str, Any]:
