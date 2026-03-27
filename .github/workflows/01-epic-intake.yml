@@ -1,19 +1,18 @@
-# OSNOVA v5.2 — Brain EPIC Intake
-# Срабатывает когда Brain создаёт Issue с label brain-epic
-# Пишет номер Issue в forge/epic-queue.txt в репозитории
-# Локальный forge.py читает этот файл каждую минуту через git pull
-
+# OSNOVA v5.2 — Brain EPIC Intake (queue file + optional unix socket wake)
 name: 01 Brain EPIC Intake
 
 on:
   issues:
     types: [labeled]
 
+concurrency:
+  group: epic-intake-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   intake:
     name: Queue EPIC for local forge
     runs-on: ubuntu-latest
-    # Только если привязан лейбл brain-epic
     if: github.event.label.name == 'brain-epic'
 
     permissions:
@@ -24,7 +23,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 1
 
       - name: Write issue number to epic-queue.txt
@@ -35,19 +34,32 @@ jobs:
           echo "Writing EPIC #${ISSUE_NUMBER} to forge/epic-queue.txt"
           mkdir -p forge
           echo "${ISSUE_NUMBER}" >> forge/epic-queue.txt
-          echo "Queued at $(date -u +%Y-%m-%dT%H:%M:%SZ): #${ISSUE_NUMBER} — ${ISSUE_TITLE}" >> forge/epic-queue.log
+          echo "Queued at $(date -u +%Y-%m-%dT%H:%M:%SZ): #${ISSUE_NUMBER} — ${ISSUE_TITLE}" >> forge/epic-queue.log || true
+
+      - name: Notify forge via Unix socket (self-hosted forge only)
+        continue-on-error: true
+        run: |
+          ISSUE_NUM=${{ github.event.issue.number }}
+          SOCK="${FORGE_EPIC_SOCKET:-/opt/osnova-forge/epic.sock}"
+          if command -v socat >/dev/null 2>&1 && [ -S "$SOCK" ]; then
+            printf '{"issue_number": %s}' "$ISSUE_NUM" | timeout 5 socat - UNIX-CONNECT:"$SOCK" && echo "socket_ok=1" || echo "socket_ok=0"
+          else
+            echo "socket_skipped (no socat or no socket — forge will poll queue)"
+          fi
 
       - name: Commit queue update
         run: |
           git config user.name  "osnova-brain[bot]"
           git config user.email "osnova-brain@users.noreply.github.com"
-          git add forge/epic-queue.txt forge/epic-queue.log
+          git add forge/epic-queue.txt
+          git add -f forge/epic-queue.log 2>/dev/null || true
           git diff --staged --quiet || git commit -m "brain: queue EPIC #${{ github.event.issue.number }}"
           git push
 
       - name: Comment on Issue
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -59,7 +71,6 @@ jobs:
                 `**Issue:** #${context.issue.number}`,
                 `**Queue file:** \`forge/epic-queue.txt\``,
                 '',
-                'Forge прочитает очередь при следующем `git pull` (каждые 60с).',
-                'ATM-выполнение начнётся автоматически.'
-              ].join('\n')
+                'Локальный `forge.py` подтянет очередь через `git pull` и при необходимости проснётся по `epic.sock` на хосте forge.',
+              ].join('\n'),
             });

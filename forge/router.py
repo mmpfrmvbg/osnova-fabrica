@@ -31,8 +31,10 @@ def choose_executor(atom: dict[str, Any], avail: dict[str, Any]) -> str:
         chosen = "cursor"
     elif risk == "HIGH":
         chosen = "cursor"
-    elif ".github/" in scope:
+    elif ".github/" in scope or ".github/workflows" in scope:
         chosen = "cursor"
+    elif "tests/" in scope or scope.strip().startswith("tests/"):
+        chosen = "qwen"
     elif (".test.ts" in scope) or (".spec.ts" in scope):
         chosen = "qwen"
     elif ".md" in scope:

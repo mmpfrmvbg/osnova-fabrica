@@ -13,8 +13,8 @@ LOG = setup_logging("degradation")
 
 def _probe(cmd: list[str], timeout: int = 5) -> bool:
     try:
-        subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
-        return True
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        return proc.returncode == 0
     except Exception as exc:
         LOG.warning("Probe failed for %s: %s", cmd, exc)
         return False

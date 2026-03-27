@@ -1,0 +1,67 @@
+# OSNOVA v5.2 — external watchdog for local forge heartbeat.
+# Requires a self-hosted runner on the same machine as /opt/osnova-forge (or disable this workflow).
+name: "07 Heart External Watchdog"
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: Check heartbeat age
+        id: hb
+        run: |
+          set -e
+          HB="${FORGE_HEARTBEAT:-/opt/osnova-forge/heartbeat}"
+          LEGACY="/opt/osnova-forge/forge.heartbeat"
+          if [ -f "$HB" ]; then FILE="$HB"
+          elif [ -f "$LEGACY" ]; then FILE="$LEGACY"
+          else FILE=""
+          fi
+          if [ -z "$FILE" ]; then
+            echo "dead=true" >> "$GITHUB_OUTPUT"
+            echo "reason=heartbeat file missing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if stat --version >/dev/null 2>&1; then
+            MTIME=$(stat -c %Y "$FILE")
+          else
+            MTIME=$(stat -f %m "$FILE")
+          fi
+          NOW=$(date +%s)
+          AGE=$((NOW - MTIME))
+          echo "age=$AGE" >> "$GITHUB_OUTPUT"
+          if [ "$AGE" -gt 600 ]; then
+            echo "dead=true" >> "$GITHUB_OUTPUT"
+            echo "reason=no heartbeat for ${AGE}s" >> "$GITHUB_OUTPUT"
+          else
+            echo "dead=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Alert if dead
+        if: steps.hb.outputs.dead == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'heart-dead,P0',
+              state: 'open',
+            });
+            if (existing.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '[HEART] Forge appears dead — external watchdog',
+                body: `**Reason:** ${{ steps.hb.outputs.reason }}\n\nHeartbeat path: \`/opt/osnova-forge/heartbeat\`. Check osnova-forge and osnova-heart units on the forge host.`,
+                labels: ['P0', 'heart-dead', 'brain-epic'],
+              });
+            }

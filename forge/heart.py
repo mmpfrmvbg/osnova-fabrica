@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from datetime import date
 from pathlib import Path
 
 try:
-    from forge.common import backup_file, env_paths, gh_request, load_forge_state, now_iso, save_forge_state, setup_logging
+    from forge.common import backup_file, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
 except ImportError:  # pragma: no cover
-    from common import backup_file, env_paths, gh_request, load_forge_state, now_iso, save_forge_state, setup_logging
+    from common import backup_file, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
 
 LOG = setup_logging("heart")
 
@@ -53,15 +54,26 @@ def _restore_if_corrupt(state_file: Path, backups_dir: Path) -> None:
 def loop() -> None:
     paths = env_paths()
     forge_dir = Path(paths["OSNOVA_FORGE"])
-    heartbeat = forge_dir / "forge.heartbeat"
+    legacy = forge_dir / "forge.heartbeat"
+    hb_path = heartbeat_path()
+    max_silence = int(os.environ.get("HEART_MAX_SILENCE", "300"))
     state_file = forge_dir / "forge-state.json"
     backups_dir = forge_dir / "state-backups"
     last_backup_at = 0.0
     while True:
         state = load_forge_state()
         try:
-            age = _heartbeat_age_seconds(heartbeat)
-            if age > 300:
+            if hb_path.exists():
+                primary: Path | None = hb_path
+            elif legacy.exists():
+                primary = legacy
+            else:
+                primary = None
+            if primary is None:
+                time.sleep(60)
+                continue
+            age = _heartbeat_age_seconds(primary)
+            if age > max_silence:
                 LOG.error("Forge heartbeat stale: %.1fs", age)
                 _restart_forge(state)
                 if int(state.get("heart_restarts", 0)) >= 3:

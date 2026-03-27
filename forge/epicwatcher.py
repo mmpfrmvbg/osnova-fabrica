@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import re
 import urllib.error
@@ -78,13 +79,14 @@ def fetch_epic(issue_num: int) -> dict[str, Any]:
     repo = env_paths()["GHREPO"]
     url = f"https://api.github.com/repos/{repo}/issues/{issue_num}"
     issue = _request("GET", url)
-    epic = _yaml_from_issue_body(issue.get("body", ""))
+    body_clean = html.unescape(issue.get("body", "") or "")
+    epic = _yaml_from_issue_body(body_clean)
     epic["githubissue"] = issue_num
 
     project = Path(env_paths()["OSNOVA_PROJECT"])
     epic_path = project / ".osnova" / "epics" / f"{epic['id']}.yaml"
     atomic_write_yaml(epic_path, epic)
-    _comment(issue_num, f"Forge received {epic['id']}, atomizing...")
+    _comment(issue_num, f"🏭 Forge: received EPK `{epic['id']}`, atomizing…")
     return epic
 
 

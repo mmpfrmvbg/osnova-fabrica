@@ -9,22 +9,28 @@ from typing import Any
 
 try:
     from forge.atomizer import atomize
-    from forge.common import atomic_write_text, env_paths, load_forge_state, now_iso, save_forge_state, setup_logging
+    from forge.brain_fallback import generate_fallback_epic
+    from forge.common import atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from forge.courier import process_result
     from forge.cursorexec import run_atom as run_cursor_atom
     from forge.degradation import get_available
-    from forge.epicwatcher import watch_once
+    from forge.epic_socket import accept_epic_event, ensure_listener
+    from forge.epicwatcher import fetch_epic, watch_once
+    from forge.parallel_executor import build_waves, run_waves_sequential
     from forge.qwenexec import run_atom as run_qwen_atom
     from forge.reviewer import review
     from forge.retrospective import finalize_epic
     from forge.router import choose_executor
 except ImportError:  # pragma: no cover
     from atomizer import atomize
-    from common import atomic_write_text, env_paths, load_forge_state, now_iso, save_forge_state, setup_logging
+    from brain_fallback import generate_fallback_epic
+    from common import atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from courier import process_result
     from cursorexec import run_atom as run_cursor_atom
     from degradation import get_available
-    from epicwatcher import watch_once
+    from epic_socket import accept_epic_event, ensure_listener
+    from epicwatcher import fetch_epic, watch_once
+    from parallel_executor import build_waves, run_waves_sequential
     from qwenexec import run_atom as run_qwen_atom
     from reviewer import review
     from retrospective import finalize_epic
@@ -153,24 +159,83 @@ def _git_pull_project(dry_run: bool) -> None:
 
 
 def _heartbeat() -> None:
-    hb = Path(env_paths()["OSNOVA_FORGE"]) / "forge.heartbeat"
-    atomic_write_text(hb, now_iso() + "\n")
+    atomic_write_text(heartbeat_path(), now_iso() + "\n")
 
 
-def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool) -> None:
+def _alert_executors_halt(dry_run: bool) -> None:
+    LOG.critical("All executors unavailable — halting cycle")
+    if dry_run:
+        return
+    repo = env_paths()["GHREPO"]
+    token = env_paths().get("GH_TOKEN", "")
+    if not token:
+        return
+    try:
+        gh_request(
+            "POST",
+            f"/repos/{repo}/issues",
+            {
+                "title": "[FORGE] All executors down (Qwen + Cursor)",
+                "body": "degradation probe: no Qwen and no Cursor. Check tooling on the forge host.",
+                "labels": ["P0", "forge-alert", "blocker"],
+            },
+        )
+    except Exception as exc:
+        LOG.warning("Could not open executor-halt issue: %s", exc)
+
+
+def _resolve_epic(state: dict[str, Any], dry_run: bool) -> dict[str, Any] | None:
+    epic = watch_once()
+    if epic:
+        state["brain_source"] = "perplexity"
+        return epic
+    if dry_run:
+        state["brain_source"] = "idle"
+        return None
+    evt = accept_epic_event()
+    if evt and evt.get("issue_number") is not None:
+        try:
+            epic = fetch_epic(int(evt["issue_number"]))
+            state["brain_source"] = "perplexity"
+            return epic
+        except Exception as exc:
+            LOG.warning("Epic socket fetch failed: %s", exc)
+    epic = watch_once()
+    if epic:
+        state["brain_source"] = "perplexity"
+        return epic
+    fb = generate_fallback_epic(state)
+    if fb:
+        fb["githubissue"] = None
+        state["brain_source"] = "fallback-local"
+        return fb
+    state["brain_source"] = "idle"
+    return None
+
+
+def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, avail: dict[str, Any]) -> None:
     state["current_epic"] = epic.get("id")
     state["current_epic_issue"] = epic.get("githubissue")
     save_forge_state(state)
     atoms = atomize(epic, dry_run=dry_run)
-    avail = get_available()
+    waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))))
+    LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
     results: list[dict[str, Any]] = []
-    for atom in sorted(atoms, key=lambda x: int(x.get("seq", 0))):
+
+    def _run_one(atom: dict[str, Any]) -> None:
         executor = choose_executor(atom, avail)
         atom["executor"] = executor
         if executor == "none":
-            report = {"id": atom.get("id"), "s": "BLK", "err": "No executor available", "changed": []}
-            success = False
-        elif executor == "qwen":
+            report = {
+                "id": atom.get("id"),
+                "s": "BLK",
+                "err": "No executor available",
+                "changed": [],
+            }
+            process_result(atom, report, dry_run=dry_run)
+            results.append(report)
+            return
+        if executor == "qwen":
             success, report = run_qwen_atom(atom, dry_run=dry_run)
         else:
             success, report = run_cursor_atom(atom, dry_run=dry_run)
@@ -179,32 +244,53 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool) ->
         report["s"] = "OK" if (success and passed) else "BLK"
         process_result(atom, report, dry_run=dry_run)
         results.append(report)
-    finalize_epic(epic, results, dry_run=dry_run)
+
+    run_waves_sequential(waves, _run_one)
+    finalize_epic(epic, results, dry_run=dry_run, forge_state=state)
     state["current_epic"] = None
     state["current_epic_issue"] = None
     save_forge_state(state)
 
 
 def cycle(dry_run: bool = False) -> None:
-    state = load_forge_state()
-    _git_pull_project(dry_run=dry_run)
     _heartbeat()
+    _git_pull_project(dry_run=dry_run)
+    state = load_forge_state()
+    save_forge_state(state)
+
     if state.get("paused"):
         LOG.info("Forge paused")
         return
-    epic = watch_once()
-    if not epic:
-        LOG.info("No EPIC in queue")
-        return
+
     if dry_run:
-        LOG.info("[dry-run] EPIC picked: %s", epic.get("id"))
-    _process_epic(epic, state, dry_run=dry_run)
+        avail = {"qwen": True, "cursor": True, "healthy": True, "executors": ["qwen", "cursor"]}
+    else:
+        avail = get_available()
+    if not avail.get("healthy"):
+        _alert_executors_halt(dry_run=dry_run)
+        time.sleep(60)
+        return
+
+    epic = _resolve_epic(state, dry_run=dry_run)
+    if not epic:
+        LOG.info("No EPIC in queue (brain_source=%s)", state.get("brain_source"))
+        save_forge_state(state)
+        return
+
+    state["last_epic_received_at"] = now_iso()
+    save_forge_state(state)
+
+    if dry_run:
+        LOG.info("[dry-run] EPIC picked: %s (%s)", epic.get("id"), state.get("brain_source"))
+
+    _process_epic(epic, state, dry_run=dry_run, avail=avail)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="OSNOVA Forge loop")
+    parser = argparse.ArgumentParser(description="OSNOVA Forge loop (v5.2 resilient)")
     parser.add_argument("--dry-run", action="store_true", help="Run one cycle without external execution")
     args = parser.parse_args()
+    ensure_listener()
     try:
         if args.dry_run:
             cycle(dry_run=True)
@@ -218,4 +304,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

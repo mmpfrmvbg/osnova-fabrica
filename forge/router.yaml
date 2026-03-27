@@ -1,23 +1,39 @@
-version: 1
-rules:
-  - match: "priority == P0"
-    executor: cursor
-  - match: "risk == HIGH"
-    executor: cursor
-  - match: "scope contains .github/"
-    executor: cursor
-  - match: "scope contains .test.ts or .spec.ts"
-    executor: qwen
-  - match: "scope contains .md"
-    executor: qwen
-  - match: "scope contains .yaml/.json/.toml"
-    executor: qwen
-  - match: "zone == infra and risk == LOW"
-    executor: qwen
-  - match: "zone == lang and risk == LOW"
-    executor: qwen
-  - match: "zone == lang and risk == MEDIUM"
-    executor: cursor
-  - match: "default"
-    executor: cursor
+# OSNOVA v5.2 Router Rules (human reference; forge/router.py implements routing)
+default_executor: cursor
 
+rules:
+  - if: {priority: P0}
+    then: {executor: cursor, reason: "self-fix always cursor"}
+
+  - if: {risk: HIGH}
+    then: {executor: cursor, reason: "high risk = cursor"}
+
+  - if: {scope_pattern: ".github/*"}
+    then: {executor: cursor, reason: "workflows = cursor only"}
+
+  - if: {scope_pattern: "tests/*"}
+    then: {executor: qwen, reason: "tests = qwen"}
+
+  - if: {scope_pattern: "*.md"}
+    then: {executor: qwen, reason: "docs = qwen"}
+
+  - if: {scope_pattern: "*.yaml"}
+    then: {executor: qwen, reason: "config = qwen"}
+
+  - if: {scope_pattern: "*.toml"}
+    then: {executor: qwen, reason: "config = qwen"}
+
+  - if: {zone: infra, risk: LOW}
+    then: {executor: qwen, reason: "infra + low = qwen"}
+
+  - if: {zone: lang, risk: LOW}
+    then: {executor: qwen, reason: "lang + low = qwen"}
+
+  - if: {zone: lang, risk: MEDIUM}
+    then: {executor: cursor, reason: "lang + medium = cursor"}
+
+  - if: {executor_unavailable: qwen}
+    then: {executor: cursor, reason: "qwen unavailable → cursor fallback"}
+
+  - if: {executor_unavailable: cursor}
+    then: {executor: qwen, reason: "cursor unavailable → qwen fallback"}

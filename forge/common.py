@@ -47,14 +47,36 @@ def env_paths() -> dict[str, str]:
     home = os.path.expanduser("~")
     project = os.environ.get("OSNOVA_PROJECT", dot.get("OSNOVA_PROJECT", os.path.join(home, "osnova-fabrica")))
     forge = os.environ.get("OSNOVA_FORGE", dot.get("OSNOVA_FORGE", "/opt/osnova-forge"))
+    ghrepo = (
+        os.environ.get("GHREPO")
+        or os.environ.get("GH_REPO")
+        or dot.get("GHREPO")
+        or dot.get("GH_REPO")
+        or "mmpfrmvbg/osnova-fabrica"
+    )
     return {
         "OSNOVA_PROJECT": project,
         "OSNOVA_FORGE": forge,
         "GH_TOKEN": os.environ.get("GH_TOKEN", dot.get("GH_TOKEN", "")),
-        "GHREPO": os.environ.get("GHREPO", dot.get("GHREPO", "mmpfrmvbg/osnova-fabrica")),
+        "GHREPO": ghrepo.strip(),
         "QWENBIN": os.environ.get("QWENBIN", dot.get("QWENBIN", "qwen")),
         "CURSORBIN": os.environ.get("CURSORBIN", dot.get("CURSORBIN", "cursor-agent")),
     }
+
+
+def heartbeat_path() -> Path:
+    """v5.2 default: <FORGE>/heartbeat (override with FORGE_HEARTBEAT_FILE)."""
+    p = os.environ.get("FORGE_HEARTBEAT_FILE", "").strip()
+    if p:
+        return Path(p)
+    return Path(env_paths()["OSNOVA_FORGE"]) / "heartbeat"
+
+
+def epic_socket_path() -> Path:
+    p = os.environ.get("FORGE_EPIC_SOCKET", "").strip()
+    if p:
+        return Path(p)
+    return Path(env_paths()["OSNOVA_FORGE"]) / "epic.sock"
 
 
 def ensure_dir(path: str | Path) -> Path:
@@ -131,10 +153,14 @@ def load_forge_state() -> dict[str, Any]:
         "current_epic": None,
         "brain_source": "idle",
         "current_epic_issue": None,
+        "last_epic_received_at": None,
+        "forge_started_at": None,
     }
     state = load_json(forge_state_path(), default=default) or default
     for k, v in default.items():
         state.setdefault(k, v)
+    if state.get("forge_started_at") is None:
+        state["forge_started_at"] = now_iso()
     return state
 
 

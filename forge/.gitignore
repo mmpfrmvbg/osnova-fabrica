@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 .env
 forge.heartbeat
+heartbeat
+epic.sock
+fallback-prompt.txt
 state-backups/
 forge-state.json
 qwen-budget.json

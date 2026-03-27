@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 try:
     from forge.common import atomic_write_yaml, env_paths, gh_request, load_yaml, now_iso, setup_logging
 except ImportError:  # pragma: no cover
@@ -54,7 +56,12 @@ def _status(atom_total: int, atom_ok: int) -> str:
     return "BLK"
 
 
-def finalize_epic(epic: dict[str, Any], results: list[dict[str, Any]], dry_run: bool = False) -> dict[str, Any]:
+def finalize_epic(
+    epic: dict[str, Any],
+    results: list[dict[str, Any]],
+    dry_run: bool = False,
+    forge_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     atom_total = len(results)
     atom_ok = sum(1 for r in results if r.get("s") == "OK")
     atom_blk = atom_total - atom_ok
@@ -68,11 +75,49 @@ def finalize_epic(epic: dict[str, Any], results: list[dict[str, Any]], dry_run: 
     atomic_write_yaml(history_path, {"epic": epic.get("id"), "summary": summary, "results": results, "createdat": now_iso()})
     _update_project_state(epic, atom_total, atom_ok, atom_blk)
 
+    latest_path = project / ".osnova" / "meta" / "retrospective-latest.yaml"
+    latest = load_yaml(latest_path, default={}) or {}
+    brain = (forge_state or {}).get("brain_source") or "idle"
+    latest["brain_source"] = brain
+    proj_state = load_yaml(project / ".osnova" / "state.yaml", default={}) or {}
+    gha = proj_state.get("gha") or {}
+    ci_pr = gha.get("ci_pass_rate_7d")
+    latest.setdefault("daily", {})
+    if ci_pr is not None:
+        latest["daily"]["ci_pass_rate"] = ci_pr
+    heart_restarts = int((forge_state or {}).get("heart_restarts", 0))
+    latest["heart"] = {
+        "restarts_recorded": heart_restarts,
+        "last_beat": (forge_state or {}).get("last_heart_restart"),
+    }
+    atomic_write_yaml(latest_path, latest)
+
     issue = epic.get("githubissue")
     repo = env_paths()["GHREPO"]
     if issue and not dry_run:
-        comment = f"EPIC `{epic.get('id')}` finished with status `{status}`. passrate={passrate:.2f}."
-        gh_request("POST", f"/repos/{repo}/issues/{issue}/comments", {"body": comment})
+        icon = {"OK": "✅", "PARTIAL": "⚠️", "BLK": "🔴"}[status]
+        lines = [
+            f"## {icon} RETRO `{epic.get('id')}` — {status}",
+            "",
+            "| | |",
+            "|---|---|",
+            f"| brain_source | `{brain}` |",
+            f"| ATMs | {atom_ok}/{atom_total} PASS |",
+            f"| passrate (ATM) | {passrate:.0%} |",
+        ]
+        if ci_pr is not None:
+            lines.append(f"| CI pass (7d) | {float(ci_pr):.0%} |")
+        lines.append("")
+        lines.append("<details><summary>YAML</summary>\n\n```yaml\n")
+        lines.append(
+            yaml.safe_dump(
+                {"v": 5, "t": "RETRO", "lastepic": latest.get("lastepic"), "daily": latest.get("daily")},
+                allow_unicode=True,
+                sort_keys=False,
+            )
+        )
+        lines.append("```\n</details>")
+        gh_request("POST", f"/repos/{repo}/issues/{issue}/comments", {"body": "\n".join(lines)})
         if status in {"OK", "PARTIAL"}:
             gh_request("PATCH", f"/repos/{repo}/issues/{issue}", {"state": "closed"})
         elif status == "BLK":

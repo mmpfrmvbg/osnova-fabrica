@@ -1,0 +1,20 @@
+[Unit]
+Description=OSNOVA v5.2 Heart — forge pulse watchdog
+After=network-online.target osnova-forge.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=osnova
+WorkingDirectory=/opt/osnova-forge
+ExecStart=/usr/bin/python3 /opt/osnova-forge/heart.py
+Restart=always
+RestartSec=10
+Environment=OSNOVA_PROJECT=/home/user/osnova-fabrica
+Environment=OSNOVA_FORGE=/opt/osnova-forge
+Environment=GHREPO=owner/osnova-fabrica
+StandardOutput=append:/opt/osnova-forge/heart.log
+StandardError=append:/opt/osnova-forge/heart.log
+
+[Install]
+WantedBy=multi-user.target
