@@ -13,17 +13,47 @@ from typing import Any
 import yaml
 
 
+def _load_dotenv_defaults() -> dict[str, str]:
+    """
+    Load KEY=VALUE pairs from forge/.env (or /opt/osnova-forge/.env)
+    without overriding already exported environment variables.
+    """
+    candidates: list[Path] = []
+    here = Path(__file__).resolve().parent
+    candidates.append(here / ".env")
+    candidates.append(Path("/opt/osnova-forge/.env"))
+    data: dict[str, str] = {}
+    for p in candidates:
+        if not p.exists():
+            continue
+        try:
+            for raw in p.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip("'").strip('"')
+                if key:
+                    data[key] = value
+            break
+        except Exception:
+            continue
+    return data
+
+
 def env_paths() -> dict[str, str]:
+    dot = _load_dotenv_defaults()
     home = os.path.expanduser("~")
-    project = os.environ.get("OSNOVA_PROJECT", os.path.join(home, "osnova-fabrica"))
-    forge = os.environ.get("OSNOVA_FORGE", "/opt/osnova-forge")
+    project = os.environ.get("OSNOVA_PROJECT", dot.get("OSNOVA_PROJECT", os.path.join(home, "osnova-fabrica")))
+    forge = os.environ.get("OSNOVA_FORGE", dot.get("OSNOVA_FORGE", "/opt/osnova-forge"))
     return {
         "OSNOVA_PROJECT": project,
         "OSNOVA_FORGE": forge,
-        "GH_TOKEN": os.environ.get("GH_TOKEN", ""),
-        "GHREPO": os.environ.get("GHREPO", "mmpfrmvbg/osnova-fabrica"),
-        "QWENBIN": os.environ.get("QWENBIN", "qwen"),
-        "CURSORBIN": os.environ.get("CURSORBIN", "cursor-agent"),
+        "GH_TOKEN": os.environ.get("GH_TOKEN", dot.get("GH_TOKEN", "")),
+        "GHREPO": os.environ.get("GHREPO", dot.get("GHREPO", "mmpfrmvbg/osnova-fabrica")),
+        "QWENBIN": os.environ.get("QWENBIN", dot.get("QWENBIN", "qwen")),
+        "CURSORBIN": os.environ.get("CURSORBIN", dot.get("CURSORBIN", "cursor-agent")),
     }
 
 

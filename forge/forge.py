@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import os
 import subprocess
 import time
@@ -39,19 +38,15 @@ def _git_pull_project(dry_run: bool) -> None:
         LOG.info("[dry-run] Would run: git pull --rebase")
         return
     project = Path(env_paths()["OSNOVA_PROJECT"])
-    token = (env_paths().get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")).strip()
+    paths = env_paths()
+    token = (paths.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")).strip()
+    ghrepo = paths.get("GHREPO", "mmpfrmvbg/osnova-fabrica").strip()
     run_env = os.environ.copy()
     run_env["GIT_TERMINAL_PROMPT"] = "0"
     try:
         if token:
-            basic = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
-            cmd = [
-                "git",
-                "-c",
-                f"http.extraHeader=AUTHORIZATION: basic {basic}",
-                "pull",
-                "--rebase",
-            ]
+            remote = f"https://x-access-token:{token}@github.com/{ghrepo}.git"
+            cmd = ["git", "pull", "--rebase", remote]
         else:
             LOG.warning("git pull: no GH_TOKEN/GITHUB_TOKEN in env; Git may prompt or fail")
             cmd = ["git", "pull", "--rebase"]
