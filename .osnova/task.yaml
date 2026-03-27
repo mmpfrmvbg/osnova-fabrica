@@ -1,13 +1,13 @@
-id: ATM-EPK-260327-001-002
+id: ATM-EPK-260327-001-003
 epic: EPK-260327-001
-seq: 2
+seq: 3
 zone: lang
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Покрыть граничные случаи операции % (отрицательные числа, деление на 0)
+goal: Добавить тесты низкой уверенности IntakeAgent для сценариев с % операцией
 scope:
-- src/compiler/vm.test.ts — тесты граничных случаев modulo
-- src/compiler/vm.ts — исправление обработки деления на 0
+- src/agents/intake-agent.test.ts — тесты low-confidence сценариев
+- src/agents/intake-agent.ts — логика определения уверенности
 notouch:
 - .github/
 - infra/
@@ -15,9 +15,9 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Добавить тесты: -10 % 3, 10 % -3, 0 % 5
-- Реализовать обработку деления на 0 (возврат ошибки/исключения)
-- Добавить тест на деление на 0 — ожидание исключения
+- Изучить логику определения confidence в IntakeAgent
+- Создать тестовые задачи с операцией % для проверки confidence
+- Добавить тесты на пороговые значения уверенности
 deps:
 - ATM-EPK-260327-001-001
 maxiter: 3
