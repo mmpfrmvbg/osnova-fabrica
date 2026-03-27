@@ -10,9 +10,9 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, qwen_headless_argv, resolve_executable, setup_logging
+    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, qwen_headless_argv, setup_logging
 except ImportError:  # pragma: no cover
-    from common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, qwen_headless_argv, resolve_executable, setup_logging
+    from common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, qwen_headless_argv, setup_logging
 
 LOG = setup_logging("atomizer")
 
