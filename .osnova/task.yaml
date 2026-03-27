@@ -1,24 +1,26 @@
-id: ATM-EPK-260327-001-002
+id: ATM-EPK-260327-001-004
 epic: EPK-260327-001
-seq: 2
+seq: 4
 zone: lang
-risk: HIGH
+risk: LOW
 executor: cursor
-goal: Добавить тесты для операции % в vm.test.ts — краш-сценарии из Issues
+goal: Запустить полный регрессионный прогон и зафиксировать passrate
 scope:
 - src/compiler/vm.test.ts
-- src/compiler/vm.ts
+- src/agents/intake-agent.test.ts
 notouch:
 - .github/
 - infra/
 - deploy/
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Воспроизвести кейсы из Issues
-- Добавить тесты с ожидаемыми ошибками/исключениями
-- Проверить покрытие всех веток кода vm.ts
+- Запустить npx vitest run src/compiler/ && npx vitest run src/agents/
+- Задокументировать результаты в .osnova/history/
+- Обновить метрики в state.yaml
 deps:
 - ATM-EPK-260327-001-001
+- ATM-EPK-260327-001-002
+- ATM-EPK-260327-001-003
 maxiter: 3
 retries: 0
 status: PENDING
