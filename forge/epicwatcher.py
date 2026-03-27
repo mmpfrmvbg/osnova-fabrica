@@ -67,7 +67,9 @@ def _comment(issue_num: int, msg: str) -> None:
 def pop_issue_number(queue_file: Path) -> int | None:
     if not queue_file.exists():
         return None
-    lines = [x.strip() for x in queue_file.read_text(encoding="utf-8").splitlines() if x.strip()]
+    # utf-8-sig strips UTF-8 BOM (\ufeff) from PowerShell Set-Content -Encoding utf8
+    text = queue_file.read_text(encoding="utf-8-sig")
+    lines = [x.strip().lstrip("\ufeff") for x in text.splitlines() if x.strip()]
     if not lines:
         return None
     issue = int(lines[0])
