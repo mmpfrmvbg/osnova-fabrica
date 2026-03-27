@@ -7,4 +7,4 @@ tests:
   total: 0
 changed: []
 elapsed: 600
-err: 'agent -p failed (model token: _)'
+err: 'agent -p failed (model token: auto)'
