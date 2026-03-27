@@ -11,6 +11,7 @@ export default defineConfig({
     pool: isWin ? 'forks' : 'threads',
     ...(isWin
       ? {
+          isolate: false,
           fileParallelism: false,
           poolOptions: { forks: { singleFork: true } },
         }

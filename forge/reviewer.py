@@ -44,12 +44,18 @@ def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[str, dict[st
     if "npx vitest run" in cmd and "--pool=forks" not in cmd:
         cmd = cmd.replace(
             "npx vitest run",
-            "npx vitest run --pool=forks --no-file-parallelism",
+            "npx vitest run --pool=forks --no-file-parallelism --no-isolate",
         )
 
     mjs = (project / "node_modules" / "vitest" / "vitest.mjs").resolve()
     if mjs.is_file() and "npx vitest" in cmd:
         cmd = cmd.replace("npx vitest", f'node "{mjs}"')
+
+    if "--no-isolate" not in cmd and "run --pool=forks --no-file-parallelism" in cmd:
+        cmd = cmd.replace(
+            "run --pool=forks --no-file-parallelism",
+            "run --pool=forks --no-file-parallelism --no-isolate",
+        )
 
     return cmd, done_env
 
@@ -126,7 +132,13 @@ def review(
         cmd_eff[:500] + ("…" if len(cmd_eff) > 500 else ""),
     )
     done = subprocess.run(
-        cmd_eff, cwd=project, shell=True, timeout=900, check=False, env=done_env
+        cmd_eff,
+        cwd=project,
+        shell=True,
+        timeout=900,
+        check=False,
+        env=done_env,
+        stdin=subprocess.DEVNULL,
     )
     passed = llm_pass and done.returncode == 0
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"
