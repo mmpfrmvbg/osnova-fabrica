@@ -2,23 +2,23 @@ id: ATM-EPK-260327-001-003
 epic: EPK-260327-001
 seq: 3
 zone: lang
-risk: LOW
-executor: qwen
-goal: Обновить документацию по тестированию VM и IntakeAgent
+risk: MEDIUM
+executor: cursor
+goal: Покрыть тестами сценарии низкой уверенности IntakeAgent (Issues
 scope:
-- docs/testing-guide.md — гайд по регрессионным тестам
+- src/agents/intake-agent.test.ts — тесты на low-confidence сценарии
+- src/agents/intake-agent.ts — логика confidence scoring
 notouch:
 - .github/
 - infra/
 - deploy/
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Описать добавленные тесты % операции в docs/testing-guide.md
-- Описать сценарии тестирования confidence в docs/testing-guide.md
-- Добавить секцию «Регрессионные тесты по рекомендациям ретроспективы»
-deps:
-- ATM-EPK-260327-001-001
-- ATM-EPK-260327-001-002
+- Изучить Issues
+- Добавить тесты на пустые/неоднозначные задачи
+- Добавить тесты на задачи без чёткой категории (intent/spec)
+- Проверить что confidence < порога正确处理
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

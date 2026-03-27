@@ -11,7 +11,7 @@ from typing import Any
 try:
     from forge.atomizer import atomize
     from forge.brain_fallback import generate_fallback_epic
-    from forge.common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from forge.common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, env_paths, epic_queue_path, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from forge.courier import process_result
     from forge.cursorexec import run_atom as run_cursor_atom
     from forge.degradation import get_available
@@ -25,7 +25,7 @@ try:
 except ImportError:  # pragma: no cover
     from atomizer import atomize
     from brain_fallback import generate_fallback_epic
-    from common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, env_paths, epic_queue_path, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from courier import process_result
     from cursorexec import run_atom as run_cursor_atom
     from degradation import get_available

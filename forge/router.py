@@ -82,7 +82,18 @@ def choose_executor(atom: dict[str, Any], avail: dict[str, Any]) -> str:
     elif scope.strip().startswith("tests/") or "tests/" in scope:
         chosen = "qwen"
     elif (".test.ts" in scope) or (".spec.ts" in scope):
-        chosen = "qwen"
+        # tests/*.test.ts → qwen; src/** (compiler/runtime) tests → Cursor — same process as prod code
+        if any(
+            pl.startswith("tests/")
+            or pl.startswith("test/")
+            or "/__tests__/" in pl
+            for pl in paths_l
+        ):
+            chosen = "qwen"
+        elif any("/src/" in pl or pl.startswith("src/") for pl in paths_l):
+            chosen = "cursor"
+        else:
+            chosen = "qwen"
     elif any(pl.endswith(suf) for pl in paths_l for suf in _CODE_SUFFIXES):
         chosen = "cursor"
     elif any(pl.endswith(".md") for pl in paths_l):

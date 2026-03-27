@@ -2,21 +2,22 @@ id: ATM-EPK-260327-001-001
 epic: EPK-260327-001
 seq: 1
 zone: lang
-risk: LOW
-executor: qwen
-goal: Добавить тесты операции % в VM
+risk: MEDIUM
+executor: cursor
+goal: Добавить тесты для операции % в VM на базовые случаи (положительные числа, ноль)
 scope:
-- src/compiler/vm.test.ts — расширить тесты бинарных операций
+- src/compiler/vm.test.ts — добавить describe('modulo') с тестами на базовые случаи
+- src/compiler/vm.ts — убедиться что OP_MOD корректно обрабатывает базовые случаи
 notouch:
 - .github/
 - infra/
 - deploy/
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Открыть vm.test.ts, найти секцию тестов бинарных операций
-- Добавить тесты: 10 % 3 = 1, 15 % 5 = 0, 7 % 10 = 7, 0 % 5 = 0
-- Добавить тест на деление на ноль: 5 % 0 → ошибка VM
-- Запустить тесты, убедиться в прохождении
+- Открыть src/compiler/vm.test.ts и изучить существующие тесты арифметических операций
+- Добавить блок describe('modulo %') с тестами: 10%3=1, 15%5=0, 7%1=0
+- Добавить тесты с нулём: 0%5=0
+- Запустить тесты, убедиться что проходят
 deps: []
 maxiter: 3
 retries: 0

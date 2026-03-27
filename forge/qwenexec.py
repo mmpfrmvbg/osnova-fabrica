@@ -41,20 +41,45 @@ def _prompt(atom: dict[str, Any]) -> str:
     )
 
 
-def _parse_report(stdout: str, atom_id: str) -> dict[str, Any]:
-    match = re.search(r"```yaml\s*(.*?)\s*```", stdout, flags=re.DOTALL | re.IGNORECASE)
-    raw = match.group(1) if match else stdout
+def _extract_report_payload(stdout: str) -> str:
+    for pat in (
+        r"```ya?ml\s*(.*?)\s*```",
+        r"```\s*(.*?)\s*```",
+    ):
+        m = re.search(pat, stdout, flags=re.DOTALL | re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    return (stdout or "").strip()
+
+
+def _parse_report(stdout: str, atom_id: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Returns (report, None) on success, or (None, error_message). Never raises."""
+    payload = _extract_report_payload(stdout)
+    if not payload:
+        return None, "empty qwen stdout (no report)"
+    report: Any = None
     try:
-        report = yaml.safe_load(raw)
-    except Exception:
-        report = json.loads(raw)
+        report = yaml.safe_load(payload)
+    except yaml.YAMLError:
+        report = None
+    if report is None:
+        try:
+            report = json.loads(payload)
+        except json.JSONDecodeError:
+            return None, "qwen output is not valid YAML or JSON"
+    if isinstance(report, list):
+        if len(report) == 1 and isinstance(report[0], dict):
+            LOG.warning("qwen returned YAML list of one mapping — unwrapping for %s", atom_id)
+            report = report[0]
+        else:
+            return None, f"qwen report: expected mapping, got list of {len(report)} items"
     if not isinstance(report, dict):
-        raise ValueError("Qwen report must be an object")
+        return None, f"qwen report: expected mapping, got {type(report).__name__}"
     report.setdefault("id", atom_id)
     report.setdefault("t", "RPT")
     report.setdefault("v", 5)
     report.setdefault("s", "OK")
-    return report
+    return report, None
 
 
 def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[str, Any]]:
@@ -92,7 +117,22 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
     record()
     if proc.returncode != 0:
         return False, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "BLK", "err": proc.stderr.strip()}
-    report = _parse_report(proc.stdout, str(atom.get("id")))
+    report, parse_err = _parse_report(proc.stdout or "", str(atom.get("id")))
+    if parse_err:
+        tail = (proc.stdout or "").replace("\r\n", "\n").strip()[-2000:]
+        LOG.warning(
+            "qwen parse failed for %s: %s\n--- stdout tail ---\n%s",
+            atom.get("id"),
+            parse_err,
+            tail,
+        )
+        return False, {
+            "v": 5,
+            "t": "RPT",
+            "id": atom.get("id"),
+            "s": "BLK",
+            "err": parse_err,
+        }
     return report.get("s") == "OK", report
 
 

@@ -14,7 +14,7 @@ rules:
     then: {executor: cursor, reason: "workflows = cursor only"}
 
   - if: {scope_pattern: "tests/*"}
-    then: {executor: qwen, reason: "tests = qwen"}
+    then: {executor: qwen, reason: "root tests/ = qwen; src/**/*.test.ts = compiler (see router.py)"}
 
   - if: {scope_pattern: "*.md"}
     then: {executor: qwen, reason: "docs = qwen"}

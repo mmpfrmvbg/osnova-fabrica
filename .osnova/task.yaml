@@ -1,27 +1,23 @@
-id: ATM-EPIC-001
+id: ATM-EPK-260327-001-001
 epic: EPK-260327-001
 seq: 1
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
+goal: Добавить тесты для операции % в VM на базовые случаи (положительные числа, ноль)
 scope:
-- src/compiler/lexer.ts
-- src/compiler/parser.ts
-- src/compiler/ast.ts
-- src/compiler/codegen.ts
-- src/compiler/compiler.ts
+- src/compiler/vm.test.ts — добавить describe('modulo') с тестами на базовые случаи
+- src/compiler/vm.ts — убедиться что OP_MOD корректно обрабатывает базовые случаи
 notouch:
-- src/runtime/
-- src/agents/
-- pipeline.yaml
+- .github/
+- infra/
+- deploy/
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить docs/language-v2.md и docs/osnova/language-schema.json
-- Реализовать lexer: токенизация кириллических ключевых слов
-- Реализовать parser: построение AST для procedure/if/loop/match
-- Реализовать codegen: генерация .osvbc JSON байткода
-- Покрыть unit-тестами vitest
+- Открыть src/compiler/vm.test.ts и изучить существующие тесты арифметических операций
+- Добавить блок describe('modulo %') с тестами: 10%3=1, 15%5=0, 7%1=0
+- Добавить тесты с нулём: 0%5=0
+- Запустить тесты, убедиться что проходят
 deps: []
 maxiter: 3
 retries: 0
