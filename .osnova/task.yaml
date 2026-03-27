@@ -1,13 +1,13 @@
-id: ATM-003
+id: ATM-002
 epic: EPK-260327-001
-seq: 3
+seq: 2
 zone: lang
 risk: LOW
 executor: cursor
-goal: Реализовать тесты низкой уверенности IntakeAgent в src/agents/intake-agent.test.ts
+goal: Добавить тесты на crash-сценарии VM при делении по модулю (edge cases)
 scope:
-- src/agents/intake-agent.test.ts
-- src/agents/intake-agent.ts
+- src/compiler/vm.test.ts
+- src/compiler/vm.ts
 notouch:
 - .github/
 - infra/
@@ -15,7 +15,8 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps: []
-deps: []
+deps:
+- ATM-001
 maxiter: 3
 retries: 0
 status: PENDING
