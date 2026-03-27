@@ -44,6 +44,17 @@ describe("VM: оператор % (rem)", () => {
     expect(await runProcIdx(r.module!)).toBe(-10 % 3);
   });
 
+  it("отрицательный делитель — семантика как в JavaScript", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть 10 % -3
+конец
+конец`;
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(await runProcIdx(r.module!)).toBe(10 % -3);
+  });
+
   it("нуль в делимом", async () => {
     const src = `модуль т
 процедура р()

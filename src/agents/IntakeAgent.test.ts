@@ -1,13 +1,21 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IntakeAgent, detectAppTypeFromPrefix } from './IntakeAgent';
 import type { OsnovaIntent } from '../pipeline/types';
 
-// Mock LLM: всегда возвращаем невалидный JSON.
+const { mockLlmComplete } = vi.hoisted(() => ({
+  mockLlmComplete: vi.fn(),
+}));
+
 vi.mock('../llm/index', () => ({
   getLLMProvider: () => ({
-    complete: async () => ({ content: 'не JSON', model: 'mock', done: true }),
+    complete: mockLlmComplete,
   }),
 }));
+
+beforeEach(() => {
+  mockLlmComplete.mockReset();
+  mockLlmComplete.mockResolvedValue({ content: 'не JSON', model: 'mock', done: true });
+});
 
 // ─── fallbackIntent ───
 
@@ -119,12 +127,68 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     // должен вернуть fallback, не упасть
     expect(intent.description).toBe('любая задача');
     expect(intent.appType).toBe('утилита');
+    expect(intent.confidence).toBe(0.5);
   });
 
   it('fallback учитывает префикс Алгоритм:', async () => {
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'Алгоритм: сортировка' });
     expect(intent.appType).toBe('алгоритм');
+  });
+
+  it('сохраняет низкую confidence из валидного JSON от LLM (Issues #1, #3)', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'разобрать неоднозначный запрос',
+        confidence: 0.32,
+        language: 'osnova',
+        features: ['нестандартный ввод'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'что-то странное про модули' });
+    expect(intent.confidence).toBe(0.32);
+    expect(intent.features).toEqual(['нестандартный ввод']);
+    expect(intent.description).toBe('разобрать неоднозначный запрос');
+  });
+
+  it('при отсутствии confidence в JSON подставляет 0.8', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'ясная задача',
+        language: 'osnova',
+        features: ['a'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'ясная задача' });
+    expect(intent.confidence).toBe(0.8);
+  });
+});
+
+describe('IntakeAgent.generateSpec (mock LLM)', () => {
+  it('при невалидном JSON от LLM возвращает fallback spec', async () => {
+    const agent = new IntakeAgent();
+    const intent: OsnovaIntent = {
+      intentId: 'i-low',
+      description: 'описание для спека',
+      features: ['x'],
+      appType: 'утилита',
+      constraints: {},
+      confidence: 0.4,
+    };
+    const spec = await agent.generateSpec(intent);
+    expect(spec.mainModule).toBe('main');
+    expect(spec.procedures.some((p) => p.name === 'главная')).toBe(true);
+    expect(spec.modules[0].description).toBe('описание для спека');
   });
 });
 
