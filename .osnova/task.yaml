@@ -1,13 +1,13 @@
-id: ATM-EPK-260327-001-001
+id: ATM-EPK-260327-001-002
 epic: EPK-260327-001
-seq: 1
+seq: 2
 zone: lang
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Добавить тесты операции % в VM для базовых случаев (положительные числа, деление
-  на 1)
+goal: Покрыть граничные случаи операции % (отрицательные числа, деление на 0)
 scope:
-- src/compiler/vm.test.ts — расширить покрытие операции modulo
+- src/compiler/vm.test.ts — тесты граничных случаев modulo
+- src/compiler/vm.ts — исправление обработки деления на 0
 notouch:
 - .github/
 - infra/
@@ -15,10 +15,11 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить текущую реализацию операции MOD в vm.ts
-- Добавить тесты: 10 % 3 = 1, 7 % 1 = 0, 5 % 5 = 0
-- Запустить тесты, убедиться в прохождении
-deps: []
+- Добавить тесты: -10 % 3, 10 % -3, 0 % 5
+- Реализовать обработку деления на 0 (возврат ошибки/исключения)
+- Добавить тест на деление на 0 — ожидание исключения
+deps:
+- ATM-EPK-260327-001-001
 maxiter: 3
 retries: 0
 status: PENDING
