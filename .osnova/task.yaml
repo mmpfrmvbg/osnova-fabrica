@@ -1,13 +1,13 @@
-id: ATM-002
+id: ATM-004
 epic: EPK-260327-001
-seq: 2
+seq: 4
 zone: lang
 risk: LOW
 executor: cursor
-goal: Добавить тесты на crash-сценарии VM при делении по модулю (edge cases)
+goal: Интегрировать тесты в CI и верифицировать passrate=1.0
 scope:
 - src/compiler/vm.test.ts
-- src/compiler/vm.ts
+- src/agents/intake-agent.test.ts
 notouch:
 - .github/
 - infra/
@@ -16,7 +16,8 @@ notouch:
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps: []
 deps:
-- ATM-001
+- ATM-002
+- ATM-003
 maxiter: 3
 retries: 0
 status: PENDING
