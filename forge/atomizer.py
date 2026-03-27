@@ -30,9 +30,10 @@ def _prompt(epic: dict[str, Any]) -> str:
     return (
         "Split EPIC into 2-5 ATM tasks. Output ONLY a YAML list (dash-prefixed items), not a single mapping.\n"
         "Optional wrapper keys are accepted: atoms: | tasks: | items: each with a list value.\n"
-        "Each item must have: id, seq, zone, risk, executor, goal, scope, notouch, done, steps, deps.\n"
-        "Routing: MEDIUM/HIGH risk, src/**/*.ts (including src/**.test.ts), multi-file refactors → "
-        "executor: cursor. Only root tests/, docs *.md, small *.yaml → qwen.\n"
+        "Each item must have: id, seq, zone, risk, goal, scope, notouch, done, steps, deps.\n"
+        "Optional executor: cursor | qwen — omit for automatic routing; set cursor to force Cursor.\n"
+        "Routing hint: MEDIUM/HIGH risk, src/**/*.ts (including src/**.test.ts), multi-file refactors → "
+        "cursor. Only root tests/, docs *.md, small *.yaml → qwen.\n"
         "In scope[], put the file path first, optional description after em-dash — (router parses path before —).\n"
         f"EPIC:\n{yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)}"
     )
@@ -104,6 +105,20 @@ def _extract_yaml(text: str | None) -> list[dict[str, Any]]:
     return atoms
 
 
+def _normalized_executor(atom: dict[str, Any], epic: dict[str, Any]) -> str | None:
+    """cursor | qwen if set on atom or epic; None = let forge/router choose by heuristics."""
+    for src in (atom, epic):
+        if "executor" not in src:
+            continue
+        raw = src.get("executor")
+        if raw is None:
+            continue
+        s = str(raw).strip().lower()
+        if s in ("cursor", "qwen"):
+            return s
+    return None
+
+
 def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     epic_id = str(epic["id"])
@@ -118,7 +133,7 @@ def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[
                 "seq": seq,
                 "zone": atom.get("zone", epic.get("zone", "lang")),
                 "risk": atom.get("risk", epic.get("risk", "MEDIUM")),
-                "executor": atom.get("executor", "cursor"),
+                "executor": _normalized_executor(atom, epic),
                 "goal": atom.get("goal", ""),
                 "scope": atom.get("scope", []),
                 "notouch": atom.get("notouch", epic.get("notouch", [])),

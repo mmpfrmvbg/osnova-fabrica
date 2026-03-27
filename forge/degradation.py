@@ -73,7 +73,14 @@ def get_available() -> dict[str, Any]:
 
 
 def resolve_executor(atom: dict[str, Any], avail: dict[str, Any]) -> str:
-    preferred = atom.get("executor", "cursor")
+    raw = atom.get("executor")
+    preferred = (
+        str(raw).strip().lower()
+        if raw is not None and str(raw).strip()
+        else "cursor"
+    )
+    if preferred not in ("cursor", "qwen"):
+        preferred = "cursor"
     if avail.get(preferred):
         return preferred
     fallback = "qwen" if preferred == "cursor" else "cursor"

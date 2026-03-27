@@ -63,6 +63,13 @@ _CONFIG_SUFFIXES = (".yaml", ".yml", ".json", ".toml")
 
 
 def choose_executor(atom: dict[str, Any], avail: dict[str, Any]) -> str:
+    raw_ex = atom.get("executor")
+    if raw_ex is not None and str(raw_ex).strip():
+        e = str(raw_ex).strip().lower()
+        if e in ("cursor", "qwen"):
+            atom["executor"] = e
+            return resolve_executor(atom, avail)
+
     scope = _scope_text(atom)
     paths = _primary_scope_paths(atom)
     paths_l = [p.lower() for p in paths]
@@ -103,7 +110,9 @@ def choose_executor(atom: dict[str, Any], avail: dict[str, Any]) -> str:
     elif zone == "infra" and risk == "LOW":
         chosen = "qwen"
     elif zone == "lang" and risk == "LOW":
-        chosen = "qwen"
+        # Empty scope often happens after atomizer — default to Cursor for src/lang work;
+        # non-empty scopes hit .ts/.md/config branches above.
+        chosen = "qwen" if paths else "cursor"
     elif zone == "lang" and risk == "MEDIUM":
         chosen = "cursor"
     atom["executor"] = chosen
