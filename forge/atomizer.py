@@ -10,9 +10,9 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, resolve_executable, setup_logging
+    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, qwen_headless_argv, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, resolve_executable, setup_logging
+    from common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, qwen_headless_argv, resolve_executable, setup_logging
 
 LOG = setup_logging("atomizer")
 
@@ -141,8 +141,8 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
             atoms = _normalize_atoms(epic, [{"seq": 1, "goal": epic.get("goal", ""), "scope": epic.get("scope", [])}])
     else:
         tmo = _atomizer_timeout()
-        LOG.info("atomizer: qwen run timeout %ss (FORGE_ATOMIZER_TIMEOUT)", tmo)
-        cmd = [resolve_executable(env_paths()["QWENBIN"]), "run", _prompt(epic)]
+        LOG.info("atomizer: qwen subprocess timeout %ss (FORGE_ATOMIZER_TIMEOUT)", tmo)
+        cmd = qwen_headless_argv(_prompt(epic))
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=tmo, check=False, **SUBPROCESS_TEXT
         )

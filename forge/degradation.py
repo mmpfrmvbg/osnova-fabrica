@@ -47,9 +47,10 @@ def probe_cursor() -> bool:
         if exe in tried:
             continue
         tried.append(exe)
-        if _probe([exe, "--help"], timeout=10):
+        # Prefer --version only: `agent --help` can hang or be very slow on Windows.
+        if _probe([exe, "--version"], timeout=12):
             return True
-        if _probe([exe, "--version"], timeout=10):
+        if _probe([exe, "--help"], timeout=5):
             return True
     LOG.warning("Cursor agent CLI not found. %s", _CURSOR_PROBE_HINT)
     return False

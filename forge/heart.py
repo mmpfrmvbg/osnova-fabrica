@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import time
 from datetime import date
 from pathlib import Path
@@ -21,14 +23,42 @@ def _heartbeat_age_seconds(path: Path) -> float:
     return time.time() - path.stat().st_mtime
 
 
-def _restart_forge(state: dict) -> None:
-    subprocess.run(["systemctl", "restart", "osnova-forge"], check=False)
+def _restart_forge(state: dict) -> bool:
+    """
+    Try to restart the forge service. On Windows there is no systemctl — set
+    FORGE_RESTART_CMD (shell string) to your own command, or restart manually.
+    Returns True if a restart command ran with exit code 0.
+    """
+    custom = os.environ.get("FORGE_RESTART_CMD", "").strip()
+    if custom:
+        proc = subprocess.run(custom, shell=True, check=False)
+        ok = proc.returncode == 0
+        if not ok:
+            LOG.warning("FORGE_RESTART_CMD exited with %s", proc.returncode)
+    elif sys.platform == "win32":
+        LOG.error(
+            "Heartbeat stale — Windows has no systemctl. Start `python forge/forge.py` again, "
+            "or set FORGE_RESTART_CMD to a command that restarts forge (Task Scheduler, nssm, etc.)."
+        )
+        return False
+    elif shutil.which("systemctl"):
+        proc = subprocess.run(["systemctl", "restart", "osnova-forge"], check=False)
+        ok = proc.returncode == 0
+        if not ok:
+            LOG.warning("systemctl restart osnova-forge returned %s", proc.returncode)
+    else:
+        LOG.error("No systemctl on PATH and FORGE_RESTART_CMD unset — cannot auto-restart forge.")
+        return False
+
+    if not ok:
+        return False
     state["last_heart_restart"] = now_iso()
     state["heart_restarts_day"] = state.get("heart_restarts_day", date.today().isoformat())
     if state["heart_restarts_day"] != date.today().isoformat():
         state["heart_restarts"] = 0
         state["heart_restarts_day"] = date.today().isoformat()
     state["heart_restarts"] = int(state.get("heart_restarts", 0)) + 1
+    return True
 
 
 def _create_alert_issue(state: dict) -> None:

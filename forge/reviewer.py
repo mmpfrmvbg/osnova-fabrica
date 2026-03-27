@@ -8,9 +8,9 @@ from subprocess import TimeoutExpired
 from typing import Any
 
 try:
-    from forge.common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
+    from forge.common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
 except ImportError:  # pragma: no cover
-    from common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
+    from common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
 
 LOG = setup_logging("reviewer")
 
@@ -44,7 +44,7 @@ def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
     rev_s = _qwen_review_timeout()
     try:
         proc = subprocess.run(
-            [resolve_executable(env_paths()["QWENBIN"]), "run", prompt],
+            qwen_headless_argv(prompt),
             capture_output=True,
             text=True,
             timeout=rev_s,

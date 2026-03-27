@@ -133,6 +133,24 @@ def resolve_executable(name_or_path: str) -> str:
     return s
 
 
+def qwen_headless_argv(prompt: str) -> list[str]:
+    """
+    Qwen Code headless: ``qwen --yolo -p "..."`` (see Qwen docs). ``--yolo`` auto-approves tool use in CI/forge.
+
+    - ``FORGE_QWEN_LEGACY_RUN=1`` — use older ``qwen run <prompt>`` if your CLI only supports that.
+    - ``FORGE_QWEN_MODEL`` — optional ``--model`` (e.g. ``qwen3-coder-plus``).
+    """
+    exe = resolve_executable(env_paths()["QWENBIN"])
+    if os.environ.get("FORGE_QWEN_LEGACY_RUN", "").strip().lower() in ("1", "true", "yes"):
+        return [exe, "run", prompt]
+    argv: list[str] = [exe, "--yolo"]
+    model = os.environ.get("FORGE_QWEN_MODEL", "").strip()
+    if model:
+        argv.extend(["--model", model])
+    argv.extend(["-p", prompt])
+    return argv
+
+
 def cursor_cli_extra_path_entries() -> list[str]:
     """
     Directories where the Cursor Windows installer usually places ``agent`` / IDE shims.

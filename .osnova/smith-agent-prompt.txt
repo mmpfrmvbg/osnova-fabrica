@@ -1,0 +1,10 @@
+OSNOVA Forge — execute one ATM (atom).
+
+Read the full atom definition in this YAML file (open it with your tools):
+D:/PROJECTS/OSNOVA-FABRIKA/.osnova/task.yaml
+
+Workspace (git repo root):
+D:/PROJECTS/OSNOVA-FABRIKA
+
+Follow goal, scope, steps, and priority from that file. Respect notouch paths.
+Make concrete file edits; be minimal. When finished, the atom's `done` command should be runnable from the repo root.

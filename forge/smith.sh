@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
+# Cursor Agent CLI (2025+): headless mode is `agent -p --yolo ...`, not `agent run --input`.
 set -euo pipefail
 
 PROJECT_DIR="${OSNOVA_PROJECT:-$PWD}"
 TASK_FILE="$PROJECT_DIR/.osnova/task.yaml"
 REPORT_FILE="$PROJECT_DIR/.osnova/report.yaml"
+PROMPT_FILE="$PROJECT_DIR/.osnova/smith-agent-prompt.txt"
 CURSORBIN="${CURSORBIN:-cursor-agent}"
 TIMEOUT_SEC="${SMITH_TIMEOUT:-300}"
+# Space-separated model names; use "_" for "omit --model" (CLI default). Example: SMITH_MODELS="auto _"
+SMITH_MODELS="${SMITH_MODELS:-auto _}"
 ID="UNKNOWN"
 
 if command -v python3 >/dev/null 2>&1; then
@@ -25,21 +29,51 @@ PY
 )"
 fi
 
+$PYTHON - "$PROJECT_DIR" "$TASK_FILE" "$PROMPT_FILE" <<'PY'
+import sys
+from pathlib import Path
+
+project = Path(sys.argv[1])
+task = Path(sys.argv[2])
+out = Path(sys.argv[3])
+text = f"""OSNOVA Forge — execute one ATM (atom).
+
+Read the full atom definition in this YAML file (open it with your tools):
+{task.resolve().as_posix()}
+
+Workspace (git repo root):
+{project.resolve().as_posix()}
+
+Follow goal, scope, steps, and priority from that file. Respect notouch paths.
+Make concrete file edits; be minimal. When finished, the atom's `done` command should be runnable from the repo root.
+"""
+out.write_text(text, encoding="utf-8")
+PY
+
 start_ts="$(date +%s)"
 result_err=""
 ok=0
 
-run_model() {
-  local model="$1"
-  timeout "$TIMEOUT_SEC" "$CURSORBIN" run --model "$model" --input "$TASK_FILE"
+run_with_model() {
+  local model_token="$1"
+  if [ "$model_token" = "_" ] || [ -z "$model_token" ]; then
+    timeout "$TIMEOUT_SEC" \
+      "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
+      "$(cat "$PROMPT_FILE")"
+  else
+    timeout "$TIMEOUT_SEC" \
+      "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
+      --model "$model_token" \
+      "$(cat "$PROMPT_FILE")"
+  fi
 }
 
-for model in auto composer-2-fast composer-2; do
-  if run_model "$model"; then
+for model in $SMITH_MODELS; do
+  if run_with_model "$model"; then
     ok=1
     break
   fi
-  result_err="cursor-agent failed on model: $model"
+  result_err="agent -p failed (model token: ${model})"
 done
 
 elapsed="$(( $(date +%s) - start_ts ))"
@@ -65,5 +99,4 @@ PY
 
 git -C "$PROJECT_DIR" add ".osnova/report.yaml" || true
 git -C "$PROJECT_DIR" commit -m "smith report $ID $status" || true
-git -C "$PROJECT_DIR" push || true
-
+git -C "$PROJECT_DIR" push || true  # non-zero if nothing to push — ignore

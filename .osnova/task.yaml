@@ -1,13 +1,12 @@
-id: ATM-EPK-260327-001-002
+id: ATM-EPK-260327-001-001
 epic: EPK-260327-001
-seq: 2
+seq: 1
 zone: lang
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Покрыть сценарий низкой уверенности IntakeAgent тестами
+goal: Добавить регрессионные тесты для операции % (modulo) в vm.test.ts
 scope:
-- src/agents/intake-agent.test.ts
-- src/agents/intake-agent.ts
+- src/compiler/vm.test.ts
 notouch:
 - .github/
 - infra/
@@ -15,8 +14,9 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить логику low-confidence в intake-agent.ts
-- Написать тесты на граничные случаи уверенности
+- Изучить существующие тесты в vm.test.ts
+- Добавить тестовые кейсы для операции %: положительные, отрицательные, деление на
+    ноль
 - Запустить тесты, убедиться в прохождении
 deps: []
 maxiter: 3
