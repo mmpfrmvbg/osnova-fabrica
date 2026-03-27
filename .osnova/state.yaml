@@ -1,43 +1,32 @@
-# OSNOVA v5.2 Forge State
-# Читается Brain-планировщиком каждые 36 минут
-# Обновляется forge после каждого ATM и ретроспективы
-
 v: 5
 session: S-2026-03-27
-updatedat: 2026-03-27T16:39:00+03:00
-
+updatedat: '2026-03-27T21:42:26.268800+03:00'
 currentepic: null
-
 epicprogress:
   totalatoms: 0
   done: 0
   blocked: 0
   current: null
-
 sessionstats:
-  epicsreceived: 0
+  epicsreceived: 1
   epicsdone: 0
-  epicsblocked: 0
-  atomstotal: 0
+  epicsblocked: 1
+  atomstotal: 4
   atomsdone: 0
-  atomsblocked: 0
-  passrate: 1.0          # LLM-reviewer passrate (не CI). <0.8 → Brain генерирует P1
-
+  atomsblocked: 4
+  passrate: 0.0
 ci:
   lastrun: null
   laststatus: null
-  passrate7d: null        # GHA CI passrate за 7 дней
+  passrate7d: null
   openblockerissues: 0
   lastepicissue: null
-
-brainsource: idle         # perplexity | fallback-local | idle
-
+brainsource: idle
 heart:
   lastbeat: null
-  restartstoday: 0        # >=3 → Brain генерирует P0 infra EPIC
+  restartstoday: 0
   lastrestart: null
   statebackups: 0
-
 executors:
   qwen:
     available: true
@@ -46,11 +35,8 @@ executors:
     available: true
     lastprobe: null
   activefallback: null
-
-blockers: []              # [{id, err, stucksince}] — label=blocker Issues
-
-recent: []                # последние ATM записи [{id, s, zone, elapsed}]
-
+blockers: []
+recent: []
 zones:
   lang:
     done: 0
@@ -58,30 +44,25 @@ zones:
   infra:
     done: 0
     blk: 0
-
 budget:
   qwenusedtoday: 0
   qwenlimit: 1000
   cursortaskstoday: 0
-
-# Маппинг зон на реальные пути проекта (TypeScript)
 zonemap:
   lang:
-    - src/compiler/
-    - src/runtime/
-    - src/agents/
-    - src/pipeline/
-    - src/pipeline-llm/
-    - src/intelligence/
-    - src/vliw/
-    - apps/
+  - src/compiler/
+  - src/runtime/
+  - src/agents/
+  - src/pipeline/
+  - src/pipeline-llm/
+  - src/intelligence/
+  - src/vliw/
+  - apps/
   infra:
-    - .github/
-    - scripts/
-    - src/tools/
-    - src/scripts/
-
-# Команды для done: в EPIC (проект TypeScript/Vitest, не Rust/Make)
+  - .github/
+  - scripts/
+  - src/tools/
+  - src/scripts/
 testcommands:
   all: npm test
   unit: npx vitest run src/

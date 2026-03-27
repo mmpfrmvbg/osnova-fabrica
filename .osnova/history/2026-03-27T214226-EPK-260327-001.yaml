@@ -1,0 +1,88 @@
+epic: EPK-260327-001
+summary:
+  status: BLK
+  passrate: 0.0
+  atomsdone: 0
+  atomstotal: 4
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-001
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 1
+  err: 'cursor-agent failed on model: composer-2'
+  review:
+    passed: false
+    reason: '���誮� ������� ��������� ��ப�.; done command failed: 1'
+    elapsed: 2
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-003
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 0
+  err: 'cursor-agent failed on model: composer-2'
+  review:
+    passed: false
+    reason: 'Я вижу, что в проекте нет явных результатов LLM-ревью ATM в формате "PASS/FAIL".
+      Судя по коду `reviewer.py`, ревью выполняется через Qwen и возвращает "PASS:
+      reason" или "FAIL: reason", но эти данные не сохраняются в явном виде в логах.
+
+
+      Однако, я вижу результаты выполнения batch-задач. Последний batch-запуск (`batch-1774134961415.json`)
+      содержит 108 задач со статусами:
+
+      - success: 101
+
+      - repair_exhausted: 6
+
+      - failure: 1
+
+
+      Поскольку запрос был "Review ATM result. Return one line: PASS: reason OR FAIL:
+      reason", и судя по `reviewer.py` это формат вывода LLM-ревьюера, но фактические
+      результаты ревью не зафиксированы в логах, я могу оценить результат по данным
+      batch-запуска:
+
+
+      **FAIL: нет данных LLM-ревью ATM в логах; последний batch показал 101/108 success
+      (93.5%), 6 repair_exhausted, 1 failure**; done command failed: 1'
+    elapsed: 63
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-002
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 0
+  err: 'cursor-agent failed on model: composer-2'
+  review:
+    passed: false
+    reason: 'FAIL: все 13 ATM имеют статус PENDING (ни одна задача не выполнена).;
+      done command failed: 1'
+    elapsed: 36
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-004
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 0
+  err: 'cursor-agent failed on model: composer-2'
+  review:
+    passed: false
+    reason: 'FAIL: Все ATM имеют статус PENDING (ни один не выполнен).; done command
+      failed: 1'
+    elapsed: 23
+createdat: '2026-03-27T21:42:26.254714+03:00'
