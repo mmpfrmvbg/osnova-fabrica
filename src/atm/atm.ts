@@ -46,7 +46,7 @@ export function loadAtmFile(filePath: string): AtmTask {
 
 export function scanAtmDirectory(dirPath: string): AtmTask[] {
   const tasks: AtmTask[] = []
-  
+
   if (!fs.existsSync(dirPath)) {
     return tasks
   }
@@ -69,16 +69,16 @@ export function scanAtmDirectory(dirPath: string): AtmTask[] {
 
 export function generateAtmReport(epicDir: string): AtmReport {
   const tasks = scanAtmDirectory(epicDir)
-  
+
   // Определяем epic из первого файла
   const epic = tasks.length > 0 ? tasks[0].epic : 'UNKNOWN'
-  
+
   // Считаем статистику
   const byStatus: Record<string, number> = {}
   const byZone: Record<string, number> = {}
   const byRisk: Record<string, number> = {}
   const byPriority: Record<string, number> = {}
-  
+
   for (const task of tasks) {
     byStatus[task.status] = (byStatus[task.status] || 0) + 1
     byZone[task.zone] = (byZone[task.zone] || 0) + 1
@@ -89,10 +89,10 @@ export function generateAtmReport(epicDir: string): AtmReport {
   // Строим граф зависимостей
   const depsGraph: Record<string, string[]> = {}
   const taskMap = new Map<string, AtmTask>()
-  
+
   for (const task of tasks) {
     taskMap.set(task.id, task)
-    depsGraph[task.id] = task.deps
+    depsGraph[task.id] = [...task.deps] // Копируем массив для чистоты вывода
   }
 
   // Находим критический путь (топологическая сортировка + longest path)
@@ -232,15 +232,25 @@ function generateRecommendations(tasks: AtmTask[], byStatus: Record<string, numb
 
 export function runAtmCommand(args: string[]): void {
   const command = args[0]
-  
+  const cleanYaml = process.env.ATM_YAML_CLEAN === '1'
+
   switch (command) {
     case 'report': {
       const epicDir = args[1] || '.osnova/epics/EPK-260327-001'
       const report = generateAtmReport(epicDir)
-      console.log(YAML.dump(report))
+      // Чистый YAML без якорей и ссортировкой ключей
+      const yamlStr = YAML.dump(report, {
+        noRefs: true,
+        sortKeys: false,
+        indent: 2,
+        lineWidth: -1, // без переноса строк
+        quotingType: '"',
+        forceQuotes: false
+      })
+      console.log(yamlStr)
       break
     }
-    
+
     case 'list': {
       const epicDir = args[1] || '.osnova/epics/EPK-260327-001'
       const tasks = scanAtmDirectory(epicDir)
@@ -249,22 +259,23 @@ export function runAtmCommand(args: string[]): void {
       }
       break
     }
-    
+
     case 'status': {
       const taskId = args[1]
       const epicDir = args[2] || '.osnova/epics/EPK-260327-001'
       const tasks = scanAtmDirectory(epicDir)
       const task = tasks.find(t => t.id === taskId)
-      
+
       if (!task) {
         console.error(`Task ${taskId} not found`)
         process.exit(1)
       }
-      
-      console.log(YAML.dump(task))
+
+      const yamlStr = YAML.dump(task, { noRefs: true, indent: 2 })
+      console.log(yamlStr)
       break
     }
-    
+
     default:
       console.error('Unknown command. Usage:')
       console.log('  atm report [epic-dir]  — сгенерировать отчет')
