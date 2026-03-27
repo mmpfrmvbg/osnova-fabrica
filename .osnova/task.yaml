@@ -1,24 +1,22 @@
-id: ATM-EPK-260327-001-001
+id: ATM-EPK-260327-001-003
 epic: EPK-260327-001
-seq: 1
+seq: 3
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Добавить тесты для операции % в vm.test.ts — базовые сценарии (положительные/отрицательные
-  числа)
+goal: Добавить тесты low-confidence сценариев для IntakeAgent
 scope:
-- src/compiler/vm.test.ts
-- src/compiler/vm.ts
+- src/agents/intake-agent.test.ts
+- src/agents/intake-agent.ts
 notouch:
 - .github/
 - infra/
 - deploy/
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить vm.ts и существующие тесты в vm.test.ts
-- Добавить тесты: 7 % 3 = 1, -7 % 3 = -1, 7 % -3 = 1, -7 % -3 = -1
-- Добавить тесты граничных случаев: 0 % N, N % 1, N % N
-- Запустить тесты, убедиться в прохождении
+- Изучить intaka-agent.ts и логи low-confidence случаев из Issues
+- Добавить тесты: пустой task, неоднозначный intent, противоречивые требования
+- Проверить корректность fallback-поведения
 deps: []
 maxiter: 3
 retries: 0
