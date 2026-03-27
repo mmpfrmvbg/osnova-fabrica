@@ -1,0 +1,22 @@
+epic: EPK-260327-001
+summary:
+  status: BLK
+  passrate: 0.0
+  atomsdone: 0
+  atomstotal: 1
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-001
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 600
+  err: 'agent -p failed (model token: auto)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+createdat: '2026-03-28T00:09:12.384850+03:00'
