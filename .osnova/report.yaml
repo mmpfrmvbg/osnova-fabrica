@@ -1,10 +1,10 @@
 v: 5
 t: RPT
-id: ATM-002
+id: ATM-004
 s: BLK
 tests:
   passed: 0
   total: 0
 changed: []
-elapsed: 10
+elapsed: 11
 err: 'agent -p failed (model token: auto)'
