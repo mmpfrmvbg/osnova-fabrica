@@ -3,7 +3,7 @@ epic: EPK-260327-001
 seq: 2
 zone: lang
 risk: LOW
-executor: cursor
+executor: null
 goal: ''
 scope: []
 notouch:
