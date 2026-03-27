@@ -294,7 +294,16 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
             aid,
             report.get("s"),
         )
-        run_done = bool(success) and report.get("s") == "OK"
+        # Источник истины — поле s в report.yaml (не bool success: так надёжнее при любых рассинхронах).
+        exec_report_ok = str(report.get("s") or "").strip().upper() == "OK"
+        run_done = exec_report_ok
+        if not run_done:
+            LOG.info(
+                "ATM %s — review fast-path (success=%s report.s=%s)",
+                aid,
+                success,
+                report.get("s"),
+            )
         passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
         report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
         report["s"] = "OK" if (success and passed) else "BLK"

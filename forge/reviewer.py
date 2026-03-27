@@ -69,16 +69,18 @@ def review(
     project = Path(env_paths()["OSNOVA_PROJECT"])
     if dry_run:
         return True, "dry-run: reviewer skipped", 0
+    if not run_done:
+        LOG.info(
+            "reviewer: skipping LLM + done-cmd — executor report was not OK (avoids long Qwen + broken vitest)"
+        )
+        elapsed = int(time.time() - start)
+        return False, "FAIL: executor BLK — reviewer skipped", elapsed
     diff = _git_diff(project)
     llm_pass, llm_reason = _qwen_review(atom, diff)
     done_cmd = str(atom.get("done", "")).strip()
     if not done_cmd:
         elapsed = int(time.time() - start)
         return llm_pass, llm_reason, elapsed
-    if not run_done:
-        LOG.info("reviewer: skipping ATM done-command — executor already failed (tree may be broken)")
-        elapsed = int(time.time() - start)
-        return False, f"{llm_reason}; done-cmd skipped (executor BLK)", elapsed
     LOG.info(
         "reviewer: running ATM done-command (up to 900s, no log until finish): %s",
         done_cmd[:500] + ("…" if len(done_cmd) > 500 else ""),

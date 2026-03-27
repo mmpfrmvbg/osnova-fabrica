@@ -2,22 +2,23 @@ id: ATM-EPK-260327-001-001
 epic: EPK-260327-001
 seq: 1
 zone: lang
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Добавить тесты для операции % в VM на базовые случаи (положительные числа, ноль)
+goal: Добавить регрессионные тесты для операции % в vm.test.ts
 scope:
-- src/compiler/vm.test.ts — добавить describe('modulo') с тестами на базовые случаи
-- src/compiler/vm.ts — убедиться что OP_MOD корректно обрабатывает базовые случаи
+- src/compiler/vm.test.ts
+- src/compiler/vm.ts — покрыть деление по модулю для Целое32/Целое64
 notouch:
 - .github/
 - infra/
 - deploy/
+- Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Открыть src/compiler/vm.test.ts и изучить существующие тесты арифметических операций
-- Добавить блок describe('modulo %') с тестами: 10%3=1, 15%5=0, 7%1=0
-- Добавить тесты с нулём: 0%5=0
-- Запустить тесты, убедиться что проходят
+- Изучить vm.ts: найти обработку операции %
+- Добавить тесты: положительный остаток, отрицательный остаток, деление на 1, edge
+    cases
+- Запустить тесты, убедиться в прохождении
 deps: []
 maxiter: 3
 retries: 0
