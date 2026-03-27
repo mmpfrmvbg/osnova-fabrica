@@ -1,13 +1,13 @@
-id: ATM-001
+id: ATM-003
 epic: EPK-260327-001
-seq: 1
+seq: 3
 zone: lang
 risk: LOW
 executor: cursor
-goal: Реализовать регрессионные тесты для операции % в src/compiler/vm.test.ts
+goal: Реализовать тесты низкой уверенности IntakeAgent в src/agents/intake-agent.test.ts
 scope:
-- src/compiler/vm.test.ts
-- src/compiler/vm.ts
+- src/agents/intake-agent.test.ts
+- src/agents/intake-agent.ts
 notouch:
 - .github/
 - infra/
