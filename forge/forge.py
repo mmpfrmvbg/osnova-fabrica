@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -37,10 +39,26 @@ def _git_pull_project(dry_run: bool) -> None:
         LOG.info("[dry-run] Would run: git pull --rebase")
         return
     project = Path(env_paths()["OSNOVA_PROJECT"])
+    token = (env_paths().get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")).strip()
+    run_env = os.environ.copy()
+    run_env["GIT_TERMINAL_PROMPT"] = "0"
     try:
+        if token:
+            basic = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+            cmd = [
+                "git",
+                "-c",
+                f"http.extraHeader=AUTHORIZATION: basic {basic}",
+                "pull",
+                "--rebase",
+            ]
+        else:
+            LOG.warning("git pull: no GH_TOKEN/GITHUB_TOKEN in env; Git may prompt or fail")
+            cmd = ["git", "pull", "--rebase"]
         proc = subprocess.run(
-            ["git", "pull", "--rebase"],
+            cmd,
             cwd=project,
+            env=run_env,
             capture_output=True,
             text=True,
             timeout=30,
