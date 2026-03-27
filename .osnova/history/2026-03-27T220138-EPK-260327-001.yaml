@@ -1,0 +1,64 @@
+epic: EPK-260327-001
+summary:
+  status: BLK
+  passrate: 0.0
+  atomsdone: 0
+  atomstotal: 4
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-001
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 5
+  err: 'agent -p failed (model token: _)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-003
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 3
+  err: 'agent -p failed (model token: _)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-002
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 4
+  err: 'agent -p failed (model token: _)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+- v: 5
+  t: RPT
+  id: ATM-EPK-260327-001-004
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 4
+  err: 'agent -p failed (model token: _)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+createdat: '2026-03-27T22:01:38.742276+03:00'
