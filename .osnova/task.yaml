@@ -1,13 +1,13 @@
-id: ATM-EPK-260327-001-003
+id: ATM-EPK-260327-001-004
 epic: EPK-260327-001
-seq: 3
+seq: 4
 zone: lang
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Добавить тесты низкой уверенности IntakeAgent для сценариев с % операцией
+goal: Интегрировать тесты VM и IntakeAgent в единый регрессионный прогон
 scope:
-- src/agents/intake-agent.test.ts — тесты low-confidence сценариев
-- src/agents/intake-agent.ts — логика определения уверенности
+- src/compiler/vm.test.ts
+- src/agents/intake-agent.test.ts
 notouch:
 - .github/
 - infra/
@@ -15,11 +15,12 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить логику определения confidence в IntakeAgent
-- Создать тестовые задачи с операцией % для проверки confidence
-- Добавить тесты на пороговые значения уверенности
+- Проверить что все тесты проходят независимо
+- Запустить полный прогон vitest run
+- Обновить историю тестов в .osnova/history/
 deps:
-- ATM-EPK-260327-001-001
+- ATM-EPK-260327-001-002
+- ATM-EPK-260327-001-003
 maxiter: 3
 retries: 0
 status: PENDING
