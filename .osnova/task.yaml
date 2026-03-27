@@ -1,12 +1,12 @@
-id: ATM-EPK-260327-001-002
+id: ATM-EPK-260327-001-004
 epic: EPK-260327-001
-seq: 2
+seq: 4
 zone: lang
 risk: LOW
 executor: cursor
-goal: Добавить обработку edge-case для операции % в vm.ts (если отсутствует)
+goal: Добавить обработку low-confidence сценариев в IntakeAgent.ts
 scope:
-- src/compiler/vm.ts
+- src/agents/intake-agent.ts
 notouch:
 - .github/
 - infra/
@@ -14,11 +14,11 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Проверить обработку операции % в vm.ts
-- Добавить защиту от деления на ноль
-- Запустить тесты
+- Проверить логику расчёта confidence в IntakeAgent
+- Добавить обработку граничных случаев
+- Запустить все тесты
 deps:
-- ATM-EPK-260327-001-001
+- ATM-EPK-260327-001-003
 maxiter: 3
 retries: 0
 status: PENDING
