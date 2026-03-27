@@ -46,11 +46,44 @@ def _git_pull_project(dry_run: bool) -> None:
     paths = env_paths()
     token = (paths.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")).strip().lstrip("\ufeff")
     ghrepo = paths.get("GHREPO", "mmpfrmvbg/osnova-fabrica").strip()
+    pat_only = os.environ.get("FORGE_GIT_PULL_PAT_ONLY", "").lower() in ("1", "true", "yes")
+
     run_env = os.environ.copy()
     run_env["GIT_TERMINAL_PROMPT"] = "0"
-    run_env["GCM_INTERACTIVE"] = "Never"
     git_no_prompt = ["git", "-c", "credential.helper="]
+    proc: subprocess.CompletedProcess[str] | None = None
     try:
+        if not pat_only:
+            proc = subprocess.run(
+                ["git", "pull", "--rebase"],
+                cwd=project,
+                env=run_env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            if proc.returncode == 0:
+                LOG.info("git pull --rebase ok (system credentials / GCM / SSH)")
+                return
+            LOG.info(
+                "git pull with system creds failed (%s); will try PAT if GH_TOKEN is set",
+                proc.returncode,
+            )
+
+        if not token:
+            if pat_only:
+                LOG.warning("FORGE_GIT_PULL_PAT_ONLY set but GH_TOKEN is empty")
+            elif proc is not None:
+                LOG.warning(
+                    "git pull --rebase failed (%s): %s",
+                    proc.returncode,
+                    (proc.stderr or proc.stdout or "").strip(),
+                )
+            else:
+                LOG.warning("git pull: no GH_TOKEN for PAT fallback")
+            return
+
         url_probe = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             cwd=project,
@@ -63,72 +96,56 @@ def _git_pull_project(dry_run: bool) -> None:
             LOG.warning("git pull: no origin remote (%s)", (url_probe.stderr or "").strip())
             return
         orig_url = url_probe.stdout.strip()
-
         if _origin_is_ssh(orig_url):
-            LOG.info("git pull: origin is SSH — using your key (no HTTPS PAT swap)")
-            proc = subprocess.run(
-                ["git", "pull", "--rebase"],
+            LOG.warning(
+                "git pull: origin is SSH; fix SSH auth or switch origin to HTTPS for PAT fallback"
+            )
+            return
+
+        run_pat = os.environ.copy()
+        run_pat["GIT_TERMINAL_PROMPT"] = "0"
+        run_pat["GCM_INTERACTIVE"] = "Never"
+        auth_url = f"https://x-access-token:{token}@github.com/{ghrepo}.git"
+        if subprocess.run(
+            git_no_prompt + ["remote", "set-url", "origin", auth_url],
+            cwd=project,
+            env=run_pat,
+            timeout=15,
+            check=False,
+        ).returncode != 0:
+            LOG.warning("git pull: could not set authenticated origin URL")
+            return
+        try:
+            proc2 = subprocess.run(
+                git_no_prompt + ["pull", "--rebase"],
                 cwd=project,
-                env=run_env,
+                env=run_pat,
                 capture_output=True,
                 text=True,
                 timeout=120,
                 check=False,
             )
-        elif token:
-            auth_url = f"https://x-access-token:{token}@github.com/{ghrepo}.git"
-            set_rc = subprocess.run(
-                git_no_prompt + ["remote", "set-url", "origin", auth_url],
+        finally:
+            restore = subprocess.run(
+                git_no_prompt + ["remote", "set-url", "origin", orig_url],
                 cwd=project,
-                env=run_env,
+                env=run_pat,
                 timeout=15,
                 check=False,
-            ).returncode
-            if set_rc != 0:
-                LOG.warning("git pull: could not set authenticated origin URL")
-                return
-            try:
-                proc = subprocess.run(
-                    git_no_prompt + ["pull", "--rebase"],
-                    cwd=project,
-                    env=run_env,
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    check=False,
-                )
-            finally:
-                restore = subprocess.run(
-                    git_no_prompt + ["remote", "set-url", "origin", orig_url],
-                    cwd=project,
-                    env=run_env,
-                    timeout=15,
-                    check=False,
-                )
-                if restore.returncode != 0:
-                    LOG.error(
-                        "git pull: failed to restore origin URL; run: git remote set-url origin %s",
-                        orig_url,
-                    )
-        else:
-            LOG.warning("git pull: HTTPS origin but no GH_TOKEN; Git may prompt or fail")
-            proc = subprocess.run(
-                ["git", "pull", "--rebase"],
-                cwd=project,
-                env=run_env,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
             )
-        if proc.returncode != 0:
+            if restore.returncode != 0:
+                LOG.error(
+                    "git pull: failed to restore origin; run: git remote set-url origin %s",
+                    orig_url,
+                )
+        if proc2.returncode != 0:
             LOG.warning(
-                "git pull --rebase failed (%s): %s",
-                proc.returncode,
-                (proc.stderr or proc.stdout or "").strip(),
+                "git pull --rebase failed with PAT (%s): %s",
+                proc2.returncode,
+                (proc2.stderr or proc2.stdout or "").strip(),
             )
         else:
-            LOG.info("git pull --rebase ok")
+            LOG.info("git pull --rebase ok (GH_TOKEN / PAT)")
     except subprocess.TimeoutExpired:
         LOG.warning("git pull --rebase timed out")
     except Exception as exc:
