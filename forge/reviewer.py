@@ -16,6 +16,18 @@ except ImportError:  # pragma: no cover
 LOG = setup_logging("reviewer")
 
 
+def _is_forge_default_vitest_done(cmd: str) -> bool:
+    """Epic `done` that runs compiler + agents vitest (Forge v5.2 ATM default)."""
+    c = " ".join(cmd.split()).lower()
+    if "vitest" not in c:
+        return False
+    if "src/compiler" not in c:
+        return False
+    if "src/agents" not in c:
+        return False
+    return True
+
+
 def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[str, dict[str, str]]:
     """
     Build shell command + env for atom `done` checks. On Windows, harden Vitest when spawned
@@ -40,6 +52,15 @@ def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[str, dict[st
         "yes",
     ):
         return cmd, done_env
+
+    # Windows + Python subprocess: direct vitest/npx still hits "No test suite found" for some
+    # setups; npm lifecycle fixes INIT_CWD / env enough that suites register reliably.
+    if (
+        os.environ.get("FORGE_REVIEWER_NO_NPM_VITEST", "").strip().lower()
+        not in ("1", "true", "yes")
+        and _is_forge_default_vitest_done(cmd)
+    ):
+        return "npm run -s test:forge:done", done_env
 
     if "npx vitest run" in cmd and "--pool=forks" not in cmd:
         cmd = cmd.replace(
