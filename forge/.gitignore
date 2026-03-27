@@ -3,3 +3,7 @@ __pycache__/
 .env
 forge.heartbeat
 state-backups/
+forge-state.json
+qwen-budget.json
+epic-queue.log
+*.log
