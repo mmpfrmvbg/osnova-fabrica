@@ -1,13 +1,13 @@
 v: 5
 t: RETRO
 for: BRAIN
-timestamp: '2026-03-27T21:50:02.904820+03:00'
+timestamp: '2026-03-27T21:57:27.319176+03:00'
 lastepic:
   id: EPK-260327-001
   githubissue: 12
-  atomstotal: 4
+  atomstotal: 2
   atomspass: 0
-  atomsblk: 4
+  atomsblk: 2
 daily:
   passrate: 0.0
   qwenbudgetused: 0
