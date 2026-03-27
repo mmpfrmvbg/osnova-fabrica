@@ -1,13 +1,13 @@
-id: ATM-EPK-260327-001-004
+id: ATM-EPK-260327-001-001
 epic: EPK-260327-001
-seq: 4
+seq: 1
 zone: lang
 risk: LOW
 executor: cursor
-goal: Интегрировать тесты VM и IntakeAgent в единый регрессионный прогон
+goal: Добавить регрессионные тесты для операции деления по модулю (%) в VM
 scope:
 - src/compiler/vm.test.ts
-- src/agents/intake-agent.test.ts
+- src/compiler/vm.ts
 notouch:
 - .github/
 - infra/
@@ -15,12 +15,11 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Проверить что все тесты проходят независимо
-- Запустить полный прогон vitest run
-- Обновить историю тестов в .osnova/history/
-deps:
-- ATM-EPK-260327-001-002
-- ATM-EPK-260327-001-003
+- Изучить существующие тесты в vm.test.ts
+- Добавить тесты на % для положительных/отрицательных чисел
+- Добавить тесты на деление на ноль
+- Запустить тесты, убедиться в прохождении
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

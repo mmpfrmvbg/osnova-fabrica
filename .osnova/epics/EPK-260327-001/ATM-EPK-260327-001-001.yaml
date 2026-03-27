@@ -2,12 +2,12 @@ id: ATM-EPK-260327-001-001
 epic: EPK-260327-001
 seq: 1
 zone: lang
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Добавить тесты операции % в VM для базовых случаев (положительные числа, деление
-  на 1)
+goal: Добавить регрессионные тесты для операции деления по модулю (%) в VM
 scope:
-- src/compiler/vm.test.ts — расширить покрытие операции modulo
+- src/compiler/vm.test.ts
+- src/compiler/vm.ts
 notouch:
 - .github/
 - infra/
@@ -15,8 +15,9 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить текущую реализацию операции MOD в vm.ts
-- Добавить тесты: 10 % 3 = 1, 7 % 1 = 0, 5 % 5 = 0
+- Изучить существующие тесты в vm.test.ts
+- Добавить тесты на % для положительных/отрицательных чисел
+- Добавить тесты на деление на ноль
 - Запустить тесты, убедиться в прохождении
 deps: []
 maxiter: 3

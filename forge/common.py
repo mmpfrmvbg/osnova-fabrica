@@ -133,6 +133,101 @@ def resolve_executable(name_or_path: str) -> str:
     return s
 
 
+def cursor_cli_extra_path_entries() -> list[str]:
+    """
+    Directories where the Cursor Windows installer usually places ``agent`` / IDE shims.
+    Git Bash started from Python often inherits a stale PATH (no ``~\\.local\\bin``).
+    Optional: extend with FORGE_CURSOR_PATH_EXTRA (os.pathsep-separated).
+    """
+    if sys.platform != "win32":
+        return []
+    entries: list[Path] = [Path.home() / ".local" / "bin"]
+    la = os.environ.get("LOCALAPPDATA", "").strip()
+    if la:
+        entries.append(Path(la) / "Programs" / "cursor" / "resources" / "app" / "bin")
+    pf = os.environ.get("ProgramFiles", r"C:\Program Files").strip()
+    if pf:
+        entries.append(Path(pf) / "cursor" / "resources" / "app" / "bin")
+    pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)").strip()
+    if pf86:
+        entries.append(Path(pf86) / "cursor" / "resources" / "app" / "bin")
+    extra = os.environ.get("FORGE_CURSOR_PATH_EXTRA", "").strip()
+    if extra:
+        for part in extra.split(os.pathsep):
+            part = part.strip().strip('"')
+            if part:
+                entries.append(Path(part))
+    out: list[str] = []
+    for p in entries:
+        try:
+            if p.is_dir():
+                out.append(str(p.resolve()))
+        except OSError:
+            continue
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for d in out:
+        if d not in seen:
+            seen.add(d)
+            uniq.append(d)
+    return uniq
+
+
+def _path_for_git_bash(p: Path) -> str:
+    """Paths Git Bash can exec reliably (forward slashes on Windows)."""
+    return Path(str(p.resolve())).as_posix()
+
+
+def resolve_cursor_bin_for_smith(raw: str) -> str:
+    """
+    Resolve CURSORBIN for smith.sh: full path when possible so GNU timeout finds the binary.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    try:
+        p = Path(s)
+        if p.is_file():
+            return _path_for_git_bash(p)
+    except OSError:
+        pass
+    r = resolve_executable(s)
+    if r:
+        try:
+            rp = Path(r)
+            if rp.is_file():
+                return _path_for_git_bash(rp)
+        except OSError:
+            pass
+    merged_path = os.pathsep.join([*cursor_cli_extra_path_entries(), os.environ.get("PATH", "")])
+    w = shutil.which(s, path=merged_path)
+    if not w and sys.platform == "win32":
+        w = shutil.which(f"{s}.exe", path=merged_path)
+    if w:
+        try:
+            wp = Path(w)
+            if wp.is_file():
+                return _path_for_git_bash(wp)
+        except OSError:
+            pass
+    if sys.platform != "win32":
+        return s
+    trial_names: list[str] = []
+    for n in (s, f"{s}.exe" if not s.lower().endswith(".exe") else "", "agent.exe", "cursor-agent.exe"):
+        n = n.strip()
+        if n and n not in trial_names:
+            trial_names.append(n)
+    for dn in cursor_cli_extra_path_entries():
+        for name in trial_names:
+            cand = Path(dn) / name
+            try:
+                if cand.is_file():
+                    return _path_for_git_bash(cand)
+            except OSError:
+                continue
+    return s
+
+
 def bash_executable() -> str | None:
     """
     Bash for running forge/smith.sh. On Windows .sh is not a Win32 executable (WinError 193);

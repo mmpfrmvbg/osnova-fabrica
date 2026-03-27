@@ -2,14 +2,33 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import Any
 
 try:
-    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, bash_executable, env_paths, load_yaml, setup_logging
+    from forge.common import (
+        SUBPROCESS_TEXT,
+        atomic_write_yaml,
+        bash_executable,
+        cursor_cli_extra_path_entries,
+        env_paths,
+        load_yaml,
+        resolve_cursor_bin_for_smith,
+        setup_logging,
+    )
 except ImportError:  # pragma: no cover
-    from common import SUBPROCESS_TEXT, atomic_write_yaml, bash_executable, env_paths, load_yaml, setup_logging
+    from common import (
+        SUBPROCESS_TEXT,
+        atomic_write_yaml,
+        bash_executable,
+        cursor_cli_extra_path_entries,
+        env_paths,
+        load_yaml,
+        resolve_cursor_bin_for_smith,
+        setup_logging,
+    )
 
 LOG = setup_logging("cursorexec")
 
@@ -21,10 +40,25 @@ def _smith_subprocess_env() -> dict[str, str]:
     """Merge forge/.env resolution (env_paths) into the child env so smith.sh sees CURSORBIN/OSNOVA_*."""
     env = os.environ.copy()
     p = env_paths()
-    for key in ("OSNOVA_PROJECT", "OSNOVA_FORGE", "CURSORBIN", "QWENBIN"):
+    for key in ("OSNOVA_PROJECT", "OSNOVA_FORGE", "QWENBIN"):
         val = (p.get(key) or "").strip()
         if val:
             env[key] = val
+    cb = (p.get("CURSORBIN") or "").strip()
+    if cb:
+        resolved = resolve_cursor_bin_for_smith(cb)
+        env["CURSORBIN"] = resolved
+        looks_unresolved = "/" not in resolved and "\\" not in resolved
+        if sys.platform == "win32" and looks_unresolved:
+            LOG.warning(
+                "CURSORBIN %r did not resolve to a path — ensure Cursor CLI is installed "
+                "(~\\.local\\bin\\agent.exe) or set CURSORBIN to the full path.",
+                cb,
+            )
+    if sys.platform == "win32":
+        extra = cursor_cli_extra_path_entries()
+        if extra:
+            env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
     return env
 
 
