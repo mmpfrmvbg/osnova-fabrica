@@ -1,0 +1,64 @@
+epic: EPK-260327-001
+summary:
+  status: BLK
+  passrate: 0.0
+  atomsdone: 0
+  atomstotal: 4
+results:
+- v: 5
+  t: RPT
+  id: ATM-001
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 306
+  err: 'agent -p failed (model token: auto)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+- v: 5
+  t: RPT
+  id: ATM-003
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 11
+  err: 'agent -p failed (model token: auto)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+- v: 5
+  t: RPT
+  id: ATM-002
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 10
+  err: 'agent -p failed (model token: auto)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+- v: 5
+  t: RPT
+  id: ATM-004
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 11
+  err: 'agent -p failed (model token: auto)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+createdat: '2026-03-28T00:17:06.470324+03:00'
