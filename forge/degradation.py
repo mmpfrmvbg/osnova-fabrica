@@ -4,9 +4,9 @@ import subprocess
 from typing import Any
 
 try:
-    from forge.common import env_paths, resolve_executable, setup_logging
+    from forge.common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import env_paths, resolve_executable, setup_logging
+    from common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
 
 LOG = setup_logging("degradation")
 
@@ -19,7 +19,9 @@ _CURSOR_PROBE_HINT = (
 
 def _probe(cmd: list[str], timeout: int = 5) -> bool:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, check=False, **SUBPROCESS_TEXT
+        )
         return proc.returncode == 0
     except Exception as exc:
         LOG.warning("Probe failed for %s: %s", cmd, exc)

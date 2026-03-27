@@ -8,9 +8,9 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import atomic_write_yaml, env_paths, resolve_executable, setup_logging
+    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import atomic_write_yaml, env_paths, resolve_executable, setup_logging
+    from common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, resolve_executable, setup_logging
 
 LOG = setup_logging("atomizer")
 
@@ -23,7 +23,9 @@ def _prompt(epic: dict[str, Any]) -> str:
     )
 
 
-def _extract_yaml(text: str) -> list[dict[str, Any]]:
+def _extract_yaml(text: str | None) -> list[dict[str, Any]]:
+    if not text or not isinstance(text, str):
+        raise ValueError("Atomizer output is empty (subprocess decode failed or no stdout)")
     match = re.search(r"```yaml\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
     chunk = match.group(1) if match else text
     data = yaml.safe_load(chunk) or []
@@ -69,10 +71,12 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
             atoms = _normalize_atoms(epic, [{"seq": 1, "goal": epic.get("goal", ""), "scope": epic.get("scope", [])}])
     else:
         cmd = [resolve_executable(env_paths()["QWENBIN"]), "run", _prompt(epic)]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120, check=False, **SUBPROCESS_TEXT
+        )
         if proc.returncode != 0:
-            raise RuntimeError(f"Qwen atomizer failed: {proc.stderr.strip()}")
-        raw_atoms = _extract_yaml(proc.stdout)
+            raise RuntimeError(f"Qwen atomizer failed: {(proc.stderr or '').strip()}")
+        raw_atoms = _extract_yaml(proc.stdout or "")
         if not (2 <= len(raw_atoms) <= 5):
             raise ValueError("Atomizer must return 2-5 items")
         atoms = _normalize_atoms(epic, raw_atoms)

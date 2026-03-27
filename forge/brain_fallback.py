@@ -10,9 +10,9 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import env_paths, resolve_executable, setup_logging
+    from forge.common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import env_paths, resolve_executable, setup_logging
+    from common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
 
 LOG = setup_logging("brain_fallback")
 
@@ -98,6 +98,7 @@ def run_qwen_planner(context_yaml: str) -> dict[str, Any] | None:
             text=True,
             timeout=120,
             cwd=str(_project_dir()),
+            **SUBPROCESS_TEXT,
         )
         if result.returncode == 0:
             return parse_epic_from_output(result.stdout or "")
@@ -140,6 +141,7 @@ def run_cursor_planner(context_yaml: str) -> dict[str, Any] | None:
                     text=True,
                     timeout=180,
                     cwd=str(_project_dir()),
+                    **SUBPROCESS_TEXT,
                 )
                 if result.returncode == 0:
                     return parse_epic_from_output((result.stdout or "") + (result.stderr or ""))

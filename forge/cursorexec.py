@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from forge.common import atomic_write_yaml, env_paths, load_yaml, setup_logging
+    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, load_yaml, setup_logging
 except ImportError:  # pragma: no cover
-    from common import atomic_write_yaml, env_paths, load_yaml, setup_logging
+    from common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, load_yaml, setup_logging
 
 LOG = setup_logging("cursorexec")
 
@@ -21,7 +21,9 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         LOG.info("[dry-run] Would call smith.sh for %s", atom.get("id"))
         return True, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "OK", "changed": [], "elapsed": 0}
     smith = Path(env_paths()["OSNOVA_FORGE"]) / "smith.sh"
-    proc = subprocess.run([str(smith)], cwd=project, capture_output=True, text=True, timeout=300, check=False)
+    proc = subprocess.run(
+        [str(smith)], cwd=project, capture_output=True, text=True, timeout=300, check=False, **SUBPROCESS_TEXT
+    )
     if proc.returncode != 0:
         LOG.warning("smith failed: %s", proc.stderr.strip())
     report = load_yaml(report_file, default={}) or {}

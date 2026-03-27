@@ -11,7 +11,7 @@ from typing import Any
 try:
     from forge.atomizer import atomize
     from forge.brain_fallback import generate_fallback_epic
-    from forge.common import _github_bearer_value, atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from forge.common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from forge.courier import process_result
     from forge.cursorexec import run_atom as run_cursor_atom
     from forge.degradation import get_available
@@ -25,7 +25,7 @@ try:
 except ImportError:  # pragma: no cover
     from atomizer import atomize
     from brain_fallback import generate_fallback_epic
-    from common import _github_bearer_value, atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from courier import process_result
     from cursorexec import run_atom as run_cursor_atom
     from degradation import get_available
@@ -77,6 +77,7 @@ def _git_pull_project(dry_run: bool) -> None:
                 text=True,
                 timeout=120,
                 check=False,
+                **SUBPROCESS_TEXT,
             )
             if proc.returncode == 0:
                 LOG.info("git pull --rebase ok (system credentials / GCM / SSH)")
@@ -106,6 +107,7 @@ def _git_pull_project(dry_run: bool) -> None:
             text=True,
             timeout=15,
             check=False,
+            **SUBPROCESS_TEXT,
         )
         if url_probe.returncode != 0:
             LOG.warning("git pull: no origin remote (%s)", (url_probe.stderr or "").strip())
@@ -139,6 +141,7 @@ def _git_pull_project(dry_run: bool) -> None:
                 text=True,
                 timeout=120,
                 check=False,
+                **SUBPROCESS_TEXT,
             )
         finally:
             restore = subprocess.run(

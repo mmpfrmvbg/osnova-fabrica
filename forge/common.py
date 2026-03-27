@@ -14,6 +14,9 @@ from typing import Any
 
 import yaml
 
+# Windows defaults to cp1251 for subprocess text mode; Qwen/agent emit UTF-8.
+SUBPROCESS_TEXT: dict[str, Any] = {"encoding": "utf-8", "errors": "replace"}
+
 
 def _load_dotenv_defaults() -> dict[str, str]:
     """

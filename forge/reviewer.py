@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from forge.common import env_paths, resolve_executable, setup_logging
+    from forge.common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import env_paths, resolve_executable, setup_logging
+    from common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
 
 LOG = setup_logging("reviewer")
 
@@ -21,8 +21,9 @@ def _git_diff(project: Path) -> str:
         text=True,
         timeout=20,
         check=False,
+        **SUBPROCESS_TEXT,
     )
-    return proc.stdout if proc.returncode == 0 else ""
+    return (proc.stdout or "") if proc.returncode == 0 else ""
 
 
 def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
@@ -37,6 +38,7 @@ def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
         text=True,
         timeout=120,
         check=False,
+        **SUBPROCESS_TEXT,
     )
     text = (proc.stdout or proc.stderr).strip()
     passed = text.upper().startswith("PASS")
