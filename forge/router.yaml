@@ -1,0 +1,23 @@
+version: 1
+rules:
+  - match: "priority == P0"
+    executor: cursor
+  - match: "risk == HIGH"
+    executor: cursor
+  - match: "scope contains .github/"
+    executor: cursor
+  - match: "scope contains .test.ts or .spec.ts"
+    executor: qwen
+  - match: "scope contains .md"
+    executor: qwen
+  - match: "scope contains .yaml/.json/.toml"
+    executor: qwen
+  - match: "zone == infra and risk == LOW"
+    executor: qwen
+  - match: "zone == lang and risk == LOW"
+    executor: qwen
+  - match: "zone == lang and risk == MEDIUM"
+    executor: cursor
+  - match: "default"
+    executor: cursor
+
