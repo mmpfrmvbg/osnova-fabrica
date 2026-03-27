@@ -33,7 +33,7 @@ def _load_dotenv_defaults() -> dict[str, str]:
                     continue
                 key, value = line.split("=", 1)
                 key = key.strip()
-                value = value.strip().strip("'").strip('"')
+                value = value.strip().strip("'").strip('"').lstrip("\ufeff")
                 if key:
                     data[key] = value
             break
