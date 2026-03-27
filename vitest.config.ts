@@ -2,14 +2,19 @@ import { platform } from 'node:os';
 
 import { defineConfig } from 'vitest/config';
 
-// Windows + default thread pool: worker threads occasionally collect *.test.ts with
-// "No test suite found" (describe never registers) when Vitest is spawned from
-// Python/subprocess; forks avoid tinypool/thread context issues there.
-const pool = platform() === 'win32' ? 'forks' : 'threads';
+// Windows: Vitest from Python/subprocess sometimes collects all *.test.ts as empty suites
+// ("No test suite found"). forks + singleFork + no file-parallelism avoids tinypool quirks.
+const isWin = platform() === 'win32';
 
 export default defineConfig({
   test: {
-    pool,
+    pool: isWin ? 'forks' : 'threads',
+    ...(isWin
+      ? {
+          fileParallelism: false,
+          poolOptions: { forks: { singleFork: true } },
+        }
+      : {}),
     retry: 2,
     // Root vitest should only validate the core compiler/runtime in /src.
     // Osiris has its own job + its own dependency install in CI.

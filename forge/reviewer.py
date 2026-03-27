@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from subprocess import TimeoutExpired
@@ -13,6 +14,44 @@ except ImportError:  # pragma: no cover
     from common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
 
 LOG = setup_logging("reviewer")
+
+
+def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[str, dict[str, str]]:
+    """
+    Build shell command + env for atom `done` checks. On Windows, harden Vitest when spawned
+    from Forge (avoid empty suites / wrong npx resolution / inherited NODE_OPTIONS).
+    """
+    done_env = os.environ.copy()
+    done_env["NODE_ENV"] = "test"
+    cmd = done_cmd
+    if sys.platform != "win32":
+        return cmd, done_env
+
+    if os.environ.get("FORGE_REVIEWER_KEEP_NODE_OPTIONS", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+    ):
+        done_env.pop("NODE_OPTIONS", None)
+
+    if os.environ.get("FORGE_REVIEWER_RAW_DONE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return cmd, done_env
+
+    if "npx vitest run" in cmd and "--pool=forks" not in cmd:
+        cmd = cmd.replace(
+            "npx vitest run",
+            "npx vitest run --pool=forks --no-file-parallelism",
+        )
+
+    mjs = (project / "node_modules" / "vitest" / "vitest.mjs").resolve()
+    if mjs.is_file() and "npx vitest" in cmd:
+        cmd = cmd.replace("npx vitest", f'node "{mjs}"')
+
+    return cmd, done_env
 
 
 def _git_diff(project: Path) -> str:
@@ -81,16 +120,13 @@ def review(
     if not done_cmd:
         elapsed = int(time.time() - start)
         return llm_pass, llm_reason, elapsed
+    cmd_eff, done_env = _prepare_done_invocation(project, done_cmd)
     LOG.info(
         "reviewer: running ATM done-command (up to 900s, no log until finish): %s",
-        done_cmd[:500] + ("…" if len(done_cmd) > 500 else ""),
+        cmd_eff[:500] + ("…" if len(cmd_eff) > 500 else ""),
     )
-    # Done commands are test/CI checks; force NODE_ENV=test so a parent (IDE, shell)
-    # cannot leave e.g. production mode and confuse Vite/Vitest during collection.
-    done_env = os.environ.copy()
-    done_env["NODE_ENV"] = "test"
     done = subprocess.run(
-        done_cmd, cwd=project, shell=True, timeout=900, check=False, env=done_env
+        cmd_eff, cwd=project, shell=True, timeout=900, check=False, env=done_env
     )
     passed = llm_pass and done.returncode == 0
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"
