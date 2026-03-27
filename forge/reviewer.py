@@ -85,7 +85,13 @@ def review(
         "reviewer: running ATM done-command (up to 900s, no log until finish): %s",
         done_cmd[:500] + ("…" if len(done_cmd) > 500 else ""),
     )
-    done = subprocess.run(done_cmd, cwd=project, shell=True, timeout=900, check=False)
+    # Done commands are test/CI checks; force NODE_ENV=test so a parent (IDE, shell)
+    # cannot leave e.g. production mode and confuse Vite/Vitest during collection.
+    done_env = os.environ.copy()
+    done_env["NODE_ENV"] = "test"
+    done = subprocess.run(
+        done_cmd, cwd=project, shell=True, timeout=900, check=False, env=done_env
+    )
     passed = llm_pass and done.returncode == 0
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"
     elapsed = int(time.time() - start)
