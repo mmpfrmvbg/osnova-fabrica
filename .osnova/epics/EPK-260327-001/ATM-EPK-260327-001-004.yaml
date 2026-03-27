@@ -4,18 +4,21 @@ seq: 4
 zone: lang
 risk: LOW
 executor: qwen
-goal: Обновить документацию и добавить regression-run в CI
+goal: Интегрировать тесты VM и IntakeAgent в единый регрессионный прогон
 scope:
-- docs/regression-tests.md — документация по новым тестам
-- .github/workflows/ci.yml — добавить запуск regression тестов
-notouch: []
+- src/compiler/vm.test.ts
+- src/agents/intake-agent.test.ts
+notouch:
+- .github/
+- infra/
+- deploy/
+- Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Создать docs/regression-tests.md с описанием новых тестов %
-- Обновить CI workflow для запуска regression тестов
-- Добавить упоминание в ARCHITECTURE-AS-IS.md
+- Проверить что все тесты проходят независимо
+- Запустить полный прогон vitest run
+- Обновить историю тестов в .osnova/history/
 deps:
-- ATM-EPK-260327-001-001
 - ATM-EPK-260327-001-002
 - ATM-EPK-260327-001-003
 maxiter: 3

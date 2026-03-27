@@ -17,6 +17,17 @@ LOG = setup_logging("cursorexec")
 _DEFAULT_WRAP = 1080
 
 
+def _smith_subprocess_env() -> dict[str, str]:
+    """Merge forge/.env resolution (env_paths) into the child env so smith.sh sees CURSORBIN/OSNOVA_*."""
+    env = os.environ.copy()
+    p = env_paths()
+    for key in ("OSNOVA_PROJECT", "OSNOVA_FORGE", "CURSORBIN", "QWENBIN"):
+        val = (p.get(key) or "").strip()
+        if val:
+            env[key] = val
+    return env
+
+
 def _smith_wrap_timeout() -> int:
     raw = os.environ.get("FORGE_SMITH_WRAP_TIMEOUT", "").strip()
     if raw.isdigit():
@@ -56,6 +67,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         proc = subprocess.run(
             [bash, str(smith)],
             cwd=project,
+            env=_smith_subprocess_env(),
             capture_output=True,
             text=True,
             timeout=wrap_s,

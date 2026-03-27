@@ -2,12 +2,12 @@ id: ATM-EPK-260327-001-002
 epic: EPK-260327-001
 seq: 2
 zone: lang
-risk: LOW
+risk: HIGH
 executor: cursor
-goal: Покрыть сценарий низкой уверенности IntakeAgent тестами
+goal: Покрыть граничные случаи операции % (отрицательные числа, деление на 0)
 scope:
-- src/agents/intake-agent.test.ts
-- src/agents/intake-agent.ts — добавить фикстуры для low-confidence случаев
+- src/compiler/vm.test.ts — тесты граничных случаев modulo
+- src/compiler/vm.ts — исправление обработки деления на 0
 notouch:
 - .github/
 - infra/
@@ -15,10 +15,11 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить IntakeAgent: логику определения confidence
-- Создать тесты на граничные случаи (неполные данные, противоречивые intent)
-- Добавить assertion на ожидаемый low-confidence статус
-deps: []
+- Добавить тесты: -10 % 3, 10 % -3, 0 % 5
+- Реализовать обработку деления на 0 (возврат ошибки/исключения)
+- Добавить тест на деление на 0 — ожидание исключения
+deps:
+- ATM-EPK-260327-001-001
 maxiter: 3
 retries: 0
 status: PENDING

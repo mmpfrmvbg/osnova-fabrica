@@ -4,21 +4,22 @@ seq: 3
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Покрыть тестами сценарии низкой уверенности IntakeAgent (Issues
+goal: Добавить тесты низкой уверенности IntakeAgent для сценариев с % операцией
 scope:
-- src/agents/intake-agent.test.ts — тесты на low-confidence сценарии
-- src/agents/intake-agent.ts — логика confidence scoring
+- src/agents/intake-agent.test.ts — тесты low-confidence сценариев
+- src/agents/intake-agent.ts — логика определения уверенности
 notouch:
 - .github/
 - infra/
 - deploy/
+- Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить Issues
-- Добавить тесты на пустые/неоднозначные задачи
-- Добавить тесты на задачи без чёткой категории (intent/spec)
-- Проверить что confidence < порога正确处理
-deps: []
+- Изучить логику определения confidence в IntakeAgent
+- Создать тестовые задачи с операцией % для проверки confidence
+- Добавить тесты на пороговые значения уверенности
+deps:
+- ATM-EPK-260327-001-001
 maxiter: 3
 retries: 0
 status: PENDING
