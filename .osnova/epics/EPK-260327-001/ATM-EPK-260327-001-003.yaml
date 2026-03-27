@@ -1,0 +1,25 @@
+id: ATM-EPK-260327-001-003
+epic: EPK-260327-001
+seq: 3
+zone: lang
+risk: LOW
+executor: qwen
+goal: Обновить документацию по тестированию VM и IntakeAgent
+scope:
+- docs/testing-guide.md — гайд по регрессионным тестам
+notouch:
+- .github/
+- infra/
+- deploy/
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Описать добавленные тесты % операции в docs/testing-guide.md
+- Описать сценарии тестирования confidence в docs/testing-guide.md
+- Добавить секцию «Регрессионные тесты по рекомендациям ретроспективы»
+deps:
+- ATM-EPK-260327-001-001
+- ATM-EPK-260327-001-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

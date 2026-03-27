@@ -1,0 +1,25 @@
+id: ATM-PHB-002
+epic: EPK-260327-001
+seq: 2
+zone: llm
+risk: MEDIUM
+executor: cursor
+goal: Добавить RAG/VectorDB в QwenCliProvider (DEBT-004)
+scope:
+- src/llm/QwenCliProvider.ts — опциональный RAG
+- src/llm/VectorDB.ts — новый модуль
+- src/llm/EmbeddingService.ts — новый модуль
+notouch:
+- src/compiler/
+- src/runtime/
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Реализовать EmbeddingService (локальная эмбеддинги)
+- Реализовать VectorDB (in-memory + persistence)
+- Добавить RAG-контекст в QwenCliProvider.complete()
+- Покрыть unit-тестами
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

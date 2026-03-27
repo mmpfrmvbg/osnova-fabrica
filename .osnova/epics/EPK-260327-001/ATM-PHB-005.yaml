@@ -1,0 +1,26 @@
+id: ATM-PHB-005
+epic: EPK-260327-001
+seq: 5
+zone: golden
+risk: MEDIUM
+executor: cursor
+goal: LoRA fine-tune на успешных трейсах
+scope:
+- src/scripts/prepare-lora-dataset.ts
+- Интеграция с traces.jsonl
+- Экспорт SFT-датасета для Qwen
+notouch:
+- src/compiler/
+- src/runtime/vm/
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Фильтрация traces.jsonl по runStatus=success
+- Формирование пар (prompt, completion)
+- Экспорт в Qwen LoRA формат
+- Документация процесса fine-tune
+deps:
+- ATM-PHB-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

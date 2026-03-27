@@ -1,0 +1,25 @@
+id: ATM-PHB-001
+epic: EPK-260327-001
+seq: 1
+zone: pipeline
+risk: MEDIUM
+executor: cursor
+goal: Реализовать DAG-оркестратор вместо линейного pipeline
+scope:
+- src/pipeline/orchestrator.ts — рефакторинг под DAG
+- Чтение pipeline.yaml как источника истины
+- Поддержка параллельных фаз
+notouch:
+- src/compiler/
+- src/runtime/vm/
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Спроектировать DAG-структуру в orchestrator.ts
+- Реализовать топологическую сортировку фаз
+- Добавить параллельное выполнение независимых фаз
+- Обновить тесты оркестратора
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

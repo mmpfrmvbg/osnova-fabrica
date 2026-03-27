@@ -239,8 +239,10 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
     results: list[dict[str, Any]] = []
 
     def _run_one(atom: dict[str, Any]) -> None:
+        aid = atom.get("id")
         executor = choose_executor(atom, avail)
         atom["executor"] = executor
+        LOG.info("ATM %s — executor=%s (long silence here = smith/qwen or review `done`)", aid, executor)
         if executor == "none":
             report = {
                 "id": atom.get("id"),
@@ -255,9 +257,15 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
             success, report = run_qwen_atom(atom, dry_run=dry_run)
         else:
             success, report = run_cursor_atom(atom, dry_run=dry_run)
+        LOG.info(
+            "ATM %s — executor finished (report s=%s), starting review",
+            aid,
+            report.get("s"),
+        )
         passed, reason, elapsed = review(atom, dry_run=dry_run)
         report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
         report["s"] = "OK" if (success and passed) else "BLK"
+        LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
         process_result(atom, report, dry_run=dry_run)
         results.append(report)
 
@@ -336,6 +344,8 @@ def main() -> None:
         while True:
             cycle(dry_run=False)
             time.sleep(60)
+    except KeyboardInterrupt:
+        LOG.info("Forge stopped by user")
     except Exception as exc:
         LOG.exception("forge loop failed: %s", exc)
 

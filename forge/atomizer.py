@@ -19,6 +19,9 @@ def _prompt(epic: dict[str, Any]) -> str:
     return (
         "Split EPIC into 2-5 ATM tasks. Output ONLY YAML list.\n"
         "Each item must have: id, seq, zone, risk, executor, goal, scope, notouch, done, steps, deps.\n"
+        "Routing: MEDIUM/HIGH risk, multi-file refactors, or scope touching .ts/.js/.rs/.py → "
+        "executor: cursor (Cursor CLI). LOW risk, single test/doc/config file → executor: qwen.\n"
+        "In scope[], put the file path first, optional description after em-dash — (router parses path before —).\n"
         f"EPIC:\n{yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)}"
     )
 

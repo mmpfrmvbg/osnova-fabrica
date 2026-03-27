@@ -91,6 +91,23 @@ def epic_socket_path() -> Path:
     return Path(env_paths()["OSNOVA_FORGE"]) / "epic.sock"
 
 
+def epic_queue_path() -> Path:
+    """EPIC FIFO path. GHA 01-epic-intake commits <repo>/forge/epic-queue.txt."""
+    paths = env_paths()
+    project = Path(paths["OSNOVA_PROJECT"])
+    forge_sub = project / "forge"
+    repo_queue = forge_sub / "epic-queue.txt"
+    forge_queue = Path(paths["OSNOVA_FORGE"]) / "epic-queue.txt"
+    try:
+        if repo_queue.resolve() == forge_queue.resolve():
+            return repo_queue
+    except (OSError, ValueError):
+        pass
+    if forge_sub.is_dir() or repo_queue.exists():
+        return repo_queue
+    return forge_queue
+
+
 def resolve_executable(name_or_path: str) -> str:
     """
     Resolve a command to a path subprocess can run on Windows (npm publishes .cmd shims;
@@ -114,6 +131,34 @@ def resolve_executable(name_or_path: str) -> str:
             if found:
                 return found
     return s
+
+
+def bash_executable() -> str | None:
+    """
+    Bash for running forge/smith.sh. On Windows .sh is not a Win32 executable (WinError 193);
+    use Git Bash or set FORGE_BASH to bash.exe.
+    """
+    override = os.environ.get("FORGE_BASH", "").strip()
+    if override:
+        p = Path(override)
+        if p.is_file():
+            return str(p)
+        w = shutil.which(override)
+        if w:
+            return w
+    if sys.platform == "win32":
+        # Prefer Git Bash over WSL's system32\\bash.EXE (WSL + Windows cwd paths break smith.sh).
+        for base in (
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        ):
+            candidate = Path(base) / "Git" / "bin" / "bash.exe"
+            if candidate.is_file():
+                return str(candidate)
+    w = shutil.which("bash")
+    if w:
+        return w
+    return None
 
 
 def ensure_dir(path: str | Path) -> Path:

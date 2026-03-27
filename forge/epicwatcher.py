@@ -12,9 +12,9 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import _github_bearer_value, atomic_write_yaml, env_paths, setup_logging
+    from forge.common import _github_bearer_value, atomic_write_yaml, env_paths, epic_queue_path, setup_logging
 except ImportError:  # pragma: no cover
-    from common import _github_bearer_value, atomic_write_yaml, env_paths, setup_logging
+    from common import _github_bearer_value, atomic_write_yaml, env_paths, epic_queue_path, setup_logging
 
 LOG = setup_logging("epicwatcher")
 
@@ -93,7 +93,7 @@ def fetch_epic(issue_num: int) -> dict[str, Any]:
 
 
 def watch_once() -> dict[str, Any] | None:
-    queue = Path(env_paths()["OSNOVA_FORGE"]) / "epic-queue.txt"
+    queue = epic_queue_path()
     issue_num = pop_issue_number(queue)
     if issue_num is None:
         return None

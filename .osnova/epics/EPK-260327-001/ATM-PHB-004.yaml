@@ -1,0 +1,26 @@
+id: ATM-PHB-004
+epic: EPK-260327-001
+seq: 4
+zone: trace
+risk: LOW
+executor: cursor
+goal: RuleDistiller — дистилляция fix-rules из repair-трейсов
+scope:
+- src/trace/RuleDistiller.ts — новый модуль
+- Анализ patterns в repair-loop ошибках
+- Генерация правил для LLM
+notouch:
+- src/compiler/
+- src/runtime/
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Спроектировать формат fix-rule
+- Реализовать анализ трейсов repairs.jsonl
+- Генерация few-shot правил из успешных патчей
+- Покрыть тестами
+deps:
+- ATM-PHB-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

@@ -1,0 +1,26 @@
+id: ATM-PHB-003
+epic: EPK-260327-001
+seq: 3
+zone: agents
+risk: LOW
+executor: cursor
+goal: Выделить SpecArchitect из IntakeAgent (mode=spec)
+scope:
+- src/agents/SpecArchitect.ts — новый агент
+- src/agents/IntakeAgent.ts — оставить только mode=intent
+- Обновить roles.yaml
+notouch:
+- src/compiler/
+- src/runtime/vm/
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Создать SpecArchitect с output OsnovaSpec
+- Удалить mode=spec из IntakeAgent
+- Обновить orchestrator.ts для нового агента
+- Обновить roles.yaml
+deps:
+- ATM-PHB-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

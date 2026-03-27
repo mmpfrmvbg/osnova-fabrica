@@ -1,5 +1,6 @@
 # OSNOVA v5.2 — external watchdog for local forge heartbeat.
-# Requires a self-hosted runner on the same machine as /opt/osnova-forge (or disable this workflow).
+# Runner must be labeled `osnova-forge` and co-located with the heartbeat file (same host as forge).
+# Register: ./config.sh --labels osnova-forge (or add the label in repo Settings → Actions → Runners).
 name: "07 Heart External Watchdog"
 
 on:
@@ -12,7 +13,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: self-hosted
+    runs-on: [self-hosted, osnova-forge]
     steps:
       - name: Check heartbeat age
         id: hb

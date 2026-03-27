@@ -10,9 +10,9 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
+    from forge.common import SUBPROCESS_TEXT, env_paths, epic_queue_path, resolve_executable, setup_logging
 except ImportError:  # pragma: no cover
-    from common import SUBPROCESS_TEXT, env_paths, resolve_executable, setup_logging
+    from common import SUBPROCESS_TEXT, env_paths, epic_queue_path, resolve_executable, setup_logging
 
 LOG = setup_logging("brain_fallback")
 
@@ -167,7 +167,7 @@ def is_brain_silent(state: dict[str, Any]) -> bool:
 
 def has_pending_brain_epic() -> bool:
     """Non-empty queue means GHA already lined up work for the primary brain."""
-    queue_file = _forge_dir() / "epic-queue.txt"
+    queue_file = epic_queue_path()
     return bool(queue_file.exists() and queue_file.read_text(encoding="utf-8").strip())
 
 

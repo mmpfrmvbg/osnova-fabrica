@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from pathlib import Path
+from subprocess import TimeoutExpired
 from typing import Any
 
 try:
@@ -26,20 +28,31 @@ def _git_diff(project: Path) -> str:
     return (proc.stdout or "") if proc.returncode == 0 else ""
 
 
+def _qwen_review_timeout() -> int:
+    raw = os.environ.get("FORGE_QWEN_REVIEW_TIMEOUT", "").strip()
+    if raw.isdigit():
+        return max(30, int(raw))
+    return 300
+
+
 def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
     prompt = (
         "Review ATM result. Return one line: PASS: reason OR FAIL: reason.\n"
         f"Goal: {atom.get('goal')}\nScope: {atom.get('scope')}\n"
         f"Done command: {atom.get('done')}\nDiff:\n{diff}\n"
     )
-    proc = subprocess.run(
-        [resolve_executable(env_paths()["QWENBIN"]), "run", prompt],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-        **SUBPROCESS_TEXT,
-    )
+    rev_s = _qwen_review_timeout()
+    try:
+        proc = subprocess.run(
+            [resolve_executable(env_paths()["QWENBIN"]), "run", prompt],
+            capture_output=True,
+            text=True,
+            timeout=rev_s,
+            check=False,
+            **SUBPROCESS_TEXT,
+        )
+    except TimeoutExpired:
+        return False, f"FAIL: qwen review timeout after {rev_s}s (FORGE_QWEN_REVIEW_TIMEOUT)"
     text = (proc.stdout or proc.stderr).strip()
     passed = text.upper().startswith("PASS")
     reason = text if text else "No reviewer output"
@@ -57,6 +70,10 @@ def review(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, str, int]
     if not done_cmd:
         elapsed = int(time.time() - start)
         return llm_pass, llm_reason, elapsed
+    LOG.info(
+        "reviewer: running ATM done-command (up to 900s, no log until finish): %s",
+        done_cmd[:500] + ("…" if len(done_cmd) > 500 else ""),
+    )
     done = subprocess.run(done_cmd, cwd=project, shell=True, timeout=900, check=False)
     passed = llm_pass and done.returncode == 0
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"

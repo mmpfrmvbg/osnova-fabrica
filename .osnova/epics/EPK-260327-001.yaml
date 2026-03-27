@@ -1,0 +1,30 @@
+v: 5
+t: EPK
+id: EPK-260327-001
+origin: auto-planner
+zone: lang
+goal: 'Добавить регрессионные тесты для операции деления по модулю (%) в VM компилятора
+  и покрыть сценарий низкой уверенности IntakeAgent, чтобы закрыть рекомендации ретроспективы
+  и предотвратить повторный регресс по Issues #2, #4, #1, #3.
+
+  '
+scope:
+- src/compiler/vm.test.ts
+- src/compiler/vm.ts
+- src/agents/intake-agent.test.ts
+- src/agents/intake-agent.ts
+notouch:
+- .github/
+- infra/
+- deploy/
+- Cargo.lock
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+priority: P2
+context: 'Ретроспектива от 2026-03-27 зафиксировала два класса багов: vm-crash на
+  операции % (Issues #2, #4) и IntakeAgent low-confidence (Issues #1, #3). Баги закрыты,
+  но покрытие регрессионными тестами отсутствует — history пуста, passrate=1.0 только
+  потому что тестов ещё не запускалось. Первый цикл Brain, epicsreceived=0.
+
+  '
+risk: LOW
+githubissue: 12

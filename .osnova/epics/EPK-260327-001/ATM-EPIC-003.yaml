@@ -1,0 +1,29 @@
+id: ATM-EPIC-003
+epic: EPK-260327-001
+seq: 3
+zone: agents
+risk: MEDIUM
+executor: qwen
+goal: Реализовать 3 LLM-агента (IntakeAgent, OsnovaCodegen, RepairEngineer)
+scope:
+- src/agents/IntakeAgent.ts
+- src/agents/OsnovaCodegen.ts
+- src/agents/RepairEngineer.ts
+- src/pipeline-llm/
+notouch:
+- src/compiler/
+- src/runtime/vm/
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Изучить roles.yaml и pipeline.yaml для контрактов агентов
+- Реализовать IntakeAgent: режимы intent/spec (генерация по LLM)
+- Реализовать OsnovaCodegen: промпт + few-shot из golden-tests
+- Реализовать RepairEngineer: патч кода по ошибкам компиляции/VM
+- Интегрировать с LLM-провайдерами (QwenCli/DeepSeek/Ollama)
+deps:
+- ATM-EPIC-001
+- ATM-EPIC-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

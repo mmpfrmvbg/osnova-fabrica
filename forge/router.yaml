@@ -1,4 +1,6 @@
 # OSNOVA v5.2 Router Rules (human reference; forge/router.py implements routing)
+# Scope lines: "path/to/file.ts — optional note". Only the segment before — is used for *.yaml/*.ts rules
+# so prose mentioning pipeline.yaml does not steal routing from real .ts targets.
 default_executor: cursor
 
 rules:

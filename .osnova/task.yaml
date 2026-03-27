@@ -1,0 +1,29 @@
+id: ATM-EPIC-001
+epic: EPK-260327-001
+seq: 1
+zone: lang
+risk: MEDIUM
+executor: cursor
+goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
+scope:
+- src/compiler/lexer.ts
+- src/compiler/parser.ts
+- src/compiler/ast.ts
+- src/compiler/codegen.ts
+- src/compiler/compiler.ts
+notouch:
+- src/runtime/
+- src/agents/
+- pipeline.yaml
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Изучить docs/language-v2.md и docs/osnova/language-schema.json
+- Реализовать lexer: токенизация кириллических ключевых слов
+- Реализовать parser: построение AST для procedure/if/loop/match
+- Реализовать codegen: генерация .osvbc JSON байткода
+- Покрыть unit-тестами vitest
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

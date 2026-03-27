@@ -1,9 +1,15 @@
 # OSNOVA v5.2 — Brain EPIC Intake (queue file + optional unix socket wake)
+#
+# Рекомендуемая схема: forge, Actions runner и клон репо на **одной машине**.
+# `runs-on: [self-hosted, osnova-forge]` совпадает с 07-heart-alert — job видит epic.sock и heartbeat.
+#
+# Queue: коммитит <repo>/forge/epic-queue.txt; forge читает через epic_queue_path() после git pull
+# (forge/common.py). Для wake без ожидания poll: `socat` на PATH и путь FORGE_EPIC_SOCKET → epic.sock.
 name: 01 Brain EPIC Intake
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, labeled]
 
 concurrency:
   group: epic-intake-${{ github.repository }}
@@ -12,8 +18,15 @@ concurrency:
 jobs:
   intake:
     name: Queue EPIC for local forge
-    runs-on: ubuntu-latest
-    if: github.event.label.name == 'brain-epic'
+    runs-on: [self-hosted, osnova-forge]
+    if: |
+      (
+        github.event.action == 'opened' &&
+        contains(github.event.issue.labels.*.name, 'brain-epic')
+      ) || (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'brain-epic'
+      )
 
     permissions:
       contents: write
@@ -33,10 +46,14 @@ jobs:
         run: |
           echo "Writing EPIC #${ISSUE_NUMBER} to forge/epic-queue.txt"
           mkdir -p forge
-          echo "${ISSUE_NUMBER}" >> forge/epic-queue.txt
+          if [ -f forge/epic-queue.txt ] && grep -qxF "${ISSUE_NUMBER}" forge/epic-queue.txt; then
+            echo "Issue #${ISSUE_NUMBER} already queued — skip duplicate append"
+          else
+            echo "${ISSUE_NUMBER}" >> forge/epic-queue.txt
+          fi
           echo "Queued at $(date -u +%Y-%m-%dT%H:%M:%SZ): #${ISSUE_NUMBER} — ${ISSUE_TITLE}" >> forge/epic-queue.log || true
 
-      - name: Notify forge via Unix socket (self-hosted forge only)
+      - name: Notify forge via Unix socket (co-located runner)
         continue-on-error: true
         run: |
           ISSUE_NUM=${{ github.event.issue.number }}
@@ -44,7 +61,7 @@ jobs:
           if command -v socat >/dev/null 2>&1 && [ -S "$SOCK" ]; then
             printf '{"issue_number": %s}' "$ISSUE_NUM" | timeout 5 socat - UNIX-CONNECT:"$SOCK" && echo "socket_ok=1" || echo "socket_ok=0"
           else
-            echo "socket_skipped (no socat or no socket — forge will poll queue)"
+            echo "socket_skipped (install socat and run forge with epic.sock, or rely on git pull)"
           fi
 
       - name: Commit queue update
@@ -69,8 +86,8 @@ jobs:
                 '**\u23f3 OSNOVA Forge** — EPIC получен и поставлен в очередь.',
                 '',
                 `**Issue:** #${context.issue.number}`,
-                `**Queue file:** \`forge/epic-queue.txt\``,
+                `**Queue file:** \`forge/epic-queue.txt\` (канонический путь для \`git pull\`)`,
                 '',
-                'Локальный `forge.py` подтянет очередь через `git pull` и при необходимости проснётся по `epic.sock` на хосте forge.',
+                'При **self-hosted на машине forge** этот же job может дернуть `epic.sock` (нужен `socat`). Иначе очередь подхватится на следующем `git pull` в цикле forge.',
               ].join('\n'),
             });

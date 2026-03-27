@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+from subprocess import TimeoutExpired
 from typing import Any
 
 import yaml
@@ -15,6 +17,15 @@ except ImportError:  # pragma: no cover
     from qwenbudget import can_call, record
 
 LOG = setup_logging("qwenexec")
+
+_DEFAULT_QWEN_RUN_S = 900
+
+
+def _qwen_run_timeout() -> int:
+    raw = os.environ.get("FORGE_QWEN_TIMEOUT", "").strip()
+    if raw.isdigit():
+        return max(30, int(raw))
+    return _DEFAULT_QWEN_RUN_S
 
 
 def _prompt(atom: dict[str, Any]) -> str:
@@ -50,10 +61,34 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
     if dry_run:
         LOG.info("[dry-run] Would call qwen for %s", atom.get("id"))
         return True, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "OK", "changed": [], "elapsed": 0}
+    run_s = _qwen_run_timeout()
+    LOG.info(
+        "qwenexec: starting run for %s (timeout %ss; set FORGE_QWEN_TIMEOUT)",
+        atom.get("id"),
+        run_s,
+    )
     if not can_call():
         return False, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "BLK", "err": "Qwen daily budget exhausted"}
     cmd = [resolve_executable(env_paths()["QWENBIN"]), "run", _prompt(atom)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False, **SUBPROCESS_TEXT)
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=run_s,
+            check=False,
+            **SUBPROCESS_TEXT,
+        )
+    except TimeoutExpired:
+        LOG.error("qwen run timed out after %ss for %s", run_s, atom.get("id"))
+        record()
+        return False, {
+            "v": 5,
+            "t": "RPT",
+            "id": atom.get("id"),
+            "s": "BLK",
+            "err": f"qwen run timeout after {run_s}s (raise FORGE_QWEN_TIMEOUT or use cursor executor)",
+        }
     record()
     if proc.returncode != 0:
         return False, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "BLK", "err": proc.stderr.strip()}
