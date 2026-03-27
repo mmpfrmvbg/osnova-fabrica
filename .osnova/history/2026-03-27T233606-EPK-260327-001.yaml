@@ -1,0 +1,2055 @@
+epic: EPK-260327-001
+summary:
+  status: BLK
+  passrate: 0.0
+  atomsdone: 0
+  atomstotal: 5
+results:
+- version: 0.1.0
+  generated_at: '2026-03-27T20:25:58.693Z'
+  epic: EPK-260327-001
+  summary:
+    total_tasks: 14
+    by_status:
+      PENDING: 14
+    by_zone:
+      lang: 6
+      runtime: 1
+      agents: 2
+      pipeline: 2
+      llm: 1
+      trace: 1
+      golden: 1
+    by_risk:
+      MEDIUM: 5
+      HIGH: 1
+      LOW: 8
+    by_priority:
+      P2: 14
+  tasks:
+  - id: ATM-EPIC-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
+    scope:
+    - src/compiler/lexer.ts
+    - src/compiler/parser.ts
+    - src/compiler/ast.ts
+    - src/compiler/codegen.ts
+    - src/compiler/compiler.ts
+    notouch:
+    - src/runtime/
+    - src/agents/
+    - pipeline.yaml
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/language-v2.md и docs/osnova/language-schema.json
+    - Реализовать lexer: токенизация кириллических ключевых слов
+    - Реализовать parser: построение AST для procedure/if/loop/match
+    - Реализовать codegen: генерация .osvbc JSON байткода
+    - Покрыть unit-тестами vitest
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: pipeline
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать DAG-оркестратор вместо линейного pipeline
+    scope:
+    - src/pipeline/orchestrator.ts — рефакторинг под DAG
+    - Чтение pipeline.yaml как источника истины
+    - Поддержка параллельных фаз
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать DAG-структуру в orchestrator.ts
+    - Реализовать топологическую сортировку фаз
+    - Добавить параллельное выполнение независимых фаз
+    - Обновить тесты оркестратора
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: runtime
+    risk: HIGH
+    executor: cursor
+    goal: Реализовать VM для исполнения .osvbc байткода и golden-runner
+    scope:
+    - src/runtime/vm/interpreter.ts
+    - src/runtime/vm/bytecode.ts
+    - src/runtime/goldenApps.ts
+    - src/runtime/sandbox.ts
+    notouch:
+    - src/compiler/
+    - src/agents/
+    - src/llm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/bytecode-v1.md и docs/golden-tests.json
+    - Реализовать интерпретатор стековой VM (control-flow, syscalls)
+    - Реализовать sandbox для ограничения операций VM
+    - Реализовать golden-runner: запуск 5 эталонных приложений
+    - Покрыть integration-тестами
+    deps:
+    - ATM-EPIC-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: llm
+    risk: MEDIUM
+    executor: cursor
+    goal: Добавить RAG/VectorDB в QwenCliProvider (DEBT-004)
+    scope:
+    - src/llm/QwenCliProvider.ts — опциональный RAG
+    - src/llm/VectorDB.ts — новый модуль
+    - src/llm/EmbeddingService.ts — новый модуль
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Реализовать EmbeddingService (локальная эмбеддинги)
+    - Реализовать VectorDB (in-memory + persistence)
+    - Добавить RAG-контекст в QwenCliProvider.complete()
+    - Покрыть unit-тестами
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: MEDIUM
+    executor: qwen
+    goal: Реализовать 3 LLM-агента (IntakeAgent, OsnovaCodegen, RepairEngineer)
+    scope:
+    - src/agents/IntakeAgent.ts
+    - src/agents/OsnovaCodegen.ts
+    - src/agents/RepairEngineer.ts
+    - src/pipeline-llm/
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить roles.yaml и pipeline.yaml для контрактов агентов
+    - Реализовать IntakeAgent: режимы intent/spec (генерация по LLM)
+    - Реализовать OsnovaCodegen: промпт + few-shot из golden-tests
+    - Реализовать RepairEngineer: патч кода по ошибкам компиляции/VM
+    - Интегрировать с LLM-провайдерами (QwenCli/DeepSeek/Ollama)
+    deps:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: LOW
+    executor: cursor
+    goal: Выделить SpecArchitect из IntakeAgent (mode=spec)
+    scope:
+    - src/agents/SpecArchitect.ts — новый агент
+    - src/agents/IntakeAgent.ts — оставить только mode=intent
+    - Обновить roles.yaml
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Создать SpecArchitect с output OsnovaSpec
+    - Удалить mode=spec из IntakeAgent
+    - Обновить orchestrator.ts для нового агента
+    - Обновить roles.yaml
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: pipeline
+    risk: LOW
+    executor: cursor
+    goal: Реализовать pipeline orchestrator + gateChecker + trace export
+    scope:
+    - src/pipeline/orchestrator.ts
+    - src/pipeline/gateChecker.ts
+    - src/pipeline/types.ts
+    - src/trace/traceStore.ts
+    - src/scripts/export-dataset.ts
+    notouch:
+    - docs/legacy/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить pipeline.yaml (6 фаз) и gates.yaml (3 quality gates)
+    - Реализовать orchestrator: линейный запуск фаз intake→spec→codegen→build→golden→repair
+    - Реализовать gateChecker: G1_spec_ready, G2_build_pass, G3_golden_pass
+    - Реализовать traceStore: запись JSONL в runs/traces.jsonl
+    - Реализовать export-dataset: фильтрация трейсов → dataset-v1.jsonl
+    deps:
+    - ATM-EPIC-003
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: trace
+    risk: LOW
+    executor: cursor
+    goal: RuleDistiller — дистилляция fix-rules из repair-трейсов
+    scope:
+    - src/trace/RuleDistiller.ts — новый модуль
+    - Анализ patterns в repair-loop ошибках
+    - Генерация правил для LLM
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать формат fix-rule
+    - Реализовать анализ трейсов repairs.jsonl
+    - Генерация few-shot правил из успешных патчей
+    - Покрыть тестами
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: golden
+    risk: MEDIUM
+    executor: cursor
+    goal: LoRA fine-tune на успешных трейсах
+    scope:
+    - src/scripts/prepare-lora-dataset.ts
+    - Интеграция с traces.jsonl
+    - Экспорт SFT-датасета для Qwen
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Фильтрация traces.jsonl по runStatus=success
+    - Формирование пар (prompt, completion)
+    - Экспорт в Qwen LoRA формат
+    - Документация процесса fine-tune
+    deps:
+    - ATM-PHB-004
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  deps_graph:
+    ATM-EPIC-001: []
+    ATM-EPIC-002:
+    - ATM-EPIC-001
+    ATM-EPIC-003:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    ATM-EPIC-004:
+    - ATM-EPIC-003
+    ATM-EPK-260327-001-001: []
+    ATM-EPK-260327-001-002: []
+    ATM-EPK-260327-001-003: []
+    ATM-EPK-260327-001-004: []
+    ATM-EPK-260327-001-005: []
+    ATM-PHB-001: []
+    ATM-PHB-002: []
+    ATM-PHB-003:
+    - ATM-PHB-001
+    ATM-PHB-004:
+    - ATM-PHB-001
+    ATM-PHB-005:
+    - ATM-PHB-004
+  critical_path:
+  - ATM-EPIC-001
+  - ATM-EPIC-002
+  - ATM-EPIC-003
+  - ATM-EPIC-004
+  recommendations:
+  - Начать с 14 ожидающих задач
+  - Уделить внимание 1 задачам с HIGH риском
+  - Нет активных задач — рекомендуется начать выполнение
+  - Заполнить goal для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+      ATM-EPK-260327-001-004, ATM-EPK-260327-001-005
+  - Добавить шаги для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+      ATM-EPK-260327-001-004, ATM-EPK-260327-001-005
+  id: ATM-EPK-260327-001-001
+  t: RPT
+  v: 5
+  s: BLK
+  review:
+    passed: false
+    reason: 'FAIL: Все 5 ATM-задач (ATM-EPK-260327-001-001..005) имеют пустые поля
+      `goal` и `steps` при статусе PENDING — задачи не готовы к выполнению.; done
+      command failed: 1'
+    elapsed: 33
+- version: 0.1.0
+  generated_at: '2026-03-27T20:28:20.104Z'
+  epic: EPK-260327-001
+  summary:
+    total_tasks: 14
+    by_status:
+      PENDING: 14
+    by_zone:
+      lang: 6
+      runtime: 1
+      agents: 2
+      pipeline: 2
+      llm: 1
+      trace: 1
+      golden: 1
+    by_risk:
+      MEDIUM: 5
+      HIGH: 1
+      LOW: 8
+    by_priority:
+      P2: 14
+  tasks:
+  - id: ATM-EPIC-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
+    scope:
+    - src/compiler/lexer.ts
+    - src/compiler/parser.ts
+    - src/compiler/ast.ts
+    - src/compiler/codegen.ts
+    - src/compiler/compiler.ts
+    notouch:
+    - src/runtime/
+    - src/agents/
+    - pipeline.yaml
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/language-v2.md и docs/osnova/language-schema.json
+    - Реализовать lexer: токенизация кириллических ключевых слов
+    - Реализовать parser: построение AST для procedure/if/loop/match
+    - Реализовать codegen: генерация .osvbc JSON байткода
+    - Покрыть unit-тестами vitest
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: pipeline
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать DAG-оркестратор вместо линейного pipeline
+    scope:
+    - src/pipeline/orchestrator.ts — рефакторинг под DAG
+    - Чтение pipeline.yaml как источника истины
+    - Поддержка параллельных фаз
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать DAG-структуру в orchestrator.ts
+    - Реализовать топологическую сортировку фаз
+    - Добавить параллельное выполнение независимых фаз
+    - Обновить тесты оркестратора
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: runtime
+    risk: HIGH
+    executor: cursor
+    goal: Реализовать VM для исполнения .osvbc байткода и golden-runner
+    scope:
+    - src/runtime/vm/interpreter.ts
+    - src/runtime/vm/bytecode.ts
+    - src/runtime/goldenApps.ts
+    - src/runtime/sandbox.ts
+    notouch:
+    - src/compiler/
+    - src/agents/
+    - src/llm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/bytecode-v1.md и docs/golden-tests.json
+    - Реализовать интерпретатор стековой VM (control-flow, syscalls)
+    - Реализовать sandbox для ограничения операций VM
+    - Реализовать golden-runner: запуск 5 эталонных приложений
+    - Покрыть integration-тестами
+    deps:
+    - ATM-EPIC-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: llm
+    risk: MEDIUM
+    executor: cursor
+    goal: Добавить RAG/VectorDB в QwenCliProvider (DEBT-004)
+    scope:
+    - src/llm/QwenCliProvider.ts — опциональный RAG
+    - src/llm/VectorDB.ts — новый модуль
+    - src/llm/EmbeddingService.ts — новый модуль
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Реализовать EmbeddingService (локальная эмбеддинги)
+    - Реализовать VectorDB (in-memory + persistence)
+    - Добавить RAG-контекст в QwenCliProvider.complete()
+    - Покрыть unit-тестами
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: MEDIUM
+    executor: qwen
+    goal: Реализовать 3 LLM-агента (IntakeAgent, OsnovaCodegen, RepairEngineer)
+    scope:
+    - src/agents/IntakeAgent.ts
+    - src/agents/OsnovaCodegen.ts
+    - src/agents/RepairEngineer.ts
+    - src/pipeline-llm/
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить roles.yaml и pipeline.yaml для контрактов агентов
+    - Реализовать IntakeAgent: режимы intent/spec (генерация по LLM)
+    - Реализовать OsnovaCodegen: промпт + few-shot из golden-tests
+    - Реализовать RepairEngineer: патч кода по ошибкам компиляции/VM
+    - Интегрировать с LLM-провайдерами (QwenCli/DeepSeek/Ollama)
+    deps:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: LOW
+    executor: cursor
+    goal: Выделить SpecArchitect из IntakeAgent (mode=spec)
+    scope:
+    - src/agents/SpecArchitect.ts — новый агент
+    - src/agents/IntakeAgent.ts — оставить только mode=intent
+    - Обновить roles.yaml
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Создать SpecArchitect с output OsnovaSpec
+    - Удалить mode=spec из IntakeAgent
+    - Обновить orchestrator.ts для нового агента
+    - Обновить roles.yaml
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: pipeline
+    risk: LOW
+    executor: cursor
+    goal: Реализовать pipeline orchestrator + gateChecker + trace export
+    scope:
+    - src/pipeline/orchestrator.ts
+    - src/pipeline/gateChecker.ts
+    - src/pipeline/types.ts
+    - src/trace/traceStore.ts
+    - src/scripts/export-dataset.ts
+    notouch:
+    - docs/legacy/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить pipeline.yaml (6 фаз) и gates.yaml (3 quality gates)
+    - Реализовать orchestrator: линейный запуск фаз intake→spec→codegen→build→golden→repair
+    - Реализовать gateChecker: G1_spec_ready, G2_build_pass, G3_golden_pass
+    - Реализовать traceStore: запись JSONL в runs/traces.jsonl
+    - Реализовать export-dataset: фильтрация трейсов → dataset-v1.jsonl
+    deps:
+    - ATM-EPIC-003
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: trace
+    risk: LOW
+    executor: cursor
+    goal: RuleDistiller — дистилляция fix-rules из repair-трейсов
+    scope:
+    - src/trace/RuleDistiller.ts — новый модуль
+    - Анализ patterns в repair-loop ошибках
+    - Генерация правил для LLM
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать формат fix-rule
+    - Реализовать анализ трейсов repairs.jsonl
+    - Генерация few-shot правил из успешных патчей
+    - Покрыть тестами
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: golden
+    risk: MEDIUM
+    executor: cursor
+    goal: LoRA fine-tune на успешных трейсах
+    scope:
+    - src/scripts/prepare-lora-dataset.ts
+    - Интеграция с traces.jsonl
+    - Экспорт SFT-датасета для Qwen
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Фильтрация traces.jsonl по runStatus=success
+    - Формирование пар (prompt, completion)
+    - Экспорт в Qwen LoRA формат
+    - Документация процесса fine-tune
+    deps:
+    - ATM-PHB-004
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  deps_graph:
+    ATM-EPIC-001: []
+    ATM-EPIC-002:
+    - ATM-EPIC-001
+    ATM-EPIC-003:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    ATM-EPIC-004:
+    - ATM-EPIC-003
+    ATM-EPK-260327-001-001: []
+    ATM-EPK-260327-001-002: []
+    ATM-EPK-260327-001-003: []
+    ATM-EPK-260327-001-004: []
+    ATM-EPK-260327-001-005: []
+    ATM-PHB-001: []
+    ATM-PHB-002: []
+    ATM-PHB-003:
+    - ATM-PHB-001
+    ATM-PHB-004:
+    - ATM-PHB-001
+    ATM-PHB-005:
+    - ATM-PHB-004
+  critical_path:
+  - ATM-EPIC-001
+  - ATM-EPIC-002
+  - ATM-EPIC-003
+  - ATM-EPIC-004
+  recommendations:
+  - Начать с 14 ожидающих задач
+  - Уделить внимание 1 задачам с HIGH риском
+  - Нет активных задач — рекомендуется начать выполнение
+  - Заполнить goal для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+      ATM-EPK-260327-001-004, ATM-EPK-260327-001-005
+  - Добавить шаги для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+      ATM-EPK-260327-001-004, ATM-EPK-260327-001-005
+  id: ATM-EPK-260327-001-002
+  t: RPT
+  v: 5
+  s: BLK
+  review:
+    passed: false
+    reason: '**FAIL: Все 14 задач в статусе PENDING — ни одна задача не выполнена;
+      5 задач имеют пустое поле `goal` и пустой `steps`.**; done command failed: 1'
+    elapsed: 31
+- version: 0.1.0
+  generated_at: '2026-03-27T20:30:22.410Z'
+  epic: EPK-260327-001
+  summary:
+    total_tasks: 14
+    by_status:
+      PENDING: 14
+    by_zone:
+      lang: 6
+      runtime: 1
+      agents: 2
+      pipeline: 2
+      llm: 1
+      trace: 1
+      golden: 1
+    by_risk:
+      MEDIUM: 5
+      HIGH: 1
+      LOW: 8
+    by_priority:
+      P2: 14
+  tasks:
+  - id: ATM-EPIC-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
+    scope:
+    - src/compiler/lexer.ts
+    - src/compiler/parser.ts
+    - src/compiler/ast.ts
+    - src/compiler/codegen.ts
+    - src/compiler/compiler.ts
+    notouch:
+    - src/runtime/
+    - src/agents/
+    - pipeline.yaml
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/language-v2.md и docs/osnova/language-schema.json
+    - Реализовать lexer: токенизация кириллических ключевых слов
+    - Реализовать parser: построение AST для procedure/if/loop/match
+    - Реализовать codegen: генерация .osvbc JSON байткода
+    - Покрыть unit-тестами vitest
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: pipeline
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать DAG-оркестратор вместо линейного pipeline
+    scope:
+    - src/pipeline/orchestrator.ts — рефакторинг под DAG
+    - Чтение pipeline.yaml как источника истины
+    - Поддержка параллельных фаз
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать DAG-структуру в orchestrator.ts
+    - Реализовать топологическую сортировку фаз
+    - Добавить параллельное выполнение независимых фаз
+    - Обновить тесты оркестратора
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: runtime
+    risk: HIGH
+    executor: cursor
+    goal: Реализовать VM для исполнения .osvbc байткода и golden-runner
+    scope:
+    - src/runtime/vm/interpreter.ts
+    - src/runtime/vm/bytecode.ts
+    - src/runtime/goldenApps.ts
+    - src/runtime/sandbox.ts
+    notouch:
+    - src/compiler/
+    - src/agents/
+    - src/llm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/bytecode-v1.md и docs/golden-tests.json
+    - Реализовать интерпретатор стековой VM (control-flow, syscalls)
+    - Реализовать sandbox для ограничения операций VM
+    - Реализовать golden-runner: запуск 5 эталонных приложений
+    - Покрыть integration-тестами
+    deps:
+    - ATM-EPIC-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: llm
+    risk: MEDIUM
+    executor: cursor
+    goal: Добавить RAG/VectorDB в QwenCliProvider (DEBT-004)
+    scope:
+    - src/llm/QwenCliProvider.ts — опциональный RAG
+    - src/llm/VectorDB.ts — новый модуль
+    - src/llm/EmbeddingService.ts — новый модуль
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Реализовать EmbeddingService (локальная эмбеддинги)
+    - Реализовать VectorDB (in-memory + persistence)
+    - Добавить RAG-контекст в QwenCliProvider.complete()
+    - Покрыть unit-тестами
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: MEDIUM
+    executor: qwen
+    goal: Реализовать 3 LLM-агента (IntakeAgent, OsnovaCodegen, RepairEngineer)
+    scope:
+    - src/agents/IntakeAgent.ts
+    - src/agents/OsnovaCodegen.ts
+    - src/agents/RepairEngineer.ts
+    - src/pipeline-llm/
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить roles.yaml и pipeline.yaml для контрактов агентов
+    - Реализовать IntakeAgent: режимы intent/spec (генерация по LLM)
+    - Реализовать OsnovaCodegen: промпт + few-shot из golden-tests
+    - Реализовать RepairEngineer: патч кода по ошибкам компиляции/VM
+    - Интегрировать с LLM-провайдерами (QwenCli/DeepSeek/Ollama)
+    deps:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: LOW
+    executor: cursor
+    goal: Выделить SpecArchitect из IntakeAgent (mode=spec)
+    scope:
+    - src/agents/SpecArchitect.ts — новый агент
+    - src/agents/IntakeAgent.ts — оставить только mode=intent
+    - Обновить roles.yaml
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Создать SpecArchitect с output OsnovaSpec
+    - Удалить mode=spec из IntakeAgent
+    - Обновить orchestrator.ts для нового агента
+    - Обновить roles.yaml
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: pipeline
+    risk: LOW
+    executor: cursor
+    goal: Реализовать pipeline orchestrator + gateChecker + trace export
+    scope:
+    - src/pipeline/orchestrator.ts
+    - src/pipeline/gateChecker.ts
+    - src/pipeline/types.ts
+    - src/trace/traceStore.ts
+    - src/scripts/export-dataset.ts
+    notouch:
+    - docs/legacy/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить pipeline.yaml (6 фаз) и gates.yaml (3 quality gates)
+    - Реализовать orchestrator: линейный запуск фаз intake→spec→codegen→build→golden→repair
+    - Реализовать gateChecker: G1_spec_ready, G2_build_pass, G3_golden_pass
+    - Реализовать traceStore: запись JSONL в runs/traces.jsonl
+    - Реализовать export-dataset: фильтрация трейсов → dataset-v1.jsonl
+    deps:
+    - ATM-EPIC-003
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: trace
+    risk: LOW
+    executor: cursor
+    goal: RuleDistiller — дистилляция fix-rules из repair-трейсов
+    scope:
+    - src/trace/RuleDistiller.ts — новый модуль
+    - Анализ patterns в repair-loop ошибках
+    - Генерация правил для LLM
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать формат fix-rule
+    - Реализовать анализ трейсов repairs.jsonl
+    - Генерация few-shot правил из успешных патчей
+    - Покрыть тестами
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: golden
+    risk: MEDIUM
+    executor: cursor
+    goal: LoRA fine-tune на успешных трейсах
+    scope:
+    - src/scripts/prepare-lora-dataset.ts
+    - Интеграция с traces.jsonl
+    - Экспорт SFT-датасета для Qwen
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Фильтрация traces.jsonl по runStatus=success
+    - Формирование пар (prompt, completion)
+    - Экспорт в Qwen LoRA формат
+    - Документация процесса fine-tune
+    deps:
+    - ATM-PHB-004
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  deps_graph:
+    ATM-EPIC-001: []
+    ATM-EPIC-002:
+    - ATM-EPIC-001
+    ATM-EPIC-003:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    ATM-EPIC-004:
+    - ATM-EPIC-003
+    ATM-EPK-260327-001-001: []
+    ATM-EPK-260327-001-002: []
+    ATM-EPK-260327-001-003: []
+    ATM-EPK-260327-001-004: []
+    ATM-EPK-260327-001-005: []
+    ATM-PHB-001: []
+    ATM-PHB-002: []
+    ATM-PHB-003:
+    - ATM-PHB-001
+    ATM-PHB-004:
+    - ATM-PHB-001
+    ATM-PHB-005:
+    - ATM-PHB-004
+  critical_path:
+  - ATM-EPIC-001
+  - ATM-EPIC-002
+  - ATM-EPIC-003
+  - ATM-EPIC-004
+  recommendations:
+  - Начать с 14 ожидающих задач
+  - Уделить внимание 1 задачам с HIGH риском
+  - Нет активных задач — рекомендуется начать выполнение
+  - Заполнить goal для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+      ATM-EPK-260327-001-004, ATM-EPK-260327-001-005
+  - Добавить шаги для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+      ATM-EPK-260327-001-004, ATM-EPK-260327-001-005
+  id: ATM-EPK-260327-001-003
+  t: RPT
+  v: 5
+  s: BLK
+  review:
+    passed: false
+    reason: 'FAIL: ATM-EPK-260327-001-004 заблокирован (s: BLK) с ошибкой ''agent
+      -p failed (model token: _)'', тесты не выполнены (0/0).; done command failed:
+      1'
+    elapsed: 32
+- version: 0.1.0
+  generated_at: '2026-03-27T20:32:39.756Z'
+  epic: EPK-260327-001
+  summary:
+    total_tasks: 14
+    by_status:
+      PENDING: 14
+    by_zone:
+      lang: 6
+      runtime: 1
+      agents: 2
+      pipeline: 2
+      llm: 1
+      trace: 1
+      golden: 1
+    by_risk:
+      MEDIUM: 5
+      HIGH: 1
+      LOW: 8
+    by_priority:
+      P2: 14
+  tasks:
+  - id: ATM-EPIC-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
+    scope:
+    - src/compiler/lexer.ts
+    - src/compiler/parser.ts
+    - src/compiler/ast.ts
+    - src/compiler/codegen.ts
+    - src/compiler/compiler.ts
+    notouch:
+    - src/runtime/
+    - src/agents/
+    - pipeline.yaml
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/language-v2.md и docs/osnova/language-schema.json
+    - Реализовать lexer: токенизация кириллических ключевых слов
+    - Реализовать parser: построение AST для procedure/if/loop/match
+    - Реализовать codegen: генерация .osvbc JSON байткода
+    - Покрыть unit-тестами vitest
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: pipeline
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать DAG-оркестратор вместо линейного pipeline
+    scope:
+    - src/pipeline/orchestrator.ts — рефакторинг под DAG
+    - Чтение pipeline.yaml как источника истины
+    - Поддержка параллельных фаз
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать DAG-структуру в orchestrator.ts
+    - Реализовать топологическую сортировку фаз
+    - Добавить параллельное выполнение независимых фаз
+    - Обновить тесты оркестратора
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: runtime
+    risk: HIGH
+    executor: cursor
+    goal: Реализовать VM для исполнения .osvbc байткода и golden-runner
+    scope:
+    - src/runtime/vm/interpreter.ts
+    - src/runtime/vm/bytecode.ts
+    - src/runtime/goldenApps.ts
+    - src/runtime/sandbox.ts
+    notouch:
+    - src/compiler/
+    - src/agents/
+    - src/llm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/bytecode-v1.md и docs/golden-tests.json
+    - Реализовать интерпретатор стековой VM (control-flow, syscalls)
+    - Реализовать sandbox для ограничения операций VM
+    - Реализовать golden-runner: запуск 5 эталонных приложений
+    - Покрыть integration-тестами
+    deps:
+    - ATM-EPIC-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: llm
+    risk: MEDIUM
+    executor: cursor
+    goal: Добавить RAG/VectorDB в QwenCliProvider (DEBT-004)
+    scope:
+    - src/llm/QwenCliProvider.ts — опциональный RAG
+    - src/llm/VectorDB.ts — новый модуль
+    - src/llm/EmbeddingService.ts — новый модуль
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Реализовать EmbeddingService (локальная эмбеддинги)
+    - Реализовать VectorDB (in-memory + persistence)
+    - Добавить RAG-контекст в QwenCliProvider.complete()
+    - Покрыть unit-тестами
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: MEDIUM
+    executor: qwen
+    goal: Реализовать 3 LLM-агента (IntakeAgent, OsnovaCodegen, RepairEngineer)
+    scope:
+    - src/agents/IntakeAgent.ts
+    - src/agents/OsnovaCodegen.ts
+    - src/agents/RepairEngineer.ts
+    - src/pipeline-llm/
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить roles.yaml и pipeline.yaml для контрактов агентов
+    - Реализовать IntakeAgent: режимы intent/spec (генерация по LLM)
+    - Реализовать OsnovaCodegen: промпт + few-shot из golden-tests
+    - Реализовать RepairEngineer: патч кода по ошибкам компиляции/VM
+    - Интегрировать с LLM-провайдерами (QwenCli/DeepSeek/Ollama)
+    deps:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: LOW
+    executor: cursor
+    goal: Выделить SpecArchitect из IntakeAgent (mode=spec)
+    scope:
+    - src/agents/SpecArchitect.ts — новый агент
+    - src/agents/IntakeAgent.ts — оставить только mode=intent
+    - Обновить roles.yaml
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Создать SpecArchitect с output OsnovaSpec
+    - Удалить mode=spec из IntakeAgent
+    - Обновить orchestrator.ts для нового агента
+    - Обновить roles.yaml
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: pipeline
+    risk: LOW
+    executor: cursor
+    goal: Реализовать pipeline orchestrator + gateChecker + trace export
+    scope:
+    - src/pipeline/orchestrator.ts
+    - src/pipeline/gateChecker.ts
+    - src/pipeline/types.ts
+    - src/trace/traceStore.ts
+    - src/scripts/export-dataset.ts
+    notouch:
+    - docs/legacy/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить pipeline.yaml (6 фаз) и gates.yaml (3 quality gates)
+    - 'Реализовать orchestrator: линейный запуск фаз intake→spec→codegen→build→golden→repair'
+    - 'Реализовать gateChecker: G1_spec_ready, G2_build_pass, G3_golden_pass'
+    - 'Реализовать traceStore: запись JSONL в runs/traces.jsonl'
+    - 'Реализовать export-dataset: фильтрация трейсов → dataset-v1.jsonl'
+    deps:
+    - ATM-EPIC-003
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: trace
+    risk: LOW
+    executor: cursor
+    goal: RuleDistiller — дистилляция fix-rules из repair-трейсов
+    scope:
+    - src/trace/RuleDistiller.ts — новый модуль
+    - Анализ patterns в repair-loop ошибках
+    - Генерация правил для LLM
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать формат fix-rule
+    - Реализовать анализ трейсов repairs.jsonl
+    - Генерация few-shot правил из успешных патчей
+    - Покрыть тестами
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: golden
+    risk: MEDIUM
+    executor: cursor
+    goal: LoRA fine-tune на успешных трейсах
+    scope:
+    - src/scripts/prepare-lora-dataset.ts
+    - Интеграция с traces.jsonl
+    - Экспорт SFT-датасета для Qwen
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Фильтрация traces.jsonl по runStatus=success
+    - Формирование пар (prompt, completion)
+    - Экспорт в Qwen LoRA формат
+    - Документация процесса fine-tune
+    deps:
+    - ATM-PHB-004
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  deps_graph:
+    ATM-EPIC-001: []
+    ATM-EPIC-002:
+    - ATM-EPIC-001
+    ATM-EPIC-003:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    ATM-EPIC-004:
+    - ATM-EPIC-003
+    ATM-EPK-260327-001-001: []
+    ATM-EPK-260327-001-002: []
+    ATM-EPK-260327-001-003: []
+    ATM-EPK-260327-001-004: []
+    ATM-EPK-260327-001-005: []
+    ATM-PHB-001: []
+    ATM-PHB-002: []
+    ATM-PHB-003:
+    - ATM-PHB-001
+    ATM-PHB-004:
+    - ATM-PHB-001
+    ATM-PHB-005:
+    - ATM-PHB-004
+  critical_path:
+  - ATM-EPIC-001
+  - ATM-EPIC-002
+  - ATM-EPIC-003
+  - ATM-EPIC-004
+  recommendations:
+  - Начать с 14 ожидающих задач
+  - Уделить внимание 1 задачам с HIGH риском
+  - Нет активных задач — рекомендуется начать выполнение
+  - 'Заполнить goal для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+    ATM-EPK-260327-001-004, ATM-EPK-260327-001-005'
+  - 'Добавить шаги для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+    ATM-EPK-260327-001-004, ATM-EPK-260327-001-005'
+  id: ATM-EPK-260327-001-004
+  t: RPT
+  v: 5
+  s: BLK
+  review:
+    passed: false
+    reason: 'PASS: Все тесты (237) прошли успешно — 207 тестов компилятора и 30 тестов
+      агентов без ошибок.; done command failed: 1'
+    elapsed: 38
+- version: 0.1.0
+  generated_at: '2026-03-27T20:35:09.667Z'
+  epic: EPK-260327-001
+  summary:
+    total_tasks: 14
+    by_status:
+      PENDING: 14
+    by_zone:
+      lang: 6
+      runtime: 1
+      agents: 2
+      pipeline: 2
+      llm: 1
+      trace: 1
+      golden: 1
+    by_risk:
+      MEDIUM: 5
+      HIGH: 1
+      LOW: 8
+    by_priority:
+      P2: 14
+  tasks:
+  - id: ATM-EPIC-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
+    scope:
+    - src/compiler/lexer.ts
+    - src/compiler/parser.ts
+    - src/compiler/ast.ts
+    - src/compiler/codegen.ts
+    - src/compiler/compiler.ts
+    notouch:
+    - src/runtime/
+    - src/agents/
+    - pipeline.yaml
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/language-v2.md и docs/osnova/language-schema.json
+    - Реализовать lexer: токенизация кириллических ключевых слов
+    - Реализовать parser: построение AST для procedure/if/loop/match
+    - Реализовать codegen: генерация .osvbc JSON байткода
+    - Покрыть unit-тестами vitest
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-001
+    epic: EPK-260327-001
+    seq: 1
+    zone: pipeline
+    risk: MEDIUM
+    executor: cursor
+    goal: Реализовать DAG-оркестратор вместо линейного pipeline
+    scope:
+    - src/pipeline/orchestrator.ts — рефакторинг под DAG
+    - Чтение pipeline.yaml как источника истины
+    - Поддержка параллельных фаз
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать DAG-структуру в orchestrator.ts
+    - Реализовать топологическую сортировку фаз
+    - Добавить параллельное выполнение независимых фаз
+    - Обновить тесты оркестратора
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: runtime
+    risk: HIGH
+    executor: cursor
+    goal: Реализовать VM для исполнения .osvbc байткода и golden-runner
+    scope:
+    - src/runtime/vm/interpreter.ts
+    - src/runtime/vm/bytecode.ts
+    - src/runtime/goldenApps.ts
+    - src/runtime/sandbox.ts
+    notouch:
+    - src/compiler/
+    - src/agents/
+    - src/llm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить docs/bytecode-v1.md и docs/golden-tests.json
+    - Реализовать интерпретатор стековой VM (control-flow, syscalls)
+    - Реализовать sandbox для ограничения операций VM
+    - Реализовать golden-runner: запуск 5 эталонных приложений
+    - Покрыть integration-тестами
+    deps:
+    - ATM-EPIC-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-002
+    epic: EPK-260327-001
+    seq: 2
+    zone: llm
+    risk: MEDIUM
+    executor: cursor
+    goal: Добавить RAG/VectorDB в QwenCliProvider (DEBT-004)
+    scope:
+    - src/llm/QwenCliProvider.ts — опциональный RAG
+    - src/llm/VectorDB.ts — новый модуль
+    - src/llm/EmbeddingService.ts — новый модуль
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Реализовать EmbeddingService (локальная эмбеддинги)
+    - Реализовать VectorDB (in-memory + persistence)
+    - Добавить RAG-контекст в QwenCliProvider.complete()
+    - Покрыть unit-тестами
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: MEDIUM
+    executor: qwen
+    goal: Реализовать 3 LLM-агента (IntakeAgent, OsnovaCodegen, RepairEngineer)
+    scope:
+    - src/agents/IntakeAgent.ts
+    - src/agents/OsnovaCodegen.ts
+    - src/agents/RepairEngineer.ts
+    - src/pipeline-llm/
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить roles.yaml и pipeline.yaml для контрактов агентов
+    - Реализовать IntakeAgent: режимы intent/spec (генерация по LLM)
+    - Реализовать OsnovaCodegen: промпт + few-shot из golden-tests
+    - Реализовать RepairEngineer: патч кода по ошибкам компиляции/VM
+    - Интегрировать с LLM-провайдерами (QwenCli/DeepSeek/Ollama)
+    deps:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-003
+    epic: EPK-260327-001
+    seq: 3
+    zone: agents
+    risk: LOW
+    executor: cursor
+    goal: Выделить SpecArchitect из IntakeAgent (mode=spec)
+    scope:
+    - src/agents/SpecArchitect.ts — новый агент
+    - src/agents/IntakeAgent.ts — оставить только mode=intent
+    - Обновить roles.yaml
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Создать SpecArchitect с output OsnovaSpec
+    - Удалить mode=spec из IntakeAgent
+    - Обновить orchestrator.ts для нового агента
+    - Обновить roles.yaml
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPIC-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: pipeline
+    risk: LOW
+    executor: cursor
+    goal: Реализовать pipeline orchestrator + gateChecker + trace export
+    scope:
+    - src/pipeline/orchestrator.ts
+    - src/pipeline/gateChecker.ts
+    - src/pipeline/types.ts
+    - src/trace/traceStore.ts
+    - src/scripts/export-dataset.ts
+    notouch:
+    - docs/legacy/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Изучить pipeline.yaml (6 фаз) и gates.yaml (3 quality gates)
+    - Реализовать orchestrator: линейный запуск фаз intake→spec→codegen→build→golden→repair
+    - Реализовать gateChecker: G1_spec_ready, G2_build_pass, G3_golden_pass
+    - Реализовать traceStore: запись JSONL в runs/traces.jsonl
+    - Реализовать export-dataset: фильтрация трейсов → dataset-v1.jsonl
+    deps:
+    - ATM-EPIC-003
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-004
+    epic: EPK-260327-001
+    seq: 4
+    zone: trace
+    risk: LOW
+    executor: cursor
+    goal: RuleDistiller — дистилляция fix-rules из repair-трейсов
+    scope:
+    - src/trace/RuleDistiller.ts — новый модуль
+    - Анализ patterns в repair-loop ошибках
+    - Генерация правил для LLM
+    notouch:
+    - src/compiler/
+    - src/runtime/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Спроектировать формат fix-rule
+    - Реализовать анализ трейсов repairs.jsonl
+    - Генерация few-shot правил из успешных патчей
+    - Покрыть тестами
+    deps:
+    - ATM-PHB-001
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-EPK-260327-001-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: lang
+    risk: LOW
+    executor: cursor
+    goal: ''
+    scope: []
+    notouch:
+    - .github/
+    - infra/
+    - deploy/
+    - Cargo.lock
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps: []
+    deps: []
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  - id: ATM-PHB-005
+    epic: EPK-260327-001
+    seq: 5
+    zone: golden
+    risk: MEDIUM
+    executor: cursor
+    goal: LoRA fine-tune на успешных трейсах
+    scope:
+    - src/scripts/prepare-lora-dataset.ts
+    - Интеграция с traces.jsonl
+    - Экспорт SFT-датасета для Qwen
+    notouch:
+    - src/compiler/
+    - src/runtime/vm/
+    done: npx vitest run src/compiler/ && npx vitest run src/agents/
+    steps:
+    - Фильтрация traces.jsonl по runStatus=success
+    - Формирование пар (prompt, completion)
+    - Экспорт в Qwen LoRA формат
+    - Документация процесса fine-tune
+    deps:
+    - ATM-PHB-004
+    maxiter: 3
+    retries: 0
+    status: PENDING
+    priority: P2
+  deps_graph:
+    ATM-EPIC-001: []
+    ATM-EPIC-002:
+    - ATM-EPIC-001
+    ATM-EPIC-003:
+    - ATM-EPIC-001
+    - ATM-EPIC-002
+    ATM-EPIC-004:
+    - ATM-EPIC-003
+    ATM-EPK-260327-001-001: []
+    ATM-EPK-260327-001-002: []
+    ATM-EPK-260327-001-003: []
+    ATM-EPK-260327-001-004: []
+    ATM-EPK-260327-001-005: []
+    ATM-PHB-001: []
+    ATM-PHB-002: []
+    ATM-PHB-003:
+    - ATM-PHB-001
+    ATM-PHB-004:
+    - ATM-PHB-001
+    ATM-PHB-005:
+    - ATM-PHB-004
+  critical_path:
+  - ATM-EPIC-001
+  - ATM-EPIC-002
+  - ATM-EPIC-003
+  - ATM-EPIC-004
+  recommendations:
+  - Начать с 14 ожидающих задач
+  - Уделить внимание 1 задачам с HIGH риском
+  - Нет активных задач — рекомендуется начать выполнение
+  - 'Заполнить goal для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+    ATM-EPK-260327-001-004, ATM-EPK-260327-001-005'
+  - 'Добавить шаги для 5 задач: ATM-EPK-260327-001-001, ATM-EPK-260327-001-002, ATM-EPK-260327-001-003,
+    ATM-EPK-260327-001-004, ATM-EPK-260327-001-005'
+  id: ATM-EPK-260327-001-005
+  t: RPT
+  v: 5
+  s: BLK
+  review:
+    passed: false
+    reason: 'Мне нужно уточнить, что именно вы подразумеваете под "ATM result". Где
+      я могу найти этот результат для проверки?; done command failed: 1'
+    elapsed: 13
+createdat: '2026-03-27T23:36:06.298527+03:00'
