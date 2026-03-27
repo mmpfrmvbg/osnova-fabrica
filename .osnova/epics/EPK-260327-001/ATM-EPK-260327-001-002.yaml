@@ -2,21 +2,21 @@ id: ATM-EPK-260327-001-002
 epic: EPK-260327-001
 seq: 2
 zone: lang
-risk: LOW
+risk: HIGH
 executor: cursor
-goal: Добавить обработку edge-case для операции % в vm.ts (если отсутствует)
+goal: Добавить тесты для операции % в vm.test.ts — краш-сценарии из Issues
 scope:
+- src/compiler/vm.test.ts
 - src/compiler/vm.ts
 notouch:
 - .github/
 - infra/
 - deploy/
-- Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Проверить обработку операции % в vm.ts
-- Добавить защиту от деления на ноль
-- Запустить тесты
+- Воспроизвести кейсы из Issues
+- Добавить тесты с ожидаемыми ошибками/исключениями
+- Проверить покрытие всех веток кода vm.ts
 deps:
 - ATM-EPK-260327-001-001
 maxiter: 3

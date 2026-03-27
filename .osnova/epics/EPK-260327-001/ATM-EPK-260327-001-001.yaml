@@ -2,21 +2,22 @@ id: ATM-EPK-260327-001-001
 epic: EPK-260327-001
 seq: 1
 zone: lang
-risk: LOW
+risk: MEDIUM
 executor: cursor
-goal: Добавить регрессионные тесты для операции % (modulo) в vm.test.ts
+goal: Добавить тесты для операции % в vm.test.ts — базовые сценарии (положительные/отрицательные
+  числа)
 scope:
 - src/compiler/vm.test.ts
+- src/compiler/vm.ts
 notouch:
 - .github/
 - infra/
 - deploy/
-- Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить существующие тесты в vm.test.ts
-- Добавить тестовые кейсы для операции %: положительные, отрицательные, деление на
-    ноль
+- Изучить vm.ts и существующие тесты в vm.test.ts
+- Добавить тесты: 7 % 3 = 1, -7 % 3 = -1, 7 % -3 = 1, -7 % -3 = -1
+- Добавить тесты граничных случаев: 0 % N, N % 1, N % N
 - Запустить тесты, убедиться в прохождении
 deps: []
 maxiter: 3

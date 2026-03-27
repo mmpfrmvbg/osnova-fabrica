@@ -16,6 +16,7 @@ try:
         env_paths,
         load_yaml,
         resolve_cursor_bin_for_smith,
+        secret_from_env_or_forge_dotenv,
         setup_logging,
     )
 except ImportError:  # pragma: no cover
@@ -27,6 +28,7 @@ except ImportError:  # pragma: no cover
         env_paths,
         load_yaml,
         resolve_cursor_bin_for_smith,
+        secret_from_env_or_forge_dotenv,
         setup_logging,
     )
 
@@ -55,6 +57,9 @@ def _smith_subprocess_env() -> dict[str, str]:
                 "(~\\.local\\bin\\agent.exe) or set CURSORBIN to the full path.",
                 cb,
             )
+    api_key = secret_from_env_or_forge_dotenv("CURSOR_API_KEY")
+    if api_key:
+        env["CURSOR_API_KEY"] = api_key
     if sys.platform == "win32":
         extra = cursor_cli_extra_path_entries()
         if extra:

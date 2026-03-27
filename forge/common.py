@@ -76,6 +76,14 @@ def env_paths() -> dict[str, str]:
     }
 
 
+def secret_from_env_or_forge_dotenv(key: str) -> str:
+    """Secrets for child processes: ``os.environ`` wins, else ``forge/.env`` (same discovery as env_paths)."""
+    v = os.environ.get(key, "").strip()
+    if v:
+        return v
+    return (_load_dotenv_defaults().get(key) or "").strip()
+
+
 def heartbeat_path() -> Path:
     """v5.2 default: <FORGE>/heartbeat (override with FORGE_HEARTBEAT_FILE)."""
     p = os.environ.get("FORGE_HEARTBEAT_FILE", "").strip()
