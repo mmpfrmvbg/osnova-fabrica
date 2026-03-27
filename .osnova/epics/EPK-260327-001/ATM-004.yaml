@@ -1,0 +1,24 @@
+id: ATM-004
+epic: EPK-260327-001
+seq: 4
+zone: lang
+risk: LOW
+executor: null
+goal: Интегрировать тесты в CI и верифицировать passrate=1.0
+scope:
+- src/compiler/vm.test.ts
+- src/agents/intake-agent.test.ts
+notouch:
+- .github/
+- infra/
+- deploy/
+- Cargo.lock
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps: []
+deps:
+- ATM-002
+- ATM-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

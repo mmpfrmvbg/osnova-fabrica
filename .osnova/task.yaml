@@ -1,11 +1,13 @@
-id: ATM-EPK-260327-001-001
+id: ATM-001
 epic: EPK-260327-001
 seq: 1
 zone: lang
 risk: LOW
 executor: cursor
-goal: ''
-scope: []
+goal: Реализовать регрессионные тесты для операции % в src/compiler/vm.test.ts
+scope:
+- src/compiler/vm.test.ts
+- src/compiler/vm.ts
 notouch:
 - .github/
 - infra/

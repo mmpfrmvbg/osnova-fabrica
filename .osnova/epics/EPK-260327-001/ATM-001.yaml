@@ -1,0 +1,22 @@
+id: ATM-001
+epic: EPK-260327-001
+seq: 1
+zone: lang
+risk: LOW
+executor: null
+goal: Реализовать регрессионные тесты для операции % в src/compiler/vm.test.ts
+scope:
+- src/compiler/vm.test.ts
+- src/compiler/vm.ts
+notouch:
+- .github/
+- infra/
+- deploy/
+- Cargo.lock
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps: []
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

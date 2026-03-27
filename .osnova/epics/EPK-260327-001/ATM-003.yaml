@@ -1,0 +1,22 @@
+id: ATM-003
+epic: EPK-260327-001
+seq: 3
+zone: lang
+risk: LOW
+executor: null
+goal: Реализовать тесты низкой уверенности IntakeAgent в src/agents/intake-agent.test.ts
+scope:
+- src/agents/intake-agent.test.ts
+- src/agents/intake-agent.ts
+notouch:
+- .github/
+- infra/
+- deploy/
+- Cargo.lock
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps: []
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2
