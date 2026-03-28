@@ -13,6 +13,7 @@ export type SlotType = "I0" | "I1" | "M" | "B";
 const ALU_OPS = new Set<string>([
   "add", "sub", "mul", "div", "rem",
   "eq", "ne", "lt", "le", "gt", "ge",
+  "and", "or", "not",
 ]);
 const PUSH_OPS = new Set<string>([
   "const", "const.true", "const.false", "const.null",

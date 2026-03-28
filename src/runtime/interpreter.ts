@@ -30,6 +30,18 @@ export enum OpCode {
   MUL = "mul",
   /** Деление: кладёт a / b; деление на ноль — InterpreterError. */
   DIV = "div",
+  /** Равенство: снимает b, затем a; кладёт (a === b). */
+  EQ = "eq",
+  /** Меньше: кладёт (a < b) для чисел. */
+  LT = "lt",
+  /** Больше: кладёт (a > b) для чисел. */
+  GT = "gt",
+  /** Логическое И: кладёт Boolean(a && b). */
+  AND = "and",
+  /** Логическое ИЛИ: кладёт Boolean(a || b). */
+  OR = "or",
+  /** Логическое НЕ: снимает одно значение; кладёт !v. */
+  NOT = "not",
 }
 
 export class Interpreter extends VM {

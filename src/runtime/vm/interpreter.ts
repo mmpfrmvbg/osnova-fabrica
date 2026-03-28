@@ -496,6 +496,23 @@ export class VM {
         this.stack.push(a >= b);
         return next;
       }
+      case "and": {
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        this.stack.push(Boolean(a && b));
+        return next;
+      }
+      case "or": {
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        this.stack.push(Boolean(a || b));
+        return next;
+      }
+      case "not": {
+        const v = this.stack.pop();
+        this.stack.push(!v);
+        return next;
+      }
       case "call": {
         const fi = (ins as { op: "call"; fi: number }).fi;
         const proc = this.module.procedures[fi];

@@ -68,11 +68,20 @@ export function buildDependencyGraph(
       case "lt":
       case "le":
       case "gt":
-      case "ge": {
+      case "ge":
+      case "and":
+      case "or": {
         const b = stack.pop();
         const a = stack.pop();
         if (a !== undefined) edges.push([a, i]);
         if (b !== undefined) edges.push([b, i]);
+        stack.push(i);
+        break;
+      }
+
+      case "not": {
+        const v = stack.pop();
+        if (v !== undefined) edges.push([v, i]);
         stack.push(i);
         break;
       }

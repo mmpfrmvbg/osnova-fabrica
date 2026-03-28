@@ -24,6 +24,12 @@ describe("Interpreter + OpCode stack ops", () => {
     expect(OpCode.SUB).toBe("sub");
     expect(OpCode.MUL).toBe("mul");
     expect(OpCode.DIV).toBe("div");
+    expect(OpCode.EQ).toBe("eq");
+    expect(OpCode.LT).toBe("lt");
+    expect(OpCode.GT).toBe("gt");
+    expect(OpCode.AND).toBe("and");
+    expect(OpCode.OR).toBe("or");
+    expect(OpCode.NOT).toBe("not");
     const m = tinyMod([{ op: "const", type: "i32", k: 0 } as RawInstruction], [7]);
     const ip = new Interpreter(m);
     await ip.runProcedure(0, []);
@@ -77,5 +83,58 @@ describe("Interpreter + OpCode stack ops", () => {
     await expect(new Interpreter(divZero).runProcedure(0, [])).rejects.toMatchObject({
       message: expect.stringContaining("Division by zero"),
     });
+  });
+
+  it("сравнение eq/lt/gt и логика and/or/not", async () => {
+    const cmp = tinyMod(
+      [
+        { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+        { op: OpCode.EQ } as RawInstruction,
+      ],
+      [2, 2],
+    );
+    expect(await new Interpreter(cmp).runProcedure(0, [])).toBe(true);
+
+    const lt = tinyMod(
+      [
+        { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+        { op: OpCode.LT } as RawInstruction,
+      ],
+      [1, 5],
+    );
+    expect(await new Interpreter(lt).runProcedure(0, [])).toBe(true);
+
+    const gt = tinyMod(
+      [
+        { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+        { op: OpCode.GT } as RawInstruction,
+      ],
+      [3, 1],
+    );
+    expect(await new Interpreter(gt).runProcedure(0, [])).toBe(true);
+
+    const andTrue = tinyMod(
+      [
+        { op: "const.true" } as RawInstruction,
+        { op: "const.true" } as RawInstruction,
+        { op: OpCode.AND } as RawInstruction,
+      ],
+    );
+    expect(await new Interpreter(andTrue).runProcedure(0, [])).toBe(true);
+
+    const orFalse = tinyMod(
+      [
+        { op: "const.false" } as RawInstruction,
+        { op: "const.true" } as RawInstruction,
+        { op: OpCode.OR } as RawInstruction,
+      ],
+    );
+    expect(await new Interpreter(orFalse).runProcedure(0, [])).toBe(true);
+
+    const notTrue = tinyMod([{ op: "const.true" } as RawInstruction, { op: OpCode.NOT } as RawInstruction]);
+    expect(await new Interpreter(notTrue).runProcedure(0, [])).toBe(false);
   });
 });
