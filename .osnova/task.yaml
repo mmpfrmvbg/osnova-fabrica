@@ -1,14 +1,13 @@
-id: ATM-EPK-260327-001-001
+id: ATM-EPK-260327-001-002
 epic: EPK-260327-001
-seq: 1
+seq: 2
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Добавить регрессионные тесты для операции деления по модулю (%) в VM компилятора
+goal: Покрыть тестами сценарий низкой уверенности IntakeAgent
 scope:
-- src/compiler/vm.ts — реализация VM, проверить обработку оператора %
-- src/compiler/vm.test.ts — добавить тесты на % с положительными, отрицательными числами
-  и edge cases
+- src/agents/intake-agent.ts — логика определения confidence уровня
+- src/agents/intake-agent.test.ts — добавить тесты на low-confidence сценарии
 notouch:
 - .github/
 - infra/
@@ -16,11 +15,11 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить текущую реализацию операции % в vm.ts
-- Добавить тесты: нормальные случаи, деление на ноль, отрицательные операнды, большие
-    числа
-- Запустить тесты локально, убедиться в прохождении
-deps: []
+- Изучить критерии low-confidence в intake-agent.ts
+- Добавить тесты на сценарии из Issues
+- Запустить тесты, зафиксировать passrate
+deps:
+- 1
 maxiter: 3
 retries: 0
 status: PENDING

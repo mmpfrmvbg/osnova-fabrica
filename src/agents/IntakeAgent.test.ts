@@ -130,10 +130,30 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     expect(intent.confidence).toBe(0.5);
   });
 
-  it('fallback учитывает префикс Алгоритм:', async () => {
+  it('fallback учитывает префикс Алгоритм: и фиксирует низкую confidence 0.5 (fallbackIntent)', async () => {
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'Алгоритм: сортировка' });
     expect(intent.appType).toBe('алгоритм');
+    expect(intent.confidence).toBe(0.5);
+  });
+
+  it('Issues #3: пустой features[] от LLM не затирает низкую confidence (подставляется intent в features)', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'неясно что строить',
+        confidence: 0.31,
+        language: 'osnova',
+        features: [],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'сделай приложение' });
+    expect(intent.confidence).toBe(0.31);
+    expect(intent.features).toEqual(['неясно что строить']);
   });
 
   it('сохраняет низкую confidence из валидного JSON от LLM (Issues #1, #3)', async () => {
