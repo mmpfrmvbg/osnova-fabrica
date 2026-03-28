@@ -21,15 +21,6 @@ from osnova.state_reader import read_heartbeat_age
 
 ColorName = Literal["green", "yellow", "red"]
 
-try:
-    from PIL import Image, ImageDraw
-    import pystray
-    from pystray import Icon, Menu, MenuItem
-except ImportError as e:  # pragma: no cover
-    _IMPORT_ERR = e
-else:
-    _IMPORT_ERR = None
-
 _UPDATE_INTERVAL_SEC = 3.0
 _LOG_TAIL_LINES = 50
 
@@ -58,6 +49,8 @@ def _pid_running(pid: int) -> bool:
 
 def _make_circle_icon(color: ColorName, size: int = 64) -> Any:
     """PIL RGBA: круг заданного цвета (без внешнего .ico)."""
+    from PIL import Image, ImageDraw
+
     colors = {
         "green": (46, 204, 113, 255),
         "yellow": (241, 196, 15, 255),
@@ -167,12 +160,14 @@ def _ensure_forge_started(engine: ForgeEngine) -> tuple[bool, str | None]:
 
 
 def run_forge_tray() -> None:
-    if _IMPORT_ERR is not None:
+    try:
+        from pystray import Icon, Menu, MenuItem
+    except ImportError as e:
         sys.stderr.write(
-            "Требуются зависимости: pip install \"osnova-cli[dev]\" "
-            f"(pystray, Pillow). Ошибка: {_IMPORT_ERR}\n"
+            'Требуются зависимости: pip install "osnova-cli[dev]" (pystray, Pillow). '
+            f"Ошибка: {e}\n"
         )
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     engine = ForgeEngine()
     ok, err = _ensure_forge_started(engine)
@@ -186,16 +181,16 @@ def run_forge_tray() -> None:
     def enqueue(kind: str) -> None:
         action_q.put(kind)
 
-    def on_activate(icon: Any, _item: Any = None) -> None:  # noqa: ANN401
+    def on_activate(_icon: Any, _item: Any = None) -> None:  # noqa: ANN401
         enqueue("log")
 
     def build_menu() -> Menu:
         return Menu(
-            MenuItem("Show log", lambda: enqueue("log")),
-            MenuItem("Pause / Resume", lambda: enqueue("pause_toggle")),
-            MenuItem("Status", lambda: enqueue("status")),
+            MenuItem("Show log", lambda _i, _it: enqueue("log")),
+            MenuItem("Pause / Resume", lambda _i, _it: enqueue("pause_toggle")),
+            MenuItem("Status", lambda _i, _it: enqueue("status")),
             Menu.SEPARATOR,
-            MenuItem("Exit", lambda: enqueue("exit")),
+            MenuItem("Exit", lambda _i, _it: enqueue("exit")),
         )
 
     def tray_thread_main() -> None:
