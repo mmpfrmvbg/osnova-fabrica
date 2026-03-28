@@ -1,22 +1,25 @@
-id: ATM-EPK-260328-017-010
+id: ATM-EPK-260328-017-002
 epic: EPK-260328-017
-seq: 10
-zone: compiler
-risk: MEDIUM
+seq: 2
+zone: agents
+risk: HIGH
 executor: cursor
-goal: Восстановить compiler — компиляция в промежуточное представление
+goal: Восстановить PlanAgent — построение плана выполнения
 scope:
-- src/compiler/compiler.ts — восстановить компилятор
+- src/agents/plan-agent.ts — восстановить логику планирования
+- src/agents/agents.test.ts — тесты для PlanAgent
 notouch:
-- src/agents/*
 - src/pipeline/*
+- src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Анализ compiler.ts
-- Исправить метод compile — корректная генерация IR
-- Восстановить оптимизации
-- Протестировать компиляцию различных входных программ
-deps: []
+- Анализ текущей реализации plan-agent.ts
+- Исправить метод buildPlan — корректная последовательность шагов
+- Добавить валидацию зависимостей между шагами
+- Написать тесты на различные сценарии планирования
+- Запустить npx vitest run src/agents/plan-agent.test.ts
+deps:
+- ATM-EPK-260328-017-001
 maxiter: 3
 retries: 0
 status: PENDING

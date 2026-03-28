@@ -51,6 +51,20 @@ const PHASE_RANK: Record<PipelinePhase, number> = {
   repair: 6,
 };
 
+/** Допустимые переходы между фазами (зависимости: `to` требует предшествующий `from`). */
+const VALID_PHASE_TRANSITIONS: ReadonlySet<string> = new Set([
+  'intake→spec_generation',
+  'spec_generation→g1_spec_ready',
+  'g1_spec_ready→codegen',
+  'codegen→build',
+  'build→golden_check',
+  'golden_check→repair',
+]);
+
+export function isValidPhaseTransition(from: PipelinePhase, to: PipelinePhase): boolean {
+  return VALID_PHASE_TRANSITIONS.has(`${from}→${to}`);
+}
+
 export class PlanValidationError extends Error {
   constructor(
     message: string,
@@ -166,12 +180,10 @@ export class PlanAgent {
     for (let i = 1; i < steps.length; i++) {
       const prev = steps[i - 1]!.phase as PipelinePhase;
       const cur = steps[i]!.phase as PipelinePhase;
-      const prevR = PHASE_RANK[prev];
-      const curR = PHASE_RANK[cur];
-      if (curR !== prevR + 1) {
+      if (!isValidPhaseTransition(prev, cur)) {
         throw new PlanValidationError(
-          `phases must be adjacent in pipeline (no skipped steps): ${prev} → ${cur}`,
-          'phase_sequence',
+          `invalid dependency: after ${prev} expected a valid successor, got ${cur}`,
+          'step_dependency',
         );
       }
     }

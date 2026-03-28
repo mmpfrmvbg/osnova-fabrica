@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { IntakeAgent, SpecValidationError, parseLlmConfidence } from './IntakeAgent';
-import { PlanAgent, PlanValidationError } from './plan-agent';
+import { PlanAgent, PlanValidationError, isValidPhaseTransition } from './plan-agent';
 import { ExecAgent, type ExecContext } from './exec-agent';
 import { ReviewAgent } from './review-agent';
 import { IntakeValidationError } from './types';
@@ -213,6 +213,43 @@ describe('PlanAgent — инкрементальный план для ExecAgent
     });
     expect(plan.steps.map(s => s.phase)).toEqual(['codegen', 'build', 'golden_check']);
     expect(plan.steps.some(s => s.phase === 'g1_spec_ready')).toBe(false);
+  });
+});
+
+describe('PlanAgent — зависимости фаз (переходы)', () => {
+  it('isValidPhaseTransition: допустимые рёбра пайплайна', () => {
+    expect(isValidPhaseTransition('intake', 'spec_generation')).toBe(true);
+    expect(isValidPhaseTransition('spec_generation', 'g1_spec_ready')).toBe(true);
+    expect(isValidPhaseTransition('g1_spec_ready', 'codegen')).toBe(true);
+    expect(isValidPhaseTransition('codegen', 'build')).toBe(true);
+    expect(isValidPhaseTransition('build', 'golden_check')).toBe(true);
+    expect(isValidPhaseTransition('golden_check', 'repair')).toBe(true);
+  });
+
+  it('isValidPhaseTransition: недопустимые пропуски или обратный порядок', () => {
+    expect(isValidPhaseTransition('spec_generation', 'codegen')).toBe(false);
+    expect(isValidPhaseTransition('codegen', 'golden_check')).toBe(false);
+    expect(isValidPhaseTransition('build', 'codegen')).toBe(false);
+    expect(isValidPhaseTransition('intake', 'codegen')).toBe(false);
+  });
+
+  it('validatePlan: отклоняет spec_generation → codegen без g1_spec_ready', () => {
+    const agent = new PlanAgent();
+    expect(() =>
+      agent.validatePlan({
+        planId: 'p',
+        intentId: 'i',
+        specId: 's',
+        fromScratch: true,
+        steps: [
+          { phase: 'intake', order: 1 },
+          { phase: 'spec_generation', order: 2 },
+          { phase: 'codegen', order: 3 },
+          { phase: 'build', order: 4 },
+          { phase: 'golden_check', order: 5 },
+        ],
+      }),
+    ).toThrow(PlanValidationError);
   });
 });
 
