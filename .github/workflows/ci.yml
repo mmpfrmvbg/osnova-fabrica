@@ -34,3 +34,25 @@ jobs:
       cache-dependency-path: apps/osiris/package-lock.json
       install_command: npm ci --no-audit
       commands-file: .github/workflow-scripts/ci-osiris.sh
+
+  forge-close-pending-ci:
+    name: Forge — close pending-ci issue (state.yaml)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [ci, test-osiris]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PyYAML and run closer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          pip install pyyaml -q
+          python forge/close_pending_ci.py || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .osnova/state.yaml 2>/dev/null || true
+          git diff --staged --quiet || (git commit -m "chore: clear ci_pending_issue after CI green" && git push)

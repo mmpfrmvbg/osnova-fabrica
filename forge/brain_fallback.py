@@ -19,7 +19,7 @@ LOG = setup_logging("brain_fallback")
 IDLE_THRESHOLD = int(os.environ.get("BRAIN_IDLE_THRESHOLD", "2400"))
 
 FALLBACK_PLANNER_PROMPT = """
-Ты — резервный планировщик автономной фабрики OSNOVA v5.2.
+Ты — резервный планировщик автономной фабрики OSNOVA (v5.3 brain_fallback).
 Основной мозг (Perplexity) временно недоступен. Сгенерируй следующий EPIC.
 
 КОНТЕКСТ:
@@ -166,9 +166,23 @@ def is_brain_silent(state: dict[str, Any]) -> bool:
 
 
 def has_pending_brain_epic() -> bool:
-    """Non-empty queue means GHA already lined up work for the primary brain."""
+    """True if queue has work or a fallback EPIC file exists under .osnova/epics (canonical: origin fallback-local; heuristic: -FBK in id)."""
     queue_file = epic_queue_path()
-    return bool(queue_file.exists() and queue_file.read_text(encoding="utf-8").strip())
+    if queue_file.exists() and queue_file.read_text(encoding="utf-8").strip():
+        return True
+    epics_dir = _project_dir() / ".osnova" / "epics"
+    if not epics_dir.is_dir():
+        return False
+    for f in epics_dir.glob("*.yaml"):
+        try:
+            data = yaml.safe_load(f.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
+            if data.get("origin") == "fallback-local" or "FBK" in str(data.get("id", "")):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def generate_fallback_epic(state: dict[str, Any]) -> dict[str, Any] | None:

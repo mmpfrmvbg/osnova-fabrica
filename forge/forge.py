@@ -6,18 +6,34 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 try:
     from forge.atomizer import atomize
+    from forge.blk_classify import classify_blk
     from forge.brain_fallback import generate_fallback_epic
-    from forge.common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, ensure_stdio_utf8, env_paths, epic_queue_path, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from forge.common import (
+        SUBPROCESS_TEXT,
+        _github_bearer_value,
+        atomic_write_text,
+        ensure_stdio_utf8,
+        env_paths,
+        epic_queue_path,
+        forge_dotenv_setting,
+        gh_request,
+        heartbeat_path,
+        load_forge_state,
+        now_iso,
+        save_forge_state,
+        setup_logging,
+    )
     from forge.courier import process_result
     from forge.cursorexec import run_atom as run_cursor_atom
     from forge.degradation import get_available
     from forge.epic_socket import accept_epic_event, ensure_listener
-    from forge.epicwatcher import fetch_epic, watch_once
+    from forge.epicwatcher import fetch_epic, poll_next_github_epic, watch_once
     from forge.parallel_executor import build_waves, run_waves_sequential
     from forge.qwenexec import run_atom as run_qwen_atom
     from forge.reviewer import review
@@ -26,13 +42,28 @@ try:
     from forge.router import choose_executor
 except ImportError:  # pragma: no cover
     from atomizer import atomize
+    from blk_classify import classify_blk
     from brain_fallback import generate_fallback_epic
-    from common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, ensure_stdio_utf8, env_paths, epic_queue_path, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from common import (
+        SUBPROCESS_TEXT,
+        _github_bearer_value,
+        atomic_write_text,
+        ensure_stdio_utf8,
+        env_paths,
+        epic_queue_path,
+        forge_dotenv_setting,
+        gh_request,
+        heartbeat_path,
+        load_forge_state,
+        now_iso,
+        save_forge_state,
+        setup_logging,
+    )
     from courier import process_result
     from cursorexec import run_atom as run_cursor_atom
     from degradation import get_available
     from epic_socket import accept_epic_event, ensure_listener
-    from epicwatcher import fetch_epic, watch_once
+    from epicwatcher import fetch_epic, poll_next_github_epic, watch_once
     from parallel_executor import build_waves, run_waves_sequential
     from qwenexec import run_atom as run_qwen_atom
     from reviewer import review
@@ -42,6 +73,85 @@ except ImportError:  # pragma: no cover
 
 LOG = setup_logging("forge")
 _NO_EXECUTOR_WARN_EMITTED = False
+
+# Idle backoff between cycles (cap 90s); does not change socket accept inside _resolve_epic.
+IDLE_STEPS_SEC = [60, 60, 90, 90]
+
+
+def _git_rev_parse_head(project: Path) -> str:
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            **SUBPROCESS_TEXT,
+        )
+        if out.returncode == 0 and (out.stdout or "").strip():
+            return (out.stdout or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _maybe_abandon_stale_epic(state: dict[str, Any]) -> None:
+    """Clear stale lock after FORGE_EPIC_TTL_SECONDS; comment + forge-stale on GitHub issue."""
+    epic_id = state.get("current_epic")
+    started = state.get("current_epic_started_at")
+    issue = state.get("current_epic_issue")
+    if not epic_id or not started:
+        return
+    ttl = int(forge_dotenv_setting("FORGE_EPIC_TTL_SECONDS", str(3 * 3600)))
+    try:
+        t0 = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+        if t0.tzinfo is None:
+            t0 = t0.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - t0.astimezone(timezone.utc)).total_seconds()
+    except Exception:
+        return
+    if age <= float(ttl):
+        return
+    LOG.warning("[TTL] EPIC %s expired after %.0fs — abandoning lock", epic_id, age)
+    repo = env_paths()["GHREPO"]
+    if issue:
+        try:
+            body = (
+                f"⚠️ **FORGE ABANDONED**: TTL ({ttl // 3600}h) exceeded. "
+                "No RETRO produced for this run. Label `forge-stale`."
+            )
+            gh_request("POST", f"/repos/{repo}/issues/{issue}/comments", {"body": body})
+            gh_request("POST", f"/repos/{repo}/issues/{issue}/labels", {"labels": ["forge-stale"]})
+        except Exception as exc:
+            LOG.warning("TTL abandon GitHub: %s", exc)
+    state["current_epic"] = None
+    state["current_epic_issue"] = None
+    state["current_epic_started_at"] = None
+    state["epic_popped_from_queue"] = False
+    save_forge_state(state)
+
+
+def _bump_issue_attempts_on_permanent_blk(state: dict[str, Any], issue_num: int | None) -> None:
+    if issue_num is None:
+        return
+    key = str(int(issue_num))
+    attempts = state.setdefault("issue_attempts", {})
+    n = int(attempts.get(key, 0) or 0) + 1
+    attempts[key] = n
+    save_forge_state(state)
+    threshold = int(forge_dotenv_setting("FORGE_ISSUE_ATTEMPTS_MAX", "3"))
+    if n < threshold:
+        return
+    repo = env_paths()["GHREPO"]
+    try:
+        gh_request(
+            "POST",
+            f"/repos/{repo}/issues/{int(issue_num)}/labels",
+            {"labels": ["retry-exhausted"]},
+        )
+    except Exception as exc:
+        LOG.warning("Could not add retry-exhausted label: %s", exc)
 
 
 def _origin_is_ssh(url: str) -> bool:
@@ -237,9 +347,10 @@ def _alert_executors_halt(dry_run: bool) -> None:
 
 def _resolve_epic(state: dict[str, Any], dry_run: bool) -> dict[str, Any] | None:
     state["epic_popped_from_queue"] = False
+    cur_issue = state.get("current_epic_issue")
     epic = watch_once()
     if epic:
-        state["brain_source"] = "perplexity"
+        state["brain_source"] = "queue"
         state["epic_popped_from_queue"] = True
         return epic
     if dry_run:
@@ -249,19 +360,26 @@ def _resolve_epic(state: dict[str, Any], dry_run: bool) -> dict[str, Any] | None
     if evt and evt.get("issue_number") is not None:
         try:
             epic = fetch_epic(int(evt["issue_number"]))
-            state["brain_source"] = "perplexity"
+            state["brain_source"] = "socket"
             return epic
         except Exception as exc:
             LOG.warning("Epic socket fetch failed: %s", exc)
     epic = watch_once()
     if epic:
-        state["brain_source"] = "perplexity"
+        state["brain_source"] = "queue"
         state["epic_popped_from_queue"] = True
         return epic
+    try:
+        epic = poll_next_github_epic(cur_issue)
+        if epic:
+            state["brain_source"] = "github_poll"
+            return epic
+    except Exception as exc:
+        LOG.warning("github_poll failed: %s", exc)
     fb = generate_fallback_epic(state)
     if fb:
         fb["githubissue"] = None
-        state["brain_source"] = "fallback-local"
+        state["brain_source"] = "fallback_local"
         return fb
     state["brain_source"] = "idle"
     return None
@@ -270,6 +388,7 @@ def _resolve_epic(state: dict[str, Any], dry_run: bool) -> dict[str, Any] | None
 def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, avail: dict[str, Any]) -> None:
     state["current_epic"] = epic.get("id")
     state["current_epic_issue"] = epic.get("githubissue")
+    state["current_epic_started_at"] = now_iso()
     save_forge_state(state)
 
     # cycle() only touches heartbeat at loop start; atomize / smith / qwen can block for many minutes.
@@ -307,80 +426,106 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
         LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
         results: list[dict[str, Any]] = []
         atm_total = len(atoms)
+        epic_issue = epic.get("githubissue")
 
         def _run_one(atom: dict[str, Any]) -> None:
             aid = atom.get("id")
             executor = choose_executor(atom, avail)
             atom["executor"] = executor
-            hlog(
-                "atm_start",
-                atm_id=aid,
-                seq=int(atom.get("seq") or 0),
-                atm_total=atm_total,
-                goal=str(atom.get("goal", "")),
-            )
-            LOG.info("ATM %s — executor=%s (long silence here = smith/qwen or review `done`)", aid, executor)
-            if executor == "none":
-                report = {
-                    "id": atom.get("id"),
-                    "s": "BLK",
-                    "err": "No executor available",
-                    "changed": [],
-                }
-                process_result(atom, report, dry_run=dry_run)
-                results.append(report)
-                return
-            if executor == "qwen":
-                success, report = run_qwen_atom(atom, dry_run=dry_run)
-                fb = os.environ.get("FORGE_QWEN_QUOTA_FALLBACK", "1").strip().lower()
-                if (
-                    report.get("forge_retry_executor") == "cursor"
-                    and fb not in ("0", "false", "no")
-                    and avail.get("cursor")
-                ):
-                    LOG.warning(
-                        "ATM %s — Qwen quota/budget exhausted, falling back to Cursor",
-                        aid,
-                    )
-                    atom["executor"] = "cursor"
-                    success, report = run_cursor_atom(atom, dry_run=dry_run)
-                    report.pop("forge_retry_executor", None)
-            else:
-                success, report = run_cursor_atom(atom, dry_run=dry_run)
-            LOG.info(
-                "ATM %s — executor finished (report s=%s), starting review",
-                aid,
-                report.get("s"),
-            )
-            # Источник истины — поле s в report.yaml (не bool success: так надёжнее при любых рассинхронах).
-            exec_report_ok = str(report.get("s") or "").strip().upper() == "OK"
-            run_done = exec_report_ok
-            if not run_done:
+            maxiter = int(atom.get("maxiter") or 3)
+            attempt = 0
+            while attempt < maxiter:
+                attempt += 1
+                hlog(
+                    "atm_start",
+                    atm_id=aid,
+                    seq=int(atom.get("seq") or 0),
+                    atm_total=atm_total,
+                    goal=str(atom.get("goal", "")),
+                )
                 LOG.info(
-                    "ATM %s — review fast-path (success=%s report.s=%s)",
+                    "ATM %s — executor=%s attempt %s/%s",
                     aid,
-                    success,
+                    atom["executor"],
+                    attempt,
+                    maxiter,
+                )
+                ex = atom["executor"]
+                if ex == "none":
+                    report = {
+                        "id": atom.get("id"),
+                        "s": "BLK",
+                        "err": "No executor available",
+                        "changed": [],
+                    }
+                    _bump_issue_attempts_on_permanent_blk(state, epic_issue)
+                    process_result(atom, report, dry_run=dry_run)
+                    results.append(report)
+                    return
+                if ex == "qwen":
+                    success, report = run_qwen_atom(atom, dry_run=dry_run)
+                    fb = os.environ.get("FORGE_QWEN_QUOTA_FALLBACK", "1").strip().lower()
+                    if (
+                        report.get("forge_retry_executor") == "cursor"
+                        and fb not in ("0", "false", "no")
+                        and avail.get("cursor")
+                    ):
+                        LOG.warning(
+                            "ATM %s — Qwen quota/budget exhausted, falling back to Cursor",
+                            aid,
+                        )
+                        atom["executor"] = "cursor"
+                        success, report = run_cursor_atom(atom, dry_run=dry_run)
+                        report.pop("forge_retry_executor", None)
+                else:
+                    success, report = run_cursor_atom(atom, dry_run=dry_run)
+                LOG.info(
+                    "ATM %s — executor finished (report s=%s), starting review",
+                    aid,
                     report.get("s"),
                 )
-            passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
-            report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
-            report["s"] = "OK" if (success and passed) else "BLK"
-            LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
-            if report.get("s") == "OK":
-                hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
-            else:
+                exec_report_ok = str(report.get("s") or "").strip().upper() == "OK"
+                run_done = exec_report_ok
+                if not run_done:
+                    LOG.info(
+                        "ATM %s — review fast-path (success=%s report.s=%s)",
+                        aid,
+                        success,
+                        report.get("s"),
+                    )
+                passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
+                report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
+                report["s"] = "OK" if (success and passed) else "BLK"
+                LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
+                if report.get("s") == "OK":
+                    hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
+                    process_result(atom, report, dry_run=dry_run)
+                    results.append(report)
+                    return
                 hlog(
                     "atm_blk",
                     atm_id=aid,
                     reason=str(report.get("err") or report.get("review") or "BLK")[:120],
                 )
-            process_result(atom, report, dry_run=dry_run)
-            results.append(report)
+                kind = classify_blk(
+                    exec_report_ok=exec_report_ok,
+                    review_passed=passed,
+                    report=report,
+                )
+                if kind == "transient" and attempt < maxiter:
+                    LOG.warning("ATM %s — transient BLK, retry %s/%s", aid, attempt, maxiter)
+                    continue
+                if kind == "permanent":
+                    _bump_issue_attempts_on_permanent_blk(state, epic_issue)
+                process_result(atom, report, dry_run=dry_run)
+                results.append(report)
+                return
 
         run_waves_sequential(waves, _run_one)
         finalize_epic(epic, results, dry_run=dry_run, forge_state=state)
         state["current_epic"] = None
         state["current_epic_issue"] = None
+        state["current_epic_started_at"] = None
         state["epic_popped_from_queue"] = False
         save_forge_state(state)
     finally:
@@ -392,18 +537,49 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
             _heartbeat()
 
 
-def cycle(dry_run: bool = False) -> None:
+def cycle(dry_run: bool = False) -> str:
+    """Run one forge iteration. Returns cycle result label for backoff / metrics."""
+    project = Path(env_paths()["OSNOVA_PROJECT"])
     _heartbeat()
     pre_queue = _snapshot_epic_queue_lines()
+    q_before = len(pre_queue)
     _git_pull_project(dry_run=dry_run)
     if not dry_run:
         _merge_epic_queue_after_git_pull(pre_queue)
+    sha_after = _git_rev_parse_head(project) if not dry_run else ""
+    pulled = "noop"
+    if not dry_run and sha_before and sha_after:
+        pulled = "changed" if sha_before != sha_after else "noop"
+    elif not dry_run and not sha_before:
+        pulled = "changed" if sha_after else "noop"
+
+    q_after = len(_snapshot_epic_queue_lines())
+    state = load_forge_state()
+    if state.get("current_epic") and state.get("current_epic_started_at") is None:
+        state["current_epic_started_at"] = now_iso()
+        save_forge_state(state)
+    _maybe_abandon_stale_epic(state)
     state = load_forge_state()
     save_forge_state(state)
 
+    brain_src = state.get("brain_source") or "idle"
+    chosen_display = "-"
+
+    def _log_cycle(result: str, src: str) -> None:
+        LOG.info(
+            "[CYCLE] pull=%s queue=%s→%s issue=%s result=%s source=%s",
+            pulled,
+            q_before,
+            q_after,
+            chosen_display,
+            result,
+            src,
+        )
+
     if state.get("paused"):
         LOG.info("Forge paused")
-        return
+        _log_cycle("paused", "idle")
+        return "paused"
 
     if dry_run:
         avail = {"qwen": True, "cursor": True, "healthy": True, "executors": ["qwen", "cursor"]}
@@ -434,26 +610,44 @@ def cycle(dry_run: bool = False) -> None:
         else:
             _alert_executors_halt(dry_run=dry_run)
             time.sleep(60)
-            return
+            _log_cycle("halted", brain_src)
+            return "halted"
 
     epic = _resolve_epic(state, dry_run=dry_run)
+    brain_src = state.get("brain_source") or "idle"
     if not epic:
-        LOG.info("No EPIC in queue (brain_source=%s)", state.get("brain_source"))
+        idx = min(int(state.get("idle_streak_index", 0)) + 1, len(IDLE_STEPS_SEC) - 1)
+        state["idle_streak_index"] = idx
         save_forge_state(state)
-        return
+        LOG.info("No EPIC in queue (brain_source=%s)", brain_src)
+        _log_cycle("idle", brain_src)
+        return "idle"
 
+    state["idle_streak_index"] = 0
     state["last_epic_received_at"] = now_iso()
     save_forge_state(state)
 
-    if dry_run:
-        LOG.info("[dry-run] EPIC picked: %s (%s)", epic.get("id"), state.get("brain_source"))
+    chosen_display = str(epic.get("githubissue") or epic.get("id") or "-")
+    brain_src = state.get("brain_source") or "idle"
 
-    _process_epic(epic, state, dry_run=dry_run, avail=avail)
+    if dry_run:
+        LOG.info("[dry-run] EPIC picked: %s (%s)", epic.get("id"), brain_src)
+        _log_cycle("dry_run", brain_src)
+        return "dry_run"
+
+    try:
+        _process_epic(epic, state, dry_run=dry_run, avail=avail)
+    except Exception:
+        LOG.exception("EPIC processing failed")
+        _log_cycle("error", brain_src)
+        return "error"
+    _log_cycle("completed", brain_src)
+    return "completed"
 
 
 def main() -> None:
     ensure_stdio_utf8()
-    parser = argparse.ArgumentParser(description="OSNOVA Forge loop (v5.2 resilient)")
+    parser = argparse.ArgumentParser(description="OSNOVA Forge loop (v5.3)")
     parser.add_argument("--dry-run", action="store_true", help="Run one cycle without external execution")
     args = parser.parse_args()
     ensure_listener()
@@ -462,8 +656,13 @@ def main() -> None:
             cycle(dry_run=True)
             return
         while True:
-            cycle(dry_run=False)
-            time.sleep(60)
+            result = cycle(dry_run=False)
+            state = load_forge_state()
+            idx = int(state.get("idle_streak_index", 0))
+            sleep_s = IDLE_STEPS_SEC[min(idx, len(IDLE_STEPS_SEC) - 1)]
+            if result == "paused":
+                sleep_s = 60
+            time.sleep(sleep_s)
     except KeyboardInterrupt:
         LOG.info("Forge stopped by user")
     except Exception as exc:

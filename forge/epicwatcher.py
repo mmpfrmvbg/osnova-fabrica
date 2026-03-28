@@ -12,9 +12,25 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import _github_bearer_value, atomic_write_yaml, env_paths, epic_queue_path, setup_logging
+    from forge.common import (
+        _github_bearer_value,
+        atomic_write_yaml,
+        env_paths,
+        epic_queue_path,
+        forge_dotenv_setting,
+        gh_request,
+        setup_logging,
+    )
 except ImportError:  # pragma: no cover
-    from common import _github_bearer_value, atomic_write_yaml, env_paths, epic_queue_path, setup_logging
+    from common import (
+        _github_bearer_value,
+        atomic_write_yaml,
+        env_paths,
+        epic_queue_path,
+        forge_dotenv_setting,
+        gh_request,
+        setup_logging,
+    )
 
 LOG = setup_logging("epicwatcher")
 
@@ -134,6 +150,80 @@ def watch_once() -> dict[str, Any] | None:
     if issue_num is None:
         return None
     return fetch_epic(issue_num)
+
+
+def list_open_brain_epic_candidates(
+    *,
+    epic_label: str,
+    skip_labels: set[str],
+    current_issue: int | None,
+) -> list[dict[str, Any]]:
+    """Open issues with ``epic_label``, exclude PRs, ``skip_labels``, and ``current_issue``."""
+    token = _github_bearer_value(env_paths()["GH_TOKEN"])
+    if not token or len(token) < 8:
+        return []
+    repo = env_paths()["GHREPO"]
+    skip_lower = {x.lower() for x in skip_labels if x}
+    label_q = urllib.parse.quote(epic_label)
+    out: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        path = (
+            f"/repos/{repo}/issues?state=open&labels={label_q}"
+            "&sort=created&direction=asc&per_page=100&page="
+            f"{page}"
+        )
+        try:
+            batch = gh_request("GET", path)
+        except Exception as exc:
+            LOG.warning("GitHub list issues failed: %s", exc)
+            break
+        if not batch:
+            break
+        if not isinstance(batch, list):
+            break
+        out.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+
+    result: list[dict[str, Any]] = []
+    for issue in out:
+        if issue.get("pull_request"):
+            continue
+        num = issue.get("number")
+        if num is None:
+            continue
+        if current_issue is not None and int(num) == int(current_issue):
+            continue
+        names = {str(x.get("name", "")).lower() for x in (issue.get("labels") or [])}
+        if names & skip_lower:
+            continue
+        result.append(issue)
+    return result
+
+
+def poll_next_github_epic(current_issue: int | None) -> dict[str, Any] | None:
+    """Next open brain-epic issue from GitHub API (FIFO by creation). Disabled unless env enables poll."""
+    poll = forge_dotenv_setting("FORGE_POLL_OPEN_BRAIN_EPICS", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if not poll:
+        return None
+    epic_label = forge_dotenv_setting("FORGE_BRAIN_EPIC_LABEL", "brain-epic")
+    raw = forge_dotenv_setting("FORGE_EPIC_SKIP_LABELS", "blocker,forge-stale")
+    skip = {x.strip() for x in raw.split(",") if x.strip()}
+    candidates = list_open_brain_epic_candidates(
+        epic_label=epic_label,
+        skip_labels=skip,
+        current_issue=current_issue,
+    )
+    if not candidates:
+        return None
+    num = int(candidates[0]["number"])
+    return fetch_epic(num)
 
 
 def main() -> None:

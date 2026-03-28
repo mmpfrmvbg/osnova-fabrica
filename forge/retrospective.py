@@ -10,11 +10,11 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import atomic_write_yaml, env_paths, gh_request, load_yaml, now_iso, setup_logging
+    from forge.common import atomic_write_yaml, env_paths, forge_dotenv_setting, gh_request, load_yaml, now_iso, setup_logging
     from forge.epicwatcher import prepend_issue_to_queue
     from forge.humanlog import epic_done_tests, hlog
 except ImportError:  # pragma: no cover
-    from common import atomic_write_yaml, env_paths, gh_request, load_yaml, now_iso, setup_logging
+    from common import atomic_write_yaml, env_paths, forge_dotenv_setting, gh_request, load_yaml, now_iso, setup_logging
     from epicwatcher import prepend_issue_to_queue
     from humanlog import epic_done_tests, hlog
 
@@ -52,6 +52,24 @@ def _update_project_state(epic: dict[str, Any], atom_total: int, atom_ok: int, a
     latest.setdefault("daily", {})
     latest["daily"]["passrate"] = (atom_ok / atom_total) if atom_total else 0.0
     atomic_write_yaml(latest_path, latest)
+
+
+def _set_ci_pending_in_state_yaml(project: Path, issue_num: int, epic_id: str | None) -> None:
+    state_path = project / ".osnova" / "state.yaml"
+    st = load_yaml(state_path, default={}) or {}
+    st["ci_pending_issue"] = int(issue_num)
+    st["ci_pending_epic"] = epic_id
+    st["updatedat"] = now_iso()
+    atomic_write_yaml(state_path, st)
+
+
+def _clear_ci_pending_in_state_yaml(project: Path) -> None:
+    state_path = project / ".osnova" / "state.yaml"
+    st = load_yaml(state_path, default={}) or {}
+    st.pop("ci_pending_issue", None)
+    st.pop("ci_pending_epic", None)
+    st["updatedat"] = now_iso()
+    atomic_write_yaml(state_path, st)
 
 
 def _status(atom_total: int, atom_ok: int) -> str:
@@ -141,10 +159,25 @@ def finalize_epic(
         lines.append("```\n</details>")
         try:
             gh_request("POST", f"/repos/{repo}/issues/{issue}/comments", {"body": "\n".join(lines)})
+            require_ci = forge_dotenv_setting("FORGE_RETRO_REQUIRE_CI", "0").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+            )
             if status in {"OK", "PARTIAL"}:
-                gh_request("PATCH", f"/repos/{repo}/issues/{issue}", {"state": "closed"})
+                if require_ci:
+                    _set_ci_pending_in_state_yaml(project, int(issue), epic.get("id"))
+                    gh_request(
+                        "POST",
+                        f"/repos/{repo}/issues/{issue}/labels",
+                        {"labels": ["pending-ci"]},
+                    )
+                else:
+                    gh_request("PATCH", f"/repos/{repo}/issues/{issue}", {"state": "closed"})
+                    _clear_ci_pending_in_state_yaml(project)
             elif status == "BLK":
                 gh_request("POST", f"/repos/{repo}/issues/{issue}/labels", {"labels": ["blocker"]})
+                _clear_ci_pending_in_state_yaml(project)
         except urllib.error.HTTPError as exc:
             LOG.warning(
                 "GitHub API failed during retrospective (comment/close/labels): %s — fix GH_TOKEN. %s",

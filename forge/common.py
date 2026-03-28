@@ -502,14 +502,19 @@ def load_forge_state() -> dict[str, Any]:
         "current_epic": None,
         "brain_source": "idle",
         "current_epic_issue": None,
+        "current_epic_started_at": None,
         "last_epic_received_at": None,
         "forge_started_at": None,
+        "idle_streak_index": 0,
+        "issue_attempts": {},
     }
     state = load_json(forge_state_path(), default=default) or default
     for k, v in default.items():
         state.setdefault(k, v)
     if state.get("forge_started_at") is None:
         state["forge_started_at"] = now_iso()
+    if not isinstance(state.get("issue_attempts"), dict):
+        state["issue_attempts"] = {}
     return state
 
 
