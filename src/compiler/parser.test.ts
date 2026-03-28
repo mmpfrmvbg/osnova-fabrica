@@ -217,3 +217,169 @@ describe("parser: базовые конструкции MVP", () => {
   });
 });
 
+describe("parser: покрытие конструкций (AST из токенов)", () => {
+  it("импорт: использовать модуль … из строка", () => {
+    const src = [
+      'модуль M',
+      'использовать модуль U из "./u.osnova"',
+      "процедура p()",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const m = (ast as Program).modules[0] as Module;
+    expect(m.imports).toEqual([{ module: "U", path: "./u.osnova" }]);
+  });
+
+  it("объявление типа тип Имя { поле: тип }", () => {
+    const src = [
+      "модуль M",
+      "тип Т { x: Число }",
+      "процедура p()",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const m = (ast as Program).modules[0] as Module;
+    expect(m.typeDeclarations.length).toBe(1);
+    const td = m.typeDeclarations[0];
+    expect(td?.name).toBe("Т");
+    expect(td?.fields).toEqual([{ name: "x", type: { name: "Число", nullable: false } }]);
+  });
+
+  it("экспорт процедура и nullable-тип в пусть", () => {
+    const src = [
+      "модуль M",
+      "экспорт процедура f()",
+      "  пусть x: ?Строка = пусто",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const proc = (ast as Program).modules[0]?.procedures[0];
+    expect(proc?.exported).toBe(true);
+    const letStmt = proc?.body.find((s: Stmt) => s.kind === "пусть");
+    expect(letStmt?.kind).toBe("пусть");
+    if (letStmt?.kind !== "пусть") return;
+    expect(letStmt.typeAnnotation).toEqual({ name: "Строка", nullable: true });
+  });
+
+  it("если / иначе_если / иначе / конец", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  если ложь",
+      "    вернуть 0",
+      "  иначе_если истина",
+      "    вернуть 1",
+      "  иначе",
+      "    вернуть 2",
+      "  конец",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const ifStmt = (ast as Program).modules[0]?.procedures[0]?.body.find((s: Stmt) => s.kind === "если");
+    expect(ifStmt?.kind).toBe("если");
+    if (ifStmt?.kind !== "если") return;
+    expect(ifStmt.elseIfClauses?.length).toBe(1);
+    expect(ifStmt.elseBody?.length).toBe(1);
+  });
+
+  it("попробовать / иначе_попытка / конец", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  попробовать",
+      "    вернуть 0",
+      "  иначе_попытка e",
+      "    вернуть 1",
+      "  конец",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const st = (ast as Program).modules[0]?.procedures[0]?.body[0];
+    expect(st?.kind).toBe("попробовать");
+    if (st?.kind !== "попробовать") return;
+    expect(st.catchVar).toBe("e");
+    expect(st.body.length).toBeGreaterThan(0);
+    expect(st.catchBody.length).toBeGreaterThan(0);
+  });
+
+  it("выбросить, пока, цикл, прервать, продолжить", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  пока ложь",
+      "    прервать",
+      "  конец",
+      "  цикл",
+      "    продолжить",
+      "  конец",
+      "  выбросить \"err\"",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const body = (ast as Program).modules[0]?.procedures[0]?.body ?? [];
+    const kinds = body.map((s: Stmt) => s.kind);
+    expect(kinds).toEqual(["пока", "цикл", "выбросить"]);
+    expect(body[0]?.kind).toBe("пока");
+    expect(body[1]?.kind).toBe("цикл");
+    if (body[2]?.kind === "выбросить") expect(body[2].value.kind).toBe("строка");
+  });
+
+  it("выражения: объект, вызов, логика и/или/не, сравнение, унарный -", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  пусть o = { a: 1 }",
+      "  пусть b = не (1 == 2) и истина или ложь",
+      "  пусть c = -1 + 2 * 3",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const body = (ast as Program).modules[0]?.procedures[0]?.body ?? [];
+    expect(body.length).toBe(3);
+    const o = body[0];
+    if (o?.kind === "пусть" && o.init.kind === "объект") expect(o.init.entries[0]?.key).toBe("a");
+  });
+
+  it("поле_присвоить и составное +=", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  пусть o = { x: 1 }",
+      "  o.x = 2",
+      "  o.x += 1",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const body = (ast as Program).modules[0]?.procedures[0]?.body ?? [];
+    const assigns = body.filter((s: Stmt) => s.kind === "поле_присвоить");
+    expect(assigns.length).toBe(2);
+  });
+
+  it("синтаксическая ошибка: message, line, expected", () => {
+    const src = "модуль M\nпроцедура ()\nконец\nконец\n";
+    const { tokens } = tokenize(src);
+    const { errors } = parse(tokens);
+    expect(errors.length).toBeGreaterThan(0);
+    const e = errors[0];
+    expect(e?.message).toBeDefined();
+    expect(e?.line).toBeGreaterThan(0);
+    expect(e?.expected?.length).toBeGreaterThan(0);
+  });
+});
+
