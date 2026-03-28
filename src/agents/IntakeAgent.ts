@@ -10,11 +10,23 @@ import * as fs from 'fs';
 import { getLLMProvider } from '../llm/index';
 import { IntakeValidationError, type IAgent } from './types';
 import type { AgentReport, BaseAgent } from '../types/agents';
-import type { RawText, OsnovaIntent, OsnovaSpec, AppType } from '../pipeline/types';
+import type {
+  RawText,
+  OsnovaIntent,
+  OsnovaSpec,
+  AppType,
+  OsnovaModule,
+  OsnovaType,
+  ProcedureSignature,
+} from '../pipeline/types';
+import type { CompileResult } from '../compiler/compiler';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
 import { logLlmUsage } from '../lib/usage-logger';
 import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
+
+/** Результат фазы build (`compileSource`) — реэкспорт для вызовов, связывающих intake с компилятором. */
+export type { CompileResult };
 
 const log = logger('intake-agent');
 
@@ -34,6 +46,25 @@ export function detectAppTypeFromPrefix(text: string): AppType | null {
     if (re.test(trimmed)) return appType;
   }
   return null;
+}
+
+/** Значения {@link AppType} — для безопасного разбора JSON LLM без «голого» приведения. */
+const APP_TYPES_KNOWN = [
+  'утилита',
+  'хранилище',
+  'ui_приложение',
+  'актор',
+  'смешанный',
+  'алгоритм',
+  'тест',
+  'модуль',
+  'библиотека',
+  'модуль_типов',
+] as const satisfies readonly AppType[];
+
+function coerceAppType(value: unknown, fallback: AppType): AppType {
+  if (typeof value !== 'string') return fallback;
+  return (APP_TYPES_KNOWN as readonly string[]).includes(value) ? (value as AppType) : fallback;
 }
 
 /** Confidence из JSON LLM: число или числовая строка; иначе 0.8 (как раньше для не-чисел). */
@@ -157,7 +188,7 @@ export class IntakeAgent implements IAgent, BaseAgent {
    * Проверка структуры и типов входа intake: объект с непустой строкой `text` (после trim).
    * Дополнительные аргументы игнорируются (совместимость с {@link BaseAgent}).
    */
-  validate(input: unknown, _ctx?: unknown, _plan?: unknown): void {
+  validate(input: unknown, _ctx?: unknown, _plan?: unknown): void | AgentReport {
     this.assertRawText(input);
   }
 
@@ -286,8 +317,11 @@ export class IntakeAgent implements IAgent, BaseAgent {
         p.intent ?? p.description ?? normalized.text,
       ),
       features: featuresFromLlmParsed(p, normalized.text),
-      appType: prefixAppType ?? (parsed.appType as AppType) ?? 'утилита',
-      constraints: (parsed.constraints as Record<string, unknown>) ?? {},
+      appType: prefixAppType ?? coerceAppType(p.appType, 'утилита'),
+      constraints:
+        p.constraints != null && typeof p.constraints === 'object' && !Array.isArray(p.constraints)
+          ? (p.constraints as Record<string, unknown>)
+          : {},
       confidence: parseLlmConfidence(p.confidence),
     };
   }
@@ -358,27 +392,61 @@ export class IntakeAgent implements IAgent, BaseAgent {
       return this.fallbackSpec(intent);
     }
 
-    const rawModules = Array.isArray(parsed.modules)
-      ? (parsed.modules as Array<{ name: string; description: string; isMain?: boolean }>)
-      : [];
-    const modules = rawModules.length > 0
-      ? [rawModules[0]!] as Array<{ name: string; description: string; isMain: boolean }>
-      : [{ name: 'Главный', description: intent.description, isMain: true }];
+    const rawList = Array.isArray(parsed.modules) ? parsed.modules : [];
+    const first = rawList[0];
+    const modules: readonly OsnovaModule[] =
+      rawList.length > 0 && first != null && typeof first === 'object' && !Array.isArray(first)
+        ? [
+            {
+              name: String((first as Record<string, unknown>).name ?? 'Главный'),
+              description: String((first as Record<string, unknown>).description ?? intent.description),
+              isMain: Boolean((first as Record<string, unknown>).isMain),
+            },
+          ]
+        : [{ name: 'Главный', description: intent.description, isMain: true }];
+
+    const typesRaw = Array.isArray(parsed.types) ? parsed.types : [];
+    const types: readonly OsnovaType[] = typesRaw.filter(
+      (t): t is OsnovaType =>
+        t != null &&
+        typeof t === 'object' &&
+        !Array.isArray(t) &&
+        typeof (t as OsnovaType).name === 'string',
+    );
+
+    const procRaw = Array.isArray(parsed.procedures) ? parsed.procedures : [];
+    const procedures: readonly ProcedureSignature[] = procRaw.filter(
+      (p): p is ProcedureSignature =>
+        p != null &&
+        typeof p === 'object' &&
+        !Array.isArray(p) &&
+        typeof (p as ProcedureSignature).name === 'string' &&
+        typeof (p as ProcedureSignature).returnType === 'string' &&
+        (p as ProcedureSignature).params != null &&
+        typeof (p as ProcedureSignature).params === 'object' &&
+        !Array.isArray((p as ProcedureSignature).params),
+    );
 
     return {
       specId: randomUUID(),
       modules,
       mainModule: String(parsed.mainModule ?? modules[0]?.name ?? 'Главный'),
-      types: Array.isArray(parsed.types) ? parsed.types : [],
-      procedures: Array.isArray(parsed.procedures) ? parsed.procedures : [],
+      types,
+      procedures,
       syscalls: Array.isArray(parsed.syscalls) ? parsed.syscalls.map(String) : [],
-      conventions: (parsed.conventions as Record<string, unknown>) ?? {},
+      conventions:
+        parsed.conventions != null &&
+        typeof parsed.conventions === 'object' &&
+        !Array.isArray(parsed.conventions)
+          ? (parsed.conventions as Record<string, unknown>)
+          : {},
     };
   }
 
   /**
    * T-7: Валидация полноты spec перед codegen.
    * Выбрасывает SpecValidationError если spec неполный.
+   * После codegen фаза build даёт {@link CompileResult} через `compileSource`.
    */
   checkSpec(spec: OsnovaSpec): void {
     const missing: string[] = [];
@@ -453,7 +521,10 @@ export class IntakeAgent implements IAgent, BaseAgent {
   /**
    * Полный цикл intake: RawText → intent → spec (с checkSpec).
    */
-  async run(input?: unknown): Promise<{ intent: OsnovaIntent; spec: OsnovaSpec }> {
+  async run(
+    input?: unknown,
+    ..._rest: unknown[]
+  ): Promise<{ intent: OsnovaIntent; spec: OsnovaSpec }> {
     const raw = input as RawText;
     this.assertRawText(raw);
     const normalized = this.parse(raw);

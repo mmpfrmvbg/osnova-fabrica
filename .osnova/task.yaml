@@ -1,26 +1,22 @@
-id: ATM-EPK-260328-018-001
+id: ATM-EPK-260328-018-002
 epic: EPK-260328-018
-seq: 1
+seq: 2
 zone: agents
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Root-cause scan — прочитать все BLK-файлы и вывести полный список TypeScript-ошибок
-  компилятора
+goal: Fix Group A — устранить ошибки типов в IntakeAgent
 scope:
-- src/agents/intake-agent.ts
-- src/agents/plan-agent.ts
-- src/agents/exec-agent.ts
-- src/agents/review-agent.ts
+- src/agents/intake-agent.ts — основной файл для исправлений
+notouch:
 - src/agents/agents.test.ts
-notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Найти все *.blk файлы в проекте
-- Прочитать содержимое каждого BLK-файла
-- Запустить tsc --noEmit для scope-файлов
-- Сформировать сводный список ошибок по категориям
-deps: []
+- Импортировать недостающие типы из compiler.ts
+- Исправить сигнатуры методов согласно интерфейсу Agent
+- Устранить ошибки приведения типов
+deps:
+- ATM-EPK-260328-018-001
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0

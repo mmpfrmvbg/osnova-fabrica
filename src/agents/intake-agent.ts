@@ -9,3 +9,4 @@ export {
   parseLlmConfidence,
 } from './IntakeAgent';
 export type { AgentReport, BaseAgent } from '../types/agents';
+export type { CompileResult } from './IntakeAgent';
