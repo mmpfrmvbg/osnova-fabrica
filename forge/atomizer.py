@@ -309,6 +309,49 @@ def _run_qwen_atomizer(prompt: str, timeout: int) -> subprocess.CompletedProcess
     )
 
 
+def _coerce_dep_to_atm_id(raw: Any, epic_id: str, known_ids: set[str]) -> str | None:
+    """Map atomizer output (often seq numbers) to ATM-{epic}-{seq:03d} for parallel_executor."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    if s in known_ids:
+        return s
+    if s.isdigit():
+        return f"ATM-{epic_id}-{int(s):03d}"
+    prefix = f"ATM-{epic_id}-"
+    if s.startswith(prefix):
+        tail = s[len(prefix) :]
+        if tail.isdigit():
+            return f"ATM-{epic_id}-{int(tail):03d}"
+    return s
+
+
+def _normalize_deps_list(deps: Any, epic_id: str, known_ids: set[str]) -> list[str]:
+    if not isinstance(deps, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    unknown: list[str] = []
+    for raw in deps:
+        cid = _coerce_dep_to_atm_id(raw, epic_id, known_ids)
+        if cid is None:
+            continue
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(cid)
+        if cid not in known_ids:
+            unknown.append(cid)
+    if unknown:
+        LOG.warning(
+            "atomizer: deps reference id(s) not in this epic (%s) — parallel waves may degrade",
+            unknown[:8],
+        )
+    return out
+
+
 def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     epic_id = str(epic["id"])
@@ -336,6 +379,9 @@ def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[
                 "priority": epic.get("priority", "P2"),
             }
         )
+    known_ids = {a["id"] for a in out}
+    for a in out:
+        a["deps"] = _normalize_deps_list(a.get("deps"), epic_id, known_ids)
     return out
 
 

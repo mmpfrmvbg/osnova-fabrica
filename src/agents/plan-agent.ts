@@ -1,0 +1,215 @@
+// ============================================================
+// src/agents/plan-agent.ts — PlanAgent: план выполнения пайплайна
+// Интеграция с типами intake (OsnovaIntent, OsnovaSpec из pipeline/types)
+// ============================================================
+
+import { randomUUID } from 'crypto';
+import type { OsnovaIntent, OsnovaSpec } from '../pipeline/types';
+
+/** Фаза линейного пайплайна (см. orchestrator.ts). */
+export type PipelinePhase =
+  | 'intake'
+  | 'spec_generation'
+  | 'codegen'
+  | 'build'
+  | 'golden_check'
+  | 'repair';
+
+export interface PlanStep {
+  readonly phase: PipelinePhase;
+  /** Порядок выполнения, с 1. */
+  readonly order: number;
+  readonly description?: string;
+}
+
+export interface ExecutionPlan {
+  readonly planId: string;
+  readonly intentId: string;
+  readonly specId: string;
+  /** true — план с нуля (intake → …); false — только после готовой spec. */
+  readonly fromScratch: boolean;
+  readonly steps: readonly PlanStep[];
+}
+
+export interface PlanAgentBuildOptions {
+  /** Включить intake и spec_generation в начало плана. По умолчанию false. */
+  readonly fromScratch?: boolean;
+  /** Добавить финальный шаг repair (после golden_check). По умолчанию true. */
+  readonly includeRepair?: boolean;
+}
+
+/** Порядок фаз для проверки монотонности (меньше = раньше в пайплайне). */
+const PHASE_RANK: Record<PipelinePhase, number> = {
+  intake: 0,
+  spec_generation: 1,
+  codegen: 2,
+  build: 3,
+  golden_check: 4,
+  repair: 5,
+};
+
+export class PlanValidationError extends Error {
+  constructor(
+    message: string,
+    public readonly code?: string,
+  ) {
+    super(message);
+    this.name = 'PlanValidationError';
+  }
+}
+
+export class PlanAgent {
+  /**
+   * Строит последовательность операций пайплайна по intent + spec.
+   */
+  buildPlan(
+    intent: OsnovaIntent,
+    spec: OsnovaSpec,
+    options: PlanAgentBuildOptions = {},
+  ): ExecutionPlan {
+    const fromScratch = options.fromScratch ?? false;
+    const includeRepair = options.includeRepair ?? true;
+
+    this.validateInputs(intent, spec);
+
+    const steps: PlanStep[] = [];
+    let order = 1;
+
+    if (fromScratch) {
+      steps.push({
+        phase: 'intake',
+        order: order++,
+        description: 'parseIntent: RawText → OsnovaIntent',
+      });
+      steps.push({
+        phase: 'spec_generation',
+        order: order++,
+        description: 'generateSpec: OsnovaIntent → OsnovaSpec',
+      });
+    }
+
+    steps.push({
+      phase: 'codegen',
+      order: order++,
+      description: 'generate: OsnovaSpec → OsnovaSource',
+    });
+    steps.push({
+      phase: 'build',
+      order: order++,
+      description: 'compileSource → BuildReport',
+    });
+    steps.push({
+      phase: 'golden_check',
+      order: order++,
+      description: 'runGoldenCheck',
+    });
+
+    if (includeRepair) {
+      steps.push({
+        phase: 'repair',
+        order: order++,
+        description: 'RepairEngineer loop (до лимита попыток)',
+      });
+    }
+
+    const plan: ExecutionPlan = {
+      planId: randomUUID(),
+      intentId: intent.intentId,
+      specId: spec.specId,
+      fromScratch,
+      steps,
+    };
+
+    this.validatePlan(plan);
+    return plan;
+  }
+
+  /**
+   * Проверяет структуру плана: непустые id, порядок шагов, допустимая последовательность фаз.
+   */
+  validatePlan(plan: ExecutionPlan): void {
+    if (!plan.planId?.trim()) {
+      throw new PlanValidationError('plan.planId is required', 'plan_id');
+    }
+    if (!plan.intentId?.trim()) {
+      throw new PlanValidationError('plan.intentId is required', 'intent_id');
+    }
+    if (!plan.specId?.trim()) {
+      throw new PlanValidationError('plan.specId is required', 'spec_id');
+    }
+    const steps = plan.steps;
+    if (!Array.isArray(steps) || steps.length === 0) {
+      throw new PlanValidationError('plan.steps must be a non-empty array', 'steps_empty');
+    }
+
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i]!;
+      if (typeof s.order !== 'number' || s.order !== i + 1) {
+        throw new PlanValidationError(
+          `plan.steps[${i}].order must equal ${i + 1} (получено ${s.order})`,
+          'step_order',
+        );
+      }
+      if (!s.phase || !(s.phase in PHASE_RANK)) {
+        throw new PlanValidationError(`invalid phase at index ${i}: ${String(s.phase)}`, 'phase');
+      }
+    }
+
+    for (let i = 1; i < steps.length; i++) {
+      const prev = steps[i - 1]!.phase as PipelinePhase;
+      const cur = steps[i]!.phase as PipelinePhase;
+      const prevR = PHASE_RANK[prev];
+      const curR = PHASE_RANK[cur];
+      if (curR !== prevR + 1) {
+        throw new PlanValidationError(
+          `phases must be adjacent in pipeline (no skipped steps): ${prev} → ${cur}`,
+          'phase_sequence',
+        );
+      }
+    }
+
+    const phases = steps.map(s => s.phase);
+    if (plan.fromScratch) {
+      if (phases[0] !== 'intake' || phases[1] !== 'spec_generation') {
+        throw new PlanValidationError(
+          'fromScratch plan must start with intake → spec_generation',
+          'from_scratch_prefix',
+        );
+      }
+    } else {
+      if (phases[0] !== 'codegen') {
+        throw new PlanValidationError(
+          'incremental plan must start with codegen',
+          'incremental_start',
+        );
+      }
+    }
+
+    const tail = plan.fromScratch ? phases.slice(2) : phases;
+    const expectedMid: PipelinePhase[] = ['codegen', 'build', 'golden_check'];
+    for (let i = 0; i < expectedMid.length; i++) {
+      if (tail[i] !== expectedMid[i]) {
+        throw new PlanValidationError(
+          `expected phase ${expectedMid[i]} at position ${i}, got ${tail[i]}`,
+          'expected_core',
+        );
+      }
+    }
+    const afterCore = tail.slice(3);
+    if (afterCore.length > 1) {
+      throw new PlanValidationError('at most one repair step after golden_check', 'repair_count');
+    }
+    if (afterCore.length === 1 && afterCore[0] !== 'repair') {
+      throw new PlanValidationError('only repair may follow golden_check', 'after_golden');
+    }
+  }
+
+  private validateInputs(intent: OsnovaIntent, spec: OsnovaSpec): void {
+    if (!intent.intentId?.trim()) {
+      throw new PlanValidationError('intent.intentId is required', 'intent');
+    }
+    if (!spec.specId?.trim()) {
+      throw new PlanValidationError('spec.specId is required', 'spec');
+    }
+  }
+}

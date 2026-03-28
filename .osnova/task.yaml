@@ -1,21 +1,21 @@
-id: ATM-EPK-260328-015-002
+id: ATM-EPK-260328-015-003
 epic: EPK-260328-015
-seq: 2
+seq: 3
 zone: agents
 risk: MEDIUM
 executor: cursor
-goal: Реализовать IntakeAgent для первичной обработки входных данных
+goal: Реализовать PlanAgent для построения плана выполнения
 scope:
-- src/agents/intake-agent.ts — реализация IntakeAgent
+- src/agents/plan-agent.ts — реализация PlanAgent
 notouch:
 - src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Импортировать IAgent из types.ts
-- Реализовать класс IntakeAgent с валидацией входных данных
-- Добавить обработку ошибок и логирование
+- Создать класс PlanAgent с методом построения последовательности операций
+- Интегрировать с типами из intake-agent
+- Добавить валидацию плана
 deps:
-- 1
+- 2
 maxiter: 3
 retries: 0
 status: PENDING
