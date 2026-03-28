@@ -1,20 +1,21 @@
-id: ATM-EPK-260328-014-007
+id: ATM-EPK-260328-014-008
 epic: EPK-260328-014
-seq: 7
-zone: src/runtime/vm.ts
-risk: MEDIUM
+seq: 8
+zone: src/runtime/interpreter.test.ts
+risk: LOW
 executor: cursor
-goal: Создать VM класс — обёртку над Interpreter с API для выполнения модулей
+goal: Написать unit-тесты для арифметических и стековых инструкций
 scope:
-- src/runtime/vm.ts
+- src/runtime/interpreter.test.ts
 notouch: []
 done: npx vitest run src/runtime/
 steps:
-- Создать класс OsVbcVM с методами execute(), getReturnValue()
-- Реализовать инициализацию глобального контекста
-- Добавить обработку внешних вызовов (native functions)
+- Тесты для PUSH/POP/DUP
+- Тесты для ADD/SUB/MUL/DIV
+- Тесты для сравнений EQ/LT/GT
+- Тесты для логических операций
 deps:
-- 6
+- 4
 maxiter: 3
 retries: 0
 status: PENDING
