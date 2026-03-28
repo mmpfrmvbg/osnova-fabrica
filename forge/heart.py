@@ -122,6 +122,12 @@ def loop() -> None:
                 backup_file(state_file, backups_dir)
                 last_backup_at = now
             _restore_if_corrupt(state_file, backups_dir)
+            try:
+                from forge import qwenbudget as qb
+
+                qb.warn_if_approaching_limit()
+            except Exception as exc:
+                LOG.debug("Qwen budget warning skipped: %s", exc)
         except Exception as exc:
             LOG.exception("Heart loop error: %s", exc)
         save_forge_state(state)

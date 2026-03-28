@@ -193,6 +193,55 @@ def qwen_headless_argv(prompt: str) -> list[str]:
     return argv
 
 
+def cursor_headless_argv(
+    prompt: str,
+    *,
+    workspace: str | None = None,
+    use_stdin: bool = False,
+) -> list[str]:
+    """
+    Cursor agent headless for atomizer: ``cursor-agent -p --yolo --trust --workspace <repo> <prompt>``.
+    Matches ``forge/smith.sh`` (without the node-bundle path).
+
+    - ``FORGE_ATOMIZER_CURSOR_MODEL`` — optional ``--model`` (omit if unset or ``_``).
+    - If ``use_stdin`` is True, the last argument is ``-``; pass ``input=prompt`` to ``subprocess.run`` (long prompts on Windows).
+    """
+    raw = env_paths()["CURSORBIN"]
+    exe = resolve_cursor_bin_for_smith(raw) or resolve_executable(raw)
+    proj = (workspace or env_paths()["OSNOVA_PROJECT"] or "").strip() or "."
+    argv: list[str] = [exe, "-p", "--yolo", "--trust", "--workspace", proj]
+    model = os.environ.get("FORGE_ATOMIZER_CURSOR_MODEL", "").strip()
+    if model and model not in ("_", "-"):
+        argv.extend(["--model", model])
+    if use_stdin:
+        argv.append("-")
+    else:
+        argv.append(prompt)
+    return argv
+
+
+def cursor_cli_available() -> bool:
+    """True if ``CURSORBIN`` resolves to an executable (atomizer / smith)."""
+    raw = (env_paths().get("CURSORBIN") or "").strip()
+    if not raw:
+        return False
+    p = resolve_cursor_bin_for_smith(raw)
+    if p:
+        try:
+            if Path(p).is_file():
+                return True
+        except OSError:
+            pass
+    merged = os.pathsep.join([*cursor_cli_extra_path_entries(), os.environ.get("PATH", "")])
+    if shutil.which(raw, path=merged):
+        return True
+    if sys.platform == "win32":
+        w = shutil.which(f"{raw}.exe", path=merged) if not raw.lower().endswith(".exe") else None
+        if w:
+            return True
+    return False
+
+
 def cursor_cli_extra_path_entries() -> list[str]:
     """
     Directories where the Cursor Windows installer usually places ``agent`` / IDE shims.

@@ -315,6 +315,7 @@ def review(
     dry_run: bool = False,
     *,
     run_done: bool = True,
+    skip_done_command: bool = False,
 ) -> tuple[bool, str, int]:
     start = time.time()
     project = Path(env_paths()["OSNOVA_PROJECT"])
@@ -334,6 +335,34 @@ def review(
         elapsed = int(time.time() - start)
         passed_no_done = False if need_done_fallback else qwen_pass_no_done
         return passed_no_done, _stored_review_reason(llm_reason), elapsed
+
+    if skip_done_command:
+        LOG.info(
+            "reviewer: skip_done_command — not re-running ATM done (Qwen Code agent already ran it; FORGE_REVIEWER_SKIP_DONE_AFTER_QWEN)"
+        )
+        if need_done_fallback:
+            passed = True
+            reason = (
+                "PASS: Qwen review unavailable (quota/budget); auto-approved with skip_done "
+                "(agent was expected to run done)."
+            )
+            LOG.warning("reviewer: %s", reason)
+        else:
+            passed = _parse_qwen_review_pass(llm_reason)
+            reason = llm_reason if passed else f"{llm_reason}; FAIL on diff review (done not re-run)"
+        elapsed = int(time.time() - start)
+        aid = str(atom.get("id") or "")
+        try:
+            from forge import humanlog as _hl
+
+            if passed:
+                _hl.hlog("review_pass", atm_id=aid, elapsed_s=elapsed)
+            else:
+                _hl.hlog("review_fail", atm_id=aid, reason=(reason or "")[:80], elapsed_s=elapsed)
+        except Exception:
+            pass
+        return passed, _stored_review_reason(reason), elapsed
+
     cmd_eff, done_env = _prepare_done_invocation(project, done_cmd)
     log_cmd = " ".join(cmd_eff) if isinstance(cmd_eff, list) else cmd_eff
     LOG.info(

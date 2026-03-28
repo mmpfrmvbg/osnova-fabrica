@@ -1,7 +1,8 @@
 # OSNOVA v5.2 Router Rules (human reference; forge/router.py implements routing)
+# Default implementation work goes to Qwen Code CLI; Cursor smith is P0/HIGH/.github/infra and BLK fallback.
 # Scope lines: "path/to/file.ts — optional note". Only the segment before — is used for *.yaml/*.ts rules
 # so prose mentioning pipeline.yaml does not steal routing from real .ts targets.
-default_executor: cursor
+default_executor: qwen
 
 rules:
   - if: {priority: P0}
@@ -14,7 +15,7 @@ rules:
     then: {executor: cursor, reason: "workflows = cursor only"}
 
   - if: {scope_pattern: "tests/*"}
-    then: {executor: qwen, reason: "root tests/ = qwen; src/**/*.test.ts = compiler (see router.py)"}
+    then: {executor: qwen, reason: "root tests/ = qwen; src/**/*.test.ts = qwen default"}
 
   - if: {scope_pattern: "*.md"}
     then: {executor: qwen, reason: "docs = qwen"}
@@ -25,14 +26,14 @@ rules:
   - if: {scope_pattern: "*.toml"}
     then: {executor: qwen, reason: "config = qwen"}
 
-  - if: {zone: infra, risk: LOW}
-    then: {executor: qwen, reason: "infra + low = qwen"}
+  - if: {zone: infra}
+    then: {executor: cursor, reason: "infra = cursor"}
 
   - if: {zone: lang, risk: LOW}
     then: {executor: qwen, reason: "lang + low = qwen"}
 
   - if: {zone: lang, risk: MEDIUM}
-    then: {executor: cursor, reason: "lang + medium = cursor"}
+    then: {executor: qwen, reason: "lang + medium = qwen (Qwen Code executor)"}
 
   - if: {executor_unavailable: qwen}
     then: {executor: cursor, reason: "qwen unavailable → cursor fallback"}

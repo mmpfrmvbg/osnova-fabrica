@@ -143,27 +143,55 @@ def alerthuman(state: dict[str, Any], atom: dict[str, Any]) -> None:
     LOG.error("Three or more consecutive failures. Human attention required for %s", atom.get("id"))
 
 
-def process_result(atom: dict[str, Any], report: dict[str, Any], dry_run: bool = False) -> None:
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
+
+
+def git_commit_atm_report(project: Path, atom: dict[str, Any], report: dict[str, Any], dry_run: bool = False) -> None:
+    """``git add`` + ``git commit`` for an ATM result (no push, no forge-state). Used by parallel worktree workers."""
+    status = report.get("s", "BLK")
+    if dry_run:
+        LOG.info("[dry-run] Would git commit ATM %s status=%s", atom.get("id"), status)
+        return
+    changed = report.get("changed") or []
+    if changed:
+        subprocess.run(["git", "add", *changed], cwd=project, check=False)
+    else:
+        subprocess.run(["git", "add", "."], cwd=project, check=False)
+    subprocess.run(["git", "commit", "-m", f"ATM {atom.get('id')} {status}"], cwd=project, check=False)
+
+
+def process_result(
+    atom: dict[str, Any],
+    report: dict[str, Any],
+    dry_run: bool = False,
+    *,
+    skip_git_push: bool = False,
+    state_only: bool = False,
+) -> None:
     project = Path(env_paths()["OSNOVA_PROJECT"])
     state = load_forge_state()
     changed = report.get("changed") or []
     status = report.get("s", "BLK")
+    skip_push = skip_git_push or _env_truthy("FORGE_SKIP_GIT_PUSH")
+    only_state = state_only or _env_truthy("FORGE_PROCESS_RESULT_STATE_ONLY")
     if dry_run:
         LOG.info("[dry-run] Would git commit ATM %s status=%s", atom.get("id"), status)
-    else:
+    elif not only_state:
         if changed:
             subprocess.run(["git", "add", *changed], cwd=project, check=False)
         else:
             subprocess.run(["git", "add", "."], cwd=project, check=False)
         subprocess.run(["git", "commit", "-m", f"ATM {atom.get('id')} {status}"], cwd=project, check=False)
-        subprocess.run(["git", "push", "origin", "main"], cwd=project, check=False)
-        try:
-            from forge.humanlog import git_last_push_stats, hlog
+        if not skip_push:
+            subprocess.run(["git", "push", "origin", "main"], cwd=project, check=False)
+            try:
+                from forge.humanlog import git_last_push_stats, hlog
 
-            br, fc, ins = git_last_push_stats(project)
-            hlog("git_push", branch=br, files_changed=fc, insertions=ins)
-        except Exception:
-            pass
+                br, fc, ins = git_last_push_stats(project)
+                hlog("git_push", branch=br, files_changed=fc, insertions=ins)
+            except Exception:
+                pass
     if status == "BLK":
         state["consecutive_failures"] = int(state.get("consecutive_failures", 0)) + 1
         if not dry_run:

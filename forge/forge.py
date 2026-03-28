@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -29,12 +30,20 @@ try:
         save_forge_state,
         setup_logging,
     )
-    from forge.courier import process_result
+    from forge.courier import git_commit_atm_report, process_result
     from forge.cursorexec import run_atom as run_cursor_atom
     from forge.degradation import get_available
     from forge.epic_socket import accept_epic_event, ensure_listener
     from forge.epicwatcher import fetch_epic, poll_next_github_epic, watch_once
-    from forge.parallel_executor import build_waves, run_waves_sequential
+    from forge.parallel_executor import (
+        build_waves,
+        cleanup_wave_worktrees,
+        effective_max_parallel,
+        integrate_wave_branches,
+        parallel_workers,
+        prepare_wave_worktrees,
+        wave_scopes_overlap,
+    )
     from forge.qwenexec import run_atom as run_qwen_atom
     from forge.reviewer import review
     from forge.humanlog import epic_done_tests, epic_start_snapshot, hlog
@@ -59,12 +68,20 @@ except ImportError:  # pragma: no cover
         save_forge_state,
         setup_logging,
     )
-    from courier import process_result
+    from courier import git_commit_atm_report, process_result
     from cursorexec import run_atom as run_cursor_atom
     from degradation import get_available
     from epic_socket import accept_epic_event, ensure_listener
     from epicwatcher import fetch_epic, poll_next_github_epic, watch_once
-    from parallel_executor import build_waves, run_waves_sequential
+    from parallel_executor import (
+        build_waves,
+        cleanup_wave_worktrees,
+        effective_max_parallel,
+        integrate_wave_branches,
+        parallel_workers,
+        prepare_wave_worktrees,
+        wave_scopes_overlap,
+    )
     from qwenexec import run_atom as run_qwen_atom
     from reviewer import review
     from humanlog import epic_done_tests, epic_start_snapshot, hlog
@@ -77,6 +94,20 @@ _NO_EXECUTOR_WARN_EMITTED = False
 OnAtomUpdate = Callable[[str, str, Any], None]
 
 
+def _atm_commit_or_process(
+    atom: dict[str, Any],
+    report: dict[str, Any],
+    dry_run: bool,
+    defer_process_result: bool,
+) -> None:
+    """Parallel worktree workers: commit only + parent ``process_result(..., state_only=True)`` later."""
+    if defer_process_result:
+        if not dry_run:
+            git_commit_atm_report(Path(env_paths()["OSNOVA_PROJECT"]), atom, report, dry_run=False)
+    else:
+        process_result(atom, report, dry_run=dry_run)
+
+
 def _execute_atom_with_retries(
     atom: dict[str, Any],
     epic: dict[str, Any],
@@ -86,6 +117,8 @@ def _execute_atom_with_retries(
     epic_issue: Any,
     atm_total: int,
     on_update: OnAtomUpdate | None = None,
+    *,
+    defer_process_result: bool = False,
 ) -> dict[str, Any]:
     """One ATM: executor + review + process_result path (extracted from _process_epic._run_one)."""
     aid = atom.get("id")
@@ -119,21 +152,25 @@ def _execute_atom_with_retries(
                 "err": "No executor available",
                 "changed": [],
             }
-            _bump_issue_attempts_on_permanent_blk(state, epic_issue)
-            process_result(atom, report, dry_run=dry_run)
+            if not defer_process_result:
+                _bump_issue_attempts_on_permanent_blk(state, epic_issue)
+            _atm_commit_or_process(atom, report, dry_run, defer_process_result)
             if on_update:
                 on_update(str(aid or ""), str(report.get("s", "BLK")), report)
             return report
         if ex == "qwen":
             success, report = run_qwen_atom(atom, dry_run=dry_run)
-            fb = os.environ.get("FORGE_QWEN_QUOTA_FALLBACK", "1").strip().lower()
+            fb_raw = forge_dotenv_setting("FORGE_QWEN_CURSOR_FALLBACK", "").strip()
+            if not fb_raw:
+                fb_raw = forge_dotenv_setting("FORGE_QWEN_QUOTA_FALLBACK", "1").strip()
+            fb = fb_raw.lower()
             if (
                 report.get("forge_retry_executor") == "cursor"
                 and fb not in ("0", "false", "no")
                 and avail.get("cursor")
             ):
                 LOG.warning(
-                    "ATM %s — Qwen quota/budget exhausted, falling back to Cursor",
+                    "ATM %s — Qwen BLK or quota, falling back to Cursor",
                     aid,
                 )
                 atom["executor"] = "cursor"
@@ -148,6 +185,10 @@ def _execute_atom_with_retries(
         )
         exec_report_ok = str(report.get("s") or "").strip().upper() == "OK"
         run_done = exec_report_ok
+        skip_done = False
+        if exec_report_ok and report.get("reviewer_skip_done") and str(atom.get("executor") or "").lower() == "qwen":
+            skip_raw = forge_dotenv_setting("FORGE_REVIEWER_SKIP_DONE_AFTER_QWEN", "1").strip().lower()
+            skip_done = skip_raw not in ("0", "false", "no")
         if not run_done:
             LOG.info(
                 "ATM %s — review fast-path (success=%s report.s=%s)",
@@ -155,13 +196,18 @@ def _execute_atom_with_retries(
                 success,
                 report.get("s"),
             )
-        passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
+        passed, reason, elapsed = review(
+            atom,
+            dry_run=dry_run,
+            run_done=run_done,
+            skip_done_command=skip_done,
+        )
         report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
         report["s"] = "OK" if (success and passed) else "BLK"
         LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
         if report.get("s") == "OK":
             hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
-            process_result(atom, report, dry_run=dry_run)
+            _atm_commit_or_process(atom, report, dry_run, defer_process_result)
             if on_update:
                 on_update(str(aid or ""), "OK", report)
             return report
@@ -178,9 +224,9 @@ def _execute_atom_with_retries(
         if kind == "transient" and attempt < maxiter:
             LOG.warning("ATM %s — transient BLK, retry %s/%s", aid, attempt, maxiter)
             continue
-        if kind == "permanent":
+        if kind == "permanent" and not defer_process_result:
             _bump_issue_attempts_on_permanent_blk(state, epic_issue)
-        process_result(atom, report, dry_run=dry_run)
+        _atm_commit_or_process(atom, report, dry_run, defer_process_result)
         if on_update:
             on_update(str(aid or ""), str(report.get("s", "BLK")), report)
         return report
@@ -192,6 +238,25 @@ def _execute_atom_with_retries(
     if on_update:
         on_update(str(aid or ""), "BLK", report)
     return report
+
+
+def _parallel_atom_worker(payload: tuple[Any, ...]) -> dict[str, Any]:
+    """Top-level entry for ``ProcessPoolExecutor`` (required for Windows spawn)."""
+    atom, epic, state, dry_run, avail, epic_issue, atm_total, worktree_path = payload
+    os.environ["OSNOVA_PROJECT"] = str(worktree_path)
+    os.environ["FORGE_SKIP_GIT_PUSH"] = "1"
+    return _execute_atom_with_retries(
+        atom,
+        epic,
+        state,
+        dry_run,
+        avail,
+        epic_issue,
+        atm_total,
+        on_update=None,
+        defer_process_result=True,
+    )
+
 
 # Idle backoff between cycles (cap 90s); does not change socket accept inside _resolve_epic.
 IDLE_STEPS_SEC = [60, 60, 90, 90]
@@ -538,7 +603,7 @@ def _process_epic(
         atoms = atomize(epic, dry_run=dry_run)
         epic_start_snapshot()
         LOG.info(
-            "EPIC %s: atomized to %s ATM — BRAIN target 10-12 ATM, scope ≤10 files in epic",
+            "EPIC %s: atomized to %s ATM — target 12-16 ATM, ≤12 files in epic scope",
             epic.get("id"),
             len(atoms),
         )
@@ -548,10 +613,13 @@ def _process_epic(
             goal=str(epic.get("goal", "")),
             atm_total=len(atoms),
         )
-        waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))))
+        cap = effective_max_parallel()
+        waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))), max_parallel=cap)
         LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
         atm_total = len(atoms)
         epic_issue = epic.get("githubissue")
+        project = Path(env_paths()["OSNOVA_PROJECT"])
+        pw = parallel_workers()
 
         def _run_one(atom: dict[str, Any]) -> None:
             report = _execute_atom_with_retries(
@@ -566,7 +634,68 @@ def _process_epic(
             )
             results.append(report)
 
-        run_waves_sequential(waves, _run_one)
+        for wi, wave in enumerate(waves):
+            LOG.info(
+                "EPIC %s wave %s/%s: %s",
+                epic.get("id"),
+                wi + 1,
+                len(waves),
+                [a.get("id") for a in wave],
+            )
+            use_parallel = (
+                not dry_run
+                and len(wave) > 1
+                and pw > 1
+                and not wave_scopes_overlap(wave)
+            )
+            if not use_parallel:
+                if len(wave) > 1 and pw > 1 and not dry_run and wave_scopes_overlap(wave):
+                    LOG.warning("scope overlap in wave — sequential fallback")
+                for atom in wave:
+                    _run_one(atom)
+                continue
+
+            wt: list[tuple[Path, str]] = []
+            try:
+                wt = prepare_wave_worktrees(project, len(wave), str(epic.get("id") or "epic"), wi + 1)
+                branches = [b for _, b in wt]
+                futs: dict[Any, int] = {}
+                with ProcessPoolExecutor(max_workers=len(wave)) as pool:
+                    for idx, atom in enumerate(wave):
+                        payload = (
+                            atom,
+                            epic,
+                            state,
+                            dry_run,
+                            avail,
+                            epic_issue,
+                            atm_total,
+                            str(wt[idx][0]),
+                        )
+                        fut = pool.submit(_parallel_atom_worker, payload)
+                        futs[fut] = idx
+                    chunk: dict[int, dict[str, Any]] = {}
+                    for fut in as_completed(futs):
+                        chunk[futs[fut]] = fut.result()
+                    ordered_reports = [chunk[i] for i in sorted(chunk)]
+                for rep in ordered_reports:
+                    results.append(rep)
+                if not dry_run:
+                    integrate_wave_branches(project, branches)
+                    subprocess.run(
+                        ["git", "push", "origin", "main"],
+                        cwd=project,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        check=False,
+                        **SUBPROCESS_TEXT,
+                    )
+                for atom, rep in zip(wave, ordered_reports, strict=True):
+                    process_result(atom, rep, dry_run=dry_run, state_only=True)
+            finally:
+                if wt and not dry_run:
+                    cleanup_wave_worktrees(project, [p for p, _ in wt])
         finalize_epic(epic, results, dry_run=dry_run, forge_state=state)
         state["current_epic"] = None
         state["current_epic_issue"] = None

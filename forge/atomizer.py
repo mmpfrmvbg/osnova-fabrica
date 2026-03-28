@@ -13,26 +13,37 @@ try:
     from forge.common import (
         SUBPROCESS_TEXT,
         atomic_write_yaml,
+        cursor_cli_available,
+        cursor_headless_argv,
         env_paths,
         qwen_headless_argv,
         resolve_executable,
         setup_logging,
     )
-    from forge.qwenbudget import can_call, is_quota_exhausted_output, log_remote_qwen_limit, record
+    from forge.qwenbudget import can_call_atomizer, is_quota_exhausted_output, log_remote_qwen_limit, record
 except ImportError:  # pragma: no cover
     from common import (
         SUBPROCESS_TEXT,
         atomic_write_yaml,
+        cursor_cli_available,
+        cursor_headless_argv,
         env_paths,
         qwen_headless_argv,
         resolve_executable,
         setup_logging,
     )
-    from qwenbudget import can_call, is_quota_exhausted_output, log_remote_qwen_limit, record
+    from qwenbudget import can_call_atomizer, is_quota_exhausted_output, log_remote_qwen_limit, record
 
 LOG = setup_logging("atomizer")
 
 _DEFAULT_ATOMIZER_S = 180
+
+# EPIC decomposition targets (see forge plan: Cursor atomizer + Qwen executor)
+ATM_TARGET_MIN = 12
+ATM_TARGET_MAX = 16
+ATM_COUNT_MIN = 8
+ATM_COUNT_MAX = 20
+MAX_SCOPE_FILES_EPIC = 12
 
 
 def _atomizer_timeout() -> int:
@@ -40,6 +51,18 @@ def _atomizer_timeout() -> int:
     if raw.isdigit():
         return max(30, int(raw))
     return _DEFAULT_ATOMIZER_S
+
+
+def _atomizer_cursor_timeout() -> int:
+    raw = os.environ.get("FORGE_ATOMIZER_CURSOR_TIMEOUT", "").strip()
+    if raw.isdigit():
+        return max(60, int(raw))
+    return max(_atomizer_timeout(), 300)
+
+
+def _atomizer_engine() -> str:
+    v = os.environ.get("FORGE_ATOMIZER_ENGINE", "cursor").strip().lower()
+    return v if v in ("cursor", "qwen") else "cursor"
 
 
 def _atomizer_attempts() -> int:
@@ -60,46 +83,66 @@ def _atomizer_use_stdin() -> bool:
     return v not in ("0", "false", "no")
 
 
-def _epic_trailer(epic: dict[str, Any]) -> str:
+def _epic_trailer(epic: dict[str, Any], *, engine: str) -> str:
     """Short repeated summary so the model sees id/goal/scope even if long YAML is truncated upstream."""
     eid = epic.get("id", "")
     goal = str(epic.get("goal", ""))[:600]
     scope = epic.get("scope") or []
-    paths = ", ".join(str(p).split("—")[0].strip() for p in scope[:12] if p)
+    paths = ", ".join(str(p).split("—")[0].strip() for p in scope[:MAX_SCOPE_FILES_EPIC] if p)
     done = str(epic.get("done", ""))[:200]
+    extra = ""
+    if engine == "cursor":
+        extra = (
+            "You have the full git workspace — use it to name exact files and one test file per ATM for `done`.\n"
+        )
     return (
         "\n---\n"
         "REPEAT (do not ignore): EPIC id, goal, and scope are HERE — not in a file on disk.\n"
         f"  id: {eid!r}\n"
         f"  goal: {goal}\n"
         f"  scope paths: {paths or '(none)'}\n"
-        f"  done: {done}\n"
-        "You MUST output a non-empty YAML list (target 10-12 items for a ~36 min EPIC window). Never output []. Never ask for the EPIC text.\n"
+        f"  done (epic reference): {done}\n"
+        f"{extra}"
+        f"You MUST output a non-empty YAML list with {ATM_TARGET_MIN}-{ATM_TARGET_MAX} items (hard range {ATM_COUNT_MIN}-{ATM_COUNT_MAX}). "
+        f"Epic-wide file list must not exceed {MAX_SCOPE_FILES_EPIC} unique paths. Never output []. Never ask for the EPIC text.\n"
     )
 
 
-def _prompt(epic: dict[str, Any]) -> str:
+def _prompt(epic: dict[str, Any], *, engine: str) -> str:
     dumped = yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)
-    return (
-        "You are the OSNOVA forge atomizer. Split the EPIC below into 10-12 ATM tasks (target size for one EPIC; scope across the epic ≤10 files total).\n\n"
+    core_rules = (
         "CRITICAL — read before answering:\n"
         "- The EPIC is the YAML block below. It is NOT a filename. "
         "Do NOT search the repo for pipeline.yaml, spec.yaml, or files named EPIC.\n"
         "- Do NOT ask questions. Do NOT explain. Do NOT refuse. Do NOT output an empty list [].\n"
         "- Output ONLY machine-readable structure: a YAML list (dash-prefixed items) OR a JSON array of objects.\n"
         "- Optional: wrap the list in a ```yaml or ```json fenced block.\n\n"
-        "Each ATM item must include: seq, zone, risk, goal, scope (list of paths), notouch, steps (list), deps (list). "
-        "Optional: id, executor (cursor|qwen).\n"
-        "Routing: MEDIUM/HIGH risk and src/**/*.ts (incl. tests) → prefer executor: cursor. "
-        "Small docs/yaml-only → qwen. In scope[], path first; optional note after em-dash — .\n"
-        "Use the epic's `done` command as reference; repeat or split across atoms as needed.\n\n"
+        f"Each ATM item MUST include: seq, zone, risk, goal, scope (exactly ONE file path string in scope), "
+        f"notouch, steps (list), deps (list), done (one narrow command, typically one vitest file), "
+        f"executor: qwen. "
+        f"Executor policy: Qwen Code runs implementation; Cursor is only for P0/HIGH risk or fallback — "
+        f"output executor: qwen for every ATM here.\n"
+        "In scope[], a single path first; optional note after em-dash — .\n"
+        "Split the epic `done` reference into per-ATM narrow `done` commands (one test file each).\n\n"
         "EPIC (complete YAML — this is the only source of truth):\n"
         f"{dumped}"
-        f"{_epic_trailer(epic)}"
+        f"{_epic_trailer(epic, engine=engine)}"
+    )
+    if engine == "cursor":
+        return (
+            "You are the OSNOVA forge atomizer (Cursor). Split the EPIC into "
+            f"{ATM_TARGET_MIN}-{ATM_TARGET_MAX} tiny ATM tasks (max {MAX_SCOPE_FILES_EPIC} distinct files across the epic). "
+            "Use the repository checkout to pick concrete paths.\n\n"
+            + core_rules
+        )
+    return (
+        "You are the OSNOVA forge atomizer (Qwen). Split the EPIC into "
+        f"{ATM_TARGET_MIN}-{ATM_TARGET_MAX} tiny ATM tasks (max {MAX_SCOPE_FILES_EPIC} distinct files across the epic).\n\n"
+        + core_rules
     )
 
 
-def _prompt_retry(epic: dict[str, Any], bad_tail: str) -> str:
+def _prompt_retry(epic: dict[str, Any], bad_tail: str, *, engine: str) -> str:
     dumped = yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)
     return (
         "Your previous reply was NOT valid: empty [], questions, or not parseable. "
@@ -107,11 +150,11 @@ def _prompt_retry(epic: dict[str, Any], bad_tail: str) -> str:
         "Example shape (YAML):\n"
         "```yaml\n"
         "- seq: 1\n  zone: lang\n  risk: MEDIUM\n  goal: \"...\"\n  scope: [src/foo.ts]\n"
-        "  notouch: []\n  steps: [\"step\"]\n  deps: []\n"
+        "  notouch: []\n  steps: [\"step\"]\n  deps: []\n  done: \"npx vitest run src/foo.test.ts\"\n  executor: qwen\n"
         "- seq: 2\n  ...\n"
         "```\n\n"
         f"EPIC:\n{dumped}\n"
-        f"{_epic_trailer(epic)}\n"
+        f"{_epic_trailer(epic, engine=engine)}\n"
         "Invalid output began like:\n"
         f"{bad_tail[:1200]}"
     )
@@ -203,7 +246,7 @@ def _extract_yaml(text: str | None) -> list[dict[str, Any]]:
 
 
 def _normalized_executor(atom: dict[str, Any], epic: dict[str, Any]) -> str | None:
-    """cursor | qwen if set on atom or epic; None = let forge/router choose by heuristics."""
+    """cursor | qwen if set on atom or epic; None → default qwen in _normalize_atoms."""
     for src in (atom, epic):
         if "executor" not in src:
             continue
@@ -270,6 +313,25 @@ def _fallback_atoms_from_epic(epic: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _run_cursor_atomizer(prompt: str, timeout: int) -> subprocess.CompletedProcess:
+    """Invoke Cursor agent for atomizer; prefer stdin for long prompts on Windows."""
+    use_stdin = _atomizer_use_stdin()
+    proj = env_paths()["OSNOVA_PROJECT"]
+    argv = cursor_headless_argv("", workspace=proj, use_stdin=use_stdin)
+    kw: dict[str, Any] = {
+        "capture_output": True,
+        "text": True,
+        "timeout": timeout,
+        "check": False,
+        **SUBPROCESS_TEXT,
+    }
+    if use_stdin:
+        kw["input"] = prompt
+    else:
+        kw["stdin"] = subprocess.DEVNULL
+    return subprocess.run(argv, **kw)
 
 
 def _run_qwen_atomizer(prompt: str, timeout: int) -> subprocess.CompletedProcess:
@@ -371,6 +433,12 @@ def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[
     for idx, atom in enumerate(atoms, start=1):
         seq = int(atom.get("seq", idx))
         atom_id = atom.get("id") or f"ATM-{epic_id}-{seq:03d}"
+        ex = _normalized_executor(atom, epic)
+        if ex is None:
+            ex = "qwen"
+        per_done = atom.get("done")
+        if per_done is None or str(per_done).strip() == "":
+            per_done = done_cmd
         out.append(
             {
                 "id": atom_id,
@@ -378,11 +446,11 @@ def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[
                 "seq": seq,
                 "zone": atom.get("zone", epic.get("zone", "lang")),
                 "risk": atom.get("risk", epic.get("risk", "MEDIUM")),
-                "executor": _normalized_executor(atom, epic),
+                "executor": ex,
                 "goal": atom.get("goal", ""),
                 "scope": atom.get("scope", []),
                 "notouch": atom.get("notouch", epic.get("notouch", [])),
-                "done": done_cmd,
+                "done": per_done,
                 "steps": atom.get("steps", []),
                 "deps": atom.get("deps", []),
                 "maxiter": 3,
@@ -403,31 +471,77 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
         if not atoms:
             atoms = _normalize_atoms(epic, [{"seq": 1, "goal": epic.get("goal", ""), "scope": epic.get("scope", [])}])
     else:
-        tmo = _atomizer_timeout()
+        engine = _atomizer_engine()
+        tmo_q = _atomizer_timeout()
+        tmo_c = _atomizer_cursor_timeout()
         attempts = _atomizer_attempts()
         LOG.info(
-            "atomizer: qwen timeout %ss; %s attempt(s); prompt via %s (Windows long prompts: keep stdin on)",
-            tmo,
+            "atomizer: engine=%s; qwen_timeout=%ss cursor_timeout=%ss; %s attempt(s); stdin=%s",
+            engine,
+            tmo_q,
+            tmo_c,
             attempts,
-            "stdin (-p -)" if _atomizer_use_stdin() else "argv (-p) — risk of truncation on Windows",
+            "on" if _atomizer_use_stdin() else "off",
         )
         stdout_last = ""
         last_parse_err: Exception | None = None
         atoms: list[dict[str, Any]] | None = None
         for attempt in range(attempts):
-            if not can_call():
-                LOG.warning("atomizer: forge Qwen daily budget exhausted — stop atomizer Qwen attempts")
-                last_parse_err = RuntimeError("Qwen daily budget exhausted (forge)")
+            eng = engine
+            prompt = _prompt(epic, engine=eng) if attempt == 0 else _prompt_retry(epic, stdout_last, engine=eng)
+            proc: subprocess.CompletedProcess | None = None
+            used_qwen = False
+            out_text = ""
+
+            want_cursor = eng == "cursor" and cursor_cli_available()
+            if want_cursor:
+                proc = _run_cursor_atomizer(prompt, tmo_c)
+                out_text = proc.stdout or ""
+                comb_c = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+                if proc.returncode != 0 and _atomizer_fallback_enabled() and can_call_atomizer():
+                    LOG.warning(
+                        "atomizer: Cursor exit %s — fallback to Qwen atomizer",
+                        proc.returncode,
+                    )
+                    proc = _run_qwen_atomizer(prompt, tmo_q)
+                    used_qwen = True
+                    out_text = proc.stdout or ""
+                    comb = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+                    if is_quota_exhausted_output(comb):
+                        log_remote_qwen_limit("atomizer", comb, ref=str(epic.get("id") or ""))
+                        last_parse_err = RuntimeError("Qwen API quota exceeded")
+                        break
+                    record(served=True, role="atomizer")
+                elif proc.returncode != 0:
+                    err_tail = comb_c.strip()[-800:]
+                    LOG.error("atomizer: Cursor exit %s — %s", proc.returncode, err_tail)
+                    last_parse_err = RuntimeError(f"Cursor atomizer failed (exit {proc.returncode})")
+                    if attempt >= attempts - 1:
+                        break
+                    LOG.warning("atomizer: Cursor failed, retry %s/%s", attempt + 1, attempts)
+                    continue
+            else:
+                if eng == "cursor" and not cursor_cli_available():
+                    LOG.warning("atomizer: CURSORBIN not available — using Qwen atomizer")
+                if not can_call_atomizer():
+                    LOG.warning("atomizer: Qwen atomizer daily budget exhausted")
+                    last_parse_err = RuntimeError("Qwen atomizer budget exhausted (forge)")
+                    break
+                proc = _run_qwen_atomizer(prompt, tmo_q)
+                used_qwen = True
+                out_text = proc.stdout or ""
+                comb = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+                if is_quota_exhausted_output(comb):
+                    log_remote_qwen_limit("atomizer", comb, ref=str(epic.get("id") or ""))
+                    last_parse_err = RuntimeError("Qwen API quota exceeded")
+                    break
+                record(served=True, role="atomizer")
+
+            if proc is None:
+                last_parse_err = RuntimeError("atomizer: no subprocess result")
                 break
-            prompt = _prompt(epic) if attempt == 0 else _prompt_retry(epic, stdout_last)
-            proc = _run_qwen_atomizer(prompt, tmo)
-            comb = f"{proc.stdout or ''}\n{proc.stderr or ''}"
-            if is_quota_exhausted_output(comb):
-                log_remote_qwen_limit("atomizer", comb, ref=str(epic.get("id") or ""))
-                last_parse_err = RuntimeError("Qwen API quota exceeded")
-                break
-            record(served=True)
-            if proc.returncode != 0:
+
+            if used_qwen and proc.returncode != 0:
                 err_tail = (proc.stderr or proc.stdout or "").strip()[-800:]
                 LOG.error("atomizer: Qwen exit %s — %s", proc.returncode, err_tail)
                 last_parse_err = RuntimeError(f"Qwen atomizer failed (exit {proc.returncode})")
@@ -435,15 +549,21 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
                     break
                 LOG.warning("atomizer: Qwen failed, retry %s/%s", attempt + 1, attempts)
                 continue
-            stdout_last = proc.stdout or ""
+
+            stdout_last = out_text
             try:
                 raw_atoms = _extract_yaml(stdout_last)
-                if not (1 <= len(raw_atoms) <= 14):
-                    raise ValueError(f"Atomizer must return 1-14 ATM items (BRAIN target 10-12), got {len(raw_atoms)}")
-                if len(raw_atoms) < 8:
+                n = len(raw_atoms)
+                if not (ATM_COUNT_MIN <= n <= ATM_COUNT_MAX):
+                    raise ValueError(
+                        f"Atomizer must return {ATM_COUNT_MIN}-{ATM_COUNT_MAX} ATM items, got {n}",
+                    )
+                if n < ATM_TARGET_MIN or n > ATM_TARGET_MAX:
                     LOG.warning(
-                        "atomizer: only %s ATM(s) — BRAIN target is 10-12 per EPIC; consider richer decomposition",
-                        len(raw_atoms),
+                        "atomizer: %s ATM(s) — target is %s-%s per EPIC",
+                        n,
+                        ATM_TARGET_MIN,
+                        ATM_TARGET_MAX,
                     )
                 atoms = _normalize_atoms(epic, raw_atoms)
                 break

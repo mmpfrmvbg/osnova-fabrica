@@ -1,16 +1,40 @@
 from __future__ import annotations
 
 import os
+import re
+import subprocess
+from itertools import combinations
+from pathlib import Path
 from typing import Any, Callable
 
 try:
-    from forge.common import setup_logging
+    from forge.common import SUBPROCESS_TEXT, setup_logging
 except ImportError:  # pragma: no cover
-    from common import setup_logging
+    from common import SUBPROCESS_TEXT, setup_logging
 
 LOG = setup_logging("parallel_executor")
 
 MAX_PARALLEL = int(os.environ.get("OSNOVA_MAX_PARALLEL", "3"))
+
+
+def effective_max_parallel() -> int:
+    """``min(OSNOVA_MAX_PARALLEL, max(1, FORGE_PARALLEL_WORKERS))`` for wave width."""
+    try:
+        mp = int(os.environ.get("OSNOVA_MAX_PARALLEL", "3"))
+    except ValueError:
+        mp = 3
+    try:
+        fw = int(os.environ.get("FORGE_PARALLEL_WORKERS", "1"))
+    except ValueError:
+        fw = 1
+    return min(max(1, mp), max(1, fw))
+
+
+def parallel_workers() -> int:
+    try:
+        return max(1, int(os.environ.get("FORGE_PARALLEL_WORKERS", "1")))
+    except ValueError:
+        return 1
 
 
 def _scopes(a: dict[str, Any]) -> set[str]:
@@ -24,8 +48,19 @@ def scope_conflicts_safe(a1: dict[str, Any], a2: dict[str, Any]) -> bool:
     return bool(s1 & s2)
 
 
-def build_waves(atoms: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+def wave_scopes_overlap(wave: list[dict[str, Any]]) -> bool:
+    """True if some pair shares a non-empty scope intersection (insurance beyond :func:`build_waves`)."""
+    for a, b in combinations(wave, 2):
+        sa = {str(x) for x in (a.get("scope") or []) if x is not None}
+        sb = {str(x) for x in (b.get("scope") or []) if x is not None}
+        if sa and sb and (sa & sb):
+            return True
+    return False
+
+
+def build_waves(atoms: list[dict[str, Any]], max_parallel: int | None = None) -> list[list[dict[str, Any]]]:
     """Topological waves by deps; inside wave, cap width with scope conflicts (v5.2)."""
+    cap = max_parallel if max_parallel is not None else MAX_PARALLEL
     done_ids: set[str] = set()
     remaining = list(atoms)
     waves: list[list[dict[str, Any]]] = []
@@ -40,7 +75,7 @@ def build_waves(atoms: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         wave_group: list[dict[str, Any]] = []
         for atom in ready:
             conflict = any(scope_conflicts_safe(atom, a) for a in wave_group)
-            if not conflict and len(wave_group) < MAX_PARALLEL:
+            if not conflict and len(wave_group) < cap:
                 wave_group.append(atom)
         if not wave_group:
             wave_group = [ready[0]]
@@ -51,6 +86,80 @@ def build_waves(atoms: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
             remaining.remove(a)
 
     return waves
+
+
+def _sanitize_branch_segment(s: str) -> str:
+    t = re.sub(r"[^a-zA-Z0-9._/-]+", "-", str(s)).strip("-")
+    return (t[:80] or "epic").replace("/", "-")
+
+
+def _git_run(project: Path, argv: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *argv],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        **SUBPROCESS_TEXT,
+    )
+
+
+def prepare_wave_worktrees(
+    project: Path,
+    count: int,
+    epic_id: str,
+    wave_index: int,
+) -> list[tuple[Path, str]]:
+    """
+    ``git worktree add`` for ``.forge-worker-1`` … ``.forge-worker-{count}`` with unique branches.
+    Returns ``(path, branch)`` in order. Caller must ensure a clean main working tree when possible.
+    """
+    safe = _sanitize_branch_segment(epic_id)
+    out: list[tuple[Path, str]] = []
+    for i in range(1, count + 1):
+        rel = Path(f".forge-worker-{i}")
+        path = project / rel
+        branch = f"forge/parallel/{safe}/w{wave_index}-wt{i}"
+        proc = _git_run(project, ["worktree", "add", str(rel), "-b", branch, "HEAD"])
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()
+            raise RuntimeError(f"git worktree add failed ({path}): {err}")
+        out.append((path.resolve(), branch))
+        LOG.info("parallel_executor: worktree %s branch %s", path, branch)
+    return out
+
+
+def cleanup_wave_worktrees(project: Path, paths: list[Path]) -> None:
+    for p in paths:
+        proc = _git_run(project, ["worktree", "remove", "--force", str(p.resolve())])
+        if proc.returncode != 0:
+            LOG.warning("git worktree remove failed %s: %s", p, (proc.stderr or proc.stdout or "").strip()[:200])
+
+
+def integrate_wave_branches(project: Path, branches_ordered: list[str]) -> None:
+    """Rebase each worker branch onto ``main``, then fast-forward merge into ``main`` (order matters)."""
+    cur = _git_run(project, ["branch", "--show-current"])
+    branch_now = (cur.stdout or "").strip()
+    if branch_now != "main":
+        sw = _git_run(project, ["checkout", "main"])
+        if sw.returncode != 0:
+            raise RuntimeError(f"git checkout main failed: {(sw.stderr or sw.stdout or '').strip()}")
+
+    for br in branches_ordered:
+        co = _git_run(project, ["checkout", br])
+        if co.returncode != 0:
+            raise RuntimeError(f"git checkout {br} failed: {(co.stderr or co.stdout or '').strip()}")
+        rb = _git_run(project, ["rebase", "main"])
+        if rb.returncode != 0:
+            raise RuntimeError(f"git rebase main failed on {br}: {(rb.stderr or rb.stdout or '').strip()}")
+        bk = _git_run(project, ["checkout", "main"])
+        if bk.returncode != 0:
+            raise RuntimeError(f"git checkout main after rebase failed: {(bk.stderr or bk.stdout or '').strip()}")
+        mg = _git_run(project, ["merge", "--ff-only", br])
+        if mg.returncode != 0:
+            raise RuntimeError(f"git merge --ff-only {br} failed: {(mg.stderr or mg.stdout or '').strip()}")
+        LOG.info("parallel_executor: merged %s into main", br)
 
 
 def run_waves_sequential(

@@ -60,6 +60,41 @@ class TestClassifyQwenApiLimit(unittest.TestCase):
         self.assertIn("QuotaExceeded", out2)
 
 
+class TestWarnApproachingLimit(unittest.TestCase):
+    def test_warn_logs_when_over_threshold(self) -> None:
+        from forge import qwenbudget as qb
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            forge_d = root / "forge"
+            proj = root / "proj"
+            forge_d.mkdir()
+            (proj / ".osnova").mkdir(parents=True)
+
+            def _paths() -> dict[str, str]:
+                return {
+                    "OSNOVA_FORGE": str(forge_d),
+                    "OSNOVA_PROJECT": str(proj),
+                    "GHREPO": "o/r",
+                    "GH_TOKEN": "",
+                    "QWENBIN": "qwen",
+                    "CURSORBIN": "agent",
+                }
+
+            with patch.object(qb, "env_paths", _paths):
+                qb.maybe_reset()
+                st = qb._migrate_legacy_state(qb._state())  # type: ignore[attr-defined]
+                st["used_executor"] = 900
+                st["limit_executor"] = 1000
+                st["used_atomizer"] = 0
+                st["limit_atomizer"] = 200
+                qb.atomic_write_json(qb._path(), st)  # type: ignore[attr-defined]
+                qb._warn_last.clear()  # type: ignore[attr-defined]
+                with self.assertLogs("forge.qwenbudget", level="WARNING") as cm:
+                    qb.warn_if_approaching_limit(threshold=0.85, min_interval_s=0.0)
+                self.assertTrue(any("executor" in x for x in cm.output))
+
+
 class TestRecordAndStateYaml(unittest.TestCase):
     def test_record_increments_json_and_state_yaml(self) -> None:
         from forge import qwenbudget as qb
@@ -81,13 +116,13 @@ class TestRecordAndStateYaml(unittest.TestCase):
                     "CURSORBIN": "agent",
                 }
 
-            with patch.object(qb, "env_paths", _paths), patch.object(qb, "effective_limit", lambda: 100):
+            with patch.object(qb, "env_paths", _paths), patch.object(qb, "effective_limit_executor", lambda: 100):
                 qb.maybe_reset()
-                st = qb.record(served=True)
-                self.assertEqual(int(st["used"]), 1)
+                st = qb.record(served=True, role="executor")
+                self.assertEqual(int(st["used_executor"]), 1)
 
                 data = json.loads((forge_d / "qwen-budget.json").read_text(encoding="utf-8"))
-                self.assertEqual(data["used"], 1)
+                self.assertEqual(data["used_executor"], 1)
 
                 sy = yaml.safe_load((proj / ".osnova" / "state.yaml").read_text(encoding="utf-8"))
                 self.assertEqual(sy["budget"]["qwenusedtoday"], 1)
@@ -113,16 +148,16 @@ class TestRecordAndStateYaml(unittest.TestCase):
                     "CURSORBIN": "agent",
                 }
 
-            with patch.object(qb, "env_paths", _paths), patch.object(qb, "effective_limit", lambda: 100):
+            with patch.object(qb, "env_paths", _paths), patch.object(qb, "effective_limit_executor", lambda: 100):
                 qb.maybe_reset()
-                qb.record(served=True)
+                qb.record(served=True, role="executor")
                 self.assertEqual(
-                    json.loads((forge_d / "qwen-budget.json").read_text(encoding="utf-8"))["used"],
+                    json.loads((forge_d / "qwen-budget.json").read_text(encoding="utf-8"))["used_executor"],
                     1,
                 )
                 qb.record(served=False)
                 data = json.loads((forge_d / "qwen-budget.json").read_text(encoding="utf-8"))
-                self.assertEqual(data["used"], 1)
+                self.assertEqual(data["used_executor"], 1)
 
 
 class TestReviewerQuotaFallback(unittest.TestCase):
