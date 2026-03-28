@@ -1,6 +1,6 @@
 /**
- * Unit tests for IntakeAgent, PlanAgent, ExecAgent (plan execution), and ReviewAgent (result validation).
- * Complements single-file agent tests with focused validation and edge cases.
+ * Unit and integration tests for IntakeAgent, PlanAgent, ExecAgent, and ReviewAgent.
+ * Integration scenarios: full-cycle simulation (validate → plan → execute → review) and error propagation in the chain.
  */
 import { describe, it, expect } from 'vitest';
 import { IntakeAgent, SpecValidationError, parseLlmConfidence } from './IntakeAgent';
@@ -708,5 +708,211 @@ describe('ReviewAgent.validate', () => {
     const report = agent.review(spec, ctx, plan);
     expect(report.items.find(i => i.id === 'plan_intent')?.ok).toBe(false);
     expect(report.ok).toBe(false);
+  });
+});
+
+describe('Интеграция — полный цикл и цепочка агентов', () => {
+  it('полный цикл: Intake (validate/parse/checkSpec) → Plan → Exec → Review — успех', async () => {
+    const intake = new IntakeAgent();
+    const raw = { text: '  интеграционная задача  ' };
+    intake.validate(raw);
+    expect(intake.parse(raw)).toEqual({ text: 'интеграционная задача' });
+
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    intake.checkSpec(spec);
+
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: true, includeRepair: true });
+    const exec = new ExecAgent(planAgent);
+    const reviewAgent = new ReviewAgent();
+
+    const execResult = await exec.execute(plan, async (phase, _step, ctx) => {
+      switch (phase) {
+        case 'intake':
+          return { ok: true, patch: { intent } };
+        case 'spec_generation':
+          return { ok: true, patch: { spec } };
+        case 'g1_spec_ready':
+          return { ok: true };
+        case 'codegen':
+          return {
+            ok: true,
+            patch: {
+              source: { filename: 'главная.osnova', source: 'модуль Главный\nконец' },
+            },
+          };
+        case 'build':
+          return {
+            ok: true,
+            patch: {
+              buildReport: {
+                success: true,
+                lexerErrors: [],
+                parserErrors: [],
+                compilerErrors: [],
+                bytecode: null,
+                compilerSuccess: true,
+                durationMs: 1,
+              },
+            },
+          };
+        case 'golden_check':
+          return {
+            ok: true,
+            patch: {
+              goldenReport: {
+                executed: true,
+                passed: true,
+                qualityScore: 1,
+                vmErrors: [],
+                outputDiff: null,
+                durationMs: 2,
+              },
+            },
+          };
+        case 'repair':
+          return { ok: true, patch: { repairAttempts: ctx.repairAttempts + 1 } };
+      }
+    });
+
+    expect(execResult.completed).toBe(true);
+    const report = reviewAgent.review(spec, execResult.state, plan);
+    expect(report.ok).toBe(true);
+    expect(execResult.state.repairAttempts).toBe(1);
+  });
+
+  it('цепочка: ошибка на build — Exec останавливается, Review отражает провал сборки', async () => {
+    const intake = new IntakeAgent();
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    intake.checkSpec(spec);
+
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: false, includeRepair: false });
+    const exec = new ExecAgent(planAgent);
+    const reviewAgent = new ReviewAgent();
+
+    const execResult = await exec.execute(
+      plan,
+      async phase => {
+        if (phase === 'codegen') {
+          return {
+            ok: true,
+            patch: {
+              source: { filename: 'x.osnova', source: 'модуль X\nконец' },
+            },
+          };
+        }
+        if (phase === 'build') {
+          return { ok: false, error: 'compile error' };
+        }
+        return { ok: true };
+      },
+      { intent, spec },
+    );
+
+    expect(execResult.completed).toBe(false);
+    expect(execResult.stoppedAtPhase).toBe('build');
+    expect(execResult.error).toBe('compile error');
+    const report = reviewAgent.review(spec, execResult.state, plan);
+    expect(report.ok).toBe(false);
+    expect(report.items.find(i => i.id === 'build')?.ok).toBe(false);
+  });
+
+  it('цепочка: ошибка на golden_check — Review проваливает golden', async () => {
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: false, includeRepair: false });
+    const exec = new ExecAgent(planAgent);
+    const reviewAgent = new ReviewAgent();
+
+    const execResult = await exec.execute(
+      plan,
+      async phase => {
+        if (phase === 'codegen') {
+          return {
+            ok: true,
+            patch: {
+              source: { filename: 'g.osnova', source: 'модуль G\nконец' },
+            },
+          };
+        }
+        if (phase === 'build') {
+          return {
+            ok: true,
+            patch: {
+              buildReport: {
+                success: true,
+                lexerErrors: [],
+                parserErrors: [],
+                compilerErrors: [],
+                bytecode: null,
+                compilerSuccess: true,
+                durationMs: 1,
+              },
+            },
+          };
+        }
+        if (phase === 'golden_check') {
+          return {
+            ok: true,
+            patch: {
+              goldenReport: {
+                executed: true,
+                passed: false,
+                qualityScore: 0,
+                vmErrors: [],
+                outputDiff: 'failed',
+                durationMs: 1,
+              },
+            },
+          };
+        }
+        return { ok: true };
+      },
+      { intent, spec },
+    );
+
+    expect(execResult.completed).toBe(true);
+    const report = reviewAgent.review(spec, execResult.state, plan);
+    expect(report.ok).toBe(false);
+    expect(report.items.find(i => i.id === 'golden')?.ok).toBe(false);
+  });
+
+  it('цепочка: исключение на spec_generation — прерывание, spec не попадает в контекст', async () => {
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: true, includeRepair: false });
+    const exec = new ExecAgent(planAgent);
+
+    const execResult = await exec.execute(plan, async phase => {
+      if (phase === 'intake') return { ok: true, patch: { intent } };
+      if (phase === 'spec_generation') throw new Error('LLM недоступен');
+      return { ok: true };
+    });
+
+    expect(execResult.completed).toBe(false);
+    expect(execResult.stoppedAtPhase).toBe('spec_generation');
+    expect(execResult.error).toBe('LLM недоступен');
+    expect(execResult.state.spec).toBeUndefined();
+  });
+
+  it('Intake: пустой RawText — валидация до Plan/Exec', () => {
+    const intake = new IntakeAgent();
+    expect(() => intake.validate({ text: '' })).toThrow(IntakeValidationError);
+  });
+
+  it('Intake.checkSpec: невалидный spec — до codegen не допускается', () => {
+    const intake = new IntakeAgent();
+    expect(() =>
+      intake.checkSpec(
+        sampleSpec({
+          procedures: [],
+        }),
+      ),
+    ).toThrow(SpecValidationError);
   });
 });

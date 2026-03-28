@@ -1,24 +1,28 @@
-id: ATM-EPK-260328-017-008
+id: ATM-EPK-260328-017-005
 epic: EPK-260328-017
-seq: 8
-zone: runtime
-risk: HIGH
+seq: 5
+zone: agents
+risk: MEDIUM
 executor: cursor
-goal: Восстановить VM — выполнение кода в песочнице
+goal: Интеграционные тесты всех агентов
 scope:
-- src/runtime/vm.ts — восстановить виртуальную машину
+- src/agents/agents.test.ts — полный набор интеграционных тестов
 notouch:
-- src/agents/*
-- src/pipeline/*
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Анализ текущей реализации vm.ts
-- Исправить метод execute — безопасное выполнение кода
-- Восстановить обработку timeout и ошибок
-- Добавить логирование выполнения
-- Запустить существующие тесты VM
+- Создать тестовые сценарии полного цикла
+- Протестировать взаимодействие агентов
+- Проверить обработку ошибок в цепочке
+- Запустить npx vitest run src/agents/agents.test.ts
 deps:
+- ATM-EPK-260328-017-001
+- ATM-EPK-260328-017-002
 - ATM-EPK-260328-017-003
+- ATM-EPK-260328-017-004
 maxiter: 3
 retries: 0
 status: PENDING
