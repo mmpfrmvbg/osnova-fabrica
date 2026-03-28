@@ -1,21 +1,20 @@
-id: ATM-EPK-260328-014-006
+id: ATM-EPK-260328-014-007
 epic: EPK-260328-014
-seq: 6
-zone: src/runtime/interpreter.ts
-risk: HIGH
+seq: 7
+zone: src/runtime/vm.ts
+risk: MEDIUM
 executor: cursor
-goal: Реализовать обработку исключений (THROW, TRY_CATCH, FINALLY)
+goal: Создать VM класс — обёртку над Interpreter с API для выполнения модулей
 scope:
-- src/runtime/interpreter.ts
+- src/runtime/vm.ts
 notouch: []
 done: npx vitest run src/runtime/
 steps:
-- Добавить массив exceptionHandlers в Interpreter
-- Реализовать OpCode.THROW — бросание исключения
-- Реализовать OpCode.TRY_CATCH — регистрация обработчика
-- Реализовать механизм unwinding стека при исключении
+- Создать класс OsVbcVM с методами execute(), getReturnValue()
+- Реализовать инициализацию глобального контекста
+- Добавить обработку внешних вызовов (native functions)
 deps:
-- 5
+- 6
 maxiter: 3
 retries: 0
 status: PENDING

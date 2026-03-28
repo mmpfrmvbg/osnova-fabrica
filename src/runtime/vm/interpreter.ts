@@ -22,7 +22,7 @@ export interface InvokeHandler {
 }
 
 /** Обработчик по умолчанию (используется когда invoke не передан). */
-function createDefaultInvokeHandler(): InvokeHandler {
+export function createDefaultInvokeHandler(): InvokeHandler {
   const storage = new Map<string, StackValue>();
   const pad2 = (n: number): string => String(Math.trunc(n)).padStart(2, "0");
   return (name: string, args: StackValue[]): StackValue | null => {
