@@ -14,13 +14,17 @@ import { createDefaultInvokeHandler } from "./vm/interpreter";
 export { createDefaultInvokeHandler };
 export type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";
 
+/** Опции конструктора {@link OsVbcVM}: наследует {@link InterpreterOptions} (в т.ч. `invoke`, лимиты шагов) и стартовые `globals`. */
 export interface OsVbcVMOptions extends InterpreterOptions {
   /** Глобальный контекст хоста (копируется в {@link OsVbcVM.globals}; можно мутировать снаружи). */
   globals?: Record<string, StackValue>;
 }
 
+/** Аргументы для {@link OsVbcVM.execute}: какую процедуру запустить и начальные значения стека. */
 export interface OsVbcExecuteOptions {
+  /** Имя процедуры; если не задано — `главная` / `main` / индекс 0. */
   procedure?: string;
+  /** Аргументы, передаваемые в процедуру (стек вызова). */
   args?: StackValue[];
 }
 
@@ -90,16 +94,37 @@ export function createPipelineInvokeHandlerForVm(
 }
 
 /**
- * Обёртка над {@link Interpreter}: один модуль, явный execute и сохранённый результат.
- * Внешние вызовы — поле `invoke` (по умолчанию системный обработчик из {@link createDefaultInvokeHandler}).
+ * Высокоуровневая VM для одного скомпилированного модуля ({@link OsVbcModule}): обёртка над {@link Interpreter}
+ * с явной точкой входа {@link OsVbcVM.execute} и сохранённым результатом {@link OsVbcVM.getReturnValue}.
+ *
+ * **Связь с ExecContext:** в агентах и пайплайне тот же снимок спецификации, что в `ExecContext.spec`
+ * ({@link import("../agents/exec-agent").ExecContext}), передаётся в {@link applyPipelineSpecToVm} до запуска,
+ * чтобы заполнить {@link OsVbcVM.globals} и syscall `система.пайплайн.*` (см. {@link PIPELINE_VM_GLOBAL_KEYS}).
+ *
+ * **execute:** запуск процедуры модуля (см. {@link OsVbcVM.execute}).
+ *
+ * **«evaluate»:** отдельного метода нет — выполнение байткода — это {@link OsVbcVM.execute}; итог процедуры
+ * читают через {@link OsVbcVM.getReturnValue}.
+ *
+ * **«bind»:** привязка окружения — поле {@link OsVbcVM.globals} и опции {@link OsVbcVMOptions} (в т.ч. наследуемый
+ * из {@link InterpreterOptions} обработчик `invoke`); для пайплайна дополнительно {@link applyPipelineSpecToVm}.
+ *
+ * Внешние вызовы из байткода — через `invoke` (по умолчанию {@link createDefaultInvokeHandler}).
  */
 export class OsVbcVM {
   private readonly interpreter: Interpreter;
   private lastReturnValue: StackValue | undefined;
 
-  /** Глобальный контекст инициализируется из опций конструктора и доступен хосту и пользовательскому `invoke`. */
+  /**
+   * Глобальный контекст хоста: копия из {@link OsVbcVMOptions.globals} при создании; мутации видны байткоду и `invoke`.
+   * Ключи пайплайна — {@link PIPELINE_VM_GLOBAL_KEYS}; заполняются через {@link applyPipelineSpecToVm} из `ExecContext.spec`.
+   */
   readonly globals: Record<string, StackValue>;
 
+  /**
+   * @param module — загруженный байткод одного модуля.
+   * @param options — {@link OsVbcVMOptions}: стартовые `globals`, лимиты шагов, цепочка `invoke` и пр.
+   */
   constructor(module: OsVbcModule, options: OsVbcVMOptions = {}) {
     const { globals: initial = {}, ...rest } = options;
     this.globals = Object.assign(Object.create(null) as Record<string, StackValue>, initial);
@@ -107,7 +132,11 @@ export class OsVbcVM {
   }
 
   /**
-   * Выполняет процедуру модуля. Точка входа по умолчанию: `главная`, иначе `main`, иначе индекс 0.
+   * Запускает процедуру модуля и сохраняет возвращаемое значение для {@link OsVbcVM.getReturnValue}.
+   *
+   * Точка входа по умолчанию: `главная`, иначе `main`, иначе процедура с индексом 0.
+   * @param opts — имя процедуры и аргументы стека; без `procedure` используется разрешение по умолчанию.
+   * @returns Значение `ret` из процедуры или `undefined`.
    */
   async execute(opts: OsVbcExecuteOptions = {}): Promise<StackValue | undefined> {
     const procedureIndex = this.resolveProcedureIndex(opts.procedure);
@@ -115,7 +144,10 @@ export class OsVbcVM {
     return this.lastReturnValue;
   }
 
-  /** Значение, возвращённое последним успешным {@link execute} (или undefined). */
+  /**
+   * Результат последнего успешного {@link OsVbcVM.execute} (аналог «значения вычисления» после прогона процедуры).
+   * До первого `execute` — `undefined`.
+   */
   getReturnValue(): StackValue | undefined {
     return this.lastReturnValue;
   }

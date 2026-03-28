@@ -1,12 +1,12 @@
-id: ATM-EPK-260328-FBK016-002
+id: ATM-EPK-260328-FBK016-004
 epic: EPK-260328-FBK016
-seq: 2
+seq: 4
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Изучить src/pipeline/pipeline.test.ts для понимания тестовых сценариев VM
+goal: Добавить JSDoc для интерфейса/класса VM в src/runtime/vm.ts
 scope:
-- src/pipeline/pipeline.test.ts
+- src/runtime/vm.ts
 notouch:
 - forge/
 - .github/
@@ -14,9 +14,9 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать тесты пайплайна
-- Выявить тесты, связанные с VM и глобальными ключами
-- Определить пробелы в покрытии контракта VM
+- Документировать основной класс/интерфейс VM
+- Описать методы execute, evaluate, bind
+- Указать связь с ExecContext
 deps:
 - ATM-EPK-260328-FBK016-001
 maxiter: 3
