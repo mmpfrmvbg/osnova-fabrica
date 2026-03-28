@@ -4,9 +4,9 @@
  */
 
 import { VM } from "./vm/interpreter";
-import type { InterpreterOptions, StackValue } from "./vm/interpreter";
+import type { InterpreterOptions, StackValue, TryFrame } from "./vm/interpreter";
 
-export type { InterpreterOptions, StackValue, InvokeHandler, RunProgramOptions } from "./vm/interpreter";
+export type { InterpreterOptions, StackValue, InvokeHandler, RunProgramOptions, TryFrame } from "./vm/interpreter";
 export {
   InterpreterError,
   runProgram,
@@ -50,12 +50,23 @@ export enum OpCode {
   CALL = "call",
   /** Возврат из текущей процедуры (значение на вершине стека — результат, если есть). */
   RETURN = "ret",
+  /** Выбросить значение с вершины стека как исключение; при наличии try — переход в catch. */
+  THROW = "throw",
+  /** Регистрация обработчика (байткод `try_begin`): `off` — абсолютный PC входа в catch. */
+  TRY_CATCH = "try_begin",
+  /** Снятие обработчика после успешного прохода try (`try_end`). Отдельного опкода finally в v0.1 нет. */
+  FINALLY = "try_end",
 }
 
 export class Interpreter extends VM {
   /** Стек исполнения (верх — последний элемент). */
   get executionStack(): readonly StackValue[] {
     return this.debugStack;
+  }
+
+  /** Активные try-обработчики (для отладки; соответствует внутреннему стеку `try_begin`). */
+  get exceptionHandlers(): readonly TryFrame[] {
+    return this.activeExceptionHandlers;
   }
 
   constructor(

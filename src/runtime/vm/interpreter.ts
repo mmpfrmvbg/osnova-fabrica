@@ -287,7 +287,8 @@ interface CallFrame {
   locals: StackValue[];
 }
 
-interface TryFrame {
+/** Запись обработчика `try_begin`: куда перейти при throw и глубина стека вызовов на момент входа. */
+export interface TryFrame {
   catchOffset: number;
   frameDepth: number;
 }
@@ -302,7 +303,8 @@ export class InterpreterError extends Error {
 export class VM {
   private stack: StackValue[] = [];
   private frames: CallFrame[] = [];
-  private tryStack: TryFrame[] = [];
+  /** Стек активных `try_begin` (верх — самый вложенный try). */
+  private exceptionHandlerStack: TryFrame[] = [];
   private pc = 0;
   private module: OsVbcModule;
   private options: Required<InterpreterOptions>;
@@ -318,6 +320,14 @@ export class VM {
   /** Доступ к стеку для тестов (readonly). Не использовать в продакшене. */
   get debugStack(): readonly StackValue[] {
     return this.stack;
+  }
+
+  /**
+   * Активные обработчики `try_begin` (самый вложенный try — последний элемент).
+   * Массив тот же, что внутри VM; не мутировать снаружи.
+   */
+  get activeExceptionHandlers(): readonly TryFrame[] {
+    return this.exceptionHandlerStack;
   }
 
   /** Вершина стека без pop (для obj.set). */
@@ -351,7 +361,7 @@ export class VM {
     });
     this.pc = proc.codeOffset;
     this.stack = [];
-    this.tryStack = [];
+    this.exceptionHandlerStack = [];
 
     let steps = 0;
     while (this.pc >= 0 && this.pc < this.module.code.length) {
@@ -360,30 +370,45 @@ export class VM {
       }
       const el: CodeElement = this.module.code[this.pc];
       if (isVliwPacket(el)) {
+        const packetPc = this.pc;
+        let exitedPacket = false;
         for (const slotIns of el.slots) {
           const nextPc = await this.step(slotIns);
           if (nextPc === "ret") {
             const frame = this.frames.pop();
             if (!frame) break;
-            while (this.tryStack.length > 0 && this.tryStack[this.tryStack.length - 1]!.frameDepth > this.frames.length) {
-              this.tryStack.pop();
+            while (
+              this.exceptionHandlerStack.length > 0 &&
+              this.exceptionHandlerStack[this.exceptionHandlerStack.length - 1]!.frameDepth > this.frames.length
+            ) {
+              this.exceptionHandlerStack.pop();
             }
             const returnValue = this.stack.pop();
             if (this.frames.length === 0) return returnValue;
             if (returnValue !== undefined) this.stack.push(returnValue);
             this.pc = frame.returnPc;
-            continue; // next iteration of while
+            exitedPacket = true;
+            break;
+          }
+          // jmp / call / throw / и т.п. — абсолютный nextPc, не следующий за пакетом
+          if (nextPc !== packetPc + 1) {
+            this.pc = nextPc as number;
+            exitedPacket = true;
+            break;
           }
         }
-        this.pc++;
+        if (!exitedPacket) this.pc = packetPc + 1;
         continue;
       }
       const nextPc = await this.step(el as RawInstruction);
       if (nextPc === "ret") {
         const frame = this.frames.pop();
         if (!frame) break;
-        while (this.tryStack.length > 0 && this.tryStack[this.tryStack.length - 1]!.frameDepth > this.frames.length) {
-          this.tryStack.pop();
+        while (
+          this.exceptionHandlerStack.length > 0 &&
+          this.exceptionHandlerStack[this.exceptionHandlerStack.length - 1]!.frameDepth > this.frames.length
+        ) {
+          this.exceptionHandlerStack.pop();
         }
         const returnValue = this.stack.pop();
         if (this.frames.length === 0) return returnValue;
@@ -541,16 +566,16 @@ export class VM {
         return (ins as { op: "jmp"; off: number }).off;
       case "try_begin": {
         const off = (ins as { op: "try_begin"; off: number }).off;
-        this.tryStack.push({ catchOffset: off, frameDepth: this.frames.length });
+        this.exceptionHandlerStack.push({ catchOffset: off, frameDepth: this.frames.length });
         return next;
       }
       case "try_end":
-        if (this.tryStack.length > 0) this.tryStack.pop();
+        if (this.exceptionHandlerStack.length > 0) this.exceptionHandlerStack.pop();
         return next;
       case "throw": {
         const errVal = this.stack.pop() ?? null;
-        if (this.tryStack.length > 0) {
-          const handler = this.tryStack.pop()!;
+        if (this.exceptionHandlerStack.length > 0) {
+          const handler = this.exceptionHandlerStack.pop()!;
           // Если когда-нибудь появятся throw через frame boundaries, отрежем стек вызовов.
           while (this.frames.length > handler.frameDepth) this.frames.pop();
           this.stack.push(errVal);

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Interpreter, InterpreterError, OpCode } from "./interpreter";
+import { Interpreter, InterpreterError, OpCode, VM } from "./interpreter";
 import type { OsVbcModule, RawInstruction } from "./vm/bytecode";
 
 function tinyMod(code: RawInstruction[], constants: unknown[] = []): OsVbcModule {
@@ -34,6 +34,9 @@ describe("Interpreter + OpCode stack ops", () => {
     expect(OpCode.JUMP_IF_FALSE).toBe("jmp_if_not");
     expect(OpCode.CALL).toBe("call");
     expect(OpCode.RETURN).toBe("ret");
+    expect(OpCode.THROW).toBe("throw");
+    expect(OpCode.TRY_CATCH).toBe("try_begin");
+    expect(OpCode.FINALLY).toBe("try_end");
     const m = tinyMod([{ op: "const", type: "i32", k: 0 } as RawInstruction], [7]);
     const ip = new Interpreter(m);
     await ip.runProcedure(0, []);
@@ -180,5 +183,56 @@ describe("Interpreter + OpCode stack ops", () => {
       ],
     };
     expect(await new Interpreter(callMod).runProcedure(0, [])).toBe(7);
+  });
+
+  it("THROW / TRY_CATCH: исключение ловится, значение в catch", async () => {
+    const m: OsVbcModule = {
+      version: 1,
+      moduleName: "t_try",
+      constants: ["err", 99],
+      procedures: [{ name: "main", codeOffset: 0, argc: 0, localsCount: 1 }],
+      code: [
+        { op: OpCode.TRY_CATCH, off: 5 } as RawInstruction,
+        { op: OpCode.PUSH, type: "str", k: 0 } as RawInstruction,
+        { op: OpCode.THROW } as RawInstruction,
+        { op: OpCode.FINALLY } as RawInstruction,
+        { op: OpCode.JUMP, off: 8 } as RawInstruction,
+        { op: "local.set", i: 0 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+        { op: OpCode.RETURN } as RawInstruction,
+      ],
+    };
+    const ip = new Interpreter(m);
+    expect(await ip.runProcedure(0, [])).toBe(99);
+    expect(ip.exceptionHandlers.length).toBe(0);
+  });
+
+  it("необработанный THROW → InterpreterError", async () => {
+    const m = tinyMod([{ op: OpCode.PUSH, type: "str", k: 0 } as RawInstruction, { op: OpCode.THROW } as RawInstruction], ["x"]);
+    await expect(new Interpreter(m).runProcedure(0, [])).rejects.toMatchObject({ name: "InterpreterError" });
+  });
+
+  it("VLIW: throw в слотах переводит PC на catch", async () => {
+    const m: OsVbcModule = {
+      version: 1,
+      moduleName: "t_vliw_throw",
+      constants: ["e"],
+      procedures: [{ name: "main", codeOffset: 0, argc: 0, localsCount: 1 }],
+      code: [
+        {
+          packet: true,
+          slots: [
+            { op: OpCode.TRY_CATCH, off: 1 } as RawInstruction,
+            { op: OpCode.PUSH, type: "str", k: 0 } as RawInstruction,
+            { op: OpCode.THROW } as RawInstruction,
+          ],
+        },
+        { op: "local.set", i: 0 } as RawInstruction,
+        { op: "local.get", i: 0 } as RawInstruction,
+        { op: "ret" } as RawInstruction,
+      ],
+    };
+    const vm = new VM(m, { maxSteps: 500 });
+    expect(await vm.runProcedure(0, [])).toBe("e");
   });
 });
