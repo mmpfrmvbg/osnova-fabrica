@@ -1,7 +1,7 @@
 """osnova forge — запуск/остановка основного цикла forge (python -m forge.forge)."""
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
