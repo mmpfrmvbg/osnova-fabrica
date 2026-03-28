@@ -1,22 +1,26 @@
-id: ATM-EPK-260328-017-009
+id: ATM-EPK-260328-017-011
 epic: EPK-260328-017
-seq: 9
-zone: runtime
-risk: MEDIUM
+seq: 11
+zone: e2e
+risk: HIGH
 executor: cursor
-goal: Исправить interpreter.ts — ошибки интерпретации шагов
+goal: E2E тесты agents + pipeline — поднять passrate > 0.8
 scope:
-- src/runtime/interpreter.ts
+- src/agents/agents.test.ts
+- src/pipeline/pipeline.test.ts
 notouch:
-- src/agents/*
-- src/pipeline/*
 - src/compiler/*
+- src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- исправить типы и логику интерпретации
-- убедиться что interpreter.ts корректно работает с исправленным vm.ts
+- запустить npx vitest run src/agents/ && npx vitest run src/pipeline/
+- зафиксировать failing tests и исправить причины
+- повторять до достижения passrate > 0.8
 deps:
+- ATM-005
+- ATM-007
 - ATM-008
+- ATM-009
 maxiter: 3
 retries: 0
 status: PENDING
