@@ -6,6 +6,7 @@ from typing import Any
 
 # Executor / infra — substring match on combined error text (lowercase)
 TRANSIENT_SUBSTRINGS = (
+    "fatalturnlimitederror",
     "quota exceeded",
     "timeout",
     "connection refused",

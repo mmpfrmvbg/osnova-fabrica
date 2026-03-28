@@ -53,6 +53,8 @@ except ImportError:  # pragma: no cover
 LOG = setup_logging("qwenexec")
 
 _DEFAULT_QWEN_RUN_S = 900
+# Qwen CLI: FatalTurnLimitedError / exit 53 when session hits --max-session-turns (tsc-style ATM).
+_DEFAULT_MAX_SESSION_TURNS = "40"
 
 
 def _qwen_run_timeout() -> int:
@@ -81,12 +83,36 @@ def _default_prompt_via() -> str:
     return "stdin" if sys.platform == "win32" else "dash_p"
 
 
-def _qwen_shared_flags() -> list[str]:
+def _effective_max_session_turns(override: str | None) -> str:
+    if override is not None:
+        s = override.strip()
+        return s if s else _DEFAULT_MAX_SESSION_TURNS
+    raw = os.environ.get("FORGE_QWEN_MAX_SESSION_TURNS", _DEFAULT_MAX_SESSION_TURNS).strip()
+    return raw or _DEFAULT_MAX_SESSION_TURNS
+
+
+def _retry_max_session_turns_after_limit(base: str) -> str:
+    """Second attempt after FatalTurnLimitedError; override: FORGE_QWEN_MAX_SESSION_TURNS_RETRY."""
+    raw = os.environ.get("FORGE_QWEN_MAX_SESSION_TURNS_RETRY", "").strip()
+    if raw.isdigit():
+        try:
+            b = max(1, int(base)) if base.isdigit() else 1
+        except ValueError:
+            b = 1
+        return str(max(int(raw), b))
+    try:
+        b = max(1, int(base)) if base.isdigit() else int(_DEFAULT_MAX_SESSION_TURNS)
+    except ValueError:
+        b = 40
+    return str(max(b * 3, 80))
+
+
+def _qwen_shared_flags(*, max_session_turns: str | None = None) -> list[str]:
     tools = os.environ.get(
         "FORGE_QWEN_ALLOWED_TOOLS",
         "write_file,edit,read_file,run_shell_command,grep_search,glob",
     ).strip()
-    turns = os.environ.get("FORGE_QWEN_MAX_SESSION_TURNS", "10").strip() or "10"
+    turns = _effective_max_session_turns(max_session_turns)
     return [
         "--approval-mode",
         "yolo",
@@ -99,7 +125,7 @@ def _qwen_shared_flags() -> list[str]:
     ]
 
 
-def _qwen_code_invocation(prompt: str) -> tuple[list[str], str | None, str]:
+def _qwen_code_invocation(prompt: str, *, max_session_turns: str | None = None) -> tuple[list[str], str | None, str]:
     """
     Возвращает ``(argv, stdin_or_none, via)``.
 
@@ -113,7 +139,7 @@ def _qwen_code_invocation(prompt: str) -> tuple[list[str], str | None, str]:
     exe = resolve_executable(env_paths()["QWENBIN"])
     via_raw = forge_dotenv_setting("FORGE_QWEN_CODE_PROMPT_VIA", _default_prompt_via()).strip().lower()
     via = via_raw or _default_prompt_via().strip().lower()
-    tail = _qwen_shared_flags()
+    tail = _qwen_shared_flags(max_session_turns=max_session_turns)
     if via == "positional":
         return [exe, prompt, *tail], None, via
     if via == "stdin":
@@ -126,7 +152,7 @@ def _qwen_code_invocation(prompt: str) -> tuple[list[str], str | None, str]:
 
 def _qwen_code_argv(prompt: str) -> list[str]:
     """Совместимость со старыми импортами; для stdin используйте ``_qwen_code_invocation``."""
-    argv, _stdin, _via = _qwen_code_invocation(prompt)
+    argv, _stdin, _via = _qwen_code_invocation(prompt, max_session_turns=None)
     return argv
 
 
@@ -205,6 +231,32 @@ def _files_delta(result: dict[str, Any]) -> int:
         return 0
 
 
+def _is_fatal_turn_limit_error(combined: str, returncode: int) -> bool:
+    """Qwen CLI: ``FatalTurnLimitedError`` / code 53 — не списываем бюджет на первой попытке, retry с большим ``--max-session-turns``."""
+    if returncode == 53:
+        return True
+    for line in (combined or "").splitlines():
+        s = line.strip()
+        if not s.startswith("{"):
+            continue
+        try:
+            obj = json.loads(s)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        err = obj.get("error")
+        if isinstance(err, dict):
+            if err.get("type") == "FatalTurnLimitedError":
+                return True
+            try:
+                if int(err.get("code", 0) or 0) == 53:
+                    return True
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
 def _write_report(project: Path, atom_id: str, report: dict[str, Any]) -> None:
     try:
         p = project / ".osnova" / "report.yaml"
@@ -250,22 +302,28 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         return _blk("Qwen executor daily budget exhausted", retry_cursor=True)
 
     prompt = _prompt(atom)
-    cmd, stdin_payload, via = _qwen_code_invocation(prompt)
-    _log_qwen_argv(cmd, via)
-    run_kw: dict[str, Any] = {
-        "cwd": str(project),
-        "capture_output": True,
-        "text": True,
-        "timeout": run_s,
-        "check": False,
-        **SUBPROCESS_TEXT,
-    }
-    if stdin_payload is not None:
-        run_kw["input"] = stdin_payload
-    else:
-        run_kw["stdin"] = subprocess.DEVNULL
+    base_turns = _effective_max_session_turns(None)
+    retry_turns = _retry_max_session_turns_after_limit(base_turns)
+
+    def _run_once(turns: str) -> subprocess.CompletedProcess[str]:
+        cmd, stdin_payload, via = _qwen_code_invocation(prompt, max_session_turns=turns)
+        _log_qwen_argv(cmd, via)
+        run_kw: dict[str, Any] = {
+            "cwd": str(project),
+            "capture_output": True,
+            "text": True,
+            "timeout": run_s,
+            "check": False,
+            **SUBPROCESS_TEXT,
+        }
+        if stdin_payload is not None:
+            run_kw["input"] = stdin_payload
+        else:
+            run_kw["stdin"] = subprocess.DEVNULL
+        return _run_qwen(cmd, run_kw)
+
     try:
-        proc = _run_qwen(cmd, run_kw)
+        proc = _run_once(base_turns)
     except TimeoutExpired:
         LOG.error("qwenexec: timeout after %ss for %s", run_s, atom_id)
         record(served=True, role="executor")
@@ -279,11 +337,37 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         record(served=False)
         return _blk("Qwen API quota / rate limit", retry_cursor=True)
 
+    if _is_fatal_turn_limit_error(combined, proc.returncode):
+        LOG.warning(
+            "qwenexec: FatalTurnLimitedError / exit 53 for %s — retry without budget debit; --max-session-turns %s→%s",
+            atom_id,
+            base_turns,
+            retry_turns,
+        )
+        try:
+            proc = _run_once(retry_turns)
+        except TimeoutExpired:
+            LOG.error("qwenexec: timeout after %ss for %s (after turn-limit retry)", run_s, atom_id)
+            record(served=True, role="executor")
+            return _blk(f"qwen code timeout after {run_s}s", retry_cursor=True)
+        out = proc.stdout or ""
+        err = proc.stderr or ""
+        combined = f"{out}\n{err}"
+        if is_quota_exhausted_output(combined):
+            log_remote_qwen_limit("qwenexec", combined, ref=atom_id)
+            record(served=False)
+            return _blk("Qwen API quota / rate limit", retry_cursor=True)
+
     record(served=True, role="executor")
 
     if proc.returncode != 0:
         tail = combined.strip()[-2000:]
         LOG.warning("qwenexec: exit %s for %s — %s", proc.returncode, atom_id, tail)
+        if _is_fatal_turn_limit_error(combined, proc.returncode):
+            return _blk(
+                "qwen code FatalTurnLimitedError (code 53) after retry with higher max-session-turns",
+                retry_cursor=True,
+            )
         return _blk(f"qwen code exit {proc.returncode}", retry_cursor=True)
 
     # JSON может оказаться в stderr (редко) или весь буфер — склеиваем

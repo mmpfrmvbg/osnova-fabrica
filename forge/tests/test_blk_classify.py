@@ -42,6 +42,21 @@ class TestClassifyBlk(unittest.TestCase):
             "permanent",
         )
 
+    def test_executor_fatal_turn_limit_transient(self) -> None:
+        from forge.blk_classify import classify_blk
+
+        self.assertEqual(
+            classify_blk(
+                exec_report_ok=False,
+                review_passed=False,
+                report={
+                    "s": "BLK",
+                    "err": "qwen code FatalTurnLimitedError (code 53) after retry with higher max-session-turns",
+                },
+            ),
+            "transient",
+        )
+
     def test_transient_patterns_nonempty(self) -> None:
         from forge.blk_classify import TRANSIENT_SUBSTRINGS
 

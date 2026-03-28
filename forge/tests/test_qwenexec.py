@@ -43,6 +43,32 @@ class TestQwenCodeInvocation(unittest.TestCase):
         self.assertIsNone(stdin_payload)
         self.assertEqual(argv[1], "hi")
 
+    def test_max_session_turns_override(self) -> None:
+        from forge import qwenexec as qe
+
+        with patch.object(qe, "forge_dotenv_setting", return_value="stdin"):
+            argv, _, _ = qe._qwen_code_invocation("x", max_session_turns="77")
+        i = argv.index("--max-session-turns")
+        self.assertEqual(argv[i + 1], "77")
+
+
+class TestFatalTurnLimit(unittest.TestCase):
+    def test_exit_53(self) -> None:
+        from forge import qwenexec as qe
+
+        self.assertTrue(qe._is_fatal_turn_limit_error("", 53))
+
+    def test_json_error_line(self) -> None:
+        from forge import qwenexec as qe
+
+        line = '{"error": {"type": "FatalTurnLimitedError", "code": 53}}'
+        self.assertTrue(qe._is_fatal_turn_limit_error(line + "\n", 1))
+
+    def test_not_turn_limit(self) -> None:
+        from forge import qwenexec as qe
+
+        self.assertFalse(qe._is_fatal_turn_limit_error("hello", 1))
+
 
 class TestParseResultEvent(unittest.TestCase):
     def test_ndjson_last_result_wins(self) -> None:
@@ -139,6 +165,56 @@ class TestRunAtomMocked(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(rep.get("s"), "BLK")
         self.assertEqual(rep.get("forge_retry_executor"), "cursor")
+
+    def test_turn_limit_retries_once_then_ok(self) -> None:
+        from forge import qwenexec as qe
+
+        ok_json = json.dumps(
+            {
+                "type": "result",
+                "is_error": False,
+                "stats": {"files": {"totalLinesAdded": 1, "totalLinesRemoved": 0}},
+            }
+        )
+        lim_json = json.dumps({"error": {"type": "FatalTurnLimitedError", "code": 53}})
+        mock_lim = MagicMock(returncode=1, stdout=lim_json, stderr="")
+        mock_ok = MagicMock(returncode=0, stdout=ok_json + "\n", stderr="")
+        calls = {"n": 0}
+
+        def side_effect(*_a: object, **_k: object) -> MagicMock:
+            calls["n"] += 1
+            return mock_lim if calls["n"] == 1 else mock_ok
+
+        atom = {"id": "ATM-1", "goal": "g", "scope": ["a.ts"], "steps": [], "done": "true", "notouch": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            (proj / ".osnova").mkdir(parents=True)
+            fake_env = {
+                "OSNOVA_PROJECT": str(proj),
+                "OSNOVA_FORGE": str(proj / "forge"),
+                "GHREPO": "o/r",
+                "GH_TOKEN": "",
+                "QWENBIN": "qwen",
+                "CURSORBIN": "agent",
+            }
+
+            def _paths() -> dict[str, str]:
+                return fake_env
+
+            record_mock = MagicMock()
+
+            with (
+                patch.object(qe, "env_paths", _paths),
+                patch.object(qe, "can_call_executor", return_value=True),
+                patch.object(qe, "record", record_mock),
+                patch("forge.qwenexec.subprocess.run", side_effect=side_effect),
+            ):
+                ok, rep = qe.run_atom(atom, dry_run=False)
+        self.assertTrue(ok)
+        self.assertEqual(rep.get("s"), "OK")
+        self.assertEqual(calls["n"], 2)
+        record_mock.assert_called_once_with(served=True, role="executor")
 
 
 if __name__ == "__main__":
