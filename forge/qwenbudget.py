@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -107,6 +108,67 @@ def is_quota_exhausted_output(text: str) -> bool:
         "limit: 0",
     )
     return any(n in t for n in needles)
+
+
+def classify_qwen_api_limit(text: str) -> str:
+    """
+    Уточняет тип ответа API, если is_quota_exhausted_output(text) уже True.
+    Возвращает одно из: quota_exceeded | rate_limit | unknown_limit
+    (429 без тела часто попадает в unknown_limit — смотри format_qwen_limit_for_log).
+    """
+    if not (text or "").strip():
+        return "unknown_limit"
+    u = text
+    low = text.lower()
+    if re.search(r"QuotaExceeded|quota_exceeded|QUOTA_EXCEEDED", u):
+        return "quota_exceeded"
+    if re.search(
+        r"insufficient\s+quota|exceeded\s+your\s+quota|quota\s+exceeded|quota\s+exhausted",
+        low,
+    ):
+        return "quota_exceeded"
+    if re.search(r"RateLimit|rate_limit|RATE_LIMIT", u):
+        return "rate_limit"
+    if "rate limit" in low or "too many requests" in low:
+        return "rate_limit"
+    if " 429" in low or "429 " in low or "http 429" in low:
+        return "unknown_limit"
+    if "resource exhausted" in low:
+        return "unknown_limit"
+    if "limit: 0" in low:
+        return "unknown_limit"
+    return "unknown_limit"
+
+
+def format_qwen_limit_for_log(text: str, *, max_chars: int = 1500) -> str:
+    """Один «сырой» фрагмент stdout+stderr для логов (обычно ошибка в конце)."""
+    s = " ".join((text or "").split())
+    if len(s) > max_chars:
+        return "…" + s[-max_chars:]
+    return s
+
+
+def log_remote_qwen_limit(
+    component: str,
+    combined: str,
+    *,
+    ref: str | None = None,
+) -> tuple[str, str]:
+    """
+    Логирует kind + сырой хвост ответа CLI (для различия RateLimit vs QuotaExceeded в теле JSON).
+    Возвращает (kind, excerpt) для humanlog и т.п.
+    """
+    kind = classify_qwen_api_limit(combined)
+    excerpt = format_qwen_limit_for_log(combined)
+    scope = f" ref={ref}" if (ref or "").strip() else ""
+    LOG.warning(
+        "%s: Qwen API limit kind=%s%s — rate_limit≈retry in ~1 min, quota_exceeded≈next day. Raw: %s",
+        component,
+        kind,
+        scope,
+        excerpt,
+    )
+    return kind, excerpt
 
 
 def record(*, served: bool = True, amount: int = 1) -> dict[str, Any]:
