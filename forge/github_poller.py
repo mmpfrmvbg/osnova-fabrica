@@ -43,7 +43,7 @@ def _github_token_ok() -> bool:
 
 
 def count_open_blocker_issues(repo: str) -> int:
-    """Число открытых Issues с меткой ``blocker`` (без PR)."""
+    """Число открытых Issues с меткой ``blocker`` (без PR), без ``brain-epic``."""
     page = 1
     total = 0
     label_q = urllib.parse.quote("blocker")
@@ -63,6 +63,9 @@ def count_open_blocker_issues(repo: str) -> int:
             if not isinstance(issue, dict):
                 continue
             if issue.get("pull_request"):
+                continue
+            names = {str(x.get("name", "")).lower() for x in (issue.get("labels") or []) if isinstance(x, dict)}
+            if "brain-epic" in names:
                 continue
             total += 1
         if len(batch) < 100:
