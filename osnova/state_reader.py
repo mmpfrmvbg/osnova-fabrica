@@ -75,6 +75,7 @@ def normalize_history_entry(raw: dict[str, Any]) -> dict[str, Any]:
     atms: list[dict[str, Any]] = []
     for r in results:
         if isinstance(r, dict):
+            # `done` почти всегда только в .osnova/epics/<EPK>/<ATM>.yaml, не в history RPT
             a = {
                 "id": r.get("id"),
                 "s": r.get("s"),

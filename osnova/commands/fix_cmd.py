@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from osnova.done_cmd import get_done_cmd
+from osnova.done_cmd import resolve_done_cmd
 from osnova.engine import ForgeEngine
 from osnova.render import console
 
@@ -20,10 +20,13 @@ def fix(
     """Найти ATM в history, воспроизвести done, правка вручную, re-verify, commit."""
     hist = engine.get_history(limit=20)
     target = None
+    epic_id_for: str | None = None
     for h in hist:
+        eid = str(h.get("epic_id") or "").strip() or None
         for a in h.get("atms") or []:
             if str(a.get("id", "")) == atm_id or atm_id in str(a.get("id", "")):
                 target = a
+                epic_id_for = eid
                 break
         if target:
             break
@@ -32,7 +35,12 @@ def fix(
         raise typer.Exit(1)
 
     state = engine.get_state()
-    done_cmd = get_done_cmd(target, state)
+    done_cmd = resolve_done_cmd(
+        target,
+        state,
+        epic_id=epic_id_for,
+        repo_root=engine.repo_root,
+    )
 
     console.print(f"[bold]Fix[/] {atm_id}\n[dim]done:[/] {done_cmd}\n")
     if done_cmd:

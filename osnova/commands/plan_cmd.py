@@ -31,8 +31,14 @@ def plan(
         console.print(
             "[yellow]Внимание: --full вызывает Qwen atomizer (реальный расход бюджета).[/]"
         )
-        if not yes and not typer.confirm("Продолжить?", default=False):
-            raise typer.Exit(0)
+        if not yes:
+            console.print(
+                "[yellow]Это вызовет Qwen atomizer и потратит квоту. Продолжить? [y/N][/] ",
+                end="",
+            )
+            answer = input().strip().lower()
+            if answer not in ("y", "yes"):
+                raise typer.Abort()
     elif not json_out:
         console.print(
             "[yellow]Dry-run: план без LLM (заглушка). "
