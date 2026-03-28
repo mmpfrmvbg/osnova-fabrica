@@ -1,22 +1,20 @@
-id: ATM-EPK-260328-017-005
+id: ATM-EPK-260328-017-006
 epic: EPK-260328-017
-seq: 5
-zone: agents
-risk: MEDIUM
+seq: 6
+zone: pipeline
+risk: HIGH
 executor: cursor
-goal: Интеграционные тесты agents layer — проверить взаимодействие 4 агентов
+goal: Восстановить pipeline.ts — оркестрация агентов
 scope:
-- src/agents/agents.test.ts
+- src/pipeline/pipeline.ts
 notouch:
-- src/agents/intake-agent.ts
-- src/agents/plan-agent.ts
-- src/agents/exec-agent.ts
-- src/agents/review-agent.ts
+- src/agents/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- добавить E2E-тест полного цикла: intake → plan → exec → review
-- проверить передачу контекста между агентами
-- запустить npx vitest run src/agents/agents.test.ts
+- исправить TS-ошибки в pipeline.ts
+- восстановить вызов цепочки агентов в правильном порядке
+- добавить обработку ошибок и retry-логику
 deps:
 - ATM-001
 - ATM-002
