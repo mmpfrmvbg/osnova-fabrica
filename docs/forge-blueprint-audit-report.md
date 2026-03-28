@@ -74,8 +74,8 @@
 | heart + backup state | да | `heart.py`, `osnova-heart.service` |
 | 07 external heart watchdog | да | `07-heart-alert.yml` |
 | Параллельные ATM в волне | частично | Волны есть; исполнение волны **последовательное** |
-| state.yaml `gha` + обновление из CI | частично | В YAML — `ci`; ретро ищет `gha` — рассинхрон |
-| 02 atm-verify как отдельный workflow | N/A по доке репо | Роль CI: `ci.yml` + др. |
+| state.yaml `gha` + обновление из CI | частично | В YAML — `ci`; ретро ищет `gha`; **GHA не пишет в state.yaml** |
+| 02 atm-verify как отдельный workflow | N/A по доке репо | CI есть (`ci.yml`), но без синхронизации state из job’ов |
 | 03 slash `/forge` | нет | — |
 | 04 watchdog schedule | частично | Нет отдельного `04-watchdog`; есть `07-heart`, intelligence/health по расписанию |
 | 05 curator GHA | нет | Нет `curator.py` в forge |
@@ -116,7 +116,7 @@ Blueprint v5.1 использует примеры с ключами в стил
 
 | Функция blueprint | Аналог в репозитории |
 |-------------------|-------------------|
-| 02 ATM verify + обновление state от CI | `ci.yml` → reusable script; **явного** шага «записать `ci`/`gha` в state.yaml» в просмотренном фрагменте **не видно** — стоит подтвердить при полном аудите job’ов |
+| 02 ATM verify + обновление state от CI | `ci.yml` гоняет тесты; **в `.github/` нет ссылок на `state.yaml`** — автоматическое обновление полей `ci`/`gha` из GHA **не реализовано** (в отличие от примера v5.1). Метрики CI в state остаются ручными или от forge, если добавить отдельный job. |
 | 03 команды человека | **Отсутствует** |
 | 04 watchdog | Частично: `07-heart-alert`, прочие scheduled workflows |
 | 05 curator | **Отсутствует** в forge |
@@ -184,19 +184,79 @@ sequenceDiagram
 
 ---
 
-## 10. Backlog (приоритизированный)
+## 10. Детальный анализ GitHub Actions (GHA)
+
+### 10.1 Две «линейки» runner’ов
+
+| Метка в `runs-on` | Где используется | Назначение |
+|-------------------|-------------------|------------|
+| `[self-hosted, Linux, X64, osnova]` | `ci.yml` (main), `android.yml`, `release.yml`, `auto-rerun-infra-failures.yml`, **default** в [`reusable-node-run.yml`](../.github/workflows/reusable-node-run.yml) | Основной CI, Android, релизы, большинство reusable job’ов |
+| `[self-hosted, osnova-forge]` | [`01-epic-intake.yml`](../.github/workflows/01-epic-intake.yml), [`07-heart-alert.yml`](../.github/workflows/07-heart-alert.yml) | Только forge: очередь EPIC на диске рядом с `forge`, heartbeat на хосте |
+| `ubuntu-latest` | `health-snapshot` (job snapshot), `workflow-lint`, `steward-on-change` | PR/линт/снимки без self-hosted |
+| PR → `ubuntu-latest` | `ci.yml` для `pull_request` | Изолированный CI на GitHub-hosted |
+
+**Вывод:** blueprint v5.1/v5.2 предполагает, что **01** и **07** бегут на той же машине, что и `forge.py` (сокет, `heartbeat`). Метка **`osnova-forge`** отделена от **`osnova`**; если runner зарегистрирован только с `osnova`, job’ы **01/07 остаются в очереди без runner’а**.
+
+### 10.2 Инвентаризация workflow’ов (16 файлов)
+
+| Workflow | Триггеры | Runner (типично) | Роль |
+|----------|----------|------------------|------|
+| `01-epic-intake.yml` | `issues`: opened, labeled (`brain-epic`) | `osnova-forge` | Запись `forge/epic-queue.txt`, push, комментарий, опционально `socat` → `epic.sock` |
+| `07-heart-alert.yml` | `schedule` */30, `workflow_dispatch` | `osnova-forge` | Проверка возраста heartbeat → Issue при «мёртвом» forge |
+| `ci.yml` | push/PR main, `workflow_dispatch` | self-hosted `osnova` (main) / ubuntu (PR) | typecheck, test, lint, golden через `reusable-node-run` + `ci-main.sh`; osiris job |
+| `regression-check.yml` | push `src/**` on main | default `osnova` | Language health gate, `regression-check.sh` |
+| `batch.yml` | `workflow_dispatch` | default `osnova` | Пакетный прогон `batch-run.ts`, артефакты |
+| `health-snapshot.yml` | push main | `ubuntu-latest` для snapshot job | Скрипт `health-snapshot.sh`, push снимков |
+| `weekly-health-diff.yml` | schedule вс, dispatch | default `osnova` | `npm run health-diff` → Telegram |
+| `intelligence-schedule.yml` | schedule пн, dispatch | default `osnova` | Collect + digest |
+| `canary-on-prompt-change.yml` | push prompts/docs | default `osnova` | Dry-run batch + shadow gate |
+| `dataset-health-check.yml` | push few-shot, dispatch | default `osnova` | Dataset health (не блокирует merge) |
+| `steward-on-change.yml` | PR paths src/docs/golden | `ubuntu-latest` | Golden gate, language surface |
+| `workflow-lint.yml` | (линт workflow) | ubuntu | Проверка YAML |
+| `auto-rerun-infra-failures.yml` | (авто-перезапуск) | `osnova` | Инфраструктурные ретраи |
+| `release.yml` | (релиз) | `osnova` | Релизный пайплайн |
+| `android.yml` | (Android) | `osnova` | Сборка Android |
+| `reusable-node-run.yml` | только `workflow_call` | из `inputs.runs_on` | Общий bootstrap npm, кеш, секреты LLM/Telegram |
+
+### 10.3 Соответствие номерам blueprint v5.1 (02–06)
+
+| Номер в markdown v5.1 | В репозитории |
+|------------------------|---------------|
+| 02 ATM verify + state | **Нет отдельного файла.** Покрытие частично: `ci.yml` + `regression-check`; **запись в `.osnova/state.yaml` из GHA не делается** (grep по `.github/`). |
+| 03 slash `/forge` | **Нет** `issue_comment` workflow. |
+| 04 Watchdog | **Нет** аналога «только state.yaml в 05:00». Есть **07** (heart), `weekly-health-diff`, `intelligence-schedule` — другая семантика. |
+| 05 Curator | **Нет** в GHA; нет `forge/curator.py`. |
+| 06 Cache warm | **Нет** отдельного workflow; npm/cargo кеш в reusable/bootstrap по мере настройки. |
+
+### 10.4 Секреты и переменные (наблюдение по workflow)
+
+- Часто пробрасываются: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DEEPSEEK_API_KEY`, `OSNOVA_MODEL`, `OSNOVA_API_KEY` — для пайплайна языка и отчётов, не для forge.
+- **01** использует `GH_TOKEN` или `GITHUB_TOKEN` для checkout/push/комментария.
+- Forge на хосте полагается на **локальный** `forge/.env` и переменные процесса; GHA не подставляет `OSNOVA_PROJECT` в runner автоматически — это ожидаемая конфигурация self-hosted окружения.
+
+### 10.5 Риски и узкие места GHA
+
+1. **Метка `osnova-forge`:** без отдельного runner’а forge-intake и heart-alert не выполняются (см. §1 резюме).
+2. **Нет обновления state из CI:** Perplexity/brain не видит `ci_pass_rate_7d` из Actions, пока не добавлен job или не исправлено чтение в `retrospective.py`.
+3. **Concurrency:** у `ci`, `regression`, `canary` и др. включён `cancel-in-progress` — при частых push длинные job’ы отменяются; для forge это обычно норма, для отладки — учитывать.
+4. **Fork/PR с `ubuntu-latest`:** основной CI на PR не использует self-hosted — не раскрывает железо VPS в чужих PR (безопасность).
+
+---
+
+## 11. Backlog (приоритизированный)
 
 | ID | Приоритет | Действие |
 |----|-----------|----------|
 | B1 | P0 | Добавить runner с меткой **`osnova-forge`** на хост с forge **или** изменить `runs-on` в `01`/`07` на существующие метки и обновить документацию. |
 | B2 | P1 | Согласовать **`gha` vs `ci`** в `retrospective.py` и писателях `state.yaml` (единый источник правды). |
+| B2b | P2 | При необходимости parity с v5.1: job после CI, который обновляет `.osnova/state.yaml` (`ci.*` или `gha.*`). Сейчас **отсутствует**. |
 | B3 | P2 | Решить: нужны ли **slash-команды**; если да — добавить workflow + обработчик. |
 | B4 | P2 | Документировать: параллельность волны **отключена** из‑за одного worktree; либо будущий refork на изолированные worktrees. |
 | B5 | P3 | Явно описать связь **forge** vs **`runs/traces.jsonl`** pipeline в одном doc (избежать путаницы с blueprint v5.0). |
 
 ---
 
-## 11. Намеренные отличия от внешних документов
+## 12. Намеренные отличия от внешних документов
 
 - **Email-транспорт** — не используется (v5.1+; v5.4 «не возвращается»).
 - **Отдельные workflow 02–06** — заменены существующими CI/scheduled job’ами ([`osnova-forge-blueprint.md`](osnova-forge-blueprint.md)).

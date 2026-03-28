@@ -4,16 +4,23 @@ seq: 5
 zone: lang
 risk: LOW
 executor: cursor
-goal: ''
-scope: []
+goal: Запустить полный прогон тестов компилятора и агентов, зафиксировать passrate
+scope:
+- src/compiler/
+- src/agents/
 notouch:
 - .github/
 - infra/
 - deploy/
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
-steps: []
-deps: []
+steps:
+- Запустить npx vitest run src/compiler/ && npx vitest run src/agents/
+- Проверить что все тесты проходят
+- Обновить .osnova/state.yaml с новыми метриками passrate
+deps:
+- ATM-EPK-260327-001-003
+- ATM-EPK-260327-001-004
 maxiter: 3
 retries: 0
 status: PENDING
