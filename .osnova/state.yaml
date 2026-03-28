@@ -101,7 +101,7 @@ zones:
     done: 0
     blk: 0
 budget:
-  qwenusedtoday: 32
+  qwenusedtoday: 34
   qwenlimit: 900
   cursortaskstoday: 0
   qwenatomizerusedtoday: 10

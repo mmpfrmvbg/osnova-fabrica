@@ -214,9 +214,8 @@ export function createPipelineVmFromSpec(spec: OsnovaSpec, module: unknown): OsV
   if (!isOsVbcModule(module)) {
     return null;
   }
-  const m = module as OsVbcModule;
   let pipelineInvoke: ReturnType<typeof createPipelineInvokeHandlerForVm> | undefined;
-  const vm = new OsVbcVM(m, {
+  const vm = new OsVbcVM(module, {
     invoke: (name, args) => {
       pipelineInvoke ??= createPipelineInvokeHandlerForVm(vm);
       return pipelineInvoke(name, args);
