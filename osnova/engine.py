@@ -245,15 +245,29 @@ class ForgeEngine:
         return proc.pid, None
 
     def stop_forge_daemon(self) -> tuple[bool, str | None]:
-        """SIGTERM процессу ``forge_loop_pid``; ключ очищается в forge-state."""
+        """
+        SIGTERM процессу по PID из forge-state: сначала ``forge_loop_pid`` (osnova forge start),
+        иначе ``smith_pid`` (запуск forge не через CLI — эвристика).
+        Сбрасывается только тот ключ, по которому убивали.
+        """
         st = load_forge_state()
+        pid_key: str | None = None
         raw = st.get("forge_loop_pid")
-        if raw is None:
-            return False, "forge_loop_pid не задан (запускали через osnova forge start?)"
+        if raw is not None and str(raw).strip() != "":
+            pid_key = "forge_loop_pid"
+        else:
+            raw = st.get("smith_pid")
+            if raw is not None and str(raw).strip() != "":
+                pid_key = "smith_pid"
+        if pid_key is None:
+            return (
+                False,
+                "forge_loop_pid и smith_pid не заданы — forge не через CLI или PID не записан",
+            )
         try:
             pid = int(raw)
         except (TypeError, ValueError):
-            return False, f"некорректный forge_loop_pid: {raw!r}"
+            return False, f"некорректный {pid_key}: {raw!r}"
         err: str | None = None
         try:
             os.kill(pid, signal.SIGTERM)
@@ -271,7 +285,7 @@ class ForgeEngine:
                     err = (tr.stderr or tr.stdout or "taskkill failed")[:300]
             else:
                 err = str(e)
-        st["forge_loop_pid"] = None
+        st[pid_key] = None
         try:
             save_forge_state(st)
         except Exception as e:
