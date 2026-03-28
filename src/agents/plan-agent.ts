@@ -5,42 +5,17 @@
 // ============================================================
 
 import { randomUUID } from 'crypto';
-import type { OsnovaIntent, OsnovaSpec } from '../pipeline/types';
+import type {
+  ExecutionPlan,
+  OsnovaIntent,
+  OsnovaSpec,
+  PipelinePhase,
+  PlanAgentBuildOptions,
+  PlanStep,
+} from '../pipeline/types';
 import type { AgentReport, BaseAgent } from '../types/agents';
 
-/** Фаза линейного пайплайна (см. orchestrator.ts). */
-export type PipelinePhase =
-  | 'intake'
-  | 'spec_generation'
-  /** Между spec и codegen: quality gate G1 (gates.yaml), до роли OsnovaCodegen. */
-  | 'g1_spec_ready'
-  | 'codegen'
-  | 'build'
-  | 'golden_check'
-  | 'repair';
-
-export interface PlanStep {
-  readonly phase: PipelinePhase;
-  /** Порядок выполнения, с 1. */
-  readonly order: number;
-  readonly description?: string;
-}
-
-export interface ExecutionPlan {
-  readonly planId: string;
-  readonly intentId: string;
-  readonly specId: string;
-  /** true — план с нуля (intake → …); false — только после готовой spec. */
-  readonly fromScratch: boolean;
-  readonly steps: readonly PlanStep[];
-}
-
-export interface PlanAgentBuildOptions {
-  /** Включить intake и spec_generation в начало плана. По умолчанию false. */
-  readonly fromScratch?: boolean;
-  /** Добавить финальный шаг repair (после golden_check). По умолчанию true. */
-  readonly includeRepair?: boolean;
-}
+export type { ExecutionPlan, PipelinePhase, PlanAgentBuildOptions, PlanStep } from '../pipeline/types';
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -64,6 +39,10 @@ const PHASE_RANK: Record<PipelinePhase, number> = {
   golden_check: 5,
   repair: 6,
 };
+
+function isPipelinePhase(value: unknown): value is PipelinePhase {
+  return typeof value === 'string' && value in PHASE_RANK;
+}
 
 /** Допустимые переходы между фазами (зависимости: `to` требует предшествующий `from`). */
 const VALID_PHASE_TRANSITIONS: ReadonlySet<string> = new Set([
@@ -176,21 +155,21 @@ export class PlanAgent implements BaseAgent {
     }
 
     for (let i = 0; i < steps.length; i++) {
-      const s = steps[i]!;
+      const s: PlanStep = steps[i]!;
       if (typeof s.order !== 'number' || s.order !== i + 1) {
         throw new PlanValidationError(
           `plan.steps[${i}].order must equal ${i + 1} (получено ${s.order})`,
           'step_order',
         );
       }
-      if (!s.phase || !(s.phase in PHASE_RANK)) {
+      if (!isPipelinePhase(s.phase)) {
         throw new PlanValidationError(`invalid phase at index ${i}: ${String(s.phase)}`, 'phase');
       }
     }
 
     for (let i = 1; i < steps.length; i++) {
-      const prev = steps[i - 1]!.phase as PipelinePhase;
-      const cur = steps[i]!.phase as PipelinePhase;
+      const prev: PipelinePhase = steps[i - 1]!.phase;
+      const cur: PipelinePhase = steps[i]!.phase;
       if (!isValidPhaseTransition(prev, cur)) {
         throw new PlanValidationError(
           `invalid dependency: after ${prev} expected a valid successor, got ${cur}`,
@@ -199,7 +178,7 @@ export class PlanAgent implements BaseAgent {
       }
     }
 
-    const phases = steps.map(s => s.phase);
+    const phases: PipelinePhase[] = steps.map((s: PlanStep) => s.phase);
     if (plan.fromScratch) {
       if (phases[0] !== 'intake' || phases[1] !== 'spec_generation') {
         throw new PlanValidationError(
@@ -244,8 +223,9 @@ export class PlanAgent implements BaseAgent {
   private buildExecutionSteps(fromScratch: boolean, includeRepair: boolean): PlanStep[] {
     const steps: PlanStep[] = [];
     let order = 1;
-    const push = (phase: PipelinePhase, description?: string) => {
-      steps.push({ phase, order: order++, description });
+    const push = (phase: PipelinePhase, description?: string): void => {
+      const step: PlanStep = { phase, order: order++, description };
+      steps.push(step);
     };
 
     if (fromScratch) {

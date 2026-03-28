@@ -124,6 +124,41 @@ export interface GoldenReport {
   readonly durationMs: number;
 }
 
+// ─── План выполнения (PlanAgent / ExecAgent; фазы см. orchestrator.ts) ───
+
+/** Фаза линейного пайплайна. */
+export type PipelinePhase =
+  | 'intake'
+  | 'spec_generation'
+  /** Между spec и codegen: quality gate G1 (gates.yaml), до роли OsnovaCodegen. */
+  | 'g1_spec_ready'
+  | 'codegen'
+  | 'build'
+  | 'golden_check'
+  | 'repair';
+
+export interface PlanStep {
+  readonly phase: PipelinePhase;
+  /** Порядок выполнения, с 1. */
+  readonly order: number;
+  readonly description?: string;
+}
+
+export interface ExecutionPlan {
+  readonly planId: string;
+  readonly intentId: string;
+  readonly specId: string;
+  /** true — план с нуля (intake → …); false — только после готовой spec. */
+  readonly fromScratch: boolean;
+  readonly steps: readonly PlanStep[];
+}
+
+/** Опции построения плана (PlanAgent.buildPlan). */
+export interface PlanAgentBuildOptions {
+  readonly fromScratch?: boolean;
+  readonly includeRepair?: boolean;
+}
+
 // ─── Результат всего прогона ───
 
 export type PipelineStatus = 'success' | 'partial' | 'repair_exhausted' | 'error';
