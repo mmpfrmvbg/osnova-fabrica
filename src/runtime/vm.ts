@@ -73,6 +73,8 @@ function runWithTimeout<T>(promise: Promise<T>, ms: number, message: string): Pr
   if (!Number.isFinite(ms) || ms <= 0) return promise;
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => {
+      // Прогон байткода может завершиться после таймаута — подавляем поздний reject, иначе unhandledRejection.
+      void promise.catch(() => {});
       reject(new InterpreterError(message));
     }, ms);
     promise.then(
@@ -195,6 +197,8 @@ export class OsVbcVM {
   private readonly interpreter: Interpreter;
   private readonly onExecutionLog?: (e: VmExecutionLogEvent) => void;
   private lastReturnValue: StackValue | undefined;
+  /** Один активный {@link OsVbcVM.execute}: интерпретатор не потокобезопасен (общий pc/stack/frames). */
+  private executing = false;
 
   /**
    * Глобальный контекст хоста: копия из {@link OsVbcVMOptions.globals} при создании; мутации видны байткоду и `invoke`.
@@ -224,44 +228,70 @@ export class OsVbcVM {
    * @returns Значение `ret` из процедуры или `undefined`.
    */
   async execute(opts: OsVbcExecuteOptions = {}): Promise<StackValue | undefined> {
-    const procedureIndex = this.resolveProcedureIndex(opts.procedure);
-    const procedure = this.procedureLabel(procedureIndex);
-    const t0 = Date.now();
-    this.onExecutionLog?.({
-      phase: "start",
-      procedure,
-      moduleName: this.module.moduleName,
-    });
-
-    let run = this.interpreter.runProcedure(procedureIndex, opts.args ?? []);
-    const { timeoutMs } = opts;
-    if (timeoutMs !== undefined && Number.isFinite(timeoutMs) && timeoutMs > 0) {
-      run = runWithTimeout(
-        run,
-        timeoutMs,
-        `VM.execute: превышен лимит времени (${timeoutMs} мс), процедура «${procedure}»`,
+    if (this.executing) {
+      throw new InterpreterError(
+        "VM.execute: параллельный запуск запрещён — дождитесь завершения предыдущего прогона",
       );
     }
+    this.executing = true;
+    const t0 = Date.now();
+    let procedure: string;
 
     try {
-      this.lastReturnValue = await run;
+      let procedureIndex: number;
+      try {
+        procedureIndex = this.resolveProcedureIndex(opts.procedure);
+      } catch (err) {
+        this.onExecutionLog?.({
+          phase: "error",
+          procedure:
+            opts.procedure !== undefined && opts.procedure !== "" ? opts.procedure : "#разрешение_входа",
+          moduleName: this.module.moduleName,
+          elapsedMs: Date.now() - t0,
+          error: err,
+        });
+        throw err;
+      }
+      procedure = this.procedureLabel(procedureIndex);
       this.onExecutionLog?.({
-        phase: "done",
+        phase: "start",
         procedure,
         moduleName: this.module.moduleName,
-        elapsedMs: Date.now() - t0,
       });
-      return this.lastReturnValue;
-    } catch (err) {
-      this.lastReturnValue = undefined;
-      this.onExecutionLog?.({
-        phase: "error",
-        procedure,
-        moduleName: this.module.moduleName,
-        elapsedMs: Date.now() - t0,
-        error: err,
-      });
-      throw err;
+
+      const args = opts.args !== undefined ? opts.args.slice() : [];
+      let run = this.interpreter.runProcedure(procedureIndex, args);
+      const { timeoutMs } = opts;
+      if (timeoutMs !== undefined && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        run = runWithTimeout(
+          run,
+          timeoutMs,
+          `VM.execute: превышен лимит времени (${timeoutMs} мс), процедура «${procedure}»`,
+        );
+      }
+
+      try {
+        this.lastReturnValue = await run;
+        this.onExecutionLog?.({
+          phase: "done",
+          procedure,
+          moduleName: this.module.moduleName,
+          elapsedMs: Date.now() - t0,
+        });
+        return this.lastReturnValue;
+      } catch (err) {
+        this.lastReturnValue = undefined;
+        this.onExecutionLog?.({
+          phase: "error",
+          procedure,
+          moduleName: this.module.moduleName,
+          elapsedMs: Date.now() - t0,
+          error: err,
+        });
+        throw err;
+      }
+    } finally {
+      this.executing = false;
     }
   }
 
