@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-018-003
+epic: EPK-260328-018
+seq: 3
+zone: agents
+risk: HIGH
+executor: cursor
+goal: Fix Group B — устранить ошибки типов в PlanAgent
+scope:
+- src/agents/plan-agent.ts — основной файл для исправлений
+notouch:
+- src/agents/agents.test.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Синхронизировать типы с pipeline.ts
+- Исправить обработку PlanStep
+- Добавить явные аннотации типов
+deps:
+- ATM-EPK-260328-018-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-018-011
+epic: EPK-260328-018
+seq: 11
+zone: pipeline
+risk: LOW
+executor: qwen
+goal: E2E прогон — запустить vitest и зафиксировать результаты
+scope:
+- src/agents/agents.test.ts
+- src/pipeline/pipeline.test.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Запустить npx vitest run src/agents/
+- Запустить npx vitest run src/pipeline/
+- Зафиксировать вывод и ошибки
+deps:
+- ATM-EPK-260328-018-010
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

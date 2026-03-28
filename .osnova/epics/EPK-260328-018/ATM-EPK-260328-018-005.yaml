@@ -1,0 +1,24 @@
+id: ATM-EPK-260328-018-005
+epic: EPK-260328-018
+seq: 5
+zone: agents
+risk: MEDIUM
+executor: cursor
+goal: Fix Group D — устранить ошибки в ReviewAgent и agents.test.ts
+scope:
+- src/agents/review-agent.ts
+- src/agents/agents.test.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Исправить типы в ReviewAgent
+- Обновить тесты под новые сигнатуры
+- Устранить TypeScript-ошибки в тестах
+deps:
+- ATM-EPK-260328-018-002
+- ATM-EPK-260328-018-003
+- ATM-EPK-260328-018-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

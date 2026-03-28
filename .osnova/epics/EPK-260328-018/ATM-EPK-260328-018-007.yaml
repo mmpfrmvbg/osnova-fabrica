@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-018-007
+epic: EPK-260328-018
+seq: 7
+zone: runtime
+risk: MEDIUM
+executor: cursor
+goal: Восстановить PlanAgent — интеграция с compiler.ts
+scope:
+- src/agents/plan-agent.ts
+- src/compiler/compiler.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Синхронизировать типы CompileResult
+- Исправить вызовы compiler.compile
+- Обработать ошибки компиляции
+deps:
+- ATM-EPK-260328-018-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

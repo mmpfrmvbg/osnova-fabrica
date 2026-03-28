@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-018-004
+epic: EPK-260328-018
+seq: 4
+zone: agents
+risk: HIGH
+executor: cursor
+goal: Fix Group C — устранить ошибки типов в ExecAgent
+scope:
+- src/agents/exec-agent.ts — основной файл для исправлений
+notouch:
+- src/agents/agents.test.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Исправить обработку ExecutionContext
+- Устранить ошибки async/await
+- Привести типы возвращаемых значений
+deps:
+- ATM-EPK-260328-018-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

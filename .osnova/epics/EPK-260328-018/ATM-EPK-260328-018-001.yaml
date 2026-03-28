@@ -1,0 +1,26 @@
+id: ATM-EPK-260328-018-001
+epic: EPK-260328-018
+seq: 1
+zone: agents
+risk: MEDIUM
+executor: cursor
+goal: Root-cause scan — прочитать все BLK-файлы и вывести полный список TypeScript-ошибок
+  компилятора
+scope:
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
+- src/agents/agents.test.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Найти все *.blk файлы в проекте
+- Прочитать содержимое каждого BLK-файла
+- Запустить tsc --noEmit для scope-файлов
+- Сформировать сводный список ошибок по категориям
+deps: []
+maxiter: 3
+retries: 0
+status: DONE
+priority: P0

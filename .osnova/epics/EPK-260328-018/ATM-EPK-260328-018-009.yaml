@@ -1,0 +1,24 @@
+id: ATM-EPK-260328-018-009
+epic: EPK-260328-018
+seq: 9
+zone: pipeline
+risk: HIGH
+executor: cursor
+goal: Pipeline integration — обновить pipeline.ts под исправленные агенты
+scope:
+- src/pipeline/pipeline.ts — основной файл для исправлений
+notouch:
+- src/pipeline/pipeline.test.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Обновить вызовы агентов в pipeline
+- Исправить обработку результатов каждого этапа
+- Устранить ошибки типов между pipeline и агентами
+deps:
+- ATM-EPK-260328-018-006
+- ATM-EPK-260328-018-007
+- ATM-EPK-260328-018-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

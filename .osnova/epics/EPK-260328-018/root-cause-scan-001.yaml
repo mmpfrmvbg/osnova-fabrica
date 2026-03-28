@@ -1,0 +1,32 @@
+# ATM-EPK-260328-018-001 — root-cause scan (machine-readable)
+atom: ATM-EPK-260328-018-001
+epic: EPK-260328-018
+date: '2026-03-28'
+
+blk_files:
+  pattern: '**/*.blk'
+  count: 0
+  paths: []
+  note: 'В дереве репозитория файлов с расширением .blk не найдено (рекурсивный поиск).'
+
+tsc:
+  canonical_command: npm run typecheck
+  config: tsconfig.typecheck.json
+  extends_project: tsconfig.json
+  exit_code: 0
+  errors_by_category: {}
+  scope_source_files:
+    note: 'src/agents/*.ts кроме тестов входят в tsconfig.typecheck (include src/**/*, exclude **/*.test.ts).'
+  scope_test_file:
+    path: src/agents/agents.test.ts
+    note: 'Исключён из typecheck по exclude; типобезопасность на прогоне — vitest (см. done).'
+
+raw_cli_warning:
+  summary: >
+    Запуск `tsc` только со списком путей к файлам без `-p` подхватывает дефолты и даёт
+    шум из node_modules (vite/rollup, zod locales) и несовпадение target/module с проектом.
+    Для этого репозитория источник истины — `npm run typecheck` или `tsc -p tsconfig.json`.
+
+done_verified:
+  command: npx vitest run src/agents/ && npx vitest run src/pipeline/
+  note: 'Проверено: оба прогона exit 0.'

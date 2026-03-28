@@ -1,24 +1,25 @@
-id: ATM-EPK-260328-017-012
-epic: EPK-260328-017
-seq: 12
-zone: integration
-risk: HIGH
+id: ATM-EPK-260328-018-001
+epic: EPK-260328-018
+seq: 1
+zone: agents
+risk: MEDIUM
 executor: cursor
-goal: Финальная интеграция — полный цикл compiler → runtime → agents → pipeline
+goal: Root-cause scan — прочитать все BLK-файлы и вывести полный список TypeScript-ошибок
+  компилятора
 scope:
-- src/compiler/compiler.ts
-- src/runtime/vm.ts
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
 - src/agents/agents.test.ts
-- src/pipeline/pipeline.test.ts
 notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- запустить полный E2E: npx vitest run src/agents/ && npx vitest run src/pipeline/
-- убедиться что все 14 блокеров
-- зафиксировать passrate ≥ 0.8
-deps:
-- ATM-010
-- ATM-011
+- Найти все *.blk файлы в проекте
+- Прочитать содержимое каждого BLK-файла
+- Запустить tsc --noEmit для scope-файлов
+- Сформировать сводный список ошибок по категориям
+deps: []
 maxiter: 3
 retries: 0
 status: DONE

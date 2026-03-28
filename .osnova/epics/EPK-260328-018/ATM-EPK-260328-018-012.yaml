@@ -1,0 +1,25 @@
+id: ATM-EPK-260328-018-012
+epic: EPK-260328-018
+seq: 12
+zone: agents
+risk: LOW
+executor: qwen
+goal: Финальная валидация — tsc --noEmit для всех scope-файлов
+scope:
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
+- src/pipeline/pipeline.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Запустить tsc --noEmit
+- Убедиться в отсутствии ошибок
+- Подготовить summary для коммита
+deps:
+- ATM-EPK-260328-018-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

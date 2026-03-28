@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-018-002
+epic: EPK-260328-018
+seq: 2
+zone: agents
+risk: HIGH
+executor: cursor
+goal: Fix Group A — устранить ошибки типов в IntakeAgent
+scope:
+- src/agents/intake-agent.ts — основной файл для исправлений
+notouch:
+- src/agents/agents.test.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Импортировать недостающие типы из compiler.ts
+- Исправить сигнатуры методов согласно интерфейсу Agent
+- Устранить ошибки приведения типов
+deps:
+- ATM-EPK-260328-018-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0
