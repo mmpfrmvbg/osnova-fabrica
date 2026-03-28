@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { ExecContext } from './exec-agent';
+import type { ExecutionPlan } from './plan-agent';
 import type { OsnovaSpec } from '../pipeline/types';
 import { hasBlockingSemanticErrors } from '../pipeline/orchestrator';
 
@@ -29,10 +30,10 @@ function linesForReport(items: readonly ReviewCheckItem[]): string {
 
 export class ReviewAgent {
   /**
-   * Сверяет накопленное состояние выполнения с ожиданиями из spec
-   * (сборка, golden, согласованность spec в контексте).
+   * Полная проверка выходов пайплайна: spec в контексте, опционально соответствие плану,
+   * сборка, golden.
    */
-  validate(spec: OsnovaSpec, ctx: ExecContext): ReviewReport {
+  review(spec: OsnovaSpec, ctx: ExecContext, plan?: ExecutionPlan): ReviewReport {
     const items: ReviewCheckItem[] = [];
 
     if (!ctx.spec) {
@@ -53,6 +54,64 @@ export class ReviewAgent {
         ok: true,
         detail: `specId «${spec.specId}» согласован`,
       });
+    }
+
+    if (plan) {
+      const specMatchesPlan = spec.specId === plan.specId;
+      const ctxSpecMatchesPlan = ctx.spec?.specId === plan.specId;
+      items.push({
+        id: 'plan_spec_ids',
+        ok: specMatchesPlan && ctxSpecMatchesPlan,
+        detail:
+          specMatchesPlan && ctxSpecMatchesPlan
+            ? `specId «${plan.specId}» совпадает с планом`
+            : [
+                !specMatchesPlan ? `spec≠plan: ${spec.specId} vs ${plan.specId}` : null,
+                ctx.spec && !ctxSpecMatchesPlan ? `контекст: ${ctx.spec.specId} vs план ${plan.specId}` : null,
+              ]
+                .filter(Boolean)
+                .join('; ') || 'несовпадение specId с планом',
+      });
+
+      if (plan.fromScratch) {
+        const intentOk = !!ctx.intent && ctx.intent.intentId === plan.intentId;
+        items.push({
+          id: 'plan_intent',
+          ok: intentOk,
+          detail: intentOk
+            ? `intentId «${plan.intentId}» согласован с планом`
+            : !ctx.intent
+              ? 'ожидался OsnovaIntent в контексте (fromScratch)'
+              : `несовпадение intentId: план ${plan.intentId}, в контексте ${ctx.intent.intentId}`,
+        });
+      } else if (ctx.intent) {
+        const intentOk = ctx.intent.intentId === plan.intentId;
+        items.push({
+          id: 'plan_intent',
+          ok: intentOk,
+          detail: intentOk
+            ? `intentId «${plan.intentId}» согласован с планом`
+            : `несовпадение intentId: план ${plan.intentId}, в контексте ${ctx.intent.intentId}`,
+        });
+      }
+
+      const needsCodegen = plan.steps.some(s => s.phase === 'codegen');
+      if (needsCodegen) {
+        const src = ctx.source;
+        const sourceOk =
+          !!src &&
+          typeof src.source === 'string' &&
+          src.source.trim().length > 0 &&
+          typeof src.filename === 'string' &&
+          src.filename.trim().length > 0;
+        items.push({
+          id: 'plan_source',
+          ok: sourceOk,
+          detail: sourceOk
+            ? `исходник «${src!.filename}» присутствует (шаг codegen в плане)`
+            : 'для плана с codegen нужен непустой OsnovaSource в контексте',
+        });
+      }
     }
 
     if (!ctx.buildReport) {
@@ -94,15 +153,17 @@ export class ReviewAgent {
     } else {
       const gr = ctx.goldenReport;
       const vmErr = gr.vmErrors?.length ?? 0;
-      const ok = gr.passed && vmErr === 0;
+      const scoreOk = Number.isFinite(gr.qualityScore);
+      const ok = gr.executed && gr.passed && vmErr === 0 && scoreOk;
       items.push({
         id: 'golden',
         ok,
         detail: ok
           ? `golden пройден (qualityScore=${gr.qualityScore.toFixed(3)})`
           : [
-              !gr.passed ? 'passed=false' : null,
               !gr.executed ? 'executed=false' : null,
+              !gr.passed ? 'passed=false' : null,
+              !scoreOk ? 'qualityScore не число' : null,
               vmErr > 0 ? `vmErrors: ${vmErr}` : null,
               gr.outputDiff ? `outputDiff: ${gr.outputDiff.slice(0, 200)}${gr.outputDiff.length > 200 ? '…' : ''}` : null,
             ]
@@ -117,5 +178,10 @@ export class ReviewAgent {
       items,
       summaryText: linesForReport(items),
     };
+  }
+
+  /** То же, что {@link ReviewAgent.review} (совместимость с вызовами без имени метода). */
+  validate(spec: OsnovaSpec, ctx: ExecContext, plan?: ExecutionPlan): ReviewReport {
+    return this.review(spec, ctx, plan);
   }
 }

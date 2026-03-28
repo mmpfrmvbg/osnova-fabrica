@@ -531,6 +531,7 @@ function reviewOkCtx(over: Partial<ExecContext> = {}): ExecContext {
   return {
     repairAttempts: 0,
     spec,
+    source: { filename: 'главная.osnova', source: 'модуль Главный\nконец' },
     buildReport: {
       success: true,
       lexerErrors: [],
@@ -645,5 +646,67 @@ describe('ReviewAgent.validate', () => {
     const report = agent.validate(spec, ctx);
     expect(report.ok).toBe(false);
     expect(report.items.find(i => i.id === 'golden')?.ok).toBe(false);
+  });
+
+  it('проваливает при goldenReport.executed=false даже если passed=true', () => {
+    const spec = sampleSpec();
+    const ctx = reviewOkCtx({
+      goldenReport: {
+        executed: false,
+        passed: true,
+        qualityScore: 1,
+        vmErrors: [],
+        outputDiff: null,
+        durationMs: 1,
+      },
+    });
+    const report = agent.review(spec, ctx);
+    expect(report.ok).toBe(false);
+    expect(report.items.find(i => i.id === 'golden')?.ok).toBe(false);
+  });
+
+  it('review + план: plan_spec_ids и plan_source проходят при согласованных данных', () => {
+    const planAgent = new PlanAgent();
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: false, includeRepair: false });
+    const ctx = reviewOkCtx({ intent });
+    const report = agent.review(spec, ctx, plan);
+    expect(report.items.find(i => i.id === 'plan_spec_ids')?.ok).toBe(true);
+    expect(report.items.find(i => i.id === 'plan_source')?.ok).toBe(true);
+    expect(report.ok).toBe(true);
+  });
+
+  it('review + план: проваливает plan_spec_ids при другом specId в плане', () => {
+    const planAgent = new PlanAgent();
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: false, includeRepair: false });
+    const otherSpec = { ...spec, specId: 'other-spec' };
+    const report = agent.review(otherSpec, reviewOkCtx({ spec }), plan);
+    expect(report.items.find(i => i.id === 'plan_spec_ids')?.ok).toBe(false);
+    expect(report.ok).toBe(false);
+  });
+
+  it('review + план: проваливает plan_source если нет исходника при codegen в плане', () => {
+    const planAgent = new PlanAgent();
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: false, includeRepair: false });
+    const ctx = reviewOkCtx({ intent, source: undefined });
+    const report = agent.review(spec, ctx, plan);
+    expect(report.items.find(i => i.id === 'plan_source')?.ok).toBe(false);
+    expect(report.ok).toBe(false);
+  });
+
+  it('review + план fromScratch: проваливает plan_intent без intent в контексте', () => {
+    const planAgent = new PlanAgent();
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: true, includeRepair: false });
+    const ctx = reviewOkCtx({ intent: undefined });
+    const report = agent.review(spec, ctx, plan);
+    expect(report.items.find(i => i.id === 'plan_intent')?.ok).toBe(false);
+    expect(report.ok).toBe(false);
   });
 });

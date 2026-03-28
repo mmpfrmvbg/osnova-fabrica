@@ -1,25 +1,25 @@
-id: ATM-EPK-260328-017-003
+id: ATM-EPK-260328-017-004
 epic: EPK-260328-017
-seq: 3
+seq: 4
 zone: agents
 risk: HIGH
 executor: cursor
-goal: Восстановить ExecAgent — выполнение шагов плана
+goal: Восстановить ReviewAgent — валидация результатов
 scope:
-- src/agents/exec-agent.ts — восстановить выполнение
-- src/agents/agents.test.ts — тесты для ExecAgent
+- src/agents/review-agent.ts — восстановить проверку результатов
+- src/agents/agents.test.ts — тесты для ReviewAgent
 notouch:
 - src/pipeline/*
 - src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать exec-agent.ts и выявить ошибки
-- Исправить метод executeStep — обработка всех типов шагов
-- Добавить обработку ошибок выполнения
-- Написать тесты на успешное выполнение и ошибки
-- Запустить npx vitest run src/agents/exec-agent.test.ts
+- Анализ review-agent.ts
+- Исправить метод review — полная проверка выходных данных
+- Добавить проверку соответствия плану
+- Написать тесты на различные исходы review
+- Запустить npx vitest run src/agents/review-agent.test.ts
 deps:
-- ATM-EPK-260328-017-002
+- ATM-EPK-260328-017-003
 maxiter: 3
 retries: 0
 status: PENDING
