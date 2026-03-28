@@ -10,17 +10,18 @@ from unittest.mock import MagicMock, patch
 
 
 class TestQwenCodeInvocation(unittest.TestCase):
-    def test_dash_p_yolo_and_prompt_in_argv(self) -> None:
+    def test_dash_p_approval_mode_and_prompt_in_argv(self) -> None:
         from forge import qwenexec as qe
 
         with patch.object(qe, "forge_dotenv_setting", return_value="dash_p"):
             argv, stdin_payload, via = qe._qwen_code_invocation("hello world")
         self.assertIsNone(stdin_payload)
         self.assertEqual(via, "dash_p")
-        self.assertEqual(argv[1], "--yolo")
-        self.assertEqual(argv[2], "-p")
-        self.assertEqual(argv[3], "hello world")
+        self.assertEqual(argv[1], "-p")
+        self.assertEqual(argv[2], "hello world")
+        self.assertIn("--approval-mode", argv)
         self.assertIn("--output-format", argv)
+        self.assertNotIn("--yolo", argv)
 
     def test_stdin_mode_no_prompt_in_argv(self) -> None:
         from forge import qwenexec as qe
@@ -29,8 +30,9 @@ class TestQwenCodeInvocation(unittest.TestCase):
             argv, stdin_payload, via = qe._qwen_code_invocation("hi\nthere")
         self.assertEqual(stdin_payload, "hi\nthere")
         self.assertEqual(via, "stdin")
-        self.assertEqual(argv[1], "--yolo")
+        self.assertEqual(argv[1], "--approval-mode")
         self.assertNotIn("-p", argv)
+        self.assertNotIn("--yolo", argv)
         self.assertNotIn("hi", argv)
 
     def test_positional_debug_mode(self) -> None:

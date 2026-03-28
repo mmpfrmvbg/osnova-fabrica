@@ -1,8 +1,8 @@
 """
 Qwen **Code** CLI (агент с tools), не LLM-only.
 
-Не использует ``qwen_headless_argv()`` из ``common.py`` — тот путь ``qwen --yolo -p …``
-без ``--output-format json`` и без ``--approval-mode``; он рассчитан на старый режим и YAML в stdout.
+Не использует ``qwen_headless_argv()`` из ``common.py`` — тот путь с ``--yolo`` и ``-p …``
+без ``--output-format json``; здесь только ``--approval-mode yolo`` (не смешивать с ``--yolo`` — CLI падает в help).
 
 Здесь: **обязательно** ``-p`` / ``--prompt`` для headless (см. Qwen Code docs); позиционный промпт без ``-p``
 может открыть интерактив/приветствие вместо JSON. Разбор последнего ``{"type": "result"}`` в stdout+stderr.
@@ -103,24 +103,25 @@ def _qwen_code_invocation(prompt: str) -> tuple[list[str], str | None, str]:
     """
     Возвращает ``(argv, stdin_or_none, via)``.
 
-    - ``stdin``: ``qwen --yolo …`` + тело промпта в stdin (headless, см. pipe в Qwen docs).
-    - ``dash_p``: ``qwen --yolo -p PROMPT …`` (как headless в доке).
-    - ``positional``: только отладка — ``qwen PROMPT …`` (часто уходит в чат).
+    - ``stdin``: ``qwen`` + флаги из ``_qwen_shared_flags()`` + промпт в stdin.
+    - ``dash_p``: ``qwen -p PROMPT`` + те же флаги (headless в доке).
+    - ``positional``: отладка — ``qwen PROMPT …`` (часто уходит в чат).
 
-    Всегда добавляем ``--yolo`` (как старый ``qwen_headless_argv`` в common) перед режимом промпта.
+    Авто-approve только через ``--approval-mode yolo`` в ``_qwen_shared_flags``; отдельный ``--yolo``
+    с ним конфликтует и ведёт к exit 1 / usage.
     """
     exe = resolve_executable(env_paths()["QWENBIN"])
     via_raw = forge_dotenv_setting("FORGE_QWEN_CODE_PROMPT_VIA", _default_prompt_via()).strip().lower()
     via = via_raw or _default_prompt_via().strip().lower()
     tail = _qwen_shared_flags()
     if via == "positional":
-        return [exe, prompt, "--yolo", *tail], None, via
+        return [exe, prompt, *tail], None, via
     if via == "stdin":
-        return [exe, "--yolo", *tail], prompt, via
+        return [exe, *tail], prompt, via
     # dash_p (явный дефолт на non-Windows) и любое неизвестное значение — безопасный headless
     if via not in ("dash_p", "-p", "p", ""):
         LOG.warning("qwenexec: unknown FORGE_QWEN_CODE_PROMPT_VIA=%r — using dash_p", via)
-    return [exe, "--yolo", "-p", prompt, *tail], None, via
+    return [exe, "-p", prompt, *tail], None, via
 
 
 def _qwen_code_argv(prompt: str) -> list[str]:
