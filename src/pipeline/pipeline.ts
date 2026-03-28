@@ -7,8 +7,7 @@ import { IntakeAgent } from '../agents/IntakeAgent';
 import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { RepairEngineerAgent } from '../agents/RepairEngineer';
 import { ExecAgent } from '../agents/exec-agent';
-import { PlanAgent } from '../agents/plan-agent';
-import { compileSource } from '../compiler/compiler';
+import { PlanAgent, compileOsnovaSource } from '../agents/plan-agent';
 import { runGoldenCheck } from '../runtime/goldenApps';
 import { loadAppRegistry, loadRegistry, registryToContext } from '../runtime/loadRegistry';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
@@ -106,7 +105,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             return { ok: true, patch: { source } };
           }
           if (phase === 'build') {
-            const buildReport = compileToBuildReport(compileSource(ctx.source!.source));
+            const buildReport = compileToBuildReport(compileOsnovaSource(ctx.source!.source));
             lastBuildForRepair = buildReport;
             const g2 = checkG2(buildReport);
             if (!g2.passed) {
