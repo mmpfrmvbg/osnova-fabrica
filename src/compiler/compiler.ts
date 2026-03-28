@@ -54,7 +54,8 @@ export interface ExecuteOptions extends CompileOptions {
 
 /**
  * Обёртка над пайплайном tokenize → parse → semantic → codegen → VM.
- * `compile()` — тот же контракт, что `compileSource()`; `execute()` — компиляция и `runProcedure`.
+ * `compile()` — тот же контракт, что `compileSource()`; фаза build в PlanAgent
+ * (`compileOsnovaSource` в plan-agent.ts) и `execute()` используют этот метод.
  */
 export class Compiler {
   compile(source: string, options: CompileOptions = {}): CompileResult {

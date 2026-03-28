@@ -5,6 +5,11 @@
 // ============================================================
 
 import { randomUUID } from 'crypto';
+import {
+  Compiler,
+  type CompileOptions,
+  type CompileResult,
+} from '../compiler/compiler';
 import type {
   ExecutionPlan,
   OsnovaIntent,
@@ -15,7 +20,28 @@ import type {
 } from '../pipeline/types';
 import type { AgentReport, BaseAgent } from '../types/agents';
 
+export { Compiler, type CompileOptions, type CompileResult };
 export type { ExecutionPlan, PipelinePhase, PlanAgentBuildOptions, PlanStep } from '../pipeline/types';
+
+/**
+ * Фаза build плана: делегирует {@link Compiler.compile} (эквивалентно `compileSource` в compiler.ts).
+ * Ошибки — в {@link CompileResult}; текст для логов/трейсов — {@link formatCompileFailureMessage}.
+ */
+export function compileOsnovaSource(source: string, options: CompileOptions = {}): CompileResult {
+  return new Compiler().compile(source, options);
+}
+
+/** Человекочитаемая сводка ошибок при неуспешной компиляции (пустая строка при успехе с модулем). */
+export function formatCompileFailureMessage(result: CompileResult): string {
+  if (result.compilerSuccess && result.module != null) return '';
+  const parts: string[] = [
+    ...result.lexerErrors.map((e) => e.message),
+    ...result.parserErrors.map((e) => e.message),
+    ...result.compilerErrors.map((e) => e.message),
+    ...(result.semanticErrors ?? []).map((e) => e.message),
+  ];
+  return parts.length > 0 ? parts.join('; ') : 'compilation failed';
+}
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -235,7 +261,7 @@ export class PlanAgent implements BaseAgent {
     }
 
     push('codegen', 'generate: OsnovaSpec → OsnovaSource');
-    push('build', 'compileSource → BuildReport');
+    push('build', 'Compiler.compile → CompileResult → BuildReport');
     push('golden_check', 'runGoldenCheck');
 
     if (includeRepair) {
