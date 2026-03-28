@@ -1,25 +1,24 @@
-id: ATM-EPK-260328-017-006
+id: ATM-EPK-260328-017-007
 epic: EPK-260328-017
-seq: 6
+seq: 7
 zone: pipeline
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Восстановить pipeline.ts — оркестрация агентов
+goal: Интеграция pipeline с агентами — end-to-end тесты
 scope:
-- src/pipeline/pipeline.ts — восстановить основной класс Pipeline
-- src/pipeline/pipeline.test.ts — тесты для pipeline
+- src/pipeline/pipeline.test.ts — E2E тесты пайплайна
 notouch:
+- src/pipeline/pipeline.ts
 - src/agents/*
-- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать pipeline.ts и выявить проблемы
-- Исправить метод run — корректный вызов агентов по порядку
-- Восстановить обработку ошибок и retry-логику
-- Написать тесты на полный пайплайн
+- Создать полные E2E сценарии
+- Протестировать все этапы: intake → plan → exec → review
+- Проверить корректность передачи данных между этапами
 - Запустить npx vitest run src/pipeline/pipeline.test.ts
 deps:
 - ATM-EPK-260328-017-005
+- ATM-EPK-260328-017-006
 maxiter: 3
 retries: 0
 status: PENDING

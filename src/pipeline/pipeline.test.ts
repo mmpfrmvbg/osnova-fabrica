@@ -26,8 +26,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Pipeline, runPipelineWithExecAgent } from './pipeline';
 import { ReviewAgent } from '../agents/review-agent';
+import { PlanAgent } from '../agents/plan-agent';
 import type { ExecContext } from '../agents/exec-agent';
 import type { OsnovaSpec } from './types';
+import { compileSource } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
 
 const createMockProvider = () => ({
@@ -144,10 +146,13 @@ async function assertVmReturnValueIsSum1To10(bytecode: unknown, spec: OsnovaSpec
 }
 
 describe('Pipeline.run — полный пайплайн (оркестратор + repair)', () => {
-  it('intake → codegen → build → golden, success', async () => {
+  it('intake → spec → codegen → build → golden, success', async () => {
     const result = await new Pipeline().run('посчитай сумму от 1 до 10');
     expect(result.status).toBe('success');
+    expect(result.intent?.description).toContain('сумм');
     expect(result.spec?.mainModule).toBe('главная');
+    expect(result.spec?.procedures?.some(p => p.name === 'главная')).toBe(true);
+    expect(result.source?.source).toContain('модуль Главный');
     expect(result.buildReport?.success).toBe(true);
     expect(result.goldenReport?.passed).toBe(true);
     expect(result.repairAttempts).toBe(0);
@@ -191,5 +196,37 @@ describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)
     };
     const review = new ReviewAgent().validate(result.spec!, ctx);
     expect(review.ok).toBe(true);
+  }, 20000);
+
+  it('E2E: intake → plan → exec → review — id и артефакты согласованы', async () => {
+    const result = await runPipelineWithExecAgent('посчитай сумму от 1 до 10');
+    expect(result.status).toBe('success');
+    expect(result.intent?.intentId).toBeTruthy();
+    expect(result.spec?.specId).toBeTruthy();
+
+    const plan = new PlanAgent().buildPlan(result.intent!, result.spec!, {
+      fromScratch: false,
+      includeRepair: false,
+    });
+    expect(plan.intentId).toBe(result.intent!.intentId);
+    expect(plan.specId).toBe(result.spec!.specId);
+    expect(plan.steps.map(s => s.phase)).toEqual(['codegen', 'build', 'golden_check']);
+
+    const ctx: ExecContext = {
+      repairAttempts: 0,
+      intent: result.intent,
+      spec: result.spec,
+      source: result.source,
+      buildReport: result.buildReport,
+      goldenReport: result.goldenReport,
+    };
+    const report = new ReviewAgent().review(result.spec!, ctx, plan);
+    expect(report.ok, report.summaryText).toBe(true);
+    expect(report.items.every(i => i.ok)).toBe(true);
+
+    expect(result.source?.source).toContain(result.spec!.mainModule);
+    const recomputed = compileSource(result.source!.source);
+    expect(recomputed.compilerSuccess).toBe(true);
+    expect(JSON.stringify(recomputed.module)).toBe(JSON.stringify(result.buildReport!.bytecode));
   }, 20000);
 });
