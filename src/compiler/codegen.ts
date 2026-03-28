@@ -212,8 +212,9 @@ export function compile(ast: Module): OsVbcModule {
             emitExpr(expr.arg, l);
             emit({ op: "const.false" } as RawInstruction);
             emit({ op: "eq" } as RawInstruction);
+            break;
           }
-          break;
+          throw new Error(`Неподдерживаемый унарный оператор: ${expr.op}`);
         case "массив": {
           const slotKey = `__arr_literal_${emitArrLiteralCounter++}`;
           const arrSlot = l.get(slotKey);
