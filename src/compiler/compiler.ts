@@ -10,7 +10,7 @@ import { tokenize } from './lexer';
 import { parse, type ParseError } from './parser';
 import { compile, compileProgram } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
-import { VM, type InterpreterOptions, type StackValue } from '../runtime/vm/interpreter';
+import { VM, type InterpreterOptions, type StackValue } from './vm';
 import { analyzeProgram, type SemanticError } from './semantic';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
 import * as fs from 'fs';
@@ -78,7 +78,7 @@ export class Compiler {
     }
     const vm = new VM(result.module, vmOpts);
     const idx = procedureName !== undefined ? vm.findProcedureIndex(procedureName) : procedureIndex;
-    return vm.runProcedure(idx, args);
+    return await vm.runProcedure(idx, args);
   }
 }
 

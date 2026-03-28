@@ -20,7 +20,8 @@ jobs:
       contents: read
     uses: ./.github/workflows/reusable-node-run.yml
     with:
-      runs_on: ${{ github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["self-hosted","Linux","X64","osnova"]' }}
+      # Self-hosted for PR + push: same runner as rest of repo; saves GitHub-hosted minutes on private Free tier.
+      runs_on: '["self-hosted","Linux","X64","osnova"]'
       commands-file: .github/workflow-scripts/ci-main.sh
 
   test-osiris:
@@ -29,7 +30,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/reusable-node-run.yml
     with:
-      runs_on: ${{ github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["self-hosted","Linux","X64","osnova"]' }}
+      runs_on: '["self-hosted","Linux","X64","osnova"]'
       working-directory: apps/osiris
       cache-dependency-path: apps/osiris/package-lock.json
       install_command: npm ci --no-audit

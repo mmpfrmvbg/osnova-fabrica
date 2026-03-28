@@ -17,7 +17,8 @@ jobs:
       contents: write
     uses: ./.github/workflows/reusable-node-run.yml
     with:
-      runs_on: '["ubuntu-latest"]'
+      # Self-hosted: avoid burning GitHub-hosted minutes on every push to main (private repo quota).
+      runs_on: '["self-hosted","Linux","X64","osnova"]'
       fetch-depth: 0
       checkout-persist-credentials: true
       commands-file: .github/workflow-scripts/health-snapshot.sh
