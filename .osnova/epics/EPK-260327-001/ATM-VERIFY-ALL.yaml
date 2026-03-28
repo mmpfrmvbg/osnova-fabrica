@@ -1,0 +1,28 @@
+id: ATM-VERIFY-ALL
+epic: EPK-260327-001
+seq: 3
+zone: lang
+risk: LOW
+executor: qwen
+goal: Верифицировать полное покрытие регрессионных тестов и зафиксировать passrate
+scope:
+- src/compiler/vm.test.ts
+- src/agents/intake-agent.test.ts
+notouch:
+- .github/
+- infra/
+- deploy/
+- Cargo.lock
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Запустить полную команду: npx vitest run src/compiler/ && npx vitest run src/agents/
+- Убедиться что все тесты проходят (passrate=1.0 с активными тестами)
+- Проверить что coverage включает операции % и low-confidence сценарии
+- Задокументировать результаты в комментарии к коду или test summary
+deps:
+- ATM-VM-MOD
+- ATM-INTAKE-CONF
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

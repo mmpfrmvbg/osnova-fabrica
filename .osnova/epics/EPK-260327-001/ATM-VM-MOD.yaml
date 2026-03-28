@@ -1,0 +1,28 @@
+id: ATM-VM-MOD
+epic: EPK-260327-001
+seq: 1
+zone: lang
+risk: MEDIUM
+executor: cursor
+goal: Добавить регрессионные тесты для операции деления по модулю (%) в VM компилятора
+scope:
+- src/compiler/vm.ts — реализация VM, проверить обработку оператора %
+- src/compiler/vm.test.ts — добавить тесты на % с положительными, отрицательными числами
+  и делением на ноль
+notouch:
+- .github/
+- infra/
+- deploy/
+- Cargo.lock
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps:
+- Изучить текущую реализацию операции % в vm.ts
+- Добавить тесты: 5 % 2, -5 % 2, 5 % -2, -5 % -2
+- Добавить тест на деление на ноль: 5 % 0
+- Добавить тест на большие числа и граничные значения
+- Запустить npx vitest run src/compiler/vm.test.ts
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

@@ -90,6 +90,35 @@ describe("VM: оператор % (rem)", () => {
     expect(r.compilerSuccess).toBe(true);
     expect(await runProcIdx(r.module!)).toBe(true);
   });
+
+  /** Явные регрессии по спецификации ATM (5 и ±2) — семантика как в JavaScript. */
+  it.each([
+    { expr: "5 % 2", expected: 5 % 2 },
+    { expr: "-5 % 2", expected: -5 % 2 },
+    { expr: "5 % -2", expected: 5 % -2 },
+    { expr: "-5 % -2", expected: -5 % -2 },
+  ] as const)("комбинации 5 и ±2: %s → %s", async ({ expr, expected }) => {
+    const src = `модуль т
+процедура р()
+  вернуть ${expr}
+конец
+конец`;
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(await runProcIdx(r.module!)).toBe(expected);
+  });
+
+  it("большие целые и граница Number.MAX_SAFE_INTEGER", async () => {
+    const max = Number.MAX_SAFE_INTEGER;
+    const src = `модуль т
+процедура р()
+  вернуть ${max} % 10 == ${max % 10} и 1000000007 % 97 == ${1000000007 % 97}
+конец
+конец`;
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(await runProcIdx(r.module!)).toBe(true);
+  });
 });
 
 describe("VM: система.математика.остаток и % согласованы для обычных чисел", () => {

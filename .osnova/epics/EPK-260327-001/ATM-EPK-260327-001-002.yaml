@@ -3,17 +3,23 @@ epic: EPK-260327-001
 seq: 2
 zone: lang
 risk: LOW
-executor: null
-goal: ''
-scope: []
+executor: cursor
+goal: Покрыть тестами сценарий низкой уверенности IntakeAgent
+scope:
+- src/agents/intake-agent.test.ts — добавить тесты low-confidence сценариев
+- src/agents/intake-agent.ts — добавить обработку edge cases если требуется
 notouch:
 - .github/
 - infra/
 - deploy/
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
-steps: []
-deps: []
+steps:
+- Изучить логику определения low-confidence в IntakeAgent
+- Добавить тесты на сценарии из Issues
+- Запустить npx vitest run src/agents/
+deps:
+- 1
 maxiter: 3
 retries: 0
 status: PENDING

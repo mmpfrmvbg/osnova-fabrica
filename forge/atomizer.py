@@ -10,9 +10,23 @@ from typing import Any
 import yaml
 
 try:
-    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, qwen_headless_argv, setup_logging
+    from forge.common import (
+        SUBPROCESS_TEXT,
+        atomic_write_yaml,
+        env_paths,
+        qwen_headless_argv,
+        resolve_executable,
+        setup_logging,
+    )
 except ImportError:  # pragma: no cover
-    from common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, qwen_headless_argv, setup_logging
+    from common import (
+        SUBPROCESS_TEXT,
+        atomic_write_yaml,
+        env_paths,
+        qwen_headless_argv,
+        resolve_executable,
+        setup_logging,
+    )
 
 LOG = setup_logging("atomizer")
 
@@ -26,25 +40,104 @@ def _atomizer_timeout() -> int:
     return _DEFAULT_ATOMIZER_S
 
 
-def _prompt(epic: dict[str, Any]) -> str:
+def _atomizer_attempts() -> int:
+    """1 + FORGE_ATOMIZER_RETRIES runs (default retries=1 → two tries if first output is garbage)."""
+    raw = os.environ.get("FORGE_ATOMIZER_RETRIES", "1").strip()
+    retries = int(raw) if raw.isdigit() else 1
+    return 1 + max(0, retries)
+
+
+def _atomizer_fallback_enabled() -> bool:
+    v = os.environ.get("FORGE_ATOMIZER_FALLBACK", "1").strip().lower()
+    return v not in ("0", "false", "no")
+
+
+def _atomizer_use_stdin() -> bool:
+    """Pass prompt on stdin (-p -) to avoid Windows ~8191-char command-line truncation."""
+    v = os.environ.get("FORGE_ATOMIZER_USE_STDIN", "1").strip().lower()
+    return v not in ("0", "false", "no")
+
+
+def _epic_trailer(epic: dict[str, Any]) -> str:
+    """Short repeated summary so the model sees id/goal/scope even if long YAML is truncated upstream."""
+    eid = epic.get("id", "")
+    goal = str(epic.get("goal", ""))[:600]
+    scope = epic.get("scope") or []
+    paths = ", ".join(str(p).split("—")[0].strip() for p in scope[:12] if p)
+    done = str(epic.get("done", ""))[:200]
     return (
-        "Split EPIC into 2-5 ATM tasks. Output ONLY a YAML list (dash-prefixed items), not a single mapping.\n"
-        "Optional wrapper keys are accepted: atoms: | tasks: | items: each with a list value.\n"
-        "Each item must have: id, seq, zone, risk, goal, scope, notouch, done, steps, deps.\n"
-        "Optional executor: cursor | qwen — omit for automatic routing; set cursor to force Cursor.\n"
-        "Routing hint: MEDIUM/HIGH risk, src/**/*.ts (including src/**.test.ts), multi-file refactors → "
-        "cursor. Only root tests/, docs *.md, small *.yaml → qwen.\n"
-        "In scope[], put the file path first, optional description after em-dash — (router parses path before —).\n"
-        f"EPIC:\n{yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)}"
+        "\n---\n"
+        "REPEAT (do not ignore): EPIC id, goal, and scope are HERE — not in a file on disk.\n"
+        f"  id: {eid!r}\n"
+        f"  goal: {goal}\n"
+        f"  scope paths: {paths or '(none)'}\n"
+        f"  done: {done}\n"
+        "You MUST output a non-empty YAML list (2-5 items). Never output []. Never ask for the EPIC text.\n"
+    )
+
+
+def _prompt(epic: dict[str, Any]) -> str:
+    dumped = yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)
+    return (
+        "You are the OSNOVA forge atomizer. Split the EPIC below into 2-5 ATM tasks.\n\n"
+        "CRITICAL — read before answering:\n"
+        "- The EPIC is the YAML block below. It is NOT a filename. "
+        "Do NOT search the repo for pipeline.yaml, spec.yaml, or files named EPIC.\n"
+        "- Do NOT ask questions. Do NOT explain. Do NOT refuse. Do NOT output an empty list [].\n"
+        "- Output ONLY machine-readable structure: a YAML list (dash-prefixed items) OR a JSON array of objects.\n"
+        "- Optional: wrap the list in a ```yaml or ```json fenced block.\n\n"
+        "Each ATM item must include: seq, zone, risk, goal, scope (list of paths), notouch, steps (list), deps (list). "
+        "Optional: id, executor (cursor|qwen).\n"
+        "Routing: MEDIUM/HIGH risk and src/**/*.ts (incl. tests) → prefer executor: cursor. "
+        "Small docs/yaml-only → qwen. In scope[], path first; optional note after em-dash — .\n"
+        "Use the epic's `done` command as reference; repeat or split across atoms as needed.\n\n"
+        "EPIC (complete YAML — this is the only source of truth):\n"
+        f"{dumped}"
+        f"{_epic_trailer(epic)}"
+    )
+
+
+def _prompt_retry(epic: dict[str, Any], bad_tail: str) -> str:
+    dumped = yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)
+    return (
+        "Your previous reply was NOT valid: empty [], questions, or not parseable. "
+        "Reply with ONLY a non-empty YAML list or JSON array — no prose, no [].\n\n"
+        "Example shape (YAML):\n"
+        "```yaml\n"
+        "- seq: 1\n  zone: lang\n  risk: MEDIUM\n  goal: \"...\"\n  scope: [src/foo.ts]\n"
+        "  notouch: []\n  steps: [\"step\"]\n  deps: []\n"
+        "- seq: 2\n  ...\n"
+        "```\n\n"
+        f"EPIC:\n{dumped}\n"
+        f"{_epic_trailer(epic)}\n"
+        "Invalid output began like:\n"
+        f"{bad_tail[:1200]}"
     )
 
 
 def _fence_payload(text: str) -> str:
-    for pat in (r"```ya?ml\s*(.*?)\s*```", r"```\s*(.*?)\s*```"):
+    for pat in (
+        r"```ya?ml\s*(.*?)\s*```",
+        r"```json\s*(.*?)\s*```",
+        r"```\s*(.*?)\s*```",
+    ):
         m = re.search(pat, text, flags=re.DOTALL | re.IGNORECASE)
         if m:
             return m.group(1).strip()
     return text.strip()
+
+
+def _extract_json_array_by_brackets(text: str) -> Any:
+    """If the model prefixed chit-chat, parse the first JSON value starting at '['."""
+    i = text.find("[")
+    if i < 0:
+        return None
+    dec = json.JSONDecoder()
+    try:
+        obj, _ = dec.raw_decode(text, i)
+        return obj
+    except json.JSONDecodeError:
+        return None
 
 
 def _parse_atomizer_payload(chunk: str) -> Any:
@@ -94,6 +187,8 @@ def _extract_yaml(text: str | None) -> list[dict[str, Any]]:
     chunk = _fence_payload(text)
     data = _parse_atomizer_payload(chunk)
     if data is None:
+        data = _extract_json_array_by_brackets(text)
+    if data is None:
         tail = text.replace("\r\n", "\n").strip()[-2500:]
         LOG.error("atomizer: not valid YAML/JSON\n--- tail ---\n%s", tail)
         raise ValueError("Atomizer output is not valid YAML or JSON")
@@ -117,6 +212,99 @@ def _normalized_executor(atom: dict[str, Any], epic: dict[str, Any]) -> str | No
         if s in ("cursor", "qwen"):
             return s
     return None
+
+
+def _fallback_atoms_from_epic(epic: dict[str, Any]) -> list[dict[str, Any]]:
+    """Last-resort decomposition without LLM (1 ATM with full scope, or one ATM per file up to 5)."""
+    epic_id = str(epic.get("id", "EPK"))
+    raw_scope = epic.get("scope") or []
+    paths: list[str] = []
+    for x in raw_scope:
+        if not x:
+            continue
+        paths.append(str(x).split("—")[0].split("--")[0].strip())
+    goal = str(epic.get("goal", ""))
+    zone = str(epic.get("zone", "lang"))
+    notouch = list(epic.get("notouch") or [])
+    if not paths:
+        return [
+            {
+                "seq": 1,
+                "zone": zone,
+                "risk": "MEDIUM",
+                "goal": goal,
+                "scope": [],
+                "notouch": notouch,
+                "steps": ["Implement epic", "Run done"],
+                "deps": [],
+            }
+        ]
+    if len(paths) == 1 or len(paths) > 5:
+        return [
+            {
+                "seq": 1,
+                "zone": zone,
+                "risk": "MEDIUM",
+                "goal": goal,
+                "scope": paths[:5],
+                "notouch": notouch,
+                "steps": ["Edit scoped files", "Run done"],
+                "deps": [],
+            }
+        ]
+    out: list[dict[str, Any]] = []
+    for i, p in enumerate(paths, start=1):
+        prev = f"ATM-{epic_id}-{i - 1:03d}" if i > 1 else None
+        out.append(
+            {
+                "seq": i,
+                "zone": zone,
+                "risk": "MEDIUM",
+                "goal": f"{goal} (part {i}/{len(paths)}: {p})",
+                "scope": [p],
+                "notouch": notouch,
+                "steps": [f"Implement changes in {p}"],
+                "deps": [prev] if prev else [],
+            }
+        )
+    return out
+
+
+def _run_qwen_atomizer(prompt: str, timeout: int) -> subprocess.CompletedProcess:
+    """Invoke Qwen; prefer stdin for prompt so Windows does not truncate the command line."""
+    exe = resolve_executable(env_paths()["QWENBIN"])
+    if os.environ.get("FORGE_QWEN_LEGACY_RUN", "").strip().lower() in ("1", "true", "yes"):
+        return subprocess.run(
+            [exe, "run", prompt],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            **SUBPROCESS_TEXT,
+        )
+    if _atomizer_use_stdin():
+        argv = [exe, "--yolo"]
+        model = os.environ.get("FORGE_QWEN_MODEL", "").strip()
+        if model:
+            argv.extend(["--model", model])
+        argv.extend(["-p", "-"])
+        return subprocess.run(
+            argv,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            **SUBPROCESS_TEXT,
+        )
+    return subprocess.run(
+        qwen_headless_argv(prompt),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        **SUBPROCESS_TEXT,
+    )
 
 
 def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -156,19 +344,53 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
             atoms = _normalize_atoms(epic, [{"seq": 1, "goal": epic.get("goal", ""), "scope": epic.get("scope", [])}])
     else:
         tmo = _atomizer_timeout()
-        LOG.info("atomizer: qwen subprocess timeout %ss (FORGE_ATOMIZER_TIMEOUT)", tmo)
-        cmd = qwen_headless_argv(_prompt(epic))
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=tmo, check=False, **SUBPROCESS_TEXT
+        attempts = _atomizer_attempts()
+        LOG.info(
+            "atomizer: qwen timeout %ss; %s attempt(s); prompt via %s (Windows long prompts: keep stdin on)",
+            tmo,
+            attempts,
+            "stdin (-p -)" if _atomizer_use_stdin() else "argv (-p) — risk of truncation on Windows",
         )
-        if proc.returncode != 0:
-            raise RuntimeError(f"Qwen atomizer failed: {(proc.stderr or '').strip()}")
-        raw_atoms = _extract_yaml(proc.stdout or "")
-        if not (1 <= len(raw_atoms) <= 5):
-            raise ValueError(f"Atomizer must return 1-5 ATM items, got {len(raw_atoms)}")
-        if len(raw_atoms) < 2:
-            LOG.warning("atomizer: only %s ATM(s) — consider richer decomposition", len(raw_atoms))
-        atoms = _normalize_atoms(epic, raw_atoms)
+        stdout_last = ""
+        last_parse_err: Exception | None = None
+        atoms: list[dict[str, Any]] | None = None
+        for attempt in range(attempts):
+            prompt = _prompt(epic) if attempt == 0 else _prompt_retry(epic, stdout_last)
+            proc = _run_qwen_atomizer(prompt, tmo)
+            if proc.returncode != 0:
+                err_tail = (proc.stderr or proc.stdout or "").strip()[-800:]
+                LOG.error("atomizer: Qwen exit %s — %s", proc.returncode, err_tail)
+                last_parse_err = RuntimeError(f"Qwen atomizer failed (exit {proc.returncode})")
+                if attempt >= attempts - 1:
+                    break
+                LOG.warning("atomizer: Qwen failed, retry %s/%s", attempt + 1, attempts)
+                continue
+            stdout_last = proc.stdout or ""
+            try:
+                raw_atoms = _extract_yaml(stdout_last)
+                if not (1 <= len(raw_atoms) <= 5):
+                    raise ValueError(f"Atomizer must return 1-5 ATM items, got {len(raw_atoms)}")
+                if len(raw_atoms) < 2:
+                    LOG.warning("atomizer: only %s ATM(s) — consider richer decomposition", len(raw_atoms))
+                atoms = _normalize_atoms(epic, raw_atoms)
+                break
+            except ValueError as e:
+                last_parse_err = e
+                if attempt >= attempts - 1:
+                    break
+                LOG.warning("atomizer: parse failed, retry %s/%s — %s", attempt + 1, attempts, e)
+
+        if atoms is None:
+            if _atomizer_fallback_enabled():
+                LOG.warning(
+                    "atomizer: Qwen did not yield usable ATMs — using deterministic fallback from EPIC scope "
+                    "(set FORGE_ATOMIZER_FALLBACK=0 to hard-fail instead)"
+                )
+                atoms = _normalize_atoms(epic, _fallback_atoms_from_epic(epic))
+            elif isinstance(last_parse_err, Exception):
+                raise last_parse_err
+            else:
+                raise ValueError("Atomizer produced no result")
 
     base = Path(env_paths()["OSNOVA_PROJECT"]) / ".osnova" / "epics" / str(epic["id"])
     base.mkdir(parents=True, exist_ok=True)

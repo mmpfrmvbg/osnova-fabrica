@@ -54,20 +54,51 @@ PY
 start_ts="$(date +%s)"
 result_err=""
 ok=0
+# Default for set -u: never read $status before assignment (Git Bash can choke on `|| status=...`).
+status="BLK"
 
+# Lines on stderr → forge log (cursorexec) even when cursor-agent writes nothing to pipes.
 run_with_model() {
   local model_token="$1"
+  local rc=0
+  echo "smith: starting agent model=${model_token:-_} timeout=${TIMEOUT_SEC}s CURSORBIN=${CURSORBIN}" >&2
   if [ "$model_token" = "_" ] || [ -z "$model_token" ]; then
     timeout "$TIMEOUT_SEC" \
       "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
-      "$(cat "$PROMPT_FILE")"
+      "$(cat "$PROMPT_FILE")" || rc=$?
   else
     timeout "$TIMEOUT_SEC" \
       "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
       --model "$model_token" \
-      "$(cat "$PROMPT_FILE")"
+      "$(cat "$PROMPT_FILE")" || rc=$?
   fi
+  # 124 = GNU timeout; 127 = command not found; 0 = success
+  echo "smith: agent finished exit=${rc}" >&2
+  return "$rc"
 }
+
+if ! command -v timeout >/dev/null 2>&1; then
+  echo "smith: WARN: no 'timeout' in PATH — SMITH_TIMEOUT may not kill a stuck agent (install Git Bash coreutils)" >&2
+fi
+# Git Bash: `command -v` often fails for Windows agent.cmd / full paths (no Unix +x); use -f as fallback.
+smith_cursorbin_ok() {
+  local b="$1"
+  command -v "$b" >/dev/null 2>&1 && return 0
+  [ -f "$b" ] && return 0
+  case "$b" in
+    *\\*)
+      local n
+      n=$(printf '%s' "$b" | tr '\\' '/')
+      [ -f "$n" ] && return 0
+      ;;
+  esac
+  return 1
+}
+if ! smith_cursorbin_ok "$CURSORBIN"; then
+  echo "smith: ERROR: CURSORBIN not found (PATH or file): ${CURSORBIN}" >&2
+fi
+
+echo "smith: preflight ATM=${ID} models=${SMITH_MODELS}" >&2
 
 for model in $SMITH_MODELS; do
   if run_with_model "$model"; then
@@ -78,8 +109,11 @@ for model in $SMITH_MODELS; do
 done
 
 elapsed="$(( $(date +%s) - start_ts ))"
-status="OK"
-[ "$ok" -eq 1 ] || status="BLK"
+if [ "$ok" -eq 1 ]; then
+  status="OK"
+else
+  status="BLK"
+fi
 
 $PYTHON - <<'PY' "$REPORT_FILE" "$ID" "$status" "$elapsed" "$result_err"
 import sys, yaml

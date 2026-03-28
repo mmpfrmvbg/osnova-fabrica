@@ -3,24 +3,17 @@ epic: EPK-260327-001
 seq: 4
 zone: lang
 risk: LOW
-executor: cursor
-goal: Покрыть тестами сценарий низкой уверенности IntakeAgent (low-confidence flow)
-scope:
-- src/agents/intake-agent.test.ts
-- src/agents/intake-agent.ts
+executor: null
+goal: ''
+scope: []
 notouch:
 - .github/
 - infra/
 - deploy/
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
-steps:
-- Изучить логику определения low-confidence в IntakeAgent
-- Добавить тесты на сценарии с низкой уверенностью LLM-ответа
-- Добавить тесты на fallback-поведение при low-confidence
-- Запустить тесты и убедиться в прохождении
-deps:
-- ATM-EPK-260327-001-003
+steps: []
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING
