@@ -8,7 +8,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 try:
     from forge.atomizer import atomize
@@ -73,6 +73,125 @@ except ImportError:  # pragma: no cover
 
 LOG = setup_logging("forge")
 _NO_EXECUTOR_WARN_EMITTED = False
+
+OnAtomUpdate = Callable[[str, str, Any], None]
+
+
+def _execute_atom_with_retries(
+    atom: dict[str, Any],
+    epic: dict[str, Any],
+    state: dict[str, Any],
+    dry_run: bool,
+    avail: dict[str, Any],
+    epic_issue: Any,
+    atm_total: int,
+    on_update: OnAtomUpdate | None = None,
+) -> dict[str, Any]:
+    """One ATM: executor + review + process_result path (extracted from _process_epic._run_one)."""
+    aid = atom.get("id")
+    executor = choose_executor(atom, avail)
+    atom["executor"] = executor
+    maxiter = int(atom.get("maxiter") or 3)
+    attempt = 0
+    while attempt < maxiter:
+        attempt += 1
+        if on_update:
+            on_update(str(aid or ""), "RUN", atom)
+        hlog(
+            "atm_start",
+            atm_id=aid,
+            seq=int(atom.get("seq") or 0),
+            atm_total=atm_total,
+            goal=str(atom.get("goal", "")),
+        )
+        LOG.info(
+            "ATM %s — executor=%s attempt %s/%s",
+            aid,
+            atom["executor"],
+            attempt,
+            maxiter,
+        )
+        ex = atom["executor"]
+        if ex == "none":
+            report = {
+                "id": atom.get("id"),
+                "s": "BLK",
+                "err": "No executor available",
+                "changed": [],
+            }
+            _bump_issue_attempts_on_permanent_blk(state, epic_issue)
+            process_result(atom, report, dry_run=dry_run)
+            if on_update:
+                on_update(str(aid or ""), str(report.get("s", "BLK")), report)
+            return report
+        if ex == "qwen":
+            success, report = run_qwen_atom(atom, dry_run=dry_run)
+            fb = os.environ.get("FORGE_QWEN_QUOTA_FALLBACK", "1").strip().lower()
+            if (
+                report.get("forge_retry_executor") == "cursor"
+                and fb not in ("0", "false", "no")
+                and avail.get("cursor")
+            ):
+                LOG.warning(
+                    "ATM %s — Qwen quota/budget exhausted, falling back to Cursor",
+                    aid,
+                )
+                atom["executor"] = "cursor"
+                success, report = run_cursor_atom(atom, dry_run=dry_run)
+                report.pop("forge_retry_executor", None)
+        else:
+            success, report = run_cursor_atom(atom, dry_run=dry_run)
+        LOG.info(
+            "ATM %s — executor finished (report s=%s), starting review",
+            aid,
+            report.get("s"),
+        )
+        exec_report_ok = str(report.get("s") or "").strip().upper() == "OK"
+        run_done = exec_report_ok
+        if not run_done:
+            LOG.info(
+                "ATM %s — review fast-path (success=%s report.s=%s)",
+                aid,
+                success,
+                report.get("s"),
+            )
+        passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
+        report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
+        report["s"] = "OK" if (success and passed) else "BLK"
+        LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
+        if report.get("s") == "OK":
+            hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
+            process_result(atom, report, dry_run=dry_run)
+            if on_update:
+                on_update(str(aid or ""), "OK", report)
+            return report
+        hlog(
+            "atm_blk",
+            atm_id=aid,
+            reason=str(report.get("err") or report.get("review") or "BLK")[:120],
+        )
+        kind = classify_blk(
+            exec_report_ok=exec_report_ok,
+            review_passed=passed,
+            report=report,
+        )
+        if kind == "transient" and attempt < maxiter:
+            LOG.warning("ATM %s — transient BLK, retry %s/%s", aid, attempt, maxiter)
+            continue
+        if kind == "permanent":
+            _bump_issue_attempts_on_permanent_blk(state, epic_issue)
+        process_result(atom, report, dry_run=dry_run)
+        if on_update:
+            on_update(str(aid or ""), str(report.get("s", "BLK")), report)
+        return report
+    report = {
+        "id": aid,
+        "s": "BLK",
+        "err": "max iterations exceeded",
+    }
+    if on_update:
+        on_update(str(aid or ""), "BLK", report)
+    return report
 
 # Idle backoff between cycles (cap 90s); does not change socket accept inside _resolve_epic.
 IDLE_STEPS_SEC = [60, 60, 90, 90]
@@ -385,7 +504,13 @@ def _resolve_epic(state: dict[str, Any], dry_run: bool) -> dict[str, Any] | None
     return None
 
 
-def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, avail: dict[str, Any]) -> None:
+def _process_epic(
+    epic: dict[str, Any],
+    state: dict[str, Any],
+    dry_run: bool,
+    avail: dict[str, Any],
+    on_update: OnAtomUpdate | None = None,
+) -> list[dict[str, Any]]:
     state["current_epic"] = epic.get("id")
     state["current_epic_issue"] = epic.get("githubissue")
     state["current_epic_started_at"] = now_iso()
@@ -408,6 +533,7 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
             target=_epic_heartbeat_pulse, daemon=True, name="forge-epic-heartbeat"
         )
         hb_thread.start()
+    results: list[dict[str, Any]] = []
     try:
         atoms = atomize(epic, dry_run=dry_run)
         epic_start_snapshot()
@@ -424,102 +550,21 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
         )
         waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))))
         LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
-        results: list[dict[str, Any]] = []
         atm_total = len(atoms)
         epic_issue = epic.get("githubissue")
 
         def _run_one(atom: dict[str, Any]) -> None:
-            aid = atom.get("id")
-            executor = choose_executor(atom, avail)
-            atom["executor"] = executor
-            maxiter = int(atom.get("maxiter") or 3)
-            attempt = 0
-            while attempt < maxiter:
-                attempt += 1
-                hlog(
-                    "atm_start",
-                    atm_id=aid,
-                    seq=int(atom.get("seq") or 0),
-                    atm_total=atm_total,
-                    goal=str(atom.get("goal", "")),
-                )
-                LOG.info(
-                    "ATM %s — executor=%s attempt %s/%s",
-                    aid,
-                    atom["executor"],
-                    attempt,
-                    maxiter,
-                )
-                ex = atom["executor"]
-                if ex == "none":
-                    report = {
-                        "id": atom.get("id"),
-                        "s": "BLK",
-                        "err": "No executor available",
-                        "changed": [],
-                    }
-                    _bump_issue_attempts_on_permanent_blk(state, epic_issue)
-                    process_result(atom, report, dry_run=dry_run)
-                    results.append(report)
-                    return
-                if ex == "qwen":
-                    success, report = run_qwen_atom(atom, dry_run=dry_run)
-                    fb = os.environ.get("FORGE_QWEN_QUOTA_FALLBACK", "1").strip().lower()
-                    if (
-                        report.get("forge_retry_executor") == "cursor"
-                        and fb not in ("0", "false", "no")
-                        and avail.get("cursor")
-                    ):
-                        LOG.warning(
-                            "ATM %s — Qwen quota/budget exhausted, falling back to Cursor",
-                            aid,
-                        )
-                        atom["executor"] = "cursor"
-                        success, report = run_cursor_atom(atom, dry_run=dry_run)
-                        report.pop("forge_retry_executor", None)
-                else:
-                    success, report = run_cursor_atom(atom, dry_run=dry_run)
-                LOG.info(
-                    "ATM %s — executor finished (report s=%s), starting review",
-                    aid,
-                    report.get("s"),
-                )
-                exec_report_ok = str(report.get("s") or "").strip().upper() == "OK"
-                run_done = exec_report_ok
-                if not run_done:
-                    LOG.info(
-                        "ATM %s — review fast-path (success=%s report.s=%s)",
-                        aid,
-                        success,
-                        report.get("s"),
-                    )
-                passed, reason, elapsed = review(atom, dry_run=dry_run, run_done=run_done)
-                report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
-                report["s"] = "OK" if (success and passed) else "BLK"
-                LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
-                if report.get("s") == "OK":
-                    hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
-                    process_result(atom, report, dry_run=dry_run)
-                    results.append(report)
-                    return
-                hlog(
-                    "atm_blk",
-                    atm_id=aid,
-                    reason=str(report.get("err") or report.get("review") or "BLK")[:120],
-                )
-                kind = classify_blk(
-                    exec_report_ok=exec_report_ok,
-                    review_passed=passed,
-                    report=report,
-                )
-                if kind == "transient" and attempt < maxiter:
-                    LOG.warning("ATM %s — transient BLK, retry %s/%s", aid, attempt, maxiter)
-                    continue
-                if kind == "permanent":
-                    _bump_issue_attempts_on_permanent_blk(state, epic_issue)
-                process_result(atom, report, dry_run=dry_run)
-                results.append(report)
-                return
+            report = _execute_atom_with_retries(
+                atom,
+                epic,
+                state,
+                dry_run,
+                avail,
+                epic_issue,
+                atm_total,
+                on_update=on_update,
+            )
+            results.append(report)
 
         run_waves_sequential(waves, _run_one)
         finalize_epic(epic, results, dry_run=dry_run, forge_state=state)
@@ -535,6 +580,81 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
             hb_thread.join(timeout=5.0)
         if not dry_run:
             _heartbeat()
+    return results
+
+
+def run_epic_from_dict(
+    epic_data: dict[str, Any],
+    dry_run: bool = False,
+    on_update: OnAtomUpdate | None = None,
+) -> dict[str, Any]:
+    """
+    Run one EPIC from an in-memory dict (CLI / tests). Uses the same pipeline as the forge loop.
+    """
+    started = time.time()
+    state = load_forge_state()
+    if dry_run:
+        avail = {"qwen": True, "cursor": True, "healthy": True, "executors": ["qwen", "cursor"]}
+    else:
+        avail = get_available()
+    try:
+        results = _process_epic(epic_data, state, dry_run, avail, on_update=on_update)
+    except Exception as e:
+        LOG.exception("run_epic_from_dict failed")
+        return {
+            "error": str(e),
+            "ok_count": 0,
+            "blk_count": 0,
+            "total": 0,
+            "epic_id": epic_data.get("id"),
+            "elapsed_s": round(time.time() - started, 1),
+            "atms": [],
+        }
+    ok = sum(1 for r in results if r.get("s") == "OK")
+    return {
+        "ok_count": ok,
+        "blk_count": len(results) - ok,
+        "total": len(results),
+        "epic_id": epic_data.get("id"),
+        "elapsed_s": round(time.time() - started, 1),
+        "atms": results,
+    }
+
+
+def run_single_atm(
+    goal: str,
+    scope: list[str],
+    done: str,
+    executor: str = "auto",
+) -> dict[str, Any]:
+    """Single ATM without atomizer (`osnova do`)."""
+    state = load_forge_state()
+    avail = get_available()
+    ts = int(time.time())
+    atom: dict[str, Any] = {
+        "id": f"ATM-LOCAL-{ts}",
+        "goal": goal,
+        "scope": scope or [],
+        "done": done,
+        "executor": executor,
+        "seq": 1,
+        "priority": "P2",
+        "risk": "LOW",
+        "zone": "lang",
+        "steps": [],
+        "deps": [],
+    }
+    epic = {"id": f"EPK-LOCAL-{ts}", "goal": goal, "githubissue": None, "t": "EPK"}
+    return _execute_atom_with_retries(
+        atom,
+        epic,
+        state,
+        dry_run=False,
+        avail=avail,
+        epic_issue=None,
+        atm_total=1,
+        on_update=None,
+    )
 
 
 def cycle(dry_run: bool = False) -> str:
