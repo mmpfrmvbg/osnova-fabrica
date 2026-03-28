@@ -21,6 +21,40 @@ class TestQuotaDetection(unittest.TestCase):
         self.assertFalse(is_quota_exhausted_output(""))
 
 
+class TestClassifyQwenApiLimit(unittest.TestCase):
+    def test_classify_reason_codes_and_phrases(self) -> None:
+        from forge.qwenbudget import classify_qwen_api_limit
+
+        self.assertEqual(
+            classify_qwen_api_limit('{"error":{"reason":"QuotaExceeded","code":429}}'),
+            "quota_exceeded",
+        )
+        self.assertEqual(
+            classify_qwen_api_limit("HTTP 429 reason=RateLimit retry after 60s"),
+            "rate_limit",
+        )
+        self.assertEqual(
+            classify_qwen_api_limit("Error: rate limit exceeded for requests per minute"),
+            "rate_limit",
+        )
+        self.assertEqual(
+            classify_qwen_api_limit("HTTP 429 Too Many Requests"),
+            "rate_limit",
+        )
+        self.assertEqual(
+            classify_qwen_api_limit('{"httpStatus":429}'),
+            "unknown_limit",
+        )
+
+    def test_format_qwen_limit_for_log_truncates(self) -> None:
+        from forge.qwenbudget import format_qwen_limit_for_log
+
+        long = "x" * 2000
+        out = format_qwen_limit_for_log(long, max_chars=100)
+        self.assertTrue(out.startswith("…"))
+        self.assertEqual(len(out), 101)
+
+
 class TestRecordAndStateYaml(unittest.TestCase):
     def test_record_increments_json_and_state_yaml(self) -> None:
         from forge import qwenbudget as qb

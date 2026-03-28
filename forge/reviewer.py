@@ -21,7 +21,7 @@ try:
         resolve_executable,
         setup_logging,
     )
-    from forge.qwenbudget import can_call, is_quota_exhausted_output, record
+    from forge.qwenbudget import can_call, is_quota_exhausted_output, log_remote_qwen_limit, record
 except ImportError:  # pragma: no cover
     from common import (
         SUBPROCESS_TEXT,
@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover
         resolve_executable,
         setup_logging,
     )
-    from qwenbudget import can_call, is_quota_exhausted_output, record
+    from qwenbudget import can_call, is_quota_exhausted_output, log_remote_qwen_limit, record
 
 LOG = setup_logging("reviewer")
 
@@ -222,7 +222,7 @@ def _qwen_review(
         try:
             from forge import humanlog as _hl
 
-            _hl.hlog("qwen_quota")
+            _hl.hlog("qwen_quota", detail="локальный дневной лимит forge (не ответ API)")
         except Exception:
             pass
         return False, "FAIL: forge Qwen daily budget exhausted (local)", True
@@ -243,14 +243,18 @@ def _qwen_review(
     err = proc.stderr or ""
     combined = f"{out}\n{err}"
     if is_quota_exhausted_output(combined):
-        LOG.warning(
-            "reviewer: Qwen output indicates API quota/rate limit — not incrementing forge counter; "
-            "will auto-PASS if done-command succeeds",
+        kind, excerpt = log_remote_qwen_limit(
+            "reviewer",
+            combined,
+            ref=str(atom.get("id") or ""),
         )
         try:
             from forge import humanlog as _hl
 
-            _hl.hlog("qwen_quota")
+            _hl.hlog(
+                "qwen_quota",
+                detail=f"API {kind} — {excerpt[:320]}",
+            )
         except Exception:
             pass
         return False, combined.strip() or "FAIL: Qwen quota exceeded", True

@@ -18,7 +18,7 @@ try:
         resolve_executable,
         setup_logging,
     )
-    from forge.qwenbudget import can_call, is_quota_exhausted_output, record
+    from forge.qwenbudget import can_call, is_quota_exhausted_output, log_remote_qwen_limit, record
 except ImportError:  # pragma: no cover
     from common import (
         SUBPROCESS_TEXT,
@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover
         resolve_executable,
         setup_logging,
     )
-    from qwenbudget import can_call, is_quota_exhausted_output, record
+    from qwenbudget import can_call, is_quota_exhausted_output, log_remote_qwen_limit, record
 
 LOG = setup_logging("atomizer")
 
@@ -423,9 +423,7 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
             proc = _run_qwen_atomizer(prompt, tmo)
             comb = f"{proc.stdout or ''}\n{proc.stderr or ''}"
             if is_quota_exhausted_output(comb):
-                LOG.warning(
-                    "atomizer: Qwen output indicates API quota/rate limit — not incrementing forge counter",
-                )
+                log_remote_qwen_limit("atomizer", comb, ref=str(epic.get("id") or ""))
                 last_parse_err = RuntimeError("Qwen API quota exceeded")
                 break
             record(served=True)

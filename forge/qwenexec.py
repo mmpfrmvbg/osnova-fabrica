@@ -11,10 +11,10 @@ import yaml
 
 try:
     from forge.common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
-    from forge.qwenbudget import can_call, is_quota_exhausted_output, record
+    from forge.qwenbudget import can_call, is_quota_exhausted_output, log_remote_qwen_limit, record
 except ImportError:  # pragma: no cover
     from common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
-    from qwenbudget import can_call, is_quota_exhausted_output, record
+    from qwenbudget import can_call, is_quota_exhausted_output, log_remote_qwen_limit, record
 
 LOG = setup_logging("qwenexec")
 
@@ -125,10 +125,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
     err = proc.stderr or ""
     combined = f"{out}\n{err}"
     if is_quota_exhausted_output(combined):
-        LOG.warning(
-            "qwenexec: remote quota/rate message for %s — not incrementing forge daily counter",
-            atom.get("id"),
-        )
+        log_remote_qwen_limit("qwenexec", combined, ref=str(atom.get("id") or ""))
         return False, {
             "v": 5,
             "t": "RPT",

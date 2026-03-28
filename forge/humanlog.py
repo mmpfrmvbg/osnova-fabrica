@@ -127,6 +127,9 @@ def _format_message(event: str, **kwargs: Any) -> str:
             f"    Код отправлен в GitHub ✅"
         )
     if event == "qwen_quota":
+        detail = (kwargs.get("detail") or "").strip()
+        if detail:
+            return f"⚠️  [{t}] Qwen: {detail}"
         return f"⚠️  [{t}] Qwen исчерпал дневной лимит запросов"
     if event == "blocker_created":
         num = kwargs.get("issue_number", "?")
