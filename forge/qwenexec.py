@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import Any
@@ -75,22 +76,18 @@ def _prompt(atom: dict[str, Any]) -> str:
     )
 
 
-def _qwen_code_argv(prompt: str) -> list[str]:
-    """
-    Qwen Code headless: ``qwen -p \"…\" --approval-mode yolo --output-format json …``
-    (официальная документация: headless только с ``--prompt`` / ``-p``).
+def _default_prompt_via() -> str:
+    """Windows npm ``qwen.cmd`` часто ломает длинный ``-p``; надёжнее stdin (как ``echo | qwen`` в доке)."""
+    return "stdin" if sys.platform == "win32" else "dash_p"
 
-    ``FORGE_QWEN_CODE_PROMPT_VIA=positional`` — экспериментально ``qwen <prompt> …`` (может **не** быть headless).
-    """
-    exe = resolve_executable(env_paths()["QWENBIN"])
+
+def _qwen_shared_flags() -> list[str]:
     tools = os.environ.get(
         "FORGE_QWEN_ALLOWED_TOOLS",
         "write_file,edit,read_file,run_shell_command,grep_search,glob",
     ).strip()
     turns = os.environ.get("FORGE_QWEN_MAX_SESSION_TURNS", "10").strip() or "10"
-    # Default dash_p: headless requires ``qwen -p …``; empty/unset must not fall through to positional.
-    via = forge_dotenv_setting("FORGE_QWEN_CODE_PROMPT_VIA", "dash_p").strip().lower()
-    flags: list[str] = [
+    return [
         "--approval-mode",
         "yolo",
         "--output-format",
@@ -100,9 +97,63 @@ def _qwen_code_argv(prompt: str) -> list[str]:
         "--allowed-tools",
         tools,
     ]
+
+
+def _qwen_code_invocation(prompt: str) -> tuple[list[str], str | None, str]:
+    """
+    Возвращает ``(argv, stdin_or_none, via)``.
+
+    - ``stdin``: ``qwen --yolo …`` + тело промпта в stdin (headless, см. pipe в Qwen docs).
+    - ``dash_p``: ``qwen --yolo -p PROMPT …`` (как headless в доке).
+    - ``positional``: только отладка — ``qwen PROMPT …`` (часто уходит в чат).
+
+    Всегда добавляем ``--yolo`` (как старый ``qwen_headless_argv`` в common) перед режимом промпта.
+    """
+    exe = resolve_executable(env_paths()["QWENBIN"])
+    via_raw = forge_dotenv_setting("FORGE_QWEN_CODE_PROMPT_VIA", _default_prompt_via()).strip().lower()
+    via = via_raw or _default_prompt_via().strip().lower()
+    tail = _qwen_shared_flags()
     if via == "positional":
-        return [exe, prompt, *flags]
-    return [exe, "-p", prompt, *flags]
+        return [exe, prompt, "--yolo", *tail], None, via
+    if via == "stdin":
+        return [exe, "--yolo", *tail], prompt, via
+    # dash_p (явный дефолт на non-Windows) и любое неизвестное значение — безопасный headless
+    if via not in ("dash_p", "-p", "p", ""):
+        LOG.warning("qwenexec: unknown FORGE_QWEN_CODE_PROMPT_VIA=%r — using dash_p", via)
+    return [exe, "--yolo", "-p", prompt, *tail], None, via
+
+
+def _qwen_code_argv(prompt: str) -> list[str]:
+    """Совместимость со старыми импортами; для stdin используйте ``_qwen_code_invocation``."""
+    argv, _stdin, _via = _qwen_code_invocation(prompt)
+    return argv
+
+
+def _run_qwen(cmd: list[str], run_kw: dict[str, Any]) -> subprocess.CompletedProcess[str]:
+    """
+    Windows: ``CreateProcess`` не резолвит ``qwen`` как npm-.cmd; ``resolve_executable`` даёт путь к .cmd.
+    Если файла всё ещё нет — ``shell=True`` + ``list2cmdline`` (cmd.exe ищет PATH).
+    """
+    exe = cmd[0]
+    if sys.platform == "win32" and not Path(exe).is_file():
+        exe2 = resolve_executable(env_paths()["QWENBIN"])
+        if Path(exe2).is_file():
+            cmd = [exe2] + list(cmd[1:])
+        else:
+            line = subprocess.list2cmdline(cmd)
+            return subprocess.run(line, shell=True, **run_kw)
+    return subprocess.run(cmd, **run_kw)
+
+
+def _log_qwen_argv(cmd: list[str], via: str) -> None:
+    safe: list[str] = []
+    for i, a in enumerate(cmd):
+        prev = cmd[i - 1] if i else ""
+        if prev in ("-p", "--prompt") and len(a) > 100:
+            safe.append(f"{a[:72]}…({len(a)} chars)")
+        else:
+            safe.append(a)
+    LOG.info("qwenexec: FORGE_QWEN_CODE_PROMPT_VIA=%s argv=%s", via, safe)
 
 
 def _parse_result_event(stdout: str) -> dict[str, Any] | None:
@@ -197,17 +248,23 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
     if not can_call_executor():
         return _blk("Qwen executor daily budget exhausted", retry_cursor=True)
 
-    cmd = _qwen_code_argv(_prompt(atom))
+    prompt = _prompt(atom)
+    cmd, stdin_payload, via = _qwen_code_invocation(prompt)
+    _log_qwen_argv(cmd, via)
+    run_kw: dict[str, Any] = {
+        "cwd": str(project),
+        "capture_output": True,
+        "text": True,
+        "timeout": run_s,
+        "check": False,
+        **SUBPROCESS_TEXT,
+    }
+    if stdin_payload is not None:
+        run_kw["input"] = stdin_payload
+    else:
+        run_kw["stdin"] = subprocess.DEVNULL
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(project),
-            capture_output=True,
-            text=True,
-            timeout=run_s,
-            check=False,
-            **SUBPROCESS_TEXT,
-        )
+        proc = _run_qwen(cmd, run_kw)
     except TimeoutExpired:
         LOG.error("qwenexec: timeout after %ss for %s", run_s, atom_id)
         record(served=True, role="executor")

@@ -172,6 +172,33 @@ def resolve_executable(name_or_path: str) -> str:
             found = shutil.which(s + suf)
             if found:
                 return found
+        # npm global shims: subprocess without shell often misses PATH; scan typical dirs
+        if "/" not in s and "\\" not in s and ":" not in s:
+            npm_dirs: list[Path] = []
+            appdata = os.environ.get("APPDATA", "").strip()
+            if appdata:
+                npm_dirs.append(Path(appdata) / "npm")
+            local = os.environ.get("LOCALAPPDATA", "").strip()
+            if local:
+                npm_dirs.append(Path(local) / "npm")
+            npm_dirs.append(Path.home() / "AppData" / "Roaming" / "npm")
+            seen: set[str] = set()
+            for d in npm_dirs:
+                try:
+                    dr = d.resolve()
+                except OSError:
+                    continue
+                key = str(dr)
+                if key in seen:
+                    continue
+                seen.add(key)
+                for name in (f"{s}.cmd", f"{s}.CMD", f"{s}.bat", f"{s}.exe"):
+                    cand = dr / name
+                    try:
+                        if cand.is_file():
+                            return str(cand.resolve())
+                    except OSError:
+                        pass
     return s
 
 

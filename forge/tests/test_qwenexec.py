@@ -9,25 +9,37 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
-class TestQwenCodeArgv(unittest.TestCase):
-    def test_argv_uses_dash_p_for_headless_by_default(self) -> None:
+class TestQwenCodeInvocation(unittest.TestCase):
+    def test_dash_p_yolo_and_prompt_in_argv(self) -> None:
         from forge import qwenexec as qe
 
         with patch.object(qe, "forge_dotenv_setting", return_value="dash_p"):
-            argv = qe._qwen_code_argv("hello world")
-        self.assertGreaterEqual(len(argv), 4)
-        self.assertEqual(argv[1], "-p")
-        self.assertEqual(argv[2], "hello world")
+            argv, stdin_payload, via = qe._qwen_code_invocation("hello world")
+        self.assertIsNone(stdin_payload)
+        self.assertEqual(via, "dash_p")
+        self.assertEqual(argv[1], "--yolo")
+        self.assertEqual(argv[2], "-p")
+        self.assertEqual(argv[3], "hello world")
         self.assertIn("--output-format", argv)
-        self.assertIn("json", argv)
 
-    def test_argv_positional_when_env_positional(self) -> None:
+    def test_stdin_mode_no_prompt_in_argv(self) -> None:
+        from forge import qwenexec as qe
+
+        with patch.object(qe, "forge_dotenv_setting", return_value="stdin"):
+            argv, stdin_payload, via = qe._qwen_code_invocation("hi\nthere")
+        self.assertEqual(stdin_payload, "hi\nthere")
+        self.assertEqual(via, "stdin")
+        self.assertEqual(argv[1], "--yolo")
+        self.assertNotIn("-p", argv)
+        self.assertNotIn("hi", argv)
+
+    def test_positional_debug_mode(self) -> None:
         from forge import qwenexec as qe
 
         with patch.object(qe, "forge_dotenv_setting", return_value="positional"):
-            argv = qe._qwen_code_argv("hi")
+            argv, stdin_payload, _via = qe._qwen_code_invocation("hi")
+        self.assertIsNone(stdin_payload)
         self.assertEqual(argv[1], "hi")
-        self.assertNotEqual(argv[2], "-p")
 
 
 class TestParseResultEvent(unittest.TestCase):
