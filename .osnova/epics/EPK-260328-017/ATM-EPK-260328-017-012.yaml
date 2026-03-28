@@ -1,24 +1,25 @@
 id: ATM-EPK-260328-017-012
 epic: EPK-260328-017
 seq: 12
-zone: validation
-risk: LOW
-executor: cursor
-goal: Финальная валидация — запуск всех тестов и фикс блокеров
+zone: compiler
+risk: MEDIUM
+executor: null
+goal: 'Исправить compiler.ts: совместимость с pipeline'
 scope:
-- src/agents/agents.test.ts
-- src/pipeline/pipeline.test.ts
-notouch: []
+- src/compiler/compiler.ts
+- src/pipeline/pipeline.ts
+notouch:
+- src/agents/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Запустить npx vitest run src/agents/
-- Запустить npx vitest run src/pipeline/
-- Исправить оставшиеся failing тесты
-- Убедиться что passrate > 0.8
-- Закоммитить изменения
+- Прочитать текущий код compiler.ts
+- Исправить интерфейс компиляции
+- Синхронизировать с pipeline.ts
+- Запустить финальные E2E тесты
 deps:
+- ATM-EPK-260328-017-010
 - ATM-EPK-260328-017-011
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0

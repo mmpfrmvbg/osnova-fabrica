@@ -1,21 +1,22 @@
 id: ATM-EPK-260328-017-009
 epic: EPK-260328-017
 seq: 9
-zone: runtime
-risk: MEDIUM
-executor: cursor
-goal: Восстановить interpreter — пошаговое выполнение
+zone: pipeline
+risk: HIGH
+executor: null
+goal: 'Восстановить pipeline: интеграция всех агентов'
 scope:
-- src/runtime/interpreter.ts — восстановить интерпретатор
+- src/pipeline/pipeline.ts
+- src/pipeline/pipeline.test.ts
 notouch:
-- src/agents/*
-- src/pipeline/*
+- src/runtime/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать interpreter.ts
-- Исправить метод interpret — корректный разбор инструкций
-- Добавить поддержку всех типов операций
-- Протестировать интерпретацию различных программ
+- Прочитать текущий код pipeline.ts
+- Восстановить цепочку Intake→Plan→Exec→Review
+- Интегрировать с agents layer
+- Написать E2E тесты pipeline
 deps:
 - ATM-EPK-260328-017-008
 maxiter: 3

@@ -1,23 +1,24 @@
 id: ATM-EPK-260328-017-007
 epic: EPK-260328-017
 seq: 7
-zone: pipeline
+zone: agents
 risk: MEDIUM
-executor: cursor
-goal: Интеграция pipeline с агентами — end-to-end тесты
+executor: null
+goal: 'Восстановить ReviewAgent: валидация результатов выполнения'
 scope:
-- src/pipeline/pipeline.test.ts — E2E тесты пайплайна
+- src/agents/review-agent.ts
+- src/agents/agents.test.ts
 notouch:
-- src/pipeline/pipeline.ts
-- src/agents/*
+- src/pipeline/*
+- src/runtime/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать полные E2E сценарии
-- Протестировать все этапы: intake → plan → exec → review
-- Проверить корректность передачи данных между этапами
-- Запустить npx vitest run src/pipeline/pipeline.test.ts
+- Прочитать текущий код review-agent.ts
+- Восстановить метод review()
+- Реализовать проверку результатов
+- Написать тесты на ревью
 deps:
-- ATM-EPK-260328-017-005
 - ATM-EPK-260328-017-006
 maxiter: 3
 retries: 0

@@ -2,26 +2,22 @@ id: ATM-EPK-260328-017-005
 epic: EPK-260328-017
 seq: 5
 zone: agents
-risk: MEDIUM
-executor: cursor
-goal: Интеграционные тесты всех агентов
+risk: HIGH
+executor: null
+goal: 'Восстановить ExecAgent: выполнение задач в VM'
 scope:
-- src/agents/agents.test.ts — полный набор интеграционных тестов
-notouch:
-- src/agents/intake-agent.ts
-- src/agents/plan-agent.ts
 - src/agents/exec-agent.ts
-- src/agents/review-agent.ts
+- src/agents/agents.test.ts
+notouch:
+- src/pipeline/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать тестовые сценарии полного цикла
-- Протестировать взаимодействие агентов
-- Проверить обработку ошибок в цепочке
-- Запустить npx vitest run src/agents/agents.test.ts
+- Прочитать текущий код exec-agent.ts
+- Восстановить метод execute()
+- Интегрировать с runtime/vm.ts
+- Написать тесты на выполнение
 deps:
-- ATM-EPK-260328-017-001
-- ATM-EPK-260328-017-002
-- ATM-EPK-260328-017-003
 - ATM-EPK-260328-017-004
 maxiter: 3
 retries: 0

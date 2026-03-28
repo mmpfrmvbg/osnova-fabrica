@@ -3,21 +3,20 @@ epic: EPK-260328-017
 seq: 4
 zone: agents
 risk: HIGH
-executor: cursor
-goal: Восстановить ReviewAgent — валидация результатов
+executor: null
+goal: 'Восстановить PlanAgent: оптимизация порядка выполнения задач'
 scope:
-- src/agents/review-agent.ts — восстановить проверку результатов
-- src/agents/agents.test.ts — тесты для ReviewAgent
+- src/agents/plan-agent.ts
+- src/agents/agents.test.ts
 notouch:
 - src/pipeline/*
+- src/runtime/*
 - src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Анализ review-agent.ts
-- Исправить метод review — полная проверка выходных данных
-- Добавить проверку соответствия плану
-- Написать тесты на различные исходы review
-- Запустить npx vitest run src/agents/review-agent.test.ts
+- Реализовать топологическую сортировку
+- Добавить приоритизацию задач
+- Покрыть тестами оптимизацию
 deps:
 - ATM-EPK-260328-017-003
 maxiter: 3

@@ -2,22 +2,21 @@ id: ATM-EPK-260328-017-002
 epic: EPK-260328-017
 seq: 2
 zone: agents
-risk: HIGH
-executor: cursor
-goal: Восстановить PlanAgent — построение плана выполнения
+risk: MEDIUM
+executor: null
+goal: 'Восстановить IntakeAgent: нормализация и подготовка данных для PlanAgent'
 scope:
-- src/agents/plan-agent.ts — восстановить логику планирования
-- src/agents/agents.test.ts — тесты для PlanAgent
+- src/agents/intake-agent.ts
+- src/agents/agents.test.ts
 notouch:
 - src/pipeline/*
 - src/runtime/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Анализ текущей реализации plan-agent.ts
-- Исправить метод buildPlan — корректная последовательность шагов
-- Добавить валидацию зависимостей между шагами
-- Написать тесты на различные сценарии планирования
-- Запустить npx vitest run src/agents/plan-agent.test.ts
+- Реализовать нормализацию входных данных
+- Добавить преобразование форматов
+- Покрыть тестами нормализацию
 deps:
 - ATM-EPK-260328-017-001
 maxiter: 3

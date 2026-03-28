@@ -2,22 +2,22 @@ id: ATM-EPK-260328-017-001
 epic: EPK-260328-017
 seq: 1
 zone: agents
-risk: HIGH
-executor: cursor
-goal: Восстановить IntakeAgent — базовая валидация и парсинг задач
+risk: MEDIUM
+executor: null
+goal: 'Восстановить IntakeAgent: базовая валидация и парсинг входных данных'
 scope:
-- src/agents/intake-agent.ts — восстановить класс, методы parse и validate
-- src/agents/agents.test.ts — добавить тесты для IntakeAgent
+- src/agents/intake-agent.ts
+- src/agents/agents.test.ts
 notouch:
 - src/pipeline/*
 - src/runtime/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать текущую реализацию intake-agent.ts
-- Исправить сигнатуры методов согласно интерфейсу Agent
-- Добавить обработку edge-кейсов во входных данных
-- Написать unit-тесты на parse и validate
-- Запустить npx vitest run src/agents/intake-agent.test.ts
+- Прочитать текущий код intake-agent.ts
+- Исправить ошибки валидации входных данных
+- Добавить обработку граничных случаев
+- Написать тесты на validate()
 deps: []
 maxiter: 3
 retries: 0

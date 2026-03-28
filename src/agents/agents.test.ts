@@ -11,7 +11,7 @@ import { PlanAgent, PlanValidationError, isValidPhaseTransition } from './plan-a
 import { ExecAgent, type ExecContext } from './exec-agent';
 import { ReviewAgent } from './review-agent';
 import { IntakeValidationError } from './types';
-import type { OsnovaIntent, OsnovaSpec } from '../pipeline/types';
+import type { OsnovaIntent, OsnovaSpec, RawText } from '../pipeline/types';
 
 function sampleIntent(over: Partial<OsnovaIntent> = {}): OsnovaIntent {
   return {
@@ -73,6 +73,20 @@ describe('IntakeAgent — validate и parse', () => {
     expect(() => agent.validate({ text: 42 as unknown as string })).toThrow(
       IntakeValidationError,
     );
+  });
+
+  it('validate: отклоняет boxed String (не примитив string)', () => {
+    expect(() =>
+      agent.validate({ text: Object('boxed') as unknown as string }),
+    ).toThrow(IntakeValidationError);
+  });
+
+  it('validate: принимает объект без прототипа с непустым text', () => {
+    const raw = Object.assign(Object.create(null), { text: 'задача без __proto__' });
+    agent.validate(raw);
+    expect(agent.parse(raw as RawText)).toEqual({
+      text: 'задача без __proto__',
+    });
   });
 
   it('parse: обрезает пробелы по краям text', () => {

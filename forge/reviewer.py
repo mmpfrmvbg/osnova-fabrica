@@ -35,6 +35,21 @@ except ImportError:  # pragma: no cover
 LOG = setup_logging("reviewer")
 
 
+def _review_reason_storage_max() -> int:
+    raw = os.environ.get("FORGE_REVIEW_REASON_MAX", "").strip()
+    if raw.isdigit():
+        return max(256, int(raw))
+    return 8000
+
+
+def _stored_review_reason(full: str) -> str:
+    """Cap length for returned ``reason`` / ATM storage. Parsing always uses the full Qwen output before this."""
+    cap = _review_reason_storage_max()
+    if cap <= 0 or len(full) <= cap:
+        return full
+    return full[:cap] + "…"
+
+
 def _is_forge_default_vitest_done(cmd: str) -> bool:
     """Epic `done` that runs compiler + agents vitest (Forge v5.2 ATM default)."""
     c = " ".join(cmd.split()).lower()
@@ -295,12 +310,10 @@ def _qwen_review(
         return False, combined.strip() or "FAIL: Qwen quota exceeded", True
 
     record(served=True)
-    # Full Qwen stdout+stderr only — never truncate or slice before _parse_qwen_review_pass.
-    # Truncation of llm_reason for logs/humanlog happens only in review(), after parsing.
-    full_review_text = combined.strip()
-    passed = _parse_qwen_review_pass(full_review_text)
-    reason = full_review_text if full_review_text else "No reviewer output"
-    return passed, reason, False
+    raw_qwen_output = combined.strip()
+    passed = _parse_qwen_review_pass(raw_qwen_output)
+    reason_full = raw_qwen_output if raw_qwen_output else "No reviewer output"
+    return passed, reason_full, False
 
 
 def review(
@@ -325,7 +338,7 @@ def review(
     done_cmd = done_cmd.replace(" && ", " ; ") if sys.platform == "win32" else done_cmd
     if not done_cmd:
         elapsed = int(time.time() - start)
-        return llm_pass, llm_reason, elapsed
+        return llm_pass, _stored_review_reason(llm_reason), elapsed
     cmd_eff, done_env = _prepare_done_invocation(project, done_cmd)
     log_cmd = " ".join(cmd_eff) if isinstance(cmd_eff, list) else cmd_eff
     LOG.info(
@@ -408,7 +421,7 @@ def review(
         except Exception:
             pass
     LOG.debug("reviewer passed=%s reason_head=%s", passed, (reason[:100] if reason else ""))
-    return passed, reason, elapsed
+    return passed, _stored_review_reason(reason), elapsed
 
 
 def main() -> None:
