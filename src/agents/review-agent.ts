@@ -3,8 +3,7 @@
 // ============================================================
 
 import type { ExecContext } from './exec-agent';
-import type { ExecutionPlan } from './plan-agent';
-import type { OsnovaSpec } from '../pipeline/types';
+import type { ExecutionPlan, OsnovaSpec } from '../pipeline/types';
 import { hasBlockingSemanticErrors } from '../pipeline/orchestrator';
 import type { AgentReport, BaseAgent } from '../types/agents';
 
