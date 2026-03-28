@@ -4,8 +4,8 @@ Qwen **Code** CLI (агент с tools), не LLM-only.
 Не использует ``qwen_headless_argv()`` из ``common.py`` — тот путь ``qwen --yolo -p …``
 без ``--output-format json`` и без ``--approval-mode``; он рассчитан на старый режим и YAML в stdout.
 
-Здесь: позиционный промпт (или ``-p`` при ``FORGE_QWEN_CODE_PROMPT_VIA=argv``), затем флаги агента и разбор
-последнего JSON с ``{"type": "result"}`` в stdout.
+Здесь: **обязательно** ``-p`` / ``--prompt`` для headless (см. Qwen Code docs); позиционный промпт без ``-p``
+может открыть интерактив/приветствие вместо JSON. Разбор последнего ``{"type": "result"}`` в stdout+stderr.
 """
 
 from __future__ import annotations
@@ -63,9 +63,10 @@ def _prompt(atom: dict[str, Any]) -> str:
 
 def _qwen_code_argv(prompt: str) -> list[str]:
     """
-    Qwen Code CLI v0.12.x: промпт — первый аргумент после бинаря (как в официальном headless), далее флаги.
+    Qwen Code headless: ``qwen -p \"…\" --approval-mode yolo --output-format json …``
+    (официальная документация: headless только с ``--prompt`` / ``-p``).
 
-    ``FORGE_QWEN_CODE_PROMPT_VIA=dash_p`` — вместо этого ``-p <prompt>`` (если у вас другая сборка CLI).
+    ``FORGE_QWEN_CODE_PROMPT_VIA=positional`` — экспериментально ``qwen <prompt> …`` (может **не** быть headless).
     """
     exe = resolve_executable(env_paths()["QWENBIN"])
     tools = os.environ.get(
@@ -84,9 +85,9 @@ def _qwen_code_argv(prompt: str) -> list[str]:
         "--allowed-tools",
         tools,
     ]
-    if via in ("dash_p", "-p", "p"):
-        return [exe, "-p", prompt, *flags]
-    return [exe, prompt, *flags]
+    if via == "positional":
+        return [exe, prompt, *flags]
+    return [exe, "-p", prompt, *flags]
 
 
 def _parse_result_event(stdout: str) -> dict[str, Any] | None:
@@ -212,9 +213,10 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         LOG.warning("qwenexec: exit %s for %s — %s", proc.returncode, atom_id, tail)
         return _blk(f"qwen code exit {proc.returncode}", retry_cursor=True)
 
-    result = _parse_result_event(out)
+    # JSON может оказаться в stderr (редко) или весь буфер — склеиваем
+    result = _parse_result_event(f"{out}\n{err}")
     if result is None:
-        tail = out.replace("\r\n", "\n").strip()[-2000:]
+        tail = f"{out}\n{err}".replace("\r\n", "\n").strip()[-2000:]
         LOG.warning("qwenexec: no type=result JSON for %s — tail:\n%s", atom_id, tail)
         return _blk("qwen code output has no type=result JSON", retry_cursor=True)
 

@@ -10,22 +10,23 @@ from unittest.mock import MagicMock, patch
 
 
 class TestQwenCodeArgv(unittest.TestCase):
-    def test_argv_uses_positional_prompt_by_default(self) -> None:
+    def test_argv_uses_dash_p_for_headless_by_default(self) -> None:
         from forge import qwenexec as qe
 
         argv = qe._qwen_code_argv("hello world")
-        self.assertGreaterEqual(len(argv), 3)
-        self.assertEqual(argv[1], "hello world")
+        self.assertGreaterEqual(len(argv), 4)
+        self.assertEqual(argv[1], "-p")
+        self.assertEqual(argv[2], "hello world")
         self.assertIn("--output-format", argv)
         self.assertIn("json", argv)
 
-    def test_argv_dash_p_when_env_set(self) -> None:
+    def test_argv_positional_when_env_positional(self) -> None:
         from forge import qwenexec as qe
 
-        with patch.dict("os.environ", {"FORGE_QWEN_CODE_PROMPT_VIA": "dash_p"}):
+        with patch.dict("os.environ", {"FORGE_QWEN_CODE_PROMPT_VIA": "positional"}):
             argv = qe._qwen_code_argv("hi")
-        self.assertEqual(argv[1], "-p")
-        self.assertEqual(argv[2], "hi")
+        self.assertEqual(argv[1], "hi")
+        self.assertNotEqual(argv[2], "-p")
 
 
 class TestParseResultEvent(unittest.TestCase):
