@@ -1,21 +1,21 @@
-id: ATM-EPK-260328-014-012
-epic: EPK-260328-014
-seq: 12
-zone: src/compiler/compiler.test.ts
-risk: LOW
+id: ATM-EPK-260328-015-002
+epic: EPK-260328-015
+seq: 2
+zone: agents
+risk: MEDIUM
 executor: cursor
-goal: Обновить тесты компилятора для интеграции с runtime pipeline
+goal: Реализовать IntakeAgent для первичной обработки входных данных
 scope:
-- src/compiler/compiler.test.ts
-notouch: []
-done: npx vitest run src/runtime/
+- src/agents/intake-agent.ts — реализация IntakeAgent
+notouch:
+- src/runtime/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Добавить тесты компиляции с последующим выполнением в VM
-- Проверить passrate > 0.8 через npx vitest run src/runtime/
-- Задокументировать результаты в комментарии к тесту
+- Импортировать IAgent из types.ts
+- Реализовать класс IntakeAgent с валидацией входных данных
+- Добавить обработку ошибок и логирование
 deps:
-- 10
-- 11
+- 1
 maxiter: 3
 retries: 0
 status: PENDING

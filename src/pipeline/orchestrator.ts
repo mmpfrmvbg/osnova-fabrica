@@ -310,19 +310,23 @@ export async function runPipeline(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error('unhandled error', message);
-    await saveTrace({
-      runId,
-      status: 'error',
-      task,
-      modelId,
-      intent,
-      spec,
-      source: lastSource ?? source,
-      buildReport,
-      goldenReport,
-      repairAttempts,
-      shadow_hits: shadowHits,
-    }).catch((err) => console.warn('[orchestrator] saveTrace failed:', err));
+    try {
+      await saveTrace({
+        runId,
+        status: 'error',
+        task,
+        modelId,
+        intent,
+        spec,
+        source: lastSource ?? source,
+        buildReport,
+        goldenReport,
+        repairAttempts,
+        shadow_hits: shadowHits,
+      });
+    } catch (traceErr) {
+      console.warn('[orchestrator] saveTrace failed:', traceErr);
+    }
     return finish('error', message);
   }
 

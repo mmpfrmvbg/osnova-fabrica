@@ -122,7 +122,16 @@ vi.mock('../trace/traceStore', () => ({
   saveTrace: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../runtime/goldenApps');
+vi.mock('../runtime/goldenApps', () => ({
+  runGoldenCheck: vi.fn().mockResolvedValue({
+    executed: true,
+    passed: true,
+    qualityScore: 0.9,
+    vmErrors: [],
+    outputDiff: null,
+    durationMs: 10,
+  }),
+}));
 vi.mock('../agents/IntakeAgent', async () => {
   const actual = await vi.importActual('../agents/IntakeAgent');
   return actual;
@@ -130,7 +139,17 @@ vi.mock('../agents/IntakeAgent', async () => {
 
 describe('Pipeline integration (mock LLM)', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.mocked(saveTrace).mockClear();
+    vi.mocked(runGoldenCheck).mockReset();
+    // Базовый ответ, чтобы между тестами и для последующих файлов не было undefined
+    vi.mocked(runGoldenCheck).mockResolvedValue({
+      executed: true,
+      passed: true,
+      qualityScore: 0.9,
+      vmErrors: [],
+      outputDiff: null,
+      durationMs: 10,
+    });
   });
 
   it('runPipeline: task → success with mock LLM', async () => {
@@ -193,7 +212,7 @@ describe('Pipeline integration (mock LLM)', () => {
 
   it('runPipeline: error — G1 падает при пустых features', async () => {
     // mock IntakeAgent возвращает intent с features=[] → G1 блокирует
-    vi.spyOn(IntakeAgent.prototype, 'parseIntent').mockResolvedValueOnce({
+    const spy = vi.spyOn(IntakeAgent.prototype, 'parseIntent').mockResolvedValueOnce({
       intentId: 'test',
       description: 'тест',
       features: [],
@@ -204,6 +223,7 @@ describe('Pipeline integration (mock LLM)', () => {
 
     const result = await runPipeline('тест G1 error');
     expect(result.status).toBe('error');
+    spy.mockRestore();
   });
 });
 
@@ -492,4 +512,216 @@ describe('hasBlockingSemanticErrors', () => {
   it('false при undefined buildReport', () => {
     expect(hasBlockingSemanticErrors(undefined)).toBe(false);
   });
+});
+
+// ─── Сценарии ранее в orchestrator.partial.test.ts — тот же мок goldenApps/traceStore, без второго vi.mock ───
+
+const createPartialFileMockProvider = () => ({
+  id: 'mock',
+  name: 'MockLLM',
+  async checkHealth() {
+    return { available: true };
+  },
+  async listModels() {
+    return [];
+  },
+  async complete(request: { messages: { role: string; content: string }[] }) {
+    const messages = request.messages;
+    const lastMsg = messages[messages.length - 1];
+    const content = typeof lastMsg.content === 'string' ? lastMsg.content : '';
+    const systemContent = messages[0]?.role === 'system' ? (messages[0].content as string) : '';
+
+    if (messages.length === 1 && content.includes('Analyze this programming task')) {
+      return {
+        content: JSON.stringify({
+          intent: 'Тест',
+          confidence: 0.95,
+          language: 'osnova',
+          features: ['f1'],
+          params: {},
+        }),
+        model: 'mock',
+        done: true,
+      };
+    }
+    if (
+      messages.length === 2 &&
+      systemContent.includes('Return ONLY this JSON') &&
+      systemContent.includes('modules')
+    ) {
+      return {
+        content: JSON.stringify({
+          modules: [{ name: 'M', description: 'd', isMain: true }],
+          mainModule: 'main',
+          types: [],
+          procedures: [{ name: 'главная', params: {}, returnType: 'Ничто' }],
+          syscalls: [],
+          conventions: {},
+        }),
+        model: 'mock',
+        done: true,
+      };
+    }
+    if (systemContent.includes('OsnovaCodegen')) {
+      return {
+        content: `модуль M
+процедура main()
+  вернуть 42
+конец`,
+        model: 'mock',
+        done: true,
+      };
+    }
+    return { content: 'модуль M\nпроцедура main()\n  вернуть 42\nконец', model: 'mock', done: true };
+  },
+  async completeStream() {
+    throw new Error('not used');
+  },
+});
+
+describe('Pipeline: partial (alternate LLM stub)', () => {
+  beforeEach(() => {
+    vi.mocked(runGoldenCheck).mockResolvedValue({
+      executed: true,
+      passed: false,
+      qualityScore: 0.6,
+      vmErrors: [],
+      outputDiff: 'minor diff',
+      durationMs: 10,
+    });
+  });
+
+  it('при qualityScore в [0.5, 0.7) возвращает status partial без repair', async () => {
+    const llm = await import('../llm/index');
+    const originalGetProvider = llm.getLLMProvider;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (llm as any).getLLMProvider = () => createPartialFileMockProvider();
+    try {
+      const result = await runPipeline('__test__partial__mock__');
+      expect(result.status).toBe('partial');
+      expect(result.repairAttempts).toBe(0);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (llm as any).getLLMProvider = originalGetProvider;
+    }
+  }, 15000);
+});
+
+describe('Pipeline: repair cycle', () => {
+  beforeEach(() => {
+    vi.mocked(runGoldenCheck).mockResolvedValue({
+      executed: true,
+      passed: false,
+      qualityScore: 0.6,
+      vmErrors: [],
+      outputDiff: 'minor diff',
+      durationMs: 10,
+    });
+  });
+
+  it('при ошибке компиляции запускает RepairEngineer и завершаетcя не в error', async () => {
+    const llm = await import('../llm/index');
+    const originalGetProvider = llm.getLLMProvider;
+
+    let codegenCalls = 0;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (llm as any).getLLMProvider = () => ({
+      id: 'mock-repair',
+      name: 'MockRepairLLM',
+      async checkHealth() {
+        return { available: true };
+      },
+      async listModels() {
+        return [];
+      },
+      async complete(req: { messages: { role: string; content: string }[] }) {
+        const messages = req.messages;
+        const systemContent =
+          messages[0]?.role === 'system' ? (messages[0].content as string) : '';
+
+        if (
+          messages.length === 2 &&
+          systemContent.includes('модули') &&
+          systemContent.includes('JSON')
+        ) {
+          return {
+            content: JSON.stringify({
+              modules: [{ name: 'M', description: 'd', isMain: true }],
+              mainModule: 'M',
+              types: [],
+              procedures: [{ name: 'главная', params: {}, returnType: 'Логический' }],
+              syscalls: [],
+              conventions: {},
+            }),
+            model: 'mock-repair',
+            done: true,
+          };
+        }
+
+        if (systemContent.includes('OsnovaCodegen')) {
+          codegenCalls += 1;
+          if (codegenCalls === 1) {
+            return {
+              content: 'это невалидный код на языке Основа',
+              model: 'mock-repair',
+              done: true,
+            };
+          }
+          return {
+            content: [
+              'модуль M',
+              'процедура главная()',
+              '  вернуть 0',
+              'конец',
+              'конец',
+              '',
+            ].join('\n'),
+            model: 'mock-repair',
+            done: true,
+          };
+        }
+
+        if (systemContent.includes('RepairEngineer')) {
+          return {
+            content: [
+              'модуль M',
+              'процедура главная()',
+              '  вернуть 0',
+              'конец',
+              'конец',
+              '',
+            ].join('\n'),
+            model: 'mock-repair',
+            done: true,
+          };
+        }
+
+        return {
+          content: messages[messages.length - 1]?.content ?? '',
+          model: 'mock-repair',
+          done: true,
+        };
+      },
+      async completeStream() {
+        throw new Error('not used');
+      },
+    });
+
+    const saveTraceCalls = vi.mocked(saveTrace);
+
+    const result = await runPipeline('тест repair-цикла');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (llm as any).getLLMProvider = originalGetProvider;
+
+    expect(result.repairAttempts ?? 0).toBeGreaterThanOrEqual(1);
+    expect(['success', 'partial']).toContain(result.status);
+
+    expect(saveTraceCalls).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repairAttempts: expect.any(Number),
+      }),
+    );
+  }, 30000);
 });

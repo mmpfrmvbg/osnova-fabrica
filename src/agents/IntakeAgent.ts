@@ -8,6 +8,7 @@
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import { getLLMProvider } from '../llm/index';
+import { IntakeValidationError, type IAgent } from './types';
 import type { RawText, OsnovaIntent, OsnovaSpec, AppType } from '../pipeline/types';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
@@ -109,10 +110,40 @@ export class SpecValidationError extends Error {
   }
 }
 
-export class IntakeAgent {
+export class IntakeAgent implements IAgent {
   constructor(private registryContext: string = '') {}
 
+  private validateRawText(input: RawText): void {
+    if (input == null || typeof input.text !== 'string') {
+      throw new IntakeValidationError('RawText.text must be a string', 'text');
+    }
+    if (input.text.trim() === '') {
+      throw new IntakeValidationError('Task text is empty', 'text');
+    }
+  }
+
+  private validateIntentForSpec(intent: OsnovaIntent): void {
+    if (!intent.intentId?.trim()) {
+      throw new IntakeValidationError('intent.intentId is required', 'intentId');
+    }
+    if (!intent.description?.trim()) {
+      throw new IntakeValidationError('intent.description is required', 'description');
+    }
+    if (!Array.isArray(intent.features)) {
+      throw new IntakeValidationError('intent.features must be an array', 'features');
+    }
+  }
+
   async parseIntent(input: RawText): Promise<OsnovaIntent> {
+    try {
+      this.validateRawText(input);
+    } catch (err) {
+      log.warn('parseIntent: invalid input', {
+        field: err instanceof IntakeValidationError ? err.field : undefined,
+      });
+      throw err;
+    }
+
     const provider = getLLMProvider();
     const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('parseIntent', { model });
@@ -204,6 +235,15 @@ export class IntakeAgent {
   }
 
   async generateSpec(intent: OsnovaIntent): Promise<OsnovaSpec> {
+    try {
+      this.validateIntentForSpec(intent);
+    } catch (err) {
+      log.warn('generateSpec: invalid intent', {
+        field: err instanceof IntakeValidationError ? err.field : undefined,
+      });
+      throw err;
+    }
+
     const provider = getLLMProvider();
     const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('generateSpec', { model, intentId: intent.intentId });
