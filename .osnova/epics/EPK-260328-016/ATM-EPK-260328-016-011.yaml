@@ -1,0 +1,28 @@
+id: ATM-EPK-260328-016-011
+epic: EPK-260328-016
+seq: 11
+zone: integration
+risk: MEDIUM
+executor: cursor
+goal: Финальная интеграционная верификация — полный проход agents + pipeline
+scope:
+- src/agents/agents.test.ts
+- src/pipeline/pipeline.test.ts
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
+- src/pipeline/pipeline.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Запустить npx vitest run src/agents/ && npx vitest run src/pipeline/
+- 'Зафиксировать итоговый passrate (цель: ≥ 0.8)'
+- При успехе — зафиксировать EPK как completed
+deps:
+- ATM-EPK-260328-016-009
+- ATM-EPK-260328-016-010
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

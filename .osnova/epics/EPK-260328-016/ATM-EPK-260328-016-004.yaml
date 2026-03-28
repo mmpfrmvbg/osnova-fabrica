@@ -1,0 +1,26 @@
+id: ATM-EPK-260328-016-004
+epic: EPK-260328-016
+seq: 4
+zone: agents
+risk: HIGH
+executor: cursor
+goal: Восстановить ExecAgent — устранить причины BLK в ATM-010, ATM-011
+scope:
+- src/agents/exec-agent.ts
+- src/agents/agents.test.ts — тесты ATM-010, ATM-011
+notouch:
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/review-agent.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Локализовать failing tests для ATM-010, ATM-011
+- Исправить выполнение команд (обработка ошибок, контекст выполнения)
+- 'Верифицировать: оба теста проходят'
+deps:
+- ATM-EPK-260328-016-001
+- ATM-EPK-260328-016-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

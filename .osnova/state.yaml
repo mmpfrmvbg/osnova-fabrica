@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-28T21:03:06.606385+03:00'
+updatedat: '2026-03-28T21:13:42.255101+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -19,7 +19,7 @@ ci:
   lastrun: null
   laststatus: null
   passrate7d: null
-  openblockerissues: 13
+  openblockerissues: 0
   lastepicissue: null
 brainsource: idle
 heart:
@@ -88,6 +88,10 @@ blockers:
   atm_id: ATM-EPK-260328-FBK016-006
   open: true
   updated: '2026-03-28T21:03:06.606319+03:00'
+- issue: 82
+  atm_id: ATM-EPK-260328-FBK016-009
+  open: true
+  updated: '2026-03-28T21:04:35.521631+03:00'
 recent: []
 zones:
   lang:
@@ -97,7 +101,7 @@ zones:
     done: 0
     blk: 0
 budget:
-  qwenusedtoday: 37
+  qwenusedtoday: 39
   qwenlimit: 900
   cursortaskstoday: 0
 zonemap:

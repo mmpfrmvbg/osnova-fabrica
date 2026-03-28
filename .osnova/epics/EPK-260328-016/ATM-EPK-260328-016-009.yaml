@@ -1,0 +1,26 @@
+id: ATM-EPK-260328-016-009
+epic: EPK-260328-016
+seq: 9
+zone: runtime
+risk: LOW
+executor: cursor
+goal: Верификация runtime layer — совместимость vm.ts и interpreter.ts с восстановленными
+  agents
+scope:
+- src/runtime/vm.ts
+- src/runtime/interpreter.ts
+- src/agents/exec-agent.ts — как потребитель
+notouch:
+- src/compiler/compiler.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- 'Проверить: exec-agent корректно использует vm/interpreter'
+- При необходимости — минорные правки совместимости
+- Запустить тесты agents для подтверждения
+deps:
+- ATM-EPK-260328-016-004
+- ATM-EPK-260328-016-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

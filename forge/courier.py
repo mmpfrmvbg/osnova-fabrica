@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,9 @@ def _remove_blocker_from_project_state(atm_id: Any) -> None:
 
 
 def _create_blocker_issue(atom: dict[str, Any], report: dict[str, Any]) -> None:
+    if os.environ.get("FORGE_SKIP_BLOCKER_ISSUES", "").strip().lower() in ("1", "true", "yes"):
+        LOG.info("FORGE_SKIP_BLOCKER_ISSUES: skip GitHub blocker for ATM %s", atom.get("id"))
+        return
     repo = env_paths()["GHREPO"]
     atm_id = atom.get("id")
     title = _blocker_title(atm_id)

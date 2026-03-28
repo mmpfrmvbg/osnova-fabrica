@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-016-012
+epic: EPK-260328-016
+seq: 12
+zone: docs
+risk: LOW
+executor: qwen
+goal: Документирование восстановленных ATM — обновление статуса в трекере
+scope:
+- .qwen/tasks/EPK-260328-016.md — создать с итогами
+notouch:
+- src/**/*.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- 'Задокументировать: какие ATM разблокированы, какие файлы изменены'
+- Указать финальный passrate
+- Закрыть EPK-260328-016
+deps:
+- ATM-EPK-260328-016-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

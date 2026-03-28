@@ -2,6 +2,21 @@
  * Высокоуровневая обёртка над Interpreter для выполнения одного модуля (.osvbc):
  * точка входа execute(), последнее возвращаемое значение getReturnValue(),
  * глобальный контекст хоста и прокси для внешних вызовов (invoke / native).
+ *
+ * @remarks
+ * ### Интеграция VM ↔ агенты (пайплайн)
+ *
+ * **Поток данных ExecContext → VM → результат.** {@link import("../agents/exec-agent").ExecContext}
+ * накапливает между шагами `spec`, `source`, отчёты. Перед прогоном байткода тот же снимок
+ * {@link import("../pipeline/types").OsnovaSpec}, что в `ExecContext.spec`, передаётся в VM через
+ * {@link applyPipelineSpecToVm} (запись в {@link OsVbcVM.globals} по {@link PIPELINE_VM_GLOBAL_KEYS}) и
+ * обработчик {@link createPipelineInvokeHandlerForVm} для syscall `система.пайплайн.*`. Итог процедуры —
+ * возврат из {@link OsVbcVM.execute} и {@link OsVbcVM.getReturnValue}; дальнейшие патчи контекста и отчёты
+ * формирует слой фаз/оркестратора поверх VM.
+ *
+ * **Точки расширения:** цепочка `invoke` — {@link OsVbcVMOptions} / {@link createDefaultInvokeHandler} и обёртка
+ * {@link createPipelineInvokeHandlerForVm}; произвольные ключи {@link OsVbcVM.globals}; лимиты и опции интерпретатора
+ * через наследование {@link import("./interpreter").InterpreterOptions} в {@link OsVbcVMOptions}.
  */
 
 import { Interpreter } from "./interpreter";

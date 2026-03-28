@@ -1,0 +1,76 @@
+id: ATM-EPK-260328-016-001
+epic: EPK-260328-016
+seq: 1
+zone: agents
+risk: HIGH
+executor: cursor
+goal: Анализ блокировок ATM-001, ATM-008, ATM-009, ATM-010, ATM-011, ATM-012 — диагностика
+  корневых причин
+scope:
+- src/agents/agents.test.ts — анализ failing tests
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Запустить npx vitest run src/agents/agents.test.ts — зафиксировать ошибки
+- Идентифицировать паттерны failures по каждому ATM
+- 'Составить матрицу: ATM → файл агента → причина BLK'
+deps: []
+maxiter: 3
+retries: 0
+status: DONE
+priority: P0
+diagnosis:
+  vitest:
+    command: npx vitest run src/agents/agents.test.ts
+    result: 28 passed, 0 failed
+  vitest_done_gate:
+    agents: 80 passed (4 files)
+    pipeline: 96 passed (6 files)
+  scope_note: В репозитории модуль Intake — файл IntakeAgent.ts (не intake-agent.ts).
+  matrix:
+    - atm: ATM-EPK-260328-016-001
+      agent_files:
+        - src/agents/agents.test.ts
+        - src/agents/IntakeAgent.ts
+        - src/agents/plan-agent.ts
+        - src/agents/exec-agent.ts
+        - src/agents/review-agent.ts
+      blk_root_cause: Диагностический ATM; блокировка по тестам agents — на текущем дереве
+        не воспроизводится (agents.test.ts зелёный).
+    - atm: ATM-EPK-260328-016-008
+      agent_files:
+        - src/pipeline/pipeline.ts
+      blk_root_cause: Рассинхрон pipeline с восстановленным agents layer — вызовы агентов
+        и контекст между gate и агентом.
+    - atm: ATM-EPK-260328-016-009
+      agent_files:
+        - src/agents/exec-agent.ts
+        - src/runtime/vm.ts
+        - src/runtime/interpreter.ts
+      blk_root_cause: Совместимость runtime (VM/интерпретатор) с ExecAgent и контекстом
+        выполнения.
+    - atm: ATM-EPK-260328-016-010
+      agent_files:
+        - src/compiler/compiler.ts
+        - src/pipeline/pipeline.ts
+      blk_root_cause: Согласованность compiler API с тем, как pipeline/agents собирают
+        и читают отчёт сборки.
+    - atm: ATM-EPK-260328-016-011
+      agent_files:
+        - src/agents/agents.test.ts
+        - src/agents/IntakeAgent.ts
+        - src/agents/plan-agent.ts
+        - src/agents/exec-agent.ts
+        - src/agents/review-agent.ts
+        - src/pipeline/pipeline.ts
+        - src/pipeline/pipeline.test.ts
+      blk_root_cause: Сквозная интеграция agents + pipeline; блокировка при несогласованности
+        слоёв или падающих e2e-командах done.
+    - atm: ATM-EPK-260328-016-012
+      agent_files: []
+      blk_root_cause: Зона docs/трекер (не src); блокировка по незакрытой документации
+        эпика, не по коду агентов.

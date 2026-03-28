@@ -1,0 +1,9 @@
+﻿t: EPK
+id: EPK-260328-FBK016
+goal: "Задокументировать контракт VM в src/runtime/vm.ts и устранить ненулевой exit code при зелёных тестах"
+scope:
+  - src/runtime/vm.ts
+  - src/pipeline/pipeline.test.ts
+  - src/agents/agents.test.ts
+done: "npx vitest run src/agents/ ; npx vitest run src/pipeline/"
+priority: P0
