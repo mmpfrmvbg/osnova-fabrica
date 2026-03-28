@@ -22,6 +22,14 @@ export enum OpCode {
   POP = "pop",
   /** Дублировать вершину стека. */
   DUP = "dup",
+  /** Сложение: снимает b, затем a; кладёт a + b. */
+  ADD = "add",
+  /** Вычитание: кладёт a − b. */
+  SUB = "sub",
+  /** Умножение: кладёт a × b. */
+  MUL = "mul",
+  /** Деление: кладёт a / b; деление на ноль — InterpreterError. */
+  DIV = "div",
 }
 
 export class Interpreter extends VM {

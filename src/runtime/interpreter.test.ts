@@ -20,6 +20,10 @@ describe("Interpreter + OpCode stack ops", () => {
   it("OpCode.PUSH maps to const; после ret executionStack показывает остаток", async () => {
     expect(OpCode.PUSH).toBe("const");
     expect(OpCode.DUP).toBe("dup");
+    expect(OpCode.ADD).toBe("add");
+    expect(OpCode.SUB).toBe("sub");
+    expect(OpCode.MUL).toBe("mul");
+    expect(OpCode.DIV).toBe("div");
     const m = tinyMod([{ op: "const", type: "i32", k: 0 } as RawInstruction], [7]);
     const ip = new Interpreter(m);
     await ip.runProcedure(0, []);
@@ -49,5 +53,29 @@ describe("Interpreter + OpCode stack ops", () => {
     expect(v).toBe(1);
     const empty = tinyMod([{ op: "pop" } as RawInstruction]);
     await expect(new Interpreter(empty).runProcedure(0, [])).rejects.toThrow(InterpreterError);
+  });
+
+  it("арифметика: add/sub/mul; div по нулю → InterpreterError", async () => {
+    const sum = tinyMod(
+      [
+        { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+        { op: OpCode.ADD } as RawInstruction,
+      ],
+      [10, 3],
+    );
+    expect(await new Interpreter(sum).runProcedure(0, [])).toBe(13);
+
+    const divZero = tinyMod(
+      [
+        { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+        { op: OpCode.DIV } as RawInstruction,
+      ],
+      [1, 0],
+    );
+    await expect(new Interpreter(divZero).runProcedure(0, [])).rejects.toMatchObject({
+      message: expect.stringContaining("Division by zero"),
+    });
   });
 });
