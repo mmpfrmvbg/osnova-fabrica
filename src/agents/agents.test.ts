@@ -842,6 +842,99 @@ describe('ReviewAgent.validate', () => {
   });
 });
 
+/**
+ * E2E: четыре агента подряд с проверкой накопления ExecContext между фазами (ATM-EPK-260328-017-005).
+ */
+describe('E2E — intake → plan → exec → review (контекст между агентами)', () => {
+  it('Intake → PlanAgent → ExecAgent накапливает intent/spec/source/build/golden; ReviewAgent принимает', async () => {
+    const intake = new IntakeAgent();
+    const raw = { text: '  задача E2E передача контекста  ' };
+    intake.validate(raw);
+    expect(intake.parse(raw)).toEqual({ text: 'задача E2E передача контекста' });
+
+    const intent = sampleIntent({ intentId: 'e2e-chain-intent', description: 'E2E chain' });
+    const spec = sampleSpec({ specId: 'e2e-chain-spec' });
+    intake.checkSpec(spec);
+
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: true, includeRepair: false });
+    expect(plan.intentId).toBe(intent.intentId);
+    expect(plan.specId).toBe(spec.specId);
+    expect(plan.steps[plan.steps.length - 1]!.phase).toBe('golden_check');
+
+    const exec = new ExecAgent(planAgent);
+    const execResult = await exec.execute(plan, async (phase, _step, ctx) => {
+      switch (phase) {
+        case 'intake':
+          expect(ctx.intent).toBeUndefined();
+          expect(ctx.spec).toBeUndefined();
+          return { ok: true, patch: { intent } };
+        case 'spec_generation':
+          expect(ctx.intent?.intentId).toBe('e2e-chain-intent');
+          expect(ctx.spec).toBeUndefined();
+          return { ok: true, patch: { spec } };
+        case 'g1_spec_ready':
+          expect(ctx.intent?.intentId).toBe('e2e-chain-intent');
+          expect(ctx.spec?.specId).toBe('e2e-chain-spec');
+          return { ok: true };
+        case 'codegen':
+          expect(ctx.spec?.specId).toBe('e2e-chain-spec');
+          return {
+            ok: true,
+            patch: {
+              source: { filename: 'e2e-chain.osnova', source: 'модуль Главный\nконец' },
+            },
+          };
+        case 'build':
+          expect(ctx.source?.filename).toBe('e2e-chain.osnova');
+          return {
+            ok: true,
+            patch: {
+              buildReport: {
+                success: true,
+                lexerErrors: [],
+                parserErrors: [],
+                compilerErrors: [],
+                bytecode: null,
+                compilerSuccess: true,
+                durationMs: 1,
+              },
+            },
+          };
+        case 'golden_check':
+          expect(ctx.buildReport?.success).toBe(true);
+          return {
+            ok: true,
+            patch: {
+              goldenReport: {
+                executed: true,
+                passed: true,
+                qualityScore: 1,
+                vmErrors: [],
+                outputDiff: null,
+                durationMs: 2,
+              },
+            },
+          };
+        case 'repair':
+          return { ok: true };
+      }
+    });
+
+    expect(execResult.completed).toBe(true);
+    expect(execResult.state.intent?.intentId).toBe('e2e-chain-intent');
+    expect(execResult.state.spec?.specId).toBe('e2e-chain-spec');
+    expect(execResult.state.source?.filename).toBe('e2e-chain.osnova');
+    expect(execResult.state.goldenReport?.passed).toBe(true);
+
+    const reviewAgent = new ReviewAgent();
+    const report = reviewAgent.review(spec, execResult.state, plan);
+    expect(report.ok).toBe(true);
+    expect(report.items.find(i => i.id === 'plan_spec_ids')?.ok).toBe(true);
+    expect(report.items.find(i => i.id === 'plan_source')?.ok).toBe(true);
+  });
+});
+
 describe('Интеграция — полный цикл и цепочка агентов', () => {
   it('полный цикл: Intake (validate/parse/checkSpec) → Plan → Exec → Review — успех', async () => {
     const intake = new IntakeAgent();
