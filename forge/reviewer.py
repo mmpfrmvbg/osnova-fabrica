@@ -295,9 +295,11 @@ def _qwen_review(
         return False, combined.strip() or "FAIL: Qwen quota exceeded", True
 
     record(served=True)
-    text = combined.strip()
-    passed = _parse_qwen_review_pass(text)
-    reason = text if text else "No reviewer output"
+    # Full Qwen stdout+stderr only — never truncate or slice before _parse_qwen_review_pass.
+    # Truncation of llm_reason for logs/humanlog happens only in review(), after parsing.
+    full_review_text = combined.strip()
+    passed = _parse_qwen_review_pass(full_review_text)
+    reason = full_review_text if full_review_text else "No reviewer output"
     return passed, reason, False
 
 
@@ -374,10 +376,12 @@ def review(
     else:
         passed = llm_pass
         if not llm_pass:
+            # Log preview only; llm_reason remains full Qwen output from _qwen_review.
+            _preview = (llm_reason[:900] + "…") if len(llm_reason) > 900 else llm_reason
             LOG.warning(
                 "reviewer: done command succeeded but LLM verdict was not PASS — "
                 "check Qwen output (expect PASS: or FAIL: on a line). Head: %s",
-                (llm_reason[:900] + "…") if len(llm_reason) > 900 else llm_reason,
+                _preview,
             )
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"
     elapsed = int(time.time() - start)

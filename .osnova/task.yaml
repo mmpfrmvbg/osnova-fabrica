@@ -1,23 +1,25 @@
-id: ATM-EPK-260328-017-009
+id: ATM-EPK-260328-017-006
 epic: EPK-260328-017
-seq: 9
-zone: runtime
-risk: MEDIUM
+seq: 6
+zone: pipeline
+risk: HIGH
 executor: cursor
-goal: Восстановить interpreter — пошаговое выполнение
+goal: Восстановить pipeline.ts — оркестрация агентов
 scope:
-- src/runtime/interpreter.ts — восстановить интерпретатор
+- src/pipeline/pipeline.ts — восстановить основной класс Pipeline
+- src/pipeline/pipeline.test.ts — тесты для pipeline
 notouch:
 - src/agents/*
-- src/pipeline/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать interpreter.ts
-- Исправить метод interpret — корректный разбор инструкций
-- Добавить поддержку всех типов операций
-- Протестировать интерпретацию различных программ
+- Прочитать pipeline.ts и выявить проблемы
+- Исправить метод run — корректный вызов агентов по порядку
+- Восстановить обработку ошибок и retry-логику
+- Написать тесты на полный пайплайн
+- Запустить npx vitest run src/pipeline/pipeline.test.ts
 deps:
-- ATM-EPK-260328-017-008
+- ATM-EPK-260328-017-005
 maxiter: 3
 retries: 0
 status: PENDING

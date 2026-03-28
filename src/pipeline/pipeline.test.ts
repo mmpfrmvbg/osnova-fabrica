@@ -24,7 +24,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { runPipelineWithExecAgent } from './pipeline';
+import { Pipeline, runPipelineWithExecAgent } from './pipeline';
 import { ReviewAgent } from '../agents/review-agent';
 import type { ExecContext } from '../agents/exec-agent';
 import type { OsnovaSpec } from './types';
@@ -142,6 +142,18 @@ async function assertVmReturnValueIsSum1To10(bytecode: unknown, spec: OsnovaSpec
   expect(report.qualityScore, 'полный набор проверок без пропусков').toBe(1);
   expect(report.outputDiff, 'при несовпадении return был бы JSON с vmReturnDiff').toBeNull();
 }
+
+describe('Pipeline.run — полный пайплайн (оркестратор + repair)', () => {
+  it('intake → codegen → build → golden, success', async () => {
+    const result = await new Pipeline().run('посчитай сумму от 1 до 10');
+    expect(result.status).toBe('success');
+    expect(result.spec?.mainModule).toBe('главная');
+    expect(result.buildReport?.success).toBe(true);
+    expect(result.goldenReport?.passed).toBe(true);
+    expect(result.repairAttempts).toBe(0);
+    await assertVmReturnValueIsSum1To10(result.buildReport!.bytecode!, result.spec!);
+  }, 20000);
+});
 
 describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)', () => {
   it('полный проход: intent → spec → Plan/Exec → codegen → build → golden, passrate > 0.8', async () => {
