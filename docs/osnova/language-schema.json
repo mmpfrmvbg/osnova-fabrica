@@ -2006,6 +2006,33 @@
       "status": "experimental"
     },
     {
+      "id": "система.пайплайн.главный_модуль",
+      "signature": {
+        "args": [],
+        "returns": "any"
+      },
+      "description": "",
+      "status": "experimental"
+    },
+    {
+      "id": "система.пайплайн.ид_спецификации",
+      "signature": {
+        "args": [],
+        "returns": "any"
+      },
+      "description": "",
+      "status": "experimental"
+    },
+    {
+      "id": "система.пайплайн.ожидаемый_возврат",
+      "signature": {
+        "args": [],
+        "returns": "any"
+      },
+      "description": "",
+      "status": "experimental"
+    },
+    {
       "id": "система.сеть.запрос",
       "signature": {
         "args": [
