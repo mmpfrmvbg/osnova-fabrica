@@ -18,6 +18,12 @@ LOG = setup_logging("brain_fallback")
 
 IDLE_THRESHOLD = int(os.environ.get("BRAIN_IDLE_THRESHOLD", "2400"))
 
+
+def _fallback_qwen_use_stdin() -> bool:
+    """Pass prompt on stdin (-p -) like atomizer — avoids Windows WinError 206 / ~8191-char argv limit."""
+    v = os.environ.get("FORGE_BRAIN_FALLBACK_QWEN_USE_STDIN", "1").strip().lower()
+    return v not in ("0", "false", "no")
+
 FALLBACK_PLANNER_PROMPT = """
 Ты — резервный планировщик автономной фабрики OSNOVA (v5.3 brain_fallback).
 Основной мозг (Perplexity) временно недоступен. Сгенерируй следующий EPIC.
@@ -91,18 +97,34 @@ def parse_epic_from_output(output: str) -> dict[str, Any] | None:
 
 def run_qwen_planner(context_yaml: str) -> dict[str, Any] | None:
     prompt = FALLBACK_PLANNER_PROMPT.format(context_yaml=context_yaml)
+    exe = resolve_executable(env_paths()["QWENBIN"])
     try:
-        result = subprocess.run(
-            [resolve_executable(env_paths()["QWENBIN"]), "--yolo", "--model", "qwen3-coder-plus", "-p", prompt],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=str(_project_dir()),
-            **SUBPROCESS_TEXT,
-        )
+        if _fallback_qwen_use_stdin():
+            argv = [exe, "--yolo"]
+            model = os.environ.get("FORGE_QWEN_MODEL", "").strip() or "qwen3-coder-plus"
+            argv.extend(["--model", model])
+            argv.extend(["-p", "-"])
+            result = subprocess.run(
+                argv,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(_project_dir()),
+                **SUBPROCESS_TEXT,
+            )
+        else:
+            result = subprocess.run(
+                [exe, "--yolo", "--model", "qwen3-coder-plus", "-p", prompt],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(_project_dir()),
+                **SUBPROCESS_TEXT,
+            )
         if result.returncode == 0:
             return parse_epic_from_output(result.stdout or "")
-    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         LOG.warning("Qwen planner failed: %s", exc)
     return None
 

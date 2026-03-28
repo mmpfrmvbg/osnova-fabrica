@@ -204,11 +204,11 @@ def list_open_brain_epic_candidates(
 
 
 def poll_next_github_epic(current_issue: int | None) -> dict[str, Any] | None:
-    """Next open brain-epic issue from GitHub API (FIFO by creation). Disabled unless env enables poll."""
-    poll = forge_dotenv_setting("FORGE_POLL_OPEN_BRAIN_EPICS", "0").strip().lower() in (
-        "1",
-        "true",
-        "yes",
+    """Next open brain-epic issue from GitHub API (FIFO by creation). On by default; set FORGE_POLL_OPEN_BRAIN_EPICS=0 to disable."""
+    poll = forge_dotenv_setting("FORGE_POLL_OPEN_BRAIN_EPICS", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
     )
     if not poll:
         return None

@@ -50,7 +50,7 @@ Workflow реагирует на **`opened`** (issue уже с меткой `bra
 
 ## v5.3 (granular brain_source + poll + backoff)
 
-- **Приоритет выбора EPIC:** `epic-queue.txt` (queue) → событие Unix socket (socket) → снова очередь → опционально **GitHub API** открытых issues с меткой EPIC (github_poll, `FORGE_POLL_OPEN_BRAIN_EPICS=1`) → локальный `brain_fallback` (fallback_local).
+- **Приоритет выбора EPIC:** `epic-queue.txt` (queue) → событие Unix socket (socket) → снова очередь → **GitHub API** открытых issues с меткой EPIC (github_poll; по умолчанию включено, `FORGE_POLL_OPEN_BRAIN_EPICS=0` отключает) → локальный `brain_fallback` (fallback_local). Резервный Qwen-планировщик передаёт промпт через **stdin** (`-p -`), чтобы на Windows не было WinError 206 от длинной командной строки.
 - **`forge-state.json`:** помимо `current_epic` / `current_epic_issue` хранятся `current_epic_started_at`, `idle_streak_index`, `issue_attempts` (счётчик permanent BLK по issue).
 - **Лог `[CYCLE]`:** после `git pull` сравнивается `HEAD` до/после (`pull=changed|noop`), длина очереди, выбранный issue, `result`, гранулярный `source`.
 - **Backoff между циклами:** ступени с потолком 90 с; `accept_epic_event()` по-прежнему внутри цикла — между циклами длинный sleep не гарантирует мгновенный wake (компромисс, см. `forge/.env.example`).
