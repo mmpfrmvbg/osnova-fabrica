@@ -80,8 +80,14 @@ export class Interpreter extends VM {
   /**
    * Пошаговое исполнение: одна инструкция байткода.
    * Возвращает следующий PC, абсолютный переход или `"ret"` — как внутри {@link VM.runProcedure}.
+   * После шага с числовым результатом обновляет внутренний {@link VM} PC, чтобы следующий вызов
+   * совпадал с циклом {@link VM.runProcedure} (jmp/call/off задают абсолютный PC).
    */
-  interpret(ins: RawInstruction): Promise<number | "ret"> {
-    return this.interpretInstruction(ins);
+  async interpret(ins: RawInstruction): Promise<number | "ret"> {
+    const next = await this.interpretInstruction(ins);
+    if (typeof next === "number") {
+      (this as unknown as { pc: number }).pc = next;
+    }
+    return next;
   }
 }
