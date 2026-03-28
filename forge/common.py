@@ -498,6 +498,7 @@ def load_forge_state() -> dict[str, Any]:
         "paused": False,
         "active_task": None,
         "smith_pid": None,
+        "forge_loop_pid": None,
         "consecutive_failures": 0,
         "current_epic": None,
         "brain_source": "idle",

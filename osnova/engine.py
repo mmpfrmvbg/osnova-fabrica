@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import platform
+import signal
 import subprocess
 import sys
 import time
@@ -15,7 +16,7 @@ ensure_forge_imports()
 
 import forge.qwenbudget as qwenbudget  # noqa: E402
 
-from forge.common import load_forge_state, save_forge_state  # noqa: E402
+from forge.common import load_forge_state, qwen_headless_argv, save_forge_state, SUBPROCESS_TEXT  # noqa: E402
 from forge.degradation import get_available  # noqa: E402
 
 from osnova import config  # noqa: E402
@@ -187,10 +188,95 @@ class ForgeEngine:
         if not pid:
             return False
         try:
-            os.kill(int(pid), __import__("signal").SIGTERM)
+            os.kill(int(pid), signal.SIGTERM)
             return True
         except (ProcessLookupError, PermissionError, ValueError):
             return False
+
+    def start_forge_daemon(self, *, detach: bool = False) -> tuple[int | None, str | None]:
+        """
+        Запуск основного цикла forge: ``python -m forge.forge``.
+        PID сохраняется в ``forge-state.json`` как ``forge_loop_pid`` (не путать с ``smith_pid``).
+        """
+        cmd = [sys.executable, "-m", "forge.forge"]
+        repo = self.repo_root
+        log_path = repo / "forge.log"
+        creation_new = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010)
+        creation_det = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+        try:
+            if sys.platform == "win32":
+                if detach:
+                    log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=str(repo),
+                        stdout=log_f,
+                        stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL,
+                        creationflags=creation_det,
+                    )
+                else:
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=str(repo),
+                        creationflags=creation_new,
+                    )
+            elif detach:
+                log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(repo),
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            else:
+                proc = subprocess.Popen(cmd, cwd=str(repo))
+        except OSError as e:
+            return None, str(e)
+
+        st = load_forge_state()
+        st["forge_loop_pid"] = proc.pid
+        try:
+            save_forge_state(st)
+        except Exception as e:
+            return proc.pid, f"PID {proc.pid}, но запись forge-state не удалась: {e}"
+        return proc.pid, None
+
+    def stop_forge_daemon(self) -> tuple[bool, str | None]:
+        """SIGTERM процессу ``forge_loop_pid``; ключ очищается в forge-state."""
+        st = load_forge_state()
+        raw = st.get("forge_loop_pid")
+        if raw is None:
+            return False, "forge_loop_pid не задан (запускали через osnova forge start?)"
+        try:
+            pid = int(raw)
+        except (TypeError, ValueError):
+            return False, f"некорректный forge_loop_pid: {raw!r}"
+        err: str | None = None
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            err = "процесс уже завершён"
+        except OSError as e:
+            if sys.platform == "win32":
+                tr = subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=45,
+                )
+                if tr.returncode != 0:
+                    err = (tr.stderr or tr.stdout or "taskkill failed")[:300]
+            else:
+                err = str(e)
+        st["forge_loop_pid"] = None
+        try:
+            save_forge_state(st)
+        except Exception as e:
+            return True, (err or "остановлен") + f"; state: {e}"
+        return True, err
 
     def list_epics(self, limit: int = 20) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -291,16 +377,50 @@ class ForgeEngine:
             + "\n\n".join(ctx)
             + f"\n\nВопрос: {question}"
         )
+        run_s = 120
+        raw_to = os.environ.get("FORGE_QWEN_TIMEOUT", "").strip()
+        if raw_to.isdigit():
+            run_s = max(30, int(raw_to))
+
+        if not qwenbudget.can_call():
+            return "Qwen: дневной лимит forge исчерпан (qwenbudget)."
+
+        cmd = qwen_headless_argv(prompt)
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=min(run_s, 900),
+                check=False,
+                cwd=str(self.repo_root),
+                **SUBPROCESS_TEXT,
+            )
+        except FileNotFoundError:
+            return self._ask_qwen_plain_cli(prompt, timeout_s=min(run_s, 900))
+        except subprocess.TimeoutExpired as e:
+            return f"Qwen timeout ({run_s}s): {e}"
+
+        out = proc.stdout or ""
+        err = proc.stderr or ""
+        if proc.returncode == 0:
+            qwenbudget.record(served=True)
+            return out.strip()
+        return f"qwen error (rc={proc.returncode}): {(err or out)[:500]}"
+
+    def _ask_qwen_plain_cli(self, prompt: str, *, timeout_s: int = 120) -> str:
+        """Fallback: `qwen -p` без forge argv (если бинарь из qwen_headless_argv не найден)."""
         bin_qwen = config.qwen_bin()
         try:
             proc = subprocess.run(
                 [bin_qwen, "-p", prompt],
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=timeout_s,
                 cwd=str(self.repo_root),
             )
             if proc.returncode == 0:
+                qwenbudget.record(served=True)
                 return (proc.stdout or "").strip()
             return f"qwen error (rc={proc.returncode}): {(proc.stderr or '')[:400]}"
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:

@@ -17,3 +17,9 @@ def test_cli_help():
     r = CliRunner().invoke(app, ["--help"])
     assert r.exit_code == 0
     assert "install-completion" in (r.stdout or "") or "completion" in (r.stdout or "").lower()
+
+
+def test_forge_help():
+    r = CliRunner().invoke(app, ["forge", "--help"])
+    assert r.exit_code == 0
+    assert "start" in (r.stdout or "") and "stop" in (r.stdout or "")

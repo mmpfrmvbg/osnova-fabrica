@@ -1,10 +1,52 @@
-# Метаданные пакета — в setup.cfg (+ setup.py). Так pip не тянет setuptools/wheel
-# в изолированное build-окружение с PyPI (см. комментарий в setup.cfg).
-#
-# Установка при плохой сети:
-#   pip install -e ".[dev]" --no-build-isolation
-# Если typer/rich ещё не стоят — нужны колёса с PyPI или зеркало; см. requirements-cli.txt
+# Единственный источник метаданных пакета (без дублирования в setup.cfg).
+# Установка при плохой сети: pip install -e ".[dev]" --no-build-isolation
+# Колёса: requirements-cli.txt
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osnova-cli"
+version = "5.3.1"
+description = "OSNOVA Forge CLI — управление автономной фабрикой кода"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "colorama>=0.4.6",
+    "watchdog>=4.0",
+]
+
+[project.optional-dependencies]
+interactive = ["prompt_toolkit>=3.0"]
+dev = [
+    "pytest>=8",
+    "pytest-mock>=3",
+    "pytest-cov>=4",
+    "mypy>=1.8",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+osnova = "osnova.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["osnova*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

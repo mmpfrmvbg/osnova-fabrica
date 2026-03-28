@@ -8,6 +8,7 @@ from osnova.commands.ask_cmd import ask
 from osnova.commands.do_cmd import do
 from osnova.commands.epic_cmd import app as epic_app
 from osnova.commands.fix_cmd import fix
+from osnova.commands.forge_cmd import app as forge_app
 from osnova.commands.health_cmd import health
 from osnova.commands.log_cmd import log
 from osnova.commands.pause_cmd import pause, resume
@@ -42,6 +43,7 @@ app.command("fix")(fix)
 app.command("ask")(ask)
 app.command("pause")(pause)
 app.command("resume")(resume)
+app.add_typer(forge_app, name="forge")
 app.add_typer(epic_app, name="epic")
 
 
