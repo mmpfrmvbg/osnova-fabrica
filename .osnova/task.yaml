@@ -1,25 +1,24 @@
-id: ATM-EPK-260328-017-011
+id: ATM-EPK-260328-017-012
 epic: EPK-260328-017
-seq: 11
-zone: integration
-risk: HIGH
+seq: 12
+zone: validation
+risk: LOW
 executor: cursor
-goal: Полная интеграция compiler → runtime → agents → pipeline
+goal: Финальная валидация — запуск всех тестов и фикс блокеров
 scope:
-- src/agents/agents.test.ts — интеграционные тесты
-- src/pipeline/pipeline.test.ts — полные E2E тесты
+- src/agents/agents.test.ts
+- src/pipeline/pipeline.test.ts
 notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать сквозные тесты от компиляции до review
-- Проверить передачу данных через все слои
-- Исправить выявленные проблемы интеграции
-- Запустить полный набор тестов
+- Запустить npx vitest run src/agents/
+- Запустить npx vitest run src/pipeline/
+- Исправить оставшиеся failing тесты
+- Убедиться что passrate > 0.8
+- Закоммитить изменения
 deps:
-- ATM-EPK-260328-017-007
-- ATM-EPK-260328-017-009
-- ATM-EPK-260328-017-010
+- ATM-EPK-260328-017-011
 maxiter: 3
 retries: 0
-status: PENDING
+status: DONE
 priority: P0
