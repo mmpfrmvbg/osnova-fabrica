@@ -1,27 +1,19 @@
-id: ATM-EPK-260328-013-004
-epic: EPK-260328-013
-seq: 4
-zone: src/compiler
-risk: MEDIUM
+id: ATM-EPK-260328-014-001
+epic: EPK-260328-014
+seq: 1
+zone: src/runtime/frame.ts
+risk: LOW
 executor: cursor
-goal: Интегрировать все компоненты compiler pipeline и обеспечить end-to-end тестирование
+goal: Создать базовую структуру CallFrame для хранения состояния выполнения
 scope:
-- src/compiler/compiler.test.ts
-- src/compiler/lexer.ts
-- src/compiler/parser.ts
-- src/compiler/ast.ts
-- src/compiler/codegen.ts
+- src/runtime/frame.ts
 notouch: []
-done: npx vitest run src/compiler/
+done: npx vitest run src/runtime/
 steps:
-- Реализовать главный класс Compiler с методами compile()/execute()
-- Написать интеграционные тесты полного цикла
-- Запустить npx vitest run src/compiler/ и достичь passrate >0.8
-- Исправить все failing tests
-deps:
-- 1
-- 2
-- 3
+- Определить интерфейс CallFrame с полями: ip, fp, locals, stack
+- Реализовать класс Frame с методами push/pop locals
+- Экспортировать типы для использования в interpreter.ts
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,0 +1,20 @@
+id: ATM-EPK-260328-014-001
+epic: EPK-260328-014
+seq: 1
+zone: src/runtime/frame.ts
+risk: LOW
+executor: cursor
+goal: Создать базовую структуру CallFrame для хранения состояния выполнения
+scope:
+- src/runtime/frame.ts
+notouch: []
+done: npx vitest run src/runtime/
+steps:
+- Определить интерфейс CallFrame с полями: ip, fp, locals, stack
+- Реализовать класс Frame с методами push/pop locals
+- Экспортировать типы для использования в interpreter.ts
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

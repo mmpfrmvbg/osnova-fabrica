@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-014-012
+epic: EPK-260328-014
+seq: 12
+zone: src/compiler/compiler.test.ts
+risk: LOW
+executor: cursor
+goal: Обновить тесты компилятора для интеграции с runtime pipeline
+scope:
+- src/compiler/compiler.test.ts
+notouch: []
+done: npx vitest run src/runtime/
+steps:
+- Добавить тесты компиляции с последующим выполнением в VM
+- Проверить passrate > 0.8 через npx vitest run src/runtime/
+- Задокументировать результаты в комментарии к тесту
+deps:
+- 10
+- 11
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

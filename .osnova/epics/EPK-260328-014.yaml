@@ -1,0 +1,16 @@
+t: EPK
+id: EPK-260328-014
+goal: Реализовать runtime VM — интерпретатор байткода OsVbcModule в src/runtime/,
+  покрыть unit-тестами все инструкции (арифметика, управление потоком, вызовы, исключения)
+  и поднять passrate выше 0.8 через интеграцию compiler → runtime pipeline.
+scope:
+- src/runtime/vm.ts
+- src/runtime/interpreter.ts
+- src/runtime/frame.ts
+- src/runtime/vm.test.ts
+- src/runtime/interpreter.test.ts
+- src/compiler/compiler.ts
+- src/compiler/compiler.test.ts
+done: npx vitest run src/runtime/
+priority: P1
+githubissue: 66

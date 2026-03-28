@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-014-006
+epic: EPK-260328-014
+seq: 6
+zone: src/runtime/interpreter.ts
+risk: HIGH
+executor: cursor
+goal: Реализовать обработку исключений (THROW, TRY_CATCH, FINALLY)
+scope:
+- src/runtime/interpreter.ts
+notouch: []
+done: npx vitest run src/runtime/
+steps:
+- Добавить массив exceptionHandlers в Interpreter
+- Реализовать OpCode.THROW — бросание исключения
+- Реализовать OpCode.TRY_CATCH — регистрация обработчика
+- Реализовать механизм unwinding стека при исключении
+deps:
+- 5
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

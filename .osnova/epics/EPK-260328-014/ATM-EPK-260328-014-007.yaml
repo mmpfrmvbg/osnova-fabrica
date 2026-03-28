@@ -1,0 +1,21 @@
+id: ATM-EPK-260328-014-007
+epic: EPK-260328-014
+seq: 7
+zone: src/runtime/vm.ts
+risk: MEDIUM
+executor: cursor
+goal: Создать VM класс — обёртку над Interpreter с API для выполнения модулей
+scope:
+- src/runtime/vm.ts
+notouch: []
+done: npx vitest run src/runtime/
+steps:
+- Создать класс OsVbcVM с методами execute(), getReturnValue()
+- Реализовать инициализацию глобального контекста
+- Добавить обработку внешних вызовов (native functions)
+deps:
+- 6
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

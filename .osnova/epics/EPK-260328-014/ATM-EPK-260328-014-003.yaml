@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-014-003
+epic: EPK-260328-014
+seq: 3
+zone: src/runtime/interpreter.ts
+risk: MEDIUM
+executor: cursor
+goal: Реализовать арифметические инструкции (ADD, SUB, MUL, DIV)
+scope:
+- src/runtime/interpreter.ts
+notouch: []
+done: npx vitest run src/runtime/
+steps:
+- Добавить обработку OpCode.ADD — сложение двух верхних элементов
+- Добавить OpCode.SUB — вычитание
+- Добавить OpCode.MUL — умножение
+- Добавить OpCode.DIV — деление с проверкой на ноль
+deps:
+- 2
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

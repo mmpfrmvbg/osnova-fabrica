@@ -1,0 +1,21 @@
+id: ATM-EPK-260328-014-004
+epic: EPK-260328-014
+seq: 4
+zone: src/runtime/interpreter.ts
+risk: MEDIUM
+executor: cursor
+goal: Реализовать инструкции сравнения и логические операции
+scope:
+- src/runtime/interpreter.ts
+notouch: []
+done: npx vitest run src/runtime/
+steps:
+- Реализовать OpCode.EQ, OpCode.LT, OpCode.GT — операции сравнения
+- Реализовать OpCode.AND, OpCode.OR — логические операции
+- Реализовать OpCode.NOT — логическое отрицание
+deps:
+- 3
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

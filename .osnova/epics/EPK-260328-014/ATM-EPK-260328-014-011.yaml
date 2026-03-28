@@ -1,0 +1,21 @@
+id: ATM-EPK-260328-014-011
+epic: EPK-260328-014
+seq: 11
+zone: src/compiler/compiler.ts
+risk: LOW
+executor: cursor
+goal: Обновить компилятор для генерации байткода совместимого с runtime VM
+scope:
+- src/compiler/compiler.ts
+notouch: []
+done: npx vitest run src/runtime/
+steps:
+- Проверить соответствие генерируемых OpCode инструкциям interpreter.ts
+- Добавить генерацию инструкций для исключений если отсутствует
+- Обновить сигнатуры функций для совместимости с VM API
+deps:
+- 7
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

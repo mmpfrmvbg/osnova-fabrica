@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-014-009
+epic: EPK-260328-014
+seq: 9
+zone: src/runtime/interpreter.test.ts
+risk: MEDIUM
+executor: cursor
+goal: Написать unit-тесты для управления потоком и исключений
+scope:
+- src/runtime/interpreter.test.ts
+notouch: []
+done: npx vitest run src/runtime/
+steps:
+- Тесты для JUMP/JUMP_IF_FALSE
+- Тесты для CALL/RETURN с проверкой фреймов
+- Тесты для THROW и обработки исключений
+- Тесты для вложенных вызовов функций
+deps:
+- 6
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1
