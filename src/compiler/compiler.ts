@@ -244,7 +244,8 @@ function expandModuleImports(ast: Module, baseDir: string, importStack: string[]
   };
 }
 
-const PRIMITIVE_FIELD_TYPES = new Set(["Целое32", "Строка", "Логический"]);
+/** Поля именованных типов: канон + синоним `Число` (парсер и few-shot допускают оба). */
+const PRIMITIVE_FIELD_TYPES = new Set(["Целое32", "Число", "Строка", "Логический"]);
 
 function validateNamedTypesAndRewrite(ast: Module): string[] {
   const errors: string[] = [];

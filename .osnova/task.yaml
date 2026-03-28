@@ -1,22 +1,21 @@
-id: ATM-EPK-260328-017-001
+id: ATM-EPK-260328-017-010
 epic: EPK-260328-017
-seq: 1
-zone: agents
-risk: HIGH
+seq: 10
+zone: compiler
+risk: MEDIUM
 executor: cursor
-goal: Восстановить IntakeAgent — базовый парсинг и валидацию входных данных
+goal: Исправить compiler.ts — ошибки компиляции pipeline spec
 scope:
-- src/agents/intake-agent.ts
-- src/agents/agents.test.ts — добавить тесты на intake
+- src/compiler/compiler.ts
 notouch:
+- src/agents/*
+- src/pipeline/*
 - src/runtime/*
-- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- audit intake-agent.ts на наличие TS-ошибок и незавершённых TODO
-- исправить типы и логику парсинга входного контекста
-- добавить юнит-тесты на корректный/некорректный инпут
-- запустить npx vitest run src/agents/intake-agent.test.ts
+- audit compiler.ts на TS-ошибки
+- исправить парсинг и валидацию spec
+- добавить тесты на корректность компиляции
 deps: []
 maxiter: 3
 retries: 0
