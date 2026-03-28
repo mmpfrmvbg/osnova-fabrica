@@ -1,11 +1,12 @@
 /**
- * Smoke-тест компилятора: todo.osnova компилируется без ошибок.
+ * Тесты компилятора: smoke, семантика, E2E в VM, интеграция с runtime pipeline (`compileToBuildReport`).
  * Запуск: npx vitest run
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
+import { compileToBuildReport } from "../pipeline/orchestrator";
 import { Compiler, compileSource } from "./compiler";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
@@ -66,6 +67,41 @@ describe("Compiler class: compile / execute (E2E)", () => {
 конец
 конец`.trim();
     expect(await new Compiler().execute(src, { procedureName: "главная", vm: { maxSteps: 5000 } })).toBe(7);
+  });
+});
+
+/**
+ * Интеграция с пайплайном: `orchestrator.compileToBuildReport(compileSource(...))` — тот же мост
+ * CompileResult → BuildReport, что использует runPipeline перед golden / выполнением.
+ * После успешной сборки байткод гоняется в VM (как при проверке приложений).
+ *
+ * Passrate рантайма (`npx vitest run src/runtime/`): по состоянию на 2026-03-28 — 89/89 (100%),
+ * порог ATM > 0.8 выполнен.
+ */
+describe("Compiler ↔ runtime pipeline (compileToBuildReport + VM)", () => {
+  it("успех: buildReport.success, bytecode в VM → ожидаемый результат", async () => {
+    const src = `
+модуль ТестПайплайн
+процедура главная()
+  пусть n = 6
+  вернуть n + 1
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    const report = compileToBuildReport(cr);
+    expect(report.success).toBe(true);
+    expect(report.bytecode).toBeTruthy();
+    const vm = new VM(report.bytecode!, { maxSteps: 2000 });
+    const idx = vm.findProcedureIndex("главная");
+    expect(await vm.runProcedure(idx, [])).toBe(7);
+  });
+
+  it("ошибка компиляции: buildReport.success === false, bytecode отсутствует", () => {
+    const src = "модуль t\nпроцедура main()\n  foo()\nконец\n";
+    const cr = compileSource(src);
+    const report = compileToBuildReport(cr);
+    expect(report.success).toBe(false);
+    expect(report.bytecode).toBeFalsy();
   });
 });
 

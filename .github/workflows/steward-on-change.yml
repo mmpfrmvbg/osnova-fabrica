@@ -14,7 +14,7 @@ concurrency:
 jobs:
   golden-gate:
     name: Golden Gate
-    runs-on: [self-hosted, Linux, X64, osnova]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -28,7 +28,7 @@ jobs:
 
   language-surface:
     name: Language Surface Check
-    runs-on: [self-hosted, Linux, X64, osnova]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
