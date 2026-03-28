@@ -188,7 +188,7 @@ def is_brain_silent(state: dict[str, Any]) -> bool:
 
 
 def has_pending_brain_epic() -> bool:
-    """True if queue has work or a fallback EPIC file exists under .osnova/epics (canonical: origin fallback-local; heuristic: -FBK in id)."""
+    """True if epic-queue has work or a fallback EPIC file exists under .osnova/epics (canonical: origin fallback-local; heuristic: -FBK in id). GitHub brain-epics (including issues with label ``blocker``) are enqueued by ``github_poller.poll_brain_epics_and_sync_state`` for ``watch_once``."""
     queue_file = epic_queue_path()
     if queue_file.exists() and queue_file.read_text(encoding="utf-8").strip():
         return True

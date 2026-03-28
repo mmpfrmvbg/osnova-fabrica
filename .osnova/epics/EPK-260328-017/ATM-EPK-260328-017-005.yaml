@@ -1,0 +1,28 @@
+id: ATM-EPK-260328-017-005
+epic: EPK-260328-017
+seq: 5
+zone: agents
+risk: HIGH
+executor: cursor
+goal: 'ReviewAgent: восстановить класс, review(), generateReport()'
+scope:
+- src/agents/review-agent.ts
+- src/agents/agents.test.ts
+notouch:
+- src/pipeline/*
+- src/runtime/*
+- src/compiler/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Реализовать класс ReviewAgent
+- 'Метод review(executionResult): анализ результатов'
+- 'Метод generateReport(): генерация отчёта'
+- Экспорт класса
+- '3 теста: review, report, метрики'
+deps:
+- ATM-EPK-260328-017-001
+- ATM-EPK-260328-017-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

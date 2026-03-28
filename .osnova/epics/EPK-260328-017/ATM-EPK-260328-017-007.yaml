@@ -1,0 +1,29 @@
+id: ATM-EPK-260328-017-007
+epic: EPK-260328-017
+seq: 7
+zone: pipeline
+risk: HIGH
+executor: cursor
+goal: 'Pipeline: восстановить класс Pipeline, run(), integrate agents'
+scope:
+- src/pipeline/pipeline.ts
+- src/pipeline/pipeline.test.ts
+notouch:
+- src/runtime/*
+- src/compiler/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Реализовать класс Pipeline
+- Интеграция с 4 агентами
+- 'Метод run(input): полный пайплайн'
+- 'Методы: init(), execute(), finalize()'
+- '3 теста: run OK, run FAIL, интеграция'
+deps:
+- ATM-EPK-260328-017-002
+- ATM-EPK-260328-017-003
+- ATM-EPK-260328-017-004
+- ATM-EPK-260328-017-005
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

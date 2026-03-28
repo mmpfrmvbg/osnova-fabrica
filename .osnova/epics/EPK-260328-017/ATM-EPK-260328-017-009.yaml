@@ -1,0 +1,25 @@
+id: ATM-EPK-260328-017-009
+epic: EPK-260328-017
+seq: 9
+zone: runtime
+risk: MEDIUM
+executor: cursor
+goal: 'VM: проверить и исправить execute(), state management'
+scope:
+- src/runtime/vm.ts
+notouch:
+- src/agents/*
+- src/pipeline/*
+- src/compiler/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Проверить метод execute()
+- Проверить управление состоянием
+- Исправить найденные дефекты
+- 2 теста на VM
+deps:
+- ATM-EPK-260328-017-007
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

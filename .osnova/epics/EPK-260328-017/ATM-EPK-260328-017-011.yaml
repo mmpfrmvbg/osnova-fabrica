@@ -1,0 +1,25 @@
+id: ATM-EPK-260328-017-011
+epic: EPK-260328-017
+seq: 11
+zone: compiler
+risk: MEDIUM
+executor: cursor
+goal: 'Compiler: проверить и исправить compile(), transform()'
+scope:
+- src/compiler/compiler.ts
+notouch:
+- src/agents/*
+- src/pipeline/*
+- src/runtime/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Проверить метод compile()
+- Проверить метод transform()
+- Исправить найденные дефекты
+- 2 теста на Compiler
+deps:
+- ATM-EPK-260328-017-010
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

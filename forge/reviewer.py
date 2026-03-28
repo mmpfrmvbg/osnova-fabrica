@@ -127,9 +127,8 @@ def _line_verdict(line: str) -> bool | None:
 
 def _parse_qwen_review_pass(text: str) -> bool:
     """
-    Qwen often returns prose before PASS:/FAIL:. Old logic used startswith('PASS') and misclassified those.
-    Use the last line-level PASS:/FAIL: (summary lines often come after a spurious early FAIL:).
-    Regex fallback: last PASS: vs last FAIL: in text.
+    Qwen often writes intermediate FAIL: in reasoning and a final PASS: at the end.
+    Use the last line with explicit PASS:/FAIL: (not the first). Regex fallback: last PASS: vs last FAIL: via rfind.
     """
     if not (text or "").strip():
         return False
@@ -140,12 +139,10 @@ def _parse_qwen_review_pass(text: str) -> bool:
             last_line_verdict = v
     if last_line_verdict is not None:
         return last_line_verdict
-    fails = list(re.finditer(r"(?i)(?:^|[\s;,.])FAIL\s*:", text))
-    passes = list(re.finditer(r"(?i)(?:^|[\s;,.])PASS\s*:", text))
-    if fails or passes:
-        last_f = fails[-1].start() if fails else -1
-        last_p = passes[-1].start() if passes else -1
-        return last_p > last_f
+    last_p = text.rfind("PASS:")
+    last_f = text.rfind("FAIL:")
+    if last_p != -1 or last_f != -1:
+        return last_p > last_f and last_p != -1
     return text.lstrip().upper().startswith("PASS")
 
 

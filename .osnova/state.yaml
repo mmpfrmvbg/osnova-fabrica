@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-28T21:13:42.255101+03:00'
+updatedat: '2026-03-28T21:39:34.642359+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -21,7 +21,7 @@ ci:
   passrate7d: null
   openblockerissues: 0
   lastepicissue: null
-brainsource: idle
+brainsource: github
 heart:
   lastbeat: null
   restartstoday: 0
@@ -101,7 +101,7 @@ zones:
     done: 0
     blk: 0
 budget:
-  qwenusedtoday: 41
+  qwenusedtoday: 44
   qwenlimit: 900
   cursortaskstoday: 0
 zonemap:

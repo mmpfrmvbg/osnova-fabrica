@@ -213,7 +213,8 @@ def poll_next_github_epic(current_issue: int | None) -> dict[str, Any] | None:
     if not poll:
         return None
     epic_label = forge_dotenv_setting("FORGE_BRAIN_EPIC_LABEL", "brain-epic")
-    raw = forge_dotenv_setting("FORGE_EPIC_SKIP_LABELS", "blocker,forge-stale")
+    # Default must not include "blocker": brain-epic issues may share that label with ATM blockers.
+    raw = forge_dotenv_setting("FORGE_EPIC_SKIP_LABELS", "forge-stale")
     skip = {x.strip() for x in raw.split(",") if x.strip()}
     candidates = list_open_brain_epic_candidates(
         epic_label=epic_label,

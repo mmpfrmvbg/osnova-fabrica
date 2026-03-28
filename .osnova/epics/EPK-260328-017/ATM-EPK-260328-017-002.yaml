@@ -1,0 +1,27 @@
+id: ATM-EPK-260328-017-002
+epic: EPK-260328-017
+seq: 2
+zone: agents
+risk: HIGH
+executor: cursor
+goal: 'IntakeAgent: восстановить класс, validate(), parse()'
+scope:
+- src/agents/intake-agent.ts
+- src/agents/agents.test.ts
+notouch:
+- src/pipeline/*
+- src/runtime/*
+- src/compiler/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Реализовать класс IntakeAgent с конструктором
+- 'Метод validate(input): проверка структуры и типов'
+- 'Метод parse(): нормализация входных данных'
+- Экспорт класса
+- '3 теста: валидация OK, валидация FAIL, парсинг'
+deps:
+- ATM-EPK-260328-017-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

@@ -1,8 +1,10 @@
 """
-Синхронизация GitHub Issues (brain-epic) с ``.osnova/epics/*.yaml`` и счётчиков в ``state.yaml``.
+Синхронизация GitHub Issues (brain-epic) с ``.osnova/epics/*.yaml``, ``forge/epic-queue.txt`` и счётчиков в ``state.yaml``.
 
 Вызывается из ``forge.cycle`` до ``_resolve_epic``: если открыт Issue с меткой ``brain-epic``,
 без ``done``, и локального ``EPK-*.yaml`` ещё нет — парсит YAML из тела Issue и записывает файл.
+Очередь: новый yaml → ``prepend_issue_to_queue``; yaml уже есть → номер issue дописывается в хвост FIFO,
+чтобы ``watch_once`` забрал EPIC даже если у Issue есть и ``blocker`` (см. ``FORGE_EPIC_SKIP_LABELS`` в ``epicwatcher.poll_next_github_epic``).
 """
 from __future__ import annotations
 
@@ -16,25 +18,41 @@ try:
         _github_bearer_value,
         atomic_write_yaml,
         env_paths,
+        epic_queue_path,
         gh_request,
         load_yaml,
         now_iso,
         setup_logging,
     )
-    from forge.epicwatcher import _yaml_from_issue_body
+    from forge.epicwatcher import _yaml_from_issue_body, prepend_issue_to_queue
 except ImportError:  # pragma: no cover
     from common import (
         _github_bearer_value,
         atomic_write_yaml,
         env_paths,
+        epic_queue_path,
         gh_request,
         load_yaml,
         now_iso,
         setup_logging,
     )
-    from epicwatcher import _yaml_from_issue_body
+    from epicwatcher import _yaml_from_issue_body, prepend_issue_to_queue
 
 LOG = setup_logging("github_poller")
+
+
+def _ensure_issue_in_epic_queue_tail(issue_num: int) -> None:
+    """Append issue number to epic FIFO if not already listed (brain-epic may also have label ``blocker``)."""
+    q = epic_queue_path()
+    key = str(int(issue_num))
+    lines: list[str] = []
+    if q.exists():
+        lines = [x.strip().lstrip("\ufeff") for x in q.read_text(encoding="utf-8-sig").splitlines() if x.strip()]
+    if key in lines:
+        return
+    q.parent.mkdir(parents=True, exist_ok=True)
+    lines.append(key)
+    q.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
 def _github_token_ok() -> bool:
@@ -171,9 +189,11 @@ def poll_brain_epics_and_sync_state() -> None:
         epic["githubissue"] = int(num)
         target = epics_dir / f"{epic_id}.yaml"
         if target.is_file():
+            _ensure_issue_in_epic_queue_tail(int(num))
             continue
         LOG.info("[CYCLE] source=github issue=%s", int(num))
         atomic_write_yaml(target, epic)
+        prepend_issue_to_queue(int(num))
         wrote = True
 
     blocker_n = count_open_blocker_issues(repo)
