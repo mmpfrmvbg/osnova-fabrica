@@ -6,7 +6,7 @@ import json
 import typer
 
 from osnova.engine import ForgeEngine
-from osnova.render import console, make_atm_table, make_passrate_line, make_progress_bar
+from osnova.render import console, make_atm_table, make_progress_bar
 
 engine = ForgeEngine()
 
@@ -19,12 +19,18 @@ def status(json_out: bool = typer.Option(False, "--json", "-j", help="JSON outpu
     version = state.get("v", "?")
 
     if json_out:
+        last_h = history[0] if history else None
+        last_summary = last_h.get("summary") if isinstance(last_h, dict) else {}
         typer.echo(
             json.dumps(
                 {
                     "version": version,
                     "sessionstats": sess,
-                    "last_history": history[0] if history else None,
+                    "session_passrate": float(sess.get("passrate") or 0),
+                    "last_epic_passrate": float(last_summary.get("passrate") or 0)
+                    if isinstance(last_summary, dict)
+                    else None,
+                    "last_history": last_h,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -74,6 +80,24 @@ def status(json_out: bool = typer.Option(False, "--json", "-j", help="JSON outpu
         f"·  cursor: {'OK' if cursor_ok else 'DOWN'}\n"
     )
 
-    pr = float(sess.get("passrate") or 0)
-    console.print(make_passrate_line(pr))
+    sess_pr = float(sess.get("passrate") or 0)
+    ad = int(sess.get("atomsdone") or 0)
+    at = int(sess.get("atomstotal") or 0)
+    sid = str(state.get("session") or "?")
+    console.print(
+        f"Session passrate: [bold]{sess_pr:.0%}[/]  "
+        f"[dim]({ad}/{at} ATM за сессию {sid})[/]"
+    )
+    if last:
+        sm = last.get("summary") if isinstance(last.get("summary"), dict) else {}
+        le_pr = float(sm.get("passrate") or 0)
+        lok = int(sm.get("atomsdone") or 0)
+        ltot = int(sm.get("atomstotal") or 0)
+        lst = sm.get("status") or "?"
+        leid = str(last.get("epic_id") or "?")
+        prc = "green" if le_pr >= 0.8 else "yellow" if le_pr >= 0.6 else "red"
+        console.print(
+            f"Last EPIC:         [{prc}]{le_pr:.0%}[/]  "
+            f"[dim]({lok}/{ltot} ATM, {leid}, {lst})[/]"
+        )
     console.print()

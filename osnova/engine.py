@@ -102,6 +102,10 @@ class ForgeEngine:
 
         forge_running = self._systemd_active("osnova-forge")
 
+        ci = st.get("ci") if isinstance(st.get("ci"), dict) else {}
+        blockers_raw = st.get("blockers") if isinstance(st.get("blockers"), list) else []
+        blockers: list[dict[str, Any]] = [b for b in blockers_raw if isinstance(b, dict)]
+
         return {
             "forge": {
                 "status": forge_status,
@@ -120,6 +124,10 @@ class ForgeEngine:
                 "atms_ok": int(sess.get("atomsdone") or 0),
                 "atms_blk": int(sess.get("atomsblocked") or 0),
             },
+            "ci": {
+                "openblockerissues": int(ci.get("openblockerissues") or 0),
+            },
+            "blockers": blockers,
         }
 
     def _systemd_active(self, unit: str) -> bool:
@@ -200,8 +208,8 @@ class ForgeEngine:
         }
         return run_epic_from_dict(epic, dry_run=dry_run, on_update=on_update)
 
-    def plan_from_goal(self, goal: str, executor: str = "auto") -> dict[str, Any]:
-        """Cheap plan: atomize(epic, dry_run=True) — stub ATMs, no Qwen."""
+    def plan_from_goal(self, goal: str, executor: str = "auto", full: bool = False) -> dict[str, Any]:
+        """Plan EPIC: dry_run=True → stub ATMs (no Qwen); full=True → real atomizer (Qwen)."""
         ensure_forge_imports()
         from forge.atomizer import atomize
 
@@ -217,8 +225,14 @@ class ForgeEngine:
             "executor": executor,
         }
         try:
-            atoms = atomize(epic, dry_run=True)
-            return {"id": epic["id"], "goal": goal, "atms": atoms, "executor": executor}
+            atoms = atomize(epic, dry_run=not full)
+            return {
+                "id": epic["id"],
+                "goal": goal,
+                "atms": atoms,
+                "executor": executor,
+                "full": full,
+            }
         except Exception as e:
             return {"error": str(e)}
 

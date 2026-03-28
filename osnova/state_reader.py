@@ -79,6 +79,7 @@ def normalize_history_entry(raw: dict[str, Any]) -> dict[str, Any]:
                 "id": r.get("id"),
                 "s": r.get("s"),
                 "goal": r.get("goal"),
+                "done": r.get("done"),
                 "elapsed_s": r.get("elapsed_s") if r.get("elapsed_s") is not None else r.get("elapsed"),
                 "executor": r.get("executor"),
                 "blk_reason": r.get("err") or (r.get("review") or {}).get("reason"),

@@ -103,12 +103,35 @@ def make_health_panel(health: dict[str, Any]) -> Panel:
     pr = float(stats.get("passrate") or 0)
     pr_color = "green" if pr >= 0.8 else "yellow" if pr >= 0.6 else "red"
     line3 = (
-        f"Stats: [{pr_color}]{pr:.0%}[/]  "
+        f"Session stats: [{pr_color}]{pr:.0%}[/]  "
         f"OK {stats.get('atms_ok', 0)}  BLK {stats.get('atms_blk', 0)}  "
-        f"epics today {stats.get('epics_today', 0)}"
+        f"epics received {stats.get('epics_today', 0)}"
     )
 
-    body = "\n".join([line1, line2, line3])
+    ci = health.get("ci") if isinstance(health.get("ci"), dict) else {}
+    open_n = int(ci.get("openblockerissues") or 0)
+    line4 = f"CI openblockerissues (counter): [bold]{open_n}[/]"
+
+    blockers_raw = health.get("blockers") if isinstance(health.get("blockers"), list) else []
+    blocker_lines: list[str] = []
+    for b in blockers_raw:
+        if not isinstance(b, dict):
+            continue
+        if not b.get("open", True):
+            continue
+        blocker_lines.append(
+            f"  issue [cyan]#{b.get('issue')}[/]  [dim]{b.get('atm_id', '?')}[/]"
+        )
+    if blocker_lines:
+        line5 = "[bold]Blockers[/] ([dim]state.yaml blockers:[/])\n" + "\n".join(
+            blocker_lines[:25]
+        )
+        if len(blocker_lines) > 25:
+            line5 += f"\n  [dim]… +{len(blocker_lines) - 25}[/]"
+        body = "\n".join([line1, line2, line3, line4, "", line5])
+    else:
+        body = "\n".join([line1, line2, line3, line4, "[dim]Blockers: (none open)[/]"])
+
     return Panel(body, title="[bold cyan]OSNOVA Health[/]", expand=False)
 
 

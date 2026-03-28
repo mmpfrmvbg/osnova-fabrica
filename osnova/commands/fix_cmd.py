@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from osnova.done_cmd import get_done_cmd
 from osnova.engine import ForgeEngine
 from osnova.render import console
 
@@ -30,9 +31,8 @@ def fix(
         console.print(f"[red]ATM не найден: {atm_id}[/]")
         raise typer.Exit(1)
 
-    done_cmd = str(target.get("done") or "").strip()
-    if not done_cmd:
-        done_cmd = "npx tsc -p tsconfig.typecheck.json --noEmit"
+    state = engine.get_state()
+    done_cmd = get_done_cmd(target, state)
 
     console.print(f"[bold]Fix[/] {atm_id}\n[dim]done:[/] {done_cmd}\n")
     if done_cmd:
