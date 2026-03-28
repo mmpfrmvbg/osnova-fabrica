@@ -73,8 +73,17 @@ export function buildPipelineVmGlobals(spec: OsnovaSpec): Record<string, StackVa
 }
 
 /**
- * Записывает в {@link OsVbcVM.globals} данные пайплайна (после вызова — используйте invoke с {@link createPipelineInvokeHandlerForVm}).
- * Точка стыковки с агентами: тот же `OsnovaSpec`, что в `ExecContext.spec`, подаётся сюда перед запуском VM.
+ * Заполняет {@link OsVbcVM.globals} снимком полей {@link OsnovaSpec} через {@link buildPipelineVmGlobals}: идентификатор спецификации,
+ * главный модуль, ожидаемый возврат (для golden и syscall `система.пайплайн.*`). После вызова цепочку `invoke` нужно оборачивать
+ * в {@link createPipelineInvokeHandlerForVm}, чтобы байткод видел те же значения.
+ *
+ * **Связь с OsnovaSpec:** в пайплайне и агентах сюда передаётся тот же {@link OsnovaSpec}, что в `ExecContext.spec`
+ * ({@link import("../agents/exec-agent").ExecContext}), чтобы VM не дублировала структуру спецификации и читала один источник правды,
+ * что и оркестратор.
+ *
+ * @param vm — экземпляр VM; мутирует только {@link OsVbcVM.globals}.
+ * @param spec — спецификация задачи (intake / pipeline).
+ * @returns Ничего (`void`).
  */
 export function applyPipelineSpecToVm(vm: OsVbcVM, spec: OsnovaSpec): void {
   Object.assign(vm.globals, buildPipelineVmGlobals(spec));

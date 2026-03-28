@@ -1,12 +1,12 @@
-id: ATM-EPK-260328-FBK016-008
+id: ATM-EPK-260328-FBK016-006
 epic: EPK-260328-FBK016
-seq: 8
+seq: 6
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Исправить тесты в src/pipeline/pipeline.test.ts для корректного exit code
+goal: Документировать функцию applyPipelineSpecToVm в src/runtime/vm.ts
 scope:
-- src/pipeline/pipeline.test.ts
+- src/runtime/vm.ts
 notouch:
 - forge/
 - .github/
@@ -14,11 +14,11 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Выявить тесты с ложноположительным статусом
-- Добавить проверки на фактический результат VM
-- Устранить swallow ошибок
+- Найти функцию applyPipelineSpecToVm
+- Добавить JSDoc с параметрами, возвращаемым значением
+- Описать связь с OsnovaSpec
 deps:
-- ATM-EPK-260328-FBK016-002
+- ATM-EPK-260328-FBK016-001
 maxiter: 3
 retries: 0
 status: PENDING
