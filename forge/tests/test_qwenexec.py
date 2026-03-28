@@ -13,7 +13,8 @@ class TestQwenCodeArgv(unittest.TestCase):
     def test_argv_uses_dash_p_for_headless_by_default(self) -> None:
         from forge import qwenexec as qe
 
-        argv = qe._qwen_code_argv("hello world")
+        with patch.object(qe, "forge_dotenv_setting", return_value="dash_p"):
+            argv = qe._qwen_code_argv("hello world")
         self.assertGreaterEqual(len(argv), 4)
         self.assertEqual(argv[1], "-p")
         self.assertEqual(argv[2], "hello world")
@@ -23,7 +24,7 @@ class TestQwenCodeArgv(unittest.TestCase):
     def test_argv_positional_when_env_positional(self) -> None:
         from forge import qwenexec as qe
 
-        with patch.dict("os.environ", {"FORGE_QWEN_CODE_PROMPT_VIA": "positional"}):
+        with patch.object(qe, "forge_dotenv_setting", return_value="positional"):
             argv = qe._qwen_code_argv("hi")
         self.assertEqual(argv[1], "hi")
         self.assertNotEqual(argv[2], "-p")

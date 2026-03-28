@@ -19,7 +19,14 @@ from subprocess import TimeoutExpired
 from typing import Any
 
 try:
-    from forge.common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, resolve_executable, setup_logging
+    from forge.common import (
+        SUBPROCESS_TEXT,
+        atomic_write_yaml,
+        env_paths,
+        forge_dotenv_setting,
+        resolve_executable,
+        setup_logging,
+    )
     from forge.qwenbudget import (
         can_call_executor,
         is_quota_exhausted_output,
@@ -27,7 +34,14 @@ try:
         record,
     )
 except ImportError:  # pragma: no cover
-    from common import SUBPROCESS_TEXT, atomic_write_yaml, env_paths, resolve_executable, setup_logging
+    from common import (
+        SUBPROCESS_TEXT,
+        atomic_write_yaml,
+        env_paths,
+        forge_dotenv_setting,
+        resolve_executable,
+        setup_logging,
+    )
     from qwenbudget import (
         can_call_executor,
         is_quota_exhausted_output,
@@ -74,7 +88,8 @@ def _qwen_code_argv(prompt: str) -> list[str]:
         "write_file,edit,read_file,run_shell_command,grep_search,glob",
     ).strip()
     turns = os.environ.get("FORGE_QWEN_MAX_SESSION_TURNS", "10").strip() or "10"
-    via = os.environ.get("FORGE_QWEN_CODE_PROMPT_VIA", "").strip().lower()
+    # Default dash_p: headless requires ``qwen -p …``; empty/unset must not fall through to positional.
+    via = forge_dotenv_setting("FORGE_QWEN_CODE_PROMPT_VIA", "dash_p").strip().lower()
     flags: list[str] = [
         "--approval-mode",
         "yolo",
