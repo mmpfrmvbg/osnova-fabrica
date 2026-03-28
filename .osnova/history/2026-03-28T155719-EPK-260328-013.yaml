@@ -1,0 +1,165 @@
+epic: EPK-260328-013
+summary:
+  status: PARTIAL
+  passrate: 0.75
+  atomsdone: 3
+  atomstotal: 4
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-013-001
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 175
+  err: null
+  review:
+    passed: false
+    reason: "Qwen OAuth quota exceeded: Your free daily quota has been reached.\n\n\
+      To continue using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding\
+      \ Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n\
+      \  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
+      \nAfter subscribing, run /auth to configure your Coding Plan API key.\nQwen\
+      \ OAuth quota exceeded: Your free daily quota has been reached.\n\nTo continue\
+      \ using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding Plan:\n\
+      \  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n  Global/Intl:\
+      \ https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\nAfter subscribing,\
+      \ run /auth to configure your Coding Plan API key.Qwen OAuth quota exceeded:\
+      \ Your free daily quota has been reached.\n\nTo continue using Qwen Code without\
+      \ waiting, upgrade to the Alibaba Cloud Coding Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n\
+      \  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
+      \nAfter subscribing, run /auth to configure your Coding Plan API key.\nAn unexpected\
+      \ critical error occurred:\nError: Qwen OAuth quota exceeded: Your free daily\
+      \ quota has been reached.\n\nTo continue using Qwen Code without waiting, upgrade\
+      \ to the Alibaba Cloud Coding Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n\
+      \  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
+      \nAfter subscribing, run /auth to configure your Coding Plan API key.\n    at\
+      \ file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:407149:19\n\
+      \    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n\
+      \    at async main (file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:456987:5)"
+    elapsed: 31
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-013-002
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 109
+  err: null
+  review:
+    passed: true
+    reason: '**PASS:** Все тесты пройдены (245 passed). Parser успешно реализован:
+
+
+      - Парсинг импорта (`использовать модуль … из`)
+
+      - Объявление типов (`тип Имя { поле: тип }`)
+
+      - Экспорт процедур и nullable-типы
+
+      - Конструкции `если / иначе_если / иначе`
+
+      - Обработка исключений `попробовать / иначе_попытка`
+
+      - Циклы `пока`, `цикл`, операторы `прервать`, `продолжить`, `выбросить`
+
+      - Выражения: объекты, логические операторы, сравнения, унарные операции
+
+      - Присваивание полей и составные операторы (`+=`)
+
+      - Синтаксические ошибки с указанием `message`, `line`, `expected`'
+    elapsed: 17
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-013-003
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 162
+  err: null
+  review:
+    passed: true
+    reason: '---
+
+
+      ## Обзор ATM-EPK-260328-013-003
+
+
+      **PASS:** Codegen полностью реализован и все тесты пройдены.
+
+
+      ### Результаты:
+
+      - ✅ **252 теста пройдено** (8 файлов тестов)
+
+      - ✅ `src/compiler/codegen.test.ts` — 7 тестов codegen
+
+      - ✅ `src/compiler/golden-runner.test.ts` — 79 интеграционных тестов
+
+      - ✅ Все узлы AST поддерживаются: число, строка, булево, пусто, переменная, бинарное,
+      унарное, массив, объект, поле, вызов
+
+      - ✅ Вложенные конструкции: если/иначе, пока, для_каждого, цикл, попробовать/выбросить
+
+      - ✅ Управление потоком: прервать, продолжить, вернуть
+
+
+      ### Реализованные шаги:
+
+      1. ✅ Обход AST и генерация выходного кода (OsVbcModule)
+
+      2. ✅ Поддержка всех узлов AST
+
+      3. ✅ Корректная генерация для вложенных конструкций
+
+      4. ✅ Unit-тесты генерации кода
+
+
+      ### Статус задачи:
+
+      ```yaml
+
+      status: DONE
+
+      ```'
+    elapsed: 37
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-013-004
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 94
+  err: null
+  review:
+    passed: true
+    reason: '**PASS:** Все тесты компилятора прошли успешно.
+
+
+      **Результаты:**
+
+      - **256 тестов** пройдено (8 файлов тестов)
+
+      - **0 ошибок**
+
+      - Exit code: 0
+
+
+      **Интеграция завершена:**
+
+      - Класс `Compiler` с методами `compile()` и `execute()` реализован
+
+      - End-to-end тестирование работает: tokenize → parse → semantic → codegen →
+      VM
+
+      - Все 4 новых E2E-теста в `compiler.test.ts` проходят'
+    elapsed: 26
+createdat: '2026-03-28T15:57:19.450173+03:00'
