@@ -592,6 +592,13 @@ export class VM {
         this.stack.push(this.stackPeek());
         return next;
       }
+      case "pop": {
+        if (this.stack.length === 0) {
+          throw new InterpreterError("Stack underflow on pop", this.pc, "pop");
+        }
+        this.stack.pop();
+        return next;
+      }
       default:
         throw new InterpreterError(`Unknown op: ${(ins as RawInstruction).op}`, this.pc, (ins as RawInstruction).op);
     }

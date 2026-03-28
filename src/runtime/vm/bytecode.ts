@@ -56,7 +56,8 @@ export type Op =
   | "obj.new"
   | "obj.get"
   | "obj.set"
-  | "dup";
+  | "dup"
+  | "pop";
 
 export interface InstructionConst {
   op: "const";
