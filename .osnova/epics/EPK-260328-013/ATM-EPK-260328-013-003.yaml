@@ -1,0 +1,25 @@
+id: ATM-EPK-260328-013-003
+epic: EPK-260328-013
+seq: 3
+zone: src/compiler
+risk: HIGH
+executor: cursor
+goal: Реализовать codegen для генерации кода из AST
+scope:
+- src/compiler/codegen.ts
+notouch:
+- src/compiler/lexer.ts
+- src/compiler/parser.ts
+- src/compiler/ast.ts
+done: npx vitest run src/compiler/
+steps:
+- Реализовать обход AST и генерацию выходного кода
+- Добавить поддержку всех узлов AST
+- Обеспечить корректную генерацию для вложенных конструкций
+- Покрыть unit-тестами генерацию кода
+deps:
+- 2
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

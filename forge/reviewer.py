@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -103,6 +104,45 @@ def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[DoneCmd, dic
     return cmd, done_env
 
 
+def _line_verdict(line: str) -> bool | None:
+    """First explicit PASS: or FAIL: on a line (markdown/list-tolerant). None = no verdict on this line."""
+    s = line.strip()
+    if not s:
+        return None
+    s = re.sub(r"^[\s#*>`\-]+", "", s)
+    s = re.sub(r"^\d+\.\s*", "", s)
+    if s.startswith("**"):
+        s = s[2:]
+    if s.endswith("**"):
+        s = s[:-2]
+    s = s.strip()
+    if re.match(r"(?i)FAIL\s*:", s):
+        return False
+    if re.match(r"(?i)PASS\s*:", s):
+        return True
+    return None
+
+
+def _parse_qwen_review_pass(text: str) -> bool:
+    """
+    Qwen often returns prose before PASS:/FAIL:. Old logic used startswith('PASS') and misclassified those.
+    Prefer first line-level PASS:/FAIL:, else first in-text PASS: before FAIL:.
+    """
+    if not (text or "").strip():
+        return False
+    for line in text.splitlines():
+        v = _line_verdict(line)
+        if v is not None:
+            return v
+    m_fail = re.search(r"(?i)(?:^|[\s;,.])FAIL\s*:", text)
+    m_pass = re.search(r"(?i)(?:^|[\s;,.])PASS\s*:", text)
+    if m_fail and (not m_pass or m_fail.start() < m_pass.start()):
+        return False
+    if m_pass:
+        return True
+    return text.lstrip().upper().startswith("PASS")
+
+
 def _git_diff(project: Path) -> str:
     proc = subprocess.run(
         ["git", "diff", "HEAD~1"],
@@ -168,7 +208,8 @@ def _run_qwen_review_subprocess(prompt: str, rev_s: int) -> subprocess.Completed
 
 def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
     prompt = (
-        "Review ATM result. Return one line: PASS: reason OR FAIL: reason.\n"
+        "Review ATM result. You MUST include either PASS: or FAIL: (with colon). "
+        "Put PASS: or FAIL: at the start of a line — not only at the end of a long paragraph.\n"
         f"Goal: {atom.get('goal')}\nScope: {atom.get('scope')}\n"
         f"Done command: {atom.get('done')}\nDiff:\n{diff}\n"
     )
@@ -178,7 +219,7 @@ def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
     except TimeoutExpired:
         return False, f"FAIL: qwen review timeout after {rev_s}s (FORGE_QWEN_REVIEW_TIMEOUT)"
     text = (proc.stdout or proc.stderr).strip()
-    passed = text.upper().startswith("PASS")
+    passed = _parse_qwen_review_pass(text)
     reason = text if text else "No reviewer output"
     return passed, reason
 
@@ -233,6 +274,12 @@ def review(
             stdin=subprocess.DEVNULL,
         )
     passed = llm_pass and done.returncode == 0
+    if done.returncode == 0 and not llm_pass:
+        LOG.warning(
+            "reviewer: done command succeeded but LLM verdict was not PASS — "
+            "check Qwen output (expect PASS: or FAIL: on a line). Head: %s",
+            (llm_reason[:900] + "…") if len(llm_reason) > 900 else llm_reason,
+        )
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"
     elapsed = int(time.time() - start)
     return passed, reason, elapsed

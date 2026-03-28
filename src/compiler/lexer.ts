@@ -1,11 +1,12 @@
 /**
- * Лексер Основа MVP: разделитель инструкций — перевод строки (Python-style).
- * Спека: минимальный набор для todo/bloknot/storage_demo.
- * Ключевые слова — из language-registry (единый источник правды).
+ * Лексер языка Основа: перевод строки — разделитель инструкций (Python-style).
+ * Ключевые слова и операторы согласованы с `language-registry` и `OPERATORS_V01`.
+ * Комментарии: только `//` до конца строки (см. docs/language-v2.md).
  */
 
 import { getImplementedKeywords } from "./language-registry";
 
+/** Все виды токенов, которые может выдать `tokenize()` (ключевые слова, литералы, операторы, пунктуация, служебные). */
 export type TokenKind =
   | "модуль"
   | "процедура"
@@ -66,6 +67,69 @@ export type TokenKind =
   | "новая_строка"
   | "конец_файла"
   | "?";
+
+/** Полный перечень `TokenKind` для тестов и проверки покрытия (должен совпадать с union выше). */
+export const ALL_TOKEN_KINDS: readonly TokenKind[] = [
+  "модуль",
+  "процедура",
+  "тип",
+  "использовать",
+  "экспорт",
+  "из",
+  "пусть",
+  "если",
+  "иначе",
+  "иначе_если",
+  "попробовать",
+  "иначе_попытка",
+  "пока",
+  "тогда",
+  "выбросить",
+  "для_каждого",
+  "в",
+  "цикл",
+  "прервать",
+  "продолжить",
+  "конец",
+  "вернуть",
+  "и",
+  "или",
+  "не",
+  "истина",
+  "ложь",
+  "пусто",
+  "число",
+  "строка",
+  "идентификатор",
+  "=",
+  "==",
+  "!=",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "(",
+  ")",
+  "[",
+  "]",
+  "{",
+  "}",
+  ":",
+  ",",
+  ".",
+  "новая_строка",
+  "конец_файла",
+  "?",
+];
 
 export interface Token {
   kind: TokenKind;
@@ -134,9 +198,10 @@ export function tokenize(source: string): LexerResult {
     return c;
   }
 
-  function makeToken(kind: TokenKind, lexeme: string, value?: number | string): Token {
-    const startCol = column - lexeme.length;
-    return { kind, lexeme, value, line, column: startCol };
+  function makeToken(kind: TokenKind, lexeme: string, value?: number | string, loc?: { line: number; column: number }): Token {
+    const line0 = loc?.line ?? line;
+    const col0 = loc?.column ?? column - lexeme.length;
+    return { kind, lexeme, value, line: line0, column: col0 };
   }
 
   while (i < source.length) {
@@ -149,8 +214,10 @@ export function tokenize(source: string): LexerResult {
     }
 
     if (c === "\n") {
+      const nlLine = line;
+      const nlCol = column;
       advance();
-      tokens.push(makeToken("новая_строка", "\n"));
+      tokens.push(makeToken("новая_строка", "\n", undefined, { line: nlLine, column: nlCol }));
       continue;
     }
 
@@ -162,6 +229,8 @@ export function tokenize(source: string): LexerResult {
     }
 
     if (c === '"') {
+      const strLine = line;
+      const strCol = column;
       advance();
       let value = "";
       while (peek() && peek() !== '"') {
@@ -183,7 +252,8 @@ export function tokenize(source: string): LexerResult {
       }
       if (peek() === '"') advance();
       else errors.push({ message: "Незакрытая строка", line, column: startCol });
-      tokens.push(makeToken("строка", '"' + value + '"', value));
+      const lexeme = '"' + value + '"';
+      tokens.push(makeToken("строка", lexeme, value, { line: strLine, column: strCol }));
       continue;
     }
 

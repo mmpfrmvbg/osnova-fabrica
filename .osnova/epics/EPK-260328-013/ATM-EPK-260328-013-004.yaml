@@ -1,0 +1,28 @@
+id: ATM-EPK-260328-013-004
+epic: EPK-260328-013
+seq: 4
+zone: src/compiler
+risk: MEDIUM
+executor: cursor
+goal: Интегрировать все компоненты compiler pipeline и обеспечить end-to-end тестирование
+scope:
+- src/compiler/compiler.test.ts
+- src/compiler/lexer.ts
+- src/compiler/parser.ts
+- src/compiler/ast.ts
+- src/compiler/codegen.ts
+notouch: []
+done: npx vitest run src/compiler/
+steps:
+- Реализовать главный класс Compiler с методами compile()/execute()
+- Написать интеграционные тесты полного цикла
+- Запустить npx vitest run src/compiler/ и достичь passrate >0.8
+- Исправить все failing tests
+deps:
+- 1
+- 2
+- 3
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

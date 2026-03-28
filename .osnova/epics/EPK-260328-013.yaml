@@ -1,0 +1,14 @@
+t: EPK
+id: EPK-260328-013
+goal: Реализовать полноценный compiler pipeline (lexer → parser → AST → codegen) языка
+  Основа в src/compiler/, чтобы поднять passrate с критических 0.049 до целевых >0.8
+  и разблокировать 39 заблокированных атомов.
+scope:
+- src/compiler/lexer.ts
+- src/compiler/parser.ts
+- src/compiler/ast.ts
+- src/compiler/codegen.ts
+- src/compiler/compiler.test.ts
+done: npx vitest run src/compiler/
+priority: P1
+githubissue: 64

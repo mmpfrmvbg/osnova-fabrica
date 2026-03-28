@@ -30,9 +30,25 @@ def _headers() -> dict[str, str]:
 
 
 def _yaml_from_issue_body(body: str) -> dict[str, Any]:
-    match = re.search(r"```yaml\s*(.*?)\s*```", body, flags=re.DOTALL | re.IGNORECASE)
+    # ``` yaml / ```yml / ```YAML — допускаем пробел после тройных кавычек (часто в GitHub UI)
+    match = re.search(
+        r"```\s*(?:yaml|yml)\s*(?:\r?\n)?(.*?)\s*```",
+        body,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
     if not match:
-        raise ValueError("No ```yaml block in issue body")
+        raise ValueError(
+            "В теле issue нет fenced-блока ```yaml … ``` (или ```yml). "
+            "Вставьте EPIC одним блоком, например:\n"
+            "```yaml\n"
+            "t: EPK\n"
+            "id: EPK-...\n"
+            "goal: \"...\"\n"
+            "scope: []\n"
+            "done: \"...\"\n"
+            "priority: low\n"
+            "```"
+        )
     data = yaml.safe_load(match.group(1)) or {}
     if not isinstance(data, dict):
         raise ValueError("YAML block must be mapping")
@@ -99,7 +115,10 @@ def fetch_epic(issue_num: int) -> dict[str, Any]:
     url = f"https://api.github.com/repos/{repo}/issues/{issue_num}"
     issue = _request("GET", url)
     body_clean = html.unescape(issue.get("body", "") or "")
-    epic = _yaml_from_issue_body(body_clean)
+    try:
+        epic = _yaml_from_issue_body(body_clean)
+    except ValueError as exc:
+        raise ValueError(f"GitHub issue #{issue_num}: {exc}") from exc
     epic["githubissue"] = issue_num
 
     project = Path(env_paths()["OSNOVA_PROJECT"])
