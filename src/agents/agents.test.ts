@@ -784,6 +784,62 @@ describe('ReviewAgent.validate', () => {
     expect(report.items.find(i => i.id === 'plan_intent')?.ok).toBe(false);
     expect(report.ok).toBe(false);
   });
+
+  it('некорректный эталонный spec: не бросает, фиксирует spec_parameter и spec_in_context', () => {
+    const report = agent.review(null as unknown as OsnovaSpec, reviewOkCtx());
+    expect(report.items.find(i => i.id === 'spec_parameter')?.ok).toBe(false);
+    expect(report.items.find(i => i.id === 'spec_in_context')?.ok).toBe(false);
+    expect(report.ok).toBe(false);
+  });
+
+  it('validate: при двух аргументах без ctx — ошибка', () => {
+    expect(() =>
+      agent.validate(sampleSpec(), undefined as unknown as ExecContext),
+    ).toThrow(/второй аргумент \(ctx\)/);
+  });
+
+  it('validate объектная форма { spec, ctx } — успех', () => {
+    const spec = sampleSpec();
+    const report = agent.validate({ spec, ctx: reviewOkCtx() });
+    expect(report.ok).toBe(true);
+  });
+
+  it('проваливает build при блокирующей семантической ошибке (success=true)', () => {
+    const spec = sampleSpec();
+    const ctx = reviewOkCtx({
+      buildReport: {
+        success: true,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [{ message: 'не объявлено', kind: 'undeclared_var' }],
+        bytecode: null,
+        compilerSuccess: true,
+        durationMs: 1,
+      },
+    });
+    const report = agent.validate(spec, ctx);
+    expect(report.items.find(i => i.id === 'build')?.ok).toBe(false);
+    expect(report.items.find(i => i.id === 'build')?.detail).toContain('семантическ');
+    expect(report.ok).toBe(false);
+  });
+
+  it('проваливает golden при нечисловом qualityScore', () => {
+    const spec = sampleSpec();
+    const ctx = reviewOkCtx({
+      goldenReport: {
+        executed: true,
+        passed: true,
+        qualityScore: Number.NaN,
+        vmErrors: [],
+        outputDiff: null,
+        durationMs: 1,
+      },
+    });
+    const report = agent.validate(spec, ctx);
+    expect(report.items.find(i => i.id === 'golden')?.ok).toBe(false);
+    expect(report.ok).toBe(false);
+  });
 });
 
 describe('Интеграция — полный цикл и цепочка агентов', () => {

@@ -29,6 +29,13 @@ function linesForReport(items: readonly ReviewCheckItem[]): string {
   return `${header}\n${body}`;
 }
 
+/** Минимальная проверка эталонного spec до обращения к полям (ExecAgent передаёт валидный OsnovaSpec). */
+function isValidReviewSpec(spec: unknown): spec is OsnovaSpec {
+  if (spec === null || typeof spec !== 'object') return false;
+  const id = (spec as OsnovaSpec).specId;
+  return typeof id === 'string' && id.trim().length > 0;
+}
+
 export class ReviewAgent implements BaseAgent {
   private lastReport: ReviewReport | null = null;
 
@@ -38,12 +45,27 @@ export class ReviewAgent implements BaseAgent {
    */
   review(spec: OsnovaSpec, ctx: ExecContext, plan?: ExecutionPlan): ReviewReport {
     const items: ReviewCheckItem[] = [];
+    const refOk = isValidReviewSpec(spec);
+
+    if (!refOk) {
+      items.push({
+        id: 'spec_parameter',
+        ok: false,
+        detail: 'некорректный эталонный OsnovaSpec: ожидается объект с непустым specId',
+      });
+    }
 
     if (!ctx.spec) {
       items.push({
         id: 'spec_in_context',
         ok: false,
         detail: 'в контексте нет OsnovaSpec',
+      });
+    } else if (!refOk) {
+      items.push({
+        id: 'spec_in_context',
+        ok: false,
+        detail: 'нельзя сравнить контекст с эталоном: эталонный spec невалиден',
       });
     } else if (ctx.spec.specId !== spec.specId) {
       items.push({
@@ -60,21 +82,29 @@ export class ReviewAgent implements BaseAgent {
     }
 
     if (plan) {
-      const specMatchesPlan = spec.specId === plan.specId;
-      const ctxSpecMatchesPlan = ctx.spec?.specId === plan.specId;
-      items.push({
-        id: 'plan_spec_ids',
-        ok: specMatchesPlan && ctxSpecMatchesPlan,
-        detail:
-          specMatchesPlan && ctxSpecMatchesPlan
-            ? `specId «${plan.specId}» совпадает с планом`
-            : [
-                !specMatchesPlan ? `spec≠plan: ${spec.specId} vs ${plan.specId}` : null,
-                ctx.spec && !ctxSpecMatchesPlan ? `контекст: ${ctx.spec.specId} vs план ${plan.specId}` : null,
-              ]
-                .filter(Boolean)
-                .join('; ') || 'несовпадение specId с планом',
-      });
+      if (!refOk) {
+        items.push({
+          id: 'plan_spec_ids',
+          ok: false,
+          detail: 'нельзя сверить spec с планом: эталонный spec невалиден',
+        });
+      } else {
+        const specMatchesPlan = spec.specId === plan.specId;
+        const ctxSpecMatchesPlan = ctx.spec?.specId === plan.specId;
+        items.push({
+          id: 'plan_spec_ids',
+          ok: specMatchesPlan && ctxSpecMatchesPlan,
+          detail:
+            specMatchesPlan && ctxSpecMatchesPlan
+              ? `specId «${plan.specId}» совпадает с планом`
+              : [
+                  !specMatchesPlan ? `spec≠plan: ${spec.specId} vs ${plan.specId}` : null,
+                  ctx.spec && !ctxSpecMatchesPlan ? `контекст: ${ctx.spec.specId} vs план ${plan.specId}` : null,
+                ]
+                  .filter(Boolean)
+                  .join('; ') || 'несовпадение specId с планом',
+        });
+      }
 
       if (plan.fromScratch) {
         const intentOk = !!ctx.intent && ctx.intent.intentId === plan.intentId;
@@ -187,9 +217,17 @@ export class ReviewAgent implements BaseAgent {
 
   /**
    * Два варианта: `(spec, ctx, plan?)` как раньше, либо один объект `{ spec, ctx, plan? }`.
+   * Различие по числу аргументов: один аргумент — объект; два и более — кортеж (ctx обязателен).
    */
+  validate(spec: OsnovaSpec, ctx: ExecContext, plan?: ExecutionPlan): ReviewReport;
+  validate(input: { spec: OsnovaSpec; ctx: ExecContext; plan?: ExecutionPlan }): ReviewReport;
   validate(input: unknown, ctx?: ExecContext, plan?: ExecutionPlan): void | ReviewReport {
-    if (ctx !== undefined) {
+    if (arguments.length >= 2) {
+      if (ctx === undefined) {
+        throw new Error(
+          'ReviewAgent.validate: при вызове (spec, ctx, plan?) второй аргумент (ctx) обязателен',
+        );
+      }
       return this.review(input as OsnovaSpec, ctx, plan);
     }
     const b = input as { spec: OsnovaSpec; ctx: ExecContext; plan?: ExecutionPlan };
