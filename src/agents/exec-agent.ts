@@ -5,6 +5,13 @@
 import { PlanAgent, PlanValidationError, type ExecutionPlan, type PipelinePhase, type PlanStep } from './plan-agent';
 import type { BuildReport, GoldenReport, OsnovaIntent, OsnovaSpec, OsnovaSource } from '../pipeline/types';
 import type { AgentReport, BaseAgent } from '../types/agents';
+import type { OsVbcModule } from '../runtime/vm/bytecode';
+import { isOsVbcModule } from '../runtime/vm/bytecode';
+import {
+  OsVbcVM,
+  applyPipelineSpecToVm,
+  createPipelineInvokeHandlerForVm,
+} from '../runtime/vm';
 
 /** Состояние пайплайна между шагами (накапливается при выполнении). */
 export interface ExecContext {
@@ -68,6 +75,32 @@ function normalizeStepFailureMessage(
   const trimmed = explicit?.trim();
   if (trimmed) return trimmed;
   return `step failed: ${phase} (order ${order})`;
+}
+
+/**
+ * Собирает {@link OsVbcVM} из накопленного контекста после фазы build: валидный bytecode в
+ * {@link ExecContext.buildReport} и {@link ExecContext.spec}. Перед запуском процедуры вызывает
+ * {@link applyPipelineSpecToVm} — тот же снимок spec, что в контексте исполнителя шагов.
+ *
+ * @returns `null`, если нет spec, bytecode или модуль не проходит {@link isOsVbcModule}.
+ */
+export function createPipelineVmFromExecContext(ctx: ExecContext): OsVbcVM | null {
+  const spec = ctx.spec;
+  const bytecode = ctx.buildReport?.bytecode;
+  if (!spec || bytecode == null || !isOsVbcModule(bytecode)) {
+    return null;
+  }
+  const module = bytecode as OsVbcModule;
+  let vm!: OsVbcVM;
+  let pipelineInvoke: ReturnType<typeof createPipelineInvokeHandlerForVm> | undefined;
+  vm = new OsVbcVM(module, {
+    invoke: (name, args) => {
+      pipelineInvoke ??= createPipelineInvokeHandlerForVm(vm);
+      return pipelineInvoke(name, args);
+    },
+  });
+  applyPipelineSpecToVm(vm, spec);
+  return vm;
 }
 
 export class ExecAgent implements BaseAgent {

@@ -8,7 +8,8 @@ import { compileToBuildReport } from '../pipeline/orchestrator';
 import { runGoldenCheck } from '../runtime/goldenApps';
 import { IntakeAgent, SpecValidationError, parseLlmConfidence } from './IntakeAgent';
 import { PlanAgent, PlanValidationError, isValidPhaseTransition } from './plan-agent';
-import { ExecAgent, type ExecContext } from './exec-agent';
+import { ExecAgent, createPipelineVmFromExecContext, type ExecContext } from './exec-agent';
+import { PIPELINE_VM_GLOBAL_KEYS } from '../runtime/vm';
 import { ReviewAgent } from './review-agent';
 import { IntakeValidationError } from './types';
 import type { OsnovaIntent, OsnovaSpec, RawText } from '../pipeline/types';
@@ -1005,6 +1006,68 @@ const INTEGRATION_SUM_SOURCE = `
   вернуть сумма
 конец
 `.trim();
+
+describe('ExecAgent — createPipelineVmFromExecContext (runtime/vm)', () => {
+  it('возвращает null без spec, bytecode или при невалидном bytecode', () => {
+    expect(createPipelineVmFromExecContext({ repairAttempts: 0 })).toBeNull();
+    const spec = sampleSpec();
+    expect(
+      createPipelineVmFromExecContext({
+        repairAttempts: 0,
+        spec,
+        buildReport: {
+          success: true,
+          lexerErrors: [],
+          parserErrors: [],
+          compilerErrors: [],
+          bytecode: null,
+          compilerSuccess: true,
+          durationMs: 0,
+        },
+      }),
+    ).toBeNull();
+    expect(
+      createPipelineVmFromExecContext({
+        repairAttempts: 0,
+        spec,
+        buildReport: {
+          success: true,
+          lexerErrors: [],
+          parserErrors: [],
+          compilerErrors: [],
+          bytecode: { invalid: true },
+          compilerSuccess: true,
+          durationMs: 0,
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it('создаёт VM с applyPipelineSpecToVm: globals и успешный execute', async () => {
+    const spec = sampleSpec({
+      mainModule: 'главная',
+      procedures: [{ name: 'главная', params: {}, returnType: 'Ничто' }],
+    });
+    const buildReport = compileToBuildReport(compileSource(INTEGRATION_SUM_SOURCE));
+    expect(buildReport.success).toBe(true);
+    const vm = createPipelineVmFromExecContext({ repairAttempts: 0, spec, buildReport });
+    expect(vm).not.toBeNull();
+    expect(vm!.globals[PIPELINE_VM_GLOBAL_KEYS.SPEC_ID]).toBe(spec.specId);
+    const ret = await vm!.execute({ procedure: 'главная' });
+    expect(ret).toBe(55);
+  }, 20000);
+
+  it('execute: несуществующая процедура — ошибка пробрасывается', async () => {
+    const spec = sampleSpec({
+      mainModule: 'главная',
+      procedures: [{ name: 'главная', params: {}, returnType: 'Ничто' }],
+    });
+    const buildReport = compileToBuildReport(compileSource(INTEGRATION_SUM_SOURCE));
+    const vm = createPipelineVmFromExecContext({ repairAttempts: 0, spec, buildReport });
+    expect(vm).not.toBeNull();
+    await expect(vm!.execute({ procedure: 'нет_такой_процедуры' })).rejects.toThrow();
+  }, 20000);
+});
 
 describe('Интеграция — compiler → runtime → ReviewAgent (реальный тулчейн)', () => {
   it('compileToBuildReport + runGoldenCheck формируют ExecContext, который validate принимает', async () => {

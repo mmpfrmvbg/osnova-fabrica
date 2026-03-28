@@ -1,24 +1,23 @@
-id: ATM-EPK-260328-017-002
+id: ATM-EPK-260328-017-003
 epic: EPK-260328-017
-seq: 2
+seq: 3
 zone: agents
 risk: HIGH
 executor: cursor
-goal: Восстановить PlanAgent — построение плана выполнения
+goal: Восстановить ExecAgent — выполнение шагов плана
 scope:
-- src/agents/plan-agent.ts
-- src/agents/agents.test.ts — тесты plan-логики
+- src/agents/exec-agent.ts
+- src/agents/agents.test.ts — тесты exec-логики
 notouch:
-- src/runtime/vm.ts
+- src/compiler/*
 - src/pipeline/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- исправить ошибки типизации в plan-agent.ts
-- восстановить логику декомпозиции задач на шаги
-- добавить тесты на edge-cases планирования
-- убедиться что PlanAgent использует исправленный IntakeAgent
+- исправить TS-ошибки в exec-agent.ts
+- восстановить интеграцию с runtime/vm.ts для выполнения шагов
+- добавить тесты на успешное выполнение и обработку ошибок
 deps:
-- ATM-001
+- ATM-002
 maxiter: 3
 retries: 0
 status: PENDING
