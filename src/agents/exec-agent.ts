@@ -59,8 +59,75 @@ function applyPatch(ctx: ExecContext, patch: PhaseRunResult['patch']): void {
   if (p.repairAttempts !== undefined) ctx.repairAttempts = p.repairAttempts;
 }
 
+function normalizeStepFailureMessage(
+  phase: PlanStep['phase'],
+  order: number,
+  explicit?: string,
+): string {
+  const trimmed = explicit?.trim();
+  if (trimmed) return trimmed;
+  return `step failed: ${phase} (order ${order})`;
+}
+
 export class ExecAgent {
   constructor(private readonly planAgent: PlanAgent = new PlanAgent()) {}
+
+  /**
+   * Один шаг плана: `runPhase(phase, step, ctx)` для любой {@link PipelinePhase}.
+   * Patch в контекст применяется только при `ok: true`.
+   */
+  async executeStep(
+    step: PlanStep,
+    runPhase: PhaseRunner,
+    state: ExecContext,
+  ): Promise<{ readonly stepResult: ExecStepResult; readonly stop: boolean; readonly fatalError?: string }> {
+    const t0 = Date.now();
+    let outcome: PhaseRunResult;
+    try {
+      outcome = await runPhase(step.phase, step, state);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        stepResult: {
+          phase: step.phase,
+          order: step.order,
+          ok: false,
+          durationMs: Date.now() - t0,
+          error: message,
+        },
+        stop: true,
+        fatalError: message,
+      };
+    }
+
+    const durationMs = Date.now() - t0;
+
+    if (outcome.ok) {
+      applyPatch(state, outcome.patch);
+      return {
+        stepResult: {
+          phase: step.phase,
+          order: step.order,
+          ok: true,
+          durationMs,
+        },
+        stop: false,
+      };
+    }
+
+    const errMsg = normalizeStepFailureMessage(step.phase, step.order, outcome.error);
+    return {
+      stepResult: {
+        phase: step.phase,
+        order: step.order,
+        ok: false,
+        durationMs,
+        error: errMsg,
+      },
+      stop: true,
+      fatalError: errMsg,
+    };
+  }
 
   /**
    * Выполняет шаги плана по порядку, вызывая `runPhase` на каждую фазу.
@@ -85,47 +152,17 @@ export class ExecAgent {
     const steps: ExecStepResult[] = [];
 
     for (const step of plan.steps) {
-      const t0 = Date.now();
-      let outcome: PhaseRunResult;
-      try {
-        outcome = await runPhase(step.phase, step, state);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        steps.push({
-          phase: step.phase,
-          order: step.order,
-          ok: false,
-          durationMs: Date.now() - t0,
-          error: message,
-        });
+      const { stepResult, stop, fatalError } = await this.executeStep(step, runPhase, state);
+      steps.push(stepResult);
+
+      if (stop) {
         return {
           planId: plan.planId,
           completed: false,
           stoppedAtPhase: step.phase,
           steps,
           state,
-          error: message,
-        };
-      }
-
-      applyPatch(state, outcome.patch);
-
-      steps.push({
-        phase: step.phase,
-        order: step.order,
-        ok: outcome.ok,
-        durationMs: Date.now() - t0,
-        error: outcome.error,
-      });
-
-      if (!outcome.ok) {
-        return {
-          planId: plan.planId,
-          completed: false,
-          stoppedAtPhase: step.phase,
-          steps,
-          state,
-          error: outcome.error,
+          error: fatalError,
         };
       }
     }

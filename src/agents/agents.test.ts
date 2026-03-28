@@ -442,6 +442,88 @@ describe('ExecAgent.execute', () => {
       ),
     ).rejects.toThrow(PlanValidationError);
   });
+
+  it('fromScratch + repair: проходит все фазы пайплайна по порядку', async () => {
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: true,
+      includeRepair: true,
+    });
+    const exec = new ExecAgent(planAgent);
+    const phases: string[] = [];
+
+    const result = await exec.execute(plan, async (phase, step, ctx) => {
+      expect(step.phase).toBe(phase);
+      phases.push(phase);
+      return { ok: true, patch: { repairAttempts: ctx.repairAttempts } };
+    });
+
+    expect(result.completed).toBe(true);
+    expect(phases).toEqual([
+      'intake',
+      'spec_generation',
+      'g1_spec_ready',
+      'codegen',
+      'build',
+      'golden_check',
+      'repair',
+    ]);
+  });
+
+  it('при ok: false без error подставляет сообщение по фазе', async () => {
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: false,
+      includeRepair: false,
+    });
+    const exec = new ExecAgent(planAgent);
+
+    const result = await exec.execute(plan, async phase => {
+      if (phase === 'build') {
+        return { ok: false };
+      }
+      return { ok: true };
+    });
+
+    expect(result.completed).toBe(false);
+    expect(result.stoppedAtPhase).toBe('build');
+    expect(result.error).toBe('step failed: build (order 2)');
+    expect(result.steps[1]!.error).toBe('step failed: build (order 2)');
+  });
+});
+
+describe('ExecAgent.executeStep', () => {
+  it('применяет patch только при ok: true', async () => {
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: false,
+      includeRepair: false,
+    });
+    const exec = new ExecAgent(planAgent);
+    const state: ExecContext = { repairAttempts: 0 };
+
+    const step0 = plan.steps[0]!;
+    const r0 = await exec.executeStep(
+      step0,
+      async () => ({
+        ok: false,
+        patch: { intent: sampleIntent({ intentId: 'should-not-apply' }) },
+      }),
+      state,
+    );
+    expect(r0.stop).toBe(true);
+    expect(r0.stepResult.ok).toBe(false);
+    expect(state.intent).toBeUndefined();
+
+    const step1 = plan.steps[1]!;
+    const r1 = await exec.executeStep(
+      step1,
+      async () => ({ ok: true, patch: { repairAttempts: 1 } }),
+      state,
+    );
+    expect(r1.stop).toBe(false);
+    expect(state.repairAttempts).toBe(1);
+  });
 });
 
 function reviewOkCtx(over: Partial<ExecContext> = {}): ExecContext {
