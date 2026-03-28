@@ -270,6 +270,63 @@ describe('PlanAgent — зависимости фаз (переходы)', () =>
   });
 });
 
+describe('PlanAgent — edge cases: run, validate, двойной repair', () => {
+  const agent = new PlanAgent();
+  const intent = sampleIntent();
+  const spec = sampleSpec();
+
+  it('run совпадает с buildPlan для тех же intent/spec/options', () => {
+    const opts = { fromScratch: false, includeRepair: true } as const;
+    const a = agent.buildPlan(intent, spec, opts);
+    const b = agent.run({ intent, spec, options: opts });
+    expect(b.fromScratch).toBe(a.fromScratch);
+    expect(b.steps.map(s => s.phase)).toEqual(a.steps.map(s => s.phase));
+    expect(b.intentId).toBe(a.intentId);
+    expect(b.specId).toBe(a.specId);
+  });
+
+  it('validate принимает пару intent+spec без options', () => {
+    expect(() => agent.validate({ intent, spec })).not.toThrow();
+  });
+
+  it('validate отклоняет не-объект и пустую пару', () => {
+    expect(() => agent.validate(null)).toThrow(PlanValidationError);
+    expect(() => agent.validate({ intent })).toThrow(PlanValidationError);
+    expect(() => agent.validate({ spec })).toThrow(PlanValidationError);
+  });
+
+  it('fromScratch без repair: 6 шагов, последний golden_check', () => {
+    const plan = agent.buildPlan(intent, spec, { fromScratch: true, includeRepair: false });
+    expect(plan.steps.map(s => s.phase)).toEqual([
+      'intake',
+      'spec_generation',
+      'g1_spec_ready',
+      'codegen',
+      'build',
+      'golden_check',
+    ]);
+    expect(plan.steps[plan.steps.length - 1]!.phase).toBe('golden_check');
+  });
+
+  it('validatePlan: два шага repair подряд недопустимы', () => {
+    expect(() =>
+      agent.validatePlan({
+        planId: 'p',
+        intentId: 'i',
+        specId: 's',
+        fromScratch: false,
+        steps: [
+          { phase: 'codegen', order: 1 },
+          { phase: 'build', order: 2 },
+          { phase: 'golden_check', order: 3 },
+          { phase: 'repair', order: 4 },
+          { phase: 'repair', order: 5 },
+        ],
+      }),
+    ).toThrow(PlanValidationError);
+  });
+});
+
 describe('PlanAgent — граничные случаи validatePlan', () => {
   const agent = new PlanAgent();
 

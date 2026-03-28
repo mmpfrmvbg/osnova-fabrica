@@ -1,22 +1,24 @@
-id: ATM-EPK-260328-017-010
+id: ATM-EPK-260328-017-002
 epic: EPK-260328-017
-seq: 10
-zone: compiler
-risk: MEDIUM
+seq: 2
+zone: agents
+risk: HIGH
 executor: cursor
-goal: Исправить compiler.ts — ошибки компиляции pipeline spec
+goal: Восстановить PlanAgent — построение плана выполнения
 scope:
-- src/compiler/compiler.ts
+- src/agents/plan-agent.ts
+- src/agents/agents.test.ts — тесты plan-логики
 notouch:
-- src/agents/*
+- src/runtime/vm.ts
 - src/pipeline/*
-- src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- audit compiler.ts на TS-ошибки
-- исправить парсинг и валидацию spec
-- добавить тесты на корректность компиляции
-deps: []
+- исправить ошибки типизации в plan-agent.ts
+- восстановить логику декомпозиции задач на шаги
+- добавить тесты на edge-cases планирования
+- убедиться что PlanAgent использует исправленный IntakeAgent
+deps:
+- ATM-001
 maxiter: 3
 retries: 0
 status: PENDING

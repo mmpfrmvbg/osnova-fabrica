@@ -1,6 +1,7 @@
 // ============================================================
 // src/agents/plan-agent.ts — PlanAgent: план выполнения пайплайна
-// Интеграция с типами intake (OsnovaIntent, OsnovaSpec из pipeline/types)
+// OsnovaIntent / OsnovaSpec — те же контракты, что выдаёт IntakeAgent
+// (parseIntent → generateSpec); идентификаторы должны совпадать с проверенным контекстом.
 // ============================================================
 
 import { randomUUID } from 'crypto';
@@ -39,6 +40,18 @@ export interface PlanAgentBuildOptions {
   readonly fromScratch?: boolean;
   /** Добавить финальный шаг repair (после golden_check). По умолчанию true. */
   readonly includeRepair?: boolean;
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null;
+}
+
+/** Объект с полями intent + spec (как после цепочки IntakeAgent). */
+function hasIntentAndSpec(
+  x: unknown,
+): x is { intent: OsnovaIntent; spec: OsnovaSpec; options?: PlanAgentBuildOptions } {
+  if (!isRecord(x)) return false;
+  return x.intent != null && x.spec != null;
 }
 
 /** Порядок фаз для проверки монотонности (меньше = раньше в пайплайне). */
@@ -92,50 +105,7 @@ export class PlanAgent implements BaseAgent {
 
     this.validateInputs(intent, spec);
 
-    const steps: PlanStep[] = [];
-    let order = 1;
-
-    if (fromScratch) {
-      steps.push({
-        phase: 'intake',
-        order: order++,
-        description: 'parseIntent: RawText → OsnovaIntent',
-      });
-      steps.push({
-        phase: 'spec_generation',
-        order: order++,
-        description: 'generateSpec: OsnovaIntent → OsnovaSpec',
-      });
-      steps.push({
-        phase: 'g1_spec_ready',
-        order: order++,
-        description: 'gate G1_spec_ready: intent+spec → готовность к codegen',
-      });
-    }
-
-    steps.push({
-      phase: 'codegen',
-      order: order++,
-      description: 'generate: OsnovaSpec → OsnovaSource',
-    });
-    steps.push({
-      phase: 'build',
-      order: order++,
-      description: 'compileSource → BuildReport',
-    });
-    steps.push({
-      phase: 'golden_check',
-      order: order++,
-      description: 'runGoldenCheck',
-    });
-
-    if (includeRepair) {
-      steps.push({
-        phase: 'repair',
-        order: order++,
-        description: 'RepairEngineer loop (до лимита попыток)',
-      });
-    }
+    const steps = this.buildExecutionSteps(fromScratch, includeRepair);
 
     const plan: ExecutionPlan = {
       planId: randomUUID(),
@@ -155,32 +125,26 @@ export class PlanAgent implements BaseAgent {
    * Ожидает `{ intent: OsnovaIntent, spec: OsnovaSpec }`.
    */
   validate(input: unknown, _ctx?: unknown, _plan?: unknown): void {
-    const p = input as { intent?: OsnovaIntent; spec?: OsnovaSpec };
-    if (!p?.intent || !p?.spec) {
+    if (!hasIntentAndSpec(input)) {
       throw new PlanValidationError(
         'validate: ожидается объект { intent, spec }',
         'validate',
       );
     }
-    this.validateInputs(p.intent, p.spec);
+    this.validateInputs(input.intent, input.spec);
   }
 
   /**
    * То же, что {@link buildPlan}, с сохранением для {@link report}.
    */
   run(input?: unknown): ExecutionPlan {
-    const p = input as {
-      intent: OsnovaIntent;
-      spec: OsnovaSpec;
-      options?: PlanAgentBuildOptions;
-    };
-    if (!p?.intent || !p?.spec) {
+    if (!hasIntentAndSpec(input)) {
       throw new PlanValidationError(
         'run: ожидается { intent, spec, options? }',
         'run',
       );
     }
-    return this.buildPlan(p.intent, p.spec, p.options ?? {});
+    return this.buildPlan(input.intent, input.spec, input.options ?? {});
   }
 
   report(): AgentReport {
@@ -271,6 +235,34 @@ export class PlanAgent implements BaseAgent {
     if (afterCore.length === 1 && afterCore[0] !== 'repair') {
       throw new PlanValidationError('only repair may follow golden_check', 'after_golden');
     }
+  }
+
+  /**
+   * Декомпозиция пайплайна на упорядоченные шаги: опционально полный intake-цикл,
+   * затем codegen → build → golden_check и опционально repair.
+   */
+  private buildExecutionSteps(fromScratch: boolean, includeRepair: boolean): PlanStep[] {
+    const steps: PlanStep[] = [];
+    let order = 1;
+    const push = (phase: PipelinePhase, description?: string) => {
+      steps.push({ phase, order: order++, description });
+    };
+
+    if (fromScratch) {
+      push('intake', 'parseIntent: RawText → OsnovaIntent');
+      push('spec_generation', 'generateSpec: OsnovaIntent → OsnovaSpec');
+      push('g1_spec_ready', 'gate G1_spec_ready: intent+spec → готовность к codegen');
+    }
+
+    push('codegen', 'generate: OsnovaSpec → OsnovaSource');
+    push('build', 'compileSource → BuildReport');
+    push('golden_check', 'runGoldenCheck');
+
+    if (includeRepair) {
+      push('repair', 'RepairEngineer loop (до лимита попыток)');
+    }
+
+    return steps;
   }
 
   private validateInputs(intent: OsnovaIntent, spec: OsnovaSpec): void {
