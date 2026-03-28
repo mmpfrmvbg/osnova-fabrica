@@ -33,7 +33,9 @@ describe("Compiler class: compile / execute (E2E)", () => {
   вернуть 42
 конец`.trim();
     const c = new Compiler();
-    expect(c.compile(src)).toEqual(compileSource(src));
+    const a = c.compile(src);
+    const b = compileSource(src);
+    expect({ ...a, durationMs: 0 }).toEqual({ ...b, durationMs: 0 });
   });
 
   it("execute() возвращает результат первой процедуры", async () => {

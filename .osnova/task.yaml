@@ -1,23 +1,21 @@
-id: ATM-EPK-260328-017-001
+id: ATM-EPK-260328-017-010
 epic: EPK-260328-017
-seq: 1
-zone: agents
-risk: HIGH
+seq: 10
+zone: compiler
+risk: MEDIUM
 executor: cursor
-goal: Восстановить IntakeAgent — базовая валидация и парсинг задач
+goal: Восстановить compiler — компиляция в промежуточное представление
 scope:
-- src/agents/intake-agent.ts — восстановить класс, методы parse и validate
-- src/agents/agents.test.ts — добавить тесты для IntakeAgent
+- src/compiler/compiler.ts — восстановить компилятор
 notouch:
+- src/agents/*
 - src/pipeline/*
-- src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать текущую реализацию intake-agent.ts
-- Исправить сигнатуры методов согласно интерфейсу Agent
-- Добавить обработку edge-кейсов во входных данных
-- Написать unit-тесты на parse и validate
-- Запустить npx vitest run src/agents/intake-agent.test.ts
+- Анализ compiler.ts
+- Исправить метод compile — корректная генерация IR
+- Восстановить оптимизации
+- Протестировать компиляцию различных входных программ
 deps: []
 maxiter: 3
 retries: 0

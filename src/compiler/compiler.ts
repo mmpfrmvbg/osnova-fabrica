@@ -9,7 +9,7 @@
 import { tokenize } from './lexer';
 import { parse, type ParseError } from './parser';
 import { compile, compileProgram } from './codegen';
-import type { OsVbcModule } from '../runtime/vm/bytecode';
+import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction } from '../runtime/vm/bytecode';
 import { VM, type InterpreterOptions, type StackValue } from './vm';
 import { analyzeProgram, type SemanticError } from './semantic';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
@@ -338,6 +338,67 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
   return errors;
 }
 
+/** IR (промежуточное представление) MVP — тот же контейнер, что и байткод v1 (.osvbc). */
+export type OsnovaIrModule = OsVbcModule;
+
+function remapConstKInInstruction(ins: RawInstruction, oldToNew: number[]): RawInstruction {
+  if (ins.op === "const" && "k" in ins) {
+    const k = (ins as { k: number }).k;
+    const nk = oldToNew[k];
+    if (nk === undefined) return ins;
+    return { ...ins, k: nk } as RawInstruction;
+  }
+  return ins;
+}
+
+function remapCodeElements(code: CodeElement[], oldToNew: number[]): CodeElement[] {
+  return code.map((el) => {
+    if (isVliwPacket(el)) {
+      return {
+        ...el,
+        slots: el.slots.map((s) => remapConstKInInstruction(s, oldToNew)),
+      };
+    }
+    return remapConstKInInstruction(el as RawInstruction, oldToNew);
+  });
+}
+
+/**
+ * Оптимизация IR: слияние дублирующихся литералов в пуле констант и перенумерация const.k.
+ * Длину кода и смещения jmp не меняет — безопасно для последовательной VM.
+ */
+export function optimizeIrModule(ir: OsVbcModule): OsVbcModule {
+  const oldConsts = ir.constants;
+  if (oldConsts.length <= 1) return ir;
+
+  const oldToNew: number[] = new Array(oldConsts.length);
+  const newConsts: unknown[] = [];
+  for (let i = 0; i < oldConsts.length; i++) {
+    const v = oldConsts[i]!;
+    let found = -1;
+    for (let j = 0; j < newConsts.length; j++) {
+      if (Object.is(v, newConsts[j])) {
+        found = j;
+        break;
+      }
+    }
+    if (found >= 0) {
+      oldToNew[i] = found;
+    } else {
+      oldToNew[i] = newConsts.length;
+      newConsts.push(v);
+    }
+  }
+
+  if (newConsts.length === oldConsts.length) return ir;
+
+  return {
+    ...ir,
+    constants: newConsts,
+    code: remapCodeElements(ir.code, oldToNew),
+  };
+}
+
 export function compileSource(source: string, options: CompileOptions = {}): CompileResult {
   const start = Date.now();
   const { tokens, errors: lexerErrors } = tokenize(source);
@@ -356,10 +417,12 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     };
   }
 
+  const baseDir = options.baseDir ?? process.cwd();
+
   let expandedAst: Module;
   try {
     const ast = getFirstModuleOrThrow(program);
-    expandedAst = expandModuleImports(ast, options.baseDir ?? process.cwd());
+    expandedAst = expandModuleImports(ast, baseDir);
   } catch (e) {
     return {
       module: null,
@@ -373,7 +436,20 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     };
   }
 
-  const namedTypeErrors = validateNamedTypesAndRewrite(expandedAst);
+  let namedTypeErrors: string[];
+  if (program.modules.length === 1) {
+    namedTypeErrors = validateNamedTypesAndRewrite(expandedAst);
+  } else {
+    namedTypeErrors = [];
+    for (const mod of program.modules) {
+      try {
+        const ex = expandModuleImports(mod, baseDir);
+        namedTypeErrors.push(...validateNamedTypesAndRewrite(ex));
+      } catch (e) {
+        namedTypeErrors.push(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
   if (namedTypeErrors.length > 0) {
     return {
       module: null,
@@ -394,7 +470,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     const programSemanticErrors = analyzeProgram(program).errors;
     const programSemanticAsCompiler = programSemanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
     try {
-      const compiledModules = compileProgram(program);
+      const compiledModules = compileProgram(program).map(optimizeIrModule);
       return {
         module: compiledModules[0] ?? null,
         modules: compiledModules,
@@ -423,7 +499,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   }
 
   try {
-    const module = compile(expandedAst);
+    const module = optimizeIrModule(compile(expandedAst));
     return {
       module,
       modules: [module],
