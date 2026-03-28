@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-28T22:49:02.173320+03:00'
+updatedat: '2026-03-28T23:26:12.220903+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -8,13 +8,13 @@ epicprogress:
   blocked: 0
   current: null
 sessionstats:
-  epicsreceived: 16
-  epicsdone: 4
+  epicsreceived: 17
+  epicsdone: 5
   epicsblocked: 12
-  atomstotal: 81
-  atomsdone: 23
+  atomstotal: 93
+  atomsdone: 35
   atomsblocked: 58
-  passrate: 0.2839506172839506
+  passrate: 0.3763440860215054
 ci:
   lastrun: null
   laststatus: null

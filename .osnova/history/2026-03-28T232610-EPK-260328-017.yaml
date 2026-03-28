@@ -1,0 +1,323 @@
+epic: EPK-260328-017
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 12
+  atomstotal: 12
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-001
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 105
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно:
+
+      - **src/agents/**: 112 тестов (4 файла)
+
+      - **src/pipeline/**: 99 тестов (6 файлов)
+
+
+      PASS: IntakeAgent восстановлен — базовый парсинг и валидация входных данных
+      работают, все тесты зелёные.'
+    elapsed: 33
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-010
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 257
+  err: null
+  review:
+    passed: true
+    reason: 'Тесты прошли успешно:
+
+      - **src/agents/**: 112 тестов пройдено (4 файла)
+
+      - **src/pipeline/**: 99 тестов пройдено (6 файлов)
+
+
+      Изменения в `compiler.ts` минимальны и корректны: добавлен синоним типа `Число`
+      в набор примитивных типов полей (`PRIMITIVE_FIELD_TYPES`), что соответствует
+      комментарию о поддержке обоих вариантов (канонического и синонима из few-shot/парсера).
+
+
+      PASS: Все тесты пройдены (211/211), изменение в compiler.ts корректно добавляет
+      синоним типа `Число`.'
+    elapsed: 27
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-002
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 166
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно:
+
+      - `src/agents/` — 117 тестов (4 файла)
+
+      - `src/pipeline/` — 99 тестов (6 файлов)
+
+
+      PASS: PlanAgent восстановлен — все 216 тестов пройдены, edge cases (run/validate,
+      fromScratch без repair, двойной repair) работают корректно'
+    elapsed: 21
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-003
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 157
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно:
+
+      - **src/agents/**: 120 тестов в 4 файлах
+
+      - **src/pipeline/**: 99 тестов в 6 файлах
+
+
+      Новые тесты `ExecAgent — createPipelineVmFromExecContext (runtime/vm)` работают
+      корректно:
+
+      - Возврат `null` при отсутствии spec/bytecode
+
+      - Создание VM с `applyPipelineSpecToVm` и успешный `execute`
+
+      - Пробрасывание ошибки при несуществующей процедуре
+
+
+      PASS: ExecAgent восстановлен — все 219 тестов пройдены, интеграция с runtime/vm.ts
+      работает'
+    elapsed: 26
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-004
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 203
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно:
+
+      - **src/agents/**: 125 тестов (4 файла)
+
+      - **src/pipeline/**: 99 тестов (6 файлов)
+
+
+      ReviewAgent восстановлен:
+
+      - Добавлена валидация эталонного spec (`isValidReviewSpec`)
+
+      - Исправлена обработка перегрузки `validate(spec, ctx, plan?)` vs `{ spec, ctx,
+      plan? }`
+
+      - Добавлены тесты на некорректный spec, объектную форму, блокирующие семантические
+      ошибки и нечисловой qualityScore
+
+
+      PASS: все тесты агентов и пайплайна пройдены, ReviewAgent валидирует результаты
+      выполнения'
+    elapsed: 20
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-005
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 72
+  err: null
+  review:
+    passed: true
+    reason: 'Все 72 теста пройдены, включая новый E2E-тест взаимодействия 4 агентов
+      (intake → plan → exec → review).
+
+
+      PASS: 72/72 теста пройдены, E2E-сценарий накопления контекста между агентами
+      работает корректно'
+    elapsed: 22
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-006
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 279
+  err: null
+  review:
+    passed: true
+    reason: '**Результат проверки:**
+
+
+      - ✅ `src/agents/`: 4 test files, 126 tests passed
+
+      - ✅ `src/pipeline/`: 6 test files, 99 tests passed
+
+      - ✅ Все тесты прошли без ошибок
+
+      - ✅ Scope задачи восстановлен: `src/pipeline/pipeline.ts`
+
+      - ✅ Retry-логика с `MAX_EXEC_REPAIR_LOOPS = 3` реализована
+
+      - ✅ Обработка ошибок на фазах `build` и `golden_check` добавлена
+
+      - ✅ Цепочка агентов: `intake → spec → codegen → build → golden_check` восстановлена
+
+
+      PASS: Все 225 тестов пройдены, pipeline.ts восстановлен с retry-логикой и обработкой
+      ошибок'
+    elapsed: 43
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-007
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 97
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты pipeline прошли успешно:
+
+
+      - **104 теста** в 6 файлах
+
+      - **0 провалов**
+
+      - Покрыты сценарии: успешный пайплайн, обработка ошибок агентов, gates (G1/G2/G3),
+      partial/repair_exhausted, shadow mode, health score
+
+
+      PASS: 104/104 теста прошли — покрытие основных сценариев оркестрации реализовано'
+    elapsed: 20
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-008
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 127
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно:
+
+      - **src/agents/** — 126 тестов пройдено
+
+      - **src/pipeline/** — 104 теста пройдено
+
+
+      Исправления в `vm.ts`:
+
+      1. Добавлена защита от параллельных запусков `execute` через флаг `executing`
+
+      2. Исправлена обработка ошибок при разрешении процедуры (ранний `error` лог)
+
+      3. Добавлено подавление поздних `reject` после таймаута для предотвращения `unhandledRejection`
+
+      4. Корректный сброс флага `executing` в `finally`
+
+
+      PASS: Критические ошибки выполнения в vm.ts исправлены, все тесты проходят'
+    elapsed: 27
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-009
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 131
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли (126 + 104 = 230 тестов). Изменения в `interpreter.ts`
+      корректны:
+
+
+      1. Метод `interpret` теперь `async` — соответствует асинхронной природе `interpretInstruction`
+
+      2. После выполнения шага с числовым результатом обновляется внутренний `pc`
+      через type-cast
+
+      3. Это обеспечивает согласованность с циклом `VM.runProcedure` при переходах
+      (jmp/call/ret)
+
+
+      PASS: Интерпретатор корректно обновляет PC после каждого шага, все тесты агентов
+      и пайплайна пройдены'
+    elapsed: 25
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-011
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 52
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно:
+
+
+      - **src/agents/**: 126 тестов пройдено из 126 (100% passrate)
+
+      - **src/pipeline/**: 104 теста пройдено из 104 (100% passrate)
+
+
+      Общий passrate: **230/230 = 1.0** (> 0.8 ✅)
+
+
+      PASS: Все 230 E2E тестов agents + pipeline прошли успешно, passrate 1.0 > 0.8'
+    elapsed: 21
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-012
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 155
+  err: null
+  review:
+    passed: true
+    reason: "Все тесты прошли успешно:\n- **agents**: 126 тестов в 4 файлах\n- **pipeline**:\
+      \ 104 теста в 6 файлах  \n- **Итого**: 230 тестов, 0 провалов\n\nPASS: Все 230\
+      \ тестов agents + pipeline прошли успешно, интеграция compiler → runtime → agents\
+      \ → pipeline завершена"
+    elapsed: 34
+createdat: '2026-03-28T23:26:10.625951+03:00'
