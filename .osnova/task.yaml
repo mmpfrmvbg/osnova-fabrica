@@ -1,23 +1,22 @@
-id: ATM-EPK-260328-017-004
+id: ATM-EPK-260328-017-008
 epic: EPK-260328-017
-seq: 4
-zone: agents
+seq: 8
+zone: runtime
 risk: HIGH
 executor: cursor
-goal: Восстановить ReviewAgent — валидация результатов
+goal: Восстановить VM — выполнение кода в песочнице
 scope:
-- src/agents/review-agent.ts — восстановить проверку результатов
-- src/agents/agents.test.ts — тесты для ReviewAgent
+- src/runtime/vm.ts — восстановить виртуальную машину
 notouch:
+- src/agents/*
 - src/pipeline/*
-- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Анализ review-agent.ts
-- Исправить метод review — полная проверка выходных данных
-- Добавить проверку соответствия плану
-- Написать тесты на различные исходы review
-- Запустить npx vitest run src/agents/review-agent.test.ts
+- Анализ текущей реализации vm.ts
+- Исправить метод execute — безопасное выполнение кода
+- Восстановить обработку timeout и ошибок
+- Добавить логирование выполнения
+- Запустить существующие тесты VM
 deps:
 - ATM-EPK-260328-017-003
 maxiter: 3

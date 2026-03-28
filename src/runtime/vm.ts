@@ -19,7 +19,7 @@
  * через наследование {@link import("./interpreter").InterpreterOptions} в {@link OsVbcVMOptions}.
  */
 
-import { Interpreter } from "./interpreter";
+import { Interpreter, InterpreterError } from "./interpreter";
 import type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";
 import type { OsnovaSpec } from "../pipeline/types";
 import type { OsVbcModule } from "./vm/bytecode";
@@ -29,10 +29,31 @@ import { createDefaultInvokeHandler } from "./vm/interpreter";
 export { createDefaultInvokeHandler };
 export type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";
 
+/** Фаза записи в {@link OsVbcVMOptions.onExecutionLog}. */
+export type VmExecutionLogPhase = "start" | "done" | "error";
+
+/** Событие логирования одного запуска {@link OsVbcVM.execute}. */
+export interface VmExecutionLogEvent {
+  phase: VmExecutionLogPhase;
+  /** Имя процедуры или `#индекс`. */
+  procedure: string;
+  /** {@link OsVbcModule.moduleName} */
+  moduleName: string;
+  /** Прошедшее время (мс) для `done` и `error`. */
+  elapsedMs?: number;
+  /** Исключение при `error` (как есть). */
+  error?: unknown;
+}
+
 /** Опции конструктора {@link OsVbcVM}: наследует {@link InterpreterOptions} (в т.ч. `invoke`, лимиты шагов) и стартовые `globals`. */
 export interface OsVbcVMOptions extends InterpreterOptions {
   /** Глобальный контекст хоста (копируется в {@link OsVbcVM.globals}; можно мутировать снаружи). */
   globals?: Record<string, StackValue>;
+  /**
+   * Колбэк для наблюдения за выполнением (песочница / отладка). По умолчанию выключен.
+   * Не передаётся в {@link Interpreter}.
+   */
+  onExecutionLog?: (e: VmExecutionLogEvent) => void;
 }
 
 /** Аргументы для {@link OsVbcVM.execute}: какую процедуру запустить и начальные значения стека. */
@@ -41,6 +62,30 @@ export interface OsVbcExecuteOptions {
   procedure?: string;
   /** Аргументы, передаваемые в процедуру (стек вызова). */
   args?: StackValue[];
+  /**
+   * Лимит wall-clock (мс) на весь прогон, включая ожидание async в `invoke`.
+   * Не задано или `≤ 0` — без лимита (остаётся только {@link InterpreterOptions.maxSteps}).
+   */
+  timeoutMs?: number;
+}
+
+function runWithTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  if (!Number.isFinite(ms) || ms <= 0) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => {
+      reject(new InterpreterError(message));
+    }, ms);
+    promise.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
 }
 
 /**
@@ -146,7 +191,9 @@ export function createPipelineInvokeHandlerForVm(
  * Внешние вызовы из байткода — через `invoke` (по умолчанию {@link createDefaultInvokeHandler}).
  */
 export class OsVbcVM {
+  private readonly module: OsVbcModule;
   private readonly interpreter: Interpreter;
+  private readonly onExecutionLog?: (e: VmExecutionLogEvent) => void;
   private lastReturnValue: StackValue | undefined;
 
   /**
@@ -160,7 +207,9 @@ export class OsVbcVM {
    * @param options — {@link OsVbcVMOptions}: стартовые `globals`, лимиты шагов, цепочка `invoke` и пр.
    */
   constructor(module: OsVbcModule, options: OsVbcVMOptions = {}) {
-    const { globals: initial = {}, ...rest } = options;
+    const { globals: initial = {}, onExecutionLog, ...rest } = options;
+    this.module = module;
+    this.onExecutionLog = onExecutionLog;
     this.globals = Object.assign(Object.create(null) as Record<string, StackValue>, initial);
     this.interpreter = new Interpreter(module, rest);
   }
@@ -169,21 +218,64 @@ export class OsVbcVM {
    * Запускает процедуру модуля и сохраняет возвращаемое значение для {@link OsVbcVM.getReturnValue}.
    *
    * Точка входа по умолчанию: `главная`, иначе `main`, иначе процедура с индексом 0.
+   * При ошибке или таймауте сбрасывает {@link OsVbcVM.getReturnValue} и пробрасывает исключение.
+   *
    * @param opts — имя процедуры и аргументы стека; без `procedure` используется разрешение по умолчанию.
    * @returns Значение `ret` из процедуры или `undefined`.
    */
   async execute(opts: OsVbcExecuteOptions = {}): Promise<StackValue | undefined> {
     const procedureIndex = this.resolveProcedureIndex(opts.procedure);
-    this.lastReturnValue = await this.interpreter.runProcedure(procedureIndex, opts.args ?? []);
-    return this.lastReturnValue;
+    const procedure = this.procedureLabel(procedureIndex);
+    const t0 = Date.now();
+    this.onExecutionLog?.({
+      phase: "start",
+      procedure,
+      moduleName: this.module.moduleName,
+    });
+
+    let run = this.interpreter.runProcedure(procedureIndex, opts.args ?? []);
+    const { timeoutMs } = opts;
+    if (timeoutMs !== undefined && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      run = runWithTimeout(
+        run,
+        timeoutMs,
+        `VM.execute: превышен лимит времени (${timeoutMs} мс), процедура «${procedure}»`,
+      );
+    }
+
+    try {
+      this.lastReturnValue = await run;
+      this.onExecutionLog?.({
+        phase: "done",
+        procedure,
+        moduleName: this.module.moduleName,
+        elapsedMs: Date.now() - t0,
+      });
+      return this.lastReturnValue;
+    } catch (err) {
+      this.lastReturnValue = undefined;
+      this.onExecutionLog?.({
+        phase: "error",
+        procedure,
+        moduleName: this.module.moduleName,
+        elapsedMs: Date.now() - t0,
+        error: err,
+      });
+      throw err;
+    }
   }
 
   /**
    * Результат последнего успешного {@link OsVbcVM.execute} (аналог «значения вычисления» после прогона процедуры).
-   * До первого `execute` — `undefined`.
+   * До первого `execute` — `undefined`. После неудачного `execute` — `undefined`.
    */
   getReturnValue(): StackValue | undefined {
     return this.lastReturnValue;
+  }
+
+  private procedureLabel(index: number): string {
+    const name = this.module.procedures[index]?.name;
+    return name !== undefined && name !== "" ? name : `#${index}`;
   }
 
   private resolveProcedureIndex(name?: string): number {

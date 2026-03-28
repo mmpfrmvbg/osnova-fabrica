@@ -146,4 +146,36 @@ describe("OsVbcVM integration", () => {
       __osnova_pipeline_main_module: "M",
     });
   });
+
+  it("timeoutMs: зависший invoke обрывается по wall-clock", async () => {
+    const m: OsVbcModule = {
+      version: 1,
+      moduleName: "Таймаут",
+      constants: [],
+      procedures: [{ name: "главная", codeOffset: 0, argc: 0, localsCount: 0 }],
+      code: [ri("const.null"), ri("invoke", { name: "система.лог.вывести" }), ri("ret")],
+    };
+    const invoke: InvokeHandler = () => new Promise(() => {});
+    const vm = new OsVbcVM(m, { invoke, maxSteps: 1000 });
+    await expect(vm.execute({ timeoutMs: 30 })).rejects.toThrow(InterpreterError);
+    expect(vm.getReturnValue()).toBeUndefined();
+  });
+
+  it("onExecutionLog: старт/успех; при ошибке — error и сброс getReturnValue", async () => {
+    const events: { phase: string }[] = [];
+    const m: OsVbcModule = {
+      version: 1,
+      moduleName: "Лог",
+      constants: ["x"],
+      procedures: [{ name: "главная", codeOffset: 0, argc: 0, localsCount: 0 }],
+      code: [ri("const", { type: "str", k: 0 }), ri("throw")],
+    };
+    const vm = new OsVbcVM(m, {
+      maxSteps: 1000,
+      onExecutionLog: (e) => events.push({ phase: e.phase }),
+    });
+    await expect(vm.execute()).rejects.toThrow(InterpreterError);
+    expect(events.map((x) => x.phase)).toEqual(["start", "error"]);
+    expect(vm.getReturnValue()).toBeUndefined();
+  });
 });
