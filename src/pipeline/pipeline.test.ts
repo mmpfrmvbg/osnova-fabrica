@@ -1,0 +1,144 @@
+/**
+ * Интеграционные E2E-тесты фасада pipeline.ts: Intake → Plan → Exec → OsnovaCodegen,
+ * реальная компиляция и runGoldenCheck (VM). Мок только LLM.
+ */
+
+import { describe, it, expect, vi } from 'vitest';
+import { runPipelineWithExecAgent } from './pipeline';
+import { ReviewAgent } from '../agents/review-agent';
+import type { ExecContext } from '../agents/exec-agent';
+
+const createMockProvider = () => ({
+  id: 'mock',
+  name: 'MockLLM',
+  async checkHealth() {
+    return { available: true };
+  },
+  async listModels() {
+    return [];
+  },
+  async complete(request: { messages: { role: string; content: string }[] }) {
+    const messages = request.messages;
+    const lastMsg = messages[messages.length - 1];
+    const content = typeof lastMsg.content === 'string' ? lastMsg.content : '';
+    const systemContent = messages[0]?.role === 'system' ? (messages[0].content as string) : '';
+
+    if (messages.length === 1 && content.includes('Analyze this programming task')) {
+      return {
+        content: JSON.stringify({
+          intent: 'Посчитать сумму чисел от 1 до 10',
+          confidence: 0.95,
+          language: 'osnova',
+          features: ['arithmetic loop', 'print result'],
+          params: {},
+        }),
+        model: 'mock',
+        done: true,
+      };
+    }
+
+    if (
+      messages.length === 2 &&
+      systemContent.includes('modules') &&
+      (systemContent.includes('Return ONLY this JSON') || systemContent.includes('Верни ТОЛЬКО'))
+    ) {
+      return {
+        content: JSON.stringify({
+          modules: [{ name: 'Главный', description: 'Main', isMain: true }],
+          mainModule: 'главная',
+          types: [],
+          procedures: [{ name: 'главная', params: {}, returnType: 'Ничто' }],
+          syscalls: ['система.лог.вывести'],
+          conventions: {},
+        }),
+        model: 'mock',
+        done: true,
+      };
+    }
+
+    if (systemContent.includes('OsnovaCodegen') && systemContent.includes('Syscall API')) {
+      const osnovaSource = `
+модуль Главный
+процедура главная()
+  пусть сумма = 0
+  пусть счётчик = 1
+  пока счётчик <= 10
+    сумма = сумма + счётчик
+    счётчик = счётчик + 1
+  конец
+  система.лог.вывести(сумма)
+  вернуть сумма
+конец
+`.trim();
+      return {
+        content: osnovaSource,
+        model: 'mock',
+        done: true,
+      };
+    }
+
+    const osnovaRepair = `
+модуль Главный
+процедура главная()
+  пусть сумма = 0
+  пусть счётчик = 1
+  пока счётчик <= 10
+    сумма = сумма + счётчик
+    счётчик = счётчик + 1
+  конец
+  система.лог.вывести(сумма)
+  вернуть сумма
+конец
+`.trim();
+    return {
+      content: osnovaRepair,
+      model: 'mock',
+      done: true,
+    };
+  },
+  async completeStream() {
+    throw new Error('completeStream not used in pipeline');
+  },
+});
+
+vi.mock('../llm/index', () => ({
+  getLLMProvider: () => createMockProvider(),
+  DEFAULT_PROVIDER: 'qwen-cli',
+  getDefaultModel: () => 'mock',
+  PROVIDER_DEFAULT_MODEL: {},
+}));
+
+describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)', () => {
+  it('полный проход: intent → spec → Plan/Exec → codegen → build → golden, passrate > 0.8', async () => {
+    const result = await runPipelineWithExecAgent('посчитай сумму от 1 до 10');
+
+    expect(result.status).toBe('success');
+    expect(result.intent?.confidence).toBeGreaterThanOrEqual(0.7);
+    expect(result.spec?.mainModule).toBe('главная');
+    expect(result.source?.source).toContain('модуль');
+    expect(result.buildReport?.success).toBe(true);
+    expect(result.buildReport?.bytecode).toBeTruthy();
+    expect(result.goldenReport?.executed).toBe(true);
+    expect(result.goldenReport?.qualityScore).toBeGreaterThan(0.8);
+    expect(result.goldenReport?.passed).toBe(true);
+    expect(result.repairAttempts).toBe(0);
+  }, 20000);
+
+  it('ReviewAgent принимает контекст после успешного Exec-пайплайна', async () => {
+    const result = await runPipelineWithExecAgent('посчитай сумму от 1 до 10');
+    expect(result.spec).toBeDefined();
+    expect(result.buildReport).toBeDefined();
+    expect(result.goldenReport).toBeDefined();
+
+    const ctx: ExecContext = {
+      repairAttempts: 0,
+      intent: result.intent,
+      spec: result.spec,
+      source: result.source,
+      buildReport: result.buildReport,
+      goldenReport: result.goldenReport,
+    };
+    const review = new ReviewAgent().validate(result.spec!, ctx);
+    expect(review.ok).toBe(true);
+  }, 20000);
+});

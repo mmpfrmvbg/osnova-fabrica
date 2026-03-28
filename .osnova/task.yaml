@@ -1,22 +1,20 @@
-id: ATM-EPK-260328-015-009
+id: ATM-EPK-260328-015-010
 epic: EPK-260328-015
-seq: 9
+seq: 10
 zone: pipeline
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Интегрировать agents с pipeline через VM
+goal: Написать интеграционные тесты pipeline с agents
 scope:
-- src/pipeline/pipeline.ts — интеграция agents
-- src/runtime/vm.ts — подключение agents к VM
+- src/pipeline/pipeline.test.ts — E2E тесты pipeline + agents
 notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Импортировать агенты из src/agents/
-- Добавить вызов agents в pipeline execution flow
-- Обеспечить передачу данных между VM и agents
+- Создать тест полного цикла compiler → runtime → agents
+- Протестировать passrate > 0.8
+- Добавить тесты взаимодействия всех компонентов
 deps:
-- 6
-- 8
+- 9
 maxiter: 3
 retries: 0
 status: PENDING

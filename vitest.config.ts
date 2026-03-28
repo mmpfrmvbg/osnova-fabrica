@@ -11,7 +11,9 @@ export default defineConfig({
     pool: isWin ? 'forks' : 'threads',
     ...(isWin
       ? {
-          isolate: false,
+          // isolate: true — иначе при isolate: false один vi.mock('../llm/index') (IntakeAgent.test)
+          // перекрывает мок в другом файле (RepairEngineer.test), complete() зависает по таймауту.
+          isolate: true,
           fileParallelism: false,
           poolOptions: { forks: { singleFork: true } },
         }
