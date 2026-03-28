@@ -51,8 +51,13 @@ class TestClassifyQwenApiLimit(unittest.TestCase):
 
         long = "x" * 2000
         out = format_qwen_limit_for_log(long, max_chars=100)
-        self.assertTrue(out.startswith("…"))
-        self.assertEqual(len(out), 101)
+        self.assertIn(" … ", out)
+        self.assertEqual(len(out), 100)
+
+        prefix = '{"error":"QuotaExceeded"}'
+        huge = prefix + " " + ("y" * 5000)
+        out2 = format_qwen_limit_for_log(huge, max_chars=200)
+        self.assertIn("QuotaExceeded", out2)
 
 
 class TestRecordAndStateYaml(unittest.TestCase):

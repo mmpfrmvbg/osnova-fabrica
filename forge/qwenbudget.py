@@ -141,11 +141,21 @@ def classify_qwen_api_limit(text: str) -> str:
 
 
 def format_qwen_limit_for_log(text: str, *, max_chars: int = 1500) -> str:
-    """Один «сырой» фрагмент stdout+stderr для логов (обычно ошибка в конце)."""
+    """
+    Одна строка для логов из объединённого stdout+stderr (так делают reviewer, qwenexec, atomizer).
+
+    Длинный вывод: начало и конец — ошибка может быть в начале stdout (прямой API) или в конце stderr (CLI JSON).
+    """
     s = " ".join((text or "").split())
-    if len(s) > max_chars:
-        return "…" + s[-max_chars:]
-    return s
+    if len(s) <= max_chars:
+        return s
+    sep = " … "
+    head = min(max(60, max_chars // 5), max_chars // 2)
+    tail_room = max_chars - len(sep) - head
+    if tail_room < 40:
+        head = max_chars // 2
+        tail_room = max_chars - len(sep) - head
+    return s[:head] + sep + s[-tail_room:]
 
 
 def log_remote_qwen_limit(
@@ -155,7 +165,7 @@ def log_remote_qwen_limit(
     ref: str | None = None,
 ) -> tuple[str, str]:
     """
-    Логирует kind + сырой хвост ответа CLI (для различия RateLimit vs QuotaExceeded в теле JSON).
+    Логирует kind + сырой фрагмент объединённого stdout+stderr (см. format_qwen_limit_for_log).
     Возвращает (kind, excerpt) для humanlog и т.п.
     """
     kind = classify_qwen_api_limit(combined)
