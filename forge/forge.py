@@ -12,7 +12,7 @@ from typing import Any
 try:
     from forge.atomizer import atomize
     from forge.brain_fallback import generate_fallback_epic
-    from forge.common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, env_paths, epic_queue_path, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from forge.common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, ensure_stdio_utf8, env_paths, epic_queue_path, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from forge.courier import process_result
     from forge.cursorexec import run_atom as run_cursor_atom
     from forge.degradation import get_available
@@ -21,12 +21,13 @@ try:
     from forge.parallel_executor import build_waves, run_waves_sequential
     from forge.qwenexec import run_atom as run_qwen_atom
     from forge.reviewer import review
+    from forge.humanlog import epic_done_tests, epic_start_snapshot, hlog
     from forge.retrospective import finalize_epic
     from forge.router import choose_executor
 except ImportError:  # pragma: no cover
     from atomizer import atomize
     from brain_fallback import generate_fallback_epic
-    from common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, env_paths, epic_queue_path, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from common import SUBPROCESS_TEXT, _github_bearer_value, atomic_write_text, ensure_stdio_utf8, env_paths, epic_queue_path, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
     from courier import process_result
     from cursorexec import run_atom as run_cursor_atom
     from degradation import get_available
@@ -35,6 +36,7 @@ except ImportError:  # pragma: no cover
     from parallel_executor import build_waves, run_waves_sequential
     from qwenexec import run_atom as run_qwen_atom
     from reviewer import review
+    from humanlog import epic_done_tests, epic_start_snapshot, hlog
     from retrospective import finalize_epic
     from router import choose_executor
 
@@ -289,14 +291,34 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
         hb_thread.start()
     try:
         atoms = atomize(epic, dry_run=dry_run)
+        epic_start_snapshot()
+        LOG.info(
+            "EPIC %s: atomized to %s ATM — BRAIN target 10-12 ATM, scope ≤10 files in epic",
+            epic.get("id"),
+            len(atoms),
+        )
+        hlog(
+            "epic_start",
+            epic_id=epic.get("id"),
+            goal=str(epic.get("goal", "")),
+            atm_total=len(atoms),
+        )
         waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))))
         LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
         results: list[dict[str, Any]] = []
+        atm_total = len(atoms)
 
         def _run_one(atom: dict[str, Any]) -> None:
             aid = atom.get("id")
             executor = choose_executor(atom, avail)
             atom["executor"] = executor
+            hlog(
+                "atm_start",
+                atm_id=aid,
+                seq=int(atom.get("seq") or 0),
+                atm_total=atm_total,
+                goal=str(atom.get("goal", "")),
+            )
             LOG.info("ATM %s — executor=%s (long silence here = smith/qwen or review `done`)", aid, executor)
             if executor == "none":
                 report = {
@@ -310,6 +332,19 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
                 return
             if executor == "qwen":
                 success, report = run_qwen_atom(atom, dry_run=dry_run)
+                fb = os.environ.get("FORGE_QWEN_QUOTA_FALLBACK", "1").strip().lower()
+                if (
+                    report.get("forge_retry_executor") == "cursor"
+                    and fb not in ("0", "false", "no")
+                    and avail.get("cursor")
+                ):
+                    LOG.warning(
+                        "ATM %s — Qwen quota/budget exhausted, falling back to Cursor",
+                        aid,
+                    )
+                    atom["executor"] = "cursor"
+                    success, report = run_cursor_atom(atom, dry_run=dry_run)
+                    report.pop("forge_retry_executor", None)
             else:
                 success, report = run_cursor_atom(atom, dry_run=dry_run)
             LOG.info(
@@ -331,6 +366,14 @@ def _process_epic(epic: dict[str, Any], state: dict[str, Any], dry_run: bool, av
             report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
             report["s"] = "OK" if (success and passed) else "BLK"
             LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
+            if report.get("s") == "OK":
+                hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
+            else:
+                hlog(
+                    "atm_blk",
+                    atm_id=aid,
+                    reason=str(report.get("err") or report.get("review") or "BLK")[:120],
+                )
             process_result(atom, report, dry_run=dry_run)
             results.append(report)
 
@@ -409,6 +452,7 @@ def cycle(dry_run: bool = False) -> None:
 
 
 def main() -> None:
+    ensure_stdio_utf8()
     parser = argparse.ArgumentParser(description="OSNOVA Forge loop (v5.2 resilient)")
     parser.add_argument("--dry-run", action="store_true", help="Run one cycle without external execution")
     args = parser.parse_args()

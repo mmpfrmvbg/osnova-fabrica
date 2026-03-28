@@ -11,9 +11,11 @@ import yaml
 try:
     from forge.common import atomic_write_yaml, env_paths, gh_request, load_yaml, now_iso, setup_logging
     from forge.epicwatcher import prepend_issue_to_queue
+    from forge.humanlog import epic_done_tests, hlog
 except ImportError:  # pragma: no cover
     from common import atomic_write_yaml, env_paths, gh_request, load_yaml, now_iso, setup_logging
     from epicwatcher import prepend_issue_to_queue
+    from humanlog import epic_done_tests, hlog
 
 LOG = setup_logging("retrospective")
 
@@ -144,6 +146,25 @@ def finalize_epic(
         subprocess.run(["git", "add", ".osnova"], cwd=project, check=False)
         subprocess.run(["git", "commit", "-m", f"Retrospective {epic.get('id')} {status}"], cwd=project, check=False)
         subprocess.run(["git", "push"], cwd=project, check=False)
+        try:
+            from forge.humanlog import git_last_push_stats
+
+            br, fc, ins = git_last_push_stats(project)
+            hlog("git_push", branch=br, files_changed=fc, insertions=ins)
+        except Exception:
+            pass
+    tb, ta = epic_done_tests()
+    try:
+        hlog(
+            "epic_done",
+            epic_id=epic.get("id"),
+            ok=atom_ok,
+            total=atom_total,
+            tests_before=tb,
+            tests_after=ta,
+        )
+    except Exception:
+        pass
     return summary
 
 

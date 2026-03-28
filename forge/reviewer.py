@@ -21,6 +21,7 @@ try:
         resolve_executable,
         setup_logging,
     )
+    from forge.qwenbudget import can_call, is_quota_exhausted_output, record
 except ImportError:  # pragma: no cover
     from common import (
         SUBPROCESS_TEXT,
@@ -29,6 +30,7 @@ except ImportError:  # pragma: no cover
         resolve_executable,
         setup_logging,
     )
+    from qwenbudget import can_call, is_quota_exhausted_output, record
 
 LOG = setup_logging("reviewer")
 
@@ -206,7 +208,25 @@ def _run_qwen_review_subprocess(prompt: str, rev_s: int) -> subprocess.Completed
     )
 
 
-def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
+def _qwen_review(
+    atom: dict[str, Any], diff: str
+) -> tuple[bool, str, bool]:
+    """
+    Returns (llm_pass, reason, need_done_fallback).
+    need_done_fallback=True: локальный лимит forge или ответ API «quota» — при успешном done можно авто-PASS.
+    """
+    if not can_call():
+        LOG.warning(
+            "reviewer: forge Qwen daily budget exhausted — skipping LLM (set FORGE_QWEN_DAILY_LIMIT or wait next day)",
+        )
+        try:
+            from forge import humanlog as _hl
+
+            _hl.hlog("qwen_quota")
+        except Exception:
+            pass
+        return False, "FAIL: forge Qwen daily budget exhausted (local)", True
+
     prompt = (
         "Review ATM result. You MUST include either PASS: or FAIL: (with colon). "
         "Put PASS: or FAIL: at the start of a line — not only at the end of a long paragraph.\n"
@@ -217,11 +237,29 @@ def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
     try:
         proc = _run_qwen_review_subprocess(prompt, rev_s)
     except TimeoutExpired:
-        return False, f"FAIL: qwen review timeout after {rev_s}s (FORGE_QWEN_REVIEW_TIMEOUT)"
-    text = (proc.stdout or proc.stderr).strip()
+        record(served=True)
+        return False, f"FAIL: qwen review timeout after {rev_s}s (FORGE_QWEN_REVIEW_TIMEOUT)", False
+    out = proc.stdout or ""
+    err = proc.stderr or ""
+    combined = f"{out}\n{err}"
+    if is_quota_exhausted_output(combined):
+        LOG.warning(
+            "reviewer: Qwen output indicates API quota/rate limit — not incrementing forge counter; "
+            "will auto-PASS if done-command succeeds",
+        )
+        try:
+            from forge import humanlog as _hl
+
+            _hl.hlog("qwen_quota")
+        except Exception:
+            pass
+        return False, combined.strip() or "FAIL: Qwen quota exceeded", True
+
+    record(served=True)
+    text = combined.strip()
     passed = _parse_qwen_review_pass(text)
     reason = text if text else "No reviewer output"
-    return passed, reason
+    return passed, reason, False
 
 
 def review(
@@ -241,7 +279,7 @@ def review(
         elapsed = int(time.time() - start)
         return False, "FAIL: executor BLK — reviewer skipped", elapsed
     diff = _git_diff(project)
-    llm_pass, llm_reason = _qwen_review(atom, diff)
+    llm_pass, llm_reason, need_done_fallback = _qwen_review(atom, diff)
     done_cmd = str(atom.get("done", "")).strip()
     if not done_cmd:
         elapsed = int(time.time() - start)
@@ -262,6 +300,9 @@ def review(
             check=False,
             env=done_env,
             stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            **SUBPROCESS_TEXT,
         )
     else:
         done = subprocess.run(
@@ -272,16 +313,56 @@ def review(
             check=False,
             env=done_env,
             stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            **SUBPROCESS_TEXT,
         )
-    passed = llm_pass and done.returncode == 0
-    if done.returncode == 0 and not llm_pass:
-        LOG.warning(
-            "reviewer: done command succeeded but LLM verdict was not PASS — "
-            "check Qwen output (expect PASS: or FAIL: on a line). Head: %s",
-            (llm_reason[:900] + "…") if len(llm_reason) > 900 else llm_reason,
+    try:
+        from forge.humanlog import hlog_tests_run_from_output
+
+        hlog_tests_run_from_output(done.stdout or "", done.stderr or "")
+    except Exception:
+        pass
+    if done.returncode != 0:
+        passed = False
+    elif need_done_fallback:
+        passed = True
+        llm_reason = (
+            "PASS: Qwen review unavailable (quota/budget); auto-approved because done-command exited 0."
         )
+        LOG.warning("reviewer: %s", llm_reason)
+    else:
+        passed = llm_pass
+        if not llm_pass:
+            LOG.warning(
+                "reviewer: done command succeeded but LLM verdict was not PASS — "
+                "check Qwen output (expect PASS: or FAIL: on a line). Head: %s",
+                (llm_reason[:900] + "…") if len(llm_reason) > 900 else llm_reason,
+            )
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"
     elapsed = int(time.time() - start)
+    aid = str(atom.get("id") or "")
+    if done_cmd and done.returncode == 0:
+        try:
+            from forge import humanlog as _hl
+
+            if need_done_fallback:
+                _hl.hlog(
+                    "review_skip",
+                    atm_id=aid,
+                    reason="квота Qwen или лимит forge",
+                )
+            elif passed:
+                _hl.hlog("review_pass", atm_id=aid, elapsed_s=elapsed)
+            else:
+                _hl.hlog(
+                    "review_fail",
+                    atm_id=aid,
+                    reason=(llm_reason or "")[:80],
+                    elapsed_s=elapsed,
+                )
+        except Exception:
+            pass
     return passed, reason, elapsed
 
 

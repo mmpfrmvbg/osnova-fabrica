@@ -10,9 +10,9 @@ from datetime import date
 from pathlib import Path
 
 try:
-    from forge.common import backup_file, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from forge.common import backup_file, ensure_stdio_utf8, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
 except ImportError:  # pragma: no cover
-    from common import backup_file, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
+    from common import backup_file, ensure_stdio_utf8, env_paths, gh_request, heartbeat_path, load_forge_state, now_iso, save_forge_state, setup_logging
 
 LOG = setup_logging("heart")
 
@@ -129,6 +129,7 @@ def loop() -> None:
 
 
 def main() -> None:
+    ensure_stdio_utf8()
     loop()
 
 

@@ -19,6 +19,22 @@ import yaml
 SUBPROCESS_TEXT: dict[str, Any] = {"encoding": "utf-8", "errors": "replace"}
 
 
+def ensure_stdio_utf8() -> None:
+    """
+    Windows: переключает stdout/stderr на UTF-8, чтобы русский текст и emoji в логах не ломались.
+    Дополнительно задайте PYTHONUTF8=1 в окружении или в обёртке запуска forge.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def _parse_dotenv_file(path: Path, into: dict[str, str]) -> None:
     try:
         for raw in path.read_text(encoding="utf-8").splitlines():
@@ -518,7 +534,7 @@ def _github_bearer_value(token: str) -> str:
     return "".join(ch for ch in t if ord(ch) < 128)
 
 
-def gh_request(method: str, api_path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def gh_request(method: str, api_path: str, payload: dict[str, Any] | None = None) -> Any:
     paths = env_paths()
     token = _github_bearer_value(paths["GH_TOKEN"])
     url = f"https://api.github.com{api_path}"

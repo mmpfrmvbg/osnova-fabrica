@@ -18,6 +18,7 @@ try:
         resolve_executable,
         setup_logging,
     )
+    from forge.qwenbudget import can_call, is_quota_exhausted_output, record
 except ImportError:  # pragma: no cover
     from common import (
         SUBPROCESS_TEXT,
@@ -27,6 +28,7 @@ except ImportError:  # pragma: no cover
         resolve_executable,
         setup_logging,
     )
+    from qwenbudget import can_call, is_quota_exhausted_output, record
 
 LOG = setup_logging("atomizer")
 
@@ -72,14 +74,14 @@ def _epic_trailer(epic: dict[str, Any]) -> str:
         f"  goal: {goal}\n"
         f"  scope paths: {paths or '(none)'}\n"
         f"  done: {done}\n"
-        "You MUST output a non-empty YAML list (2-5 items). Never output []. Never ask for the EPIC text.\n"
+        "You MUST output a non-empty YAML list (target 10-12 items for a ~36 min EPIC window). Never output []. Never ask for the EPIC text.\n"
     )
 
 
 def _prompt(epic: dict[str, Any]) -> str:
     dumped = yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)
     return (
-        "You are the OSNOVA forge atomizer. Split the EPIC below into 2-5 ATM tasks.\n\n"
+        "You are the OSNOVA forge atomizer. Split the EPIC below into 10-12 ATM tasks (target size for one EPIC; scope across the epic ≤10 files total).\n\n"
         "CRITICAL — read before answering:\n"
         "- The EPIC is the YAML block below. It is NOT a filename. "
         "Do NOT search the repo for pipeline.yaml, spec.yaml, or files named EPIC.\n"
@@ -215,7 +217,7 @@ def _normalized_executor(atom: dict[str, Any], epic: dict[str, Any]) -> str | No
 
 
 def _fallback_atoms_from_epic(epic: dict[str, Any]) -> list[dict[str, Any]]:
-    """Last-resort decomposition without LLM (1 ATM with full scope, or one ATM per file up to 5)."""
+    """Last-resort decomposition without LLM (1 ATM with full scope, or one ATM per file up to 10)."""
     epic_id = str(epic.get("id", "EPK"))
     raw_scope = epic.get("scope") or []
     paths: list[str] = []
@@ -239,14 +241,14 @@ def _fallback_atoms_from_epic(epic: dict[str, Any]) -> list[dict[str, Any]]:
                 "deps": [],
             }
         ]
-    if len(paths) == 1 or len(paths) > 5:
+    if len(paths) == 1 or len(paths) > 10:
         return [
             {
                 "seq": 1,
                 "zone": zone,
                 "risk": "MEDIUM",
                 "goal": goal,
-                "scope": paths[:5],
+                "scope": paths[:10],
                 "notouch": notouch,
                 "steps": ["Edit scoped files", "Run done"],
                 "deps": [],
@@ -355,8 +357,20 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
         last_parse_err: Exception | None = None
         atoms: list[dict[str, Any]] | None = None
         for attempt in range(attempts):
+            if not can_call():
+                LOG.warning("atomizer: forge Qwen daily budget exhausted — stop atomizer Qwen attempts")
+                last_parse_err = RuntimeError("Qwen daily budget exhausted (forge)")
+                break
             prompt = _prompt(epic) if attempt == 0 else _prompt_retry(epic, stdout_last)
             proc = _run_qwen_atomizer(prompt, tmo)
+            comb = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+            if is_quota_exhausted_output(comb):
+                LOG.warning(
+                    "atomizer: Qwen output indicates API quota/rate limit — not incrementing forge counter",
+                )
+                last_parse_err = RuntimeError("Qwen API quota exceeded")
+                break
+            record(served=True)
             if proc.returncode != 0:
                 err_tail = (proc.stderr or proc.stdout or "").strip()[-800:]
                 LOG.error("atomizer: Qwen exit %s — %s", proc.returncode, err_tail)
@@ -368,10 +382,13 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
             stdout_last = proc.stdout or ""
             try:
                 raw_atoms = _extract_yaml(stdout_last)
-                if not (1 <= len(raw_atoms) <= 5):
-                    raise ValueError(f"Atomizer must return 1-5 ATM items, got {len(raw_atoms)}")
-                if len(raw_atoms) < 2:
-                    LOG.warning("atomizer: only %s ATM(s) — consider richer decomposition", len(raw_atoms))
+                if not (1 <= len(raw_atoms) <= 14):
+                    raise ValueError(f"Atomizer must return 1-14 ATM items (BRAIN target 10-12), got {len(raw_atoms)}")
+                if len(raw_atoms) < 8:
+                    LOG.warning(
+                        "atomizer: only %s ATM(s) — BRAIN target is 10-12 per EPIC; consider richer decomposition",
+                        len(raw_atoms),
+                    )
                 atoms = _normalize_atoms(epic, raw_atoms)
                 break
             except ValueError as e:

@@ -43,7 +43,40 @@ except ImportError:  # pragma: no cover
         _path_for_git_bash,
     )
 
+try:
+    from forge import humanlog as _humanlog
+except ImportError:  # pragma: no cover
+    import humanlog as _humanlog  # type: ignore[no-redef]
+
 LOG = setup_logging("cursorexec")
+
+
+def _smith_files_changed(project: Path, report: dict[str, Any]) -> int:
+    ch = report.get("changed")
+    if isinstance(ch, list) and ch:
+        return len(ch)
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD"],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            **SUBPROCESS_TEXT,
+        )
+        if proc.returncode == 0:
+            return len([x for x in (proc.stdout or "").splitlines() if x.strip()])
+    except Exception:
+        pass
+    return 0
+
+
+def _hlog_smith_done(atom: dict[str, Any], project: Path, report: dict[str, Any]) -> None:
+    try:
+        n = _smith_files_changed(project, report)
+        _humanlog.hlog("smith_done", atm_id=atom.get("id"), files_changed=n)
+    except Exception:
+        pass
 
 # smith.sh tries up to 3 Cursor models, each SMITH_TIMEOUT (default 300s) — parent must not kill bash early
 _DEFAULT_WRAP = 1080
@@ -275,6 +308,7 @@ def _run_smith_native_win32_capture(
     status = "OK" if ok else "BLK"
     _finalize_smith_artifacts_native(project, atm_id, status, elapsed_sec, result_err)
     report = load_yaml(report_file, default={}) or {}
+    _hlog_smith_done(atom, project, report)
     return report.get("s") == "OK", report
 
 
@@ -363,6 +397,10 @@ def _run_smith_native_win32_streaming(
                             out_n,
                             err_n,
                         )
+                        _humanlog.hlog(
+                            "smith_heartbeat",
+                            elapsed_s=int(time.monotonic() - model_wait_start),
+                        )
         except Exception as exc:
             LOG.exception("smith native wait failed: %s", exc)
             try:
@@ -410,6 +448,7 @@ def _run_smith_native_win32_streaming(
             last_stderr[-1500:],
             last_stdout[-1500:],
         )
+    _hlog_smith_done(atom, project, report)
     return success, report
 
 
@@ -501,6 +540,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
                 (proc.stderr or "")[-1500:],
                 (proc.stdout or "")[-1500:],
             )
+        _hlog_smith_done(atom, project, report)
         return success, report
 
     # Stream stdout/stderr line-by-line so operators see Cursor/agent activity (not a 5-minute black hole).
@@ -584,6 +624,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
                         err_n,
                         _pipe_note,
                     )
+                    _humanlog.hlog("smith_heartbeat", elapsed_s=int(time.monotonic() - start))
     except Exception as exc:
         LOG.exception("smith: wait failed: %s", exc)
         try:
@@ -619,6 +660,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
             proc_stderr[-1500:],
             proc_stdout[-1500:],
         )
+    _hlog_smith_done(atom, project, report)
     return success, report
 
 

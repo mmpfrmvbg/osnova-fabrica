@@ -11,10 +11,10 @@ import yaml
 
 try:
     from forge.common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
-    from forge.qwenbudget import can_call, record
+    from forge.qwenbudget import can_call, is_quota_exhausted_output, record
 except ImportError:  # pragma: no cover
     from common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
-    from qwenbudget import can_call, record
+    from qwenbudget import can_call, is_quota_exhausted_output, record
 
 LOG = setup_logging("qwenexec")
 
@@ -93,7 +93,14 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         run_s,
     )
     if not can_call():
-        return False, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "BLK", "err": "Qwen daily budget exhausted"}
+        return False, {
+            "v": 5,
+            "t": "RPT",
+            "id": atom.get("id"),
+            "s": "BLK",
+            "err": "Qwen daily budget exhausted",
+            "forge_retry_executor": "cursor",
+        }
     cmd = qwen_headless_argv(_prompt(atom))
     try:
         proc = subprocess.run(
@@ -106,7 +113,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         )
     except TimeoutExpired:
         LOG.error("qwen run timed out after %ss for %s", run_s, atom.get("id"))
-        record()
+        record(served=True)
         return False, {
             "v": 5,
             "t": "RPT",
@@ -114,9 +121,25 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
             "s": "BLK",
             "err": f"qwen run timeout after {run_s}s (raise FORGE_QWEN_TIMEOUT or use cursor executor)",
         }
-    record()
+    out = proc.stdout or ""
+    err = proc.stderr or ""
+    combined = f"{out}\n{err}"
+    if is_quota_exhausted_output(combined):
+        LOG.warning(
+            "qwenexec: remote quota/rate message for %s — not incrementing forge daily counter",
+            atom.get("id"),
+        )
+        return False, {
+            "v": 5,
+            "t": "RPT",
+            "id": atom.get("id"),
+            "s": "BLK",
+            "err": "Qwen API quota / rate limit (output indicates exhausted; not counted in forge budget)",
+            "forge_retry_executor": "cursor",
+        }
+    record(served=True)
     if proc.returncode != 0:
-        return False, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "BLK", "err": proc.stderr.strip()}
+        return False, {"v": 5, "t": "RPT", "id": atom.get("id"), "s": "BLK", "err": err.strip()}
     report, parse_err = _parse_report(proc.stdout or "", str(atom.get("id")))
     if parse_err:
         tail = (proc.stdout or "").replace("\r\n", "\n").strip()[-2000:]
