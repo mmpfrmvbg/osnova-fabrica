@@ -4,21 +4,20 @@ seq: 2
 zone: agents
 risk: HIGH
 executor: cursor
-goal: 'IntakeAgent: восстановить класс, validate(), parse()'
+goal: Восстановить PlanAgent — построение плана выполнения
 scope:
-- src/agents/intake-agent.ts
-- src/agents/agents.test.ts
+- src/agents/plan-agent.ts — восстановить логику планирования
+- src/agents/agents.test.ts — тесты для PlanAgent
 notouch:
 - src/pipeline/*
 - src/runtime/*
-- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Реализовать класс IntakeAgent с конструктором
-- 'Метод validate(input): проверка структуры и типов'
-- 'Метод parse(): нормализация входных данных'
-- Экспорт класса
-- '3 теста: валидация OK, валидация FAIL, парсинг'
+- Анализ текущей реализации plan-agent.ts
+- Исправить метод buildPlan — корректная последовательность шагов
+- Добавить валидацию зависимостей между шагами
+- Написать тесты на различные сценарии планирования
+- Запустить npx vitest run src/agents/plan-agent.test.ts
 deps:
 - ATM-EPK-260328-017-001
 maxiter: 3

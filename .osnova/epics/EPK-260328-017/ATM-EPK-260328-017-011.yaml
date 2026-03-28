@@ -1,23 +1,23 @@
 id: ATM-EPK-260328-017-011
 epic: EPK-260328-017
 seq: 11
-zone: compiler
-risk: MEDIUM
+zone: integration
+risk: HIGH
 executor: cursor
-goal: 'Compiler: проверить и исправить compile(), transform()'
+goal: Полная интеграция compiler → runtime → agents → pipeline
 scope:
-- src/compiler/compiler.ts
-notouch:
-- src/agents/*
-- src/pipeline/*
-- src/runtime/*
+- src/agents/agents.test.ts — интеграционные тесты
+- src/pipeline/pipeline.test.ts — полные E2E тесты
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить метод compile()
-- Проверить метод transform()
-- Исправить найденные дефекты
-- 2 теста на Compiler
+- Создать сквозные тесты от компиляции до review
+- Проверить передачу данных через все слои
+- Исправить выявленные проблемы интеграции
+- Запустить полный набор тестов
 deps:
+- ATM-EPK-260328-017-007
+- ATM-EPK-260328-017-009
 - ATM-EPK-260328-017-010
 maxiter: 3
 retries: 0

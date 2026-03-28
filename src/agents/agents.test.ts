@@ -50,6 +50,39 @@ describe('parseLlmConfidence — порог G1 (ATM-002)', () => {
   });
 });
 
+describe('IntakeAgent — validate и parse', () => {
+  const agent = new IntakeAgent();
+
+  it('validate: отклоняет null и примитивы', () => {
+    expect(() => agent.validate(null)).toThrow(IntakeValidationError);
+    expect(() => agent.validate(undefined)).toThrow(IntakeValidationError);
+    expect(() => agent.validate('str')).toThrow(IntakeValidationError);
+    expect(() => agent.validate(1)).toThrow(IntakeValidationError);
+  });
+
+  it('validate: отклоняет массив (в JS typeof [] === object)', () => {
+    expect(() => agent.validate([])).toThrow(IntakeValidationError);
+  });
+
+  it('validate: отклоняет отсутствие или не-строковый text', () => {
+    expect(() => agent.validate({})).toThrow(IntakeValidationError);
+    expect(() => agent.validate({ text: undefined })).toThrow(IntakeValidationError);
+    expect(() => agent.validate({ text: 42 as unknown as string })).toThrow(
+      IntakeValidationError,
+    );
+  });
+
+  it('parse: обрезает пробелы по краям text', () => {
+    expect(agent.parse({ text: '  hello  ' })).toEqual({ text: 'hello' });
+  });
+
+  it('parse: после validate допустимый RawText сохраняет содержимое', () => {
+    const raw = { text: 'задача' };
+    agent.validate(raw);
+    expect(agent.parse(raw)).toEqual({ text: 'задача' });
+  });
+});
+
 describe('IntakeAgent — валидация входа parseIntent', () => {
   const agent = new IntakeAgent();
 

@@ -129,6 +129,7 @@ def _parse_qwen_review_pass(text: str) -> bool:
     """
     Qwen often writes intermediate FAIL: in reasoning and a final PASS: at the end.
     Use the last line with explicit PASS:/FAIL: (not the first). Regex fallback: last PASS: vs last FAIL: via rfind.
+    If no PASS:/FAIL:, compare last prose keyword hits (tests passed / failed, exit codes, etc.).
     """
     if not (text or "").strip():
         return False
@@ -143,7 +144,36 @@ def _parse_qwen_review_pass(text: str) -> bool:
     last_f = text.rfind("FAIL:")
     if last_p != -1 or last_f != -1:
         return last_p > last_f and last_p != -1
-    return text.lstrip().upper().startswith("PASS")
+    keywords_pass = [
+        "все тесты прошли",
+        "all tests passed",
+        "exit 0",
+        "passed",
+        "✅",
+        "зелёные",
+        "успешно",
+    ]
+    keywords_fail = [
+        "failed",
+        "ошибк",
+        "падени",
+        "exit 1",
+        "❌",
+    ]
+    low = text.lower()
+    last_kw_pass = -1
+    for kw in keywords_pass:
+        pos = text.rfind(kw) if kw == "✅" else low.rfind(kw.lower())
+        if pos > last_kw_pass:
+            last_kw_pass = pos
+    last_kw_fail = -1
+    for kw in keywords_fail:
+        pos = text.rfind(kw) if kw == "❌" else low.rfind(kw)
+        if pos > last_kw_fail:
+            last_kw_fail = pos
+    if last_kw_pass == -1 and last_kw_fail == -1:
+        return text.lstrip().upper().startswith("PASS")
+    return last_kw_pass > last_kw_fail
 
 
 def _git_diff(project: Path) -> str:
@@ -233,6 +263,10 @@ def _qwen_review(
         "Put PASS: or FAIL: at the start of a line — not only at the end of a long paragraph.\n"
         f"Goal: {atom.get('goal')}\nScope: {atom.get('scope')}\n"
         f"Done command: {atom.get('done')}\nDiff:\n{diff}\n"
+        "Последняя строка твоего ответа ДОЛЖНА быть ровно одним из двух вариантов:\n"
+        "PASS: <одна фраза причина>\n"
+        "FAIL: <одна фраза причина>\n"
+        "Никакого текста после этой строки.\n"
     )
     rev_s = _qwen_review_timeout()
     try:

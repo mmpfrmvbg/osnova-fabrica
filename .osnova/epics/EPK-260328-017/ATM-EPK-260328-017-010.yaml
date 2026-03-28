@@ -1,24 +1,22 @@
 id: ATM-EPK-260328-017-010
 epic: EPK-260328-017
 seq: 10
-zone: runtime
+zone: compiler
 risk: MEDIUM
 executor: cursor
-goal: 'Interpreter: проверить и исправить interpret(), eval()'
+goal: Восстановить compiler — компиляция в промежуточное представление
 scope:
-- src/runtime/interpreter.ts
+- src/compiler/compiler.ts — восстановить компилятор
 notouch:
 - src/agents/*
 - src/pipeline/*
-- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить метод interpret()
-- Проверить метод eval()
-- Исправить найденные дефекты
-- 2 теста на Interpreter
-deps:
-- ATM-EPK-260328-017-009
+- Анализ compiler.ts
+- Исправить метод compile — корректная генерация IR
+- Восстановить оптимизации
+- Протестировать компиляцию различных входных программ
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

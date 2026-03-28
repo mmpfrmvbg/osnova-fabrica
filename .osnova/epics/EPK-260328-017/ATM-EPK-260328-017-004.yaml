@@ -4,23 +4,21 @@ seq: 4
 zone: agents
 risk: HIGH
 executor: cursor
-goal: 'ExecAgent: восстановить класс, execute(), runTask()'
+goal: Восстановить ReviewAgent — валидация результатов
 scope:
-- src/agents/exec-agent.ts
-- src/agents/agents.test.ts
+- src/agents/review-agent.ts — восстановить проверку результатов
+- src/agents/agents.test.ts — тесты для ReviewAgent
 notouch:
 - src/pipeline/*
-- src/runtime/*
 - src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Реализовать класс ExecAgent
-- 'Метод execute(plan): выполнение плана'
-- 'Метод runTask(task): выполнение одной задачи'
-- Обработка ошибок и retry
-- '3 теста: execute OK, execute FAIL, retry'
+- Анализ review-agent.ts
+- Исправить метод review — полная проверка выходных данных
+- Добавить проверку соответствия плану
+- Написать тесты на различные исходы review
+- Запустить npx vitest run src/agents/review-agent.test.ts
 deps:
-- ATM-EPK-260328-017-001
 - ATM-EPK-260328-017-003
 maxiter: 3
 retries: 0

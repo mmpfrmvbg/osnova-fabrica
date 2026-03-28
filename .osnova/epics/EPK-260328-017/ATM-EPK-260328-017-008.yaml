@@ -1,23 +1,24 @@
 id: ATM-EPK-260328-017-008
 epic: EPK-260328-017
 seq: 8
-zone: pipeline
-risk: MEDIUM
+zone: runtime
+risk: HIGH
 executor: cursor
-goal: 'pipeline.test.ts: E2E тесты пайплайна'
+goal: Восстановить VM — выполнение кода в песочнице
 scope:
-- src/pipeline/pipeline.test.ts
+- src/runtime/vm.ts — восстановить виртуальную машину
 notouch:
-- src/runtime/*
-- src/compiler/*
+- src/agents/*
+- src/pipeline/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- 'Тест: полный пайплайн с моками'
-- 'Тест: частичное выполнение'
-- 'Тест: откат при ошибке'
-- Запустить npx vitest run src/pipeline/
+- Анализ текущей реализации vm.ts
+- Исправить метод execute — безопасное выполнение кода
+- Восстановить обработку timeout и ошибок
+- Добавить логирование выполнения
+- Запустить существующие тесты VM
 deps:
-- ATM-EPK-260328-017-007
+- ATM-EPK-260328-017-003
 maxiter: 3
 retries: 0
 status: PENDING

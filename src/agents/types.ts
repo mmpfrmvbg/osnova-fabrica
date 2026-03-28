@@ -19,6 +19,8 @@ export class IntakeValidationError extends Error {
  * Контракт агента первичной обработки: задача в сыром виде → intent → spec.
  */
 export interface IAgent {
+  validate(input: unknown): asserts input is RawText;
+  parse(input: RawText): RawText;
   parseIntent(input: RawText): Promise<OsnovaIntent>;
   generateSpec(intent: OsnovaIntent): Promise<OsnovaSpec>;
   checkSpec(spec: OsnovaSpec): void;

@@ -150,13 +150,28 @@ export class SpecValidationError extends Error {
 export class IntakeAgent implements IAgent {
   constructor(private registryContext: string = '') {}
 
-  private validateRawText(input: RawText): void {
-    if (input == null || typeof input.text !== 'string') {
+  /**
+   * Проверка структуры и типов входа intake: объект с непустой строкой `text` (после trim).
+   */
+  validate(input: unknown): asserts input is RawText {
+    if (input == null || typeof input !== 'object') {
+      throw new IntakeValidationError('RawText must be a non-null object', 'text');
+    }
+    if (Array.isArray(input)) {
+      throw new IntakeValidationError('RawText must be a plain object, not an array', 'text');
+    }
+    const text = (input as { text?: unknown }).text;
+    if (typeof text !== 'string') {
       throw new IntakeValidationError('RawText.text must be a string', 'text');
     }
-    if (input.text.trim() === '') {
+    if (text.trim() === '') {
       throw new IntakeValidationError('Task text is empty', 'text');
     }
+  }
+
+  /** Нормализация входа: обрезка пробелов по краям `text`. */
+  parse(input: RawText): RawText {
+    return { text: input.text.trim() };
   }
 
   private validateIntentForSpec(intent: OsnovaIntent): void {
@@ -173,7 +188,7 @@ export class IntakeAgent implements IAgent {
 
   async parseIntent(input: RawText): Promise<OsnovaIntent> {
     try {
-      this.validateRawText(input);
+      this.validate(input);
     } catch (err) {
       log.warn('parseIntent: invalid input', {
         field: err instanceof IntakeValidationError ? err.field : undefined,
@@ -181,12 +196,14 @@ export class IntakeAgent implements IAgent {
       throw err;
     }
 
+    const normalized = this.parse(input);
+
     const provider = getLLMProvider();
     const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
     log.debug('parseIntent', { model });
 
     // Prefix routing: детерминированный override до LLM
-    const prefixAppType = detectAppTypeFromPrefix(input.text);
+    const prefixAppType = detectAppTypeFromPrefix(normalized.text);
     if (prefixAppType !== null) {
       log.debug('parseIntent: prefix appType detected', { prefixAppType });
     }
@@ -208,7 +225,7 @@ export class IntakeAgent implements IAgent {
       'features — list of 1-3 key capabilities the program must have.',
       'Example for "calculate sum 1 to 10": features: ["arithmetic loop","print result"]',
       '',
-      `Task: "${input.text}"`,
+      `Task: "${normalized.text}"`,
       this.registryContext ? '\n\n' + this.registryContext : '',
     ].join('\n');
 
@@ -249,7 +266,7 @@ export class IntakeAgent implements IAgent {
     } catch {
       log.warn('parseIntent: JSON parse failed, using fallback');
       log.debug('parseIntent: raw LLM response', { raw: response?.content });
-      return this.fallbackIntent(input.text, prefixAppType);
+      return this.fallbackIntent(normalized.text, prefixAppType);
     }
 
     const p = parsed as LlmIntentJson;
@@ -257,9 +274,9 @@ export class IntakeAgent implements IAgent {
     return {
       intentId: randomUUID(),
       description: String(
-        p.intent ?? p.description ?? input.text,
+        p.intent ?? p.description ?? normalized.text,
       ),
-      features: featuresFromLlmParsed(p, input.text),
+      features: featuresFromLlmParsed(p, normalized.text),
       appType: prefixAppType ?? (parsed.appType as AppType) ?? 'утилита',
       constraints: (parsed.constraints as Record<string, unknown>) ?? {},
       confidence: parseLlmConfidence(p.confidence),

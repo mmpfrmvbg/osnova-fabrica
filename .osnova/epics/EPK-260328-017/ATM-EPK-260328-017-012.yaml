@@ -1,25 +1,22 @@
 id: ATM-EPK-260328-017-012
 epic: EPK-260328-017
 seq: 12
-zone: epic
+zone: validation
 risk: LOW
 executor: cursor
-goal: 'Финал: запустить все тесты, поднять passrate > 0.8, закоммитить'
+goal: Финальная валидация — запуск всех тестов и фикс блокеров
 scope:
-- src/agents/
-- src/pipeline/
+- src/agents/agents.test.ts
+- src/pipeline/pipeline.test.ts
 notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- npx vitest run src/agents/ && npx vitest run src/pipeline/
-- Проверить passrate >= 0.8
-- 'При необходимости: фикс мелких дефектов'
-- git add и git commit с сообщением
+- Запустить npx vitest run src/agents/
+- Запустить npx vitest run src/pipeline/
+- Исправить оставшиеся failing тесты
+- Убедиться что passrate > 0.8
+- Закоммитить изменения
 deps:
-- ATM-EPK-260328-017-006
-- ATM-EPK-260328-017-008
-- ATM-EPK-260328-017-009
-- ATM-EPK-260328-017-010
 - ATM-EPK-260328-017-011
 maxiter: 3
 retries: 0

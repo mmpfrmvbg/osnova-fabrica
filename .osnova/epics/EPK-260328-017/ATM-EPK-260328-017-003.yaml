@@ -4,23 +4,21 @@ seq: 3
 zone: agents
 risk: HIGH
 executor: cursor
-goal: 'PlanAgent: восстановить класс, plan(), buildDAG()'
+goal: Восстановить ExecAgent — выполнение шагов плана
 scope:
-- src/agents/plan-agent.ts
-- src/agents/agents.test.ts
+- src/agents/exec-agent.ts — восстановить выполнение
+- src/agents/agents.test.ts — тесты для ExecAgent
 notouch:
 - src/pipeline/*
-- src/runtime/*
 - src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Реализовать класс PlanAgent
-- 'Метод plan(validatedInput): построение плана'
-- 'Метод buildDAG(): граф зависимостей задач'
-- Экспорт класса
-- '3 теста: планирование, DAG, циклы'
+- Прочитать exec-agent.ts и выявить ошибки
+- Исправить метод executeStep — обработка всех типов шагов
+- Добавить обработку ошибок выполнения
+- Написать тесты на успешное выполнение и ошибки
+- Запустить npx vitest run src/agents/exec-agent.test.ts
 deps:
-- ATM-EPK-260328-017-001
 - ATM-EPK-260328-017-002
 maxiter: 3
 retries: 0
