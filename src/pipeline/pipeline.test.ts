@@ -1,6 +1,26 @@
 /**
  * Интеграционные E2E-тесты фасада pipeline.ts: Intake → Plan → Exec → OsnovaCodegen,
  * реальная компиляция и runGoldenCheck (VM). Мок только LLM.
+ *
+ * --- Сценарии, затрагивающие VM / golden ---
+ * - Полный проход до фазы `golden_check`: {@link runGoldenCheck} получает bytecode и тот же
+ *   `OsnovaSpec`, что сформировал Intake (мок). Исполняется процедура входа на интерпретаторе VM
+ *   (`src/runtime/goldenApps.ts`), без repair-цикла.
+ * - Наблюдаемые поля {@link GoldenReport}: `executed`, `passed`, `qualityScore`, `vmErrors`,
+ *   `outputDiff`, `durationMs` — в успешном сценарии проверяются executed/passed/qualityScore;
+ *   ниже явно фиксируется отсутствие ошибок VM.
+ *
+ * --- Глобальные ключи пайплайна (`PIPELINE_VM_GLOBAL_KEYS`, `applyPipelineSpecToVm`) ---
+ * Контракт syscall `система.пайплайн.*` и запись spec в `OsVbcVM.globals` описаны в
+ * `src/runtime/vm.ts` и покрыты unit-тестами там же. Текущий путь `runGoldenCheck` не вызывает
+ * `applyPipelineSpecToVm`; E2E здесь проверяет итог выполнения и отчёт, а не чтение globals
+ * из байткода.
+ *
+ * --- Пробелы покрытия (для последующих атомов) ---
+ * - Нет сценария с `expectVM` / `expectedReturnValue` в spec и проверкой согласованности.
+ * - Нет ветки с ненулевыми `vmErrors` или `executed: false` на уровне этого фасада.
+ * - Нет вызовов кода, использующего `система.пайплайн.*` в сгенерированном .osnova (мок всегда
+ *   одна и та же простая сумма).
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -121,6 +141,7 @@ describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)
     expect(result.goldenReport?.executed).toBe(true);
     expect(result.goldenReport?.qualityScore).toBeGreaterThan(0.8);
     expect(result.goldenReport?.passed).toBe(true);
+    expect(result.goldenReport?.vmErrors).toEqual([]);
     expect(result.repairAttempts).toBe(0);
   }, 20000);
 
