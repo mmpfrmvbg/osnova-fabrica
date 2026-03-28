@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { compileSource } from "./compiler";
+import { Compiler, compileSource } from "./compiler";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { compileProgram } from "./codegen";
@@ -23,6 +23,51 @@ function syscallIteratorFrom(args: unknown[]): unknown[] {
   if (src !== null && typeof src === "object") return Object.keys(src as Record<string, unknown>);
   return [];
 }
+
+describe("Compiler class: compile / execute (E2E)", () => {
+  it("compile() совпадает с compileSource()", () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 42
+конец`.trim();
+    const c = new Compiler();
+    expect(c.compile(src)).toEqual(compileSource(src));
+  });
+
+  it("execute() возвращает результат первой процедуры", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 99
+конец`.trim();
+    expect(await new Compiler().execute(src)).toBe(99);
+  });
+
+  it("execute({ procedureName }) выбирает процедуру по имени", async () => {
+    const src = `
+модуль t
+процедура вспомогательная()
+  вернуть 1
+конец
+процедура главная()
+  вернуть 2
+конец`.trim();
+    expect(await new Compiler().execute(src, { procedureName: "главная" })).toBe(2);
+  });
+
+  it("execute: tokenize → parse → semantic → codegen → VM end-to-end", async () => {
+    const src = `
+модуль Тест
+процедура главная()
+  пусть a = 2
+  пусть b = 3
+  вернуть a * b + 1
+конец
+конец`.trim();
+    expect(await new Compiler().execute(src, { procedureName: "главная", vm: { maxSteps: 5000 } })).toBe(7);
+  });
+});
 
 describe("Compiler smoke: todo.osnova", () => {
   it("компилирует без ошибок и содержит процедуры запуск, handle_event, handle_add", () => {

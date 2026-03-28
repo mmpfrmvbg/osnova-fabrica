@@ -10,6 +10,7 @@ import { tokenize } from './lexer';
 import { parse, type ParseError } from './parser';
 import { compile, compileProgram } from './codegen';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
+import { VM, type InterpreterOptions, type StackValue } from '../runtime/vm/interpreter';
 import { analyzeProgram, type SemanticError } from './semantic';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
 import * as fs from 'fs';
@@ -37,6 +38,48 @@ export interface CompileResult {
 export interface CompileOptions {
   /** Базовая директория для разрешения импортов `использовать ... из "путь"`. */
   baseDir?: string;
+}
+
+/** Опции полного цикла: компиляция + запуск VM. */
+export interface ExecuteOptions extends CompileOptions {
+  /** Индекс процедуры (по умолчанию 0). */
+  procedureIndex?: number;
+  /** Имя процедуры; если задано, имеет приоритет над procedureIndex. */
+  procedureName?: string;
+  /** Аргументы вызова процедуры. */
+  args?: StackValue[];
+  /** Параметры интерпретатора (invoke, maxSteps). */
+  vm?: InterpreterOptions;
+}
+
+/**
+ * Обёртка над пайплайном tokenize → parse → semantic → codegen → VM.
+ * `compile()` — тот же контракт, что `compileSource()`; `execute()` — компиляция и `runProcedure`.
+ */
+export class Compiler {
+  compile(source: string, options: CompileOptions = {}): CompileResult {
+    return compileSource(source, options);
+  }
+
+  /**
+   * Компилирует исходник и выполняет одну процедуру в VM.
+   * При ошибках компиляции бросает Error с агрегированным сообщением.
+   */
+  async execute(source: string, options: ExecuteOptions = {}): Promise<StackValue | undefined> {
+    const { procedureIndex = 0, procedureName, args = [], vm: vmOpts, baseDir } = options;
+    const result = this.compile(source, { baseDir });
+    if (!result.compilerSuccess || !result.module) {
+      const parts = [
+        ...result.lexerErrors.map((e) => e.message),
+        ...result.parserErrors.map((e) => e.message),
+        ...result.compilerErrors.map((e) => e.message),
+      ];
+      throw new Error(parts.length > 0 ? parts.join("; ") : "compilation failed");
+    }
+    const vm = new VM(result.module, vmOpts);
+    const idx = procedureName !== undefined ? vm.findProcedureIndex(procedureName) : procedureIndex;
+    return vm.runProcedure(idx, args);
+  }
 }
 
 function resolveImportPath(importPath: string, baseDir: string): string {
