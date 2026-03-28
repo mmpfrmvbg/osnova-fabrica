@@ -169,10 +169,11 @@ def _execute_atom_with_retries(
                 and fb not in ("0", "false", "no")
                 and avail.get("cursor")
             ):
-                LOG.warning(
-                    "ATM %s — Qwen BLK or quota, falling back to Cursor",
-                    aid,
-                )
+                LOG.warning("ATM %s — Qwen BLK, falling back to Cursor", aid)
+                why = str(report.get("err") or "").strip() or "(no err in report)"
+                if len(why) > 600:
+                    why = why[:520] + "…(" + str(len(why)) + " chars)"
+                LOG.warning("ATM %s — Qwen report err: %s", aid, why)
                 atom["executor"] = "cursor"
                 success, report = run_cursor_atom(atom, dry_run=dry_run)
                 report.pop("forge_retry_executor", None)

@@ -180,7 +180,8 @@ def _log_qwen_argv(cmd: list[str], via: str) -> None:
             safe.append(f"{a[:72]}…({len(a)} chars)")
         else:
             safe.append(a)
-    LOG.info("qwenexec: FORGE_QWEN_CODE_PROMPT_VIA=%s argv=%s", via, safe)
+    # Не логировать список через %s: str(list) даёт repr элементов → C:\\\\\\ в путях.
+    LOG.info("qwenexec: FORGE_QWEN_CODE_PROMPT_VIA=%s argv=%s", via, subprocess.list2cmdline(safe))
 
 
 def _parse_result_event(stdout: str) -> dict[str, Any] | None:
@@ -284,7 +285,20 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         err: str,
         *,
         retry_cursor: bool = True,
+        proc_returncode: int | None = None,
+        output_tail: str | None = None,
     ) -> tuple[bool, dict[str, Any]]:
+        tail = (output_tail or "").replace("\r\n", "\n").strip()
+        if len(tail) > 2000:
+            tail = tail[-2000:]
+        rc = "n/a" if proc_returncode is None else str(proc_returncode)
+        LOG.warning(
+            "qwenexec: BLK %s returncode=%s err=%s — tail:\n%s",
+            atom_id,
+            rc,
+            err,
+            tail if tail else "(no capture)",
+        )
         r: dict[str, Any] = {
             "v": 5,
             "t": "RPT",
@@ -299,7 +313,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         return False, r
 
     if not can_call_executor():
-        return _blk("Qwen executor daily budget exhausted", retry_cursor=True)
+        return _blk("Qwen executor daily budget exhausted", retry_cursor=True, output_tail="budget gate (can_call_executor false)")
 
     prompt = _prompt(atom)
     base_turns = _effective_max_session_turns(None)
@@ -325,9 +339,12 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
     try:
         proc = _run_once(base_turns)
     except TimeoutExpired:
-        LOG.error("qwenexec: timeout after %ss for %s", run_s, atom_id)
         record(served=True, role="executor")
-        return _blk(f"qwen code timeout after {run_s}s", retry_cursor=True)
+        return _blk(
+            f"qwen code timeout after {run_s}s",
+            retry_cursor=True,
+            output_tail=f"TimeoutExpired after {run_s}s",
+        )
 
     out = proc.stdout or ""
     err = proc.stderr or ""
@@ -335,7 +352,12 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
     if is_quota_exhausted_output(combined):
         log_remote_qwen_limit("qwenexec", combined, ref=atom_id)
         record(served=False)
-        return _blk("Qwen API quota / rate limit", retry_cursor=True)
+        return _blk(
+            "Qwen API quota / rate limit",
+            retry_cursor=True,
+            proc_returncode=proc.returncode,
+            output_tail=combined,
+        )
 
     if _is_fatal_turn_limit_error(combined, proc.returncode):
         LOG.warning(
@@ -347,42 +369,70 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         try:
             proc = _run_once(retry_turns)
         except TimeoutExpired:
-            LOG.error("qwenexec: timeout after %ss for %s (after turn-limit retry)", run_s, atom_id)
             record(served=True, role="executor")
-            return _blk(f"qwen code timeout after {run_s}s", retry_cursor=True)
+            return _blk(
+                f"qwen code timeout after {run_s}s",
+                retry_cursor=True,
+                output_tail=f"TimeoutExpired after {run_s}s (after turn-limit retry)",
+            )
         out = proc.stdout or ""
         err = proc.stderr or ""
         combined = f"{out}\n{err}"
         if is_quota_exhausted_output(combined):
             log_remote_qwen_limit("qwenexec", combined, ref=atom_id)
             record(served=False)
-            return _blk("Qwen API quota / rate limit", retry_cursor=True)
+            return _blk(
+                "Qwen API quota / rate limit",
+                retry_cursor=True,
+                proc_returncode=proc.returncode,
+                output_tail=combined,
+            )
 
     record(served=True, role="executor")
 
     if proc.returncode != 0:
         tail = combined.strip()[-2000:]
-        LOG.warning("qwenexec: exit %s for %s — %s", proc.returncode, atom_id, tail)
         if _is_fatal_turn_limit_error(combined, proc.returncode):
             return _blk(
                 "qwen code FatalTurnLimitedError (code 53) after retry with higher max-session-turns",
                 retry_cursor=True,
+                proc_returncode=proc.returncode,
+                output_tail=tail,
             )
-        return _blk(f"qwen code exit {proc.returncode}", retry_cursor=True)
+        return _blk(
+            f"qwen code exit {proc.returncode}",
+            retry_cursor=True,
+            proc_returncode=proc.returncode,
+            output_tail=tail,
+        )
 
     # JSON может оказаться в stderr (редко) или весь буфер — склеиваем
     result = _parse_result_event(f"{out}\n{err}")
     if result is None:
         tail = f"{out}\n{err}".replace("\r\n", "\n").strip()[-2000:]
-        LOG.warning("qwenexec: no type=result JSON for %s — tail:\n%s", atom_id, tail)
-        return _blk("qwen code output has no type=result JSON", retry_cursor=True)
+        return _blk(
+            "qwen code output has no type=result JSON",
+            retry_cursor=True,
+            proc_returncode=proc.returncode,
+            output_tail=tail,
+        )
 
     is_err = bool(result.get("is_error"))
     delta = _files_delta(result)
     if is_err:
-        return _blk("qwen code result.is_error true", retry_cursor=True)
+        return _blk(
+            "qwen code result.is_error true",
+            retry_cursor=True,
+            proc_returncode=proc.returncode,
+            output_tail=json.dumps(result, ensure_ascii=False)[:2000],
+        )
     if delta <= 0:
-        return _blk("qwen code made no file changes (stats)", retry_cursor=True)
+        return _blk(
+            "qwen code made no file changes (stats)",
+            retry_cursor=True,
+            proc_returncode=proc.returncode,
+            output_tail=json.dumps(result, ensure_ascii=False)[:2000],
+        )
 
     report: dict[str, Any] = {
         "v": 5,
