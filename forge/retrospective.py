@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import urllib.error
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -138,11 +139,18 @@ def finalize_epic(
             )
         )
         lines.append("```\n</details>")
-        gh_request("POST", f"/repos/{repo}/issues/{issue}/comments", {"body": "\n".join(lines)})
-        if status in {"OK", "PARTIAL"}:
-            gh_request("PATCH", f"/repos/{repo}/issues/{issue}", {"state": "closed"})
-        elif status == "BLK":
-            gh_request("POST", f"/repos/{repo}/issues/{issue}/labels", {"labels": ["blocker"]})
+        try:
+            gh_request("POST", f"/repos/{repo}/issues/{issue}/comments", {"body": "\n".join(lines)})
+            if status in {"OK", "PARTIAL"}:
+                gh_request("PATCH", f"/repos/{repo}/issues/{issue}", {"state": "closed"})
+            elif status == "BLK":
+                gh_request("POST", f"/repos/{repo}/issues/{issue}/labels", {"labels": ["blocker"]})
+        except urllib.error.HTTPError as exc:
+            LOG.warning(
+                "GitHub API failed during retrospective (comment/close/labels): %s — fix GH_TOKEN. %s",
+                exc.code,
+                getattr(exc, "reason", "") or "",
+            )
         subprocess.run(["git", "add", ".osnova"], cwd=project, check=False)
         subprocess.run(["git", "commit", "-m", f"Retrospective {epic.get('id')} {status}"], cwd=project, check=False)
         subprocess.run(["git", "push"], cwd=project, check=False)
