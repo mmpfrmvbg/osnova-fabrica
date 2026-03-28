@@ -35,6 +35,43 @@ export function detectAppTypeFromPrefix(text: string): AppType | null {
   return null;
 }
 
+/** Confidence из JSON LLM: число или числовая строка; иначе 0.8 (как раньше для не-чисел). */
+export function parseLlmConfidence(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const n = Number.parseFloat(value.trim());
+    if (Number.isFinite(n)) {
+      return n;
+    }
+  }
+  return 0.8;
+}
+
+type LlmIntentJson = {
+  intent?: unknown;
+  description?: unknown;
+  features?: unknown;
+  /** Некоторые модели возвращают roles вместо features — учитываем для G1 (features не пустой). */
+  roles?: unknown;
+  appType?: unknown;
+  constraints?: unknown;
+  confidence?: unknown;
+};
+
+function featuresFromLlmParsed(parsed: LlmIntentJson, fallbackText: string): string[] {
+  const rawFeatures = parsed.features;
+  const rawRoles = parsed.roles;
+  if (Array.isArray(rawFeatures) && rawFeatures.length > 0) {
+    return rawFeatures.map(String);
+  }
+  if (Array.isArray(rawRoles) && rawRoles.length > 0) {
+    return rawRoles.map(String);
+  }
+  return [String(parsed.intent ?? fallbackText)];
+}
+
 function loadAbPromptOverride(): string | null {
   const promptFile = process.env.OSNOVA_AB_PROMPT_FILE;
   if (!promptFile) return null;
@@ -215,22 +252,17 @@ export class IntakeAgent implements IAgent {
       return this.fallbackIntent(input.text, prefixAppType);
     }
 
+    const p = parsed as LlmIntentJson;
+
     return {
       intentId: randomUUID(),
       description: String(
-        (parsed as { intent?: unknown }).intent ??
-          (parsed as { description?: unknown }).description ??
-          input.text,
+        p.intent ?? p.description ?? input.text,
       ),
-      features:
-        Array.isArray((parsed as { features?: unknown }).features) &&
-        (parsed as { features: unknown[] }).features.length > 0
-          ? (parsed as { features: unknown[] }).features.map(String)
-          : [String((parsed as { intent?: unknown }).intent ?? input.text)],
+      features: featuresFromLlmParsed(p, input.text),
       appType: prefixAppType ?? (parsed.appType as AppType) ?? 'утилита',
       constraints: (parsed.constraints as Record<string, unknown>) ?? {},
-      confidence:
-        typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
+      confidence: parseLlmConfidence(p.confidence),
     };
   }
 

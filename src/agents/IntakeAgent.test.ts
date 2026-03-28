@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { IntakeAgent, detectAppTypeFromPrefix } from './IntakeAgent';
+import { IntakeAgent, detectAppTypeFromPrefix, parseLlmConfidence } from './IntakeAgent';
 import type { OsnovaIntent } from '../pipeline/types';
 
 const { mockLlmComplete } = vi.hoisted(() => ({
@@ -135,6 +135,26 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     const intent = await agent.parseIntent({ text: 'Алгоритм: сортировка' });
     expect(intent.appType).toBe('алгоритм');
     expect(intent.confidence).toBe(0.5);
+  });
+
+  it('roles от LLM подставляются как features если features пустой (ATM-002 / G1)', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'прочитать лог',
+        confidence: 0.88,
+        language: 'osnova',
+        features: [],
+        roles: ['file read', 'logging'],
+        appType: 'модуль',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'задача' });
+    expect(intent.features).toEqual(['file read', 'logging']);
+    expect(intent.confidence).toBe(0.88);
   });
 
   it('Issues #3: пустой features[] от LLM не затирает низкую confidence (подставляется intent в features)', async () => {
@@ -303,11 +323,29 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     expect(one.confidence).toBe(1);
   });
 
-  it('confidence как строка в JSON → подстановка 0.8 (не число)', async () => {
+  it('confidence как числовая строка в JSON → парсится для gate G1', async () => {
     mockLlmComplete.mockResolvedValue({
       content: JSON.stringify({
         intent: 'x',
         confidence: '0.95',
+        language: 'osnova',
+        features: ['a'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'y' });
+    expect(intent.confidence).toBe(0.95);
+  });
+
+  it('confidence как нечисловая строка → 0.8', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'x',
+        confidence: 'низкая',
         language: 'osnova',
         features: ['a'],
         appType: 'утилита',

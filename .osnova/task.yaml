@@ -1,25 +1,25 @@
-id: ATM-EPK-260328-016-001
+id: ATM-EPK-260328-016-002
 epic: EPK-260328-016
-seq: 1
+seq: 2
 zone: agents
 risk: HIGH
 executor: cursor
-goal: Анализ блокировок ATM-001, ATM-008, ATM-009, ATM-010, ATM-011, ATM-012 — диагностика
-  корневых причин
+goal: Восстановить IntakeAgent — устранить причины BLK в ATM-001
 scope:
-- src/agents/agents.test.ts — анализ failing tests
 - src/agents/intake-agent.ts
+- src/agents/agents.test.ts — соответствующие тесты
+notouch:
 - src/agents/plan-agent.ts
 - src/agents/exec-agent.ts
 - src/agents/review-agent.ts
-notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Запустить npx vitest run src/agents/agents.test.ts — зафиксировать ошибки
-- Идентифицировать паттерны failures по каждому ATM
-- 'Составить матрицу: ATM → файл агента → причина BLK'
-deps: []
+- Локализовать failing test для ATM-001
+- Исправить логику intake (валидация gate, парсинг roles)
+- 'Убедиться: тест ATM-001 проходит'
+deps:
+- ATM-EPK-260328-016-001
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0

@@ -128,20 +128,24 @@ def _line_verdict(line: str) -> bool | None:
 def _parse_qwen_review_pass(text: str) -> bool:
     """
     Qwen often returns prose before PASS:/FAIL:. Old logic used startswith('PASS') and misclassified those.
-    Prefer first line-level PASS:/FAIL:, else first in-text PASS: before FAIL:.
+    Use the last line-level PASS:/FAIL: (summary lines often come after a spurious early FAIL:).
+    Regex fallback: last PASS: vs last FAIL: in text.
     """
     if not (text or "").strip():
         return False
+    last_line_verdict: bool | None = None
     for line in text.splitlines():
         v = _line_verdict(line)
         if v is not None:
-            return v
-    m_fail = re.search(r"(?i)(?:^|[\s;,.])FAIL\s*:", text)
-    m_pass = re.search(r"(?i)(?:^|[\s;,.])PASS\s*:", text)
-    if m_fail and (not m_pass or m_fail.start() < m_pass.start()):
-        return False
-    if m_pass:
-        return True
+            last_line_verdict = v
+    if last_line_verdict is not None:
+        return last_line_verdict
+    fails = list(re.finditer(r"(?i)(?:^|[\s;,.])FAIL\s*:", text))
+    passes = list(re.finditer(r"(?i)(?:^|[\s;,.])PASS\s*:", text))
+    if fails or passes:
+        last_f = fails[-1].start() if fails else -1
+        last_p = passes[-1].start() if passes else -1
+        return last_p > last_f
     return text.lstrip().upper().startswith("PASS")
 
 
@@ -368,6 +372,7 @@ def review(
                 )
         except Exception:
             pass
+    LOG.debug("reviewer passed=%s reason_head=%s", passed, (reason[:100] if reason else ""))
     return passed, reason, elapsed
 
 

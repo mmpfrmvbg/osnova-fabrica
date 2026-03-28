@@ -3,7 +3,7 @@
  * Complements single-file agent tests with focused validation and edge cases.
  */
 import { describe, it, expect } from 'vitest';
-import { IntakeAgent, SpecValidationError } from './IntakeAgent';
+import { IntakeAgent, SpecValidationError, parseLlmConfidence } from './IntakeAgent';
 import { PlanAgent, PlanValidationError } from './plan-agent';
 import { ExecAgent, type ExecContext } from './exec-agent';
 import { ReviewAgent } from './review-agent';
@@ -34,6 +34,21 @@ function sampleSpec(over: Partial<OsnovaSpec> = {}): OsnovaSpec {
     ...over,
   };
 }
+
+describe('parseLlmConfidence — порог G1 (ATM-002)', () => {
+  it('числовая строка парсится', () => {
+    expect(parseLlmConfidence('0.71')).toBe(0.71);
+    expect(parseLlmConfidence(' 0.699 ')).toBeCloseTo(0.699);
+  });
+
+  it('нечисловая строка → 0.8', () => {
+    expect(parseLlmConfidence('высокая')).toBe(0.8);
+  });
+
+  it('число как раньше', () => {
+    expect(parseLlmConfidence(0.42)).toBe(0.42);
+  });
+});
 
 describe('IntakeAgent — валидация входа parseIntent', () => {
   const agent = new IntakeAgent();
