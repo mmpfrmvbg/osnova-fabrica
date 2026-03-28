@@ -543,6 +543,7 @@ def cycle(dry_run: bool = False) -> str:
     _heartbeat()
     pre_queue = _snapshot_epic_queue_lines()
     q_before = len(pre_queue)
+    sha_before = _git_rev_parse_head(project) if not dry_run else ""
     _git_pull_project(dry_run=dry_run)
     if not dry_run:
         _merge_epic_queue_after_git_pull(pre_queue)
