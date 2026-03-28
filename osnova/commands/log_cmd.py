@@ -38,7 +38,10 @@ def log(
                 continue
         ok = sum(1 for a in atms if str(a.get("s")).upper() == "OK")
         total = len(item.get("atms") or [])
+        goal = str(item.get("goal") or "").strip()
         console.print(f"\n[bold cyan]{eid}[/]  [dim]{item.get('started_at', '')[:19]}[/]")
+        if goal:
+            console.print(f"[dim]{goal[:120]}{'…' if len(goal) > 120 else ''}[/]")
         console.print(make_progress_bar(ok, total if total else len(atms)))
         if atms:
             console.print(make_atm_table(atms))

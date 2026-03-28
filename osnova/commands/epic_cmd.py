@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 import yaml
@@ -18,9 +18,12 @@ app = typer.Typer(help="EPIC manifests")
 @app.command("list")
 def epic_list(
     n: Annotated[int, typer.Option("--limit", "-n", help="limit")] = 20,
+    zone: Annotated[Optional[str], typer.Option("--zone", help="Фильтр по полю zone в манифесте")] = None,
     json_out: Annotated[bool, typer.Option("--json", "-j")] = False,
 ):
     rows = engine.list_epics(limit=n)
+    if zone:
+        rows = [r for r in rows if str(r.get("zone") or "") == zone]
     if json_out:
         typer.echo(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
         return

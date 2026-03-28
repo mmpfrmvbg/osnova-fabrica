@@ -103,9 +103,16 @@ class ForgeEngine:
 
         if platform.system() == "Windows":
             systemd_str = "n/a (Windows)"
+            heart_systemd = "n/a (Windows)"
         else:
             forge_running = self._systemd_active("osnova-forge")
             systemd_str = "active" if forge_running else "inactive"
+            heart_systemd = "active" if self._systemd_active("osnova-heart") else "inactive"
+
+        heart_raw = st.get("heart") if isinstance(st.get("heart"), dict) else {}
+        restarts_today = int(heart_raw.get("restartstoday") or heart_raw.get("restarts_today") or 0)
+        brain_src = st.get("brainsource") or st.get("brain_source") or "?"
+        last_epic_at = st.get("lastepicreceivedat") or st.get("last_epic_received_at")
 
         ci = st.get("ci") if isinstance(st.get("ci"), dict) else {}
         blockers_raw = st.get("blockers") if isinstance(st.get("blockers"), list) else []
@@ -117,6 +124,15 @@ class ForgeEngine:
                 "detail": detail,
                 "systemd": systemd_str,
                 "paused": bool(fs.get("paused")),
+                "restarts_today": restarts_today,
+            },
+            "heart": {
+                "systemd": heart_systemd,
+                "restarts_today": restarts_today,
+            },
+            "brain": {
+                "source": str(brain_src),
+                "last_epic_at": last_epic_at,
             },
             "executors": {
                 "qwen": self.get_degradation_status().get("qwen"),

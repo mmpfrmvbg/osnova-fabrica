@@ -20,11 +20,13 @@ from osnova.commands.watch_cmd import watch
 
 app = typer.Typer(
     name="osnova",
-    help="OSNOVA Forge CLI",
+    help="OSNOVA Forge CLI — тонкий слой над forge/.",
     no_args_is_help=True,
     rich_markup_mode="rich",
     pretty_exceptions_show_locals=False,
     pretty_exceptions_short=True,
+    add_completion=True,
+    epilog="Completion: osnova --install-completion bash|zsh|fish  ·  osnova --show-completion bash",
 )
 
 app.command("status")(status)

@@ -126,6 +126,15 @@ def make_health_panel(health: dict[str, Any]) -> Panel:
     if forge.get("paused"):
         line1 += "  [yellow]PAUSED[/]"
 
+    heart = health.get("heart") if isinstance(health.get("heart"), dict) else {}
+    hc = str(heart.get("systemd", "?"))
+    heart_color = "green" if hc == "active" else "dim" if "n/a" in hc else "red"
+    rt = int(heart.get("restarts_today") or forge.get("restarts_today") or 0)
+    line_heart = (
+        f"Heart:  [{heart_color}]{hc}[/]  "
+        f"restarts today: [bold]{rt}[/]"
+    )
+
     qwen_ok = executors.get("qwen", True)
     cursor_ok = executors.get("cursor", True)
     line2 = (
@@ -133,6 +142,10 @@ def make_health_panel(health: dict[str, Any]) -> Panel:
         f"{'OK' if qwen_ok else 'DOWN'}[/]  "
         f"cursor [{'green' if cursor_ok else 'red'}]{'OK' if cursor_ok else 'DOWN'}[/]"
     )
+
+    brain = health.get("brain") if isinstance(health.get("brain"), dict) else {}
+    bsrc = str(brain.get("source") or "?")
+    line_brain = f"Brain:  [dim]{bsrc}[/]  last epic: {fmt_ts(brain.get('last_epic_at'))}"
 
     pr = float(stats.get("passrate") or 0)
     pr_color = "green" if pr >= 0.8 else "yellow" if pr >= 0.6 else "red"
@@ -156,31 +169,39 @@ def make_health_panel(health: dict[str, Any]) -> Panel:
         blocker_lines.append(
             f"  issue [cyan]#{b.get('issue')}[/]  [dim]{b.get('atm_id', '?')}[/]"
         )
+    core_lines = [line1, line_heart, line2, line_brain, line3, line4]
+
     if blocker_lines:
         line5 = "[bold]Blockers[/] ([dim]state.yaml blockers:[/])\n" + "\n".join(
             blocker_lines[:25]
         )
         if len(blocker_lines) > 25:
             line5 += f"\n  [dim]… +{len(blocker_lines) - 25}[/]"
-        body = "\n".join([line1, line2, line3, line4, "", line5])
+        body = "\n".join([*core_lines, "", line5])
     else:
-        body = "\n".join([line1, line2, line3, line4, "[dim]Blockers: (none open)[/]"])
+        body = "\n".join([*core_lines, "[dim]Blockers: (none open)[/]"])
 
     return Panel(body, title="[bold cyan]OSNOVA Health[/]", expand=False)
 
 
 def make_epic_table(rows: list[dict[str, Any]]) -> Table:
     table = Table(show_header=True, header_style="bold", box=box.SIMPLE, expand=False)
-    table.add_column("ID", width=22)
+    table.add_column("ID", width=20)
     table.add_column("Pri", width=5)
-    table.add_column("Goal", width=48)
+    table.add_column("Zone", width=6)
+    table.add_column("Stat", width=8)
+    table.add_column("Goal", width=40)
     for row in rows:
-        pid = str(row.get("id", "?"))[:22]
+        pid = str(row.get("id", "?"))[:20]
         prio = str(row.get("priority", "?"))
-        goal = str(row.get("goal", ""))[:48]
+        zone = str(row.get("zone") or "—")[:6]
+        stat = str(row.get("status") or "—")[:8]
+        goal = str(row.get("goal", ""))[:40]
         table.add_row(
             pid,
             f"[{PRIORITY_COLOR.get(prio, '')}]{prio}[/]",
+            zone,
+            stat,
             goal,
         )
     return table
