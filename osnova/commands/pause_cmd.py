@@ -11,21 +11,23 @@ engine = ForgeEngine()
 
 def pause():
     """Пауза forge (forge-state.json)."""
-    if engine.get_forge_state().get("paused"):
+    r = engine.pause_forge()
+    if r == "already_paused":
         console.print("[yellow]Уже на паузе[/]")
         return
-    if engine.pause_forge():
+    if r == "paused":
         console.print("[yellow]Пауза включена[/]")
-    else:
-        raise typer.Exit(1)
+        return
+    raise typer.Exit(1)
 
 
 def resume():
     """Снять паузу."""
-    if not engine.get_forge_state().get("paused"):
+    r = engine.resume_forge()
+    if r == "already_running":
         console.print("[green]Не на паузе[/]")
         return
-    if engine.resume_forge():
+    if r == "resumed":
         console.print("[green]Пауза снята[/]")
-    else:
-        raise typer.Exit(1)
+        return
+    raise typer.Exit(1)

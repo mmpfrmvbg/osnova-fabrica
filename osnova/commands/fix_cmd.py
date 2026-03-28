@@ -1,10 +1,10 @@
 """osnova fix."""
 from __future__ import annotations
 
-import subprocess
 from typing import Annotated
 
 import typer
+import yaml
 
 from osnova.done_cmd import resolve_done_cmd
 from osnova.engine import ForgeEngine
@@ -22,7 +22,6 @@ _FIX_ATM_HELP = (
 def _find_atm_exact_in_history(
     hist: list[dict], atm_id: str
 ) -> tuple[dict | None, str | None]:
-    """Только точное совпадение id ATM (избегаем ложных совпадений по подстроке)."""
     aid = atm_id.strip()
     if not aid:
         return None, None
@@ -34,15 +33,16 @@ def _find_atm_exact_in_history(
                 matches.append((a, eid))
     if not matches:
         return None, None
-    # history уже от новых к старым — берём первое вхождение (самый свежий прогон)
     return matches[0]
 
 
 def fix(
     atm_id: Annotated[str, typer.Argument(help="Полный ATM id, например ATM-EPK-...-NNN")],
     message: Annotated[str, typer.Option("--message", "-m")] = "manual fix",
+    executor: Annotated[str, typer.Option("--executor", "-e", help="cursor|qwen|auto")] = "cursor",
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Показать goal/done без запуска")] = False,
 ):
-    """Найти ATM в history, воспроизвести done, правка вручную, re-verify, commit."""
+    """Повторный прогон ATM через run_single_atm (re-run and fix)."""
     hist = engine.get_history(limit=20)
     target, epic_id_for = _find_atm_exact_in_history(hist, atm_id)
     if not target:
@@ -56,25 +56,25 @@ def fix(
         epic_id=epic_id_for,
         repo_root=engine.repo_root,
     )
-
     resolved_id = str(target.get("id") or atm_id.strip())
+    goal = f"re-run and fix: {resolved_id} — {message}"
+
+    if dry_run:
+        preview = {
+            "id": resolved_id,
+            "goal": goal,
+            "scope": [],
+            "done": done_cmd,
+            "executor": executor,
+        }
+        console.print("[dim]Dry-run — будет запущено:[/]\n")
+        console.print(yaml.safe_dump(preview, allow_unicode=True, sort_keys=False))
+        return
+
     console.print(f"[bold]Fix[/] {resolved_id}\n[dim]done:[/] {done_cmd}\n")
-    if done_cmd:
-        subprocess.run(done_cmd, shell=True, cwd=str(engine.repo_root))
-    console.print("\n[yellow]Исправь код, Enter для re-verify…[/]")
-    input()
-    r = subprocess.run(done_cmd, shell=True, cwd=str(engine.repo_root), capture_output=True, text=True)
-    if r.returncode == 0:
-        subprocess.run(
-            ["git", "add", "-A"],
-            cwd=str(engine.repo_root),
-            check=False,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", f"fix({resolved_id}): {message}"],
-            cwd=str(engine.repo_root),
-            check=False,
-        )
+    r = engine.run_single(goal, [], done_cmd, executor)
+    s = str(r.get("s", "?")).upper()
+    if s == "OK":
         console.print("[green]OK[/]")
     else:
-        console.print(f"[red]FAIL[/]\n{r.stderr or r.stdout}")
+        console.print(f"[red]BLK[/] {r.get('err') or r.get('blk_reason') or r}")

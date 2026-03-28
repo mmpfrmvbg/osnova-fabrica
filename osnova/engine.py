@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -164,23 +165,29 @@ class ForgeEngine:
         except (OSError, subprocess.TimeoutExpired, FileNotFoundError):
             return False
 
-    def pause_forge(self) -> bool:
+    def pause_forge(self) -> str:
+        """``already_paused`` | ``paused`` | ``error``."""
         st = load_forge_state()
+        if st.get("paused"):
+            return "already_paused"
         st["paused"] = True
         try:
             save_forge_state(st)
-            return True
+            return "paused"
         except Exception:
-            return False
+            return "error"
 
-    def resume_forge(self) -> bool:
+    def resume_forge(self) -> str:
+        """``already_running`` | ``resumed`` | ``error``."""
         st = load_forge_state()
+        if not st.get("paused"):
+            return "already_running"
         st["paused"] = False
         try:
             save_forge_state(st)
-            return True
+            return "resumed"
         except Exception:
-            return False
+            return "error"
 
     def kill_current_epic(self) -> bool:
         fs = self.get_forge_state()
@@ -367,6 +374,37 @@ class ForgeEngine:
         from forge.forge import run_single_atm
 
         return run_single_atm(goal, scope, done, executor)
+
+    def do_single(
+        self,
+        goal: str,
+        *,
+        scope: list[str] | None = None,
+        done_cmd: str | None = None,
+        executor: str = "auto",
+        dry_run: bool = False,
+    ) -> dict[str, Any] | None:
+        """
+        Один ATM без атомайзера: ``done`` из ``testcommands.unit`` в state или переданный.
+        При ``dry_run`` только описание ATM (без вызова forge).
+        """
+        st = self.get_state()
+        tc = st.get("testcommands") if isinstance(st.get("testcommands"), dict) else {}
+        default_done = str(tc.get("unit") or "npm test").strip() or "npm test"
+        done = (done_cmd or default_done).strip() or "npm test"
+        scopes = list(scope or [])
+        atm_id = f"LOCAL-{uuid.uuid4().hex[:6].upper()}"
+        preview: dict[str, Any] = {
+            "id": atm_id,
+            "goal": goal,
+            "scope": scopes,
+            "done": done,
+            "priority": "P2",
+            "executor": executor,
+        }
+        if dry_run:
+            return {"dry_run": True, "atm": preview}
+        return self.run_single(goal, scopes, done, executor)
 
     def ask_qwen(self, question: str, context_files: Optional[list[str]] = None) -> str:
         import yaml as _yaml

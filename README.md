@@ -147,3 +147,7 @@ npx tsx src/cli.ts --task "посчитай сумму чисел от 1 до 10
 Файл:            Главный.osnova
 Golden:          passed ✅
 ```
+
+## OSNOVA Forge CLI
+
+Команды `osnova` (status, health, forge, do, fix, …): см. [OSNOVA-CLI.md](OSNOVA-CLI.md).
