@@ -1,21 +1,21 @@
-id: ATM-EPK-260328-014-008
+id: ATM-EPK-260328-014-009
 epic: EPK-260328-014
-seq: 8
+seq: 9
 zone: src/runtime/interpreter.test.ts
-risk: LOW
+risk: MEDIUM
 executor: cursor
-goal: Написать unit-тесты для арифметических и стековых инструкций
+goal: Написать unit-тесты для управления потоком и исключений
 scope:
 - src/runtime/interpreter.test.ts
 notouch: []
 done: npx vitest run src/runtime/
 steps:
-- Тесты для PUSH/POP/DUP
-- Тесты для ADD/SUB/MUL/DIV
-- Тесты для сравнений EQ/LT/GT
-- Тесты для логических операций
+- Тесты для JUMP/JUMP_IF_FALSE
+- Тесты для CALL/RETURN с проверкой фреймов
+- Тесты для THROW и обработки исключений
+- Тесты для вложенных вызовов функций
 deps:
-- 4
+- 6
 maxiter: 3
 retries: 0
 status: PENDING
