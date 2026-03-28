@@ -133,12 +133,13 @@ describe('PlanAgent — построение плана', () => {
     expect(plan.steps.map((s) => s.phase)).toEqual([
       'intake',
       'spec_generation',
+      'g1_spec_ready',
       'codegen',
       'build',
       'golden_check',
       'repair',
     ]);
-    expect(plan.steps.length).toBe(6);
+    expect(plan.steps.length).toBe(7);
     plan.steps.forEach((s, i) => {
       expect(s.order).toBe(i + 1);
     });
@@ -149,6 +150,36 @@ describe('PlanAgent — построение плана', () => {
     expect(plan.planId.length).toBeGreaterThan(0);
     expect(plan.intentId).toBe('intent-agents');
     expect(plan.specId).toBe('spec-agents');
+  });
+});
+
+describe('PlanAgent — gate → role (ATM-008)', () => {
+  const agent = new PlanAgent();
+
+  it('G1 (g1_spec_ready) идёт после spec_generation и до codegen', () => {
+    const plan = agent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: true,
+      includeRepair: false,
+    });
+    const ixG1 = plan.steps.findIndex(s => s.phase === 'g1_spec_ready');
+    const ixSpec = plan.steps.findIndex(s => s.phase === 'spec_generation');
+    const ixCodegen = plan.steps.findIndex(s => s.phase === 'codegen');
+    expect(ixSpec).toBeGreaterThanOrEqual(0);
+    expect(ixG1).toBe(ixSpec + 1);
+    expect(ixCodegen).toBe(ixG1 + 1);
+  });
+});
+
+describe('PlanAgent — инкрементальный план для ExecAgent (ATM-009)', () => {
+  const agent = new PlanAgent();
+
+  it('без fromScratch: только роли codegen → build → golden_check (без gate-шагов в плане)', () => {
+    const plan = agent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: false,
+      includeRepair: false,
+    });
+    expect(plan.steps.map(s => s.phase)).toEqual(['codegen', 'build', 'golden_check']);
+    expect(plan.steps.some(s => s.phase === 'g1_spec_ready')).toBe(false);
   });
 });
 

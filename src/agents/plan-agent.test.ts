@@ -59,6 +59,7 @@ describe('PlanAgent.buildPlan', () => {
     expect(plan.steps.map(s => s.phase)).toEqual([
       'intake',
       'spec_generation',
+      'g1_spec_ready',
       'codegen',
       'build',
       'golden_check',

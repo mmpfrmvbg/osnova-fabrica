@@ -10,6 +10,8 @@ import type { OsnovaIntent, OsnovaSpec } from '../pipeline/types';
 export type PipelinePhase =
   | 'intake'
   | 'spec_generation'
+  /** Между spec и codegen: quality gate G1 (gates.yaml), до роли OsnovaCodegen. */
+  | 'g1_spec_ready'
   | 'codegen'
   | 'build'
   | 'golden_check'
@@ -42,10 +44,11 @@ export interface PlanAgentBuildOptions {
 const PHASE_RANK: Record<PipelinePhase, number> = {
   intake: 0,
   spec_generation: 1,
-  codegen: 2,
-  build: 3,
-  golden_check: 4,
-  repair: 5,
+  g1_spec_ready: 2,
+  codegen: 3,
+  build: 4,
+  golden_check: 5,
+  repair: 6,
 };
 
 export class PlanValidationError extends Error {
@@ -85,6 +88,11 @@ export class PlanAgent {
         phase: 'spec_generation',
         order: order++,
         description: 'generateSpec: OsnovaIntent → OsnovaSpec',
+      });
+      steps.push({
+        phase: 'g1_spec_ready',
+        order: order++,
+        description: 'gate G1_spec_ready: intent+spec → готовность к codegen',
       });
     }
 
@@ -186,16 +194,18 @@ export class PlanAgent {
     }
 
     const tail = plan.fromScratch ? phases.slice(2) : phases;
-    const expectedMid: PipelinePhase[] = ['codegen', 'build', 'golden_check'];
-    for (let i = 0; i < expectedMid.length; i++) {
-      if (tail[i] !== expectedMid[i]) {
+    const expectedCore: PipelinePhase[] = plan.fromScratch
+      ? ['g1_spec_ready', 'codegen', 'build', 'golden_check']
+      : ['codegen', 'build', 'golden_check'];
+    for (let i = 0; i < expectedCore.length; i++) {
+      if (tail[i] !== expectedCore[i]) {
         throw new PlanValidationError(
-          `expected phase ${expectedMid[i]} at position ${i}, got ${tail[i]}`,
+          `expected phase ${expectedCore[i]} at position ${i}, got ${tail[i]}`,
           'expected_core',
         );
       }
     }
-    const afterCore = tail.slice(3);
+    const afterCore = tail.slice(expectedCore.length);
     if (afterCore.length > 1) {
       throw new PlanValidationError('at most one repair step after golden_check', 'repair_count');
     }
