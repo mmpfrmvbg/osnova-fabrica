@@ -1,22 +1,22 @@
-id: ATM-EPK-260328-015-008
+id: ATM-EPK-260328-015-009
 epic: EPK-260328-015
-seq: 8
-zone: agents
-risk: HIGH
+seq: 9
+zone: pipeline
+risk: MEDIUM
 executor: cursor
-goal: Написать unit-тесты для ExecAgent и ReviewAgent
+goal: Интегрировать agents с pipeline через VM
 scope:
-- src/agents/agents.test.ts — тесты для exec-agent и review-agent
-notouch:
-- src/runtime/*
+- src/pipeline/pipeline.ts — интеграция agents
+- src/runtime/vm.ts — подключение agents к VM
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Протестировать выполнение операций ExecAgent
-- Протестировать валидацию результатов ReviewAgent
-- Добавить тесты error handling
+- Импортировать агенты из src/agents/
+- Добавить вызов agents в pipeline execution flow
+- Обеспечить передачу данных между VM и agents
 deps:
-- 4
-- 5
+- 6
+- 8
 maxiter: 3
 retries: 0
 status: PENDING

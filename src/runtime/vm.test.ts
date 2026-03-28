@@ -4,7 +4,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { OsVbcVM, createDefaultInvokeHandler } from "./vm";
+import {
+  OsVbcVM,
+  applyPipelineSpecToVm,
+  buildPipelineVmGlobals,
+  createDefaultInvokeHandler,
+  createPipelineInvokeHandlerForVm,
+} from "./vm";
 import type { StackValue, InvokeHandler } from "./vm";
 import { InterpreterError } from "./interpreter";
 import type { OsVbcModule, RawInstruction } from "./vm/bytecode";
@@ -112,5 +118,32 @@ describe("OsVbcVM integration", () => {
     const vm = new OsVbcVM(m, { invoke, maxSteps: 1000 });
     expect(await vm.execute()).toBe("native:a|b");
     expect(nativeCalls).toEqual([["a", "b"]]);
+  });
+
+  it("pipeline: buildPipelineVmGlobals + createPipelineInvokeHandlerForVm (без bytecode invoke)", () => {
+    const m: OsVbcModule = {
+      version: 1,
+      moduleName: "ПайплайнТест",
+      constants: [],
+      procedures: [{ name: "главная", codeOffset: 0, argc: 0, localsCount: 0 }],
+      code: [ri("ret")],
+    };
+    const vm = new OsVbcVM(m, { maxSteps: 1000 });
+    applyPipelineSpecToVm(vm, {
+      specId: "spec-x",
+      modules: [{ name: "M", description: "", isMain: true }],
+      mainModule: "M",
+      types: [],
+      procedures: [],
+      syscalls: [],
+      conventions: {},
+    });
+    const h = createPipelineInvokeHandlerForVm(vm);
+    expect(h("система.пайплайн.ид_спецификации", [])).toBe("spec-x");
+    expect(h("система.пайплайн.главный_модуль", [])).toBe("M");
+    expect(buildPipelineVmGlobals({ specId: "a", mainModule: "M", modules: [], types: [], procedures: [], syscalls: [], conventions: {} })).toMatchObject({
+      __osnova_pipeline_spec_id: "a",
+      __osnova_pipeline_main_module: "M",
+    });
   });
 });
