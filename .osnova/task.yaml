@@ -1,21 +1,23 @@
-id: ATM-EPK-260328-015-010
+id: ATM-EPK-260328-015-012
 epic: EPK-260328-015
-seq: 10
-zone: pipeline
-risk: HIGH
+seq: 12
+zone: agents
+risk: LOW
 executor: cursor
-goal: Написать интеграционные тесты pipeline с agents
+goal: Финальная верификация и запуск тестов
 scope:
-- src/pipeline/pipeline.test.ts — E2E тесты pipeline + agents
+- src/agents/
+- src/pipeline/
 notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать тест полного цикла compiler → runtime → agents
-- Протестировать passrate > 0.8
-- Добавить тесты взаимодействия всех компонентов
+- Запустить npx vitest run src/agents/
+- Запустить npx vitest run src/pipeline/
+- Убедиться в passrate > 0.8
 deps:
-- 9
+- 10
+- 11
 maxiter: 3
 retries: 0
-status: PENDING
+status: DONE
 priority: P1
