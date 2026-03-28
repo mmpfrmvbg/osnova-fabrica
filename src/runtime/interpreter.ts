@@ -1,6 +1,10 @@
 /**
- * Публичный фасад VM: класс Interpreter и имена опкодов для стековых операций.
- * Реализация шага — в ./vm/interpreter (VM).
+ * Публичный фасад VM: класс {@link Interpreter} и имена опкодов для стековых операций.
+ * Реализация шага — в ./vm/interpreter ({@link VM}).
+ *
+ * В пайплайне после intake {@link import("../agents/IntakeAgent").IntakeAgent} высокоуровневый запуск байткода
+ * с глобалами спецификации делается через {@link import("./vm").OsVbcVM} и {@link import("./vm").OsVbcVM.execute};
+ * этот класс — стековый движок внутри {@link import("./vm").OsVbcVM}.
  */
 
 import { VM } from "./vm/interpreter";

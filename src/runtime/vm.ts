@@ -6,9 +6,10 @@
  * @remarks
  * ### Интеграция VM ↔ агенты (пайплайн)
  *
- * **Поток данных ExecContext → VM → результат.** {@link import("../agents/exec-agent").ExecContext}
- * накапливает между шагами `spec`, `source`, отчёты. Перед прогоном байткода тот же снимок
- * {@link import("../pipeline/types").OsnovaSpec}, что в `ExecContext.spec`, передаётся в VM через
+ * **Поток данных IntakeAgent → spec → VM → результат.** {@link import("../agents/IntakeAgent").IntakeAgent}
+ * формирует {@link import("../pipeline/types").OsnovaSpec}; после фазы build тот же снимок попадает в
+ * {@link import("../agents/exec-agent").ExecContext} и/или в {@link createPipelineVmFromSpec}. Перед прогоном байткода
+ * {@link import("../pipeline/types").OsnovaSpec} передаётся в VM через
  * {@link applyPipelineSpecToVm} (запись в {@link OsVbcVM.globals} по {@link PIPELINE_VM_GLOBAL_KEYS}) и
  * обработчик {@link createPipelineInvokeHandlerForVm} для syscall `система.пайплайн.*`. Итог процедуры —
  * возврат из {@link OsVbcVM.execute} и {@link OsVbcVM.getReturnValue}; дальнейшие патчи контекста и отчёты
@@ -22,7 +23,7 @@
 import { Interpreter, InterpreterError } from "./interpreter";
 import type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";
 import type { OsnovaSpec } from "../pipeline/types";
-import type { OsVbcModule } from "./vm/bytecode";
+import { isOsVbcModule, type OsVbcModule } from "./vm/bytecode";
 import { createDefaultInvokeHandler } from "./vm/interpreter";
 
 /** Системный invoke по умолчанию; используйте для цепочки с пользовательским `invoke`. */
@@ -172,6 +173,32 @@ export function createPipelineInvokeHandlerForVm(
     }
     return inner(name, args);
   };
+}
+
+/**
+ * Собирает {@link OsVbcVM} для пары «{@link OsnovaSpec} (выход {@link import("../agents/IntakeAgent").IntakeAgent} / spec_generation)
+ * + байткод модуля». Эквивалентно {@link import("../agents/exec-agent").createPipelineVmFromExecContext}, когда уже известны
+ * только `spec` и загруженный {@link OsVbcModule} (без полного {@link import("../agents/exec-agent").ExecContext}).
+ *
+ * Запуск: {@link OsVbcVM.execute} (async); результат процедуры — возврат `execute` и {@link OsVbcVM.getReturnValue}
+ * (после ошибки — `undefined`, как у внутреннего {@link Interpreter#runProcedure}).
+ *
+ * @returns `null`, если `module` не проходит {@link isOsVbcModule}.
+ */
+export function createPipelineVmFromSpec(spec: OsnovaSpec, module: unknown): OsVbcVM | null {
+  if (!isOsVbcModule(module)) {
+    return null;
+  }
+  const m = module as OsVbcModule;
+  let pipelineInvoke: ReturnType<typeof createPipelineInvokeHandlerForVm> | undefined;
+  const vm = new OsVbcVM(m, {
+    invoke: (name, args) => {
+      pipelineInvoke ??= createPipelineInvokeHandlerForVm(vm);
+      return pipelineInvoke(name, args);
+    },
+  });
+  applyPipelineSpecToVm(vm, spec);
+  return vm;
 }
 
 /**
