@@ -1,21 +1,22 @@
-id: ATM-EPK-260328-014-009
+id: ATM-EPK-260328-014-010
 epic: EPK-260328-014
-seq: 9
-zone: src/runtime/interpreter.test.ts
+seq: 10
+zone: src/runtime/vm.test.ts
 risk: MEDIUM
 executor: cursor
-goal: Написать unit-тесты для управления потоком и исключений
+goal: Написать интеграционные тесты VM с полным циклом выполнения
 scope:
-- src/runtime/interpreter.test.ts
+- src/runtime/vm.test.ts
 notouch: []
 done: npx vitest run src/runtime/
 steps:
-- Тесты для JUMP/JUMP_IF_FALSE
-- Тесты для CALL/RETURN с проверкой фреймов
-- Тесты для THROW и обработки исключений
-- Тесты для вложенных вызовов функций
+- Тест выполнения простого модуля с возвратом значения
+- Тест вызова нескольких функций последовательно
+- Тест обработки исключений на уровне VM
+- Тест с native function callbacks
 deps:
-- 6
+- 7
+- 9
 maxiter: 3
 retries: 0
 status: PENDING

@@ -45,7 +45,7 @@ zones:
     done: 0
     blk: 0
 budget:
-  qwenusedtoday: 11
+  qwenusedtoday: 12
   qwenlimit: 900
   cursortaskstoday: 0
 zonemap:
