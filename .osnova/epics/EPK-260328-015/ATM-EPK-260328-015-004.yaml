@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-015-004
+epic: EPK-260328-015
+seq: 4
+zone: agents
+risk: MEDIUM
+executor: cursor
+goal: Реализовать ExecAgent для выполнения операций по плану
+scope:
+- src/agents/exec-agent.ts — реализация ExecAgent
+notouch:
+- src/runtime/vm.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Создать класс ExecAgent с методом execute()
+- Реализовать пошаговое выполнение операций
+- Добавить обработку результатов выполнения
+deps:
+- 3
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

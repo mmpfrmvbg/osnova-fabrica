@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-015-005
+epic: EPK-260328-015
+seq: 5
+zone: agents
+risk: MEDIUM
+executor: cursor
+goal: Реализовать ReviewAgent для проверки результатов выполнения
+scope:
+- src/agents/review-agent.ts — реализация ReviewAgent
+notouch:
+- src/runtime/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Создать класс ReviewAgent с методом validate()
+- Реализовать проверку соответствия результатов ожиданиям
+- Добавить генерацию отчета о проверке
+deps:
+- 4
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

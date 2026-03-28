@@ -1,0 +1,20 @@
+id: ATM-EPK-260328-015-001
+epic: EPK-260328-015
+seq: 1
+zone: agents
+risk: LOW
+executor: qwen
+goal: Создать базовую структуру директории src/agents/ и определить общие интерфейсы
+scope:
+- src/agents/types.ts — общие типы и интерфейсы для всех агентов
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Создать директорию src/agents/
+- Определить интерфейс IAgent с методами process(), validate(), getResult()
+- Экспортировать типы из index.ts
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

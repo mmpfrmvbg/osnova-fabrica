@@ -1,0 +1,24 @@
+id: ATM-EPK-260328-015-006
+epic: EPK-260328-015
+seq: 6
+zone: agents
+risk: LOW
+executor: qwen
+goal: Создать единый экспортный интерфейс для всех агентов
+scope:
+- src/agents/index.ts — агрегация экспортов
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Экспортировать все классы агентов
+- Экспортировать типы и интерфейсы
+- Добавить документацию
+deps:
+- 2
+- 3
+- 4
+- 5
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

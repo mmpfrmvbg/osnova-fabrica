@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-015-003
+epic: EPK-260328-015
+seq: 3
+zone: agents
+risk: MEDIUM
+executor: cursor
+goal: Реализовать PlanAgent для построения плана выполнения
+scope:
+- src/agents/plan-agent.ts — реализация PlanAgent
+notouch:
+- src/runtime/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Создать класс PlanAgent с методом построения последовательности операций
+- Интегрировать с типами из intake-agent
+- Добавить валидацию плана
+deps:
+- 2
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

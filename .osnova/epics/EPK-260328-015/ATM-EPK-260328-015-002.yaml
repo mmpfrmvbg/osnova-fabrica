@@ -1,0 +1,22 @@
+id: ATM-EPK-260328-015-002
+epic: EPK-260328-015
+seq: 2
+zone: agents
+risk: MEDIUM
+executor: cursor
+goal: Реализовать IntakeAgent для первичной обработки входных данных
+scope:
+- src/agents/intake-agent.ts — реализация IntakeAgent
+notouch:
+- src/runtime/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Импортировать IAgent из types.ts
+- Реализовать класс IntakeAgent с валидацией входных данных
+- Добавить обработку ошибок и логирование
+deps:
+- 1
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

@@ -1,0 +1,21 @@
+id: ATM-EPK-260328-015-011
+epic: EPK-260328-015
+seq: 11
+zone: runtime
+risk: LOW
+executor: qwen
+goal: Обновить документацию VM для работы с agents
+scope:
+- src/runtime/vm.ts — JSDoc комментарии
+notouch:
+- src/agents/*
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Добавить документацию методов VM для интеграции с agents
+- Обновить комментарии к интерфейсам
+deps:
+- 9
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1
