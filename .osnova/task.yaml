@@ -1,20 +1,22 @@
-id: ATM-EPK-260328-014-004
+id: ATM-EPK-260328-014-005
 epic: EPK-260328-014
-seq: 4
+seq: 5
 zone: src/runtime/interpreter.ts
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Реализовать инструкции сравнения и логические операции
+goal: Реализовать инструкции управления потоком (JUMP, JUMP_IF_FALSE, CALL, RETURN)
 scope:
 - src/runtime/interpreter.ts
 notouch: []
 done: npx vitest run src/runtime/
 steps:
-- Реализовать OpCode.EQ, OpCode.LT, OpCode.GT — операции сравнения
-- Реализовать OpCode.AND, OpCode.OR — логические операции
-- Реализовать OpCode.NOT — логическое отрицание
+- Реализовать OpCode.JUMP — безусловный переход
+- Реализовать OpCode.JUMP_IF_FALSE — условный переход
+- Реализовать OpCode.CALL — вызов функции с созданием нового фрейма
+- Реализовать OpCode.RETURN — возврат из функции
 deps:
-- 3
+- 1
+- 4
 maxiter: 3
 retries: 0
 status: PENDING

@@ -30,6 +30,10 @@ describe("Interpreter + OpCode stack ops", () => {
     expect(OpCode.AND).toBe("and");
     expect(OpCode.OR).toBe("or");
     expect(OpCode.NOT).toBe("not");
+    expect(OpCode.JUMP).toBe("jmp");
+    expect(OpCode.JUMP_IF_FALSE).toBe("jmp_if_not");
+    expect(OpCode.CALL).toBe("call");
+    expect(OpCode.RETURN).toBe("ret");
     const m = tinyMod([{ op: "const", type: "i32", k: 0 } as RawInstruction], [7]);
     const ip = new Interpreter(m);
     await ip.runProcedure(0, []);
@@ -136,5 +140,45 @@ describe("Interpreter + OpCode stack ops", () => {
 
     const notTrue = tinyMod([{ op: "const.true" } as RawInstruction, { op: OpCode.NOT } as RawInstruction]);
     expect(await new Interpreter(notTrue).runProcedure(0, [])).toBe(false);
+  });
+
+  it("управление потоком: JUMP, JUMP_IF_FALSE, CALL, RETURN", async () => {
+    const skipMid = tinyMod(
+      [{ op: OpCode.JUMP, off: 2 } as RawInstruction, { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction, { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction],
+      [111, 999],
+    );
+    expect(await new Interpreter(skipMid).runProcedure(0, [])).toBe(999);
+
+    const ifFalseSkip = tinyMod(
+      [
+        { op: "const.false" } as RawInstruction,
+        { op: OpCode.JUMP_IF_FALSE, off: 3 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+      ],
+      [0, 77],
+    );
+    expect(await new Interpreter(ifFalseSkip).runProcedure(0, [])).toBe(77);
+
+    const callMod: OsVbcModule = {
+      version: 1,
+      moduleName: "t_call",
+      constants: [10, 3],
+      procedures: [
+        { name: "main", codeOffset: 0, argc: 0, localsCount: 1 },
+        { name: "sub2", codeOffset: 4, argc: 2, localsCount: 2 },
+      ],
+      code: [
+        { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+        { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+        { op: OpCode.CALL, fi: 1 } as RawInstruction,
+        { op: OpCode.RETURN } as RawInstruction,
+        { op: "local.get", i: 0 } as RawInstruction,
+        { op: "local.get", i: 1 } as RawInstruction,
+        { op: OpCode.SUB } as RawInstruction,
+        { op: OpCode.RETURN } as RawInstruction,
+      ],
+    };
+    expect(await new Interpreter(callMod).runProcedure(0, [])).toBe(7);
   });
 });
