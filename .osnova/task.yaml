@@ -1,20 +1,23 @@
-id: ATM-EPK-260329-019-001
+id: ATM-EPK-260329-019-003
 epic: EPK-260329-019
-seq: 1
+seq: 3
 zone: agents
-risk: LOW
+risk: MEDIUM
 executor: cursor
-goal: Диагностика TypeScript-ошибок в src/agents/ и src/pipeline/
+goal: Устранить TypeScript-ошибки в plan-agent.ts (типы и импорты)
 scope:
-- src/agents/intake-agent.ts
-notouch: []
-done: npx tsc --noEmit > diagnostics.log 2>&1
+- src/agents/plan-agent.ts
+notouch:
+- src/compiler/compiler.ts
+- src/pipeline/types.ts
+done: npx vitest run src/agents/agents.test.ts --reporter=verbose
 steps:
-- Запустить tsc --noEmit для src/agents/ и src/pipeline/
-- Сохранить вывод в лог-файл diagnostics.log
-- Классифицировать ошибки по файлам (intake, plan, exec, review, pipeline)
-deps: []
+- Проверить импорты Compiler и типы
+- Исправить типы ExecutionPlan, PipelinePhase, PlanStep
+- Запустить tsc --noEmit для проверки
+deps:
+- ATM-EPK-260329-019-001
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0

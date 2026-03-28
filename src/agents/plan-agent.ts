@@ -38,7 +38,7 @@ export function formatCompileFailureMessage(result: CompileResult): string {
     ...result.lexerErrors.map((e) => e.message),
     ...result.parserErrors.map((e) => e.message),
     ...result.compilerErrors.map((e) => e.message),
-    ...(result.semanticErrors ?? []).map((e) => e.message),
+    ...result.semanticErrors.map((e) => e.message),
   ];
   return parts.length > 0 ? parts.join('; ') : 'compilation failed';
 }
@@ -67,7 +67,7 @@ const PHASE_RANK: Record<PipelinePhase, number> = {
 };
 
 function isPipelinePhase(value: unknown): value is PipelinePhase {
-  return typeof value === 'string' && value in PHASE_RANK;
+  return typeof value === 'string' && Object.hasOwn(PHASE_RANK, value);
 }
 
 /** Допустимые переходы между фазами (зависимости: `to` требует предшествующий `from`). */

@@ -10,6 +10,7 @@ export {
   detectAppTypeFromPrefix,
   parseLlmConfidence,
 } from './IntakeAgent';
+export type { CompileResult } from '../compiler/compiler';
 export {
   OsVbcVM,
   applyPipelineSpecToVm,
@@ -23,4 +24,3 @@ export type { OsVbcExecuteOptions, OsVbcVMOptions, VmExecutionLogEvent } from '.
 export { Interpreter, InterpreterError } from '../runtime/interpreter';
 export type { InterpreterOptions, StackValue, InvokeHandler } from '../runtime/interpreter';
 export type { AgentReport, BaseAgent } from '../types/agents';
-export type { CompileResult } from './IntakeAgent';
