@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-28T19:03:52.680865+03:00'
+updatedat: '2026-03-28T19:08:36.307500+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -8,18 +8,18 @@ epicprogress:
   blocked: 0
   current: null
 sessionstats:
-  epicsreceived: 14
-  epicsdone: 3
+  epicsreceived: 15
+  epicsdone: 4
   epicsblocked: 11
-  atomstotal: 57
-  atomsdone: 17
-  atomsblocked: 40
-  passrate: 0.2982456140350877
+  atomstotal: 69
+  atomsdone: 23
+  atomsblocked: 46
+  passrate: 0.3333333333333333
 ci:
   lastrun: null
   laststatus: null
   passrate7d: null
-  openblockerissues: 5
+  openblockerissues: 6
   lastepicissue: null
 brainsource: idle
 heart:
@@ -56,6 +56,10 @@ blockers:
   atm_id: ATM-EPK-260328-015-011
   open: true
   updated: '2026-03-28T19:03:52.680821+03:00'
+- issue: 73
+  atm_id: ATM-EPK-260328-015-012
+  open: true
+  updated: '2026-03-28T19:08:34.770674+03:00'
 recent: []
 zones:
   lang:

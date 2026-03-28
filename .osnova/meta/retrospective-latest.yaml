@@ -1,15 +1,15 @@
 v: 5
 t: RETRO
 for: BRAIN
-timestamp: '2026-03-28T17:07:51.802405+03:00'
+timestamp: '2026-03-28T19:08:34.930642+03:00'
 lastepic:
-  id: EPK-260328-014
-  githubissue: 66
+  id: EPK-260328-015
+  githubissue: 67
   atomstotal: 12
-  atomspass: 12
-  atomsblk: 0
+  atomspass: 6
+  atomsblk: 6
 daily:
-  passrate: 1.0
+  passrate: 0.5
   qwenbudgetused: 0
   qwenbudgetremaining: 1000
 blockers: []
@@ -20,7 +20,7 @@ recommendations:
   (Issues #1, #3) — убедись что фиксы покрыты тестами в src/compiler/ и src/agents/.'
 - 'done: команды — использовать npm-скрипты из package.json: npx vitest run src/compiler/,
   npx vitest run src/runtime/, npm run ci. Make-файла в проекте нет.'
-brain_source: perplexity
+brain_source: github_poll
 heart:
   restarts_recorded: 0
   last_beat: null
