@@ -17,6 +17,13 @@ function tinyMod(code: RawInstruction[], constants: unknown[] = []): OsVbcModule
 }
 
 describe("Interpreter + OpCode stack ops", () => {
+  it("interpret: одна инструкция const кладёт значение на стек", async () => {
+    const m = tinyMod([], [42]);
+    const ip = new Interpreter(m);
+    await ip.interpret({ op: "const", type: "i32", k: 0 } as RawInstruction);
+    expect(ip.executionStack).toEqual([42]);
+  });
+
   describe("PUSH / POP / DUP", () => {
     it("OpCode.PUSH maps to const; после ret executionStack показывает остаток; DUP дублирует вершину", async () => {
       expect(OpCode.PUSH).toBe("const");

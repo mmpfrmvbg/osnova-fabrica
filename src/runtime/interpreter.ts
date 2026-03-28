@@ -5,6 +5,7 @@
 
 import { VM } from "./vm/interpreter";
 import type { InterpreterOptions, StackValue, TryFrame } from "./vm/interpreter";
+import type { RawInstruction } from "./vm/bytecode";
 
 export type { InterpreterOptions, StackValue, InvokeHandler, RunProgramOptions, TryFrame } from "./vm/interpreter";
 export {
@@ -74,5 +75,13 @@ export class Interpreter extends VM {
     options: InterpreterOptions = {},
   ) {
     super(module, options);
+  }
+
+  /**
+   * Пошаговое исполнение: одна инструкция байткода.
+   * Возвращает следующий PC, абсолютный переход или `"ret"` — как внутри {@link VM.runProcedure}.
+   */
+  interpret(ins: RawInstruction): Promise<number | "ret"> {
+    return this.interpretInstruction(ins);
   }
 }

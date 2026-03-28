@@ -373,7 +373,7 @@ export class VM {
         const packetPc = this.pc;
         let exitedPacket = false;
         for (const slotIns of el.slots) {
-          const nextPc = await this.step(slotIns);
+          const nextPc = await this.interpretInstruction(slotIns);
           if (nextPc === "ret") {
             const frame = this.frames.pop();
             if (!frame) break;
@@ -400,7 +400,7 @@ export class VM {
         if (!exitedPacket) this.pc = packetPc + 1;
         continue;
       }
-      const nextPc = await this.step(el as RawInstruction);
+      const nextPc = await this.interpretInstruction(el as RawInstruction);
       if (nextPc === "ret") {
         const frame = this.frames.pop();
         if (!frame) break;
@@ -422,7 +422,11 @@ export class VM {
     return undefined;
   }
 
-  private async step(ins: RawInstruction): Promise<number | "ret"> {
+  /**
+   * Разбор и выполнение одной сырой инструкции (не VLIW-обёртка).
+   * Используется циклом {@link runProcedure}; protected — для фасада `Interpreter` в interpreter.ts (пошаговый вызов).
+   */
+  protected async interpretInstruction(ins: RawInstruction): Promise<number | "ret"> {
     const next = this.pc + 1;
 
     switch (ins.op) {

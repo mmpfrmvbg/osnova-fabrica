@@ -23,7 +23,7 @@ export type ConstType = "i32" | "f64" | "str" | "bool" | "null";
 
 /**
  * Полный список опкодов VM.
- * ПРАВИЛО: добавлять новый op ТОЛЬКО после реализации case в interpreter.ts step().
+ * ПРАВИЛО: добавлять новый op ТОЛЬКО после реализации case в vm/interpreter.ts interpretInstruction().
  * Опкод в типе без обработки → Unknown op в рантайме.
  */
 export type Op =
