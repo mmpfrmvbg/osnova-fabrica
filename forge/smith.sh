@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Cursor Agent CLI (2025+): headless mode is `agent -p --yolo ...`, not `agent run --input`.
+# Cursor: only the agent CLI binary is invoked (no separate HTTP API client in forge).
+# Headless: agent -p --yolo --trust --workspace <repo> "<prompt>" — https://cursor.com/docs/cli/headless
+# Not interactive TUI (`agent say hello` / follow-up prompts). Auth for the same CLI: `agent login`, or CURSOR_API_KEY for non-interactive envs (still the agent binary).
 set -euo pipefail
 
 PROJECT_DIR="${OSNOVA_PROJECT:-$PWD}"
@@ -58,44 +60,70 @@ ok=0
 status="BLK"
 
 # Lines on stderr → forge log (cursorexec) even when cursor-agent writes nothing to pipes.
+# Windows: cursorexec may set CURSOR_AGENT_NODE + CURSOR_AGENT_INDEX_JS (node.exe + index.js) to bypass agent.cmd/ps1 shims under Git Bash.
 run_with_model() {
   local model_token="$1"
   local rc=0
-  echo "smith: starting agent model=${model_token:-_} timeout=${TIMEOUT_SEC}s CURSORBIN=${CURSORBIN}" >&2
-  if [ "$model_token" = "_" ] || [ -z "$model_token" ]; then
-    timeout "$TIMEOUT_SEC" \
-      "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
-      "$(cat "$PROMPT_FILE")" || rc=$?
+  if [ -n "${CURSOR_AGENT_NODE:-}" ] && [ -n "${CURSOR_AGENT_INDEX_JS:-}" ]; then
+    echo "smith: starting agent (node bundle) model=${model_token:-_} timeout=${TIMEOUT_SEC}s node=${CURSOR_AGENT_NODE}" >&2
+    if [ "$model_token" = "_" ] || [ -z "$model_token" ]; then
+      timeout "$TIMEOUT_SEC" \
+        "$CURSOR_AGENT_NODE" "$CURSOR_AGENT_INDEX_JS" -p --yolo --trust --workspace "$PROJECT_DIR" \
+        "$(cat "$PROMPT_FILE")" || rc=$?
+    else
+      timeout "$TIMEOUT_SEC" \
+        "$CURSOR_AGENT_NODE" "$CURSOR_AGENT_INDEX_JS" -p --yolo --trust --workspace "$PROJECT_DIR" \
+        --model "$model_token" \
+        "$(cat "$PROMPT_FILE")" || rc=$?
+    fi
   else
-    timeout "$TIMEOUT_SEC" \
-      "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
-      --model "$model_token" \
-      "$(cat "$PROMPT_FILE")" || rc=$?
+    echo "smith: starting agent model=${model_token:-_} timeout=${TIMEOUT_SEC}s CURSORBIN=${CURSORBIN}" >&2
+    if [ "$model_token" = "_" ] || [ -z "$model_token" ]; then
+      timeout "$TIMEOUT_SEC" \
+        "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
+        "$(cat "$PROMPT_FILE")" || rc=$?
+    else
+      timeout "$TIMEOUT_SEC" \
+        "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
+        --model "$model_token" \
+        "$(cat "$PROMPT_FILE")" || rc=$?
+    fi
   fi
   # 124 = GNU timeout; 127 = command not found; 0 = success
   echo "smith: agent finished exit=${rc}" >&2
-  return "$rc"
+  return $((0 + rc))
 }
 
 if ! command -v timeout >/dev/null 2>&1; then
   echo "smith: WARN: no 'timeout' in PATH — SMITH_TIMEOUT may not kill a stuck agent (install Git Bash coreutils)" >&2
 fi
 # Git Bash: `command -v` often fails for Windows agent.cmd / full paths (no Unix +x); use -f as fallback.
+# No `return` inside this helper — broken CRLF can split `return` into `ret` + `urn` and crash the script.
 smith_cursorbin_ok() {
-  local b="$1"
-  command -v "$b" >/dev/null 2>&1 && return 0
-  [ -f "$b" ] && return 0
-  case "$b" in
-    *\\*)
-      local n
-      n=$(printf '%s' "$b" | tr '\\' '/')
-      [ -f "$n" ] && return 0
-      ;;
-  esac
-  return 1
+  local b="$1" n
+  if command -v "$b" >/dev/null 2>&1; then
+    true
+  elif [ -f "$b" ]; then
+    true
+  elif [[ "$b" == *\\* ]]; then
+    n=$(printf '%s' "$b" | tr '\\' '/')
+    if [ -f "$n" ]; then
+      true
+    else
+      false
+    fi
+  else
+    false
+  fi
 }
-if ! smith_cursorbin_ok "$CURSORBIN"; then
-  echo "smith: ERROR: CURSORBIN not found (PATH or file): ${CURSORBIN}" >&2
+if [ -n "${CURSOR_AGENT_NODE:-}" ] && [ -n "${CURSOR_AGENT_INDEX_JS:-}" ]; then
+  if [ ! -f "$CURSOR_AGENT_NODE" ] || [ ! -f "$CURSOR_AGENT_INDEX_JS" ]; then
+    echo "smith: ERROR: CURSOR_AGENT_NODE or CURSOR_AGENT_INDEX_JS not a file" >&2
+  fi
+else
+  if ! smith_cursorbin_ok "$CURSORBIN"; then
+    echo "smith: ERROR: CURSORBIN not found (PATH or file): ${CURSORBIN}" >&2
+  fi
 fi
 
 echo "smith: preflight ATM=${ID} models=${SMITH_MODELS}" >&2

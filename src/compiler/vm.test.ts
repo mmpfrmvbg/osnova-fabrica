@@ -33,6 +33,17 @@ describe("VM: оператор % (rem)", () => {
     expect(await runProcIdx(r.module!)).toBe(2);
   });
 
+  it("левоассоциативность: a % b % c как в JavaScript", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть 17 % 5 % 3
+конец
+конец`;
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(await runProcIdx(r.module!)).toBe((17 % 5) % 3);
+  });
+
   it("отрицательный делимое — семантика как в JavaScript", async () => {
     const src = `модуль т
 процедура р()
@@ -76,6 +87,7 @@ describe("VM: оператор % (rem)", () => {
     expect(r.compilerSuccess).toBe(true);
     await expect(runProcIdx(r.module!)).rejects.toMatchObject({
       name: "InterpreterError",
+      op: "rem",
     });
   });
 

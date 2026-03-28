@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -179,6 +180,7 @@ def cursor_cli_extra_path_entries() -> list[str]:
     entries: list[Path] = [Path.home() / ".local" / "bin"]
     la = os.environ.get("LOCALAPPDATA", "").strip()
     if la:
+        entries.append(Path(la) / "cursor-agent")
         entries.append(Path(la) / "Programs" / "cursor" / "resources" / "app" / "bin")
     pf = os.environ.get("ProgramFiles", r"C:\Program Files").strip()
     if pf:
@@ -213,9 +215,87 @@ def _path_for_git_bash(p: Path) -> str:
     return Path(str(p.resolve())).as_posix()
 
 
+_WIN32_CURSOR_AGENT_VER_DIR = re.compile(r"^\d{4}\.\d{1,2}\.\d{1,2}-[a-f0-9]+$")
+
+
+def find_cursor_agent_node_bundle() -> tuple[Path, Path] | None:
+    """
+    Windows: official Cursor CLI is ``agent.cmd`` / ``agent.ps1`` shims that run
+    ``%LOCALAPPDATA%\\cursor-agent\\versions\\<ver>\\node.exe`` with ``index.js``.
+    There is often no ``agent.exe``; Git Bash + ``.cmd`` hangs. Prefer this bundle when present.
+    """
+    if sys.platform != "win32":
+        return None
+    la = os.environ.get("LOCALAPPDATA", "").strip()
+    if not la:
+        return None
+    base = Path(la) / "cursor-agent" / "versions"
+    if not base.is_dir():
+        return None
+    dirs = [p for p in base.iterdir() if p.is_dir() and _WIN32_CURSOR_AGENT_VER_DIR.match(p.name)]
+    if not dirs:
+        return None
+
+    def sort_key(p: Path) -> int:
+        try:
+            date_part = p.name.split("-")[0]
+            y, m, d = date_part.split(".")
+            return int(f"{y}{int(m):02d}{int(d):02d}")
+        except (ValueError, IndexError):
+            return 0
+
+    merged = os.pathsep.join([*cursor_cli_extra_path_entries(), os.environ.get("PATH", "")])
+    for d in sorted(dirs, key=sort_key, reverse=True):
+        idx = d / "index.js"
+        if not idx.is_file():
+            continue
+        node = d / "node.exe"
+        if node.is_file():
+            return (node, idx)
+        wn = shutil.which("node", path=merged) or shutil.which("node.exe", path=merged)
+        if wn:
+            return (Path(wn), idx)
+    return None
+
+
+def _win32_prefer_agent_exe_over_cmd(path: Path) -> Path:
+    """
+    On Windows, running ``agent.cmd`` from Git Bash under ``timeout`` often hangs until SIGTERM
+    with no stdout/stderr — looks like “Cursor does nothing”. Prefer ``agent.exe`` in the same
+    directory when the shim points at ``.cmd``/``.bat``. If there is no sibling exe, search PATH
+    (installers sometimes put ``agent.cmd`` in one dir and ``agent.exe`` elsewhere).
+    """
+    if sys.platform != "win32":
+        return path
+    try:
+        rp = path.resolve()
+        if rp.suffix.lower() not in (".cmd", ".bat"):
+            return path
+        parent = rp.parent
+        for name in ("agent.exe", "cursor-agent.exe"):
+            cand = parent / name
+            if cand.is_file():
+                return cand
+        merged = os.pathsep.join([*cursor_cli_extra_path_entries(), os.environ.get("PATH", "")])
+        for exe_name in ("agent.exe", "cursor-agent.exe"):
+            w = shutil.which(exe_name, path=merged)
+            if w:
+                wp = Path(w)
+                if wp.is_file():
+                    return wp
+    except OSError:
+        pass
+    return path
+
+
+def _finalize_cursor_bin(p: Path) -> str:
+    return _path_for_git_bash(_win32_prefer_agent_exe_over_cmd(p))
+
+
 def resolve_cursor_bin_for_smith(raw: str) -> str:
     """
     Resolve CURSORBIN for smith.sh: full path when possible so GNU timeout finds the binary.
+    On Windows, if the resolved file is ``agent.cmd``, use sibling ``agent.exe`` when present.
     """
     s = (raw or "").strip()
     if not s:
@@ -223,7 +303,7 @@ def resolve_cursor_bin_for_smith(raw: str) -> str:
     try:
         p = Path(s)
         if p.is_file():
-            return _path_for_git_bash(p)
+            return _finalize_cursor_bin(p)
     except OSError:
         pass
     r = resolve_executable(s)
@@ -231,7 +311,7 @@ def resolve_cursor_bin_for_smith(raw: str) -> str:
         try:
             rp = Path(r)
             if rp.is_file():
-                return _path_for_git_bash(rp)
+                return _finalize_cursor_bin(rp)
         except OSError:
             pass
     merged_path = os.pathsep.join([*cursor_cli_extra_path_entries(), os.environ.get("PATH", "")])
@@ -242,7 +322,7 @@ def resolve_cursor_bin_for_smith(raw: str) -> str:
         try:
             wp = Path(w)
             if wp.is_file():
-                return _path_for_git_bash(wp)
+                return _finalize_cursor_bin(wp)
         except OSError:
             pass
     if sys.platform != "win32":
@@ -257,9 +337,15 @@ def resolve_cursor_bin_for_smith(raw: str) -> str:
             cand = Path(dn) / name
             try:
                 if cand.is_file():
-                    return _path_for_git_bash(cand)
+                    return _finalize_cursor_bin(cand)
             except OSError:
                 continue
+    try:
+        ps = Path(s)
+        if ps.is_file():
+            return _finalize_cursor_bin(ps)
+    except OSError:
+        pass
     return s
 
 

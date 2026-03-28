@@ -172,6 +172,134 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     const intent = await agent.parseIntent({ text: 'ясная задача' });
     expect(intent.confidence).toBe(0.8);
   });
+
+  it('недостаточный контекст: короткий запрос → LLM даёт низкую confidence', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'недостаточно данных для однозначной постановки',
+        confidence: 0.22,
+        language: 'osnova',
+        features: ['ambiguous input'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: '?' });
+    expect(intent.confidence).toBe(0.22);
+    expect(intent.description).toContain('недостаточно');
+  });
+
+  it('противоречивый ввод: LLM снижает confidence при конфликте intent/features', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'сделать CLI-калькулятор',
+        confidence: 0.41,
+        language: 'osnova',
+        features: ['только веб-UI', 'без консоли'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({
+      text: 'калькулятор в терминале но только как веб-страница без терминала',
+    });
+    expect(intent.confidence).toBe(0.41);
+    expect(intent.features.join(' ')).toMatch(/веб|UI/i);
+  });
+
+  it('граница G1: confidence ровно 0.7 сохраняется', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'на грани',
+        confidence: 0.7,
+        language: 'osnova',
+        features: ['a'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'задача' });
+    expect(intent.confidence).toBe(0.7);
+  });
+
+  it('граница G1: confidence 0.699 ниже порога — сохраняется для gateChecker', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'x',
+        confidence: 0.699,
+        language: 'osnova',
+        features: ['a'],
+        appType: 'модуль',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'задача' });
+    expect(intent.confidence).toBe(0.699);
+    expect(intent.confidence).toBeLessThan(0.7);
+  });
+
+  it('границы шкалы: confidence 0 и 1 пробрасываются как числа', async () => {
+    mockLlmComplete.mockResolvedValueOnce({
+      content: JSON.stringify({
+        intent: 'ноль',
+        confidence: 0,
+        language: 'osnova',
+        features: ['a'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const zero = await agent.parseIntent({ text: 't1' });
+    expect(zero.confidence).toBe(0);
+
+    mockLlmComplete.mockResolvedValueOnce({
+      content: JSON.stringify({
+        intent: 'единица',
+        confidence: 1,
+        language: 'osnova',
+        features: ['a'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const one = await agent.parseIntent({ text: 't2' });
+    expect(one.confidence).toBe(1);
+  });
+
+  it('confidence как строка в JSON → подстановка 0.8 (не число)', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'x',
+        confidence: '0.95',
+        language: 'osnova',
+        features: ['a'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'y' });
+    expect(intent.confidence).toBe(0.8);
+  });
 });
 
 describe('IntakeAgent.generateSpec (mock LLM)', () => {

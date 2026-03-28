@@ -3,8 +3,8 @@ epic: EPK-260327-001
 seq: 3
 zone: lang
 risk: LOW
-executor: qwen
-goal: Верифицировать проходимость всех тестов и зафиксировать результат
+executor: cursor
+goal: Запустить полный прогон тестов и зафиксировать passrate
 scope:
 - src/compiler/vm.test.ts
 - src/agents/intake-agent.test.ts
@@ -15,9 +15,9 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Запустить npx vitest run src/compiler/ && npx vitest run src/agents/
-- Убедиться что passrate=1.0 и history не пуста
-- Задокументировать результаты в комментарии к PR
+- Выполнить npx vitest run src/compiler/
+- Выполнить npx vitest run src/agents/
+- Зафиксировать результаты в history
 deps:
 - 1
 - 2

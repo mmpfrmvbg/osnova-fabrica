@@ -17,10 +17,12 @@ try:
         bash_executable,
         cursor_cli_extra_path_entries,
         env_paths,
+        find_cursor_agent_node_bundle,
         load_yaml,
         resolve_cursor_bin_for_smith,
         secret_from_env_or_forge_dotenv,
         setup_logging,
+        _path_for_git_bash,
     )
 except ImportError:  # pragma: no cover
     from common import (
@@ -29,10 +31,12 @@ except ImportError:  # pragma: no cover
         bash_executable,
         cursor_cli_extra_path_entries,
         env_paths,
+        find_cursor_agent_node_bundle,
         load_yaml,
         resolve_cursor_bin_for_smith,
         secret_from_env_or_forge_dotenv,
         setup_logging,
+        _path_for_git_bash,
     )
 
 LOG = setup_logging("cursorexec")
@@ -117,16 +121,41 @@ def _smith_subprocess_env() -> dict[str, str]:
         if val:
             env[key] = val
     cb = (p.get("CURSORBIN") or "").strip()
+    use_node_bundle = False
     if cb:
         resolved = resolve_cursor_bin_for_smith(cb)
         env["CURSORBIN"] = resolved
         looks_unresolved = "/" not in resolved and "\\" not in resolved
+        if (
+            sys.platform == "win32"
+            and os.environ.get("FORGE_SMITH_USE_CURSOR_SHIM", "").strip().lower() not in ("1", "true", "yes")
+        ):
+            bundle = find_cursor_agent_node_bundle()
+            if bundle:
+                node, idx = bundle
+                env["CURSOR_AGENT_NODE"] = _path_for_git_bash(node)
+                env["CURSOR_AGENT_INDEX_JS"] = _path_for_git_bash(idx)
+                use_node_bundle = True
+                LOG.info(
+                    "smith: Windows — using Cursor CLI node bundle (avoids agent.cmd/ps1 under Git Bash): %s %s",
+                    env["CURSOR_AGENT_NODE"],
+                    env["CURSOR_AGENT_INDEX_JS"],
+                )
         if sys.platform == "win32" and looks_unresolved:
             LOG.warning(
                 "CURSORBIN %r did not resolve to a path — ensure Cursor CLI is installed "
                 "(~\\.local\\bin\\agent.exe) or set CURSORBIN to the full path.",
                 cb,
             )
+        elif sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat")) and not use_node_bundle:
+            LOG.warning(
+                "CURSORBIN resolves to %r (cmd/bat shim). smith under Git Bash often "
+                "gets no output until timeout. Install Cursor agent under %%LOCALAPPDATA%%\\cursor-agent "
+                "or set FORGE_SMITH_USE_CURSOR_SHIM=0 (default: use node bundle when found).",
+                resolved,
+            )
+        elif cb.strip() != resolved.strip() and ("/" in resolved or "\\" in resolved):
+            LOG.info("CURSORBIN %r → %r", cb, resolved)
     api_key = secret_from_env_or_forge_dotenv("CURSOR_API_KEY")
     if api_key:
         env["CURSOR_API_KEY"] = api_key
