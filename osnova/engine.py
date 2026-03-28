@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import subprocess
 import sys
 import time
@@ -100,7 +101,11 @@ class ForgeEngine:
         else:
             forge_status, detail = "ALIVE", f"last {hb_age:.0f}s ago"
 
-        forge_running = self._systemd_active("osnova-forge")
+        if platform.system() == "Windows":
+            systemd_str = "n/a (Windows)"
+        else:
+            forge_running = self._systemd_active("osnova-forge")
+            systemd_str = "active" if forge_running else "inactive"
 
         ci = st.get("ci") if isinstance(st.get("ci"), dict) else {}
         blockers_raw = st.get("blockers") if isinstance(st.get("blockers"), list) else []
@@ -110,7 +115,7 @@ class ForgeEngine:
             "forge": {
                 "status": forge_status,
                 "detail": detail,
-                "systemd": "active" if forge_running else "inactive",
+                "systemd": systemd_str,
                 "paused": bool(fs.get("paused")),
             },
             "executors": {

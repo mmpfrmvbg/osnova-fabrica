@@ -1,32 +1,9 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "osnova-cli"
-version = "5.3.1"
-description = "OSNOVA Forge CLI — управление автономной фабрикой кода"
-requires-python = ">=3.11"
-dependencies = [
-    "typer[all]>=0.12",
-    "rich>=13.7",
-    "pyyaml>=6.0",
-    "python-dotenv>=1.0",
-    "colorama>=0.4.6",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8",
-    "pytest-mock>=3",
-]
-
-[project.scripts]
-osnova = "osnova.cli:app"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["osnova*"]
+# Метаданные пакета — в setup.cfg (+ setup.py). Так pip не тянет setuptools/wheel
+# в изолированное build-окружение с PyPI (см. комментарий в setup.cfg).
+#
+# Установка при плохой сети:
+#   pip install -e ".[dev]" --no-build-isolation
+# Если typer/rich ещё не стоят — нужны колёса с PyPI или зеркало; см. requirements-cli.txt
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

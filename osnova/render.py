@@ -21,7 +21,31 @@ def atm_status_icon(s: str) -> str:
     return STATUS_ICON.get(s, "❓")
 
 
-def make_atm_table(atms: list[dict[str, Any]], title: str = "") -> Table:
+def _atm_has_executor_value(atm: dict[str, Any]) -> bool:
+    ex = atm.get("executor") or atm.get("exec")
+    if ex is None:
+        return False
+    t = str(ex).strip()
+    return bool(t) and t.lower() not in ("none", "null")
+
+
+def _any_atm_executor(atms: list[dict[str, Any]]) -> bool:
+    return any(_atm_has_executor_value(a) for a in atms)
+
+
+def make_atm_table(
+    atms: list[dict[str, Any]],
+    title: str = "",
+    *,
+    show_executor: bool | None = None,
+) -> Table:
+    """
+    Колонка Exec только если в данных есть хотя бы один executor
+    (в типичном history RPT поля нет — колонка скрыта).
+    """
+    if show_executor is None:
+        show_executor = _any_atm_executor(atms)
+
     table = Table(
         title=title or None,
         show_header=True,
@@ -34,7 +58,8 @@ def make_atm_table(atms: list[dict[str, Any]], title: str = "") -> Table:
     table.add_column("Stat", width=5)
     table.add_column("Goal / id", width=46)
     table.add_column("Time", width=7, justify="right")
-    table.add_column("Exec", width=8)
+    if show_executor:
+        table.add_column("Exec", width=8)
 
     for idx, atm in enumerate(atms, 1):
         s = str(atm.get("s") or "WAIT").upper()
@@ -46,13 +71,22 @@ def make_atm_table(atms: list[dict[str, Any]], title: str = "") -> Table:
         elapsed_str = f"{elapsed}s" if elapsed is not None else "—"
         goal = str(atm.get("goal") or atm.get("id") or "")[:46]
 
-        table.add_row(
+        row: list[Any] = [
             str(idx),
             icon,
             f"[{color}]{s}[/]" if color else s,
             goal,
             elapsed_str,
-            str(atm.get("executor", "?")),
+        ]
+        if show_executor:
+            ex = atm.get("executor") or atm.get("exec")
+            row.append(
+                "—"
+                if ex is None or str(ex).strip().lower() in ("none", "null", "")
+                else str(ex).strip()
+            )
+        table.add_row(
+            *row,
             style="on dark_red" if s == "BLK" else "",
         )
     return table

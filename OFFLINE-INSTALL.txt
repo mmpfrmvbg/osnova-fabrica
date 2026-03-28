@@ -1,0 +1,20 @@
+Установка osnova-cli без стабильного доступа к PyPI
+==================================================
+
+1) С другой сети скачать колёса (на флешку / в папку wheels):
+   pip download setuptools wheel typer rich pyyaml python-dotenv colorama pytest pytest-mock -d wheels
+
+2) В этом репозитории:
+   pip install --no-index --find-links wheels setuptools wheel
+   pip install -e . --no-build-isolation --no-deps
+   pip install --no-index --find-links wheels -r requirements-cli.txt
+
+   Или одной строкой зависимостей:
+   pip install --no-index --find-links wheels -r requirements-cli.txt
+   pip install -e . --no-build-isolation --no-deps
+
+3) Проверка: osnova --version
+
+Без установки пакета (если зависимости уже стоят в venv):
+   set PYTHONPATH=%CD%
+   python -m osnova.cli --version

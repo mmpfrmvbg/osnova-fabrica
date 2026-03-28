@@ -82,7 +82,7 @@ def normalize_history_entry(raw: dict[str, Any]) -> dict[str, Any]:
                 "goal": r.get("goal"),
                 "done": r.get("done"),
                 "elapsed_s": r.get("elapsed_s") if r.get("elapsed_s") is not None else r.get("elapsed"),
-                "executor": r.get("executor"),
+                "executor": r.get("executor") or r.get("exec"),
                 "blk_reason": r.get("err") or (r.get("review") or {}).get("reason"),
             }
             atms.append(a)
