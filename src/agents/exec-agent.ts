@@ -5,12 +5,10 @@
 import { PlanAgent, PlanValidationError, type ExecutionPlan, type PipelinePhase, type PlanStep } from './plan-agent';
 import type { BuildReport, GoldenReport, OsnovaIntent, OsnovaSpec, OsnovaSource } from '../pipeline/types';
 import type { AgentReport, BaseAgent } from '../types/agents';
-import type { OsVbcModule } from '../runtime/vm/bytecode';
-import { isOsVbcModule } from '../runtime/vm/bytecode';
 import {
   OsVbcVM,
-  applyPipelineSpecToVm,
-  createPipelineInvokeHandlerForVm,
+  createPipelineVmFromSpec,
+  safeExecutePipelineVm,
 } from '../runtime/vm';
 
 /** Состояние пайплайна между шагами (накапливается при выполнении). */
@@ -77,28 +75,19 @@ function normalizeStepFailureMessage(
 }
 
 /**
- * Собирает {@link OsVbcVM} из накопленного контекста после фазы build: валидный bytecode в
- * {@link ExecContext.buildReport} и {@link ExecContext.spec}. Перед запуском процедуры вызывает
- * {@link applyPipelineSpecToVm} — тот же снимок spec, что в контексте исполнителя шагов.
+ * Собирает {@link OsVbcVM} из накопленного контекста после фазы build: bytecode в
+ * {@link ExecContext.buildReport} и тот же {@link ExecContext.spec}, что накопил исполнитель шагов.
+ * Делегирует {@link createPipelineVmFromSpec} — единая точка привязки spec к VM (globals + invoke).
  *
- * @returns `null`, если нет spec, bytecode или модуль не проходит {@link isOsVbcModule}.
+ * @returns `null`, если нет spec, bytecode или модуль не проходит валидацию байткода.
  */
 export function createPipelineVmFromExecContext(ctx: ExecContext): OsVbcVM | null {
   const spec = ctx.spec;
   const bytecode = ctx.buildReport?.bytecode;
-  if (!spec || bytecode == null || !isOsVbcModule(bytecode)) {
+  if (!spec || bytecode == null) {
     return null;
   }
-  const module = bytecode as OsVbcModule;
-  let pipelineInvoke: ReturnType<typeof createPipelineInvokeHandlerForVm> | undefined;
-  const vm = new OsVbcVM(module, {
-    invoke: (name, args) => {
-      pipelineInvoke ??= createPipelineInvokeHandlerForVm(vm);
-      return pipelineInvoke(name, args);
-    },
-  });
-  applyPipelineSpecToVm(vm, spec);
-  return vm;
+  return createPipelineVmFromSpec(spec, bytecode);
 }
 
 export class ExecAgent implements BaseAgent {
@@ -252,3 +241,5 @@ export class ExecAgent implements BaseAgent {
 }
 
 export type { AgentReport, BaseAgent } from '../types/agents';
+export type { PipelineVmExecuteResult } from '../runtime/vm';
+export { safeExecutePipelineVm } from '../runtime/vm';

@@ -70,6 +70,31 @@ export interface OsVbcExecuteOptions {
   timeoutMs?: number;
 }
 
+/**
+ * Результат {@link safeExecutePipelineVm}: успешный возврат из процедуры или ошибка без throw
+ * (таймаут, {@link InterpreterError}, сбой `invoke` и т.д.).
+ */
+export type PipelineVmExecuteResult =
+  | { readonly ok: true; readonly returnValue: StackValue | undefined }
+  | { readonly ok: false; readonly error: string; readonly cause?: unknown };
+
+/**
+ * Обёртка над {@link OsVbcVM.execute}: перехватывает исключения и возвращает {@link PipelineVmExecuteResult}.
+ * Контекст spec/globals должен быть уже применён ({@link applyPipelineSpecToVm} / {@link createPipelineVmFromSpec}).
+ */
+export async function safeExecutePipelineVm(
+  vm: OsVbcVM,
+  opts?: OsVbcExecuteOptions,
+): Promise<PipelineVmExecuteResult> {
+  try {
+    const returnValue = await vm.execute(opts);
+    return { ok: true, returnValue };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return { ok: false, error, cause: err };
+  }
+}
+
 function runWithTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   if (!Number.isFinite(ms) || ms <= 0) return promise;
   return new Promise<T>((resolve, reject) => {
