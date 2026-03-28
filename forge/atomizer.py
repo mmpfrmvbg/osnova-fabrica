@@ -499,9 +499,11 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
                 out_text = proc.stdout or ""
                 comb_c = f"{proc.stdout or ''}\n{proc.stderr or ''}"
                 if proc.returncode != 0 and _atomizer_fallback_enabled() and can_call_atomizer():
+                    err_fb = comb_c.strip()[-800:]
                     LOG.warning(
-                        "atomizer: Cursor exit %s — fallback to Qwen atomizer",
+                        "atomizer: Cursor exit %s — fallback to Qwen atomizer; tail: %s",
                         proc.returncode,
+                        err_fb or "(no stdout/stderr)",
                     )
                     proc = _run_qwen_atomizer(prompt, tmo_q)
                     used_qwen = True
