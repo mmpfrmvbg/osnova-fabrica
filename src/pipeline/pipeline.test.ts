@@ -23,12 +23,14 @@
  * ложноположительным при частичном qualityScore (например 6/7 > 0.7 при неверном return).
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Pipeline, runPipelineWithExecAgent } from './pipeline';
+import { IntakeAgent } from '../agents/IntakeAgent';
+import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { ReviewAgent } from '../agents/review-agent';
 import { PlanAgent } from '../agents/plan-agent';
 import type { ExecContext } from '../agents/exec-agent';
-import type { OsnovaSpec } from './types';
+import type { OsnovaIntent, OsnovaSpec } from './types';
 import { compileSource } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
 
@@ -132,6 +134,10 @@ vi.mock('../llm/index', () => ({
   PROVIDER_DEFAULT_MODEL: {},
 }));
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 /** Сумма 1…10; без этой проверки golden мог пройти при неверном значении на стеке (см. runGoldenCheck). */
 async function assertVmReturnValueIsSum1To10(bytecode: unknown, spec: OsnovaSpec): Promise<void> {
   const report = await runGoldenCheck(bytecode, {
@@ -144,6 +150,20 @@ async function assertVmReturnValueIsSum1To10(bytecode: unknown, spec: OsnovaSpec
   expect(report.qualityScore, 'полный набор проверок без пропусков').toBe(1);
   expect(report.outputDiff, 'при несовпадении return был бы JSON с vmReturnDiff').toBeNull();
 }
+
+describe('оркестрация — успешный прогон (инварианты)', () => {
+  it('оба фасада: success, totalDurationMs > 0, shadow_hits — массив', async () => {
+    const orchestrator = await new Pipeline().run('посчитай сумму от 1 до 10');
+    const execFacade = await runPipelineWithExecAgent('посчитай сумму от 1 до 10');
+
+    expect(orchestrator.status).toBe('success');
+    expect(execFacade.status).toBe('success');
+    expect(orchestrator.totalDurationMs).toBeGreaterThan(0);
+    expect(execFacade.totalDurationMs).toBeGreaterThan(0);
+    expect(Array.isArray(orchestrator.shadow_hits)).toBe(true);
+    expect(Array.isArray(execFacade.shadow_hits)).toBe(true);
+  }, 45000);
+});
 
 describe('Pipeline.run — полный пайплайн (оркестратор + repair)', () => {
   it('intake → spec → codegen → build → golden, success', async () => {
@@ -228,6 +248,43 @@ describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)
     const recomputed = compileSource(result.source!.source);
     expect(recomputed.compilerSuccess).toBe(true);
     expect(JSON.stringify(recomputed.module)).toBe(JSON.stringify(result.buildReport!.bytecode));
+  }, 20000);
+});
+
+describe('оркестрация — ошибки агентов и gates (фасады pipeline.ts)', () => {
+  it('Pipeline.run: IntakeAgent.parseIntent отклоняется → error', async () => {
+    vi.spyOn(IntakeAgent.prototype, 'parseIntent').mockRejectedValueOnce(new Error('LLM недоступен'));
+    const result = await new Pipeline().run('задача');
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('LLM недоступен');
+  });
+
+  it('runPipelineWithExecAgent: IntakeAgent.parseIntent отклоняется → error', async () => {
+    vi.spyOn(IntakeAgent.prototype, 'parseIntent').mockRejectedValueOnce(new Error('LLM недоступен'));
+    const result = await runPipelineWithExecAgent('задача');
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('LLM недоступен');
+  });
+
+  it('Pipeline.run: OsnovaCodegenAgent.generate отклоняется → error', async () => {
+    vi.spyOn(OsnovaCodegenAgent.prototype, 'generate').mockRejectedValueOnce(new Error('codegen fail'));
+    const result = await new Pipeline().run('посчитай сумму от 1 до 10');
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('codegen fail');
+  }, 20000);
+
+  it('runPipelineWithExecAgent: G1 (пустые features у intent) → error', async () => {
+    vi.spyOn(IntakeAgent.prototype, 'parseIntent').mockResolvedValueOnce({
+      intentId: 'g1-test',
+      description: 'тест',
+      features: [],
+      appType: 'утилита',
+      constraints: {},
+      confidence: 0.9,
+    } as OsnovaIntent);
+    const result = await runPipelineWithExecAgent('тест G1');
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/G1 failed/);
   }, 20000);
 });
 
