@@ -70,8 +70,8 @@ def _npm_run_argv(script: str) -> list[str]:
 
 def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[DoneCmd, dict[str, str]]:
     """
-    Build shell command + env for atom `done` checks. On Windows, harden Vitest when spawned
-    from Forge (avoid empty suites / wrong npx resolution / inherited NODE_OPTIONS).
+    Build shell command + env for atom `done` checks. On Windows, may replace ``npx vitest`` with
+    ``node …/vitest.mjs`` for resolution; does not inject ``--pool=forks`` / isolation flags (breaks ``vi.mock``).
     """
     done_env = os.environ.copy()
     done_env["NODE_ENV"] = "test"
@@ -102,21 +102,9 @@ def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[DoneCmd, dic
     ):
         return _npm_run_argv("test:forge:done"), done_env
 
-    if "npx vitest run" in cmd and "--pool=forks" not in cmd:
-        cmd = cmd.replace(
-            "npx vitest run",
-            "npx vitest run --pool=forks --no-file-parallelism --no-isolate",
-        )
-
     mjs = (project / "node_modules" / "vitest" / "vitest.mjs").resolve()
     if mjs.is_file() and "npx vitest" in cmd:
         cmd = cmd.replace("npx vitest", f'node "{mjs}"')
-
-    if "--no-isolate" not in cmd and "run --pool=forks --no-file-parallelism" in cmd:
-        cmd = cmd.replace(
-            "run --pool=forks --no-file-parallelism",
-            "run --pool=forks --no-file-parallelism --no-isolate",
-        )
 
     return cmd, done_env
 

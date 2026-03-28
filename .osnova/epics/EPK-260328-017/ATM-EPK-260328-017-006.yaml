@@ -1,23 +1,25 @@
 id: ATM-EPK-260328-017-006
 epic: EPK-260328-017
 seq: 6
-zone: agents
+zone: pipeline
 risk: HIGH
 executor: cursor
-goal: Исправить тесты агентов — agents.test.ts
+goal: Восстановить pipeline.ts — оркестрация агентов
 scope:
-- src/agents/agents.test.ts — unit и integration тесты
-notouch: []
+- src/pipeline/pipeline.ts
+notouch:
+- src/agents/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить моки зависимостей
-- Исправить assertions для каждого агента
-- Добавить тесты edge cases
+- исправить TS-ошибки в pipeline.ts
+- восстановить вызов цепочки агентов в правильном порядке
+- добавить обработку ошибок и retry-логику
 deps:
-- ATM-EPK-260328-017-002
-- ATM-EPK-260328-017-003
-- ATM-EPK-260328-017-004
-- ATM-EPK-260328-017-005
+- ATM-001
+- ATM-002
+- ATM-003
+- ATM-004
 maxiter: 3
 retries: 0
 status: PENDING

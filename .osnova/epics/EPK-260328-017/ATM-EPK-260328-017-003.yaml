@@ -2,20 +2,22 @@ id: ATM-EPK-260328-017-003
 epic: EPK-260328-017
 seq: 3
 zone: agents
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Исправить PlanAgent — генерацию плана выполнения и декомпозицию задач
+goal: Восстановить ExecAgent — выполнение шагов плана
 scope:
-- src/agents/plan-agent.ts — основная логика агента
+- src/agents/exec-agent.ts
+- src/agents/agents.test.ts — тесты exec-логики
 notouch:
-- src/agents/agents.test.ts
+- src/compiler/*
+- src/pipeline/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить алгоритм декомпозиции
-- Исправить обработку зависимостей между шагами
-- Добавить таймауты для длительных операций
+- исправить TS-ошибки в exec-agent.ts
+- восстановить интеграцию с runtime/vm.ts для выполнения шагов
+- добавить тесты на успешное выполнение и обработку ошибок
 deps:
-- ATM-EPK-260328-017-001
+- ATM-002
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,20 +1,26 @@
 id: ATM-EPK-260328-017-011
 epic: EPK-260328-017
 seq: 11
-zone: compiler
-risk: MEDIUM
+zone: e2e
+risk: HIGH
 executor: cursor
-goal: Исправить compiler.ts — компиляцию задач в инструкции
+goal: E2E тесты agents + pipeline — поднять passrate > 0.8
 scope:
-- src/compiler/compiler.ts — компилятор
-notouch: []
+- src/agents/agents.test.ts
+- src/pipeline/pipeline.test.ts
+notouch:
+- src/compiler/*
+- src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить генерацию инструкций для всех типов задач
-- Исправить обработку синтаксических ошибок
-- Добавить валидацию выходных данных
+- запустить npx vitest run src/agents/ && npx vitest run src/pipeline/
+- зафиксировать failing tests и исправить причины
+- повторять до достижения passrate > 0.8
 deps:
-- ATM-EPK-260328-017-010
+- ATM-005
+- ATM-007
+- ATM-008
+- ATM-009
 maxiter: 3
 retries: 0
 status: PENDING

@@ -4,19 +4,20 @@ seq: 4
 zone: agents
 risk: MEDIUM
 executor: cursor
-goal: Исправить ExecAgent — выполнение шагов плана и управление состоянием
+goal: Восстановить ReviewAgent — валидация результатов выполнения
 scope:
-- src/agents/exec-agent.ts — основная логика агента
+- src/agents/review-agent.ts
+- src/agents/agents.test.ts — тесты review-логики
 notouch:
-- src/agents/agents.test.ts
+- src/pipeline/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить выполнение шагов плана
-- Исправить обработку ошибок выполнения
-- Добавить retry-логику с экспоненциальной задержкой
+- исправить типы и логику валидации результатов
+- добавить тесты на позитивные и негативные сценарии review
+- убедиться что ReviewAgent получает данные от исправленного ExecAgent
 deps:
-- ATM-EPK-260328-017-001
-- ATM-EPK-260328-017-003
+- ATM-003
 maxiter: 3
 retries: 0
 status: PENDING

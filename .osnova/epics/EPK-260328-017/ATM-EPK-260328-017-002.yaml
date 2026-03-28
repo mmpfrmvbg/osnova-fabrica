@@ -2,20 +2,23 @@ id: ATM-EPK-260328-017-002
 epic: EPK-260328-017
 seq: 2
 zone: agents
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Исправить IntakeAgent — обработку входящих задач и валидацию входных данных
+goal: Восстановить PlanAgent — построение плана выполнения
 scope:
-- src/agents/intake-agent.ts — основная логика агента
+- src/agents/plan-agent.ts
+- src/agents/agents.test.ts — тесты plan-логики
 notouch:
-- src/agents/agents.test.ts
+- src/runtime/vm.ts
+- src/pipeline/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить обработку входного контекста
-- Исправить валидацию обязательных полей
-- Добавить обработку ошибок парсинга
+- исправить ошибки типизации в plan-agent.ts
+- восстановить логику декомпозиции задач на шаги
+- добавить тесты на edge-cases планирования
+- убедиться что PlanAgent использует исправленный IntakeAgent
 deps:
-- ATM-EPK-260328-017-001
+- ATM-001
 maxiter: 3
 retries: 0
 status: PENDING

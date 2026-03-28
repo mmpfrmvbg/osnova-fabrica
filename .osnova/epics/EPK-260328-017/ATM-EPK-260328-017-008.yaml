@@ -1,20 +1,23 @@
 id: ATM-EPK-260328-017-008
 epic: EPK-260328-017
 seq: 8
-zone: pipeline
-risk: MEDIUM
+zone: runtime
+risk: HIGH
 executor: cursor
-goal: Исправить тесты pipeline — pipeline.test.ts
+goal: Исправить vm.ts — критические ошибки выполнения кода
 scope:
-- src/pipeline/pipeline.test.ts — E2E тесты pipeline
-notouch: []
+- src/runtime/vm.ts
+notouch:
+- src/agents/*
+- src/pipeline/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить моки агентов
-- Исправить assertions для полного цикла
-- Добавить тесты обработки ошибок
+- audit vm.ts на TS-ошибки и runtime-исключения
+- исправить обработку контекста выполнения
+- добавить защиту от незавершённых асинхронных операций
 deps:
-- ATM-EPK-260328-017-007
+- ATM-003
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,20 +1,22 @@
 id: ATM-EPK-260328-017-010
 epic: EPK-260328-017
 seq: 10
-zone: runtime
+zone: compiler
 risk: MEDIUM
 executor: cursor
-goal: Исправить interpreter.ts — интерпретацию инструкций
+goal: Исправить compiler.ts — ошибки компиляции pipeline spec
 scope:
-- src/runtime/interpreter.ts — интерпретатор
-notouch: []
+- src/compiler/compiler.ts
+notouch:
+- src/agents/*
+- src/pipeline/*
+- src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить обработку всех типов инструкций
-- Исправить обработку ошибок интерпретации
-- Добавить логирование выполнения
-deps:
-- ATM-EPK-260328-017-009
+- audit compiler.ts на TS-ошибки
+- исправить парсинг и валидацию spec
+- добавить тесты на корректность компиляции
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

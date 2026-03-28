@@ -2,19 +2,21 @@ id: ATM-EPK-260328-017-009
 epic: EPK-260328-017
 seq: 9
 zone: runtime
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Исправить vm.ts — выполнение кода в изолированной среде
+goal: Исправить interpreter.ts — ошибки интерпретации шагов
 scope:
-- src/runtime/vm.ts — виртуальная машина
-notouch: []
+- src/runtime/interpreter.ts
+notouch:
+- src/agents/*
+- src/pipeline/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить изоляцию контекста выполнения
-- Исправить обработку async операций
-- Добавить лимиты на выполнение
+- исправить типы и логику интерпретации
+- убедиться что interpreter.ts корректно работает с исправленным vm.ts
 deps:
-- ATM-EPK-260328-017-007
+- ATM-008
 maxiter: 3
 retries: 0
 status: PENDING

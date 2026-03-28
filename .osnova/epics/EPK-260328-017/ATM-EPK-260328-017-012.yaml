@@ -1,23 +1,24 @@
 id: ATM-EPK-260328-017-012
 epic: EPK-260328-017
 seq: 12
-zone: e2e
+zone: integration
 risk: HIGH
 executor: cursor
-goal: Запустить E2E тесты и поднять passrate выше 0.8
+goal: Финальная интеграция — полный цикл compiler → runtime → agents → pipeline
 scope:
+- src/compiler/compiler.ts
+- src/runtime/vm.ts
 - src/agents/agents.test.ts
 - src/pipeline/pipeline.test.ts
 notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Запустить npx vitest run src/agents/
-- Запустить npx vitest run src/pipeline/
-- Исправить оставшиеся failures до достижения passrate > 0.8
+- запустить полный E2E: npx vitest run src/agents/ && npx vitest run src/pipeline/
+- убедиться что все 14 блокеров
+- зафиксировать passrate ≥ 0.8
 deps:
-- ATM-EPK-260328-017-006
-- ATM-EPK-260328-017-008
-- ATM-EPK-260328-017-011
+- ATM-010
+- ATM-011
 maxiter: 3
 retries: 0
 status: PENDING

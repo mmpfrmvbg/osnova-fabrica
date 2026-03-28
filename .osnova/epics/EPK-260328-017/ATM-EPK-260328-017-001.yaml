@@ -4,18 +4,19 @@ seq: 1
 zone: agents
 risk: HIGH
 executor: cursor
-goal: Восстановить базовый интерфейс и типы для всех агентов
+goal: Восстановить IntakeAgent — базовый парсинг и валидацию входных данных
 scope:
-- src/agents/intake-agent.ts — экспорты типов и интерфейс
-- src/agents/plan-agent.ts — экспорты типов и интерфейс
-- src/agents/exec-agent.ts — экспорты типов и интерфейс
-- src/agents/review-agent.ts — экспорты типов и интерфейс
-notouch: []
+- src/agents/intake-agent.ts
+- src/agents/agents.test.ts — добавить тесты на intake
+notouch:
+- src/runtime/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить наличие общих типов в src/types/
-- Унифицировать сигнатуры методов run(), validate(), report()
-- Добавить общий базовый класс или интерфейс BaseAgent
+- audit intake-agent.ts на наличие TS-ошибок и незавершённых TODO
+- исправить типы и логику парсинга входного контекста
+- добавить юнит-тесты на корректный/некорректный инпут
+- запустить npx vitest run src/agents/intake-agent.test.ts
 deps: []
 maxiter: 3
 retries: 0
