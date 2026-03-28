@@ -2,15 +2,16 @@
  * Компилятор Основа MVP: .osnova → OsVbcModule (JSON .osvbc).
  * Пайплайн: tokenize → parse → compile → JSON.
  *
- * Поля CompileResult выровнены под BuildReport (pipeline/types.ts):
- *   lexerErrors / parserErrors / compilerErrors / compilerSuccess / module / durationMs
+ * Поля CompileResult → BuildReport (orchestrator.compileToBuildReport):
+ *   module → bytecode; compilerSuccess; lexer/parser/compiler errors; semanticErrors; durationMs.
+ *   Опционально modules[] при multi-module Program.
  */
 
 import { tokenize } from './lexer';
 import { parse, type ParseError } from './parser';
 import { compile, compileProgram } from './codegen';
-import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction } from '../runtime/vm/bytecode';
-import { VM, type InterpreterOptions, type StackValue } from './vm';
+import { isVliwPacket, type CodeElement, type RawInstruction } from '../runtime/vm/bytecode';
+import { VM, type InterpreterOptions, type OsVbcModule, type StackValue } from './vm';
 import { analyzeProgram, type SemanticError } from './semantic';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
 import * as fs from 'fs';

@@ -1,23 +1,24 @@
-id: ATM-EPK-260329-019-005
+id: ATM-EPK-260329-019-007
 epic: EPK-260329-019
-seq: 5
-zone: agents
-risk: MEDIUM
+seq: 7
+zone: compiler
+risk: LOW
 executor: cursor
-goal: Устранить TypeScript-ошибки в review-agent.ts (ReviewCheckItem и ReviewReport)
+goal: Устранить TypeScript-ошибки в compiler.ts (CompileResult и типы)
 scope:
-- src/agents/review-agent.ts
+- src/compiler/compiler.ts
 notouch:
-- src/agents/exec-agent.ts
-- src/pipeline/orchestrator.ts
+- src/compiler/lexer.ts
+- src/compiler/parser.ts
+- src/compiler/codegen.ts
 done: npx vitest run src/agents/agents.test.ts --reporter=verbose
 steps:
-- Проверить импорты ExecContext и ExecutionPlan
-- Исправить типы ReviewCheckItem, ReviewReport
+- Проверить типы CompileResult, CompileOptions
+- Исправить импорты из runtime/vm
 - Запустить tsc --noEmit для проверки
 deps:
-- ATM-EPK-260329-019-004
+- ATM-EPK-260329-019-001
 maxiter: 3
 retries: 0
-status: PENDING
+status: DONE
 priority: P0
