@@ -1,0 +1,27 @@
+id: ATM-EPK-260328-FBK016-007
+epic: EPK-260328-FBK016
+seq: 7
+zone: lang
+risk: LOW
+executor: cursor
+goal: Добавить интеграционный JSDoc блок VM↔agents в src/runtime/vm.ts
+scope:
+- src/runtime/vm.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Создать блок документации о взаимодействии VM с агентами
+- Описать поток данных ExecContext → VM → результат
+- Указать точки расширения
+deps:
+- ATM-EPK-260328-FBK016-004
+- ATM-EPK-260328-FBK016-005
+- ATM-EPK-260328-FBK016-006
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

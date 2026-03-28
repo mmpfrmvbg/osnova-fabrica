@@ -1,0 +1,24 @@
+id: ATM-EPK-260328-FBK016-003
+epic: EPK-260328-FBK016
+seq: 3
+zone: lang
+risk: LOW
+executor: qwen
+goal: Проверить vitest.config.ts на предмет конфигурации, влияющей на exit code
+scope:
+- vitest.config.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Прочитать конфигурацию vitest
+- Выявить настройки onConsole.log, failOnZeroTests, coverage
+- Определить причины расхождения review/done
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

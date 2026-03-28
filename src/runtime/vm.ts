@@ -24,10 +24,20 @@ export interface OsVbcExecuteOptions {
   args?: StackValue[];
 }
 
-/** Глобальные ключи: данные спецификации агентов → доступ из байткода через {@link createPipelineInvokeHandlerForVm}. */
+/**
+ * Контракт ключей в {@link OsVbcVM.globals} для снимка {@link OsnovaSpec}, доступного байткоду и syscall `система.пайплайн.*`.
+ *
+ * Заполнение: {@link buildPipelineVmGlobals} / {@link applyPipelineSpecToVm}. Чтение: {@link createPipelineInvokeHandlerForVm}
+ * и прямой доступ к `globals` из скомпилированного кода.
+ *
+ * Связь с пайплайном: обычно `OsnovaSpec` берут из `ExecContext.spec` (агент выполнения, `src/agents/exec-agent.ts`) и передают в `applyPipelineSpecToVm`.
+ */
 export const PIPELINE_VM_GLOBAL_KEYS = {
+  /** {@link OsnovaSpec.specId} → `система.пайплайн.ид_спецификации`. */
   SPEC_ID: "__osnova_pipeline_spec_id",
+  /** {@link OsnovaSpec.mainModule} → `система.пайплайн.главный_модуль`. */
   MAIN_MODULE: "__osnova_pipeline_main_module",
+  /** Ожидаемое значение возврата: `expectedReturnValue` либо `expectVM.returnValue` → `система.пайплайн.ожидаемый_возврат`. */
   EXPECT_RETURN: "__osnova_pipeline_expect_return",
 } as const;
 
@@ -48,7 +58,10 @@ export function buildPipelineVmGlobals(spec: OsnovaSpec): Record<string, StackVa
   };
 }
 
-/** Записывает в {@link OsVbcVM.globals} данные пайплайна (после вызова — используйте invoke с {@link createPipelineInvokeHandlerForVm}). */
+/**
+ * Записывает в {@link OsVbcVM.globals} данные пайплайна (после вызова — используйте invoke с {@link createPipelineInvokeHandlerForVm}).
+ * Точка стыковки с агентами: тот же `OsnovaSpec`, что в `ExecContext.spec`, подаётся сюда перед запуском VM.
+ */
 export function applyPipelineSpecToVm(vm: OsVbcVM, spec: OsnovaSpec): void {
   Object.assign(vm.globals, buildPipelineVmGlobals(spec));
 }

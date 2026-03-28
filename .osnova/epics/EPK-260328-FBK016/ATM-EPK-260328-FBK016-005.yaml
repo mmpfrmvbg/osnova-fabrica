@@ -1,0 +1,25 @@
+id: ATM-EPK-260328-FBK016-005
+epic: EPK-260328-FBK016
+seq: 5
+zone: lang
+risk: MEDIUM
+executor: cursor
+goal: Документировать PIPELINE_VM_GLOBAL_KEYS константу в src/runtime/vm.ts
+scope:
+- src/runtime/vm.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Найти объявление PIPELINE_VM_GLOBAL_KEYS
+- Добавить JSDoc с описанием каждого ключа
+- Указать назначение для пайплайна агентов
+deps:
+- ATM-EPK-260328-FBK016-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

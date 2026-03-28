@@ -1,0 +1,25 @@
+id: ATM-EPK-260328-FBK016-004
+epic: EPK-260328-FBK016
+seq: 4
+zone: lang
+risk: MEDIUM
+executor: cursor
+goal: Добавить JSDoc для интерфейса/класса VM в src/runtime/vm.ts
+scope:
+- src/runtime/vm.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Документировать основной класс/интерфейс VM
+- Описать методы execute, evaluate, bind
+- Указать связь с ExecContext
+deps:
+- ATM-EPK-260328-FBK016-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

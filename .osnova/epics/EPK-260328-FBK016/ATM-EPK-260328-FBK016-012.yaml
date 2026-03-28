@@ -1,0 +1,30 @@
+id: ATM-EPK-260328-FBK016-012
+epic: EPK-260328-FBK016
+seq: 12
+zone: lang
+risk: MEDIUM
+executor: cursor
+goal: Запустить done-команду и верифицировать exit code 0
+scope:
+- src/runtime/vm.ts
+- src/pipeline/pipeline.test.ts
+- vitest.config.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Выполнить npx vitest run src/agents/ && npx vitest run src/pipeline/
+- Убедиться в exit code 0
+- При неудаче — исправить тесты/конфигурацию
+deps:
+- ATM-EPK-260328-FBK016-008
+- ATM-EPK-260328-FBK016-009
+- ATM-EPK-260328-FBK016-010
+- ATM-EPK-260328-FBK016-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

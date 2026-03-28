@@ -1,0 +1,26 @@
+id: ATM-EPK-260328-FBK016-009
+epic: EPK-260328-FBK016
+seq: 9
+zone: lang
+risk: LOW
+executor: qwen
+goal: Настроить vitest.config.ts для корректного propagation exit code
+scope:
+- vitest.config.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Добавить/исправить onConsole.log для перехвата ошибок
+- Настроить failOnZeroTests: true
+- Проверить coverage.threshold
+deps:
+- ATM-EPK-260328-FBK016-003
+- ATM-EPK-260328-FBK016-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

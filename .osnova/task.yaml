@@ -1,23 +1,26 @@
-id: ATM-EPK-260328-015-012
-epic: EPK-260328-015
-seq: 12
-zone: agents
-risk: LOW
+id: ATM-EPK-260328-FBK016-001
+epic: EPK-260328-FBK016
+seq: 1
+zone: lang
+risk: MEDIUM
 executor: cursor
-goal: Финальная верификация и запуск тестов
+goal: Анализ текущей структуры src/runtime/vm.ts и выявление мест для документации
+  контракта VM
 scope:
-- src/agents/
-- src/pipeline/
-notouch: []
+- src/runtime/vm.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Запустить npx vitest run src/agents/
-- Запустить npx vitest run src/pipeline/
-- Убедиться в passrate > 0.8
-deps:
-- 10
-- 11
+- Прочитать src/runtime/vm.ts полностью
+- Выявить текущие экспорты, интерфейсы, классы
+- Определить отсутствие JSDoc для PIPELINE_VM_GLOBAL_KEYS
+- Зафиксировать точки интеграции с ExecContext/OsnovaSpec
+deps: []
 maxiter: 3
 retries: 0
-status: DONE
-priority: P1
+status: PENDING
+priority: P2

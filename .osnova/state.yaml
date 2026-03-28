@@ -19,7 +19,7 @@ ci:
   lastrun: null
   laststatus: null
   passrate7d: null
-  openblockerissues: 6
+  openblockerissues: 0
   lastepicissue: null
 brainsource: idle
 heart:
@@ -69,7 +69,7 @@ zones:
     done: 0
     blk: 0
 budget:
-  qwenusedtoday: 27
+  qwenusedtoday: 29
   qwenlimit: 900
   cursortaskstoday: 0
 zonemap:

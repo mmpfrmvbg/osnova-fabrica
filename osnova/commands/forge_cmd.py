@@ -10,6 +10,14 @@ from osnova.render import console
 
 engine = ForgeEngine()
 
+
+@app.command("tray")
+def forge_tray():
+    """Трей Windows: forge в фоне, иконка по статусу, лог / пауза / выход."""
+    from osnova.commands.tray_cmd import run_forge_tray
+
+    run_forge_tray()
+
 app = typer.Typer(help="Управление демоном forge (цикл while True)")
 
 

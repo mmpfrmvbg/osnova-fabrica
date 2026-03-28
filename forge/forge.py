@@ -734,6 +734,14 @@ def cycle(dry_run: bool = False) -> str:
             _log_cycle("halted", brain_src)
             return "halted"
 
+    if not dry_run:
+        try:
+            from forge.github_poller import poll_brain_epics_and_sync_state
+
+            poll_brain_epics_and_sync_state()
+        except Exception as exc:
+            LOG.warning("github_poller failed: %s", exc)
+
     epic = _resolve_epic(state, dry_run=dry_run)
     brain_src = state.get("brain_source") or "idle"
     if not epic:

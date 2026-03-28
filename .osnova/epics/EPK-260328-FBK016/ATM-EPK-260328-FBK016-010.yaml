@@ -1,0 +1,27 @@
+id: ATM-EPK-260328-FBK016-010
+epic: EPK-260328-FBK016
+seq: 10
+zone: lang
+risk: MEDIUM
+executor: cursor
+goal: Добавить тест на интеграцию VM контракта в src/pipeline/pipeline.test.ts
+scope:
+- src/pipeline/pipeline.test.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Создать тест applyPipelineSpecToVm с моком OsnovaSpec
+- Проверить установку PIPELINE_VM_GLOBAL_KEYS
+- Верифицировать ExecContext связь
+deps:
+- ATM-EPK-260328-FBK016-005
+- ATM-EPK-260328-FBK016-006
+- ATM-EPK-260328-FBK016-007
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2
