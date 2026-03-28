@@ -34,6 +34,7 @@ src/runtime/generated/
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 
 # Editor
 .vscode/
