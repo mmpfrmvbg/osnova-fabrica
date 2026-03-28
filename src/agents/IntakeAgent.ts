@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import { getLLMProvider } from '../llm/index';
 import { IntakeValidationError, type IAgent } from './types';
+import type { AgentReport, BaseAgent } from '../types/agents';
 import type { RawText, OsnovaIntent, OsnovaSpec, AppType } from '../pipeline/types';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
@@ -147,13 +148,21 @@ export class SpecValidationError extends Error {
   }
 }
 
-export class IntakeAgent implements IAgent {
+export class IntakeAgent implements IAgent, BaseAgent {
+  private lastRun: { intent: OsnovaIntent; spec: OsnovaSpec } | null = null;
+
   constructor(private registryContext: string = '') {}
 
   /**
    * Проверка структуры и типов входа intake: объект с непустой строкой `text` (после trim).
+   * Дополнительные аргументы игнорируются (совместимость с {@link BaseAgent}).
    */
-  validate(input: unknown): asserts input is RawText {
+  validate(input: unknown, _ctx?: unknown, _plan?: unknown): void {
+    this.assertRawText(input);
+  }
+
+  /** Узкое утверждение типа после проверки (внутренние вызовы). */
+  private assertRawText(input: unknown): asserts input is RawText {
     if (input == null || typeof input !== 'object') {
       throw new IntakeValidationError('RawText must be a non-null object', 'text');
     }
@@ -188,7 +197,7 @@ export class IntakeAgent implements IAgent {
 
   async parseIntent(input: RawText): Promise<OsnovaIntent> {
     try {
-      this.validate(input);
+      this.assertRawText(input);
     } catch (err) {
       log.warn('parseIntent: invalid input', {
         field: err instanceof IntakeValidationError ? err.field : undefined,
@@ -439,5 +448,29 @@ export class IntakeAgent implements IAgent {
     }
 
     return text.trim();
+  }
+
+  /**
+   * Полный цикл intake: RawText → intent → spec (с checkSpec).
+   */
+  async run(input?: unknown): Promise<{ intent: OsnovaIntent; spec: OsnovaSpec }> {
+    const raw = input as RawText;
+    this.assertRawText(raw);
+    const normalized = this.parse(raw);
+    const intent = await this.parseIntent(normalized);
+    const spec = await this.generateSpec(intent);
+    this.checkSpec(spec);
+    this.lastRun = { intent, spec };
+    return this.lastRun;
+  }
+
+  report(): AgentReport {
+    if (!this.lastRun) {
+      return { ok: false, summaryText: '[IntakeAgent] run() ещё не выполнялся' };
+    }
+    return {
+      ok: true,
+      summaryText: `[IntakeAgent] intentId=${this.lastRun.intent.intentId} specId=${this.lastRun.spec.specId}`,
+    };
   }
 }

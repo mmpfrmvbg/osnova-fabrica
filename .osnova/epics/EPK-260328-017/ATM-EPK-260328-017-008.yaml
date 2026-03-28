@@ -1,22 +1,18 @@
 id: ATM-EPK-260328-017-008
 epic: EPK-260328-017
 seq: 8
-zone: agents
-risk: LOW
-executor: null
-goal: 'Восстановить ReviewAgent: генерация отчётов и метрик'
+zone: pipeline
+risk: MEDIUM
+executor: cursor
+goal: Исправить тесты pipeline — pipeline.test.ts
 scope:
-- src/agents/review-agent.ts
-- src/agents/agents.test.ts
-notouch:
-- src/pipeline/*
-- src/runtime/*
-- src/compiler/*
+- src/pipeline/pipeline.test.ts — E2E тесты pipeline
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Добавить генерацию отчётов
-- Реализовать сбор метрик
-- Покрыть тестами отчётность
+- Проверить моки агентов
+- Исправить assertions для полного цикла
+- Добавить тесты обработки ошибок
 deps:
 - ATM-EPK-260328-017-007
 maxiter: 3

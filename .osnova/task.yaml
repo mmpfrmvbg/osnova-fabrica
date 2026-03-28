@@ -2,22 +2,20 @@ id: ATM-EPK-260328-017-001
 epic: EPK-260328-017
 seq: 1
 zone: agents
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: 'Восстановить IntakeAgent: базовая валидация и парсинг входных данных'
+goal: Восстановить базовый интерфейс и типы для всех агентов
 scope:
-- src/agents/intake-agent.ts
-- src/agents/agents.test.ts
-notouch:
-- src/pipeline/*
-- src/runtime/*
-- src/compiler/*
+- src/agents/intake-agent.ts — экспорты типов и интерфейс
+- src/agents/plan-agent.ts — экспорты типов и интерфейс
+- src/agents/exec-agent.ts — экспорты типов и интерфейс
+- src/agents/review-agent.ts — экспорты типов и интерфейс
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать текущий код intake-agent.ts
-- Исправить ошибки валидации входных данных
-- Добавить обработку граничных случаев
-- Написать тесты на validate()
+- Проверить наличие общих типов в src/types/
+- Унифицировать сигнатуры методов run(), validate(), report()
+- Добавить общий базовый класс или интерфейс BaseAgent
 deps: []
 maxiter: 3
 retries: 0

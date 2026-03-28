@@ -1,24 +1,20 @@
 id: ATM-EPK-260328-017-009
 epic: EPK-260328-017
 seq: 9
-zone: pipeline
+zone: runtime
 risk: HIGH
-executor: null
-goal: 'Восстановить pipeline: интеграция всех агентов'
+executor: cursor
+goal: Исправить vm.ts — выполнение кода в изолированной среде
 scope:
-- src/pipeline/pipeline.ts
-- src/pipeline/pipeline.test.ts
-notouch:
-- src/runtime/*
-- src/compiler/*
+- src/runtime/vm.ts — виртуальная машина
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать текущий код pipeline.ts
-- Восстановить цепочку Intake→Plan→Exec→Review
-- Интегрировать с agents layer
-- Написать E2E тесты pipeline
+- Проверить изоляцию контекста выполнения
+- Исправить обработку async операций
+- Добавить лимиты на выполнение
 deps:
-- ATM-EPK-260328-017-008
+- ATM-EPK-260328-017-007
 maxiter: 3
 retries: 0
 status: PENDING

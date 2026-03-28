@@ -6,6 +6,7 @@ import type { ExecContext } from './exec-agent';
 import type { ExecutionPlan } from './plan-agent';
 import type { OsnovaSpec } from '../pipeline/types';
 import { hasBlockingSemanticErrors } from '../pipeline/orchestrator';
+import type { AgentReport, BaseAgent } from '../types/agents';
 
 /** Одна строка проверки в отчёте. */
 export interface ReviewCheckItem {
@@ -28,7 +29,9 @@ function linesForReport(items: readonly ReviewCheckItem[]): string {
   return `${header}\n${body}`;
 }
 
-export class ReviewAgent {
+export class ReviewAgent implements BaseAgent {
+  private lastReport: ReviewReport | null = null;
+
   /**
    * Полная проверка выходов пайплайна: spec в контексте, опционально соответствие плану,
    * сборка, golden.
@@ -173,15 +176,55 @@ export class ReviewAgent {
     }
 
     const ok = items.every(i => i.ok);
-    return {
+    const report: ReviewReport = {
       ok,
       items,
       summaryText: linesForReport(items),
     };
+    this.lastReport = report;
+    return report;
   }
 
-  /** То же, что {@link ReviewAgent.review} (совместимость с вызовами без имени метода). */
-  validate(spec: OsnovaSpec, ctx: ExecContext, plan?: ExecutionPlan): ReviewReport {
-    return this.review(spec, ctx, plan);
+  /**
+   * Два варианта: `(spec, ctx, plan?)` как раньше, либо один объект `{ spec, ctx, plan? }`.
+   */
+  validate(input: unknown, ctx?: ExecContext, plan?: ExecutionPlan): void | ReviewReport {
+    if (ctx !== undefined) {
+      return this.review(input as OsnovaSpec, ctx, plan);
+    }
+    const b = input as { spec: OsnovaSpec; ctx: ExecContext; plan?: ExecutionPlan };
+    if (!b || typeof b !== 'object' || !('spec' in b) || !('ctx' in b)) {
+      throw new Error(
+        'ReviewAgent.validate: ожидается (spec, ctx, plan?) или { spec, ctx, plan? }',
+      );
+    }
+    return this.review(b.spec, b.ctx, b.plan);
+  }
+
+  /** То же, что {@link review}, с сохранением для {@link report}. */
+  run(input?: unknown): ReviewReport {
+    if (input === undefined || typeof input !== 'object') {
+      throw new Error('ReviewAgent.run: ожидается { spec, ctx, plan? }');
+    }
+    const p = input as { spec: OsnovaSpec; ctx: ExecContext; plan?: ExecutionPlan };
+    if (!p.spec || !p.ctx) {
+      throw new Error('ReviewAgent.run: ожидается { spec, ctx, plan? }');
+    }
+    return this.review(p.spec, p.ctx, p.plan);
+  }
+
+  report(): AgentReport {
+    if (!this.lastReport) {
+      return {
+        ok: false,
+        summaryText: '[ReviewAgent] нет отчёта — вызовите review, validate или run',
+      };
+    }
+    return {
+      ok: this.lastReport.ok,
+      summaryText: this.lastReport.summaryText,
+    };
   }
 }
+
+export type { AgentReport, BaseAgent } from '../types/agents';

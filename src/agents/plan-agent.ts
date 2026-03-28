@@ -5,6 +5,7 @@
 
 import { randomUUID } from 'crypto';
 import type { OsnovaIntent, OsnovaSpec } from '../pipeline/types';
+import type { AgentReport, BaseAgent } from '../types/agents';
 
 /** Фаза линейного пайплайна (см. orchestrator.ts). */
 export type PipelinePhase =
@@ -75,7 +76,9 @@ export class PlanValidationError extends Error {
   }
 }
 
-export class PlanAgent {
+export class PlanAgent implements BaseAgent {
+  private lastPlan: ExecutionPlan | null = null;
+
   /**
    * Строит последовательность операций пайплайна по intent + spec.
    */
@@ -143,7 +146,51 @@ export class PlanAgent {
     };
 
     this.validatePlan(plan);
+    this.lastPlan = plan;
     return plan;
+  }
+
+  /**
+   * Проверяет пару intent+spec перед построением плана.
+   * Ожидает `{ intent: OsnovaIntent, spec: OsnovaSpec }`.
+   */
+  validate(input: unknown, _ctx?: unknown, _plan?: unknown): void {
+    const p = input as { intent?: OsnovaIntent; spec?: OsnovaSpec };
+    if (!p?.intent || !p?.spec) {
+      throw new PlanValidationError(
+        'validate: ожидается объект { intent, spec }',
+        'validate',
+      );
+    }
+    this.validateInputs(p.intent, p.spec);
+  }
+
+  /**
+   * То же, что {@link buildPlan}, с сохранением для {@link report}.
+   */
+  run(input?: unknown): ExecutionPlan {
+    const p = input as {
+      intent: OsnovaIntent;
+      spec: OsnovaSpec;
+      options?: PlanAgentBuildOptions;
+    };
+    if (!p?.intent || !p?.spec) {
+      throw new PlanValidationError(
+        'run: ожидается { intent, spec, options? }',
+        'run',
+      );
+    }
+    return this.buildPlan(p.intent, p.spec, p.options ?? {});
+  }
+
+  report(): AgentReport {
+    if (!this.lastPlan) {
+      return { ok: false, summaryText: '[PlanAgent] план ещё не строился (buildPlan/run)' };
+    }
+    return {
+      ok: true,
+      summaryText: `[PlanAgent] planId=${this.lastPlan.planId} шагов=${this.lastPlan.steps.length}`,
+    };
   }
 
   /**
@@ -235,3 +282,5 @@ export class PlanAgent {
     }
   }
 }
+
+export type { AgentReport, BaseAgent } from '../types/agents';

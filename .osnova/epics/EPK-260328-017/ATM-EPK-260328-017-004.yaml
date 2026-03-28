@@ -2,22 +2,20 @@ id: ATM-EPK-260328-017-004
 epic: EPK-260328-017
 seq: 4
 zone: agents
-risk: HIGH
-executor: null
-goal: 'Восстановить PlanAgent: оптимизация порядка выполнения задач'
+risk: MEDIUM
+executor: cursor
+goal: Исправить ExecAgent — выполнение шагов плана и управление состоянием
 scope:
-- src/agents/plan-agent.ts
-- src/agents/agents.test.ts
+- src/agents/exec-agent.ts — основная логика агента
 notouch:
-- src/pipeline/*
-- src/runtime/*
-- src/compiler/*
+- src/agents/agents.test.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Реализовать топологическую сортировку
-- Добавить приоритизацию задач
-- Покрыть тестами оптимизацию
+- Проверить выполнение шагов плана
+- Исправить обработку ошибок выполнения
+- Добавить retry-логику с экспоненциальной задержкой
 deps:
+- ATM-EPK-260328-017-001
 - ATM-EPK-260328-017-003
 maxiter: 3
 retries: 0

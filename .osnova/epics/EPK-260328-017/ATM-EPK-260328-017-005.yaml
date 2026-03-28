@@ -2,22 +2,20 @@ id: ATM-EPK-260328-017-005
 epic: EPK-260328-017
 seq: 5
 zone: agents
-risk: HIGH
-executor: null
-goal: 'Восстановить ExecAgent: выполнение задач в VM'
+risk: MEDIUM
+executor: cursor
+goal: Исправить ReviewAgent — валидацию результатов и генерацию отчёта
 scope:
-- src/agents/exec-agent.ts
-- src/agents/agents.test.ts
+- src/agents/review-agent.ts — основная логика агента
 notouch:
-- src/pipeline/*
-- src/compiler/*
+- src/agents/agents.test.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать текущий код exec-agent.ts
-- Восстановить метод execute()
-- Интегрировать с runtime/vm.ts
-- Написать тесты на выполнение
+- Проверить критерии валидации результатов
+- Исправить форматирование отчёта
+- Добавить сбор метрик выполнения
 deps:
+- ATM-EPK-260328-017-001
 - ATM-EPK-260328-017-004
 maxiter: 3
 retries: 0

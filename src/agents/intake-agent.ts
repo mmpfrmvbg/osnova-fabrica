@@ -8,3 +8,4 @@ export {
   detectAppTypeFromPrefix,
   parseLlmConfidence,
 } from './IntakeAgent';
+export type { AgentReport, BaseAgent } from '../types/agents';

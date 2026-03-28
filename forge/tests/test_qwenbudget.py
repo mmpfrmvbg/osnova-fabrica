@@ -146,7 +146,7 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch.object(
                     reviewer,
                     "_qwen_review",
-                    return_value=(False, "API said quota exceeded", True),
+                    return_value=("API said quota exceeded", True, False),
                 ),
                 patch.object(
                     reviewer, "_prepare_done_invocation", return_value=(["cmd", "/c", "echo", "x"], {})
@@ -159,7 +159,8 @@ class TestReviewerQuotaFallback(unittest.TestCase):
         self.assertIn("auto-approved", reason)
         self.assertGreaterEqual(elapsed, 0)
 
-    def test_fail_when_llm_fail_and_no_fallback(self) -> None:
+    def test_pass_when_done_ok_even_if_qwen_text_has_no_pass_line(self) -> None:
+        """passed follows done exit code; Qwen text is advisory only when done is set."""
         from forge import reviewer
 
         atom = {"id": "ATM-1", "goal": "g", "scope": [], "done": "echo ok"}
@@ -179,7 +180,7 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch.object(
                     reviewer,
                     "_qwen_review",
-                    return_value=(False, "no PASS line here", False),
+                    return_value=("no PASS line here", False, False),
                 ),
                 patch.object(
                     reviewer, "_prepare_done_invocation", return_value=(["cmd", "/c", "echo", "x"], {})
@@ -187,6 +188,37 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch("forge.reviewer.subprocess.run") as mock_run,
             ):
                 mock_run.return_value = MagicMock(returncode=0)
+                ok, reason, elapsed = reviewer.review(atom, dry_run=False, run_done=True)
+        self.assertTrue(ok)
+
+    def test_fail_when_done_command_nonzero(self) -> None:
+        from forge import reviewer
+
+        atom = {"id": "ATM-1", "goal": "g", "scope": [], "done": "echo ok"}
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            fake_env = {
+                "OSNOVA_PROJECT": str(proj),
+                "OSNOVA_FORGE": str(proj / "forge"),
+                "GHREPO": "o/r",
+                "GH_TOKEN": "",
+                "QWENBIN": "qwen",
+                "CURSORBIN": "agent",
+            }
+            with (
+                patch.object(reviewer, "env_paths", return_value=fake_env),
+                patch.object(reviewer, "_git_diff", return_value=""),
+                patch.object(
+                    reviewer,
+                    "_qwen_review",
+                    return_value=("would parse PASS", False, True),
+                ),
+                patch.object(
+                    reviewer, "_prepare_done_invocation", return_value=(["cmd", "/c", "echo", "x"], {})
+                ),
+                patch("forge.reviewer.subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = MagicMock(returncode=1)
                 ok, reason, elapsed = reviewer.review(atom, dry_run=False, run_done=True)
         self.assertFalse(ok)
 

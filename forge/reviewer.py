@@ -256,9 +256,14 @@ def _run_qwen_review_subprocess(prompt: str, rev_s: int) -> subprocess.Completed
 
 def _qwen_review(
     atom: dict[str, Any], diff: str
-) -> tuple[bool, str, bool]:
+) -> tuple[str, bool, bool]:
     """
-    Returns (llm_pass, reason, need_done_fallback).
+    Returns (reason_text, need_done_fallback, passed_when_no_done_cmd).
+
+    When the atom has a ``done`` command, :func:`review` uses exit code for ``passed``; the third
+    value is ignored then. If there is no ``done`` command, ``passed`` comes from the third value
+    (Qwen parse via :func:`_parse_qwen_review_pass`), except error paths where it is False.
+
     need_done_fallback=True: локальный лимит forge или ответ API «quota» — при успешном done можно авто-PASS.
     """
     if not can_call():
@@ -271,7 +276,7 @@ def _qwen_review(
             _hl.hlog("qwen_quota", detail="локальный дневной лимит forge (не ответ API)")
         except Exception:
             pass
-        return False, "FAIL: forge Qwen daily budget exhausted (local)", True
+        return "FAIL: forge Qwen daily budget exhausted (local)", True, False
 
     prompt = (
         "Review ATM result. You MUST include either PASS: or FAIL: (with colon). "
@@ -288,7 +293,7 @@ def _qwen_review(
         proc = _run_qwen_review_subprocess(prompt, rev_s)
     except TimeoutExpired:
         record(served=True)
-        return False, f"FAIL: qwen review timeout after {rev_s}s (FORGE_QWEN_REVIEW_TIMEOUT)", False
+        return f"FAIL: qwen review timeout after {rev_s}s (FORGE_QWEN_REVIEW_TIMEOUT)", False, False
     out = proc.stdout or ""
     err = proc.stderr or ""
     combined = f"{out}\n{err}"
@@ -307,13 +312,14 @@ def _qwen_review(
             )
         except Exception:
             pass
-        return False, combined.strip() or "FAIL: Qwen quota exceeded", True
+        return combined.strip() or "FAIL: Qwen quota exceeded", True, False
 
     record(served=True)
     raw_qwen_output = combined.strip()
-    passed = _parse_qwen_review_pass(raw_qwen_output)
     reason_full = raw_qwen_output if raw_qwen_output else "No reviewer output"
-    return passed, reason_full, False
+    qwen_pass_no_done = _parse_qwen_review_pass(raw_qwen_output)
+    LOG.debug("reviewer _parse_qwen_review_pass (used only if atom has no done-cmd): %s", qwen_pass_no_done)
+    return reason_full, False, qwen_pass_no_done
 
 
 def review(
@@ -333,12 +339,13 @@ def review(
         elapsed = int(time.time() - start)
         return False, "FAIL: executor BLK — reviewer skipped", elapsed
     diff = _git_diff(project)
-    llm_pass, llm_reason, need_done_fallback = _qwen_review(atom, diff)
+    llm_reason, need_done_fallback, qwen_pass_no_done = _qwen_review(atom, diff)
     done_cmd = str(atom.get("done", "")).strip()
     done_cmd = done_cmd.replace(" && ", " ; ") if sys.platform == "win32" else done_cmd
     if not done_cmd:
         elapsed = int(time.time() - start)
-        return llm_pass, _stored_review_reason(llm_reason), elapsed
+        passed_no_done = False if need_done_fallback else qwen_pass_no_done
+        return passed_no_done, _stored_review_reason(llm_reason), elapsed
     cmd_eff, done_env = _prepare_done_invocation(project, done_cmd)
     log_cmd = " ".join(cmd_eff) if isinstance(cmd_eff, list) else cmd_eff
     LOG.info(
@@ -378,7 +385,8 @@ def review(
         hlog_tests_run_from_output(done.stdout or "", done.stderr or "")
     except Exception:
         pass
-    if done.returncode != 0:
+    cmd_passed = done.returncode == 0
+    if not cmd_passed:
         passed = False
     elif need_done_fallback:
         passed = True
@@ -387,15 +395,12 @@ def review(
         )
         LOG.warning("reviewer: %s", llm_reason)
     else:
-        passed = llm_pass
-        if not llm_pass:
-            # Log preview only; llm_reason remains full Qwen output from _qwen_review.
-            _preview = (llm_reason[:900] + "…") if len(llm_reason) > 900 else llm_reason
-            LOG.warning(
-                "reviewer: done command succeeded but LLM verdict was not PASS — "
-                "check Qwen output (expect PASS: or FAIL: on a line). Head: %s",
-                _preview,
-            )
+        passed = cmd_passed
+        _hint = _parse_qwen_review_pass(llm_reason)
+        LOG.debug(
+            "reviewer done exit=0; passed follows exit code; _parse_qwen_review_pass (informational)=%s",
+            _hint,
+        )
     reason = llm_reason if done.returncode == 0 else f"{llm_reason}; done command failed: {done.returncode}"
     elapsed = int(time.time() - start)
     aid = str(atom.get("id") or "")

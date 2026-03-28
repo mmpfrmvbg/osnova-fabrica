@@ -1,25 +1,24 @@
 id: ATM-EPK-260328-017-007
 epic: EPK-260328-017
 seq: 7
-zone: agents
-risk: MEDIUM
-executor: null
-goal: 'Восстановить ReviewAgent: валидация результатов выполнения'
+zone: pipeline
+risk: HIGH
+executor: cursor
+goal: Восстановить pipeline.ts — оркестрацию агентов и передачу контекста
 scope:
-- src/agents/review-agent.ts
-- src/agents/agents.test.ts
+- src/pipeline/pipeline.ts — основная логика pipeline
 notouch:
-- src/pipeline/*
-- src/runtime/*
-- src/compiler/*
+- src/pipeline/pipeline.test.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать текущий код review-agent.ts
-- Восстановить метод review()
-- Реализовать проверку результатов
-- Написать тесты на ревью
+- Проверить последовательность вызова агентов
+- Исправить передачу контекста между агентами
+- Добавить обработку ошибок на уровне pipeline
 deps:
-- ATM-EPK-260328-017-006
+- ATM-EPK-260328-017-002
+- ATM-EPK-260328-017-003
+- ATM-EPK-260328-017-004
+- ATM-EPK-260328-017-005
 maxiter: 3
 retries: 0
 status: PENDING

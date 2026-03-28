@@ -2,24 +2,20 @@ id: ATM-EPK-260328-017-003
 epic: EPK-260328-017
 seq: 3
 zone: agents
-risk: HIGH
-executor: null
-goal: 'Восстановить PlanAgent: планирование задач и построение графа зависимостей'
+risk: MEDIUM
+executor: cursor
+goal: Исправить PlanAgent — генерацию плана выполнения и декомпозицию задач
 scope:
-- src/agents/plan-agent.ts
-- src/agents/agents.test.ts
+- src/agents/plan-agent.ts — основная логика агента
 notouch:
-- src/pipeline/*
-- src/runtime/*
-- src/compiler/*
+- src/agents/agents.test.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать текущий код plan-agent.ts
-- Восстановить метод plan()
-- Реализовать построение DAG зависимостей
-- Написать тесты на планирование
+- Проверить алгоритм декомпозиции
+- Исправить обработку зависимостей между шагами
+- Добавить таймауты для длительных операций
 deps:
-- ATM-EPK-260328-017-002
+- ATM-EPK-260328-017-001
 maxiter: 3
 retries: 0
 status: PENDING

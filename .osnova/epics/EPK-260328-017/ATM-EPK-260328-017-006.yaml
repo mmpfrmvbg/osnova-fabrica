@@ -2,21 +2,21 @@ id: ATM-EPK-260328-017-006
 epic: EPK-260328-017
 seq: 6
 zone: agents
-risk: MEDIUM
-executor: null
-goal: 'Восстановить ExecAgent: обработка ошибок и retry-логика'
+risk: HIGH
+executor: cursor
+goal: Исправить тесты агентов — agents.test.ts
 scope:
-- src/agents/exec-agent.ts
-- src/agents/agents.test.ts
-notouch:
-- src/pipeline/*
-- src/compiler/*
+- src/agents/agents.test.ts — unit и integration тесты
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Реализовать обработку ошибок выполнения
-- Добавить retry-механизм
-- Покрыть тестами error-handling
+- Проверить моки зависимостей
+- Исправить assertions для каждого агента
+- Добавить тесты edge cases
 deps:
+- ATM-EPK-260328-017-002
+- ATM-EPK-260328-017-003
+- ATM-EPK-260328-017-004
 - ATM-EPK-260328-017-005
 maxiter: 3
 retries: 0

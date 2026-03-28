@@ -3,20 +3,17 @@ epic: EPK-260328-017
 seq: 2
 zone: agents
 risk: MEDIUM
-executor: null
-goal: 'Восстановить IntakeAgent: нормализация и подготовка данных для PlanAgent'
+executor: cursor
+goal: Исправить IntakeAgent — обработку входящих задач и валидацию входных данных
 scope:
-- src/agents/intake-agent.ts
-- src/agents/agents.test.ts
+- src/agents/intake-agent.ts — основная логика агента
 notouch:
-- src/pipeline/*
-- src/runtime/*
-- src/compiler/*
+- src/agents/agents.test.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Реализовать нормализацию входных данных
-- Добавить преобразование форматов
-- Покрыть тестами нормализацию
+- Проверить обработку входного контекста
+- Исправить валидацию обязательных полей
+- Добавить обработку ошибок парсинга
 deps:
 - ATM-EPK-260328-017-001
 maxiter: 3

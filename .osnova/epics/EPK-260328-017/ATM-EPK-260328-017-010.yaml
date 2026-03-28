@@ -1,21 +1,18 @@
 id: ATM-EPK-260328-017-010
 epic: EPK-260328-017
 seq: 10
-zone: pipeline
+zone: runtime
 risk: MEDIUM
-executor: null
-goal: 'Восстановить pipeline: обработка ошибок и восстановление'
+executor: cursor
+goal: Исправить interpreter.ts — интерпретацию инструкций
 scope:
-- src/pipeline/pipeline.ts
-- src/pipeline/pipeline.test.ts
-notouch:
-- src/runtime/*
-- src/compiler/*
+- src/runtime/interpreter.ts — интерпретатор
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Реализовать error propagation между агентами
-- Добавить recovery-механизмы
-- Покрыть тестами сценарии сбоев
+- Проверить обработку всех типов инструкций
+- Исправить обработку ошибок интерпретации
+- Добавить логирование выполнения
 deps:
 - ATM-EPK-260328-017-009
 maxiter: 3

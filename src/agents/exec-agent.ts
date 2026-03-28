@@ -2,8 +2,9 @@
 // src/agents/exec-agent.ts — ExecAgent: пошаговое выполнение плана
 // ============================================================
 
-import { PlanAgent, type ExecutionPlan, type PipelinePhase, type PlanStep } from './plan-agent';
+import { PlanAgent, PlanValidationError, type ExecutionPlan, type PipelinePhase, type PlanStep } from './plan-agent';
 import type { BuildReport, GoldenReport, OsnovaIntent, OsnovaSpec, OsnovaSource } from '../pipeline/types';
+import type { AgentReport, BaseAgent } from '../types/agents';
 
 /** Состояние пайплайна между шагами (накапливается при выполнении). */
 export interface ExecContext {
@@ -69,7 +70,9 @@ function normalizeStepFailureMessage(
   return `step failed: ${phase} (order ${order})`;
 }
 
-export class ExecAgent {
+export class ExecAgent implements BaseAgent {
+  private lastExec: ExecResult | null = null;
+
   constructor(private readonly planAgent: PlanAgent = new PlanAgent()) {}
 
   /**
@@ -156,7 +159,7 @@ export class ExecAgent {
       steps.push(stepResult);
 
       if (stop) {
-        return {
+        const out: ExecResult = {
           planId: plan.planId,
           completed: false,
           stoppedAtPhase: step.phase,
@@ -164,14 +167,57 @@ export class ExecAgent {
           state,
           error: fatalError,
         };
+        this.lastExec = out;
+        return out;
       }
     }
 
-    return {
+    const done: ExecResult = {
       planId: plan.planId,
       completed: true,
       steps,
       state,
     };
+    this.lastExec = done;
+    return done;
+  }
+
+  /**
+   * Проверяет структуру плана (как перед execute).
+   */
+  validate(input: unknown, _ctx?: unknown, _plan?: unknown): void {
+    const plan = input as ExecutionPlan;
+    if (!plan || typeof plan !== 'object' || !('planId' in plan)) {
+      throw new PlanValidationError('validate: ожидается ExecutionPlan', 'validate');
+    }
+    this.planAgent.validatePlan(plan);
+  }
+
+  /**
+   * Выполняет план: `{ plan, runPhase, initialContext? }`.
+   */
+  async run(input?: unknown): Promise<ExecResult> {
+    const p = input as {
+      plan: ExecutionPlan;
+      runPhase: PhaseRunner;
+      initialContext?: Partial<Omit<ExecContext, 'repairAttempts'>> & { repairAttempts?: number };
+    };
+    if (!p?.plan || typeof p.runPhase !== 'function') {
+      throw new PlanValidationError('run: ожидается { plan, runPhase, initialContext? }', 'run');
+    }
+    return this.execute(p.plan, p.runPhase, p.initialContext ?? {});
+  }
+
+  report(): AgentReport {
+    if (!this.lastExec) {
+      return { ok: false, summaryText: '[ExecAgent] execute/run ещё не вызывались' };
+    }
+    const e = this.lastExec;
+    return {
+      ok: e.completed,
+      summaryText: `[ExecAgent] planId=${e.planId} completed=${e.completed}${e.error ? ` error=${e.error}` : ''}`,
+    };
   }
 }
+
+export type { AgentReport, BaseAgent } from '../types/agents';

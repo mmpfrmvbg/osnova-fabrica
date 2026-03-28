@@ -1,23 +1,20 @@
 id: ATM-EPK-260328-017-011
 epic: EPK-260328-017
 seq: 11
-zone: runtime
-risk: HIGH
-executor: null
-goal: 'Исправить runtime/vm.ts: интеграция с ExecAgent'
+zone: compiler
+risk: MEDIUM
+executor: cursor
+goal: Исправить compiler.ts — компиляцию задач в инструкции
 scope:
-- src/runtime/vm.ts
-- src/agents/exec-agent.ts
-notouch:
-- src/compiler/*
+- src/compiler/compiler.ts — компилятор
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать текущий код vm.ts
-- Исправить интерфейс выполнения
-- Синхронизировать с exec-agent.ts
-- Добавить тесты интеграции
+- Проверить генерацию инструкций для всех типов задач
+- Исправить обработку синтаксических ошибок
+- Добавить валидацию выходных данных
 deps:
-- ATM-EPK-260328-017-005
+- ATM-EPK-260328-017-010
 maxiter: 3
 retries: 0
 status: PENDING
