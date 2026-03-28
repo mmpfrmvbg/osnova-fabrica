@@ -325,6 +325,18 @@ def _coerce_dep_to_atm_id(raw: Any, epic_id: str, known_ids: set[str]) -> str | 
         tail = s[len(prefix) :]
         if tail.isdigit():
             return f"ATM-{epic_id}-{int(tail):03d}"
+    # Without ATM- prefix: EPK-260328-015-001
+    epic_hyphen = f"{epic_id}-"
+    if s.startswith(epic_hyphen):
+        tail = s[len(epic_hyphen) :]
+        if tail.isdigit():
+            return f"ATM-{epic_id}-{int(tail):03d}"
+    # Shorthand last epic segment + seq: 015-001 for epic ...-015
+    last_seg = epic_id.rsplit("-", 1)[-1] if epic_id else ""
+    if last_seg and s.startswith(f"{last_seg}-"):
+        tail = s[len(last_seg) + 1 :]
+        if tail.isdigit():
+            return f"ATM-{epic_id}-{int(tail):03d}"
     return s
 
 
