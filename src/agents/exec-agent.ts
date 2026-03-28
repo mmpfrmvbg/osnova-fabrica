@@ -58,13 +58,12 @@ export interface ExecResult {
 
 function applyPatch(ctx: ExecContext, patch: PhaseRunResult['patch']): void {
   if (!patch) return;
-  const p = patch as Partial<ExecContext>;
-  if (p.intent !== undefined) ctx.intent = p.intent;
-  if (p.spec !== undefined) ctx.spec = p.spec;
-  if (p.source !== undefined) ctx.source = p.source;
-  if (p.buildReport !== undefined) ctx.buildReport = p.buildReport;
-  if (p.goldenReport !== undefined) ctx.goldenReport = p.goldenReport;
-  if (p.repairAttempts !== undefined) ctx.repairAttempts = p.repairAttempts;
+  if (patch.intent !== undefined) ctx.intent = patch.intent;
+  if (patch.spec !== undefined) ctx.spec = patch.spec;
+  if (patch.source !== undefined) ctx.source = patch.source;
+  if (patch.buildReport !== undefined) ctx.buildReport = patch.buildReport;
+  if (patch.goldenReport !== undefined) ctx.goldenReport = patch.goldenReport;
+  if (patch.repairAttempts !== undefined) ctx.repairAttempts = patch.repairAttempts;
 }
 
 function normalizeStepFailureMessage(
@@ -91,9 +90,8 @@ export function createPipelineVmFromExecContext(ctx: ExecContext): OsVbcVM | nul
     return null;
   }
   const module = bytecode as OsVbcModule;
-  let vm!: OsVbcVM;
   let pipelineInvoke: ReturnType<typeof createPipelineInvokeHandlerForVm> | undefined;
-  vm = new OsVbcVM(module, {
+  const vm = new OsVbcVM(module, {
     invoke: (name, args) => {
       pipelineInvoke ??= createPipelineInvokeHandlerForVm(vm);
       return pipelineInvoke(name, args);
