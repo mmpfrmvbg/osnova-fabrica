@@ -3,8 +3,8 @@ epic: EPK-260327-001
 seq: 3
 zone: lang
 risk: LOW
-executor: cursor
-goal: Запустить полный прогон тестов и зафиксировать passrate
+executor: qwen
+goal: Запустить полный регрессионный тест и зафиксировать результаты
 scope:
 - src/compiler/vm.test.ts
 - src/agents/intake-agent.test.ts
@@ -15,11 +15,10 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Выполнить npx vitest run src/compiler/
-- Выполнить npx vitest run src/agents/
-- Зафиксировать результаты в history
+- Выполнить команду: npx vitest run src/compiler/ && npx vitest run src/agents/
+- Зафиксировать историю прогонов и passrate
+- Обновить контекст ретроспективы
 deps:
-- 1
 - 2
 maxiter: 3
 retries: 0

@@ -18,10 +18,12 @@ try:
         cursor_cli_extra_path_entries,
         env_paths,
         find_cursor_agent_node_bundle,
+        forge_dotenv_setting,
         load_yaml,
         resolve_cursor_bin_for_smith,
         secret_from_env_or_forge_dotenv,
         setup_logging,
+        write_smith_agent_prompt,
         _path_for_git_bash,
     )
 except ImportError:  # pragma: no cover
@@ -32,10 +34,12 @@ except ImportError:  # pragma: no cover
         cursor_cli_extra_path_entries,
         env_paths,
         find_cursor_agent_node_bundle,
+        forge_dotenv_setting,
         load_yaml,
         resolve_cursor_bin_for_smith,
         secret_from_env_or_forge_dotenv,
         setup_logging,
+        write_smith_agent_prompt,
         _path_for_git_bash,
     )
 
@@ -163,6 +167,15 @@ def _smith_subprocess_env() -> dict[str, str]:
         extra = cursor_cli_extra_path_entries()
         if extra:
             env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
+        # GNU `timeout` + node Cursor CLI under Git Bash often exits 124 at SMITH_TIMEOUT while work
+        # continues; rely on cursorexec outer FORGE_SMITH_WRAP_TIMEOUT only. Override: FORGE_SMITH_NO_INNER_TIMEOUT=0 in forge/.env
+        no_inner = forge_dotenv_setting("FORGE_SMITH_NO_INNER_TIMEOUT", "1").lower()
+        if no_inner not in ("0", "false", "no"):
+            env["FORGE_SMITH_NO_INNER_TIMEOUT"] = "1"
+            LOG.info(
+                "smith: FORGE_SMITH_NO_INNER_TIMEOUT=1 (Windows) — inner GNU timeout disabled; "
+                "outer FORGE_SMITH_WRAP_TIMEOUT still kills hung runs."
+            )
     return env
 
 
@@ -171,6 +184,233 @@ def _smith_wrap_timeout() -> int:
     if raw.isdigit():
         return max(60, int(raw))
     return _DEFAULT_WRAP
+
+
+def _smith_models_tokens() -> list[str]:
+    return [x for x in forge_dotenv_setting("SMITH_MODELS", "_ auto").split() if x]
+
+
+def _finalize_smith_artifacts_native(
+    project: Path,
+    atm_id: str,
+    status: str,
+    elapsed: int,
+    result_err: str,
+) -> None:
+    report: dict[str, Any] = {
+        "v": 5,
+        "t": "RPT",
+        "id": atm_id,
+        "s": status,
+        "tests": {"passed": 0, "total": 0},
+        "changed": [],
+        "elapsed": int(elapsed),
+        "err": result_err or None,
+    }
+    atomic_write_yaml(project / ".osnova" / "report.yaml", report)
+    subprocess.run(
+        ["git", "-C", str(project), "add", ".osnova/report.yaml"],
+        capture_output=True,
+        **SUBPROCESS_TEXT,
+        check=False,
+    )
+    subprocess.run(
+        ["git", "-C", str(project), "commit", "-m", f"smith report {atm_id} {status}"],
+        capture_output=True,
+        **SUBPROCESS_TEXT,
+        check=False,
+    )
+    subprocess.run(
+        ["git", "-C", str(project), "push"],
+        capture_output=True,
+        **SUBPROCESS_TEXT,
+        check=False,
+    )
+
+
+def _run_smith_native_win32_capture(
+    atom: dict[str, Any],
+    project: Path,
+    env: dict[str, str],
+    wrap_s: int,
+) -> tuple[bool, dict[str, Any]]:
+    report_file = project / ".osnova" / "report.yaml"
+    start_ts = time.monotonic()
+    atm_id = write_smith_agent_prompt(project)
+    prompt_text = (project / ".osnova" / "smith-agent-prompt.txt").read_text(encoding="utf-8")
+    node, js = env["CURSOR_AGENT_NODE"], env["CURSOR_AGENT_INDEX_JS"]
+    deadline = start_ts + wrap_s
+    ok = False
+    result_err = ""
+    for model_token in _smith_models_tokens():
+        rem = deadline - time.monotonic()
+        if rem <= 0:
+            result_err = result_err or "smith native: wrap timeout before model"
+            break
+        argv = [node, js, "-p", "--yolo", "--trust", "--workspace", str(project)]
+        if model_token not in ("_", ""):
+            argv.extend(["--model", model_token])
+        argv.append(prompt_text)
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=project,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=rem,
+                check=False,
+                **SUBPROCESS_TEXT,
+            )
+        except TimeoutExpired:
+            result_err = "smith native: model run TimeoutExpired"
+            break
+        if proc.returncode == 0:
+            ok = True
+            result_err = ""
+            break
+        result_err = f"agent -p failed (model token: {model_token})"
+    elapsed_sec = int(time.monotonic() - start_ts)
+    status = "OK" if ok else "BLK"
+    _finalize_smith_artifacts_native(project, atm_id, status, elapsed_sec, result_err)
+    report = load_yaml(report_file, default={}) or {}
+    return report.get("s") == "OK", report
+
+
+def _run_smith_native_win32_streaming(
+    atom: dict[str, Any],
+    project: Path,
+    env: dict[str, str],
+    wrap_s: int,
+) -> tuple[bool, dict[str, Any]]:
+    report_file = project / ".osnova" / "report.yaml"
+    LOG.info("cursorexec: smith native Windows — direct node (Git Bash skipped) for %s", atom.get("id"))
+    start_ts = time.monotonic()
+    atm_id = write_smith_agent_prompt(project)
+    prompt_text = (project / ".osnova" / "smith-agent-prompt.txt").read_text(encoding="utf-8")
+    node, js = env["CURSOR_AGENT_NODE"], env["CURSOR_AGENT_INDEX_JS"]
+    deadline = start_ts + wrap_s
+    ok = False
+    result_err = ""
+    last_stderr = ""
+    last_stdout = ""
+
+    for model_token in _smith_models_tokens():
+        rem = deadline - time.monotonic()
+        if rem <= 0:
+            result_err = result_err or "smith native: FORGE_SMITH_WRAP_TIMEOUT before model start"
+            break
+        argv = [node, js, "-p", "--yolo", "--trust", "--workspace", str(project)]
+        if model_token not in ("_", ""):
+            argv.extend(["--model", model_token])
+        argv.append(prompt_text)
+
+        LOG.info(
+            "smith native: model=%s remaining_wrap≈%.0fs node=%s",
+            model_token or "_",
+            rem,
+            node,
+        )
+        stdout_cap: deque[str] = deque(maxlen=_TAIL_MAX_LINES)
+        stderr_cap: deque[str] = deque(maxlen=_TAIL_MAX_LINES)
+        stream_stats = _StreamStats()
+        proc = subprocess.Popen(
+            argv,
+            cwd=project,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+            **SUBPROCESS_TEXT,
+        )
+        assert proc.stdout is not None and proc.stderr is not None
+        t_out = threading.Thread(
+            target=_stream_pipe_to_log,
+            args=(proc.stdout, "smith │ native │", stdout_cap, "stdout", stream_stats, "out"),
+            daemon=True,
+        )
+        t_err = threading.Thread(
+            target=_stream_pipe_to_log,
+            args=(proc.stderr, "smith │ native stderr │", stderr_cap, "stderr", stream_stats, "err"),
+            daemon=True,
+        )
+        t_out.start()
+        t_err.start()
+
+        model_wait_start = time.monotonic()
+        rc: int | None = None
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    LOG.error("smith native: hard timeout — killing node for %s", atom.get("id"))
+                    proc.kill()
+                    rc = proc.wait()
+                    break
+                hb_sec = _smith_heartbeat_sec()
+                chunk = min(hb_sec if hb_sec > 0 else 120.0, remaining)
+                try:
+                    rc = proc.wait(timeout=chunk)
+                    break
+                except TimeoutExpired:
+                    if hb_sec > 0:
+                        out_n, err_n = stream_stats.snapshot()
+                        LOG.info(
+                            "smith native … heartbeat: %ds (model) · stdout=%d stderr=%d",
+                            int(time.monotonic() - model_wait_start),
+                            out_n,
+                            err_n,
+                        )
+        except Exception as exc:
+            LOG.exception("smith native wait failed: %s", exc)
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            rc = proc.wait() if rc is None else rc
+
+        t_out.join(timeout=30)
+        t_err.join(timeout=30)
+
+        proc_stderr = "".join(stderr_cap)
+        proc_stdout = "".join(stdout_cap)
+        if rc is None:
+            rc = proc.poll() if proc.poll() is not None else -1
+        returncode = rc if rc is not None else -1
+
+        if returncode != 0:
+            LOG.warning(
+                "smith native: model %s exit=%s stderr_tail=%s",
+                model_token,
+                returncode,
+                proc_stderr.strip()[-400:],
+            )
+        last_stderr = proc_stderr
+        last_stdout = proc_stdout
+        if returncode == 0:
+            ok = True
+            result_err = ""
+            break
+        result_err = f"agent -p failed (model token: {model_token})"
+
+    elapsed_sec = int(time.monotonic() - start_ts)
+    status = "OK" if ok else "BLK"
+    _finalize_smith_artifacts_native(project, atm_id, status, elapsed_sec, result_err)
+
+    report = load_yaml(report_file, default={}) or {}
+    success = report.get("s") == "OK"
+    if not success:
+        err = (report.get("err") or "").strip()
+        LOG.warning(
+            "smith native ATM %s → BLK (report.s from report.yaml). err=%s\n--- stderr ---\n%s\n--- stdout ---\n%s",
+            atom.get("id"),
+            err or "(see report.yaml)",
+            last_stderr[-1500:],
+            last_stdout[-1500:],
+        )
+    return success, report
 
 
 def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[str, Any]]:
@@ -188,6 +428,23 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         wrap_s,
     )
     smith = Path(env_paths()["OSNOVA_FORGE"]) / "smith.sh"
+
+    env = _smith_subprocess_env()
+
+    use_native_win = (
+        sys.platform == "win32"
+        and env.get("CURSOR_AGENT_NODE")
+        and env.get("CURSOR_AGENT_INDEX_JS")
+        and forge_dotenv_setting("FORGE_SMITH_NATIVE_WIN32", "1").lower() not in ("0", "false", "no")
+    )
+    if use_native_win:
+        LOG.info(
+            "cursorexec: smith native Windows (FORGE_SMITH_NATIVE_WIN32) — direct node, Git Bash skipped",
+        )
+        if _smith_stream_enabled():
+            return _run_smith_native_win32_streaming(atom, project, env, wrap_s)
+        return _run_smith_native_win32_capture(atom, project, env, wrap_s)
+
     bash = bash_executable()
     if not bash:
         LOG.error(
@@ -202,14 +459,13 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
             "changed": [],
         }
 
-    env = _smith_subprocess_env()
-
     if not _smith_stream_enabled():
         try:
             proc = subprocess.run(
                 [bash, str(smith)],
                 cwd=project,
                 env=env,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=wrap_s,
@@ -255,6 +511,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         [bash, str(smith)],
         cwd=project,
         env=env,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         bufsize=1,
@@ -279,10 +536,16 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         "heartbeat every %ss (FORGE_SMITH_HEARTBEAT_SEC, 0=off)",
         int(hb_sec) if hb_sec > 0 else 0,
     )
+    _hb_tail = (
+        "inner GNU timeout is off (FORGE_SMITH_NO_INNER_TIMEOUT=1); forge kills the run at FORGE_SMITH_WRAP_TIMEOUT if the agent never exits."
+        if env.get("FORGE_SMITH_NO_INNER_TIMEOUT") == "1"
+        else "process may still be working until SMITH_TIMEOUT inner kill."
+    )
     LOG.info(
         "smith │ subprocess pid=%s — if heartbeats show 0 stdout / 0 stderr lines, Cursor CLI is not "
-        "writing to pipes (buffering or UI-only); process may still be working until SMITH_TIMEOUT inner kill.",
+        "writing to pipes (buffering or UI-only); %s",
         proc.pid,
+        _hb_tail,
     )
 
     start = time.monotonic()
@@ -307,14 +570,19 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
             except TimeoutExpired:
                 if hb_sec > 0:
                     out_n, err_n = stream_stats.snapshot()
+                    _pipe_note = (
+                        "— Cursor CLI often writes nothing to pipes here"
+                        if out_n == 0 and err_n == 0
+                        else "— only smith stderr lines so far; node/agent may still be running without stdout"
+                    )
                     LOG.info(
-                        "smith │ … heartbeat pid=%s: %ds / %ds cap · lines logged: stdout=%d stderr=%d "
-                        "(both 0 = agent silent on pipes; see smith │ pid= above)",
+                        "smith │ … heartbeat pid=%s: %ds / %ds cap · lines logged: stdout=%d stderr=%d %s",
                         proc.pid,
                         int(time.monotonic() - start),
                         wrap_s,
                         out_n,
                         err_n,
+                        _pipe_note,
                     )
     except Exception as exc:
         LOG.exception("smith: wait failed: %s", exc)

@@ -7,7 +7,7 @@ executor: cursor
 goal: Покрыть тестами сценарий низкой уверенности IntakeAgent
 scope:
 - src/agents/intake-agent.ts — логика определения confidence уровня
-- src/agents/intake-agent.test.ts — тесты на low-confidence сценарии
+- src/agents/intake-agent.test.ts — добавить тесты на low-confidence сценарии
 notouch:
 - .github/
 - infra/
@@ -15,11 +15,11 @@ notouch:
 - Cargo.lock
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps:
-- Изучить критерии low-confidence в IntakeAgent
-- Добавить тесты на сценарии, вызывающие низкую уверенность
-- Добавить тесты на граничные значения confidence score
-- Запустить тесты, убедиться в прохождении
-deps: []
+- Изучить критерии low-confidence в intake-agent.ts
+- Добавить тесты на сценарии из Issues
+- Запустить тесты, зафиксировать passrate
+deps:
+- 1
 maxiter: 3
 retries: 0
 status: PENDING

@@ -61,29 +61,46 @@ status="BLK"
 
 # Lines on stderr → forge log (cursorexec) even when cursor-agent writes nothing to pipes.
 # Windows: cursorexec may set CURSOR_AGENT_NODE + CURSOR_AGENT_INDEX_JS (node.exe + index.js) to bypass agent.cmd/ps1 shims under Git Bash.
+# FORGE_SMITH_NO_INNER_TIMEOUT=1 (default on Windows): skip GNU `timeout` — it often kills node agent with 124 while work is still running; outer python FORGE_SMITH_WRAP_TIMEOUT remains.
+run_with_inner_timeout() {
+  if [ "${FORGE_SMITH_NO_INNER_TIMEOUT:-0}" = "1" ]; then
+    "$@"
+  else
+    timeout "$TIMEOUT_SEC" "$@"
+  fi
+}
+
 run_with_model() {
   local model_token="$1"
   local rc=0
   if [ -n "${CURSOR_AGENT_NODE:-}" ] && [ -n "${CURSOR_AGENT_INDEX_JS:-}" ]; then
-    echo "smith: starting agent (node bundle) model=${model_token:-_} timeout=${TIMEOUT_SEC}s node=${CURSOR_AGENT_NODE}" >&2
+    if [ "${FORGE_SMITH_NO_INNER_TIMEOUT:-0}" = "1" ]; then
+      echo "smith: starting agent (node bundle) model=${model_token:-_} inner_timeout=off node=${CURSOR_AGENT_NODE}" >&2
+    else
+      echo "smith: starting agent (node bundle) model=${model_token:-_} inner_timeout=${TIMEOUT_SEC}s node=${CURSOR_AGENT_NODE}" >&2
+    fi
     if [ "$model_token" = "_" ] || [ -z "$model_token" ]; then
-      timeout "$TIMEOUT_SEC" \
+      run_with_inner_timeout \
         "$CURSOR_AGENT_NODE" "$CURSOR_AGENT_INDEX_JS" -p --yolo --trust --workspace "$PROJECT_DIR" \
         "$(cat "$PROMPT_FILE")" || rc=$?
     else
-      timeout "$TIMEOUT_SEC" \
+      run_with_inner_timeout \
         "$CURSOR_AGENT_NODE" "$CURSOR_AGENT_INDEX_JS" -p --yolo --trust --workspace "$PROJECT_DIR" \
         --model "$model_token" \
         "$(cat "$PROMPT_FILE")" || rc=$?
     fi
   else
-    echo "smith: starting agent model=${model_token:-_} timeout=${TIMEOUT_SEC}s CURSORBIN=${CURSORBIN}" >&2
+    if [ "${FORGE_SMITH_NO_INNER_TIMEOUT:-0}" = "1" ]; then
+      echo "smith: starting agent model=${model_token:-_} inner_timeout=off CURSORBIN=${CURSORBIN}" >&2
+    else
+      echo "smith: starting agent model=${model_token:-_} inner_timeout=${TIMEOUT_SEC}s CURSORBIN=${CURSORBIN}" >&2
+    fi
     if [ "$model_token" = "_" ] || [ -z "$model_token" ]; then
-      timeout "$TIMEOUT_SEC" \
+      run_with_inner_timeout \
         "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
         "$(cat "$PROMPT_FILE")" || rc=$?
     else
-      timeout "$TIMEOUT_SEC" \
+      run_with_inner_timeout \
         "$CURSORBIN" -p --yolo --trust --workspace "$PROJECT_DIR" \
         --model "$model_token" \
         "$(cat "$PROMPT_FILE")" || rc=$?

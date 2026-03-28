@@ -94,6 +94,14 @@ def secret_from_env_or_forge_dotenv(key: str) -> str:
     return (_load_dotenv_defaults().get(key) or "").strip()
 
 
+def forge_dotenv_setting(key: str, default: str = "") -> str:
+    """Non-secret settings: ``os.environ`` wins, else merged forge + project ``.env``."""
+    v = os.environ.get(key, "").strip()
+    if v:
+        return v
+    return (_load_dotenv_defaults().get(key) or default).strip()
+
+
 def heartbeat_path() -> Path:
     """v5.2 default: <FORGE>/heartbeat (override with FORGE_HEARTBEAT_FILE)."""
     p = os.environ.get("FORGE_HEARTBEAT_FILE", "").strip()
@@ -431,6 +439,33 @@ def load_yaml(path: str | Path, default: Any = None) -> Any:
         return default
     with p.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f) or default
+
+
+def write_smith_agent_prompt(project: Path) -> str:
+    """
+    Write ``.osnova/smith-agent-prompt.txt`` from ``.osnova/task.yaml``.
+    Same text as the embedded Python block in ``forge/smith.sh``.
+    """
+    osnova = project / ".osnova"
+    osnova.mkdir(parents=True, exist_ok=True)
+    task = osnova / "task.yaml"
+    out = osnova / "smith-agent-prompt.txt"
+    with task.open("r", encoding="utf-8") as f:
+        d = yaml.safe_load(f) or {}
+    atm_id = str(d.get("id", "UNKNOWN"))
+    text = f"""OSNOVA Forge — execute one ATM (atom).
+
+Read the full atom definition in this YAML file (open it with your tools):
+{task.resolve().as_posix()}
+
+Workspace (git repo root):
+{project.resolve().as_posix()}
+
+Follow goal, scope, steps, and priority from that file. Respect notouch paths.
+Make concrete file edits; be minimal. When finished, the atom's `done` command should be runnable from the repo root.
+"""
+    out.write_text(text, encoding="utf-8")
+    return atm_id
 
 
 def now_iso() -> str:

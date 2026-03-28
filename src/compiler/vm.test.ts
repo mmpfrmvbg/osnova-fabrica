@@ -4,11 +4,35 @@
 import { describe, it, expect } from "vitest";
 import { compileSource } from "./compiler";
 import { VM, InterpreterError } from "./vm";
+import type { OsVbcModule, RawInstruction } from "../runtime/vm/bytecode";
 
 async function runProcIdx(module: NonNullable<ReturnType<typeof compileSource>["module"]>, index = 0) {
   const vm = new VM(module);
   return vm.runProcedure(index, []);
 }
+
+function bytecodeMod(
+  code: RawInstruction[],
+  constants: unknown[] = [],
+  opts: { argc?: number; localsCount?: number } = {},
+): OsVbcModule {
+  return {
+    version: 1,
+    moduleName: "vm-rem-regression",
+    constants,
+    procedures: [
+      {
+        name: "main",
+        codeOffset: 0,
+        argc: opts.argc ?? 0,
+        localsCount: opts.localsCount ?? Math.max(opts.argc ?? 0, 4),
+      },
+    ],
+    code: [...code, { op: "ret" } as RawInstruction],
+  };
+}
+
+const pushK = (k: number): RawInstruction => ({ op: "const", type: "i32", k }) as RawInstruction;
 
 describe("VM: оператор % (rem)", () => {
   it("положительные операнды", async () => {
@@ -87,6 +111,22 @@ describe("VM: оператор % (rem)", () => {
     expect(r.compilerSuccess).toBe(true);
     await expect(runProcIdx(r.module!)).rejects.toMatchObject({
       name: "InterpreterError",
+      message: "Remainder by zero",
+      op: "rem",
+    });
+  });
+
+  it("0 % 0 — Remainder by zero (rem)", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть 0 % 0
+конец
+конец`;
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    await expect(runProcIdx(r.module!)).rejects.toMatchObject({
+      name: "InterpreterError",
+      message: "Remainder by zero",
       op: "rem",
     });
   });
@@ -130,6 +170,58 @@ describe("VM: оператор % (rem)", () => {
     const r = compileSource(src);
     expect(r.compilerSuccess).toBe(true);
     expect(await runProcIdx(r.module!)).toBe(true);
+  });
+
+  it("Number.MIN_SAFE_INTEGER — согласовано с JavaScript %", async () => {
+    const min = Number.MIN_SAFE_INTEGER;
+    const src = `модуль т
+процедура р()
+  вернуть ${min} % 13 == ${min % 13}
+конец
+конец`;
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(await runProcIdx(r.module!)).toBe(true);
+  });
+
+  it("вещественные операнды — семантика как в JavaScript", async () => {
+    const src = `модуль т
+процедура р()
+  вернуть 7.5 % 2.5 == ${7.5 % 2.5} и 3.14 % 2 == ${3.14 % 2}
+конец
+конец`;
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(await runProcIdx(r.module!)).toBe(true);
+  });
+});
+
+describe("VM: инструкция rem — байткод (типы вне исходника)", () => {
+  /**
+   * Регрессия по GitHub Issues #2, #4: неверный порядок операндов на стеке давал неверный результат
+   * (например 3 вместо 1 для 10 % 3); деление на ноль должно давать InterpreterError, а не «тихий» NaN/crash.
+   */
+  it("регрессия Issues #2, #4: rem — порядок стека делимое затем делитель (10 % 3 → 1)", async () => {
+    const m = bytecodeMod([pushK(0), pushK(1), { op: "rem" } as RawInstruction], [10, 3]);
+    const vm = new VM(m);
+    expect(await vm.runProcedure(0, [])).toBe(1);
+  });
+
+  it("rem при нулевом делителе — InterpreterError (байткод)", async () => {
+    const m = bytecodeMod([pushK(0), pushK(1), { op: "rem" } as RawInstruction], [5, 0]);
+    const vm = new VM(m);
+    await expect(vm.runProcedure(0, [])).rejects.toMatchObject({
+      name: "InterpreterError",
+      message: "Remainder by zero",
+      op: "rem",
+    });
+  });
+
+  it("некорректные операнды (строка % число) — NaN, без исключения", async () => {
+    const m = bytecodeMod([pushK(0), pushK(1), { op: "rem" } as RawInstruction], ["x", 2]);
+    const vm = new VM(m);
+    const result = await vm.runProcedure(0, []);
+    expect(Number.isNaN(result as number)).toBe(true);
   });
 });
 

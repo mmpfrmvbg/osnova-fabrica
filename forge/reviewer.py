@@ -13,9 +13,21 @@ from typing import Any
 DoneCmd = str | list[str]
 
 try:
-    from forge.common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
+    from forge.common import (
+        SUBPROCESS_TEXT,
+        env_paths,
+        qwen_headless_argv,
+        resolve_executable,
+        setup_logging,
+    )
 except ImportError:  # pragma: no cover
-    from common import SUBPROCESS_TEXT, env_paths, qwen_headless_argv, setup_logging
+    from common import (
+        SUBPROCESS_TEXT,
+        env_paths,
+        qwen_headless_argv,
+        resolve_executable,
+        setup_logging,
+    )
 
 LOG = setup_logging("reviewer")
 
@@ -111,6 +123,49 @@ def _qwen_review_timeout() -> int:
     return 300
 
 
+def _qwen_review_use_stdin() -> bool:
+    """Pass prompt on stdin (-p -) so Windows does not hit ~8191-char CreateProcess limit."""
+    v = os.environ.get("FORGE_QWEN_REVIEW_USE_STDIN", "1").strip().lower()
+    return v not in ("0", "false", "no")
+
+
+def _run_qwen_review_subprocess(prompt: str, rev_s: int) -> subprocess.CompletedProcess[str]:
+    """Same pattern as atomizer: argv stays short; body goes via stdin when enabled."""
+    exe = resolve_executable(env_paths()["QWENBIN"])
+    if os.environ.get("FORGE_QWEN_LEGACY_RUN", "").strip().lower() in ("1", "true", "yes"):
+        return subprocess.run(
+            [exe, "run", prompt],
+            capture_output=True,
+            text=True,
+            timeout=rev_s,
+            check=False,
+            **SUBPROCESS_TEXT,
+        )
+    if _qwen_review_use_stdin():
+        argv = [exe, "--yolo"]
+        model = os.environ.get("FORGE_QWEN_MODEL", "").strip()
+        if model:
+            argv.extend(["--model", model])
+        argv.extend(["-p", "-"])
+        return subprocess.run(
+            argv,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=rev_s,
+            check=False,
+            **SUBPROCESS_TEXT,
+        )
+    return subprocess.run(
+        qwen_headless_argv(prompt),
+        capture_output=True,
+        text=True,
+        timeout=rev_s,
+        check=False,
+        **SUBPROCESS_TEXT,
+    )
+
+
 def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
     prompt = (
         "Review ATM result. Return one line: PASS: reason OR FAIL: reason.\n"
@@ -119,14 +174,7 @@ def _qwen_review(atom: dict[str, Any], diff: str) -> tuple[bool, str]:
     )
     rev_s = _qwen_review_timeout()
     try:
-        proc = subprocess.run(
-            qwen_headless_argv(prompt),
-            capture_output=True,
-            text=True,
-            timeout=rev_s,
-            check=False,
-            **SUBPROCESS_TEXT,
-        )
+        proc = _run_qwen_review_subprocess(prompt, rev_s)
     except TimeoutExpired:
         return False, f"FAIL: qwen review timeout after {rev_s}s (FORGE_QWEN_REVIEW_TIMEOUT)"
     text = (proc.stdout or proc.stderr).strip()
