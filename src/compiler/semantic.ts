@@ -454,14 +454,14 @@ export function analyzeProgram(program: Program): SemanticResult {
     const list = exportsByModuleName.get(mod.name) ?? [];
     if (list.length > 0) {
       for (const prev of list) {
-        for (const [proc] of moduleExports.procedures) {
+        moduleExports.procedures.forEach((_, proc) => {
           if (prev.procedures.has(proc)) {
             errors.push({
               kind: "export_collision",
               message: `коллизия экспортов: модуль '${mod.name}' экспортирует процедуру '${proc}' более одного раза`,
             });
           }
-        }
+        });
       }
     }
     list.push(moduleExports);
@@ -481,7 +481,7 @@ export function analyzeProgram(program: Program): SemanticResult {
       }
       const merged = new Map<string, number>();
       for (const provider of providers) {
-        for (const [proc, arity] of provider.procedures) {
+        provider.procedures.forEach((arity, proc) => {
           if (merged.has(proc)) {
             errors.push({
               kind: "export_collision",
@@ -489,7 +489,7 @@ export function analyzeProgram(program: Program): SemanticResult {
             });
           }
           merged.set(proc, arity);
-        }
+        });
       }
       namespaceProcedures.set(imp.module, merged);
     }

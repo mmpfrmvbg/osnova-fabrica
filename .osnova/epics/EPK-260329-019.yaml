@@ -1,0 +1,22 @@
+t: EPK
+id: EPK-260329-019
+goal: 'Разблокировать agents/pipeline layer: устранить TypeScript-ошибки в src/agents/
+  и src/pipeline/, которые блокируют 14 ATM уже 4 цикла (EPK-015→018). Стратегия:
+  ATM-001 — диагностика (tsc --noEmit, сохранить лог); ATM-002–006 — точечные fix
+  по одной группе ошибок за ATM (intake→plan→exec→review→pipeline); ATM-007–008 —
+  восстановление тестов agents/ и pipeline/; ATM-009–010 — интеграционный E2E прогон
+  и закрытие blocker-issues.'
+scope:
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
+- src/agents/agents.test.ts
+- src/pipeline/pipeline.ts
+- src/pipeline/pipeline.test.ts
+- src/compiler/compiler.ts
+- src/runtime/vm.ts
+- src/runtime/interpreter.ts
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+priority: P0
+githubissue: 85

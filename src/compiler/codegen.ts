@@ -145,7 +145,7 @@ export function compile(ast: Module): OsVbcModule {
     let emitArrLiteralCounter = 0;
     let emitObjLiteralCounter = 0;
 
-    function emitExpr(expr: Expr, l: Map<string, number>): void {
+    const emitExpr = (expr: Expr, l: Map<string, number>): void => {
       switch (expr.kind) {
         case "число": {
           const k = constIndex(expr.value);
@@ -265,9 +265,9 @@ export function compile(ast: Module): OsVbcModule {
           break;
         }
       }
-    }
+    };
 
-    function emitStmt(s: Stmt): void {
+    const emitStmt = (s: Stmt): void => {
       switch (s.kind) {
         case "пусть":
           emitExpr(s.init, locals);
@@ -466,7 +466,7 @@ export function compile(ast: Module): OsVbcModule {
           emit({ op: "ret" } as RawInstruction);
           break;
       }
-    }
+    };
 
     for (const s of proc.body) emitStmt(s);
     emit({ op: "ret" } as RawInstruction);

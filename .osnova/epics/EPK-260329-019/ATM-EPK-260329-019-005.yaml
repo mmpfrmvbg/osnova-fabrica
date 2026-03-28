@@ -1,0 +1,23 @@
+id: ATM-EPK-260329-019-005
+epic: EPK-260329-019
+seq: 5
+zone: agents
+risk: MEDIUM
+executor: qwen
+goal: Устранить TypeScript-ошибки в review-agent.ts (ReviewCheckItem и ReviewReport)
+scope:
+- src/agents/review-agent.ts
+notouch:
+- src/agents/exec-agent.ts
+- src/pipeline/orchestrator.ts
+done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+steps:
+- Проверить импорты ExecContext и ExecutionPlan
+- Исправить типы ReviewCheckItem, ReviewReport
+- Запустить tsc --noEmit для проверки
+deps:
+- ATM-EPK-260329-019-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

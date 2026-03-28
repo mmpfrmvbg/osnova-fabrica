@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-019-014
+epic: EPK-260329-019
+seq: 14
+zone: agents
+risk: LOW
+executor: qwen
+goal: Закрытие blocker-issues по результатам EPK-260329-019
+scope:
+- src/pipeline/pipeline.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Проверить GitHub issue
+- Обновить статус issue
+- Добавить комментарий о завершении работ
+deps:
+- ATM-EPK-260329-019-012
+- ATM-EPK-260329-019-013
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

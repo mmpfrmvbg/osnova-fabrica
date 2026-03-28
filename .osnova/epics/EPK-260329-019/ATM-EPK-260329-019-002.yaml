@@ -1,0 +1,23 @@
+id: ATM-EPK-260329-019-002
+epic: EPK-260329-019
+seq: 2
+zone: agents
+risk: MEDIUM
+executor: qwen
+goal: Устранить TypeScript-ошибки в intake-agent.ts (импорты и типы)
+scope:
+- src/agents/intake-agent.ts
+notouch:
+- src/agents/IntakeAgent.ts
+- src/runtime/vm.ts
+done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+steps:
+- Проверить экспорты из ./IntakeAgent
+- Исправить пути импортов и типы
+- Запустить tsc --noEmit для проверки
+deps:
+- ATM-EPK-260329-019-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

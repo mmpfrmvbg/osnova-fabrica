@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-019-016
+epic: EPK-260329-019
+seq: 16
+zone: close-blockers-2
+risk: MEDIUM
+executor: qwen
+goal: Закрыть blocker-issues
+scope:
+- .github/issues/
+notouch:
+- src/**
+done: forge close-blockers --issues 76,77,78,79,80,81,82 --dry-run
+steps:
+- Выполнить forge close-blockers --issues 76,77,78,79,80,81,82
+- Зафиксировать результат
+deps:
+- ATM-EPK-260329-019-014
+- ATM-EPK-260329-019-015
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-019-001
+epic: EPK-260329-019
+seq: 1
+zone: agents
+risk: LOW
+executor: qwen
+goal: Диагностика TypeScript-ошибок в src/agents/ и src/pipeline/
+scope:
+- src/agents/intake-agent.ts
+notouch: []
+done: npx tsc --noEmit > diagnostics.log 2>&1
+steps:
+- Запустить tsc --noEmit для src/agents/ и src/pipeline/
+- Сохранить вывод в лог-файл diagnostics.log
+- Классифицировать ошибки по файлам (intake, plan, exec, review, pipeline)
+deps: []
+maxiter: 3
+retries: 0
+status: DONE
+priority: P0

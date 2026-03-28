@@ -1,0 +1,24 @@
+id: ATM-EPK-260329-019-004
+epic: EPK-260329-019
+seq: 4
+zone: agents
+risk: MEDIUM
+executor: qwen
+goal: Устранить TypeScript-ошибки в exec-agent.ts (ExecContext и PhaseRunner)
+scope:
+- src/agents/exec-agent.ts
+notouch:
+- src/agents/plan-agent.ts
+- src/runtime/vm.ts
+done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+steps:
+- Проверить типы ExecContext, PhaseRunResult
+- Исправить импорты из plan-agent и vm
+- Запустить tsc --noEmit для проверки
+deps:
+- ATM-EPK-260329-019-002
+- ATM-EPK-260329-019-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

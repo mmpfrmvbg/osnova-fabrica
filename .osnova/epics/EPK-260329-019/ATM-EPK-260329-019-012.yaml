@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-019-012
+epic: EPK-260329-019
+seq: 12
+zone: agents
+risk: HIGH
+executor: qwen
+goal: Интеграционный E2E прогон agents/ и pipeline/
+scope:
+- src/agents/agents.test.ts
+notouch: []
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+steps:
+- Запустить vitest run для src/agents/ и src/pipeline/
+- Проверить отсутствие TypeScript-ошибок
+- Зафиксировать результат в логе
+deps:
+- ATM-EPK-260329-019-010
+- ATM-EPK-260329-019-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

@@ -1,21 +1,20 @@
-id: ATM-EPK-260328-018-010
-epic: EPK-260328-018
-seq: 10
-zone: pipeline
-risk: MEDIUM
+id: ATM-EPK-260329-019-001
+epic: EPK-260329-019
+seq: 1
+zone: agents
+risk: LOW
 executor: cursor
-goal: Восстановить pipeline.test.ts — обновить тесты под новую реализацию
+goal: Диагностика TypeScript-ошибок в src/agents/ и src/pipeline/
 scope:
-- src/pipeline/pipeline.test.ts
+- src/agents/intake-agent.ts
 notouch: []
-done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+done: npx tsc --noEmit > diagnostics.log 2>&1
 steps:
-- Исправить моки агентов
-- Обновить assertions под новые типы
-- Устранить TypeScript-ошибки в тестах
-deps:
-- ATM-EPK-260328-018-009
+- Запустить tsc --noEmit для src/agents/ и src/pipeline/
+- Сохранить вывод в лог-файл diagnostics.log
+- Классифицировать ошибки по файлам (intake, plan, exec, review, pipeline)
+deps: []
 maxiter: 3
 retries: 0
-status: PENDING
+status: DONE
 priority: P0
