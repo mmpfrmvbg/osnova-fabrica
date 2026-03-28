@@ -230,3 +230,30 @@ describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)
     expect(JSON.stringify(recomputed.module)).toBe(JSON.stringify(result.buildReport!.bytecode));
   }, 20000);
 });
+
+describe('Pipeline.run (оркестратор) + ReviewAgent — тот же стек, что ExecAgent-фасад', () => {
+  it('intake → … → build → golden через orchestrator; контекст проходит ReviewAgent', async () => {
+    const result = await new Pipeline().run('посчитай сумму от 1 до 10');
+    expect(result.status).toBe('success');
+    expect(result.buildReport?.bytecode).toBeTruthy();
+    await assertVmReturnValueIsSum1To10(result.buildReport!.bytecode!, result.spec!);
+
+    const plan = new PlanAgent().buildPlan(result.intent!, result.spec!, {
+      fromScratch: false,
+      includeRepair: false,
+    });
+    const report = new ReviewAgent().review(
+      result.spec!,
+      {
+        repairAttempts: result.repairAttempts ?? 0,
+        intent: result.intent,
+        spec: result.spec,
+        source: result.source,
+        buildReport: result.buildReport,
+        goldenReport: result.goldenReport,
+      },
+      plan,
+    );
+    expect(report.ok, report.summaryText).toBe(true);
+  }, 20000);
+});

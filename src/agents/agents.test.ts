@@ -3,6 +3,9 @@
  * Integration scenarios: full-cycle simulation (validate → plan → execute → review) and error propagation in the chain.
  */
 import { describe, it, expect } from 'vitest';
+import { compileSource } from '../compiler/compiler';
+import { compileToBuildReport } from '../pipeline/orchestrator';
+import { runGoldenCheck } from '../runtime/goldenApps';
 import { IntakeAgent, SpecValidationError, parseLlmConfidence } from './IntakeAgent';
 import { PlanAgent, PlanValidationError, isValidPhaseTransition } from './plan-agent';
 import { ExecAgent, type ExecContext } from './exec-agent';
@@ -915,4 +918,50 @@ describe('Интеграция — полный цикл и цепочка аг�
       ),
     ).toThrow(SpecValidationError);
   });
+});
+
+/** Тот же исходник, что в pipeline E2E (сумма 1…10); связка compiler → VM → ReviewAgent без моков. */
+const INTEGRATION_SUM_SOURCE = `
+модуль Главный
+процедура главная()
+  пусть сумма = 0
+  пусть счётчик = 1
+  пока счётчик <= 10
+    сумма = сумма + счётчик
+    счётчик = счётчик + 1
+  конец
+  система.лог.вывести(сумма)
+  вернуть сумма
+конец
+`.trim();
+
+describe('Интеграция — compiler → runtime → ReviewAgent (реальный тулчейн)', () => {
+  it('compileToBuildReport + runGoldenCheck формируют ExecContext, который validate принимает', async () => {
+    const spec = sampleSpec({
+      mainModule: 'главная',
+      procedures: [{ name: 'главная', params: {}, returnType: 'Ничто' }],
+    });
+    new IntakeAgent().checkSpec(spec);
+
+    const buildReport = compileToBuildReport(compileSource(INTEGRATION_SUM_SOURCE));
+    expect(buildReport.success).toBe(true);
+    expect(buildReport.bytecode).toBeTruthy();
+
+    const goldenReport = await runGoldenCheck(buildReport.bytecode, {
+      ...spec,
+      expectedReturnValue: 55,
+    });
+    expect(goldenReport.executed).toBe(true);
+    expect(goldenReport.passed).toBe(true);
+    expect(goldenReport.vmErrors).toEqual([]);
+
+    const review = new ReviewAgent().validate(spec, {
+      repairAttempts: 0,
+      spec,
+      source: { filename: 'главная.osnova', source: INTEGRATION_SUM_SOURCE },
+      buildReport,
+      goldenReport,
+    });
+    expect(review.ok).toBe(true);
+  }, 20000);
 });
