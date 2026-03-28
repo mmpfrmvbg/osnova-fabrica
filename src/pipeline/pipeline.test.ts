@@ -16,17 +16,19 @@
  * `applyPipelineSpecToVm`; E2E здесь проверяет итог выполнения и отчёт, а не чтение globals
  * из байткода.
  *
- * --- Пробелы покрытия (для последующих атомов) ---
- * - Нет сценария с `expectVM` / `expectedReturnValue` в spec и проверкой согласованности.
- * - Нет ветки с ненулевыми `vmErrors` или `executed: false` на уровне этого фасада.
- * - Нет вызовов кода, использующего `система.пайплайн.*` в сгенерированном .osnova (мок всегда
- *   одна и та же простая сумма).
+ * --- VM: фактический результат ---
+ * Spec из мока Intake не содержит `expectedReturnValue`, поэтому фаза golden в пайплайне
+ * не проверяет совпадение возврата процедуры. Здесь дополнительно вызывается
+ * {@link runGoldenCheck} с `expectedReturnValue: 55` (сумма 1…10), иначе тест был бы
+ * ложноположительным при частичном qualityScore (например 6/7 > 0.7 при неверном return).
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { runPipelineWithExecAgent } from './pipeline';
 import { ReviewAgent } from '../agents/review-agent';
 import type { ExecContext } from '../agents/exec-agent';
+import type { OsnovaSpec } from './types';
+import { runGoldenCheck } from '../runtime/goldenApps';
 
 const createMockProvider = () => ({
   id: 'mock',
@@ -128,6 +130,19 @@ vi.mock('../llm/index', () => ({
   PROVIDER_DEFAULT_MODEL: {},
 }));
 
+/** Сумма 1…10; без этой проверки golden мог пройти при неверном значении на стеке (см. runGoldenCheck). */
+async function assertVmReturnValueIsSum1To10(bytecode: unknown, spec: OsnovaSpec): Promise<void> {
+  const report = await runGoldenCheck(bytecode, {
+    ...spec,
+    expectedReturnValue: 55,
+  });
+  expect(report.executed, 'процедура входа должна выполниться').toBe(true);
+  expect(report.vmErrors, 'ошибки VM должны попадать в отчёт, а не глотаться').toEqual([]);
+  expect(report.passed, 'все проверки golden включая vmReturnMatches').toBe(true);
+  expect(report.qualityScore, 'полный набор проверок без пропусков').toBe(1);
+  expect(report.outputDiff, 'при несовпадении return был бы JSON с vmReturnDiff').toBeNull();
+}
+
 describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)', () => {
   it('полный проход: intent → spec → Plan/Exec → codegen → build → golden, passrate > 0.8', async () => {
     const result = await runPipelineWithExecAgent('посчитай сумму от 1 до 10');
@@ -143,6 +158,8 @@ describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)
     expect(result.goldenReport?.passed).toBe(true);
     expect(result.goldenReport?.vmErrors).toEqual([]);
     expect(result.repairAttempts).toBe(0);
+
+    await assertVmReturnValueIsSum1To10(result.buildReport!.bytecode!, result.spec!);
   }, 20000);
 
   it('ReviewAgent принимает контекст после успешного Exec-пайплайна', async () => {
@@ -150,6 +167,7 @@ describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)
     expect(result.spec).toBeDefined();
     expect(result.buildReport).toBeDefined();
     expect(result.goldenReport).toBeDefined();
+    await assertVmReturnValueIsSum1To10(result.buildReport!.bytecode!, result.spec!);
 
     const ctx: ExecContext = {
       repairAttempts: 0,

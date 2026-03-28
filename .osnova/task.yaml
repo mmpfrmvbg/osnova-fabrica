@@ -1,12 +1,12 @@
-id: ATM-EPK-260328-FBK016-005
+id: ATM-EPK-260328-FBK016-008
 epic: EPK-260328-FBK016
-seq: 5
+seq: 8
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Документировать PIPELINE_VM_GLOBAL_KEYS константу в src/runtime/vm.ts
+goal: Исправить тесты в src/pipeline/pipeline.test.ts для корректного exit code
 scope:
-- src/runtime/vm.ts
+- src/pipeline/pipeline.test.ts
 notouch:
 - forge/
 - .github/
@@ -14,11 +14,11 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Найти объявление PIPELINE_VM_GLOBAL_KEYS
-- Добавить JSDoc с описанием каждого ключа
-- Указать назначение для пайплайна агентов
+- Выявить тесты с ложноположительным статусом
+- Добавить проверки на фактический результат VM
+- Устранить swallow ошибок
 deps:
-- ATM-EPK-260328-FBK016-001
+- ATM-EPK-260328-FBK016-002
 maxiter: 3
 retries: 0
 status: PENDING
