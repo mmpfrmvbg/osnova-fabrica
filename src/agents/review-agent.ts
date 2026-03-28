@@ -221,7 +221,7 @@ export class ReviewAgent implements BaseAgent {
    */
   validate(spec: OsnovaSpec, ctx: ExecContext, plan?: ExecutionPlan): ReviewReport;
   validate(input: { spec: OsnovaSpec; ctx: ExecContext; plan?: ExecutionPlan }): ReviewReport;
-  validate(input: unknown, ctx?: ExecContext, plan?: ExecutionPlan): void | ReviewReport {
+  validate(input: unknown, ctx?: ExecContext, plan?: ExecutionPlan): ReviewReport {
     if (arguments.length >= 2) {
       if (ctx === undefined) {
         throw new Error(
