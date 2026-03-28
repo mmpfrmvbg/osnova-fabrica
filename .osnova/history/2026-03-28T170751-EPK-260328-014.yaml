@@ -1,0 +1,288 @@
+epic: EPK-260328-014
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 12
+  atomstotal: 12
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-001
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 85
+  err: null
+  review:
+    passed: true
+    reason: '**PASS:** Задача выполнена.
+
+
+      Результаты проверки:
+
+      - ✅ Файл `src/runtime/frame.ts` создан
+
+      - ✅ Интерфейс `CallFrame` определён с полями: `ip`, `fp`, `locals`, `stack`
+
+      - ✅ Класс `Frame` реализован с методами `pushLocal`/`popLocal`
+
+      - ✅ Тип `FrameValue` экспортируется для использования в `interpreter.ts`
+
+      - ✅ Все 69 тестов в `src/runtime/` проходят (100% passrate)'
+    elapsed: 18
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-002
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 259
+  err: null
+  review:
+    passed: true
+    reason: "**PASS:** Задача выполнена успешно.\n\n**Результаты:**\n- Все 71 тестов\
+      \ пройдено (3 файла тестов)\n- Реализованы стековые инструкции:\n  - `OpCode.PUSH`\
+      \ — добавление константы в стек (через `const`)\n  - `OpCode.POP` — удаление\
+      \ верхнего элемента из стека (добавлен в `bytecode.ts` и реализован в `interpreter.ts`)\n\
+      \  - `OpCode.DUP` — дублирование верхнего элемента (уже существовал, подтверждён\
+      \ тестами)\n- Класс `VM` содержит поле `executionStack` для хранения состояния\n\
+      - Добавлена проверка на underflow стека при операции `pop`"
+    elapsed: 36
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-003
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 86
+  err: null
+  review:
+    passed: true
+    reason: '---
+
+
+      **PASS:** Задача выполнена успешно.
+
+
+      Все арифметические инструкции (ADD, SUB, MUL, DIV) реализованы:
+
+      - OpCode добавлены в `interpreter.ts` (строки 25-32)
+
+      - Обработка реализована в `vm/interpreter.ts` (метод `step`)
+
+      - DIV включает проверку деления на ноль с выбросом `InterpreterError`
+
+      - Все 72 теста проходят, включая новые тесты на арифметику'
+    elapsed: 48
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-004
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 112
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Все тесты (73) прошли успешно. Реализованы инструкции сравнения
+      (EQ, LT, GT) и логические операции (AND, OR, NOT) в `src/runtime/interpreter.ts`.'
+    elapsed: 19
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-005
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 68
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно (74 теста).
+
+
+      **PASS:** Инструкции управления потоком (JUMP, JUMP_IF_FALSE, CALL, RETURN)
+      реализованы корректно.'
+    elapsed: 18
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-006
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 271
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно.
+
+
+      **PASS:** Реализация обработки исключений (THROW, TRY_CATCH, FINALLY) завершена
+      корректно:
+
+
+      1. Добавлены опкоды `THROW`, `TRY_CATCH`, `FINALLY` в enum `OpCode`
+
+      2. Реализован массив `exceptionHandlerStack` для отслеживания активных обработчиков
+
+      3. Реализована логика выброса исключений с переходом на catch-блок
+
+      4. Реализован механизм unwinding стека при исключении
+
+      5. Все 77 тестов прошли, включая 3 новых теста на обработку исключений'
+    elapsed: 22
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-007
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 157
+  err: null
+  review:
+    passed: true
+    reason: '**PASS:** Задача выполнена успешно.
+
+
+      **Результаты:**
+
+      - Все 77 тестов пройдены ✓
+
+      - Класс `OsVbcVM` реализован с методами `execute()` и `getReturnValue()`
+
+      - Инициализация глобального контекста работает через конструктор
+
+      - Обработка внешних вызовов через `invoke` (с системным обработчиком по умолчанию)
+
+      - Разрешение точки входа: `главная` → `main` → индекс 0'
+    elapsed: 19
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-008
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 98
+  err: null
+  review:
+    passed: true
+    reason: '**PASS:** Все 9 тестов пройдены успешно.
+
+
+      Тесты покрывают:
+
+      - **PUSH / POP / DUP** — стековые операции, включая ошибку при POP с пустого
+      стека
+
+      - **ADD / SUB / MUL / DIV** — арифметика с проверкой деления на ноль
+
+      - **EQ / LT / GT** — сравнения для чисел
+
+      - **AND / OR / NOT** — логические операции с булевыми константами'
+    elapsed: 21
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-009
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 143
+  err: null
+  review:
+    passed: true
+    reason: '**PASS:** Все 15 тестов прошли успешно.
+
+
+      Тесты покрывают:
+
+      - `JUMP` / `JUMP_IF_FALSE` — безусловные и условные переходы
+
+      - `CALL` / `RETURN` — передача аргументов, работа с фреймами
+
+      - `THROW` / `TRY_CATCH` — обработка исключений, вложенные вызовы
+
+      - Вложенные вызовы функций с цепочкой фреймов'
+    elapsed: 22
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-010
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 125
+  err: null
+  review:
+    passed: true
+    reason: "---\n\n**PASS:** Интеграционные тесты VM с полным циклом выполнения успешно\
+      \ написаны и проходят.\n\n**Результаты:**\n- Все 5 тестов прошли (`5 passed`)\n\
+      - Покрытые сценарии:\n  1. Выполнение простого модуля с возвратом значения\n\
+      \  2. Последовательный вызов нескольких процедур с комбинированием результата\n\
+      \  3. Необработанное исключение на уровне VM → `InterpreterError`\n  4. Обработка\
+      \ `throw` внутри `try_begin` / `catch`\n  5. Native `invoke` с пользовательским\
+      \ callback\n\n**Замечания:**\n- Тесты соответствуют goal задачи\n- Scope соблюдён:\
+      \ `src/runtime/vm.test.ts`\n- Команда `done` выполнена успешно"
+    elapsed: 23
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-011
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 98
+  err: null
+  review:
+    passed: true
+    reason: 'Все тесты прошли успешно (89 passed). Изменения в компиляторе минимальны:
+
+
+      1. **Импорт VM** изменён с `../runtime/vm/interpreter` на `./vm` (локальный
+      re-export из `src/compiler/vm.ts`)
+
+      2. **Добавлен `await`** к вызову `vm.runProcedure()` — метод теперь асинхронный
+
+
+      **PASS:** Компилятор обновлён корректно. Все интеграционные тесты VM (89 тестов
+      в 4 файлах) проходят успешно, байткод совместим с runtime VM.'
+    elapsed: 41
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-012
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 80
+  err: null
+  review:
+    passed: true
+    reason: "**PASS:** Тесты компилятора успешно обновлены для интеграции с runtime\
+      \ pipeline.\n\nРезультаты:\n- **Runtime tests (`src/runtime/`):** 89/89 (100%)\
+      \ — порог > 0.8 выполнен\n- **Compiler tests (`src/compiler/compiler.test.ts`):**\
+      \ 98/98 (100%)\n- Новые интеграционные тесты `Compiler ↔ runtime pipeline` работают:\n\
+      \  - `compileToBuildReport` корректно преобразует `CompileResult → BuildReport`\n\
+      \  - VM выполняет скомпилированный байткод с ожидаемыми результатами\n  - Ошибки\
+      \ компиляции корректно отмечаются в `buildReport.success === false`"
+    elapsed: 28
+createdat: '2026-03-28T17:07:51.777299+03:00'
