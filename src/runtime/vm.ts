@@ -29,19 +29,29 @@ export interface OsVbcExecuteOptions {
 }
 
 /**
- * Контракт ключей в {@link OsVbcVM.globals} для снимка {@link OsnovaSpec}, доступного байткоду и syscall `система.пайплайн.*`.
+ * Строковые имена полей в {@link OsVbcVM.globals}, под которые кладётся снимок {@link OsnovaSpec} для байткода
+ * и нативных вызовов `система.пайплайн.*`.
  *
  * Заполнение: {@link buildPipelineVmGlobals} / {@link applyPipelineSpecToVm}. Чтение: {@link createPipelineInvokeHandlerForVm}
  * и прямой доступ к `globals` из скомпилированного кода.
  *
- * Связь с пайплайном: обычно `OsnovaSpec` берут из `ExecContext.spec` (агент выполнения, `src/agents/exec-agent.ts`) и передают в `applyPipelineSpecToVm`.
+ * @remarks
+ * **Пайплайн агентов:** перед запуском VM оркестратор/исполнитель шага подаёт в VM тот же {@link OsnovaSpec}, что лежит
+ * в `ExecContext.spec` ({@link import("../agents/exec-agent").ExecContext}), через {@link applyPipelineSpecToVm}.
+ * Тогда байткод и тесты могут согласованно читать идентификатор спецификации, точку входа (главный модуль) и эталон возврата
+ * для golden-проверок и отчётов — без дублирования структуры спецификации в коде VM.
+ *
+ * @property SPEC_ID — {@link OsnovaSpec.specId}; соответствует syscall `система.пайплайн.ид_спецификации`.
+ * @property MAIN_MODULE — {@link OsnovaSpec.mainModule}; соответствует syscall `система.пайплайн.главный_модуль`.
+ * @property EXPECT_RETURN — ожидаемое значение `ret`: сначала {@link OsnovaSpec.expectedReturnValue}, иначе
+ *   `expectVM.returnValue` из {@link OsnovaSpec.expectVM}, иначе `null`; syscall `система.пайплайн.ожидаемый_возврат`.
  */
 export const PIPELINE_VM_GLOBAL_KEYS = {
-  /** {@link OsnovaSpec.specId} → `система.пайплайн.ид_спецификации`. */
+  /** Значение {@link OsnovaSpec.specId} → `система.пайплайн.ид_спецификации`. */
   SPEC_ID: "__osnova_pipeline_spec_id",
-  /** {@link OsnovaSpec.mainModule} → `система.пайплайн.главный_модуль`. */
+  /** Значение {@link OsnovaSpec.mainModule} → `система.пайплайн.главный_модуль`. */
   MAIN_MODULE: "__osnova_pipeline_main_module",
-  /** Ожидаемое значение возврата: `expectedReturnValue` либо `expectVM.returnValue` → `система.пайплайн.ожидаемый_возврат`. */
+  /** Ожидаемый возврат: `expectedReturnValue` или `expectVM.returnValue` → `система.пайплайн.ожидаемый_возврат`. */
   EXPECT_RETURN: "__osnova_pipeline_expect_return",
 } as const;
 

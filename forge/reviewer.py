@@ -285,6 +285,7 @@ def review(
     diff = _git_diff(project)
     llm_pass, llm_reason, need_done_fallback = _qwen_review(atom, diff)
     done_cmd = str(atom.get("done", "")).strip()
+    done_cmd = done_cmd.replace(" && ", " ; ") if sys.platform == "win32" else done_cmd
     if not done_cmd:
         elapsed = int(time.time() - start)
         return llm_pass, llm_reason, elapsed
