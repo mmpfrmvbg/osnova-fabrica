@@ -25,7 +25,7 @@
  *
  * ### Индекс контракта (обзор поверхности)
  *
- * **Класс:** {@link OsVbcVM}. **Типы:** {@link OsVbcVMOptions}, {@link OsVbcExecuteOptions}, {@link VmExecutionLogEvent},
+ * **Класс:** {@link OsVbcVM}. **Интерфейс:** {@link VM}. **Типы:** {@link OsVbcVMOptions}, {@link OsVbcExecuteOptions}, {@link VmExecutionLogEvent},
  * {@link VmExecutionLogPhase}, {@link PipelineVmExecuteResult}. **Константы/утилиты:** {@link VM_ERROR_CONCURRENT_EXECUTE},
  * {@link PIPELINE_VM_GLOBAL_KEYS}, {@link formatVmRuntimeError}, {@link vmExecuteTimeoutMessage}. **Пайплайн из spec:**
  * {@link defaultPipelineProcedureFromSpec}, {@link mergePipelineVmExecuteOptions}, {@link safeExecutePipelineVm},
@@ -360,24 +360,38 @@ export function createGoldenCheckVm(
 }
 
 /**
- * Высокоуровневая VM для одного скомпилированного модуля ({@link OsVbcModule}): обёртка над {@link Interpreter}
- * с явной точкой входа {@link OsVbcVM.execute} и сохранённым результатом {@link OsVbcVM.getReturnValue}.
+ * Публичный контракт VM байткода: одна процедура модуля за раз, результат последнего прогона, хост-окружение.
  *
- * **Связь с ExecContext:** в агентах и пайплайне тот же снимок спецификации, что в `ExecContext.spec`
- * ({@link import("../agents/exec-agent").ExecContext}), передаётся в {@link applyPipelineSpecToVm} до запуска,
- * чтобы заполнить {@link OsVbcVM.globals} и syscall `система.пайплайн.*` (см. {@link PIPELINE_VM_GLOBAL_KEYS}).
+ * Реализация — {@link OsVbcVM}. Отдельных методов с именами `evaluate` и `bind` нет:
+ * - **execute** — {@link VM.execute}
+ * - **evaluate** — после {@link VM.execute} итог процедуры читают через {@link VM.getReturnValue}
+ * - **bind** — привязка окружения: {@link VM.globals} и опции конструктора {@link OsVbcVMOptions}
+ *   (`invoke`, лимиты из {@link InterpreterOptions}); в пайплайне спецификация подмешивается через {@link applyPipelineSpecToVm}
  *
- * **execute:** запуск процедуры модуля (см. {@link OsVbcVM.execute}).
+ * **Связь с ExecContext:** тот же {@link OsnovaSpec}, что в {@link import("../agents/exec-agent").ExecContext.spec},
+ * до {@link VM.execute} попадает в VM через {@link applyPipelineSpecToVm}, заполняя {@link OsVbcVM.globals}
+ * по {@link PIPELINE_VM_GLOBAL_KEYS} и syscall `система.пайплайн.*`.
  *
- * **«evaluate»:** отдельного метода нет — выполнение байткода — это {@link OsVbcVM.execute}; итог процедуры
- * читают через {@link OsVbcVM.getReturnValue}.
- *
- * **«bind»:** привязка окружения — поле {@link OsVbcVM.globals} и опции {@link OsVbcVMOptions} (в т.ч. наследуемый
- * из {@link InterpreterOptions} обработчик `invoke`); для пайплайна дополнительно {@link applyPipelineSpecToVm}.
- *
- * Внешние вызовы из байткода — через `invoke` (по умолчанию {@link createDefaultInvokeHandler}).
+ * @see {@link import("../agents/exec-agent").ExecContext}
  */
-export class OsVbcVM {
+export interface VM {
+  /** Глобальный контекст хоста; «bind» для байткода вместе с опциями {@link OsVbcVMOptions} при создании {@link OsVbcVM}. */
+  readonly globals: Record<string, StackValue>;
+
+  /** Запуск процедуры модуля; см. {@link OsVbcVM.execute}. */
+  execute(opts?: OsVbcExecuteOptions): Promise<StackValue | undefined>;
+
+  /** Результат последнего успешного execute (роль «evaluate» для возвращаемого значения); см. {@link OsVbcVM.getReturnValue}. */
+  getReturnValue(): StackValue | undefined;
+}
+
+/**
+ * Высокоуровневая VM для одного скомпилированного модуля ({@link OsVbcModule}): обёртка над {@link Interpreter}.
+ * Реализует {@link VM}. Внешние вызовы из байткода — через `invoke` (по умолчанию {@link createDefaultInvokeHandler}).
+ *
+ * Детали execute / evaluate / bind и связь с {@link import("../agents/exec-agent").ExecContext} — в {@link VM}.
+ */
+export class OsVbcVM implements VM {
   private readonly module: OsVbcModule;
   /** Опции интерпретатора без `globals` / `onExecutionLog`; на каждый {@link OsVbcVM.execute} создаётся новый {@link Interpreter}, чтобы после прерванного прогона (throw) не оставались грязные frames/pc. */
   private readonly interpreterOptions: InterpreterOptions;

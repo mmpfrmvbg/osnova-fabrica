@@ -1,12 +1,12 @@
-id: ATM-EPK-260328-FBK016-003
+id: ATM-EPK-260328-FBK016-004
 epic: EPK-260328-FBK016
-seq: 3
+seq: 4
 zone: lang
-risk: LOW
+risk: MEDIUM
 executor: cursor
-goal: Проверить vitest.config.ts на предмет конфигурации, влияющей на exit code
+goal: Добавить JSDoc для интерфейса/класса VM в src/runtime/vm.ts
 scope:
-- vitest.config.ts
+- src/runtime/vm.ts
 notouch:
 - forge/
 - .github/
@@ -14,13 +14,14 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать конфигурацию vitest
-- Выявить настройки onConsole.log, failOnZeroTests, coverage
-- Определить причины расхождения review/done
-deps: []
+- Документировать основной класс/интерфейс VM
+- Описать методы execute, evaluate, bind
+- Указать связь с ExecContext
+deps:
+- ATM-EPK-260328-FBK016-001
 maxiter: 3
 retries: 0
 status: in_progress
 priority: P2
 max_retries: 3
-review_base_sha: 8b5f8329961f3602866e719f2d3e4a812002ce30
+review_base_sha: ab65ff758efaf3e005d25bd2ca5eb8e8a6047e05
