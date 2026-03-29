@@ -1,22 +1,24 @@
-id: ATM-006
+id: ATM-007
 epic: EPK-260329-021
-seq: 6
-zone: runtime
-risk: MEDIUM
+seq: 7
+zone: agents
+risk: HIGH
 executor: cursor
-goal: Проверить исполнение через публичный API рантайма после barrel.
+goal: Добавить или восстановить src/agents/index.ts для единого импорта агентов и
+  ремонта.
 scope:
-- src/runtime/index.ts — интерпретация и ошибки исполнения
+- src/agents/index.ts — barrel агентов и типов
 notouch:
-- src/compiler/index.ts
-- vitest.config.ts
-done: npx vitest run src/runtime/interpreter.test.ts
+- src/pipeline-llm/index.ts
+- tsconfig.json
+done: npx vitest run src/agents/agents.test.ts
 steps:
-- Убедиться что run/load API доступны из index согласованно с vm.ts.
-- При необходимости тонко поправить только экспорты index.ts.
-- Прогнать тест интерпретатора.
+- Создать index при отсутствии; экспортировать публичные агенты и типы без deep-import
+  шума.
+- Согласовать с pipeline-llm и pipeline types на уровне имён.
+- Минимизировать побочные изменения в файлах агентов.
 deps:
-- ATM-005
+- ATM-001
 maxiter: 3
 retries: 0
 status: PENDING
