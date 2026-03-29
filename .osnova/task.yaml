@@ -1,25 +1,22 @@
-id: ATM-001
+id: ATM-002
 epic: EPK-260329-022
-seq: 1
+seq: 2
 zone: compiler
 risk: LOW
 executor: cursor
-goal: Расширить smoke и E2E в compiler.test — границы VM (maxSteps), стабильный pass
-  после EPK-021.
+goal: Увеличить покрытие codegen.test — граничные op-комбинации и константы.
 scope:
-- src/compiler/compiler.test.ts — E2E Compiler.execute и compileToBuildReport
+- src/compiler/codegen.test.ts — raw bytecode expectations
 notouch:
-- src/compiler/index.ts
-- src/compiler/parser.ts
-- src/compiler/semantic.ts
-done: npx vitest run src/compiler/compiler.test.ts
+- src/compiler/codegen.ts
+- src/compiler/lexer.ts
+done: npx vitest run src/compiler/codegen.test.ts
 steps:
-- Прочитать существующие describe-блоки в compiler.test.ts.
-- Добавить кейсы на исчерпание maxSteps и корректный InterpreterError/стек.
-- Добавить минимальный регресс на compileProgram vs compileSource для одного фикстурного
-  модуля.
-- Запустить узкий vitest на этом файле.
-deps: []
+- Найти пробелы по op/константам в codegen.test.ts.
+- Добавить 2–4 теста на граничные литералы и короткие процедуры.
+- Убедиться что снапшоты/ожидания совпадают с codegen.ts.
+deps:
+- ATM-001
 maxiter: 3
 retries: 0
 status: PENDING

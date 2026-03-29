@@ -158,6 +158,133 @@ describe("codegen compile()", () => {
     expect(m.code.some((i) => i.op === "try_begin")).toBe(true);
     expect(m.code.some((i) => i.op === "throw")).toBe(true);
   });
+
+  it("граничные литералы: 0, отрицательное целое, f64, пустая строка в constants", () => {
+    const m = compile(
+      moduleAst("L", [
+        {
+          name: "z",
+          params: [],
+          body: [{ kind: "вернуть", value: { kind: "число", value: 0 } }],
+        },
+        {
+          name: "neg",
+          params: [],
+          body: [{ kind: "вернуть", value: { kind: "число", value: -1 } }],
+        },
+        {
+          name: "flt",
+          params: [],
+          body: [{ kind: "вернуть", value: { kind: "число", value: 0.25 } }],
+        },
+        {
+          name: "es",
+          params: [],
+          body: [{ kind: "вернуть", value: { kind: "строка", value: "" } }],
+        },
+      ]),
+    );
+    expect(m.constants).toEqual(expect.arrayContaining([0, -1, 0.25, ""]));
+    expect(m.code.some((i) => i.op === "const" && (i as { type?: string }).type === "f64")).toBe(true);
+  });
+
+  it("бинарные *, %, == в одном выражении", () => {
+    const m = compile(
+      moduleAst("Bin", [
+        {
+          name: "p",
+          params: [],
+          body: [
+            {
+              kind: "вернуть",
+              value: {
+                kind: "бинарное",
+                op: "==",
+                left: {
+                  kind: "бинарное",
+                  op: "*",
+                  left: { kind: "число", value: 2 },
+                  right: { kind: "число", value: 3 },
+                },
+                right: {
+                  kind: "бинарное",
+                  op: "%",
+                  left: { kind: "число", value: 10 },
+                  right: { kind: "число", value: 4 },
+                },
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    expect(m.code.some((i) => i.op === "mul")).toBe(true);
+    expect(m.code.some((i) => i.op === "rem")).toBe(true);
+    expect(m.code.some((i) => i.op === "eq")).toBe(true);
+  });
+
+  it("бинарное и: jmp_if_not и jmp (короткое замыкание)", () => {
+    const m = compile(
+      moduleAst("And", [
+        {
+          name: "p",
+          params: [],
+          body: [
+            {
+              kind: "вернуть",
+              value: {
+                kind: "бинарное",
+                op: "и",
+                left: { kind: "булево", value: false },
+                right: { kind: "булево", value: true },
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    const slice = m.code.slice(m.procedures[0].codeOffset);
+    expect(slice.filter((i) => i.op === "jmp_if_not").length).toBeGreaterThanOrEqual(1);
+    expect(slice.some((i) => i.op === "jmp")).toBe(true);
+  });
+
+  it("короткие процедуры: call, argc параметра и вспомогательная процедура", () => {
+    const m = compile(
+      moduleAst("Call", [
+        {
+          name: "twice",
+          params: ["x"],
+          body: [
+            {
+              kind: "вернуть",
+              value: {
+                kind: "бинарное",
+                op: "+",
+                left: { kind: "переменная", name: "x" },
+                right: { kind: "переменная", name: "x" },
+              },
+            },
+          ],
+        },
+        {
+          name: "main",
+          params: [],
+          body: [
+            {
+              kind: "вернуть",
+              value: { kind: "вызов", name: "twice", args: [{ kind: "число", value: 7 }] },
+            },
+          ],
+        },
+      ]),
+    );
+    const twice = m.procedures.find((p) => p.name === "twice");
+    const main = m.procedures.find((p) => p.name === "main");
+    expect(twice?.argc).toBe(1);
+    expect(main?.argc).toBe(0);
+    const mainSlice = m.code.slice(main!.codeOffset);
+    expect(mainSlice.some((i) => i.op === "call" && (i as { fi?: number }).fi === 0)).toBe(true);
+  });
 });
 
 describe("codegen compileProgram()", () => {
