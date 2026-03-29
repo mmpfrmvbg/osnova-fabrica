@@ -1,7 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PlanAgent } from '../agents/plan-agent';
-import { buildExecutionPlanCore, buildLinearPlanSteps } from './planner';
+import {
+  buildExecutionPlanCore,
+  buildLinearPlanSteps,
+  createDefaultPlannerSignalStoreAdapter,
+  runLifecycleWithStore,
+  updateRfcStatusWithStore,
+  withTimeout,
+} from './planner';
+import type { IntelligenceSignal } from './store';
 
 describe('planner (pure core)', () => {
   const agent = new PlanAgent();
@@ -48,5 +60,109 @@ describe('planner (pure core)', () => {
       { fromScratch: false, includeRepair: false },
     );
     expect(() => agent.validatePlan(inc)).not.toThrow();
+  });
+});
+
+describe('planner IO hooks (ports + timeouts)', () => {
+  it('withTimeout resolves when promise settles first', async () => {
+    await expect(withTimeout(Promise.resolve(42), 5000)).resolves.toBe(42);
+  });
+
+  it('withTimeout rejects after ms', async () => {
+    await expect(
+      withTimeout(new Promise(() => {}), 20, 'stall'),
+    ).rejects.toThrow(/stall: timeout after 20ms/);
+  });
+
+  it('runLifecycleWithStore uses injected store (decay + lifecycle)', async () => {
+    const now = new Date().toISOString();
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    let written: IntelligenceSignal[] = [];
+    const store = {
+      readSignals: vi.fn().mockResolvedValue([
+        {
+          id: 'a',
+          source: 't',
+          title: 't',
+          url: 'u',
+          raw_date: now,
+          fetched_at: old,
+          status: 'watching' as const,
+          tags: [],
+        },
+        {
+          id: 'b',
+          source: 't',
+          title: 't2',
+          url: 'u2',
+          raw_date: now,
+          fetched_at: now,
+          status: 'new' as const,
+          tags: [],
+        },
+      ]),
+      writeSignals: vi.fn(async (s: IntelligenceSignal[]) => {
+        written = [...s];
+      }),
+      upsertSignal: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { transitions, decayed } = await runLifecycleWithStore(store);
+    expect(decayed).toBe(1);
+    expect(transitions.some((t) => t.id === 'b' && t.to === 'watching')).toBe(true);
+    const archived = written.find((s) => s.id === 'a');
+    expect(archived?.status).toBe('archived');
+  });
+
+  it('updateRfcStatusWithStore upserts via port', async () => {
+    const sig: IntelligenceSignal = {
+      id: 'x',
+      source: 't',
+      title: 't',
+      url: 'u',
+      raw_date: 'r',
+      fetched_at: 'f',
+      status: 'new',
+      tags: [],
+    };
+    const upsertSignal = vi.fn().mockResolvedValue(undefined);
+    const store = {
+      readSignals: vi.fn().mockResolvedValue([sig]),
+      writeSignals: vi.fn().mockResolvedValue(undefined),
+      upsertSignal,
+    };
+    await updateRfcStatusWithStore(store, 'x', 'watching');
+    expect(upsertSignal).toHaveBeenCalledWith({ ...sig, status: 'watching' }, undefined);
+  });
+
+  let tmpDir: string | undefined;
+  afterEach(() => {
+    if (tmpDir) {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+      tmpDir = undefined;
+    }
+  });
+
+  it('createDefaultPlannerSignalStoreAdapter read/write roundtrip', async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'planner-store-'));
+    const file = join(tmpDir, 'signals.jsonl');
+    const adapter = createDefaultPlannerSignalStoreAdapter({ timeoutMs: 5000 });
+    const row: IntelligenceSignal = {
+      id: '1',
+      source: 's',
+      title: 'title',
+      url: 'https://x',
+      raw_date: 'd',
+      fetched_at: 'f',
+      status: 'new',
+      tags: ['t'],
+    };
+    await adapter.writeSignals([row], file);
+    const readBack = await adapter.readSignals(file);
+    expect(readBack).toEqual([row]);
   });
 });

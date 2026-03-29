@@ -1,20 +1,20 @@
-id: ATM-005
+id: ATM-006
 epic: EPK-260329-026
-seq: 5
+seq: 6
 zone: intelligence
 risk: MED
 executor: cursor
-goal: Define planner core types and pure plan construction in planner.ts.
-scope: src/intelligence/planner.ts — types + pure core
+goal: Add planner side-effect hooks (store/read, lifecycle) behind narrow interfaces.
+scope: src/intelligence/planner.ts — IO adapters
 notouch:
-- src/vliw/index.ts
-- scripts/blocker-sync.ts
+- src/vliw/scheduler.ts
+- .tmp/blocker-sync.log
 done: npx vitest run src/intelligence/planner.test.ts
 steps:
-- Introduce Plan/Step types aligned with pipeline vocabulary in repo.
-- No side effects; unit-testable pure builders only in this slice.
+- Inject dependencies for store/summarizer boundaries used elsewhere under src/intelligence/.
+- Guard all filesystem/network behind async functions with timeouts where applicable.
 deps:
-- ATM-004
+- ATM-005
 maxiter: 3
 retries: 0
 status: PENDING
