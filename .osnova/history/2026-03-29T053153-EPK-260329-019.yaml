@@ -1,0 +1,303 @@
+epic: EPK-260329-019
+summary:
+  status: PARTIAL
+  passrate: 0.5
+  atomsdone: 4
+  atomstotal: 8
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-001
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: "Проанализирую изменения в diff для оценки результата ATM.\n\n**Наблюдения:**\n\
+      \n1. **ATM-EPK-260329-019-001** (текущий атом):\n   - Goal изменён на: «Стабилизировать\
+      \ корневые опции компиляции/резолва (блокеры 015/FBK016): tsconfig без регрессий»\n\
+      \   - Scope: `tsconfig.json — только compilerOptions/paths/include/exclude под\
+      \ self-fix`\n   - Done command: `npx vitest run tsconfig.test.ts`\n   - **НО**:\
+      \ В diff нет изменений в `tsconfig.json` вообще\n\n2. **Фактические изменения\
+      \ в diff**:\n   - `vitest.config.ts` — добавлено `globals: true`\n   - `.osnova/epics/**/*.yaml`\
+      \ — переопределены цели/скоупы для атомов 001-015\n   - `forge/atomizer.py`\
+      \ — исправлена логика депов\n   - `.osnova/state.yaml` — обновлён timestamp\
+      \ и бюджет\n\n3. **Проблема**:\n   - Команда `done` указывает на `tsconfig.test.ts`,\
+      \ но такого файла нет в изменениях\n   - Сам `tsconfig.json` не тронут, хотя\
+      \ это основной scope атома 001\n   - Изменения в `vitest.config.ts` относятся\
+      \ к атому 003 (по плану)\n\n4. **Положительное**:\n   - `vitest.config.ts` добавлено\
+      \ `globals: true` — может помочь с тестами\n   - Перепланирование атомов выглядит\
+      \ согласованным\n\n**Вердикт**: Атом 001 не выполнен — scope (`tsconfig.json`)\
+      \ не затронут, тест `tsconfig.test.ts` не показан. Изменения относятся к другим\
+      \ атомам (003, forge).\n\nFAIL: Scope атома 001 (tsconfig.json) не изменён,\
+      \ тест tsconfig.test.ts не представлен в diff; FAIL on diff review (done not\
+      \ re-run)"
+    elapsed: 13
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-002
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 206
+  err: null
+  review:
+    passed: true
+    reason: 'Анализирую изменения в диффе:
+
+
+      **Основные изменения:**
+
+      1. **package.json**: скрипт `ci` изменён на более полный пайплайн с проверкой
+      типов, тестами, линтером и другими шагами
+
+      2. **package.test.ts**: добавлен тест на проверку порядка шагов в `npm run ci`
+
+      3. **vitest.config.ts**: `retry` изменён с 2 на 0
+
+      4. **forge/reviewer.py**: добавлена поддержка JSON-вердиктов для ревьюера
+
+      5. **docs/osnova/language-schema.json** и **src/compiler/language-registry.ts**:
+      описания syscall приведены в соответствие со статусом `stable`
+
+
+      **Проверка соответствия цели:**
+
+      - ✅ Скрипт `ci` выровнен с CI-пайплайном
+
+      - ✅ Добавлен тест на проверку манифеста
+
+      - ✅ Изменения в scope: `package.json — scripts/deps/engines`
+
+      - ✅ `package-lock.json` и `apps/osiris/package.json` не затронуты (в notouch)
+
+
+      **Потенциальные проблемы:**
+
+      - ⚠️ Изменение `retry: 2` → `retry: 0` в vitest.config.ts может сделать тесты
+      более хрупкими (но это в scope — блокирующие tsc/vitest)
+
+
+      Изменения соответствуют цели задачи и не выходят за рамки scope.
+
+
+      PASS: Изменения корректно выравнивают npm-скрипты с CI, тест добавлен, scope
+      соблюдён'
+    elapsed: 17
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-003
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'Проанализирую изменения в диффе.
+
+
+      **Наблюдения:**
+
+
+      1. **vitest.config.ts**: Изменены `pool: ''vmThreads''` и `retry: 0` — это соответствует
+      заявленной цели (исправление конфига Vitest).
+
+
+      2. **package.json**: Скрипт `ci` изменён значительно — добавлены новые шаги
+      (`npm run typecheck`, `npm test`, `npm run lint`, `check-yaml-drift`, `npm run
+      golden`, `npm run coverage`).
+
+
+      3. **forge/reviewer.py**: Добавлена поддержка JSON-вердиктов от ревьюера — это
+      изменение в механизме code review, не связанное напрямую с целью.
+
+
+      4. **language-registry.ts** и **language-schema.json**: Добавлены описания syscall''ов
+      пайплайна — не относится к цели.
+
+
+      5. **package.test.ts**: Добавлен тест на порядок шагов `ci` — косвенно связано,
+      но это скорее валидация CI-скрипта.
+
+
+      **Проблема:**
+
+
+      Заявленная цель: *«Исправить конфиг Vitest (pool/retry/exclude/coverage), чтобы
+      src/-прогон CI был детерминированным»*
+
+
+      Фактические изменения в vitest.config.ts:
+
+      - `retry: 2` → `retry: 0` ✓
+
+      - `pool: ''vmThreads''` — без изменений (уже было)
+
+
+      **Не выполнено:**
+
+      - Нет изменений в `exclude`
+
+      - Нет изменений в `coverage thresholds`
+
+      - Нет изменений в `test.include` или других параметрах, влияющих на детерминизм
+
+
+      Скоуп задачи указан как *«vitest.config.ts — test.pool, exclude, coverage thresholds
+      только в рамках P0»*, но параметры `exclude` и `coverage` не затронуты.
+
+
+      FAIL: Изменения в vitest.config.ts частичные — retry исправлен, но exclude и
+      coverage thresholds не настроены, что заявлено в goal/scope.; FAIL on diff review
+      (done not re-run)'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-004
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 129
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: "Анализирую изменения в файле `src/pipeline/types.ts` и тесты к ним.\n\
+      \n**Что сделано:**\n1. Добавлены type-guards для `DiagnosticCode`:\n   - `is015DiagnosticCode`\
+      \ — проверка кодов серии 015\n   - `isFBK016DiagnosticCode` — проверка кодов\
+      \ серии FBK016\n\n2. Добавлены type-guards для `DiagnosticStatus`:\n   - `isBlockedStatus`\
+      \ — проверка статуса `blocked`\n   - `isResolvedStatus` — проверка статуса `resolved`\n\
+      \   - `isIgnoredStatus` — проверка статуса `ignored`\n\n3. Добавлены алиасы\
+      \ для кодов ошибок:\n   - `DIAGNOSTIC_015_ATOM_NOT_FOUND`, `DIAGNOSTIC_015_ATOM_CORRUPTED`,\
+      \ `DIAGNOSTIC_015_DEP_UNRESOLVED`\n   - `DIAGNOSTIC_FBK016_REJECTED`, `DIAGNOSTIC_FBK016_TIMEOUT`,\
+      \ `DIAGNOSTIC_FBK016_LIMIT_EXCEEDED`\n\n4. Тесты покрывают все новые type-guards\
+      \ и алиасы.\n\n**Проверка:**\n- Дифф показывает добавление 50 строк в `types.ts`\
+      \ и 78 строк тестов\n- Тесты запускаются через `npx vitest run src/pipeline/types.test.ts`\n\
+      - В `.osnova/report.yaml` статус `s: OK`\n- Изменения соответствуют цели: устранение\
+      \ несогласованности типов через явные type-guards и алиасы\n\nPASS: Type-guards\
+      \ и алиасы добавлены, тесты покрывают новые функции, статус OK."
+    elapsed: 15
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-005
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 37
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'Анализирую изменения:
+
+
+      1. **scope**: Изменения в `src/pipeline/types.ts` и `src/pipeline/types.test.ts`
+      — это не `src/pipeline/index.ts` (exports barrel).
+
+      2. **Goal**: Требовалось починить re-export в barrel-файле `index.ts`, но изменения
+      внесены в `types.ts` (добавлены type-guards и алиасы) и тесты.
+
+      3. **Diff не показывает изменений в `src/pipeline/index.ts`** — основной файл
+      scope не затронут.
+
+
+      Изменения полезны (добавлены type-guards и константы), но не соответствуют declared
+      scope работы — должен был быть изменён только exports barrel.
+
+
+      FAIL: Изменения в types.ts вместо index.ts (exports barrel); FAIL on diff review
+      (done not re-run)'
+    elapsed: 15
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-006
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'Тесты прошли успешно. Изменения в `src/pipeline/index.ts` добавляют barrel
+      export для публичного API, а изменения в `src/pipeline/orchestrator.test.ts`
+      исправляют работу с моками через `vi.importMocked` вместо прямого вызова `vi.mocked()`.
+
+
+      PASS: 6 тестов прошли, barrel export добавлен, моки исправлены через vi.importMocked'
+    elapsed: 24
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-007
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 65
+  err: null
+  review:
+    passed: true
+    reason: 'Проанализирую изменения и результат теста оркестратора.
+
+
+      **Что сделано:**
+
+      - Обновлены моки в `orchestrator.test.ts` — заменён `vi.importMocked()` на `import()`
+      + `vi.mocked()` для корректной работы с моками
+
+      - Task обновлён: `ATM-EPK-260329-019-007`, зона `pipeline`, цель — закрытие
+      happy-path оркестратора
+
+      - В `report.yaml`: `s: OK`, `elapsed: 65`, `err: null`
+
+
+      **Проблема:**
+
+      В `report.yaml` указано `tests: passed: 0, total: 0` — тесты не были фактически
+      запущены или результат не записан. Это означает, что команда `npx vitest run
+      src/pipeline/orchestrator.test.ts` либо не выполнялась, либо её вывод не был
+      зафиксирован в отчёте.
+
+
+      FAIL: Тесты не зафиксированы в report.yaml (passed: 0, total: 0) — happy-path
+      не верифицирован'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-008
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: "Анализирую предоставленный diff для проверки gate/health вспомогательных\
+      \ путей.\n\n**Наблюдения:**\n\n1. **task.yaml**: Изменился ID задачи (ATM-EPK-260329-019-002\
+      \ → ATM-EPK-260329-019-007), зона (toolchain → pipeline), goal/scope теперь\
+      \ про orchestrator, а не про npm-скрипты.\n\n2. **orchestrator.test.ts**: Правки\
+      \ касаются импортов моков — замена `vi.importMocked()` на `import()` + `vi.mocked()`.\
+      \ Это технические изменения в тестах orchestrator, не в gate/health scoring.\n\
+      \n3. **Отсутствуют изменения в**:\n   - `src/pipeline/gateChecker.test.ts` (указан\
+      \ в `done command`)\n   - `src/pipeline/types.ts` (указан в `Scope` как основной\
+      \ файл для проверки)\n   - Файлах gate/health логики\n\n4. **Несоответствие\
+      \ цели**: Goal заявлен как \"Проверить gate/health вспомогательные пути после\
+      \ типов пайплайна\", но diff показывает изменения только в orchestrator.test.ts\
+      \ (импорты моков), без изменений в gateChecker или types.ts.\n\nFAIL: Diff не\
+      \ содержит изменений в src/pipeline/types.ts или gateChecker — только технические\
+      \ правки импортов в orchestrator.test.ts; FAIL on diff review (done not re-run)"
+    elapsed: 14
+createdat: '2026-03-29T05:31:53.875419+03:00'
