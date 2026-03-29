@@ -14,8 +14,11 @@ steps:
 - Добавить документацию методов VM для интеграции с agents
 - Обновить комментарии к интерфейсам
 deps:
-- 9
+- ATM-EPK-260328-015-009
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: 453f8e4aac15ff6ef97d977b1251dce27f4386bb
+produced_files: []
