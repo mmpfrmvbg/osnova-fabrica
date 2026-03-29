@@ -1,0 +1,128 @@
+epic: EPK-260329-025
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 8
+  atomstotal: 8
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-025-001
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 174
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-025-002
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 405
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-025-003
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 360
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-025-004
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 134
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 11
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-025-005
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 140
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 11
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-025-006
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 144
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 11
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-025-007
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 182
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 10
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-025-008
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 202
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+createdat: '2026-03-29T13:20:47.605273+03:00'
