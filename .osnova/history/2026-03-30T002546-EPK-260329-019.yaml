@@ -1,0 +1,83 @@
+epic: EPK-260329-019
+summary:
+  status: PARTIAL
+  passrate: 0.25
+  atomsdone: 1
+  atomstotal: 4
+results:
+- v: 5
+  t: RPT
+  id: ATM-003
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 16
+    skip_reason: pre_existing
+    scope_lines_changed: false
+  err: "cherry-pick conflict: error: Your local changes to the following files would\
+    \ be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes or\
+    \ stash them before you merge.\nAborting\nfatal: cherry-pick failed"
+- v: 5
+  t: RPT
+  id: ATM-004
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 6
+    totalLinesAdded: 6
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'PASS: Добавлена настройка resolve.alias для vitest.config.ts, что исправляет
+      конфигурацию для корректного запуска тестов.; done command failed: 1'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-005
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 82
+    totalLinesAdded: 82
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 20
+    scope_lines_changed: true
+    skip_reason: null
+  err: "cherry-pick conflict: error: Your local changes to the following files would\
+    \ be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes or\
+    \ stash them before you merge.\nAborting\nfatal: cherry-pick failed"
+- v: 5
+  t: RPT
+  id: ATM-007
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 196
+    totalLinesAdded: 178
+    totalLinesRemoved: 18
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 30
+    scope_lines_changed: true
+    skip_reason: null
+createdat: '2026-03-30T00:25:46.161736+03:00'
