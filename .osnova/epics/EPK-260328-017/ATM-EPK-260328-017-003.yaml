@@ -17,8 +17,11 @@ steps:
 - восстановить интеграцию с runtime/vm.ts для выполнения шагов
 - добавить тесты на успешное выполнение и обработку ошибок
 deps:
-- ATM-002
+- ATM-EPK-260328-017-002
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: b11c2a0727b6343e77b5ee943b0cb5a7352247cd
+produced_files: []

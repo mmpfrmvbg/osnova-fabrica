@@ -24,6 +24,8 @@ import {
   formatCompileFailureMessage,
   createPipelineVmFromExecContext,
   safeExecutePipelineVm,
+  safeExecutePipelineVmFromExecContext,
+  EXEC_CONTEXT_VM_UNAVAILABLE,
   // Пространства имён
   intake,
   plan,
@@ -116,6 +118,15 @@ describe('src/agents/index.ts — единый экспортный интерф
 
     it('safeExecutePipelineVm — функция', () => {
       expect(typeof safeExecutePipelineVm).toBe('function');
+    });
+
+    it('safeExecutePipelineVmFromExecContext — функция', () => {
+      expect(typeof safeExecutePipelineVmFromExecContext).toBe('function');
+    });
+
+    it('EXEC_CONTEXT_VM_UNAVAILABLE — строка', () => {
+      expect(typeof EXEC_CONTEXT_VM_UNAVAILABLE).toBe('string');
+      expect(EXEC_CONTEXT_VM_UNAVAILABLE.length).toBeGreaterThan(0);
     });
   });
 

@@ -97,14 +97,14 @@ export { compileOsnovaSource } from './plan-agent';
 export { formatCompileFailureMessage } from './plan-agent';
 
 /**
- * Создание VM для выполнения пайплайна из ExecContext
+ * Создание VM для выполнения пайплайна из ExecContext; безопасный прогон VM (в т.ч. из контекста после build)
  */
-export { createPipelineVmFromExecContext } from './exec-agent';
-
-/**
- * Безопасное выполнение VM с обработкой ошибок
- */
-export { safeExecutePipelineVm } from './exec-agent';
+export {
+  createPipelineVmFromExecContext,
+  safeExecutePipelineVm,
+  safeExecutePipelineVmFromExecContext,
+  EXEC_CONTEXT_VM_UNAVAILABLE,
+} from './exec-agent';
 
 // ============================================================================
 // ПРОСТРАНСТВА ИМЁН (grouped exports)

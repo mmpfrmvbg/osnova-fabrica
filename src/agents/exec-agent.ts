@@ -9,6 +9,8 @@ import {
   OsVbcVM,
   createPipelineVmFromSpec,
   safeExecutePipelineVm,
+  type OsVbcExecuteOptions,
+  type PipelineVmExecuteResult,
 } from '../runtime/vm';
 
 /** Состояние пайплайна между шагами (накапливается при выполнении). */
@@ -88,6 +90,25 @@ export function createPipelineVmFromExecContext(ctx: ExecContext): OsVbcVM | nul
     return null;
   }
   return createPipelineVmFromSpec(spec, bytecode);
+}
+
+/** Если {@link createPipelineVmFromExecContext} вернул бы `null` — то же сообщение в {@link safeExecutePipelineVmFromExecContext}. */
+export const EXEC_CONTEXT_VM_UNAVAILABLE =
+  'ExecContext: нет spec или bytecode, либо байткод не является валидным модулем OsVbc';
+
+/**
+ * Собирает VM из накопленного {@link ExecContext} (после build) и выполняет процедуру через
+ * {@link safeExecutePipelineVm} — единая точка интеграции ExecAgent ↔ runtime без throw из VM.
+ */
+export async function safeExecutePipelineVmFromExecContext(
+  ctx: ExecContext,
+  opts?: OsVbcExecuteOptions,
+): Promise<PipelineVmExecuteResult> {
+  const vm = createPipelineVmFromExecContext(ctx);
+  if (!vm) {
+    return { ok: false, error: EXEC_CONTEXT_VM_UNAVAILABLE };
+  }
+  return safeExecutePipelineVm(vm, opts);
 }
 
 export class ExecAgent implements BaseAgent {
@@ -241,5 +262,5 @@ export class ExecAgent implements BaseAgent {
 }
 
 export type { AgentReport, BaseAgent } from '../types/agents';
-export type { PipelineVmExecuteResult } from '../runtime/vm';
+export type { PipelineVmExecuteResult };
 export { safeExecutePipelineVm } from '../runtime/vm';

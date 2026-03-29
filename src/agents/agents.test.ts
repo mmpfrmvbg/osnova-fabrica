@@ -21,11 +21,17 @@ import {
   parseLlmConfidence,
 } from './IntakeAgent';
 import { PlanAgent, PlanValidationError, isValidPhaseTransition, type PipelinePhase } from './plan-agent';
-import { ExecAgent, createPipelineVmFromExecContext, type ExecContext } from './exec-agent';
+import {
+  ExecAgent,
+  createPipelineVmFromExecContext,
+  safeExecutePipelineVmFromExecContext,
+  EXEC_CONTEXT_VM_UNAVAILABLE,
+  type ExecContext,
+} from './exec-agent';
 import { PIPELINE_VM_GLOBAL_KEYS } from '../runtime/vm';
 import { ReviewAgent } from './review-agent';
 import { IntakeValidationError } from './types';
-import type { OsnovaIntent, OsnovaSpec, RawText, ExecutionPlan } from '../pipeline/types';
+import type { OsnovaIntent, OsnovaSpec, RawText } from '../pipeline/types';
 import { SPEC_INTENT_CONFIDENCE_DEFAULT } from '../pipeline/types';
 
 function sampleIntent(over: Partial<OsnovaIntent> = {}): OsnovaIntent {
@@ -1571,6 +1577,41 @@ describe('ExecAgent — createPipelineVmFromExecContext (runtime/vm)', () => {
     const vm = createPipelineVmFromExecContext({ repairAttempts: 0, spec, buildReport });
     expect(vm).not.toBeNull();
     await expect(vm!.execute({ procedure: 'нет_такой_процедуры' })).rejects.toThrow();
+  }, 20000);
+});
+
+describe('ExecAgent — safeExecutePipelineVmFromExecContext (ATM-EPK-260328-017-003)', () => {
+  it('без spec/bytecode: ok: false и стабильное сообщение', async () => {
+    const r = await safeExecutePipelineVmFromExecContext({ repairAttempts: 0 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(EXEC_CONTEXT_VM_UNAVAILABLE);
+  });
+
+  it('успешный прогон главной процедуры через контекст после build', async () => {
+    const spec = sampleSpec({
+      mainModule: 'главная',
+      procedures: [{ name: 'главная', params: {}, returnType: 'Ничто' }],
+    });
+    const buildReport = compileToBuildReport(compileSource(INTEGRATION_SUM_SOURCE));
+    expect(buildReport.success).toBe(true);
+    const ctx: ExecContext = { repairAttempts: 0, spec, buildReport };
+    const r = await safeExecutePipelineVmFromExecContext(ctx, { procedure: 'главная' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.returnValue).toBe(55);
+  }, 20000);
+
+  it('ошибка VM: несуществующая процедура — ok: false без throw', async () => {
+    const spec = sampleSpec({
+      mainModule: 'главная',
+      procedures: [{ name: 'главная', params: {}, returnType: 'Ничто' }],
+    });
+    const buildReport = compileToBuildReport(compileSource(INTEGRATION_SUM_SOURCE));
+    const r = await safeExecutePipelineVmFromExecContext(
+      { repairAttempts: 0, spec, buildReport },
+      { procedure: 'нет_такой_процедуры' },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.length).toBeGreaterThan(0);
   }, 20000);
 });
 
