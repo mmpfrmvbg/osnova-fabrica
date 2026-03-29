@@ -35,63 +35,7 @@ executors:
     available: true
     lastprobe: null
   activefallback: null
-blockers:
-- issue: 68
-  atm_id: ATM-EPK-260328-015-001
-  open: true
-  updated: '2026-03-28T17:38:41.541959+03:00'
-- issue: 69
-  atm_id: ATM-EPK-260328-015-008
-  open: true
-  updated: '2026-03-28T18:20:56.414481+03:00'
-- issue: 70
-  atm_id: ATM-EPK-260328-015-009
-  open: true
-  updated: '2026-03-28T18:39:05.992617+03:00'
-- issue: 71
-  atm_id: ATM-EPK-260328-015-010
-  open: true
-  updated: '2026-03-28T18:58:11.388904+03:00'
-- issue: 72
-  atm_id: ATM-EPK-260328-015-011
-  open: true
-  updated: '2026-03-28T19:03:52.680821+03:00'
-- issue: 73
-  atm_id: ATM-EPK-260328-015-012
-  open: true
-  updated: '2026-03-28T19:08:34.770674+03:00'
-- issue: 75
-  atm_id: ATM-EPK-260328-FBK016-001
-  open: true
-  updated: '2026-03-28T20:33:26.507566+03:00'
-- issue: 76
-  atm_id: ATM-EPK-260328-FBK016-003
-  open: true
-  updated: '2026-03-28T20:37:54.771418+03:00'
-- issue: 77
-  atm_id: ATM-EPK-260328-FBK016-002
-  open: true
-  updated: '2026-03-28T20:42:39.968848+03:00'
-- issue: 78
-  atm_id: ATM-EPK-260328-FBK016-004
-  open: true
-  updated: '2026-03-28T20:48:30.744861+03:00'
-- issue: 79
-  atm_id: ATM-EPK-260328-FBK016-005
-  open: true
-  updated: '2026-03-28T20:53:24.466255+03:00'
-- issue: 80
-  atm_id: ATM-EPK-260328-FBK016-008
-  open: true
-  updated: '2026-03-28T20:59:10.342857+03:00'
-- issue: 81
-  atm_id: ATM-EPK-260328-FBK016-006
-  open: true
-  updated: '2026-03-28T21:03:06.606319+03:00'
-- issue: 82
-  atm_id: ATM-EPK-260328-FBK016-009
-  open: true
-  updated: '2026-03-28T21:04:35.521631+03:00'
+blockers: []
 recent: []
 zones:
   lang:
