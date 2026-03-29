@@ -1,13 +1,12 @@
-id: ATM-EPK-260328-FBK016-001
+id: ATM-EPK-260328-FBK016-002
 epic: EPK-260328-FBK016
-seq: 1
+seq: 2
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Анализ текущей структуры src/runtime/vm.ts и выявление мест для документации
-  контракта VM
+goal: Изучить src/pipeline/pipeline.test.ts для понимания тестовых сценариев VM
 scope:
-- src/runtime/vm.ts
+- src/pipeline/pipeline.test.ts
 notouch:
 - forge/
 - .github/
@@ -15,14 +14,14 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать src/runtime/vm.ts полностью
-- Выявить текущие экспорты, интерфейсы, классы
-- Определить отсутствие JSDoc для PIPELINE_VM_GLOBAL_KEYS
-- Зафиксировать точки интеграции с ExecContext/OsnovaSpec
-deps: []
+- Прочитать тесты пайплайна
+- Выявить тесты, связанные с VM и глобальными ключами
+- Определить пробелы в покрытии контракта VM
+deps:
+- ATM-EPK-260328-FBK016-001
 maxiter: 3
 retries: 0
 status: done
 priority: P2
 max_retries: 3
-review_base_sha: ac6af2ac8b02fc93c8806c87c2577e528ec007fb
+review_base_sha: 4172c830e47d1843cec6153fbb20bfda0022889d

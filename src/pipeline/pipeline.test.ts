@@ -10,11 +10,24 @@
  *   `outputDiff`, `durationMs` — в успешном сценарии проверяются executed/passed/qualityScore;
  *   ниже явно фиксируется отсутствие ошибок VM.
  *
- * --- Глобальные ключи пайплайна (`PIPELINE_VM_GLOBAL_KEYS`, `applyPipelineSpecToVm`) ---
- * Контракт syscall `система.пайплайн.*` и запись spec в `OsVbcVM.globals` описаны в
- * `src/runtime/vm.ts` и покрыты unit-тестами там же. Текущий путь `runGoldenCheck` не вызывает
- * `applyPipelineSpecToVm`; E2E здесь проверяет итог выполнения и отчёт, а не чтение globals
- * из байткода.
+ * --- Глобальные ключи (`PIPELINE_VM_GLOBAL_KEYS`, `applyPipelineSpecToVm`) ---
+ * `runGoldenCheck` → {@link createGoldenCheckVm} вызывает `applyPipelineSpecToVm`; контракт syscall
+ * `система.пайплайн.*` и сами ключи покрыты в `src/runtime/vm.test.ts`. В этом файле E2E не
+ * ассертит значения `vm.globals` и не дергает `система.пайплайн.*` — мок-код использует только
+ * `система.лог.вывести`.
+ *
+ * Карта сценариев (VM / отчёт):
+ * - Реальная VM + полный отчёт: успешные `Pipeline.run` / `runPipelineWithExecAgent`, ReviewAgent,
+ *   `assertVmReturnValueIsSum1To10` (доп. проверка `expectedReturnValue: 55`).
+ * - Только поля отчёта (без реального прогона VM): `mockGoldenInPartialBand` подменяет
+ *   `runGoldenCheck`.
+ * - Синтетический `GoldenReport` для гейтов: `makeGateGolden`, в т.ч. `g3_vm_executed` при
+ *   `executed: false` — не интерпретатор, а контракт `checkG3`.
+ *
+ * Пробелы покрытия относительно контракта VM: нет E2E на syscall `система.пайплайн.*` и чтение
+ * globals; нет сценария с реальными `vmErrors` из интерпретатора (частичный golden мокает отчёт);
+ * спек из мока Intake по-прежнему без `expectedReturnValue` — строгая проверка возврата только в
+ * `assertVmReturnValueIsSum1To10`.
  *
  * --- VM: фактический результат ---
  * Spec из мока Intake не содержит `expectedReturnValue`, поэтому фаза golden в пайплайне
