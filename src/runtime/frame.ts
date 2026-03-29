@@ -1,37 +1,33 @@
 /**
  * Кадр вызова: состояние исполнения процедуры (ip, локали, операндный стек).
- * Значения в locals/stack структурно совпадают с StackValue в vm/interpreter.ts.
+ * Значения в locals/stack — те же, что {@link StackValue} в vm/interpreter.ts.
  */
 
-/** Ячейка стека/локалей кадра (как StackValue в интерпретаторе). */
-export type FrameValue =
-  | number
-  | string
-  | boolean
-  | null
-  | Record<string, unknown>
-  | FrameValue[];
+import type { StackValue } from "./vm/interpreter";
+
+/** Ячейка стека/локалей кадра (алиас StackValue для импорта из интерпретатора). */
+export type FrameValue = StackValue;
 
 /** Снимок/описание кадра для VM и отладки. */
 export interface CallFrame {
   ip: number;
   fp: number;
-  locals: FrameValue[];
-  stack: FrameValue[];
+  locals: StackValue[];
+  stack: StackValue[];
 }
 
 /** Изменяемый кадр с операциями над слотами локалей. */
 export class Frame implements CallFrame {
   ip = 0;
   fp = 0;
-  locals: FrameValue[] = [];
-  stack: FrameValue[] = [];
+  locals: StackValue[] = [];
+  stack: StackValue[] = [];
 
-  pushLocal(value: FrameValue): void {
+  pushLocal(value: StackValue): void {
     this.locals.push(value);
   }
 
-  popLocal(): FrameValue | undefined {
+  popLocal(): StackValue | undefined {
     return this.locals.pop();
   }
 }
