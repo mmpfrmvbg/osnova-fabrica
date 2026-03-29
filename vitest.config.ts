@@ -5,9 +5,7 @@ export default defineConfig({
     pool: 'vmThreads',
     retry: 0,
     globals: true,
-    // Exit code: Vitest uses passWithNoTests (not Jest failOnZeroTests). true ⇒ exit 0 when no files match.
-    passWithNoTests: true,
-    // onConsoleLog is unset (default does not fail the run on console output).
+    failOnZeroTests: true,
     // Root vitest should only validate the core compiler/runtime in /src.
     // Osiris has its own job + its own dependency install in CI.
     exclude: ['**/node_modules/**', '**/*.e2e.test.ts', '**/apps/osiris/**'],
