@@ -3,11 +3,14 @@
 // Полный repair-цикл — {@link Pipeline.run} → orchestrator.runPipeline
 // ============================================================
 
-import { IntakeAgent } from '../agents/IntakeAgent';
-import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
-import { RepairEngineerAgent } from '../agents/RepairEngineer';
-import { ExecAgent } from '../agents/exec-agent';
-import { PlanAgent, compileOsnovaSource } from '../agents/plan-agent';
+import {
+  ExecAgent,
+  IntakeAgent,
+  OsnovaCodegenAgent,
+  PlanAgent,
+  RepairEngineerAgent,
+  compileOsnovaSource,
+} from '../agents';
 import { runGoldenCheck } from '../runtime/goldenApps';
 import { loadAppRegistry, loadRegistry, registryToContext } from '../runtime/loadRegistry';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
@@ -29,6 +32,10 @@ import type {
 } from './types';
 
 export { runPipelineOrchestrator as runPipeline };
+
+/** VM из контекста агентов после build: spec + bytecode → {@link import("../runtime/vm").applyPipelineSpecToVm}. */
+export { createPipelineVmFromExecContext, safeExecutePipelineVm } from '../agents';
+export type { ExecContext, PipelineVmExecuteResult } from '../agents';
 
 /**
  * Основной фасад пайплайна: intake → spec → codegen → build → golden_check → [repair] (см. {@link runPipelineOrchestrator}).

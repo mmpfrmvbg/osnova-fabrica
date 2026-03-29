@@ -15,9 +15,12 @@ steps:
 - Добавить вызов agents в pipeline execution flow
 - Обеспечить передачу данных между VM и agents
 deps:
-- 6
-- 8
+- ATM-EPK-260328-015-006
+- ATM-EPK-260328-015-008
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: 90d67b116ee372d015b97d17b005a05f2a3c7af7
+produced_files: []

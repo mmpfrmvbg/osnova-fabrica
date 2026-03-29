@@ -18,6 +18,10 @@
  * **Точки расширения:** цепочка `invoke` — {@link OsVbcVMOptions} / {@link createDefaultInvokeHandler} и обёртка
  * {@link createPipelineInvokeHandlerForVm}; произвольные ключи {@link OsVbcVM.globals}; лимиты и опции интерпретатора
  * через наследование {@link import("./interpreter").InterpreterOptions} в {@link OsVbcVMOptions}.
+ *
+ * **Публичная связка с агентами:** фабрика `createPipelineVmFromExecContext` и `safeExecutePipelineVm` экспортируются из
+ * {@link import("../agents/index")} и {@link import("../pipeline/pipeline")} (фасад пайплайна); реализация — в
+ * {@link import("../agents/exec-agent")}, сборка VM — {@link createPipelineVmFromSpec} + {@link applyPipelineSpecToVm}.
  */
 
 import { Interpreter, InterpreterError } from "./interpreter";
