@@ -1,6 +1,8 @@
 // ============================================================
 // src/pipeline/executor.ts — Безопасный IO для .osnova/state.yaml (v5)
 // Только fs + path; без сети. Запись — через временный файл и rename.
+// Переходы «задача → запись state»: защита от гонок read-modify-write и инвариантов
+// blockers (контракт atm_id 015 / FBK016, см. blocker-resolver).
 // ============================================================
 
 import { randomBytes } from 'crypto';
@@ -111,6 +113,45 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Снимок mtime+size для обнаружения параллельной записи state между load и save. */
+function forgeStateFileStamp(filePath: string): { mtimeMs: number; size: number } | null {
+  try {
+    const st = fs.statSync(filePath);
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null;
+  }
+}
+
+function forgeStateStampEqual(
+  a: { mtimeMs: number; size: number } | null,
+  b: { mtimeMs: number; size: number } | null
+): boolean {
+  if (a === null && b === null) return true;
+  if (a === null || b === null) return false;
+  return a.mtimeMs === b.mtimeMs && a.size === b.size;
+}
+
+/**
+ * Перед сериализацией: отбрасывает строки blockers с невалидным `atm_id`
+ * (иначе сценарии 015/FBK016 и парсер blockers дают расхождения).
+ */
+function sanitizeForgeStateBlockers(state: ForgeStateV5): ForgeStateV5 {
+  const entries = state.blockers;
+  if (!entries?.length) return state;
+  const kept: ForgeStateBlockerRecord[] = [];
+  let dropped = 0;
+  for (const e of entries) {
+    if (parseForgeBlockerAtmId(e.atm_id).ok) kept.push(e);
+    else dropped += 1;
+  }
+  if (dropped === 0) return state;
+  console.warn(
+    `[forge-state] save: dropped ${dropped} blocker row(s) with invalid atm_id (015/FBK016 contract)`
+  );
+  return { ...state, blockers: kept };
+}
+
 function parseForgeStateV5(raw: unknown): ForgeStateV5 {
   if (!isPlainObject(raw)) {
     throw new Error('state.yaml: корень должен быть объектом');
@@ -185,7 +226,8 @@ export function saveForgeState(filePath: string, state: ForgeStateV5): void {
   if (state.v !== 5) {
     throw new Error('saveForgeState: state.v должен быть 5');
   }
-  const body = YAML.dump(state, YAML_DUMP_OPTS);
+  const toWrite = sanitizeForgeStateBlockers(state);
+  const body = YAML.dump(toWrite, YAML_DUMP_OPTS);
   const withNl = body.endsWith('\n') ? body : `${body}\n`;
   atomicWriteUtf8(filePath, withNl);
 }
@@ -205,39 +247,63 @@ export function applyStaleBlockerCleanup(
       : new Set<ForgeStateBlockerIssueId>(closedIds);
 
   const label = path.basename(statePath);
-  const state = loadForgeState(statePath);
-  if (state === null) {
-    console.info(`[forge-state] blocker sweep: skip (no state) file=${label}`);
-    return;
-  }
+  const maxAttempts = 5;
 
-  const entries = state.blockers ?? [];
-  const before = entries.length;
-
-  let removedClosed = 0;
-  let removedStaleAtm = 0;
-  for (const entry of entries) {
-    if (closed.has(entry.issue)) {
-      removedClosed += 1;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const stampBeforeLoad = forgeStateFileStamp(statePath);
+    const state = loadForgeState(statePath);
+    const stampAfterLoad = forgeStateFileStamp(statePath);
+    if (!forgeStateStampEqual(stampBeforeLoad, stampAfterLoad)) {
       continue;
     }
-    if (!parseForgeBlockerAtmId(entry.atm_id).ok) {
-      removedStaleAtm += 1;
+
+    if (state === null) {
+      if (attempt === 0) {
+        console.info(`[forge-state] blocker sweep: skip (no state) file=${label}`);
+      }
+      return;
     }
-  }
 
-  const pruned = pruneForgeStateBlockers(entries, closed);
-  const after = pruned.length;
+    const entries = state.blockers ?? [];
+    const before = entries.length;
 
-  if (after === before) {
+    let removedClosed = 0;
+    let removedStaleAtm = 0;
+    for (const entry of entries) {
+      if (closed.has(entry.issue)) {
+        removedClosed += 1;
+        continue;
+      }
+      if (!parseForgeBlockerAtmId(entry.atm_id).ok) {
+        removedStaleAtm += 1;
+      }
+    }
+
+    const pruned = pruneForgeStateBlockers(entries, closed);
+    const after = pruned.length;
+
+    if (after === before) {
+      if (attempt === 0) {
+        console.info(
+          `[forge-state] blocker sweep: no-op before=${before} removed_closed=${removedClosed} removed_stale_atm=${removedStaleAtm} file=${label}`
+        );
+      }
+      return;
+    }
+
+    const stampBeforeWrite = forgeStateFileStamp(statePath);
+    if (!forgeStateStampEqual(stampAfterLoad, stampBeforeWrite)) {
+      continue;
+    }
+
+    saveForgeState(statePath, { ...state, blockers: pruned });
     console.info(
-      `[forge-state] blocker sweep: no-op before=${before} removed_closed=${removedClosed} removed_stale_atm=${removedStaleAtm} file=${label}`
+      `[forge-state] blocker sweep: wrote before=${before} after=${after} removed_closed=${removedClosed} removed_stale_atm=${removedStaleAtm} file=${label}`
     );
     return;
   }
 
-  saveForgeState(statePath, { ...state, blockers: pruned });
-  console.info(
-    `[forge-state] blocker sweep: wrote before=${before} after=${after} removed_closed=${removedClosed} removed_stale_atm=${removedStaleAtm} file=${label}`
+  console.warn(
+    `[forge-state] blocker sweep: abandoned after ${maxAttempts} attempts (concurrent state writes?) file=${label}`
   );
 }
