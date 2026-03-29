@@ -23,6 +23,9 @@ export interface ExecContext {
   repairAttempts: number;
 }
 
+/** Синоним {@link ExecContext} — контекст выполнения шагов плана (execution context). */
+export type ExecutionContext = ExecContext;
+
 /** Результат одного вызова обработчика фазы. */
 export interface PhaseRunResult {
   readonly ok: boolean;
