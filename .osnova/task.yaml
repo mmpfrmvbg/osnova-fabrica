@@ -1,20 +1,20 @@
-id: ATM-001
+id: ATM-002
 epic: EPK-260329-026
-seq: 1
+seq: 2
 zone: scripts
-risk: LOW
+risk: MED
 executor: cursor
-goal: Add scripts/blocker-sync.ts entry (CLI argv, help, exit codes) for stale-blocker
-  sync.
-scope: scripts/blocker-sync.ts — scaffold only
+goal: Implement stale-blocker fetch/merge and stdout/stderr reporting in blocker-sync.
+scope: scripts/blocker-sync.ts — sync logic
 notouch:
-- src/intelligence/planner.ts
-- src/vliw/scheduler.ts
-done: npx vitest run src/vliw/scheduler.test.ts
+- src/intelligence/index.ts
+- src/vliw/index.ts
+done: npx vitest run src/intelligence/intelligence.test.ts
 steps:
-- Create TypeScript CLI with documented flags and safe default no-op.
-- Wire tsx/node shebang pattern consistent with scripts/pipeline-metrics.ts.
-deps: []
+- Isolate IO (read remote/local blocker sources) behind small functions.
+- Emit structured summary lines suitable for .tmp logging.
+deps:
+- ATM-001
 maxiter: 3
 retries: 0
 status: PENDING
