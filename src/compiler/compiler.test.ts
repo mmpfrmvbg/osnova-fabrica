@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { compileToBuildReport } from "../pipeline/orchestrator";
-import { Compiler, compileSource, compileProgram } from ".";
+import { Compiler, compile, compileSource, compileProgram, optimizeIrModule } from ".";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { analyzeProgram } from "./semantic";
@@ -268,6 +268,48 @@ describe("Compiler smoke: todo.osnova", () => {
     const result = compileSource(src);
     expect(result.parserErrors).toHaveLength(0);
     expect(result.compilerSuccess).toBe(true);
+  });
+});
+
+/**
+ * ATM-004: фикстуры из FIXTURES_DIR — явный пайплайн tokenize→parse→semantic→codegen
+ * и согласованность с Compiler.execute(..., procedureName).
+ */
+describe("FIXTURES_DIR: tokenize→parse→semantic→codegen→VM (ATM-004)", () => {
+  it("hello.osnova: процедура «старт» → 42 (ручной codegen + execute с procedureName)", async () => {
+    const source = readFileSync(join(FIXTURES_DIR, "hello.osnova"), "utf-8");
+    const { tokens, errors: lexerErrors } = tokenize(source);
+    expect(lexerErrors).toHaveLength(0);
+    const { ast, errors: parserErrors } = parse(tokens);
+    expect(parserErrors).toHaveLength(0);
+    expect(ast?.modules[0]).toBeTruthy();
+    const mod = ast!.modules[0]!;
+    const { errors: semErrors } = analyzeProgram({ modules: [mod] });
+    expect(semErrors).toHaveLength(0);
+    const bytecode = optimizeIrModule(compile(mod));
+    const vm = new VM(bytecode, { maxSteps: 500 });
+    expect(await vm.runProcedure(vm.findProcedureIndex("старт"), [])).toBe(42);
+    await expect(
+      new Compiler().execute(source, { procedureName: "старт", vm: { maxSteps: 500 } }),
+    ).resolves.toBe(42);
+  });
+
+  it("func_params.osnova: именованная запись Точка + вызовы → главная == 152", async () => {
+    const source = readFileSync(join(FIXTURES_DIR, "func_params.osnova"), "utf-8");
+    const { tokens, errors: lexerErrors } = tokenize(source);
+    expect(lexerErrors).toHaveLength(0);
+    const { ast, errors: parserErrors } = parse(tokens);
+    expect(parserErrors).toHaveLength(0);
+    expect(ast?.modules[0]).toBeTruthy();
+    const mod = ast!.modules[0]!;
+    const { errors: semErrors } = analyzeProgram({ modules: [mod] });
+    expect(semErrors).toHaveLength(0);
+    const bytecode = optimizeIrModule(compile(mod));
+    const vm = new VM(bytecode, { maxSteps: 15000 });
+    expect(await vm.runProcedure(vm.findProcedureIndex("главная"), [])).toBe(152);
+    await expect(
+      new Compiler().execute(source, { procedureName: "главная", vm: { maxSteps: 15000 } }),
+    ).resolves.toBe(152);
   });
 });
 
