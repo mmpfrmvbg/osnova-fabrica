@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PlanAgent, PlanValidationError, type ExecutionPlan } from './plan-agent';
+import { ExecAgent, type PhaseRunner } from './exec-agent';
 import type { OsnovaIntent, OsnovaSpec } from '../pipeline/types';
 
 function sampleIntent(over: Partial<OsnovaIntent> = {}): OsnovaIntent {
@@ -109,5 +110,99 @@ describe('PlanAgent.validatePlan', () => {
       ],
     };
     expect(() => agent.validatePlan(bad)).toThrow(PlanValidationError);
+  });
+});
+
+describe('PlanAgent: валидный план и ветки выполнения (симуляция LLM через runPhase)', () => {
+  const planAgent = new PlanAgent();
+  const execAgent = new ExecAgent(planAgent);
+
+  it('построенный план проходит validatePlan (инкремент и fromScratch)', () => {
+    const inc = planAgent.buildPlan(sampleIntent(), sampleSpec(), { includeRepair: true });
+    expect(() => planAgent.validatePlan(inc)).not.toThrow();
+    const full = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: true,
+      includeRepair: false,
+    });
+    expect(() => planAgent.validatePlan(full)).not.toThrow();
+  });
+
+  it('успешный полный прогон fromScratch: все шаги ok, completed: true', async () => {
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: true, includeRepair: false });
+    const runPhase: PhaseRunner = async (phase, _step, ctx) => {
+      if (phase === 'intake') return { ok: true, patch: { intent } };
+      if (phase === 'spec_generation') return { ok: true, patch: { spec } };
+      return { ok: true };
+    };
+    const result = await execAgent.execute(plan, runPhase, {});
+    expect(result.completed).toBe(true);
+    expect(result.steps.every(s => s.ok)).toBe(true);
+    expect(result.steps.length).toBe(plan.steps.length);
+    expect(result.state.intent).toBe(intent);
+    expect(result.state.spec).toBe(spec);
+  });
+
+  it('деградация: ошибка на spec_generation (как сбой LLM) — остановка, completed: false', async () => {
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: true,
+      includeRepair: false,
+    });
+    const runPhase: PhaseRunner = async phase => {
+      if (phase === 'intake') return { ok: true, patch: { intent: sampleIntent() } };
+      if (phase === 'spec_generation') return { ok: false, error: 'LLM: quota exceeded' };
+      return { ok: true };
+    };
+    const result = await execAgent.execute(plan, runPhase, {});
+    expect(result.completed).toBe(false);
+    expect(result.stoppedAtPhase).toBe('spec_generation');
+    expect(result.error).toContain('quota');
+    expect(result.steps.filter(s => s.ok).length).toBe(1);
+  });
+
+  it('деградация: throw из runPhase на spec_generation — сообщение в error', async () => {
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: true,
+      includeRepair: false,
+    });
+    const runPhase: PhaseRunner = async phase => {
+      if (phase === 'intake') return { ok: true, patch: { intent: sampleIntent() } };
+      if (phase === 'spec_generation') throw new Error('LLM unreachable');
+      return { ok: true };
+    };
+    const result = await execAgent.execute(plan, runPhase, {});
+    expect(result.completed).toBe(false);
+    expect(result.stoppedAtPhase).toBe('spec_generation');
+    expect(result.error).toBe('LLM unreachable');
+  });
+
+  it('пустой ответ LLM: ok:false без текста ошибки — стабильное сообщение шага', async () => {
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: true,
+      includeRepair: false,
+    });
+    const runPhase: PhaseRunner = async phase => {
+      if (phase === 'intake') return { ok: true, patch: { intent: sampleIntent() } };
+      if (phase === 'spec_generation') return { ok: false, error: '   ' };
+      return { ok: true };
+    };
+    const result = await execAgent.execute(plan, runPhase, {});
+    expect(result.completed).toBe(false);
+    expect(result.stoppedAtPhase).toBe('spec_generation');
+    expect(result.error).toBe('step failed: spec_generation (order 2)');
+  });
+
+  it('инкрементальный план: сбой на codegen (LLM codegen) — первая фаза падает без предшествующих шагов', async () => {
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), { includeRepair: false });
+    const runPhase: PhaseRunner = async phase => {
+      if (phase === 'codegen') return { ok: false, error: '' };
+      return { ok: true };
+    };
+    const result = await execAgent.execute(plan, runPhase, {});
+    expect(result.completed).toBe(false);
+    expect(result.stoppedAtPhase).toBe('codegen');
+    expect(result.error).toBe('step failed: codegen (order 1)');
+    expect(result.steps).toHaveLength(1);
   });
 });
