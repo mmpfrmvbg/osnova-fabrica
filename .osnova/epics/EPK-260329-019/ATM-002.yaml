@@ -16,5 +16,8 @@ steps:
 deps: []
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: 8e61c63138783ccfd52504a33df6600399f2b0de
+produced_files: []
