@@ -132,6 +132,29 @@ function forgeStateStampEqual(
   return a.mtimeMs === b.mtimeMs && a.size === b.size;
 }
 
+/** Сравнение списка blockers после load/save без зависимости от порядка ключей в YAML. */
+function forgeBlockerListsEqual(
+  expected: readonly ForgeStateBlockerRecord[],
+  loaded: ForgeStateV5 | null
+): boolean {
+  if (loaded === null) return false;
+  const got = loaded.blockers ?? [];
+  if (got.length !== expected.length) return false;
+  for (let i = 0; i < expected.length; i++) {
+    const p = expected[i];
+    const g = got[i];
+    if (
+      g.issue !== p.issue ||
+      g.atm_id !== p.atm_id ||
+      g.open !== p.open ||
+      g.updated !== p.updated
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Перед сериализацией: отбрасывает строки blockers с невалидным `atm_id`
  * (иначе сценарии 015/FBK016 и парсер blockers дают расхождения).
@@ -185,6 +208,12 @@ export function loadForgeState(filePath: string): ForgeStateV5 | null {
   return parseForgeStateV5(loaded);
 }
 
+/**
+ * Атомарная запись UTF-8: temp + rename.
+ * На Windows `rename` не заменяет существующий файл; прежний вариант `unlink` + `rename`
+ * при сбое rename оставлял путь без файла — откат через временный `.bak`.
+ * На POSIX замена одним `rename(tmp, dest)` атомарна.
+ */
 function atomicWriteUtf8(filePath: string, data: string): void {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
@@ -193,28 +222,50 @@ function atomicWriteUtf8(filePath: string, data: string): void {
     dir,
     `.${base}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`
   );
+  let backupPath: string | null = null;
+  let tmpOnDisk = false;
   try {
     fs.writeFileSync(tmp, data, { encoding: 'utf8', flag: 'wx' });
+    tmpOnDisk = true;
+
+    if (process.platform === 'win32' && fs.existsSync(filePath)) {
+      backupPath = path.join(
+        dir,
+        `.${base}.${process.pid}.${randomBytes(6).toString('hex')}.bak`
+      );
+      fs.renameSync(filePath, backupPath);
+    }
+
+    fs.renameSync(tmp, filePath);
+    tmpOnDisk = false;
   } catch (e) {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-      /* ignore */
+    if (tmpOnDisk) {
+      try {
+        if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (
+      backupPath !== null &&
+      fs.existsSync(backupPath) &&
+      !fs.existsSync(filePath)
+    ) {
+      try {
+        fs.renameSync(backupPath, filePath);
+      } catch {
+        /* best-effort rollback */
+      }
     }
     throw e;
   }
-  try {
-    if (process.platform === 'win32' && fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-    fs.renameSync(tmp, filePath);
-  } catch (e) {
+
+  if (backupPath !== null && fs.existsSync(backupPath)) {
     try {
-      fs.unlinkSync(tmp);
+      fs.unlinkSync(backupPath);
     } catch {
-      /* ignore */
+      /* ignore orphaned backup */
     }
-    throw e;
   }
 }
 
@@ -296,14 +347,29 @@ export function applyStaleBlockerCleanup(
       continue;
     }
 
-    saveForgeState(statePath, { ...state, blockers: pruned });
+    try {
+      saveForgeState(statePath, { ...state, blockers: pruned });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[forge-state] blocker sweep: save failed (${msg}), will retry if attempts left file=${label}`);
+      continue;
+    }
+
+    const verify = loadForgeState(statePath);
+    if (!forgeBlockerListsEqual(pruned, verify)) {
+      console.warn(
+        `[forge-state] blocker sweep: post-write verify mismatch (concurrent write?), retry file=${label}`
+      );
+      continue;
+    }
+
     console.info(
       `[forge-state] blocker sweep: wrote before=${before} after=${after} removed_closed=${removedClosed} removed_stale_atm=${removedStaleAtm} file=${label}`
     );
     return;
   }
 
-  console.warn(
-    `[forge-state] blocker sweep: abandoned after ${maxAttempts} attempts (concurrent state writes?) file=${label}`
-  );
+  const errMsg = `[forge-state] blocker sweep: abandoned after ${maxAttempts} attempts (concurrent state writes?) file=${label}`;
+  console.warn(errMsg);
+  throw new Error(errMsg);
 }

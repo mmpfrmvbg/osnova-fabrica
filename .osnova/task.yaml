@@ -1,23 +1,22 @@
-id: ATM-EPK-260329-025-007
+id: ATM-EPK-260329-025-008
 epic: EPK-260329-025
-seq: 7
+seq: 8
 zone: pipeline
-risk: HIGH
+risk: MED
 executor: cursor
-goal: Исправить блокеры жизненного цикла шагов и задач в executor.
-scope: src/pipeline/executor.ts — планирование шагов и переходы состояний
+goal: Исправить блокеры обработки ошибок и откатов в executor.
+scope: src/pipeline/executor.ts — ошибки, ретраи, финализация
 notouch:
-- src/compiler/parser.ts
-- src/runtime/vm.ts
-- src/pipeline-llm/runner.ts
-done: npx vitest run src/compiler/codegen.test.ts
+- src/compiler/index.ts
+- src/agents/base.ts
+- .tmp/diagnostics.log
+done: npx vitest run src/runtime/goldenApps.test.ts
 steps:
-- Сопоставить падения с конкретными ветками executor.
-- Устранить гонки/двойные submit без смены внешнего API types.
-- Добавить минимальную защиту инвариантов там, где ломается FBK016.
+- Закрыть оставшиеся кейсы из списка 14 блокеров в этой зоне.
+- Согласовать с types.ts и runner без циклических импортов.
+- Проверить, что агенты получают стабильные статусы шага.
 deps:
-- ATM-EPK-260329-025-001
-- ATM-EPK-260329-025-006
+- ATM-EPK-260329-025-007
 maxiter: 3
 retries: 0
 status: PENDING
