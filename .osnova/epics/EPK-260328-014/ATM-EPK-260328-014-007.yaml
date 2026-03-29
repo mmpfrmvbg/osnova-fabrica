@@ -14,8 +14,12 @@ steps:
 - Реализовать инициализацию глобального контекста
 - Добавить обработку внешних вызовов (native functions)
 deps:
-- 6
+- ATM-EPK-260328-014-006
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: 78cc13876acd7b2c07e85c60886ccebbe1718535
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'
