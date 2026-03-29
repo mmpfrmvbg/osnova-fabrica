@@ -97,6 +97,16 @@ class TestAtomizerDepsNormalization(unittest.TestCase):
         assert got is not None
         self.assertEqual([[x["id"] for x in w] for w in got], [[f"ATM-{_EPIC}-001", f"ATM-{_EPIC}-002"], [f"ATM-{_EPIC}-00{i}" for i in (3, 4, 5)]])
 
+    def test_coerce_short_ref_to_full_id(self) -> None:
+        """Waves may use ATM-001 while deterministic atoms use ATM-EPK-…-001."""
+        known = {"ATM-EPK-260329-019-001", "ATM-EPK-260329-019-002"}
+        eid = "EPK-260329-019"
+        self.assertEqual(_coerce_dep_to_atm_id("ATM-001", eid, known), "ATM-EPK-260329-019-001")
+        self.assertEqual(_coerce_dep_to_atm_id("1", eid, known), "ATM-EPK-260329-019-001")
+        self.assertEqual(_coerce_dep_to_atm_id("001", eid, known), "ATM-EPK-260329-019-001")
+        self.assertEqual(_coerce_dep_to_atm_id("ATM-002", eid, known), "ATM-EPK-260329-019-002")
+        self.assertIsNone(_coerce_dep_to_atm_id("ATM-999", eid, known))
+
 
 if __name__ == "__main__":
     unittest.main()

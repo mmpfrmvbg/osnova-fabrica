@@ -373,13 +373,15 @@ def _run_cursor_atomizer(prompt: str, timeout: int) -> subprocess.CompletedProce
             model = os.environ.get("FORGE_ATOMIZER_CURSOR_MODEL", "").strip()
             if model and model not in ("_", "-"):
                 tail.extend(["--model", model])
+            argv = [str(node_exe), str(index_js), *tail]
+            # Do not pass "-" as argv: Cursor treats it as the literal prompt ("You only sent a dash").
+            # Match cursorexec smith_native: either append prompt to argv or feed stdin via input= only.
             if use_stdin:
-                tail.append("-")
+                kw.pop("stdin", None)
                 kw["input"] = prompt
             else:
-                tail.append(prompt)
+                argv.append(prompt)
                 kw["stdin"] = subprocess.DEVNULL
-            argv = [str(node_exe), str(index_js), *tail]
             return subprocess.run(argv, **kw)
     argv = cursor_headless_argv("", workspace=proj, use_stdin=use_stdin)
     if use_stdin:
@@ -459,6 +461,19 @@ def _seq_and_atom_id(atom: dict[str, Any], idx: int, epic_id: str) -> tuple[int,
         return idx, f"ATM-{epic_id}-{idx:03d}"
 
 
+def _ref_seq_key_for_suffix_match(s: str) -> str | None:
+    """Numeric seq for matching atom id suffix (1 ↔ …-001). Returns None if not a short ref."""
+    t = s.strip()
+    if t.isdigit():
+        return str(int(t))
+    u = t.upper()
+    if u.startswith("ATM-"):
+        rest = t[4:]
+        if rest.isdigit():
+            return str(int(rest))
+    return None
+
+
 def _coerce_dep_to_atm_id(raw: Any, epic_id: str, known_ids: set[str]) -> str | None:
     """Map atomizer output (often seq numbers) to ATM-{epic}-{seq:03d} for parallel_executor."""
     if raw is None:
@@ -469,24 +484,45 @@ def _coerce_dep_to_atm_id(raw: Any, epic_id: str, known_ids: set[str]) -> str | 
     if s in known_ids:
         return s
     if s.isdigit():
-        return f"ATM-{epic_id}-{int(s):03d}"
+        cand = f"ATM-{epic_id}-{int(s):03d}"
+        if cand in known_ids or not known_ids:
+            return cand
     prefix = f"ATM-{epic_id}-"
     if s.startswith(prefix):
         tail = s[len(prefix) :]
         if tail.isdigit():
-            return f"ATM-{epic_id}-{int(tail):03d}"
+            cand = f"ATM-{epic_id}-{int(tail):03d}"
+            if cand in known_ids or not known_ids:
+                return cand
     # Without ATM- prefix: EPK-260328-015-001
     epic_hyphen = f"{epic_id}-"
     if s.startswith(epic_hyphen):
         tail = s[len(epic_hyphen) :]
         if tail.isdigit():
-            return f"ATM-{epic_id}-{int(tail):03d}"
+            cand = f"ATM-{epic_id}-{int(tail):03d}"
+            if cand in known_ids or not known_ids:
+                return cand
     # Shorthand last epic segment + seq: 015-001 for epic ...-015
     last_seg = epic_id.rsplit("-", 1)[-1] if epic_id else ""
     if last_seg and s.startswith(f"{last_seg}-"):
         tail = s[len(last_seg) + 1 :]
         if tail.isdigit():
-            return f"ATM-{epic_id}-{int(tail):03d}"
+            cand = f"ATM-{epic_id}-{int(tail):03d}"
+            if cand in known_ids or not known_ids:
+                return cand
+    # Brain waves: ATM-001 / 1 while atoms are ATM-EPK-…-001 (deterministic fallback ids)
+    sk = _ref_seq_key_for_suffix_match(s)
+    if sk is not None:
+        matches: list[str] = []
+        for kid in known_ids:
+            last = kid.rsplit("-", 1)[-1]
+            if last.isdigit() and str(int(last)) == sk:
+                matches.append(kid)
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            return sorted(matches)[0]
+        return None
     return s
 
 
