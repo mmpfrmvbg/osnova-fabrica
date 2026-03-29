@@ -1,29 +1,24 @@
-id: ATM-EPK-260328-017-011
-epic: EPK-260328-017
-seq: 11
-zone: e2e
+id: ATM-EPK-260328-018-002
+epic: EPK-260328-018
+seq: 2
+zone: agents
 risk: HIGH
 executor: cursor
-goal: E2E тесты agents + pipeline — поднять passrate > 0.8
+goal: Fix Group A — устранить ошибки типов в IntakeAgent
 scope:
-- src/agents/agents.test.ts
-- src/pipeline/pipeline.test.ts
+- src/agents/intake-agent.ts — основной файл для исправлений
 notouch:
-- src/compiler/*
-- src/runtime/*
+- src/agents/agents.test.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- запустить npx vitest run src/agents/ && npx vitest run src/pipeline/
-- зафиксировать failing tests и исправить причины
-- повторять до достижения passrate > 0.8
+- Импортировать недостающие типы из compiler.ts
+- Исправить сигнатуры методов согласно интерфейсу Agent
+- Устранить ошибки приведения типов
 deps:
-- ATM-EPK-260328-017-005
-- ATM-EPK-260328-017-007
-- ATM-EPK-260328-017-008
-- ATM-EPK-260328-017-009
+- ATM-EPK-260328-018-001
 maxiter: 3
 retries: 0
 status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 77a10bf42879c271471b0daddf22e9f5e4ba1953
+review_base_sha: 1a477f4ae6132334deac0b469f2c3750c2f3bf2a

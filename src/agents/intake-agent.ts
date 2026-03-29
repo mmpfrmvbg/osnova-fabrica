@@ -21,14 +21,14 @@ import {
   type OsnovaType,
   type ProcedureSignature,
 } from '../pipeline/types';
-import type { CompileResult } from '../compiler/compiler';
+import type { CompileOptions, CompileResult } from '../compiler/compiler';
 import { wrapLlmError } from '../llm/errors';
 import { logger } from '../logger';
 import { logLlmUsage } from '../lib/usage-logger';
 import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
 
 /** Результат фазы build (`compileSource`) — реэкспорт для вызовов, связывающих intake с компилятором. */
-export type { CompileResult };
+export type { CompileOptions, CompileResult };
 
 const log = logger('intake-agent');
 
@@ -212,7 +212,7 @@ export class IntakeAgent implements IAgent, BaseAgent {
    * Проверка структуры и типов входа intake: объект с непустой строкой `text` (после trim).
    * Дополнительные аргументы игнорируются (совместимость с {@link BaseAgent}).
    */
-  validate(input: unknown, _ctx?: unknown, _plan?: unknown): void | AgentReport {
+  validate(input: unknown, _ctx?: unknown, _plan?: unknown): void {
     this.assertRawText(input);
   }
 
@@ -549,9 +549,8 @@ export class IntakeAgent implements IAgent, BaseAgent {
     input?: unknown,
     ..._rest: unknown[]
   ): Promise<{ intent: OsnovaIntent; spec: OsnovaSpec }> {
-    const raw = input as RawText;
-    this.assertRawText(raw);
-    const normalized = this.parse(raw);
+    this.assertRawText(input);
+    const normalized = this.parse(input);
     const intent = await this.parseIntent(normalized);
     const spec = await this.generateSpec(intent);
     this.checkSpec(spec);
