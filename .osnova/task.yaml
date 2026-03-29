@@ -1,23 +1,23 @@
-id: ATM-EPK-260329-019-008
+id: ATM-EPK-260329-019-009
 epic: EPK-260329-019
-seq: 8
+seq: 9
 zone: runtime
 risk: LOW
 executor: cursor
-goal: Устранить TypeScript-ошибки в vm.ts (OsVbcVM и PIPELINE_VM_GLOBAL_KEYS)
+goal: Устранить TypeScript-ошибки в interpreter.ts (Interpreter и OpCode)
 scope:
-- src/runtime/vm.ts
-notouch:
 - src/runtime/interpreter.ts
+notouch:
+- src/runtime/vm/interpreter.ts
 - src/runtime/vm/bytecode.ts
 done: npx vitest run src/agents/agents.test.ts --reporter=verbose
 steps:
-- Проверить типы OsVbcVMOptions, OsVbcExecuteOptions
-- Исправить импорты из pipeline/types
+- Проверить типы InterpreterOptions, StackValue
+- Исправить импорты из vm/bytecode
 - Запустить tsc --noEmit для проверки
 deps:
-- ATM-EPK-260329-019-001
+- ATM-EPK-260329-019-008
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0

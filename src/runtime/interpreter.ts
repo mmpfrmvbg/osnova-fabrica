@@ -9,7 +9,7 @@
 
 import { VM } from "./vm/interpreter";
 import type { InterpreterOptions, StackValue, TryFrame } from "./vm/interpreter";
-import type { RawInstruction } from "./vm/bytecode";
+import type { Op, RawInstruction } from "./vm/bytecode";
 
 export type { InterpreterOptions, StackValue, InvokeHandler, RunProgramOptions, TryFrame } from "./vm/interpreter";
 export {
@@ -19,49 +19,54 @@ export {
   VM,
 } from "./vm/interpreter";
 
-/** Имена стековых и управляющих инструкций (соответствуют полю `op` в байткоде). */
-export enum OpCode {
+/**
+ * Имена стековых и управляющих инструкций (соответствуют полю `op` в байткоде).
+ * Объект вместо `enum`, чтобы литералы совпадали с типом {@link Op} и {@link RawInstruction}.
+ */
+export const OpCode = {
   /** Константа из пула: инструкция `const` с индексом `k`. */
-  PUSH = "const",
+  PUSH: "const",
   /** Снять вершину стека. */
-  POP = "pop",
+  POP: "pop",
   /** Дублировать вершину стека. */
-  DUP = "dup",
+  DUP: "dup",
   /** Сложение: снимает b, затем a; кладёт a + b. */
-  ADD = "add",
+  ADD: "add",
   /** Вычитание: кладёт a − b. */
-  SUB = "sub",
+  SUB: "sub",
   /** Умножение: кладёт a × b. */
-  MUL = "mul",
+  MUL: "mul",
   /** Деление: кладёт a / b; деление на ноль — InterpreterError. */
-  DIV = "div",
+  DIV: "div",
   /** Равенство: снимает b, затем a; кладёт (a === b). */
-  EQ = "eq",
+  EQ: "eq",
   /** Меньше: кладёт (a < b) для чисел. */
-  LT = "lt",
+  LT: "lt",
   /** Больше: кладёт (a > b) для чисел. */
-  GT = "gt",
+  GT: "gt",
   /** Логическое И: кладёт Boolean(a && b). */
-  AND = "and",
+  AND: "and",
   /** Логическое ИЛИ: кладёт Boolean(a || b). */
-  OR = "or",
+  OR: "or",
   /** Логическое НЕ: снимает одно значение; кладёт !v. */
-  NOT = "not",
+  NOT: "not",
   /** Безусловный переход: `off` — абсолютный индекс следующей инструкции в `code`. */
-  JUMP = "jmp",
+  JUMP: "jmp",
   /** Условный переход: снимает условие со стека; при falsy переход на `off`, иначе следующая инструкция. */
-  JUMP_IF_FALSE = "jmp_if_not",
+  JUMP_IF_FALSE: "jmp_if_not",
   /** Вызов процедуры по индексу `fi` в таблице процедур; новый фрейм локалей, возврат после `ret`. */
-  CALL = "call",
+  CALL: "call",
   /** Возврат из текущей процедуры (значение на вершине стека — результат, если есть). */
-  RETURN = "ret",
+  RETURN: "ret",
   /** Выбросить значение с вершины стека как исключение; при наличии try — переход в catch. */
-  THROW = "throw",
+  THROW: "throw",
   /** Регистрация обработчика (байткод `try_begin`): `off` — абсолютный PC входа в catch. */
-  TRY_CATCH = "try_begin",
+  TRY_CATCH: "try_begin",
   /** Снятие обработчика после успешного прохода try (`try_end`). Отдельного опкода finally в v0.1 нет. */
-  FINALLY = "try_end",
-}
+  FINALLY: "try_end",
+} as const satisfies Record<string, Op>;
+
+export type OpCode = (typeof OpCode)[keyof typeof OpCode];
 
 export class Interpreter extends VM {
   /** Стек исполнения (верх — последний элемент). */
