@@ -1,12 +1,12 @@
-id: ATM-EPK-260328-FBK016-007
+id: ATM-EPK-260328-FBK016-008
 epic: EPK-260328-FBK016
-seq: 7
+seq: 8
 zone: lang
-risk: LOW
+risk: MEDIUM
 executor: cursor
-goal: Добавить интеграционный JSDoc блок VM↔agents в src/runtime/vm.ts
+goal: Исправить тесты в src/pipeline/pipeline.test.ts для корректного exit code
 scope:
-- src/runtime/vm.ts
+- src/pipeline/pipeline.test.ts
 notouch:
 - forge/
 - .github/
@@ -14,16 +14,14 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать блок документации о взаимодействии VM с агентами
-- Описать поток данных ExecContext → VM → результат
-- Указать точки расширения
+- Выявить тесты с ложноположительным статусом
+- Добавить проверки на фактический результат VM
+- Устранить swallow ошибок
 deps:
-- ATM-EPK-260328-FBK016-004
-- ATM-EPK-260328-FBK016-005
-- ATM-EPK-260328-FBK016-006
+- ATM-EPK-260328-FBK016-002
 maxiter: 3
 retries: 0
 status: done
 priority: P2
 max_retries: 3
-review_base_sha: ca3083d66c948ff36b9e2d091a66d5e924e3a486
+review_base_sha: 7d7d3f3877b174f200347a6cbeb6715a75ecbd10

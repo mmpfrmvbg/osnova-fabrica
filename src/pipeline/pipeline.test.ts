@@ -18,7 +18,8 @@
  *
  * Карта сценариев (VM / отчёт):
  * - Реальная VM + полный отчёт: успешные `Pipeline.run` / `runPipelineWithExecAgent`, ReviewAgent,
- *   `assertVmReturnValueIsSum1To10` (доп. проверка `expectedReturnValue: 55`).
+ *   инвариант «оба фасада», E2E id/plan/review — везде `assertVmReturnValueIsSum1To10`
+ *   (доп. проверка `expectedReturnValue: 55`).
  * - Только поля отчёта (без реального прогона VM): `mockGoldenInPartialBand` подменяет
  *   `runGoldenCheck`.
  * - Синтетический `GoldenReport` для гейтов: `makeGateGolden`, в т.ч. `g3_vm_executed` при
@@ -189,6 +190,8 @@ describe('оркестрация — успешный прогон (инвари
     expect(execFacade.totalDurationMs).toBeGreaterThan(0);
     expect(Array.isArray(orchestrator.shadow_hits)).toBe(true);
     expect(Array.isArray(execFacade.shadow_hits)).toBe(true);
+    await assertVmReturnValueIsSum1To10(orchestrator.buildReport!.bytecode!, orchestrator.spec!);
+    await assertVmReturnValueIsSum1To10(execFacade.buildReport!.bytecode!, execFacade.spec!);
   }, 45000);
 });
 
@@ -270,6 +273,8 @@ describe('runPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)
     const report = new ReviewAgent().review(result.spec!, ctx, plan);
     expect(report.ok, report.summaryText).toBe(true);
     expect(report.items.every(i => i.ok)).toBe(true);
+
+    await assertVmReturnValueIsSum1To10(result.buildReport!.bytecode!, result.spec!);
 
     expect(result.source?.source).toContain(result.spec!.mainModule);
     const recomputed = compileSource(result.source!.source);
@@ -501,6 +506,7 @@ describe('partial: qualityScore ∈ [SPEC_QUALITY_PARTIAL, SPEC_QUALITY_PASS) б
     const spy = mockGoldenInPartialBand();
     try {
       const result = await new Pipeline().run('посчитай сумму от 1 до 10');
+      expect(spy, 'сценарий partial опирается на подмену runGoldenCheck').toHaveBeenCalled();
       expect(result.status).toBe('partial');
       expect(result.repairAttempts).toBe(0);
       expect(result.goldenReport?.qualityScore).toBe(midPartialQuality);
@@ -513,6 +519,7 @@ describe('partial: qualityScore ∈ [SPEC_QUALITY_PARTIAL, SPEC_QUALITY_PASS) б
     const spy = mockGoldenInPartialBand();
     try {
       const result = await runPipelineWithExecAgent('посчитай сумму от 1 до 10');
+      expect(spy, 'сценарий partial опирается на подмену runGoldenCheck').toHaveBeenCalled();
       expect(result.status).toBe('partial');
       expect(result.repairAttempts).toBe(0);
     } finally {
