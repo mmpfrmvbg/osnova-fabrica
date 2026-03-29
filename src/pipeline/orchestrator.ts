@@ -26,6 +26,10 @@ import {
   type BuildReport,
   type GoldenReport,
   type PipelineResult,
+  type IPipelineStep,
+  type PipelineContext,
+  type StepResult,
+  type PipelineError,
 } from './types';
 import { analyzeShadow } from './shadowMode';
 import type { ShadowHit } from './shadowMode';
@@ -321,4 +325,59 @@ export async function runPipeline(
       lastErrorKind,
     };
   }
+}
+
+/**
+ * Orchestrator: выполняет пайплайн по шагам.
+ * @param steps - шаги пайплайна (IPipelineStep[])
+ * @param initialContext - начальный контекст выполнения
+ * @returns результат выполнения последнего шага
+ */
+export async function executePipeline(
+  steps: IPipelineStep[],
+  initialContext: PipelineContext,
+): Promise<StepResult> {
+  const sortedSteps = [...steps].sort((a, b) => a.order - b.order);
+  let context: PipelineContext = initialContext;
+  let result: StepResult = { success: true, context, repairAttempts: 0 };
+
+  for (const step of sortedSteps) {
+    if (step.canExecute && !step.canExecute(context)) {
+      result = {
+        success: false,
+        context,
+        error: {
+          type: 'unknown',
+          message: `Step ${step.id} cannot execute: preconditions not met`,
+          phase: step.phase,
+        },
+        repairAttempts: result.repairAttempts,
+      };
+      break;
+    }
+
+    try {
+      result = await step.execute(context);
+      if (!result.success) {
+        break;
+      }
+      context = result.context;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result = {
+        success: false,
+        context,
+        error: {
+          type: 'unknown',
+          message,
+          phase: step.phase,
+          retryable: true,
+        },
+        repairAttempts: result.repairAttempts,
+      };
+      break;
+    }
+  }
+
+  return result;
 }
