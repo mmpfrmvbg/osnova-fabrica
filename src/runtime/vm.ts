@@ -46,10 +46,7 @@ import { isOsVbcModule, type OsVbcModule } from "./vm/bytecode";
 import { createDefaultInvokeHandler } from "./vm/interpreter";
 import {
   TimeoutError,
-  ExecutionError,
-  InvokeError,
   RecoveryManager,
-  type RuntimeError,
   toRuntimeError,
   isRecoverableError,
 } from "./index";
@@ -205,12 +202,15 @@ export async function safeExecutePipelineVm(
  * Расширенный результат выполнения с поддержкой recovery.
  * Включает информацию о попытках восстановления.
  */
-export interface PipelineVmExecuteResultWithRecovery extends PipelineVmExecuteResult {
+export type PipelineVmExecuteResultWithRecovery = (
+  | { readonly ok: true; readonly returnValue: StackValue | undefined }
+  | { readonly ok: false; readonly error: string; readonly cause?: unknown }
+) & {
   /** Количество попыток восстановления. */
   readonly recoveryAttempts?: number;
   /** Была ли успешная попытка восстановления. */
   readonly recoverySuccess?: boolean;
-}
+};
 
 /**
  * Опции для выполнения с восстановлением.

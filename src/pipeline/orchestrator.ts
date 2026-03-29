@@ -15,7 +15,7 @@ import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import { saveTrace } from '../trace/traceStore';
 import { logger } from '../logger';
-import { compileSource, compileToBuildReport, type CompileResult } from '../compiler/compiler';
+import { compileSource, compileToBuildReport } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
 import { loadRegistry, loadAppRegistry, registryToContext } from '../runtime/loadRegistry';
 import {
@@ -29,7 +29,6 @@ import {
   type IPipelineStep,
   type PipelineContext,
   type StepResult,
-  type PipelineError,
 } from './types';
 import { analyzeShadow } from './shadowMode';
 import type { ShadowHit } from './shadowMode';

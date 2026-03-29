@@ -2,7 +2,7 @@
  * Регрессия по операции деления по модулю (%) в VM: Issues #2, #4.
  */
 import { describe, it, expect } from "vitest";
-import { compileSource, VM, InterpreterError } from ".";
+import { compileSource, VM } from ".";
 import type { OsVbcModule, RawInstruction } from "../runtime/vm/bytecode";
 
 async function runProcIdx(module: NonNullable<ReturnType<typeof compileSource>["module"]>, index = 0) {

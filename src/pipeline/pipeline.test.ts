@@ -38,7 +38,7 @@
  * ложноположительным при частичном qualityScore (например 6/7 > 0.7 при неверном return).
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Pipeline, runPipelineWithExecAgent } from './pipeline';
 import { IntakeAgent } from '../agents/IntakeAgent';
 import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';

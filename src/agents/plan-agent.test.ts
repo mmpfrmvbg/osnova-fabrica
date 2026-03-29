@@ -243,7 +243,7 @@ describe('PlanAgent: валидный план и ветки выполнени�
     const intent = sampleIntent();
     const spec = sampleSpec();
     const plan = planAgent.buildPlan(intent, spec, { fromScratch: true, includeRepair: false });
-    const runPhase: PhaseRunner = async (phase, _step, ctx) => {
+    const runPhase: PhaseRunner = async (phase, _step, _ctx) => {
       if (phase === 'intake') return { ok: true, patch: { intent } };
       if (phase === 'spec_generation') return { ok: true, patch: { spec } };
       return { ok: true };

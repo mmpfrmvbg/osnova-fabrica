@@ -3,7 +3,6 @@
 // ============================================================
 
 import type { ExecContext, PhaseRunResult } from './exec-agent';
-import type { BuildReport, GoldenReport, OsnovaSource } from '../pipeline/types';
 import type { AgentReport, BaseAgent } from '../types/agents';
 import { BLOCKING_SEMANTIC_KINDS, NON_BLOCKING_SEMANTIC_KINDS } from '../pipeline/semanticKinds';
 import { RepairEngineerAgent } from './RepairEngineer';
@@ -245,7 +244,7 @@ export class DiagnosticAgent implements BaseAgent {
             applyResults.push({
               ruleId: rule.id,
               applied: patch !== null,
-              patch,
+              patch: patch ?? undefined,
             });
             log.debug('autofix rule applied', { ruleId: rule.id, errorType: error.type });
           } catch (err) {
@@ -298,11 +297,12 @@ export class DiagnosticAgent implements BaseAgent {
     }
   }
 
-  validate(input: unknown): DiagnosticResult {
+  validate(input: unknown, _ctx?: unknown, _plan?: unknown): void | AgentReport {
     if (!input || typeof input !== 'object') {
       throw new Error('DiagnosticAgent.validate: ожидается ExecContext');
     }
-    return this.diagnose(input as ExecContext);
+    this.diagnose(input as ExecContext);
+    return this.report();
   }
 
   run(input?: unknown): DiagnosticResult {
@@ -368,7 +368,7 @@ export class DiagnosticAgent implements BaseAgent {
       match: (error, ctx) => {
         return (error.type === 'lexer_error' || error.type === 'parser_error') && !!ctx.source;
       },
-      apply: async (ctx, error) => {
+      apply: async (ctx, _error) => {
         return await this.autofixWithRepairEngineer(ctx);
       },
     });
@@ -381,7 +381,7 @@ export class DiagnosticAgent implements BaseAgent {
       match: (error, ctx) => {
         return (error.type === 'semantic_blocking' || error.type === 'semantic_non_blocking') && !!ctx.source;
       },
-      apply: async (ctx, error) => {
+      apply: async (ctx, _error) => {
         return await this.autofixWithRepairEngineer(ctx);
       },
     });
@@ -394,7 +394,7 @@ export class DiagnosticAgent implements BaseAgent {
       match: (error, ctx) => {
         return error.type === 'compiler_error' && !!ctx.source && !!error.fixable;
       },
-      apply: async (ctx, error) => {
+      apply: async (ctx, _error) => {
         return await this.autofixWithRepairEngineer(ctx);
       },
     });
@@ -407,7 +407,7 @@ export class DiagnosticAgent implements BaseAgent {
       match: (error, ctx) => {
         return error.type === 'golden_mismatch' && !!ctx.goldenReport;
       },
-      apply: async (ctx, error) => {
+      apply: async (_ctx, _error) => {
         // Сбрасываем goldenReport для повторной попытки
         return {
           goldenReport: undefined,

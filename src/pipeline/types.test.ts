@@ -14,7 +14,6 @@ import type {
   SpecG2CheckPrefix,
   SpecG3CheckPrefix,
   ForgeStateBlockerIssueId,
-  ForgeStateBlockerAtmId,
   ForgeStateBlockerRecord,
 } from './types';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';

@@ -9,8 +9,6 @@ import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport } from './types';
 import { compileSource } from '../compiler/compiler';
-import { saveTrace } from '../trace/traceStore';
-import { runGoldenCheck } from '../runtime/goldenApps';
 import { IntakeAgent } from '../agents/IntakeAgent';
 
 // Mock LLM provider: возвращает заготовленные ответы для каждого агента

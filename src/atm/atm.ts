@@ -121,7 +121,6 @@ export function generateAtmReport(epicDir: string): AtmReport {
 
 function findCriticalPath(tasks: AtmTask[], depsGraph: Record<string, string[]>): string[] {
   // Топологическая сортировка и поиск longest path
-  const taskMap = new Map(tasks.map(t => [t.id, t]))
   const inDegree = new Map<string, number>()
   const adjList = new Map<string, string[]>()
 
@@ -232,7 +231,6 @@ function generateRecommendations(tasks: AtmTask[], byStatus: Record<string, numb
 
 export function runAtmCommand(args: string[]): void {
   const command = args[0]
-  const cleanYaml = process.env.ATM_YAML_CLEAN === '1'
 
   switch (command) {
     case 'report': {

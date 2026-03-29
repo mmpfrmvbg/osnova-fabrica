@@ -2,7 +2,7 @@
  * Тесты pipeline orchestrator: executePipeline
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { executePipeline } from './orchestrator';
 import type { IPipelineStep, PipelineContext, StepResult } from './types';
 

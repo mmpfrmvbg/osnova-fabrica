@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Interpreter, InterpreterError, OpCode, VM, runProgram, loadModule } from "./index";
+import { Interpreter, OpCode, VM, runProgram, loadModule } from "./index";
 import type { OsVbcModule, RawInstruction } from "./vm/bytecode";
 
 function tinyMod(code: RawInstruction[], constants: unknown[] = []): OsVbcModule {

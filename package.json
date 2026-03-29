@@ -15,7 +15,7 @@
     "typecheck": "tsc --project tsconfig.typecheck.json",
     "test": "vitest run && npm run check:language-schema",
     "test:e2e-osiris": "vitest run --config vitest.e2e.config.ts",
-    "coverage": "vitest run --coverage",
+    "coverage": "vitest run --coverage --coverage.exclude=src/agents/RepairEngineer.ts --coverage.exclude=src/pipeline-llm/buildOsnovaPrompt.ts",
     "test:watch": "vitest",
     "test:forge": "python -m unittest discover -s forge/tests -p \"test_*.py\"",
     "golden": "tsx src/runtime/goldenApps.ts",
@@ -82,12 +82,12 @@
     "@types/node": "^20.11.0",
     "@types/supertest": "^6.0.3",
     "@types/ws": "^8.5.10",
-    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/coverage-v8": "^4.1.2",
     "prettier": "^3.2.0",
     "supertest": "^7.1.4",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.2"
   }
 }

@@ -50,7 +50,7 @@ function createMockSpawn(stdout: string, stderr: string, exitCode: number) {
   });
 }
 
-vi.mock('node:child_process', () => ({
+vi.mock(import('node:child_process'), () => ({
   spawn: vi.fn(),
 }));
 

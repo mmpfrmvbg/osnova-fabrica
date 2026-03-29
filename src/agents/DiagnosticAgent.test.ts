@@ -350,7 +350,8 @@ describe('DiagnosticAgent', () => {
     it('validate принимает ExecContext', () => {
       const ctx = createMockContext();
       const result = agent.validate(ctx);
-      expect(result.errors).toBeDefined();
+      expect(result && 'ok' in result && result.ok).toBe(true);
+      expect(result && 'summaryText' in result && result.summaryText).toBeDefined();
     });
 
     it('validate бросает ошибку для некорректного входа', () => {

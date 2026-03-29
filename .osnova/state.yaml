@@ -35,7 +35,11 @@ executors:
     available: true
     lastprobe: null
   activefallback: null
-blockers: []
+blockers:
+- issue: 1
+  atm_id: ATM-EPK-260328-015-001
+  open: true
+  updated: '2026-03-30T12:00:00Z'
 recent:
 - epic: EPK-260329-019
   scope:

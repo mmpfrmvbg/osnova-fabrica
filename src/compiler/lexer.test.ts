@@ -192,7 +192,7 @@ describe("lexer: позиции и литералы", () => {
   });
 
   it("// комментарий до конца строки", () => {
-    const { tokens, errors } = tokenize("пусть x = 1 // коммент\n");
+    const { errors } = tokenize("пусть x = 1 // коммент\n");
     expect(errors.length).toBe(0);
     expect(kindsOf("пусть x = 1 // коммент\n")).toContain("число");
   });

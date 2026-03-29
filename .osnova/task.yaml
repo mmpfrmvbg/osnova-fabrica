@@ -1,27 +1,28 @@
-id: ATM-EPK-260329-019-003
+id: ATM-014
 epic: EPK-260329-019
-seq: 3
-zone: toolchain
-risk: MEDIUM
+seq: 14
+zone: config
+risk: LOW
 executor: cursor
-goal: Исправить конфиг Vitest (pool/retry/exclude/coverage), чтобы src/-прогон CI
-  был детерминированным.
-scope: vitest.config.ts — test.pool, exclude, coverage thresholds только в рамках
-  P0
+goal: Финальная валидация конфигурации и запуск ci
+scope:
+- package.json
 notouch:
-- apps/osiris/**
-- e2e-спеки
-done: npx vitest run src/env.test.ts
+- tsconfig.json
+- vitest.config.ts
+done: npm run ci
 steps:
-- Воспроизвести флейки/исключения, связанные с vmThreads и exclude.
-- Сузить или скорректировать exclude/thresholds без ослабления сигнала качества.
-- Подтвердить зелёный прогон одного стабильного src-теста.
+- Проверить все зависимости установлены
+- Запустить npm run ci
+- Зафиксировать успешное прохождение
 deps:
-- ATM-EPK-260329-019-001
-- ATM-EPK-260329-019-002
+- ATM-010
+- ATM-011
+- ATM-012
+- ATM-013
 maxiter: 3
 retries: 0
-status: in_progress
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: 90f14df4e00ca0310dc98d71a10e7bf39923e96e
+review_base_sha: 074cd206b6fa08fbff0903f4fb7710a03c8a13fa

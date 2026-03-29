@@ -6,7 +6,7 @@
 
 import { QUALITY_PASS, QUALITY_PARTIAL } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
-import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport, GateId, GateResult } from './types';
+import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport, GateResult } from './types';
 
 export type { GateId, GateResult } from './types';
 

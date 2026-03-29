@@ -9,11 +9,11 @@ const { buildOsnovaRepairPromptMock } = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock('../pipeline-llm/buildOsnovaPrompt', () => ({
+vi.mock(import('../pipeline-llm/buildOsnovaPrompt.ts'), () => ({
   buildOsnovaRepairPrompt: buildOsnovaRepairPromptMock,
 }));
 
-vi.mock('../llm/index', () => ({
+vi.mock(import('../llm/index.ts'), () => ({
   getLLMProvider: () => ({
     complete: async (req: { messages: { role: string; content: string }[] }) => {
       const userMsg = req.messages.find((m: { role: string }) => m.role === 'user');
