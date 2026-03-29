@@ -14,8 +14,11 @@ steps:
 - Добавить генерацию инструкций для исключений если отсутствует
 - Обновить сигнатуры функций для совместимости с VM API
 deps:
-- 7
+- ATM-EPK-260328-014-007
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: bb0752ef3fd365a84cc77424673ade3869bb0d24
+produced_files: []

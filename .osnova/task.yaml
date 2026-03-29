@@ -1,25 +1,23 @@
-id: ATM-EPK-260328-014-010
+id: ATM-EPK-260328-014-011
 epic: EPK-260328-014
-seq: 10
-zone: src/runtime/vm.test.ts
-risk: MEDIUM
+seq: 11
+zone: src/compiler/compiler.ts
+risk: LOW
 executor: cursor
-goal: Написать интеграционные тесты VM с полным циклом выполнения
+goal: Обновить компилятор для генерации байткода совместимого с runtime VM
 scope:
-- src/runtime/vm.test.ts
+- src/compiler/compiler.ts
 notouch: []
 done: npx vitest run src/runtime/
 steps:
-- Тест выполнения простого модуля с возвратом значения
-- Тест вызова нескольких функций последовательно
-- Тест обработки исключений на уровне VM
-- Тест с native function callbacks
+- Проверить соответствие генерируемых OpCode инструкциям interpreter.ts
+- Добавить генерацию инструкций для исключений если отсутствует
+- Обновить сигнатуры функций для совместимости с VM API
 deps:
 - ATM-EPK-260328-014-007
-- ATM-EPK-260328-014-009
 maxiter: 3
 retries: 0
 status: done
 priority: P1
 max_retries: 3
-review_base_sha: fcf983ea1e16113414cb0e1b8c21aa0326035576
+review_base_sha: bb0752ef3fd365a84cc77424673ade3869bb0d24

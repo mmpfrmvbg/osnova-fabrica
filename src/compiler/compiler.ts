@@ -5,13 +5,17 @@
  * Поля CompileResult → BuildReport (orchestrator.compileToBuildReport):
  *   module → bytecode; compilerSuccess; lexer/parser/compiler errors; semanticErrors; durationMs.
  *   Опционально modules[] при multi-module Program.
+ *
+ * Байткод исполняется VM: канон имён опкодов — {@link import("../runtime/vm/bytecode").Op},
+ * диспетчеризация шага — {@link import("../runtime/vm/interpreter").VM} / interpretInstruction.
  */
 
 import { tokenize } from './lexer';
 import { parse, type ParseError } from './parser';
 import { compile, compileProgram } from './codegen';
-import { isVliwPacket, type CodeElement, type RawInstruction } from '../runtime/vm/bytecode';
-import { VM, type InterpreterOptions, type OsVbcModule, type StackValue } from './vm';
+import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction } from '../runtime/vm/bytecode';
+import { OsVbcVM, type OsVbcVMOptions, type StackValue } from '../runtime/vm';
+import { InterpreterError } from '../runtime/vm/interpreter';
 import { analyzeProgram, type SemanticError } from './semantic';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
 import * as fs from 'fs';
@@ -42,7 +46,7 @@ export interface CompileOptions {
   baseDir?: string;
 }
 
-/** Опции полного цикла: компиляция + запуск VM. */
+/** Опции полного цикла: компиляция + запуск через {@link OsVbcVM} (обёртка над Interpreter/VM). */
 export interface ExecuteOptions extends CompileOptions {
   /** Индекс процедуры (по умолчанию 0). */
   procedureIndex?: number;
@@ -50,8 +54,8 @@ export interface ExecuteOptions extends CompileOptions {
   procedureName?: string;
   /** Аргументы вызова процедуры. */
   args?: StackValue[];
-  /** Параметры интерпретатора (invoke, maxSteps). */
-  vm?: InterpreterOptions;
+  /** Опции {@link OsVbcVM}: invoke, maxSteps, globals, onExecutionLog и т.д. */
+  vm?: OsVbcVMOptions;
 }
 
 /**
@@ -65,7 +69,7 @@ export class Compiler {
   }
 
   /**
-   * Компилирует исходник и выполняет одну процедуру в VM.
+   * Компилирует исходник и выполняет одну процедуру через {@link OsVbcVM} (тот же байткод и опкоды, что у {@link import("../runtime/vm/interpreter").VM}).
    * При ошибках компиляции бросает Error с агрегированным сообщением.
    */
   async execute(source: string, options: ExecuteOptions = {}): Promise<StackValue | undefined> {
@@ -79,9 +83,18 @@ export class Compiler {
       ];
       throw new Error(parts.length > 0 ? parts.join("; ") : "compilation failed");
     }
-    const vm = new VM(result.module, vmOpts);
-    const idx = procedureName !== undefined ? vm.findProcedureIndex(procedureName) : procedureIndex;
-    return await vm.runProcedure(idx, args);
+    const osvm = new OsVbcVM(result.module, vmOpts ?? {});
+    let procedure: string;
+    if (procedureName !== undefined) {
+      procedure = procedureName;
+    } else {
+      const def = result.module.procedures[procedureIndex];
+      if (!def) {
+        throw new InterpreterError(`Invalid procedure index: ${procedureIndex}`);
+      }
+      procedure = def.name;
+    }
+    return await osvm.execute({ procedure, args });
   }
 }
 
