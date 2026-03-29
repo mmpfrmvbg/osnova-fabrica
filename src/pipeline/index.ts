@@ -6,7 +6,7 @@
 export { Pipeline, runPipelineWithExecAgent } from './pipeline';
 
 // Оркестратор (линейный пайплайн)
-export { runPipeline as runPipelineOrchestrator, compileToBuildReport, hasBlockingSemanticErrors } from './orchestrator';
+export { runPipeline as runPipelineOrchestrator, compileToBuildReport, hasBlockingSemanticErrors, extractLastErrorKind } from './orchestrator';
 
 // Типы
 export type {
