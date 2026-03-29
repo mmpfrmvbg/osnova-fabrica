@@ -60,7 +60,7 @@ export function isIgnoredStatus(status: DiagnosticStatus): status is 'ignored' {
   return status === 'ignored';
 }
 
-// ─── Алиасы PipelineStatus ↔ DiagnosticCode ───
+// ─── Связка DiagnosticCode ↔ DiagnosticPipelineStatus (см. PIPELINE_STATUS_FOR_DIAGNOSTIC) ───
 
 /** Серия 015: атом не найден. */
 export const DIAGNOSTIC_015_ATOM_NOT_FOUND: DiagnosticCode = '015-001';
@@ -74,6 +74,46 @@ export const DIAGNOSTIC_FBK016_REJECTED: DiagnosticCode = 'FBK016-001';
 export const DIAGNOSTIC_FBK016_TIMEOUT: DiagnosticCode = 'FBK016-002';
 /** Серия FBK016: лимит попыток обратной связи превышен. */
 export const DIAGNOSTIC_FBK016_LIMIT_EXCEEDED: DiagnosticCode = 'FBK016-003';
+
+/** Подмножество {@link PipelineStatus}: только исходы 015 / FBK016 (1:1 с {@link DiagnosticCode}). */
+export type DiagnosticPipelineStatus =
+  | 'error_015_atom_not_found'
+  | 'error_015_atom_corrupted'
+  | 'error_015_dep_unresolved'
+  | 'error_fbk016_rejected'
+  | 'error_fbk016_timeout'
+  | 'error_fbk016_limit_exceeded';
+
+/** Итоговый статус пайплайна по коду диагностики (единый контракт 015/FBK016). */
+export const PIPELINE_STATUS_FOR_DIAGNOSTIC: Readonly<Record<DiagnosticCode, DiagnosticPipelineStatus>> = {
+  '015-001': 'error_015_atom_not_found',
+  '015-002': 'error_015_atom_corrupted',
+  '015-003': 'error_015_dep_unresolved',
+  'FBK016-001': 'error_fbk016_rejected',
+  'FBK016-002': 'error_fbk016_timeout',
+  'FBK016-003': 'error_fbk016_limit_exceeded',
+};
+
+export function pipelineStatusFromDiagnosticCode(code: DiagnosticCode): DiagnosticPipelineStatus {
+  return PIPELINE_STATUS_FOR_DIAGNOSTIC[code];
+}
+
+export function diagnosticCodeFromPipelineStatus(status: DiagnosticPipelineStatus): DiagnosticCode {
+  switch (status) {
+    case 'error_015_atom_not_found':
+      return '015-001';
+    case 'error_015_atom_corrupted':
+      return '015-002';
+    case 'error_015_dep_unresolved':
+      return '015-003';
+    case 'error_fbk016_rejected':
+      return 'FBK016-001';
+    case 'error_fbk016_timeout':
+      return 'FBK016-002';
+    case 'error_fbk016_limit_exceeded':
+      return 'FBK016-003';
+  }
+}
 
 // ─── Входные данные ───
 
@@ -252,12 +292,7 @@ export type PipelineStatus =
   | 'partial'
   | 'repair_exhausted'
   | 'error'
-  | 'error_015_atom_not_found'
-  | 'error_015_atom_corrupted'
-  | 'error_015_dep_unresolved'
-  | 'error_fbk016_rejected'
-  | 'error_fbk016_timeout'
-  | 'error_fbk016_limit_exceeded';
+  | DiagnosticPipelineStatus;
 
 export interface PipelineResult {
   readonly status: PipelineStatus;
@@ -273,6 +308,8 @@ export interface PipelineResult {
   readonly error?: string;
   /** Kind последней ошибки при repair_exhausted (A-2) */
   readonly lastErrorKind?: string;
+  /** Собранные диагностики 015 / FBK016 (Forge / обратная связь); оркестратор может не заполнять. */
+  readonly diagnostics?: readonly DiagnosticReport[];
 }
 
 /**

@@ -1,0 +1,23 @@
+id: ATM-003
+epic: EPK-260329-021
+seq: 3
+zone: compiler
+risk: HIGH
+executor: qwen
+goal: Стабилизировать публичный barrel компилятора (compile/codegen/VM) для пайплайна
+  и агентов.
+scope:
+- src/compiler/index.ts — единый экспортный контракт
+notouch:
+- tsconfig.json
+- vitest.config.ts
+done: npx vitest run src/compiler/compiler.test.ts
+steps:
+- Сверить re-export с compiler.ts, codegen.ts, vm.ts.
+- Убрать дубли/дыры экспорта, влияющие на потребителей в src/.
+- Не менять внутреннюю логику модулей вне index при возможности.
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

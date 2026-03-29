@@ -1,0 +1,23 @@
+id: ATM-004
+epic: EPK-260329-021
+seq: 4
+zone: compiler
+risk: MEDIUM
+executor: qwen
+goal: Проверить семантический слой после фиксации barrel компилятора.
+scope:
+- src/compiler/index.ts — согласованность типов CompileResult/IR с потребителями
+notouch:
+- src/agents/index.ts
+- .tmp/diagnostics.log
+done: npx vitest run src/compiler/semantic.test.ts
+steps:
+- Проверить что типы CompileResult/OsnovaIrModule доступны из barrel.
+- При необходимости добавить type-only re-export в index.ts.
+- Зафиксировать отсутствие циклических импортов через index.
+deps:
+- ATM-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

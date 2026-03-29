@@ -7,6 +7,7 @@ import type {
   DiagnosticReport,
   DiagnosticCode,
   DiagnosticStatus,
+  DiagnosticPipelineStatus,
   PipelineStatus,
   PipelineResult,
 } from './types';
@@ -22,6 +23,9 @@ import {
   DIAGNOSTIC_FBK016_REJECTED,
   DIAGNOSTIC_FBK016_TIMEOUT,
   DIAGNOSTIC_FBK016_LIMIT_EXCEEDED,
+  PIPELINE_STATUS_FOR_DIAGNOSTIC,
+  pipelineStatusFromDiagnosticCode,
+  diagnosticCodeFromPipelineStatus,
 } from './types';
 
 describe('DiagnosticCode', () => {
@@ -162,6 +166,30 @@ describe('PipelineStatus с ошибками 015 и FBK016', () => {
   });
 });
 
+describe('DiagnosticCode ↔ DiagnosticPipelineStatus', () => {
+  const pairs: [DiagnosticCode, DiagnosticPipelineStatus][] = [
+    ['015-001', 'error_015_atom_not_found'],
+    ['015-002', 'error_015_atom_corrupted'],
+    ['015-003', 'error_015_dep_unresolved'],
+    ['FBK016-001', 'error_fbk016_rejected'],
+    ['FBK016-002', 'error_fbk016_timeout'],
+    ['FBK016-003', 'error_fbk016_limit_exceeded'],
+  ];
+
+  it('PIPELINE_STATUS_FOR_DIAGNOSTIC совпадает с ожидаемой таблицей', () => {
+    for (const [code, st] of pairs) {
+      expect(PIPELINE_STATUS_FOR_DIAGNOSTIC[code]).toBe(st);
+      expect(pipelineStatusFromDiagnosticCode(code)).toBe(st);
+    }
+  });
+
+  it('diagnosticCodeFromPipelineStatus — обратное отображение', () => {
+    for (const [code, st] of pairs) {
+      expect(diagnosticCodeFromPipelineStatus(st)).toBe(code);
+    }
+  });
+});
+
 describe('PipelineResult с lastErrorKind', () => {
   it('успешный результат без lastErrorKind', () => {
     const result: PipelineResult = {
@@ -171,6 +199,26 @@ describe('PipelineResult с lastErrorKind', () => {
     };
     expect(result.status).toBe('success');
     expect(result.lastErrorKind).toBeUndefined();
+  });
+
+  it('результат с diagnostics (015/FBK016)', () => {
+    const diagnostics: DiagnosticReport[] = [
+      {
+        code: '015-001',
+        status: 'blocked',
+        message: 'Атом не найден',
+        timestamp: '2026-03-29T10:00:00.000Z',
+      },
+    ];
+    const result: PipelineResult = {
+      status: pipelineStatusFromDiagnosticCode('015-001'),
+      repairAttempts: 0,
+      totalDurationMs: 100,
+      diagnostics,
+    };
+    expect(result.status).toBe('error_015_atom_not_found');
+    expect(result.diagnostics).toHaveLength(1);
+    expect(diagnosticCodeFromPipelineStatus(result.status as DiagnosticPipelineStatus)).toBe('015-001');
   });
 
   it('результат repair_exhausted с lastErrorKind', () => {

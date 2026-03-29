@@ -1,0 +1,26 @@
+t: EPK
+id: EPK-260329-021
+goal: Диагностика и устранение корневой причины 14 открытых blockers (EPK-260328-015
+  и EPK-260328-FBK016)
+scope:
+- src/pipeline/types.ts
+- src/compiler/index.ts
+- src/runtime/index.ts
+- src/agents/index.ts
+- src/pipeline-llm/index.ts
+- tsconfig.json
+- vitest.config.ts
+- package.json
+- .tmp/diagnostics.log
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+  - ATM-005
+- - ATM-006
+  - ATM-007
+- - ATM-008
+done: npx vitest run src/
+priority: P0
+githubissue: 88

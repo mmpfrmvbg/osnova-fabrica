@@ -1,21 +1,23 @@
-id: ATM-009
-epic: EPK-260329-020
-seq: 9
-zone: runtime
-risk: MED
+id: ATM-001
+epic: EPK-260329-021
+seq: 1
+zone: pipeline
+risk: HIGH
 executor: cursor
-goal: Устранить расхождения исполнителя стека/фреймов с codegen
-scope: src/runtime/vm.ts — dispatch, опкоды, границы ошибок
+goal: Свести типы стадий/результатов пайплайна к одному контракту и убрать расхождения,
+  дающие blockers EPK-260328-015/016.
+scope:
+- src/pipeline/types.ts — аудит и правка доменных типов стадий
 notouch:
-- src/runtime/runner.ts
-- src/runtime/sandbox.ts
-done: npx vitest run src/runtime/vm.test.ts
+- src/compiler/index.ts
+- src/runtime/index.ts
+- package.json
+done: npx vitest run src/pipeline/types.test.ts
 steps:
-- Сверить порядок опкодов с codegen
-- Исправить vm по падениям vm.test
-- Добавить минимальную диагностику только если тест требует
-deps:
-- ATM-008
+- Прочитать текущие типы стадий, ошибок и флагов в types.ts.
+- Сопоставить с фактическими полями в orchestrator/pipeline без изменения других зон.
+- Внести минимальные правки типов и экспортов; прогнать узкий тест.
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,0 +1,25 @@
+id: ATM-011
+epic: EPK-260329-021
+seq: 11
+zone: infra
+risk: MEDIUM
+executor: qwen
+goal: Выровнять tsconfig с новыми barrel-файлами и путями src/.
+scope:
+- tsconfig.json — include/paths/ref для index.ts
+notouch:
+- src/pipeline/types.ts
+- src/compiler/index.ts
+done: npx vitest run tsconfig.test.ts
+steps:
+- Проверить compilation root и include на новые index.ts.
+- Добавить минимальные правки paths только если ломается резолв.
+- Не ослаблять strict без причины.
+deps:
+- ATM-005
+- ATM-007
+- ATM-009
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

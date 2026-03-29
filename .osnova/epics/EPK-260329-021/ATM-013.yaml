@@ -1,0 +1,23 @@
+id: ATM-013
+epic: EPK-260329-021
+seq: 13
+zone: infra
+risk: MEDIUM
+executor: qwen
+goal: Синхронизировать scripts и зависимости с целевым прогоном vitest по src/.
+scope:
+- package.json — test script и типы devDeps при необходимости
+notouch:
+- src/pipeline/types.ts
+- vitest.config.ts
+done: npx vitest run package.test.ts
+steps:
+- Проверить npm test / vitest команды на соответствие EPK done.
+- Добавить или уточнить script только если нужно для CI/локали.
+- Не апгрейдить major без необходимости.
+deps:
+- ATM-012
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

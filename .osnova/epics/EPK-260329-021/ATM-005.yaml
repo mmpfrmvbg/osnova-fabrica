@@ -1,0 +1,24 @@
+id: ATM-005
+epic: EPK-260329-021
+seq: 5
+zone: runtime
+risk: HIGH
+executor: qwen
+goal: Добавить или восстановить src/runtime/index.ts как стабильную точку входа VM/интерпретатора.
+scope:
+- src/runtime/index.ts — публичный barrel рантайма
+notouch:
+- src/pipeline/types.ts
+- package.json
+done: npx vitest run src/runtime/vm.test.ts
+steps:
+- Создать index.ts при отсутствии; re-export из vm.ts, interpreter.ts и связанных
+  типов.
+- Выравнять имена экспортов с импортами в pipeline/agents.
+- Не трогать goldenApps/cli в этом ATM.
+deps:
+- ATM-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

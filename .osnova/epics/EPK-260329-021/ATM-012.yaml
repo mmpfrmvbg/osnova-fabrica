@@ -1,0 +1,23 @@
+id: ATM-012
+epic: EPK-260329-021
+seq: 12
+zone: infra
+risk: LOW
+executor: qwen
+goal: Убедиться что корневой vitest покрывает src/ и не отсекает новые entry.
+scope:
+- vitest.config.ts — exclude/include/pool для src
+notouch:
+- package.json
+- src/runtime/index.ts
+done: npx vitest run src/compiler/lexer.test.ts
+steps:
+- Проверить exclude не режет новые тесты barrel-зон.
+- Скорректировать только patterns при ложных исключениях.
+- Сохранить исключение apps/osiris.
+deps:
+- ATM-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

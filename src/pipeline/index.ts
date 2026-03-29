@@ -25,9 +25,21 @@ export type {
   GateResult,
   PipelineLLMHealth,
   PipelineTracePersistedStatus,
+  DiagnosticCode,
+  DiagnosticStatus,
+  DiagnosticReport,
+  DiagnosticPipelineStatus,
+  PipelineStatus,
 } from './types';
 
-export { toPipelineTracePersistedStatus } from './types';
+export {
+  toPipelineTracePersistedStatus,
+  PIPELINE_STATUS_FOR_DIAGNOSTIC,
+  pipelineStatusFromDiagnosticCode,
+  diagnosticCodeFromPipelineStatus,
+  is015DiagnosticCode,
+  isFBK016DiagnosticCode,
+} from './types';
 
 // Вспомогательные модули
 export { analyzeShadow, aggregateShadow } from './shadowMode';

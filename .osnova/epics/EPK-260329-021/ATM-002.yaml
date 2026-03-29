@@ -1,0 +1,23 @@
+id: ATM-002
+epic: EPK-260329-021
+seq: 2
+zone: pipeline
+risk: MEDIUM
+executor: qwen
+goal: Проверить согласованность типов пайплайна с оркестратором после правок types.ts.
+scope:
+- src/pipeline/types.ts — кросс-проверка с контрактом оркестратора
+notouch:
+- src/pipeline-llm/index.ts
+- vitest.config.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
+steps:
+- Найти места импорта типов из types.ts в orchestrator/pipeline.
+- Устранить оставшиеся несоответствия только через типы или узкие алиасы в types.ts.
+- Убедиться что публичный API типов покрывает 14 сценариев blockers из диагностики.
+deps:
+- ATM-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

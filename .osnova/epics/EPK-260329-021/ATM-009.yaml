@@ -1,0 +1,24 @@
+id: ATM-009
+epic: EPK-260329-021
+seq: 9
+zone: pipeline-llm
+risk: HIGH
+executor: qwen
+goal: Добавить src/pipeline-llm/index.ts и связать repair/prompt модули с пайплайном.
+scope:
+- src/pipeline-llm/index.ts — barrel LLM-ремонта
+notouch:
+- src/compiler/index.ts
+- package.json
+done: npx vitest run src/pipeline-llm/repairTarget.test.ts
+steps:
+- Создать index.ts; re-export из repairTarget.ts и buildOsnovaPrompt.ts по необходимости.
+- Убедиться в отсутствии циклов с pipeline/types.
+- Не менять алгоритм repair в этом ATM сверх экспорта.
+deps:
+- ATM-001
+- ATM-007
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

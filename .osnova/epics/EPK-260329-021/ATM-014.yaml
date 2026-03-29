@@ -1,0 +1,24 @@
+id: ATM-014
+epic: EPK-260329-021
+seq: 14
+zone: diagnostics
+risk: LOW
+executor: qwen
+goal: Зафиксировать путь и формат .tmp/diagnostics.log для воспроизведения 14 blockers.
+scope:
+- .tmp/diagnostics.log — контракт записи/ротации
+notouch:
+- src/compiler/index.ts
+- tsconfig.json
+done: npx vitest run src/pipeline/orchestrator.partial.test.ts
+steps:
+- Найти writer диагностики в pipeline/orchestrator (только чтение).
+- Обеспечить создание .tmp и единый путь лога без дублирования.
+- Документировать в коде константу пути если отсутствует; не логировать секреты.
+deps:
+- ATM-002
+- ATM-010
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

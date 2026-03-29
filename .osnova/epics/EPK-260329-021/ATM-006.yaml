@@ -1,0 +1,23 @@
+id: ATM-006
+epic: EPK-260329-021
+seq: 6
+zone: runtime
+risk: MEDIUM
+executor: qwen
+goal: Проверить исполнение через публичный API рантайма после barrel.
+scope:
+- src/runtime/index.ts — интерпретация и ошибки исполнения
+notouch:
+- src/compiler/index.ts
+- vitest.config.ts
+done: npx vitest run src/runtime/interpreter.test.ts
+steps:
+- Убедиться что run/load API доступны из index согласованно с vm.ts.
+- При необходимости тонко поправить только экспорты index.ts.
+- Прогнать тест интерпретатора.
+deps:
+- ATM-005
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0
