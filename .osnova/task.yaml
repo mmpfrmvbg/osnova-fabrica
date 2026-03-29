@@ -1,24 +1,24 @@
-id: ATM-EPK-260328-018-002
+id: ATM-EPK-260328-018-003
 epic: EPK-260328-018
-seq: 2
+seq: 3
 zone: agents
 risk: HIGH
 executor: cursor
-goal: Fix Group A — устранить ошибки типов в IntakeAgent
+goal: Fix Group B — устранить ошибки типов в PlanAgent
 scope:
-- src/agents/intake-agent.ts — основной файл для исправлений
+- src/agents/plan-agent.ts — основной файл для исправлений
 notouch:
 - src/agents/agents.test.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Импортировать недостающие типы из compiler.ts
-- Исправить сигнатуры методов согласно интерфейсу Agent
-- Устранить ошибки приведения типов
+- Синхронизировать типы с pipeline.ts
+- Исправить обработку PlanStep
+- Добавить явные аннотации типов
 deps:
 - ATM-EPK-260328-018-001
 maxiter: 3
 retries: 0
-status: in_progress
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: 1a477f4ae6132334deac0b469f2c3750c2f3bf2a
+review_base_sha: a92e4e3f1cb995c921d1c1f958b17954f3de5118

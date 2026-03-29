@@ -112,13 +112,13 @@ export class PlanAgent implements BaseAgent {
 
     const steps = this.buildExecutionSteps(fromScratch, includeRepair);
 
-    const plan: ExecutionPlan = {
+    const plan = {
       planId: randomUUID(),
       intentId: intent.intentId,
       specId: spec.specId,
       fromScratch,
       steps,
-    };
+    } satisfies ExecutionPlan;
 
     this.validatePlan(plan);
     this.lastPlan = plan;
@@ -175,7 +175,7 @@ export class PlanAgent implements BaseAgent {
     if (!plan.specId?.trim()) {
       throw new PlanValidationError('plan.specId is required', 'spec_id');
     }
-    const steps = plan.steps;
+    const steps: readonly PlanStep[] = plan.steps;
     if (!Array.isArray(steps) || steps.length === 0) {
       throw new PlanValidationError('plan.steps must be a non-empty array', 'steps_empty');
     }
@@ -246,7 +246,7 @@ export class PlanAgent implements BaseAgent {
    * Декомпозиция пайплайна на упорядоченные шаги: опционально полный intake-цикл,
    * затем codegen → build → golden_check и опционально repair.
    */
-  private buildExecutionSteps(fromScratch: boolean, includeRepair: boolean): PlanStep[] {
+  private buildExecutionSteps(fromScratch: boolean, includeRepair: boolean): readonly PlanStep[] {
     const steps: PlanStep[] = [];
     let order = 1;
     const push = (phase: PipelinePhase, description?: string): void => {
