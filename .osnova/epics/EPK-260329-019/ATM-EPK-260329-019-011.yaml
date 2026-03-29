@@ -1,21 +1,20 @@
 id: ATM-EPK-260329-019-011
 epic: EPK-260329-019
 seq: 11
-zone: pipeline
-risk: HIGH
+zone: compiler
+risk: LOW
 executor: qwen
-goal: Восстановить тесты pipeline.test.ts после исправления типов
-scope:
-- src/pipeline/pipeline.test.ts
+goal: Зафиксировать семантический слой после стабилизации parse surface.
+scope: src/compiler/index.ts — semantic entry только если уже экспортируется
 notouch:
-- src/agents/agents.test.ts
-done: npx vitest run src/pipeline/pipeline.test.ts --reporter=verbose
+- src/pipeline/**
+- src/agents/**
+done: npx vitest run src/compiler/semantic.test.ts
 steps:
-- Проверить импорты в тестах
-- Исправить типы в тестах (Pipeline, ExecContext, GoldenReport)
-- Запустить vitest run для pipeline.test.ts
+- Сверить semantic export с потребителями в runtime/pipeline.
+- Устранить несовместимости типов на границе semantic.
+- Прогнать semantic тест.
 deps:
-- ATM-EPK-260329-019-006
 - ATM-EPK-260329-019-010
 maxiter: 3
 retries: 0

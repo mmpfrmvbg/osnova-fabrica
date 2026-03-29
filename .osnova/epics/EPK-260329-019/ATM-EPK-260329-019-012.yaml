@@ -1,21 +1,22 @@
 id: ATM-EPK-260329-019-012
 epic: EPK-260329-019
 seq: 12
-zone: agents
-risk: HIGH
+zone: runtime
+risk: MEDIUM
 executor: qwen
-goal: Интеграционный E2E прогон agents/ и pipeline/
-scope:
-- src/agents/agents.test.ts
-notouch: []
-done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+goal: Починить VM/runtime фасад для исполнения скомпилированных программ (блокеры
+  исполнения FBK016).
+scope: src/runtime/index.ts — VM/interpreter exports и инициализация
+notouch:
+- src/runtime/cli.ts
+- src/runtime/goldenApps.ts
+done: npx vitest run src/runtime/vm.test.ts
 steps:
-- Запустить vitest run для src/agents/ и src/pipeline/
-- Проверить отсутствие TypeScript-ошибок
-- Зафиксировать результат в логе
+- Проверить соответствие index экспортов фактическим entry раннера.
+- Устранить ошибки линковки после правок compiler/pipeline.
+- Подтвердить VM unit-тест.
 deps:
-- ATM-EPK-260329-019-010
-- ATM-EPK-260329-019-011
+- ATM-EPK-260329-019-009
 maxiter: 3
 retries: 0
 status: PENDING

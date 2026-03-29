@@ -1,0 +1,297 @@
+
+> osnova-fabrica@0.1.1 ci
+> tsc --noEmit && vitest run src/ && npm run osnova-language:validate && npm run check:language-schema ; echo Exit code: 0
+
+
+[1m[46m RUN [49m[22m [36mv4.1.2 [39m[90md:/PROJECTS/OSNOVA-FABRIKA[39m
+
+ [32m✓[39m src/runtime/vm/interpreter.test.ts [2m([22m[2m65 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32m✓[39m src/runtime/vm.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 56[2mms[22m[39m
+ [32m✓[39m src/runtime/goldenApps.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 47[2mms[22m[39m
+[90mstdout[2m | src/compiler/golden-runner.test.ts[2m > [22m[2mgolden-tests.json — компиляция MVP-кейсов[2m > [22m[2m[throw_inside_if] выбросить внутри если внутри попробовать
+[22m[39mпревышен лимит
+
+ [32m✓[39m src/compiler/golden-runner.test.ts [2m([22m[2m79 tests[22m[2m)[22m[32m 159[2mms[22m[39m
+[90mstderr[2m | src/compiler/semantic.test.ts[2m > [22m[2mLoop control semantic diagnostics[2m > [22m[2mпрервать вне цикла -> break_outside_loop
+[22m[39m[codegen] прервать вне цикла дошел до codegen; emit const.null fallback
+
+[90mstderr[2m | src/compiler/semantic.test.ts[2m > [22m[2mLoop control semantic diagnostics[2m > [22m[2mпродолжить вне цикла -> continue_outside_loop
+[22m[39m[codegen] продолжить вне цикла дошел до codegen; emit const.null fallback
+
+ [32m✓[39m src/compiler/semantic.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+ [32m✓[39m src/compiler/vm.test.ts [2m([22m[2m20 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m src/llm/stripMarkdownFence.test.ts [2m([22m[2m100 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+[90mstderr[2m | src/agents/agents.test.ts[2m > [22m[2mIntakeAgent — валидация входа parseIntent[2m > [22m[2mотклоняет пустой текст
+[22m[39m[intake-agent] parseIntent: invalid input { field: [32m'text'[39m }
+
+[90mstderr[2m | src/agents/agents.test.ts[2m > [22m[2mIntakeAgent — валидация входа parseIntent[2m > [22m[2mотклоняет пустой текст
+[22m[39m[intake-agent] parseIntent: invalid input { field: [32m'text'[39m }
+
+[90mstderr[2m | src/agents/agents.test.ts[2m > [22m[2mIntakeAgent — валидация входа parseIntent[2m > [22m[2mотклоняет текст из одних пробелов
+[22m[39m[intake-agent] parseIntent: invalid input { field: [32m'text'[39m }
+
+[90mstderr[2m | src/agents/agents.test.ts[2m > [22m[2mIntakeAgent — валидация входа parseIntent[2m > [22m[2mотклоняет не-строковый text
+[22m[39m[intake-agent] parseIntent: invalid input { field: [32m'text'[39m }
+
+[90mstderr[2m | src/agents/agents.test.ts[2m > [22m[2mIntakeAgent — валидация входа generateSpec[2m > [22m[2mотклоняет пустой intentId
+[22m[39m[intake-agent] generateSpec: invalid intent { field: [32m'intentId'[39m }
+
+[90mstderr[2m | src/agents/agents.test.ts[2m > [22m[2mIntakeAgent — валидация входа generateSpec[2m > [22m[2mотклоняет пустое description
+[22m[39m[intake-agent] generateSpec: invalid intent { field: [32m'description'[39m }
+
+[90mstderr[2m | src/agents/agents.test.ts[2m > [22m[2mIntakeAgent — валидация входа generateSpec[2m > [22m[2mотклоняет features не-массив
+[22m[39m[intake-agent] generateSpec: invalid intent { field: [32m'features'[39m }
+
+ [32m✓[39m src/runtime/interpreter.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/pipeline/orchestrator.partial.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 767[2mms[22m[39m
+     [33m[2m✓[22m[39m при non-blocking semanticErrors + golden passed → status=success [33m 760[2mms[22m[39m
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] phase: intake
+
+[90mstdout[2m | src/agents/agents.test.ts[2m > [22m[2mExecAgent — createPipelineVmFromExecContext (runtime/vm)[2m > [22m[2mсоздаёт VM с applyPipelineSpecToVm: globals и успешный execute
+[22m[39m[33m55[39m
+
+ [31m❯[39m src/pipeline/orchestrator.test.ts [2m([22m[2m27 tests[22m[2m | [22m[31m6 failed[39m[2m)[22m[32m 55[2mms[22m[39m
+[31m     [31m×[31m runPipeline: task → success with mock LLM[39m[32m 12[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m runPipeline: partial — qualityScore в [0.5, 0.7)[39m[32m 2[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m runPipeline: repair_exhausted — G3 всегда падает[39m[32m 2[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m runPipeline: error — G1 падает при пустых features[39m[32m 2[2mms[22m[39m[33m (retry x2)[39m
+     [32m✓[39m undefined buildReport → false[32m 2[2mms[22m[39m
+     [32m✓[39m пустой semanticErrors → false[32m 3[2mms[22m[39m
+     [32m✓[39m non-blocking kind → false[32m 0[2mms[22m[39m
+     [32m✓[39m redeclare_var → true[32m 0[2mms[22m[39m
+     [32m✓[39m syscall_argc → true[32m 0[2mms[22m[39m
+     [32m✓[39m CompileResult → BuildReport: success[32m 13[2mms[22m[39m
+     [32m✓[39m CompileResult → BuildReport: parser errors[32m 1[2mms[22m[39m
+     [32m✓[39m G1: passes with valid intent and spec[32m 1[2mms[22m[39m
+     [32m✓[39m G1: passes when confidence < 0.7 for утилита (check skipped)[32m 0[2mms[22m[39m
+     [32m✓[39m G1: fails when confidence < 0.7 for non-утилита[32m 1[2mms[22m[39m
+     [32m✓[39m G1: fails when no modules[32m 0[2mms[22m[39m
+     [32m✓[39m G2: passes with successful build[32m 0[2mms[22m[39m
+     [32m✓[39m G2: fails when parser errors[32m 0[2mms[22m[39m
+     [32m✓[39m G3: passes when executed and quality OK[32m 0[2mms[22m[39m
+     [32m✓[39m G3: fails when VM not executed[32m 0[2mms[22m[39m
+     [32m✓[39m success=false при redeclare_var (blocking)[32m 0[2mms[22m[39m
+     [32m✓[39m success=false при syscall_argc (blocking)[32m 0[2mms[22m[39m
+     [32m✓[39m success=true при non-blocking semantic error[32m 0[2mms[22m[39m
+     [32m✓[39m true при blocking kind в semanticErrors[32m 0[2mms[22m[39m
+     [32m✓[39m false при пустом semanticErrors[32m 0[2mms[22m[39m
+     [32m✓[39m false при undefined buildReport[32m 0[2mms[22m[39m
+[31m     [31m×[31m при qualityScore в [0.5, 0.7) возвращает status partial без repair[39m[32m 7[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m при ошибке компиляции запускает RepairEngineer и завершаетcя не в error[39m[32m 2[2mms[22m[39m[33m (retry x2)[39m
+ [32m✓[39m src/agents/agents.test.ts [2m([22m[2m72 tests[22m[2m)[22m[32m 106[2mms[22m[39m
+ [32m✓[39m src/compiler/compiler.test.ts [2m([22m[2m98 tests[22m[2m)[22m[32m 132[2mms[22m[39m
+ [32m✓[39m src/trace/traceStore.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+ [31m❯[39m src/agents/RepairEngineer.test.ts [2m([22m[2m10 tests[22m[2m | [22m[31m10 failed[39m[2m)[22m[32m 44[2mms[22m[39m
+[31m     [31m×[31m вызывает buildOsnovaRepairPrompt с исходным кодом[39m[32m 20[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m передаёт lexer ошибки в errors[39m[32m 3[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m передаёт parser ошибки в errors[39m[32m 3[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m передаёт errorKinds (blocking) в buildOsnovaRepairPrompt[39m[32m 2[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m передаёт только blocking semantic errors[39m[32m 2[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m передаёт VM ошибки из goldenReport[39m[32m 5[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m передаёт outputDiff из goldenReport[39m[32m 1[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m передаёт prefix с номером попытки[39m[32m 1[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m возвращает OsnovaSource с тем же filename[39m[32m 1[2mms[22m[39m[33m (retry x2)[39m
+[31m     [31m×[31m не падает при пустом buildReport и goldenReport[39m[32m 1[2mms[22m[39m[33m (retry x2)[39m
+ [32m✓[39m src/llm/QwenCliProvider.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m src/compiler/parser.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+ [32m✓[39m src/pipeline/shadowMode.test.ts [2m([22m[2m22 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/scripts/export-dataset.test.ts [2m([22m[2m20 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/compiler/lexer.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32m✓[39m src/pipeline/gateChecker.test.ts [2m([22m[2m22 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/llm/DeepSeekProvider.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/llm/OllamaProvider.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/scripts/analyze-language-health.test.ts [2m([22m[2m25 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m✓[39m src/intelligence/sources/rss-generic.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m src/steward/decision-journal.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/pipeline/healthScore.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m src/steward/auto-approve.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/scripts/analyze-dataset-health.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/compiler/codegen.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/steward/rfc.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+[90mstdout[2m | src/scripts/trace-viewer.test.ts
+[22m[39m
+═══ СТАТИСТИКА ТРЕЙСОВ ═══
+Всего трейсов : 1460
+  ❓ failure              6 (0.4%)
+  ✅ success              1200 (82.2%)
+  ❌ repair_exhausted     102 (7.0%)
+  ⚠️  partial              6 (0.4%)
+  ❓ error                146 (10.0%)
+Repair-попыток: 517 (avg 0.35 на трейс)
+Golden passed : 1200/1261 (95.2%)
+
+═══ SUCCESS RATE ПО МОДЕЛЯМ ═══
+  qwen-coder-plus           79.9% success  (821/1028)  avg repairs: 0.31
+  unknown                   87.7% success  (379/432)  avg repairs: 0.46
+
+═══ ТОП ОШИБОК КОМПИЛЯТОРА ═══
+    52x  [semantic] 'X' ожидает N аргументов, передано N
+    52x  'X' ожидает N аргументов, передано N
+    47x  Ожидается выражение, получено: =
+    40x  [semantic] повторное объявление 'X' через пусть — используй просто 'X'
+    40x  повторное объявление 'X' через пусть — используй просто 'X'
+    25x  Ожидается конец файла или процедура
+    19x  Неизвестный символ: ":"
+     7x  [semantic] переменная 'X' используется без объявления через пусть
+     7x  переменная 'X' используется без объявления через пусть
+     6x  Ожидается выражение, получено: процедура
+
+═══ ПОСЛЕДНИЕ 20 из 1460 трейсов ═══
+
+✅ [29.03.2026, 01:11:24] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (6ce0b3c3)
+✅ [29.03.2026, 02:01:53] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (fb5214bb)
+✅ [29.03.2026, 02:01:53] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (e799afcb)
+❓ [29.03.2026, 02:01:53] задача                                               (f1147b87)
+❓ [29.03.2026, 02:01:53] посчитай сумму от 1 до 10                            (fa1b8c43)
+✅ [29.03.2026, 02:01:53] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (bbf5e674)
+✅ [29.03.2026, 02:46:53] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (2db78eff)
+✅ [29.03.2026, 02:46:53] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (fb6af219)
+❓ [29.03.2026, 02:46:53] задача                                               (eabaaacf)
+❓ [29.03.2026, 02:46:53] посчитай сумму от 1 до 10                            (a528550a)
+✅ [29.03.2026, 02:46:53] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (a32d5263)
+✅ [29.03.2026, 03:28:55] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (4667b35e)
+✅ [29.03.2026, 03:35:05] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (74b442d0)
+✅ [29.03.2026, 03:35:05] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (3f0860cb)
+❓ [29.03.2026, 03:35:05] задача                                               (b650e6cb)
+❓ [29.03.2026, 03:35:05] посчитай сумму от 1 до 10                            (aecf3072)
+✅ [29.03.2026, 03:35:05] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (195154ef)
+✅ [29.03.2026, 03:48:56] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (2368953f)
+✅ [29.03.2026, 03:49:38] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (c649b3cb)
+✅ [29.03.2026, 04:08:14] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (8a5a5956)
+
+⚠️  исключено тестовых/stale трейсов: 454
+
+ [32m✓[39m src/tools/health-diff.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/agents/plan-agent.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+[90mstdout[2m | src/scripts/trace-viewer.test.ts[2m > [22m[2mprintRepairStats[2m > [22m[2mсчитает распределение repair-попыток корректно
+[22m[39m
+═══ REPAIR EFFECTIVENESS ═══
+Всего прогонов: 0
+
+Попытки | Прогонов | Success | Partial | Success rate
+--------|----------|---------|---------|-------------
+
+
+ [32m✓[39m src/scripts/trace-viewer.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/pipeline-llm/repairTarget.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/llm/qwen-stdout-parser.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/pipeline/types.test.ts [2m([22m[2m26 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/compiler/semanticKinds.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+Записано: D:\PROJECTS\OSNOVA-FABRIKA\src\vliw\fixtures\linear-sum.scheduled.osvbc.json
+ [32m✓[39m src/vliw/scheduler.test.ts [2m([22m[2m13 tests[22m[2m)[22m[33m 2124[2mms[22m[39m
+     [33m[2m✓[22m[39m CLI: linear-sum.osvbc.json → schedule → VM returns 2 [33m 2106[2mms[22m[39m
+[90mstderr[2m | src/env.test.ts[2m > [22m[2mvalidateEnv[2m > [22m[2mзавершает с exit(1) при deepseek без DEEPSEEK_API_KEY
+[22m[39m[env] DEEPSEEK_API_KEY не задан. Обязателен при OSNOVA_PROVIDER=deepseek
+
+[90mstderr[2m | src/env.test.ts[2m > [22m[2mvalidateEnv[2m > [22m[2mзавершает с exit(1) при неверном OSNOVA_PROVIDER
+[22m[39m[env] OSNOVA_PROVIDER="invalid-provider" неверный. Допустимые: ollama, deepseek, qwen-cli
+
+ [32m✓[39m src/env.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 10423[2mms[22m[39m
+     [33m[2m✓[22m[39m проходит при qwen-cli (default) [33m 2864[2mms[22m[39m
+     [33m[2m✓[22m[39m проходит при ollama без OLLAMA_URL (warning only) [33m 2051[2mms[22m[39m
+     [33m[2m✓[22m[39m проходит при deepseek с DEEPSEEK_API_KEY [33m 1897[2mms[22m[39m
+     [33m[2m✓[22m[39m применяет LOG_LEVEL при допустимом значении [33m 1843[2mms[22m[39m
+     [33m[2m✓[22m[39m предупреждает при неверном LOG_LEVEL [33m 1760[2mms[22m[39m
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] phase: spec_generation
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+[90mstderr[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] gate G2 FAIL (attempt 1) [
+  [32m'g2_parser_clean: 1 parser error(s) → route_to_repair'[39m,
+  [32m'g2_compiler_success: no bytecode → route_to_repair'[39m
+]
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] shadow mode { rfc002: [33m0[39m, rfc003: [33m0[39m }
+[pipeline] phase: build (attempt 1)
+[pipeline] parser error: 3:34 Ожидается ')', получено: конец
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] phase: build (attempt 2)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] gate G3 passed — pipeline complete
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] phase: intake
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] phase: spec_generation
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] shadow mode { rfc002: [33m0[39m, rfc003: [33m0[39m }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mоркестрация — успешный прогон (инварианты)[2m > [22m[2mоба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[22m[39m[pipeline] gate G3 passed — pipeline complete
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] phase: intake
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] phase: spec_generation
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] shadow mode { rfc002: [33m0[39m, rfc003: [33m0[39m }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] gate G3 passed — pipeline complete
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] phase: intake
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] phase: spec_generation
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] shadow mode { rfc002: [33m0[39m, rfc003: [33m0[39m }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] gate G3 passed — pipeline complete
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] phase: intake
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] phase: spec_generation
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mPipeline.run — полный пайплайн (оркестратор + repair)[2m > [22m[2mintake → spec → codegen → build → golden, success
+[22m[39m[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mrunPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)[2m > [22m[2mполный проход: intent → spec → Plan/Exec → codegen → build → golden, passrate > 0.8
+[22m[39m[pipeline] shadow mode { rfc002: [33m0[39m, rfc003: [33m0[39m }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+[90mstdout[2m | src/pipeline/pipeline.test.ts[2m > [22m[2mrunPipelineWithExecAgent — E2E: agents + compiler + runtime (golden)[2m > [22m[2mполный проход: intent → spec → Plan/Exec → codegen → build → golden, passrate > 0.8
+[22m[39m[pipeline] gate G3 passed — pipeline complete
+

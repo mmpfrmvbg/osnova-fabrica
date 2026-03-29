@@ -1,19 +1,21 @@
 id: ATM-EPK-260329-019-008
 epic: EPK-260329-019
 seq: 8
-zone: lang
-risk: MEDIUM
+zone: pipeline
+risk: LOW
 executor: qwen
-goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
-  (серии 015 и FBK016) (part 8/8: src/pipeline/index.ts)'
-scope:
+goal: Проверить gate/health вспомогательные пути после типов пайплайна.
+scope: src/pipeline/types.ts — только поля, влияющие на gate/health scoring
+notouch:
 - src/pipeline/index.ts
-notouch: []
-done: npx vitest run src/
+- src/steward/**
+done: npx vitest run src/pipeline/gateChecker.test.ts
 steps:
-- Implement changes in src/pipeline/index.ts
+- Сопоставить типы артефактов с gateChecker ожиданиями.
+- Добавить/уточнить поля типов без изменения бизнес-логики gate.
+- Подтвердить gateChecker тестами.
 deps:
-- ATM-EPK-260329-019-007
+- ATM-EPK-260329-019-004
 maxiter: 3
 retries: 0
 status: PENDING

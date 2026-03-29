@@ -1,26 +1,20 @@
 id: ATM-EPK-260329-019-010
 epic: EPK-260329-019
 seq: 10
-zone: agents
-risk: HIGH
+zone: compiler
+risk: MEDIUM
 executor: qwen
-goal: Восстановить тесты agents.test.ts после исправления типов
-scope:
-- src/agents/agents.test.ts
+goal: Изолировать и починить парсер/лексер регрессии, влияющие на repair (серия 015).
+scope: src/compiler/index.ts — re-export parse/lex без семантики
 notouch:
-- src/pipeline/pipeline.test.ts
-done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+- src/compiler/semantic.ts
+- docs/**
+done: npx vitest run src/compiler/parser.test.ts
 steps:
-- Проверить импорты в тестах
-- Исправить типы в тестах (OsnovaIntent, OsnovaSpec, ExecContext)
-- Запустить vitest run для agents.test.ts
+- Локализовать сбой на уровне parse/lex vs semantic.
+- Починить только surface index↔parser/lexer.
+- Прогнать узкий парсер-тест.
 deps:
-- ATM-EPK-260329-019-002
-- ATM-EPK-260329-019-003
-- ATM-EPK-260329-019-004
-- ATM-EPK-260329-019-005
-- ATM-EPK-260329-019-007
-- ATM-EPK-260329-019-008
 - ATM-EPK-260329-019-009
 maxiter: 3
 retries: 0

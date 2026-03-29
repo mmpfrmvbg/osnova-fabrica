@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     pool: 'vmThreads',
     retry: 2,
+    globals: true,
     // Root vitest should only validate the core compiler/runtime in /src.
     // Osiris has its own job + its own dependency install in CI.
     exclude: ['**/node_modules/**', '**/*.e2e.test.ts', '**/apps/osiris/**'],

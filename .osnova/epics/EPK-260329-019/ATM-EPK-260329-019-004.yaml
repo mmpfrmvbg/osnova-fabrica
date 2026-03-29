@@ -1,17 +1,20 @@
 id: ATM-EPK-260329-019-004
 epic: EPK-260329-019
 seq: 4
-zone: lang
+zone: pipeline
 risk: MEDIUM
 executor: qwen
-goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
-  (серии 015 и FBK016) (part 4/8: src/pipeline/types.ts)'
-scope:
-- src/pipeline/types.ts
-notouch: []
-done: npx vitest run src/
+goal: Устранить несогласованность типов стадий/артефактов пайплайна (корень блокеров
+  FBK016).
+scope: src/pipeline/types.ts — только типы и узкие type-guards/aliases
+notouch:
+- src/pipeline/orchestrator*.ts
+- src/compiler/**
+done: npx vitest run src/pipeline/types.test.ts
 steps:
-- Implement changes in src/pipeline/types.ts
+- Найти расхождения между runtime-фактами и декларированными типами.
+- Свести union/optional поля к одному источнику правды.
+- Проверить типовые тесты пайплайна.
 deps:
 - ATM-EPK-260329-019-003
 maxiter: 3

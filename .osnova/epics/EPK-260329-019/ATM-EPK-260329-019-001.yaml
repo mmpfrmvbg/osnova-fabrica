@@ -1,17 +1,20 @@
 id: ATM-EPK-260329-019-001
 epic: EPK-260329-019
 seq: 1
-zone: lang
+zone: toolchain
 risk: MEDIUM
 executor: qwen
-goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
-  (серии 015 и FBK016) (part 1/8: tsconfig.json)'
-scope:
-- tsconfig.json
-notouch: []
-done: npx vitest run src/
+goal: 'Стабилизировать корневые опции компиляции/резолва (блокеры 015/FBK016): tsconfig
+  без регрессий.'
+scope: tsconfig.json — только compilerOptions/paths/include/exclude под self-fix
+notouch:
+- src/**
+- apps/**
+done: npx vitest run tsconfig.test.ts
 steps:
-- Implement changes in tsconfig.json
+- Сверить tsconfig с фактическими entrypoints пайплайна и тестов.
+- Устранить расхождения, из-за которых падает tsc --noEmit в CI.
+- Прогнать узкий тест и убедиться, что типовая матрица не сломана.
 deps: []
 maxiter: 3
 retries: 0

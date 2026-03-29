@@ -1,17 +1,19 @@
 id: ATM-EPK-260329-019-006
 epic: EPK-260329-019
 seq: 6
-zone: lang
+zone: pipeline
 risk: MEDIUM
 executor: qwen
-goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
-  (серии 015 и FBK016) (part 6/8: src/runtime/index.ts)'
-scope:
-- src/runtime/index.ts
-notouch: []
-done: npx vitest run src/
+goal: Выровнять оркестрацию волнами с типами и индексом (частичные сценарии FBK016).
+scope: src/pipeline/index.ts — factory/helpers рядом с export surface
+notouch:
+- src/pipeline/types.ts
+- src/agents/index.ts
+done: npx vitest run src/pipeline/orchestrator.partial.test.ts
 steps:
-- Implement changes in src/runtime/index.ts
+- Проверить согласованность create*/run* entrypoints с orchestrator.
+- Исправить только точки стыка index↔orchestrator.
+- Прогнать оркестраторные тесты.
 deps:
 - ATM-EPK-260329-019-005
 maxiter: 3

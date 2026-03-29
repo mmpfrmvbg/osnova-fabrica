@@ -1,17 +1,19 @@
 id: ATM-EPK-260329-019-007
 epic: EPK-260329-019
 seq: 7
-zone: lang
+zone: pipeline
 risk: MEDIUM
 executor: qwen
-goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
-  (серии 015 и FBK016) (part 7/8: src/agents/index.ts)'
-scope:
-- src/agents/index.ts
-notouch: []
-done: npx vitest run src/
+goal: Закрыть полный happy-path оркестратора после правок index/types.
+scope: src/pipeline/index.ts — без смены контрактов Osiris
+notouch:
+- apps/osiris/**
+- src/compiler/index.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
 steps:
-- Implement changes in src/agents/index.ts
+- Прогнать полный orchestrator test и зафиксировать оставшиеся расхождения.
+- Внести минимальные правки в index для стабильного прохождения.
+- Убедиться в отсутствии регрессий gate/shadow если задействованы.
 deps:
 - ATM-EPK-260329-019-006
 maxiter: 3

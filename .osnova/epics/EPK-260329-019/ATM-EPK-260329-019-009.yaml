@@ -1,22 +1,22 @@
 id: ATM-EPK-260329-019-009
 epic: EPK-260329-019
 seq: 9
-zone: runtime
-risk: LOW
+zone: compiler
+risk: MEDIUM
 executor: qwen
-goal: Устранить TypeScript-ошибки в interpreter.ts (Interpreter и OpCode)
-scope:
-- src/runtime/interpreter.ts
+goal: Стабилизировать компиляторный фасад (lexer/parser/codegen wiring) для self-fix
+  цикла.
+scope: src/compiler/index.ts — публичный API и wiring только
 notouch:
-- src/runtime/vm/interpreter.ts
-- src/runtime/vm/bytecode.ts
-done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+- src/compiler/golden-runner.test.ts
+- src/runtime/**
+done: npx vitest run src/compiler/compiler.test.ts
 steps:
-- Проверить типы InterpreterOptions, StackValue
-- Исправить импорты из vm/bytecode
-- Запустить tsc --noEmit для проверки
+- Проверить цепочку compile entry vs внутренние модули.
+- Устранить ошибки инициализации/экспорта, блокирующие пайплайн.
+- Подтвердить агрегаторный тест компилятора.
 deps:
-- ATM-EPK-260329-019-008
+- ATM-EPK-260329-019-003
 maxiter: 3
 retries: 0
 status: PENDING

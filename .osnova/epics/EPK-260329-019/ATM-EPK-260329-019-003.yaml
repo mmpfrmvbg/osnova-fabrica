@@ -1,18 +1,23 @@
 id: ATM-EPK-260329-019-003
 epic: EPK-260329-019
 seq: 3
-zone: lang
+zone: toolchain
 risk: MEDIUM
 executor: qwen
-goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
-  (серии 015 и FBK016) (part 3/8: vitest.config.ts)'
-scope:
-- vitest.config.ts
-notouch: []
-done: npx vitest run src/
+goal: Исправить конфиг Vitest (pool/retry/exclude/coverage), чтобы src/-прогон CI
+  был детерминированным.
+scope: vitest.config.ts — test.pool, exclude, coverage thresholds только в рамках
+  P0
+notouch:
+- apps/osiris/**
+- e2e-спеки
+done: npx vitest run src/env.test.ts
 steps:
-- Implement changes in vitest.config.ts
+- Воспроизвести флейки/исключения, связанные с vmThreads и exclude.
+- Сузить или скорректировать exclude/thresholds без ослабления сигнала качества.
+- Подтвердить зелёный прогон одного стабильного src-теста.
 deps:
+- ATM-EPK-260329-019-001
 - ATM-EPK-260329-019-002
 maxiter: 3
 retries: 0

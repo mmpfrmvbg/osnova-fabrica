@@ -1,17 +1,20 @@
 id: ATM-EPK-260329-019-002
 epic: EPK-260329-019
 seq: 2
-zone: lang
+zone: toolchain
 risk: MEDIUM
 executor: qwen
-goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
-  (серии 015 и FBK016) (part 2/8: package.json)'
-scope:
-- package.json
-notouch: []
-done: npx vitest run src/
+goal: Выровнять npm-скрипты и зависимости с CI (self-fix корневых причин падений серии
+  015).
+scope: package.json — scripts/deps/engines; без смены major без необходимости
+notouch:
+- package-lock.json
+- apps/osiris/package.json
+done: npx vitest run package.test.ts
 steps:
-- Implement changes in package.json
+- Сопоставить npm run ci с локальным минимальным набором команд.
+- Исправить скрипты/зависимости, блокирующие tsc или vitest в корне.
+- Проверить, что корневой тест на манифест зелёный.
 deps:
 - ATM-EPK-260329-019-001
 maxiter: 3

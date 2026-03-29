@@ -2,20 +2,21 @@ id: ATM-EPK-260329-019-014
 epic: EPK-260329-019
 seq: 14
 zone: agents
-risk: LOW
+risk: MEDIUM
 executor: qwen
-goal: Закрытие blocker-issues по результатам EPK-260329-019
-scope:
-- src/pipeline/pipeline.ts
-notouch: []
-done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+goal: Стабилизировать агентский фасад (intake/plan/repair) для пайплайна self-fix.
+scope: src/agents/index.ts — агрегированный export и фабрики
+notouch:
+- src/llm/**
+- apps/osiris/**
+done: npx vitest run src/agents/agents.test.ts
 steps:
-- Проверить GitHub issue
-- Обновить статус issue
-- Добавить комментарий о завершении работ
+- Сверить agents index с pipeline/orchestrator ожиданиями.
+- Убрать циклические импорты agents↔pipeline.
+- Подтвердить агентские тесты по очереди.
 deps:
-- ATM-EPK-260329-019-012
-- ATM-EPK-260329-019-013
+- ATM-EPK-260329-019-005
+- ATM-EPK-260329-019-007
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,18 +1,19 @@
 id: ATM-EPK-260329-019-015
 epic: EPK-260329-019
 seq: 15
-zone: close-blockers-1
-risk: MEDIUM
+zone: agents
+risk: LOW
 executor: qwen
-goal: Закрыть blocker-issues
-scope:
-- .github/issues/
+goal: Проверить plan-agent контракт после стабилизации agents index.
+scope: src/agents/index.ts — plan-agent export path
 notouch:
-- src/**
-done: forge close-blockers --issues 68,69,70,71,72,73,74,75 --dry-run
+- src/pipeline/orchestrator.ts
+- src/runtime/index.ts
+done: npx vitest run src/agents/plan-agent.test.ts
 steps:
-- Выполнить forge close-blockers --issues 68,69,70,71,72,73,74,75
-- Зафиксировать результат
+- Убедиться, что plan-agent доступен тем же способом, что ждёт оркестратор.
+- Минимально поправить barrel без смены промптов.
+- Прогнать plan-agent тест.
 deps:
 - ATM-EPK-260329-019-014
 maxiter: 3

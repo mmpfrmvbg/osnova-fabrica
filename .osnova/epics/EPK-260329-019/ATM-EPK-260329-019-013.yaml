@@ -1,18 +1,19 @@
 id: ATM-EPK-260329-019-013
 epic: EPK-260329-019
 seq: 13
-zone: agents
+zone: runtime
 risk: MEDIUM
 executor: qwen
-goal: Финальная валидация tsc --noEmit для всего слоя agents/pipeline
-scope:
-- src/agents/intake-agent.ts
-notouch: []
-done: npx tsc --noEmit
+goal: Выровнять interpreter path с VM после правок фасада.
+scope: src/runtime/index.ts — interpreter-related exports
+notouch:
+- src/compiler/**
+- src/vliw/**
+done: npx vitest run src/runtime/interpreter.test.ts
 steps:
-- Запустить tsc --noEmit для src/agents/ и src/pipeline/
-- Убедиться в отсутствии ошибок
-- Зафиксировать успешный результат
+- Сверить interpreter import graph с index.
+- Минимально исправить exports/delegation.
+- Прогнать interpreter тест.
 deps:
 - ATM-EPK-260329-019-012
 maxiter: 3
