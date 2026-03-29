@@ -251,6 +251,29 @@ export function createPipelineVmFromSpec(spec: OsnovaSpec, module: unknown): OsV
 }
 
 /**
+ * VM для golden-проверок (`runGoldenCheck` в `goldenApps.ts`): тот же контракт, что у {@link createPipelineVmFromSpec}
+ * — {@link applyPipelineSpecToVm} и цепочка `система.пайплайн.*` в {@link OsVbcVM.execute} — плюс пользовательский
+ * `invoke` из `options` (временное хранилище, время, расширенные массивы и т.д.).
+ *
+ * @returns `null`, если `module` не проходит {@link isOsVbcModule}.
+ */
+export function createGoldenCheckVm(
+  spec: OsnovaSpec,
+  module: unknown,
+  options: OsVbcVMOptions = {},
+): OsVbcVM | null {
+  if (!isOsVbcModule(module)) {
+    return null;
+  }
+  const vm = new OsVbcVM(module, {
+    maxSteps: 50_000,
+    ...options,
+  });
+  applyPipelineSpecToVm(vm, spec);
+  return vm;
+}
+
+/**
  * Высокоуровневая VM для одного скомпилированного модуля ({@link OsVbcModule}): обёртка над {@link Interpreter}
  * с явной точкой входа {@link OsVbcVM.execute} и сохранённым результатом {@link OsVbcVM.getReturnValue}.
  *

@@ -5,6 +5,8 @@ import * as fssync from 'fs';
 import { run as runCli } from './run';
 import { storageWrite, storageKeys, storageRead, storageDelete } from './storage';
 import { VM } from './vm/interpreter';
+import type { StackValue } from './vm/interpreter';
+import { createGoldenCheckVm } from './vm';
 import { isOsVbcModule, isVliwPacket } from './vm/bytecode';
 import type { OsVbcModule, VliwPacket } from './vm/bytecode';
 import type { GoldenReport } from '../pipeline/types';
@@ -67,9 +69,7 @@ export async function runGoldenCheck(
   let executed = false;
   let vmResult: unknown = null;
   try {
-    const vm = new VM(module, {
-      maxSteps: 50_000,
-      invoke: async (name: string, args: unknown[]) => {
+    const goldenInvoke = async (name: string, args: StackValue[]): Promise<StackValue> => {
         // Хранилище — реальная реализация через tmpdir
         if (name === 'система.хранилище.записать') {
           await storageWrite(storageRoot, appId, String(args[0]), String(args[1]));
@@ -166,11 +166,15 @@ export async function runGoldenCheck(
         if (name.startsWith('система.время.')) return null;
         if (name.startsWith('система.сеть.')) return null;
         return null;
-      },
-    });
-    const idx = vm.findProcedureIndex(entryName);
-    vmResult = await vm.runProcedure(idx, []);
-    executed = true;
+    };
+
+    const vm = createGoldenCheckVm(spec, module, { invoke: goldenInvoke });
+    if (!vm) {
+      vmErrors.push({ message: 'bytecode is not a valid OsVbcModule' });
+    } else {
+      vmResult = await vm.execute({ procedure: entryName });
+      executed = true;
+    }
   } catch (e) {
     vmErrors.push({ message: e instanceof Error ? e.message : String(e) });
   }

@@ -1,20 +1,21 @@
-id: ATM-EPK-260329-027-005
+id: ATM-EPK-260329-027-006
 epic: EPK-260329-027
-seq: 5
+seq: 6
 zone: runtime
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Исправить блокеры VM (globals, syscalls, пайплайн-ключи)
-scope: src/runtime/vm.ts
+goal: Закрыть VM-блокеры на golden-приложениях
+scope: src/runtime/vm.ts — golden integration
 notouch:
-- src/compiler/codegen.ts
-- src/pipeline/executor.ts
-done: npx vitest run src/runtime/vm.test.ts
+- src/compiler/index.ts
+- src/agents/index.ts
+done: npx vitest run src/runtime/goldenApps.test.ts
 steps:
-- vm.test на изоляцию падающих кейсов
-- Сопоставить с PIPELINE_VM_GLOBAL_KEYS / applyPipelineSpecToVm
-- Патч только vm.ts
-deps: []
+- goldenApps.test
+- Локализовать отличие bytecode vs ожидание
+- Фикс в vm.ts без изменения golden-файлов без необходимости
+deps:
+- ATM-EPK-260329-027-005
 maxiter: 3
 retries: 0
 status: PENDING
