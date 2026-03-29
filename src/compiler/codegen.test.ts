@@ -285,6 +285,87 @@ describe("codegen compile()", () => {
     const mainSlice = m.code.slice(main!.codeOffset);
     expect(mainSlice.some((i) => i.op === "call" && (i as { fi?: number }).fi === 0)).toBe(true);
   });
+
+  it("цепочка вызовов: аргументы слева направо — const, call(inner), call(outer), ret", () => {
+    const m = compile(
+      moduleAst("Chain", [
+        {
+          name: "inner",
+          params: ["x"],
+          body: [{ kind: "вернуть", value: { kind: "переменная", name: "x" } }],
+        },
+        {
+          name: "outer",
+          params: ["y"],
+          body: [
+            {
+              kind: "вернуть",
+              value: {
+                kind: "бинарное",
+                op: "+",
+                left: { kind: "переменная", name: "y" },
+                right: { kind: "число", value: 1 },
+              },
+            },
+          ],
+        },
+        {
+          name: "main",
+          params: [],
+          body: [
+            {
+              kind: "вернуть",
+              value: {
+                kind: "вызов",
+                name: "outer",
+                args: [
+                  {
+                    kind: "вызов",
+                    name: "inner",
+                    args: [{ kind: "число", value: 3 }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    const main = m.procedures.find((p) => p.name === "main")!;
+    const slice = m.code.slice(main.codeOffset);
+    expect(slice.length).toBeGreaterThanOrEqual(4);
+    expect(slice[0].op).toBe("const");
+    expect(slice[1].op).toBe("call");
+    expect((slice[1] as { fi?: number }).fi).toBe(0);
+    expect(slice[2].op).toBe("call");
+    expect((slice[2] as { fi?: number }).fi).toBe(1);
+    expect(slice[3].op).toBe("ret");
+  });
+
+  it("простое если с иначе: const.true, jmp_if_not, then, jmp, else; фиксированная длина префикса", () => {
+    const body: Stmt[] = [
+      {
+        kind: "если",
+        condition: { kind: "булево", value: true },
+        body: [{ kind: "вернуть", value: { kind: "число", value: 10 } }],
+        elseBody: [{ kind: "вернуть", value: { kind: "число", value: 20 } }],
+      },
+    ];
+    const m = compile(moduleAst("Br", [{ name: "b", params: [], body }]));
+    const slice = m.code.slice(m.procedures[0].codeOffset);
+    const head = slice.slice(0, 7).map((i) => i.op);
+    expect(head).toEqual([
+      "const.true",
+      "jmp_if_not",
+      "const",
+      "ret",
+      "jmp",
+      "const",
+      "ret",
+    ]);
+    expect(slice.length).toBe(8);
+    expect(slice[7].op).toBe("ret");
+  });
 });
 
 describe("codegen compileProgram()", () => {

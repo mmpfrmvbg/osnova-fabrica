@@ -1,20 +1,19 @@
-id: ATM-004
+id: ATM-005
 epic: EPK-260329-022
-seq: 4
+seq: 5
 zone: compiler
 risk: LOW
 executor: cursor
-goal: Дополнить compiler.test интеграцией tokenize→parse→semantic→codegen для редкого
-  синтаксиса из фикстур.
+goal: Codegen regression для вызовов/ветвлений — отдельные it в codegen.test.
 scope:
-- src/compiler/compiler.test.ts — pipeline из FIXTURES_DIR
+- src/compiler/codegen.test.ts — call/branch coverage
 notouch:
-- src/pipeline/orchestrator.ts
-done: npx vitest run src/compiler/compiler.test.ts
+- src/compiler/parser.ts
+done: npx vitest run src/compiler/codegen.test.ts
 steps:
-- Подключить или расширить использование FIXTURES_DIR в одном-двух it.
-- Проверить compile + execute с procedureName.
-- Не трогать orchestrator, только тесты.
+- Добавить тесты на цепочку call и простую условную логику если поддерживается текущим
+  codegen.
+- Сверить длину code и порядок инструкций.
 deps:
 - ATM-002
 maxiter: 3
