@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-30T00:17:37.057729+03:00'
+updatedat: '2026-03-30T00:18:49.751363+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -349,7 +349,7 @@ zones:
     done: 0
     blk: 0
 budget:
-  qwenusedtoday: 19
+  qwenusedtoday: 27
   qwenlimit: 900
   cursortaskstoday: 0
   qwenatomizerusedtoday: 0
@@ -410,6 +410,7 @@ codebase:
   - src/compiler/compiler.ts
   - src/compiler/export-language-schema.ts
   - src/compiler/golden-runner.test.ts
+  - src/compiler/index.test.ts
   - src/compiler/index.ts
   - src/compiler/language-registry.ts
   - src/compiler/language-schema.ts

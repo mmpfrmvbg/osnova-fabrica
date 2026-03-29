@@ -17,10 +17,10 @@ deps:
 - ATM-005
 maxiter: 3
 retries: 0
-status: merge_conflict
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: 8b73dbfdca3ab5058b9927074c2acbe2ba2a362f
+review_base_sha: 572e6710c8ebfeaf10a259d982a18fed0a5e04a4
 produced_files: []
 last_failure: 'cherry-pick conflict: error: could not apply d512d81... ATM ATM-007
   OK
