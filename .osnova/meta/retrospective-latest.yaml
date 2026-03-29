@@ -1,12 +1,12 @@
 v: 5
 t: RETRO
 for: BRAIN
-timestamp: '2026-03-29T11:21:39.109108+03:00'
+timestamp: '2026-03-29T12:31:26.876811+03:00'
 lastepic:
-  id: EPK-260329-023
-  githubissue: 90
-  atomstotal: 9
-  atomspass: 9
+  id: EPK-260329-024
+  githubissue: 91
+  atomstotal: 8
+  atomspass: 8
   atomsblk: 0
 daily:
   passrate: 1.0

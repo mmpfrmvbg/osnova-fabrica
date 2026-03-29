@@ -1,0 +1,128 @@
+epic: EPK-260329-024
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 8
+  atomstotal: 8
+results:
+- v: 5
+  t: RPT
+  id: ATM-001
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 100
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-002
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 200
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-003
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 114
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-004
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 84
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 17
+- v: 5
+  t: RPT
+  id: ATM-005
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 182
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-006
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 125
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 17
+- v: 5
+  t: RPT
+  id: ATM-007
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 106
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-008
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 115
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 16
+createdat: '2026-03-29T12:31:26.823990+03:00'
