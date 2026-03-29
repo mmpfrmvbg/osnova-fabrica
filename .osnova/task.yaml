@@ -1,22 +1,22 @@
-id: ATM-002
+id: ATM-003
 epic: EPK-260329-021
-seq: 2
-zone: pipeline
-risk: MEDIUM
+seq: 3
+zone: compiler
+risk: HIGH
 executor: cursor
-goal: Проверить согласованность типов пайплайна с оркестратором после правок types.ts.
+goal: Стабилизировать публичный barrel компилятора (compile/codegen/VM) для пайплайна
+  и агентов.
 scope:
-- src/pipeline/types.ts — кросс-проверка с контрактом оркестратора
+- src/compiler/index.ts — единый экспортный контракт
 notouch:
-- src/pipeline-llm/index.ts
+- tsconfig.json
 - vitest.config.ts
-done: npx vitest run src/pipeline/orchestrator.test.ts
+done: npx vitest run src/compiler/compiler.test.ts
 steps:
-- Найти места импорта типов из types.ts в orchestrator/pipeline.
-- Устранить оставшиеся несоответствия только через типы или узкие алиасы в types.ts.
-- Убедиться что публичный API типов покрывает 14 сценариев blockers из диагностики.
-deps:
-- ATM-001
+- Сверить re-export с compiler.ts, codegen.ts, vm.ts.
+- Убрать дубли/дыры экспорта, влияющие на потребителей в src/.
+- Не менять внутреннюю логику модулей вне index при возможности.
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

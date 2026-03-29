@@ -1,24 +1,8 @@
 /**
  * Публичный вход зоны compiler: один контракт для компиляции (compile API), codegen и VM.
+ * Re-export совпадает с публичными экспортами `compiler.ts`, `codegen.ts`, `vm.ts`
+ * (имена не пересекаются между этими модулями).
  */
-export {
-  Compiler,
-  compileSource,
-  compileToBuildReport,
-  optimizeIrModule,
-  type CompileResult,
-  type CompileOptions,
-  type ExecuteOptions,
-  type OsnovaIrModule,
-} from "./compiler";
-
-export { compile, compileProgram } from "./codegen";
-
-export { VM, InterpreterError, runProgram, loadModule } from "./vm";
-export type {
-  StackValue,
-  InvokeHandler,
-  InterpreterOptions,
-  RunProgramOptions,
-  OsVbcModule,
-} from "./vm";
+export * from "./compiler";
+export * from "./codegen";
+export * from "./vm";
