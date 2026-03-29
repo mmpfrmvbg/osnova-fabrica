@@ -1,0 +1,21 @@
+id: ATM-009
+epic: EPK-260329-022
+seq: 9
+zone: agents
+risk: LOW
+executor: qwen
+goal: Plan-agent.test — покрытие веток планирования и устойчивость к пустому LLM.
+scope:
+- src/agents/plan-agent.test.ts — branch coverage
+notouch:
+- src/agents/PlanAgent.ts
+done: npx vitest run src/agents/plan-agent.test.ts
+steps:
+- Прочитать plan-agent.test.ts и PlanAgent API.
+- Добавить тесты на деградацию при ошибке LLM и валидный план при успехе.
+deps:
+- ATM-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

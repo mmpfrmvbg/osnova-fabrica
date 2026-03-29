@@ -1,0 +1,22 @@
+id: ATM-011
+epic: EPK-260329-022
+seq: 11
+zone: compiler
+risk: LOW
+executor: qwen
+goal: Compiler.test — регресс на compileToBuildReport + VM после изменений в волнах
+  runtime.
+scope:
+- src/compiler/compiler.test.ts — orchestrator bridge
+notouch:
+- src/pipeline/orchestrator.ts
+done: npx vitest run src/compiler/compiler.test.ts
+steps:
+- Добавить it вызывающий compileToBuildReport(compileSource(...)) для маленького модуля.
+- Проверить success и наличие bytecode в отчёте если API это отдаёт.
+deps:
+- ATM-007
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

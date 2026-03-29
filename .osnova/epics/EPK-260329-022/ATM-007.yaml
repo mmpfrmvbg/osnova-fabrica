@@ -1,0 +1,22 @@
+id: ATM-007
+epic: EPK-260329-022
+seq: 7
+zone: runtime
+risk: LOW
+executor: qwen
+goal: Interpreter.test — спек на InterpreterError и сообщения для типовых сбоев (vm-crash
+  контракт).
+scope:
+- src/runtime/interpreter.test.ts — ошибки интерпретации
+notouch:
+- src/runtime/interpreter.ts
+done: npx vitest run src/runtime/interpreter.test.ts
+steps:
+- Найти существующие кейсы ошибок.
+- Добавить тесты на текст/код ошибки при делении на ноль или неверном op если применимо.
+deps:
+- ATM-006
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

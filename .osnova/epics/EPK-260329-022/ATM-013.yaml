@@ -1,0 +1,20 @@
+id: ATM-013
+epic: EPK-260329-022
+seq: 13
+zone: runtime
+risk: LOW
+executor: qwen
+goal: vm.test — стек и async execute для цепочки процедур (регресс стабильности).
+scope:
+- src/runtime/vm.test.ts — async chains
+notouch:
+- src/runtime/vm/bytecode.ts
+done: npx vitest run src/runtime/vm.test.ts
+steps:
+- Добавить it с несколькими call подряд и проверкой getReturnValue.
+deps:
+- ATM-012
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

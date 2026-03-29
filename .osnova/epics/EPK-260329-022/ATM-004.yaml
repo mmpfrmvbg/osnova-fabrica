@@ -1,0 +1,23 @@
+id: ATM-004
+epic: EPK-260329-022
+seq: 4
+zone: compiler
+risk: LOW
+executor: qwen
+goal: Дополнить compiler.test интеграцией tokenize→parse→semantic→codegen для редкого
+  синтаксиса из фикстур.
+scope:
+- src/compiler/compiler.test.ts — pipeline из FIXTURES_DIR
+notouch:
+- src/pipeline/orchestrator.ts
+done: npx vitest run src/compiler/compiler.test.ts
+steps:
+- Подключить или расширить использование FIXTURES_DIR в одном-двух it.
+- Проверить compile + execute с procedureName.
+- Не трогать orchestrator, только тесты.
+deps:
+- ATM-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

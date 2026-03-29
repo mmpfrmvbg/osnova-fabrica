@@ -1,0 +1,28 @@
+t: EPK
+id: EPK-260329-022
+goal: 'Стратегия изменена из-за loop: предыдущие P0 EPIC исчерпали retry на одних
+  файлах. После passrate=1.0 у EPK-021 — атакуем новый фронт: расширение test coverage
+  для compiler/runtime/agents и добавление spec-тестов для vm-crash (%) и IntakeAgent
+  low-confidence (Issues #2,#3,#4)'
+scope:
+- src/compiler/compiler.test.ts
+- src/compiler/codegen.test.ts
+- src/runtime/vm.test.ts
+- src/runtime/interpreter.test.ts
+- src/agents/intake-agent.test.ts
+- src/agents/plan-agent.test.ts
+- src/pipeline/pipeline.test.ts
+- src/pipeline-llm/llm-pipeline.test.ts
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+  - ATM-005
+- - ATM-006
+  - ATM-007
+  - ATM-008
+- - ATM-009
+done: npx vitest run src/
+priority: P2
+githubissue: 89

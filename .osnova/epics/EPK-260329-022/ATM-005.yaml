@@ -1,0 +1,22 @@
+id: ATM-005
+epic: EPK-260329-022
+seq: 5
+zone: compiler
+risk: LOW
+executor: qwen
+goal: Codegen regression для вызовов/ветвлений — отдельные it в codegen.test.
+scope:
+- src/compiler/codegen.test.ts — call/branch coverage
+notouch:
+- src/compiler/parser.ts
+done: npx vitest run src/compiler/codegen.test.ts
+steps:
+- Добавить тесты на цепочку call и простую условную логику если поддерживается текущим
+  codegen.
+- Сверить длину code и порядок инструкций.
+deps:
+- ATM-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

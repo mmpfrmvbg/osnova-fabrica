@@ -1,0 +1,21 @@
+id: ATM-006
+epic: EPK-260329-022
+seq: 6
+zone: runtime
+risk: LOW
+executor: qwen
+goal: OsVbcVM integration — invoke/native edge cases и лимиты шагов в vm.test.
+scope:
+- src/runtime/vm.test.ts — invoke handlers и maxSteps
+notouch:
+- src/runtime/vm/index.ts
+done: npx vitest run src/runtime/vm.test.ts
+steps:
+- Расширить describe OsVbcVM integration новыми it для createDefaultInvokeHandler.
+- Покрыть ошибочный invoke и нормальный return path.
+deps:
+- ATM-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

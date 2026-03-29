@@ -69,6 +69,29 @@ describe("Compiler class: compile / execute (E2E)", () => {
 конец`.trim();
     expect(await new Compiler().execute(src, { procedureName: "главная", vm: { maxSteps: 5000 } })).toBe(7);
   });
+
+  it("execute: исчерпание maxSteps → InterpreterError с pc и сообщением", async () => {
+    const src = `
+модуль t
+процедура main()
+  пусть x = 0
+  пока истина
+    x = x + 1
+  конец
+конец`.trim();
+    const c = new Compiler();
+    let err: unknown;
+    try {
+      await c.execute(src, { procedureName: "main", vm: { maxSteps: 80 } });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(InterpreterError);
+    const ie = err as InterpreterError;
+    expect(ie.message).toMatch(/Max steps exceeded \(80\)/);
+    expect(typeof ie.pc).toBe("number");
+    expect(ie.pc!).toBeGreaterThanOrEqual(0);
+  });
 });
 
 /**
@@ -103,6 +126,25 @@ describe("Compiler ↔ runtime pipeline (compileToBuildReport + VM)", () => {
     const report = compileToBuildReport(cr);
     expect(report.success).toBe(false);
     expect(report.bytecode).toBeFalsy();
+  });
+
+  it("bytecode из buildReport: бесконечный цикл уперся в maxSteps → InterpreterError", async () => {
+    const src = `
+модуль t
+процедура main()
+  пусть n = 0
+  пока истина
+    n = n + 1
+  конец
+конец`.trim();
+    const cr = compileSource(src);
+    const report = compileToBuildReport(cr);
+    expect(report.success).toBe(true);
+    expect(report.bytecode).toBeTruthy();
+    const vm = new VM(report.bytecode!, { maxSteps: 60 });
+    await expect(vm.runProcedure(0, [])).rejects.toSatisfy((e: unknown) => {
+      return e instanceof InterpreterError && /Max steps exceeded \(60\)/.test((e as InterpreterError).message);
+    });
   });
 });
 
@@ -156,6 +198,28 @@ describe("Compiler: multi-module codegen", () => {
     expect(ast).toBeTruthy();
     const modules = compileProgram(ast!);
     expect(modules).toHaveLength(2);
+  });
+
+  it("один модуль: compileProgram(ast) и compileSource — одинаковый результат в VM (префикс имён)", async () => {
+    const src = `
+модуль M
+процедура ответ()
+  вернуть 42
+конец
+конец`.trim();
+    const fromSource = compileSource(src);
+    expect(fromSource.compilerSuccess).toBe(true);
+    expect(fromSource.module).toBeTruthy();
+    const { tokens } = tokenize(src);
+    const { ast, errors } = parse(tokens);
+    expect(errors).toHaveLength(0);
+    expect(ast).toBeTruthy();
+    const fromProgram = compileProgram(ast!);
+    expect(fromProgram).toHaveLength(1);
+    const vmSrc = new VM(fromSource.module!, { maxSteps: 200 });
+    const vmProg = new VM(fromProgram[0]!, { maxSteps: 200 });
+    expect(await vmSrc.runProcedure(vmSrc.findProcedureIndex("ответ"), [])).toBe(42);
+    expect(await vmProg.runProcedure(vmProg.findProcedureIndex("M__ответ"), [])).toBe(42);
   });
 
   it("в модуле B импортированные процедуры доступны как A__ping", () => {
@@ -1148,6 +1212,33 @@ describe("Compiler negative: errors reported", () => {
     const result = compileSource("модуль t\nпроцедура main()\n  x = 1\n  вернуть x\nконец\n");
     expect(result.compilerSuccess).toBe(false);
     expect(result.compilerErrors.some((e) => /не объявлена через пусть|Переменная.*не объявлена/.test(e.message))).toBe(true);
+  });
+});
+
+describe("VM: maxSteps", () => {
+  it("бесконечный цикл: InterpreterError, pc задан, debugStack доступен", async () => {
+    const src = `
+модуль t
+процедура main()
+  пусть i = 0
+  пока истина
+    i = i + 1
+  конец
+конец`.trim();
+    const r = compileSource(src);
+    expect(r.module).toBeTruthy();
+    const vm = new VM(r.module!, { maxSteps: 40 });
+    let caught: unknown;
+    try {
+      await vm.runProcedure(0, []);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(InterpreterError);
+    const ie = caught as InterpreterError;
+    expect(ie.message).toMatch(/Max steps exceeded \(40\)/);
+    expect(typeof ie.pc).toBe("number");
+    expect(Array.isArray([...vm.debugStack])).toBe(true);
   });
 });
 

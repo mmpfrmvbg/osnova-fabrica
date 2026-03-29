@@ -1,0 +1,23 @@
+id: ATM-002
+epic: EPK-260329-022
+seq: 2
+zone: compiler
+risk: LOW
+executor: qwen
+goal: Увеличить покрытие codegen.test — граничные op-комбинации и константы.
+scope:
+- src/compiler/codegen.test.ts — raw bytecode expectations
+notouch:
+- src/compiler/codegen.ts
+- src/compiler/lexer.ts
+done: npx vitest run src/compiler/codegen.test.ts
+steps:
+- Найти пробелы по op/константам в codegen.test.ts.
+- Добавить 2–4 теста на граничные литералы и короткие процедуры.
+- Убедиться что снапшоты/ожидания совпадают с codegen.ts.
+deps:
+- ATM-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

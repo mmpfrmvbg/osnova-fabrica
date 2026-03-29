@@ -1,0 +1,21 @@
+id: ATM-012
+epic: EPK-260329-022
+seq: 12
+zone: runtime
+risk: LOW
+executor: qwen
+goal: vm.test — applyPipelineSpecToVm / buildPipelineVmGlobals дополнительные сценарии.
+scope:
+- src/runtime/vm.test.ts — pipeline globals
+notouch:
+- src/runtime/vm.ts
+done: npx vitest run src/runtime/vm.test.ts
+steps:
+- Найти тесты applyPipelineSpecToVm.
+- Добавить кейс с минимальным spec и проверкой глобальных имён.
+deps:
+- ATM-010
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

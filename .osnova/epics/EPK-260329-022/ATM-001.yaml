@@ -1,0 +1,26 @@
+id: ATM-001
+epic: EPK-260329-022
+seq: 1
+zone: compiler
+risk: LOW
+executor: qwen
+goal: Расширить smoke и E2E в compiler.test — границы VM (maxSteps), стабильный pass
+  после EPK-021.
+scope:
+- src/compiler/compiler.test.ts — E2E Compiler.execute и compileToBuildReport
+notouch:
+- src/compiler/index.ts
+- src/compiler/parser.ts
+- src/compiler/semantic.ts
+done: npx vitest run src/compiler/compiler.test.ts
+steps:
+- Прочитать существующие describe-блоки в compiler.test.ts.
+- Добавить кейсы на исчерпание maxSteps и корректный InterpreterError/стек.
+- Добавить минимальный регресс на compileProgram vs compileSource для одного фикстурного
+  модуля.
+- Запустить узкий vitest на этом файле.
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

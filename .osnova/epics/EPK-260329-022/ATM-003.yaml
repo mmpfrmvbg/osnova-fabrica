@@ -1,0 +1,23 @@
+id: ATM-003
+epic: EPK-260329-022
+seq: 3
+zone: compiler
+risk: LOW
+executor: qwen
+goal: Спек-кейсы «vm-crash %» через компиляцию невалидного/стресс исходника в compiler.test.
+scope:
+- src/compiler/compiler.test.ts — malformed и stress к compile/execute
+notouch:
+- src/runtime/vm/interpreter.ts
+- src/runtime/vm.ts
+done: npx vitest run src/compiler/compiler.test.ts
+steps:
+- Сформировать минимальные программы, дающие сбой на уровне VM или чёткий InterpreterError.
+- Зафиксировать ожидаемое поведение (throw / код ошибки), без изменения рантайма.
+- Прогнать vitest только для этого файла.
+deps:
+- ATM-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

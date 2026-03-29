@@ -1,0 +1,22 @@
+id: ATM-008
+epic: EPK-260329-022
+seq: 8
+zone: agents
+risk: LOW
+executor: qwen
+goal: IntakeAgent — spec-тесты low-confidence пути (Issues 2–4), мок LLM.
+scope:
+- src/agents/intake-agent.test.ts — parseLlmConfidence и не-JSON ответ
+notouch:
+- src/agents/IntakeAgent.ts
+done: npx vitest run src/agents/intake-agent.test.ts
+steps:
+- Расширить моки mockLlmComplete для граничных confidence и пустого content.
+- Добавить it на переход в fallbackIntent/fallbackSpec при низкой уверенности.
+- Проверить intentId и поля OsnovaIntent.
+deps:
+- ATM-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

@@ -1,23 +1,26 @@
-id: ATM-008
-epic: EPK-260329-021
-seq: 8
-zone: agents
-risk: MEDIUM
+id: ATM-001
+epic: EPK-260329-022
+seq: 1
+zone: compiler
+risk: LOW
 executor: cursor
-goal: Проверить intake/plan цепочки через публичный barrel агентов.
+goal: Расширить smoke и E2E в compiler.test — границы VM (maxSteps), стабильный pass
+  после EPK-021.
 scope:
-- src/agents/index.ts — видимость intake/plan для пайплайна
+- src/compiler/compiler.test.ts — E2E Compiler.execute и compileToBuildReport
 notouch:
-- src/runtime/index.ts
-- .tmp/diagnostics.log
-done: npx vitest run src/agents/plan-agent.test.ts
+- src/compiler/index.ts
+- src/compiler/parser.ts
+- src/compiler/semantic.ts
+done: npx vitest run src/compiler/compiler.test.ts
 steps:
-- Проверить что intake/plan экспортируются или доступны через согласованный фасад.
-- Добавить недостающий export только в index.ts.
-- Прогнать тест план-агента.
-deps:
-- ATM-007
+- Прочитать существующие describe-блоки в compiler.test.ts.
+- Добавить кейсы на исчерпание maxSteps и корректный InterpreterError/стек.
+- Добавить минимальный регресс на compileProgram vs compileSource для одного фикстурного
+  модуля.
+- Запустить узкий vitest на этом файле.
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING
-priority: P0
+priority: P2

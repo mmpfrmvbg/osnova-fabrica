@@ -1,0 +1,21 @@
+id: ATM-014
+epic: EPK-260329-022
+seq: 14
+zone: runtime
+risk: LOW
+executor: qwen
+goal: interpreter.test — согласованность с OsVbcVM при простых модулях.
+scope:
+- src/runtime/interpreter.test.ts — VM parity smoke
+notouch:
+- src/runtime/vm/interpreter.ts
+done: npx vitest run src/runtime/interpreter.test.ts
+steps:
+- Добавить короткий it сравнивающий результат execute с ожидаемым для константного
+  модуля.
+deps:
+- ATM-013
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2
