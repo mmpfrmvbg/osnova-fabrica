@@ -4,15 +4,15 @@
 
 import type { ExecContext } from './exec-agent';
 import { BLOCKING_SEMANTIC_KINDS } from '../compiler/semanticKinds';
+
+const BLOCKING_SEMANTIC_KIND_SET = new Set<string>(BLOCKING_SEMANTIC_KINDS);
 import type { BuildReport, ExecutionPlan, OsnovaSpec } from '../pipeline/types';
 import type { AgentReport, BaseAgent } from '../types/agents';
 
 /** Та же логика, что {@link hasBlockingSemanticErrors} в orchestrator — без импорта оркестратора в слой агентов. */
 function hasBlockingSemanticErrorsInBuild(report: BuildReport | undefined): boolean {
   if (!report) return false;
-  return (report.semanticErrors ?? []).some(e =>
-    (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
-  );
+  return (report.semanticErrors ?? []).some(e => BLOCKING_SEMANTIC_KIND_SET.has(e.kind));
 }
 
 /** Одна строка проверки в отчёте. */
