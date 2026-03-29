@@ -20,8 +20,17 @@ retries: 0
 status: merge_conflict
 priority: P0
 max_retries: 3
-review_base_sha: 7c61a481aacceaac35eb983ed8c00f361266383c
+review_base_sha: 040406d0373a5c8d41fe073457cdd4411cdc3114
 produced_files: []
-last_failure: "cherry-pick conflict: error: Your local changes to the following files\
-  \ would be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes\
-  \ or stash them before you merge.\nAborting\nfatal: cherry-pick failed"
+last_failure: 'cherry-pick conflict: error: could not apply 3ca393f... ATM ATM-005
+  OK
+
+  hint: After resolving the conflicts, mark them with
+
+  hint: "git add/rm <pathspec>", then run
+
+  hint: "git cherry-pick --continue".
+
+  hint: You can instead skip this commit with "git cherry-pick --skip".
+
+  hint: To abort and get back to the state before "git '

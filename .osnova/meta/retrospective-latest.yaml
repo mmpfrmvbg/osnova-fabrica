@@ -1,18 +1,18 @@
 v: 5
 t: RETRO
 for: BRAIN
-timestamp: '2026-03-30T00:51:20.070153+03:00'
+timestamp: '2026-03-30T00:54:13.887622+03:00'
 lastepic:
   id: EPK-260329-019
   githubissue: 86
   atomstotal: 3
-  atomspass: 0
-  atomsblk: 3
+  atomspass: 1
+  atomsblk: 2
 daily:
-  passrate: 0.0
+  passrate: 0.3333333333333333
   qwenbudgetused: 0
   qwenbudgetremaining: 1000
-  ci_pass_rate: 0.4813
+  ci_pass_rate: 0.4781
 blockers: []
 recommendations:
 - Первый цикл Brain. Репозиторий инициализирован 2026-03-27. Рекомендуется начать
