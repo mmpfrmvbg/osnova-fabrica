@@ -6,8 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { compileToBuildReport } from "../pipeline/orchestrator";
-import { Compiler, compile, compileSource, compileProgram, optimizeIrModule } from ".";
+import { Compiler, compile, compileSource, compileProgram, optimizeIrModule, compileToBuildReport } from ".";
 import { LANGUAGE_REGISTRY } from "./language-registry";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
@@ -466,6 +465,24 @@ describe("Compiler ↔ runtime pipeline (compileToBuildReport + VM)", () => {
     await expect(vm.runProcedure(0, [])).rejects.toSatisfy((e: unknown) => {
       return e instanceof InterpreterError && /Max steps exceeded \(60\)/.test((e as InterpreterError).message);
     });
+  });
+
+  /** ATM-EPK-260328-017-010: синоним `Число` в полях именованного типа — валидация spec + мост в BuildReport. */
+  it("именованный тип с полем Число: компиляция и buildReport.success", () => {
+    const src = `
+модуль T
+тип Row { x: Число }
+процедура главная()
+  пусть r: Row = { x: 1 }
+  вернуть 0
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.compilerSuccess).toBe(true);
+    expect(cr.compilerErrors).toHaveLength(0);
+    const report = compileToBuildReport(cr);
+    expect(report.success).toBe(true);
+    expect(report.bytecode).toBe(cr.module);
   });
 });
 

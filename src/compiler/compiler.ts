@@ -551,8 +551,8 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
  * (orchestrator реэкспортирует отсюда, чтобы не дублировать список blocking kinds).
  *
  * Разница:
- *   CompileResult.module      → BuildReport.bytecode
- *   + добавляет BuildReport.success = compilerSuccess && lexerErrors.length === 0
+ *   CompileResult.module → BuildReport.bytecode
+ *   BuildReport.success = compilerSuccess && пустые lexer/parser && нет blocking semantic (см. {@link BLOCKING_SEMANTIC_KINDS})
  */
 export function compileToBuildReport(r: CompileResult): BuildReport {
   const blockingSemanticErrors = (r.semanticErrors ?? []).filter(
@@ -572,5 +572,5 @@ export function compileToBuildReport(r: CompileResult): BuildReport {
     bytecode: r.module ?? null,
     compilerSuccess: r.compilerSuccess,
     durationMs: r.durationMs,
-  };
+  } satisfies BuildReport;
 }
