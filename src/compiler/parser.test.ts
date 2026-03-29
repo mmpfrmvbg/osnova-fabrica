@@ -177,6 +177,31 @@ describe("parser: базовые конструкции MVP", () => {
     expect(expr.args[1]).toEqual({ kind: "число", value: 0 });
   });
 
+  it("парсит цепочку arr[i].поле: индекс затем доступ к полю", () => {
+    const src = [
+      "модуль t",
+      "процедура main()",
+      "  пусть arr = [{ x: 1 }]",
+      "  вернуть arr[0].x",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const m = (ast as Program).modules[0] as Module;
+    const ret = m.procedures[0]?.body.find((s: Stmt) => s.kind === "вернуть");
+    expect(ret?.kind).toBe("вернуть");
+    if (ret?.kind !== "вернуть" || !ret.value) return;
+    expect(ret.value.kind).toBe("поле");
+    if (ret.value.kind !== "поле") return;
+    expect(ret.value.field).toBe("x");
+    expect(ret.value.object.kind).toBe("вызов");
+    if (ret.value.object.kind !== "вызов") return;
+    expect(ret.value.object.name).toBe("система.массив.получить");
+  });
+
   it("одномодульный файл -> Program.modules.length === 1", () => {
     const src = [
       "модуль Один",

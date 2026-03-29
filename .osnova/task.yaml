@@ -1,22 +1,23 @@
-id: ATM-EPK-260329-025-001
+id: ATM-EPK-260329-025-002
 epic: EPK-260329-025
-seq: 1
-zone: pipeline
+seq: 2
+zone: compiler
 risk: MED
 executor: cursor
-goal: Зафиксировать и устранить блокеры в контракте типов пайплайна (EPK-260328-015/016).
-scope: src/pipeline/types.ts — только типы и их согласованность с оркестрацией
+goal: Устранить первую группу блокеров парсера (синтаксис/ошибки разбора).
+scope: src/compiler/parser.ts — разбор и сообщения об ошибках, первая партия
 notouch:
-- src/compiler/parser.ts
-- src/runtime/vm.ts
-- src/pipeline-llm/runner.ts
-done: npx vitest run src/compiler/semanticKinds.test.ts
+- src/pipeline/types.ts
+- src/pipeline/executor.ts
+- .tmp/diagnostics.log
+done: npx vitest run src/compiler/parser.test.ts
 steps:
-- Сверить типы с фактическими вызовами из executor/orchestrator.
-- Устранить расхождения, из-за которых падает сборка или рантайм-ветки.
-- Прогнать узкий тест и зафиксировать контракт в коде.
-deps: []
+- Воспроизвести падения из golden/диагностик на минимальных фрагментах.
+- Внести точечные правки в parser.ts без расширения грамматики «вширь».
+- Проверить регресс lexer/parser.
+deps:
+- ATM-EPK-260329-025-001
 maxiter: 3
 retries: 0
-status: PENDING
+status: DONE
 priority: P0

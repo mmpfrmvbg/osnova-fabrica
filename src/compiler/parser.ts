@@ -899,40 +899,45 @@ export function parse(tokens: Token[]): ParseResult {
         if (!consume("}", "Ожидается '}' после тела записи")) return null;
         return { kind: "объект", entries };
       }
-      while (peek().kind === "." && peek().kind !== "конец_файла") {
-        advance();
-        if (!isAt("идентификатор")) break;
-        const fieldTok = advance();
-        const field = String(fieldTok.value ?? fieldTok.lexeme);
-        if (peek().kind === "(") {
-          const fullName = getExprInvokeName(expr) + (getExprInvokeName(expr) ? "." : "") + field;
+      // Чередование суффиксов `.поле` и `[i]`: `arr[0].x` → получить(arr,0) затем поле.
+      for (;;) {
+        const posBeforeSuffix = pos;
+        while (peek().kind === "." && peek().kind !== "конец_файла") {
           advance();
-          skipNewlines();
-          const args: Expr[] = [];
-          while (peek().kind !== ")" && peek().kind !== "конец_файла") {
-            const arg = parseExpr();
-            if (arg) args.push(arg);
+          if (!isAt("идентификатор")) break;
+          const fieldTok = advance();
+          const field = String(fieldTok.value ?? fieldTok.lexeme);
+          if (peek().kind === "(") {
+            const fullName = getExprInvokeName(expr) + (getExprInvokeName(expr) ? "." : "") + field;
+            advance();
             skipNewlines();
-            if (peek().kind === ",") {
-              advance();
+            const args: Expr[] = [];
+            while (peek().kind !== ")" && peek().kind !== "конец_файла") {
+              const arg = parseExpr();
+              if (arg) args.push(arg);
               skipNewlines();
-            } else break;
+              if (peek().kind === ",") {
+                advance();
+                skipNewlines();
+              } else break;
+            }
+            if (!consume(")", "Ожидается ')'")) return null;
+            return { kind: "вызов", name: fullName, args };
           }
-          if (!consume(")", "Ожидается ')'")) return null;
-          return { kind: "вызов", name: fullName, args };
+          expr = { kind: "поле", object: expr, field };
         }
-        expr = { kind: "поле", object: expr, field };
-      }
-      while (peek().kind === "[" && peek().kind !== "конец_файла") {
-        advance(); // "["
-        const idx = parseExpr();
-        if (!idx) return null;
-        if (!consume("]", "Ожидается ']'")) return null;
-        expr = {
-          kind: "вызов",
-          name: "система.массив.получить",
-          args: [expr, idx],
-        };
+        while (peek().kind === "[" && peek().kind !== "конец_файла") {
+          advance(); // "["
+          const idx = parseExpr();
+          if (!idx) return null;
+          if (!consume("]", "Ожидается ']'")) return null;
+          expr = {
+            kind: "вызов",
+            name: "система.массив.получить",
+            args: [expr, idx],
+          };
+        }
+        if (pos === posBeforeSuffix) break;
       }
       if (peek().kind === "(") {
         advance();
