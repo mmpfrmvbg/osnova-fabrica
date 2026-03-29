@@ -15,8 +15,12 @@ steps:
 - Реализовать OpCode.POP — удаление верхнего элемента
 - Реализовать OpCode.DUP — дублирование верхнего элемента
 deps:
-- 1
+- ATM-EPK-260328-014-001
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: f6a5c3724e22fad4dc6bfdd0de630bed06d98ac6
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'

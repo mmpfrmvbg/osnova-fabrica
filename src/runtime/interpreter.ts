@@ -96,6 +96,13 @@ export const OpCode = {
 
 export type OpCode = (typeof OpCode)[keyof typeof OpCode];
 
+/**
+ * Фасад стековой VM: {@link executionStack} и пошаговый {@link interpret}.
+ * Базовые опкоды исполняются в {@link VM} (наследник):
+ * {@link OpCode.PUSH} (`const` + индекс `k` в пуле констант модуля),
+ * {@link OpCode.POP} (снять вершину; пустой стек → {@link InterpreterError}),
+ * {@link OpCode.DUP} (копия вершины на стек).
+ */
 export class Interpreter extends VM {
   /** Стек исполнения (верх — последний элемент). */
   get executionStack(): readonly StackValue[] {
