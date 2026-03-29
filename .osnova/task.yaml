@@ -1,30 +1,26 @@
-id: ATM-EPK-260328-016-011
-epic: EPK-260328-016
-seq: 11
-zone: integration
-risk: MEDIUM
+id: ATM-EPK-260328-017-001
+epic: EPK-260328-017
+seq: 1
+zone: agents
+risk: HIGH
 executor: cursor
-goal: Финальная интеграционная верификация — полный проход agents + pipeline
+goal: Восстановить IntakeAgent — базовый парсинг и валидацию входных данных
 scope:
-- src/agents/agents.test.ts
-- src/pipeline/pipeline.test.ts
 - src/agents/intake-agent.ts
-- src/agents/plan-agent.ts
-- src/agents/exec-agent.ts
-- src/agents/review-agent.ts
-- src/pipeline/pipeline.ts
-notouch: []
+- src/agents/agents.test.ts — добавить тесты на intake
+notouch:
+- src/runtime/*
+- src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Запустить npx vitest run src/agents/ && npx vitest run src/pipeline/
-- 'Зафиксировать итоговый passrate (цель: ≥ 0.8)'
-- При успехе — зафиксировать EPK как completed
-deps:
-- ATM-EPK-260328-016-009
-- ATM-EPK-260328-016-010
+- audit intake-agent.ts на наличие TS-ошибок и незавершённых TODO
+- исправить типы и логику парсинга входного контекста
+- добавить юнит-тесты на корректный/некорректный инпут
+- запустить npx vitest run src/agents/intake-agent.test.ts
+deps: []
 maxiter: 3
 retries: 0
-status: done
+status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 920461c513a1ff190d9a88056568f4a48bf8018c
+review_base_sha: c552ba1e2d94d90430a39666b85b21002f2c020f

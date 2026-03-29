@@ -16,10 +16,11 @@ import { runGoldenCheck } from '../runtime/goldenApps';
 import {
   IntakeAgent,
   SpecValidationError,
+  detectAppTypeFromPrefix,
   intentFeaturesFromLlmPayload,
   parseLlmConfidence,
 } from './IntakeAgent';
-import { PlanAgent, PlanValidationError, isValidPhaseTransition } from './plan-agent';
+import { PlanAgent, PlanValidationError, isValidPhaseTransition, type PipelinePhase } from './plan-agent';
 import { ExecAgent, createPipelineVmFromExecContext, type ExecContext } from './exec-agent';
 import { PIPELINE_VM_GLOBAL_KEYS } from '../runtime/vm';
 import { ReviewAgent } from './review-agent';
@@ -51,6 +52,20 @@ function sampleSpec(over: Partial<OsnovaSpec> = {}): OsnovaSpec {
     ...over,
   };
 }
+
+describe('detectAppTypeFromPrefix — префиксы до LLM (intake)', () => {
+  it('распознаёт тип по строке начала задачи', () => {
+    expect(detectAppTypeFromPrefix('алгоритм: сортировка')).toBe('алгоритм');
+    expect(detectAppTypeFromPrefix('тест: проверка')).toBe('тест');
+    expect(detectAppTypeFromPrefix('модуль типов: перечисления')).toBe('модуль_типов');
+    expect(detectAppTypeFromPrefix('модуль: утилиты')).toBe('модуль');
+    expect(detectAppTypeFromPrefix('библиотека: общий код')).toBe('библиотека');
+  });
+
+  it('возвращает null без префикса', () => {
+    expect(detectAppTypeFromPrefix('  утилита без метки  ')).toBeNull();
+  });
+});
 
 describe('parseLlmConfidence — порог G1 (ATM-002)', () => {
   it('числовая строка парсится', () => {
@@ -820,7 +835,8 @@ describe('ExecAgent — validate, run, report (BaseAgent)', () => {
 
     const fail = await exec.run({
       plan,
-      runPhase: async phase => (phase === 'codegen' ? { ok: false, error: 'x' } : { ok: true }),
+      runPhase: async (phase: PipelinePhase) =>
+        phase === 'codegen' ? { ok: false, error: 'x' } : { ok: true },
     });
     expect(fail.completed).toBe(false);
     rep = exec.report();
