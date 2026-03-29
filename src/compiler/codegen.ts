@@ -9,6 +9,10 @@ import { logger } from "../logger";
 
 const log = logger("codegen");
 
+function assertNever(x: never, ctx: string): never {
+  throw new Error(`codegen: непокрытый узел (${ctx})`);
+}
+
 /** Значения — только из {@link Op}; иначе VM выдаст Unknown op в interpretInstruction. */
 const BINARY_OP: Record<string, Op> = {
   "+": "add",
@@ -269,6 +273,8 @@ export function compile(ast: Module): OsVbcModule {
           }
           break;
         }
+        default:
+          assertNever(expr, "Expr.emitExpr");
       }
     };
 
@@ -470,6 +476,8 @@ export function compile(ast: Module): OsVbcModule {
           else emit({ op: "const.null" } as RawInstruction);
           emit({ op: "ret" } as RawInstruction);
           break;
+        default:
+          assertNever(s, "Stmt.emitStmt");
       }
     };
 
