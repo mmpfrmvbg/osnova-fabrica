@@ -5,11 +5,7 @@
 // ============================================================
 
 import { randomUUID } from 'crypto';
-import {
-  Compiler,
-  type CompileOptions,
-  type CompileResult,
-} from '../compiler/compiler';
+import { Compiler, type CompileOptions, type CompileResult } from '../compiler/compiler';
 import type {
   ExecutionPlan,
   OsnovaIntent,
@@ -20,7 +16,7 @@ import type {
 } from '../pipeline/types';
 import type { AgentReport, BaseAgent } from '../types/agents';
 
-export { Compiler, type CompileOptions, type CompileResult };
+export { Compiler, formatCompileFailureMessage, type CompileOptions, type CompileResult } from '../compiler/compiler';
 export type { ExecutionPlan, PipelinePhase, PlanAgentBuildOptions, PlanStep } from '../pipeline/types';
 
 /**
@@ -29,18 +25,6 @@ export type { ExecutionPlan, PipelinePhase, PlanAgentBuildOptions, PlanStep } fr
  */
 export function compileOsnovaSource(source: string, options: CompileOptions = {}): CompileResult {
   return new Compiler().compile(source, options);
-}
-
-/** Человекочитаемая сводка ошибок при неуспешной компиляции (пустая строка при успехе с модулем). */
-export function formatCompileFailureMessage(result: CompileResult): string {
-  if (result.compilerSuccess && result.module != null) return '';
-  const parts: string[] = [
-    ...result.lexerErrors.map((e) => e.message),
-    ...result.parserErrors.map((e) => e.message),
-    ...result.compilerErrors.map((e) => e.message),
-    ...result.semanticErrors.map((e) => e.message),
-  ];
-  return parts.length > 0 ? parts.join('; ') : 'compilation failed';
 }
 
 function isRecord(x: unknown): x is Record<string, unknown> {

@@ -76,13 +76,9 @@ export class Compiler {
   async execute(source: string, options: ExecuteOptions = {}): Promise<StackValue | undefined> {
     const { procedureIndex = 0, procedureName, args = [], vm: vmOpts, baseDir } = options;
     const result = this.compile(source, { baseDir });
-    if (!result.compilerSuccess || !result.module) {
-      const parts = [
-        ...result.lexerErrors.map((e) => e.message),
-        ...result.parserErrors.map((e) => e.message),
-        ...result.compilerErrors.map((e) => e.message),
-      ];
-      throw new Error(parts.length > 0 ? parts.join("; ") : "compilation failed");
+    const msg = formatCompileFailureMessage(result);
+    if (!result.module || msg) {
+      throw new Error(msg || 'compilation failed');
     }
     const osvm = new OsVbcVM(result.module, vmOpts ?? {});
     let procedure: string;
@@ -573,4 +569,20 @@ export function compileToBuildReport(r: CompileResult): BuildReport {
     compilerSuccess: r.compilerSuccess,
     durationMs: r.durationMs,
   } satisfies BuildReport;
+}
+
+/**
+ * Сводка ошибок, когда сборка не считается успешной по {@link compileToBuildReport}
+ * (включая блокирующие semantic). Пустая строка при `report.success`.
+ */
+export function formatCompileFailureMessage(result: CompileResult): string {
+  const report = compileToBuildReport(result);
+  if (report.success) return '';
+  const parts: string[] = [
+    ...result.lexerErrors.map((e) => e.message),
+    ...result.parserErrors.map((e) => e.message),
+    ...result.compilerErrors.map((e) => e.message),
+    ...result.semanticErrors.map((e) => e.message),
+  ];
+  return parts.length > 0 ? parts.join('; ') : 'compilation failed';
 }

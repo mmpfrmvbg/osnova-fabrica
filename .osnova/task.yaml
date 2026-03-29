@@ -1,25 +1,24 @@
-id: ATM-EPK-260328-018-006
+id: ATM-EPK-260328-018-007
 epic: EPK-260328-018
-seq: 6
+seq: 7
 zone: runtime
 risk: MEDIUM
 executor: cursor
-goal: Восстановить IntakeAgent — интеграция с vm.ts и interpreter.ts
+goal: Восстановить PlanAgent — интеграция с compiler.ts
 scope:
-- src/agents/intake-agent.ts
-- src/runtime/vm.ts
-- src/runtime/interpreter.ts
+- src/agents/plan-agent.ts
+- src/compiler/compiler.ts
 notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Проверить совместимость типов между agent и runtime
-- Исправить вызовы VM.execute
-- Обновить обработку результатов interpreter
+- Синхронизировать типы CompileResult
+- Исправить вызовы compiler.compile
+- Обработать ошибки компиляции
 deps:
-- ATM-EPK-260328-018-002
+- ATM-EPK-260328-018-003
 maxiter: 3
 retries: 0
 status: done
 priority: P0
 max_retries: 3
-review_base_sha: 7a33ab23061971f5a22c6c3e4cde2c218fca47fd
+review_base_sha: 6972b2844b92e5ffcdad5d3bfc23fbf6edb23782
