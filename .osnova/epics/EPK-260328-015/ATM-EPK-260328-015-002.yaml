@@ -15,8 +15,11 @@ steps:
 - Реализовать класс IntakeAgent с валидацией входных данных
 - Добавить обработку ошибок и логирование
 deps:
-- 1
+- ATM-EPK-260328-015-001
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: 9203ecc1fae38d35d397fadfa67eefc79fa7372b
+produced_files: []
