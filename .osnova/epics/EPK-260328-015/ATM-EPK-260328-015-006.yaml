@@ -20,15 +20,10 @@ deps:
 - ATM-EPK-260328-015-005
 maxiter: 3
 retries: 1
-status: blk
+status: done
 priority: P1
 max_retries: 3
-review_base_sha: 794b70d245fe9fa6483167bcbf5d45e2b9d3847a
-retry_context:
-  attempt: 2
-  previous_failure: 'FAIL: Diff пуст — изменения не внесены, цель не достигнута; FAIL
-    on diff review (done not re-run)'
-  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
-    и done-команду.
+review_base_sha: 4b3e397687b21bd159b8dca2e60d3f37987a9d29
 last_failure: 'FAIL: Diff пуст — изменения не внесены, цель не достигнута; FAIL on
   diff review (done not re-run)'
+produced_files: []
