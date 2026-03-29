@@ -201,6 +201,102 @@ describe('tool classify — классификация stale ATM-блокеро�
     const resultPipeline = prunePipeline(entries, closed);
     expect(resultTools).toEqual(resultPipeline);
   });
+
+  describe('таблица входов: blockers + closed ids → ожидаемые подмножества', () => {
+    it('все валидные + ни одного closed → все в результате', () => {
+      const entries = [
+        makeRecord(101, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001')),
+        makeRecord(102, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '002')),
+        makeRecord(103, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '003')),
+      ];
+      const closed = new Set<number>();
+      const result = pruneTools(entries, closed);
+      expect(result.map((r) => r.issue)).toEqual([101, 102, 103]);
+    });
+
+    it('смешанные валидные/invalid + closed → только валидные и открытые', () => {
+      const entries = [
+        makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001')),
+        makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '002')),
+        makeRecord(3, 'INVALID-001'),
+        makeRecord(4, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '004')),
+        makeRecord(5, 'ATM-EPK-UNKNOWN-005'),
+      ];
+      const closed = new Set([2, 4]);
+      const result = pruneTools(entries, closed);
+      expect(result.map((r) => r.issue)).toEqual([1]);
+    });
+
+    it('все blockers закрыты → пустой результат', () => {
+      const entries = [
+        makeRecord(10, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001')),
+        makeRecord(20, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '002')),
+      ];
+      const closed = new Set([10, 20]);
+      const result = pruneTools(entries, closed);
+      expect(result).toHaveLength(0);
+    });
+
+    it('все blockers invalid → пустой результат', () => {
+      const entries = [
+        makeRecord(1, 'INVALID-001'),
+        makeRecord(2, 'ATM-EPK-UNKNOWN-002'),
+      ];
+      const result = pruneTools(entries, new Set());
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('устойчивость к пустым и дубликатам issue', () => {
+    it('пустой массив blockers → пустой результат', () => {
+      expect(pruneTools([], new Set())).toEqual([]);
+      expect(pruneTools([], new Set([1, 2, 3]))).toEqual([]);
+    });
+
+    it('пустой set closedIssueIds → сохраняются все валидные', () => {
+      const entries = [
+        makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001')),
+        makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '002')),
+      ];
+      const result = pruneTools(entries, new Set());
+      expect(result).toHaveLength(2);
+    });
+
+    it('дубликаты issue в entries → сохраняются все вхождения', () => {
+      const atmId = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001');
+      const entries = [
+        makeRecord(1, atmId),
+        makeRecord(1, atmId),
+        makeRecord(1, atmId),
+      ];
+      const result = pruneTools(entries, new Set());
+      expect(result).toHaveLength(3);
+      expect(result.map((r) => r.issue)).toEqual([1, 1, 1]);
+    });
+
+    it('дубликаты в closedIssueIds → корректная фильтрация', () => {
+      const entries = [
+        makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001')),
+        makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '002')),
+        makeRecord(3, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '003')),
+      ];
+      const closed = new Set([2, 2, 2]);
+      const result = pruneTools(entries, closed);
+      expect(result.map((r) => r.issue)).toEqual([1, 3]);
+    });
+
+    it('дубликаты issue + частично закрытые → корректная фильтрация', () => {
+      const atmId = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001');
+      const entries = [
+        makeRecord(1, atmId),
+        makeRecord(1, atmId),
+        makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '002')),
+      ];
+      const closed = new Set([1]);
+      const result = pruneTools(entries, closed);
+      expect(result.map((r) => r.issue)).toEqual([2]);
+    });
+  });
 });
 
 describe('tool read — загрузка и извлечение blockers', () => {
