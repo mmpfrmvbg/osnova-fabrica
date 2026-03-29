@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Interpreter, InterpreterError, OpCode, VM } from "./interpreter";
+import { Interpreter, InterpreterError, OpCode, VM, runProgram, loadModule } from "./index";
 import type { OsVbcModule, RawInstruction } from "./vm/bytecode";
 
 function tinyMod(code: RawInstruction[], constants: unknown[] = []): OsVbcModule {
@@ -17,6 +17,11 @@ function tinyMod(code: RawInstruction[], constants: unknown[] = []): OsVbcModule
 }
 
 describe("Interpreter + OpCode stack ops", () => {
+  it("публичный barrel (index) отдаёт runProgram и loadModule вместе с vm.ts-поверхностью", () => {
+    expect(typeof runProgram).toBe("function");
+    expect(typeof loadModule).toBe("function");
+  });
+
   it("interpret: одна инструкция const кладёт значение на стек", async () => {
     const m = tinyMod([], [42]);
     const ip = new Interpreter(m);

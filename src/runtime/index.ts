@@ -1,6 +1,7 @@
 /**
  * Публичная точка входа рантайма VM / интерпретатора.
- * Агенты и пайплайн могут импортировать из `../runtime` или из `./vm` / `./interpreter` — поверхность совпадает.
+ * Из `./vm` — OsVbcVM и пайплайн; из `./interpreter` — runProgram, loadModule, Interpreter, VM (то же исполнение, что под капотом у `vm.ts`).
+ * Импорт из `../runtime`, `./vm` или `./interpreter` даёт согласованную поверхность.
  */
 export * from "./vm";
 export { Interpreter, InterpreterError, runProgram, loadModule, VM } from "./interpreter";
