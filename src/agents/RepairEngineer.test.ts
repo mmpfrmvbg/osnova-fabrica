@@ -1,9 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { RepairEngineerAgent } from './RepairEngineer';
 import type { OsnovaSource, BuildReport, GoldenReport } from '../pipeline/types';
 
-// Mock LLM — возвращает код без изменений (контент будет равно userPrompt),
-// чтобы тесты могли проверить что попало в промпт.
+// Mock buildOsnovaRepairPrompt через vi.hoisted
+const { buildOsnovaRepairPromptMock } = vi.hoisted(() => ({
+  buildOsnovaRepairPromptMock: vi.fn(
+    (source: string, errors: string[], prefix?: string, errorKinds?: unknown) =>
+      JSON.stringify({ source, errors, prefix, errorKinds }),
+  ),
+}));
+
+vi.mock('../pipeline-llm/buildOsnovaPrompt', () => ({
+  buildOsnovaRepairPrompt: buildOsnovaRepairPromptMock,
+}));
+
 vi.mock('../llm/index', () => ({
   getLLMProvider: () => ({
     complete: async (req: { messages: { role: string; content: string }[] }) => {
@@ -12,19 +21,13 @@ vi.mock('../llm/index', () => ({
         content: (userMsg?.content as string) ?? '',
         model: 'mock',
         done: true,
+        tokensUsed: { prompt: 0, completion: 0, total: 0 },
       };
     },
   }),
 }));
 
-vi.mock('../pipeline-llm/buildOsnovaPrompt', () => ({
-  buildOsnovaRepairPrompt: vi.fn(
-    (source: string, errors: string[], prefix?: string, errorKinds?: unknown) =>
-      JSON.stringify({ source, errors, prefix, errorKinds }),
-  ),
-}));
-
-import { buildOsnovaRepairPrompt } from '../pipeline-llm/buildOsnovaPrompt';
+import { RepairEngineerAgent } from './RepairEngineer';
 
 function makeSource(source = 'модуль т\nпроцедура главная()\n  вернуть 0\nконец\nконец'): OsnovaSource {
   return { filename: 'main.osnova', source };
@@ -58,13 +61,13 @@ function makeGoldenReport(overrides: Partial<GoldenReport> = {}): GoldenReport {
 
 describe('RepairEngineerAgent.fix', () => {
   beforeEach(() => {
-    vi.mocked(buildOsnovaRepairPrompt).mockClear();
+    buildOsnovaRepairPromptMock.mockClear();
   });
 
   it('вызывает buildOsnovaRepairPrompt с исходным кодом', async () => {
     const agent = new RepairEngineerAgent();
     await agent.fix(makeSource('код'));
-    expect(buildOsnovaRepairPrompt).toHaveBeenCalledWith(
+    expect(buildOsnovaRepairPromptMock).toHaveBeenCalledWith(
       'код',
       expect.any(Array),
       undefined,
@@ -78,7 +81,7 @@ describe('RepairEngineerAgent.fix', () => {
       lexerErrors: [{ line: 1, column: 5, message: 'unexpected token' }],
     });
     await agent.fix(makeSource(), report);
-    const errors = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][1] as string[];
+    const errors = buildOsnovaRepairPromptMock.mock.calls[0][1] as string[];
     expect(errors.some((e: string) => e.includes('unexpected token'))).toBe(true);
   });
 
@@ -88,7 +91,7 @@ describe('RepairEngineerAgent.fix', () => {
       parserErrors: [{ line: 3, column: 1, message: 'expected конец' }],
     });
     await agent.fix(makeSource(), report);
-    const errors = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][1] as string[];
+    const errors = buildOsnovaRepairPromptMock.mock.calls[0][1] as string[];
     expect(errors.some((e: string) => e.includes('expected конец'))).toBe(true);
   });
 
@@ -101,7 +104,7 @@ describe('RepairEngineerAgent.fix', () => {
       ],
     });
     await agent.fix(makeSource(), report);
-    const errorKinds = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][3] as string[];
+    const errorKinds = buildOsnovaRepairPromptMock.mock.calls[0][3] as string[];
     expect(errorKinds).toBeDefined();
     expect(errorKinds).toEqual(['unknown_syscall', 'undeclared_var']);
   });
@@ -115,7 +118,7 @@ describe('RepairEngineerAgent.fix', () => {
       ],
     });
     await agent.fix(makeSource(), report);
-    const errors = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][1] as string[];
+    const errors = buildOsnovaRepairPromptMock.mock.calls[0][1] as string[];
     expect(errors.some((e: string) => e.includes('система.foo.bar'))).toBe(true);
     expect(errors.some((e: string) => e.includes('цепочечные сравнения'))).toBe(false);
   });
@@ -126,7 +129,7 @@ describe('RepairEngineerAgent.fix', () => {
       vmErrors: [{ message: 'stack overflow' }],
     });
     await agent.fix(makeSource(), undefined, golden);
-    const errors = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][1] as string[];
+    const errors = buildOsnovaRepairPromptMock.mock.calls[0][1] as string[];
     expect(errors.some((e: string) => e.includes('stack overflow'))).toBe(true);
   });
 
@@ -134,14 +137,14 @@ describe('RepairEngineerAgent.fix', () => {
     const agent = new RepairEngineerAgent();
     const golden = makeGoldenReport({ outputDiff: 'expected 5 got 0' });
     await agent.fix(makeSource(), undefined, golden);
-    const errors = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][1] as string[];
+    const errors = buildOsnovaRepairPromptMock.mock.calls[0][1] as string[];
     expect(errors.some((e: string) => e.includes('expected 5 got 0'))).toBe(true);
   });
 
   it('передаёт prefix с номером попытки', async () => {
     const agent = new RepairEngineerAgent();
     await agent.fix(makeSource(), undefined, undefined, 2);
-    const prefix = vi.mocked(buildOsnovaRepairPrompt).mock.calls[0][2] as string | undefined;
+    const prefix = buildOsnovaRepairPromptMock.mock.calls[0][2] as string | undefined;
     expect(prefix).toContain('2');
   });
 
@@ -156,4 +159,3 @@ describe('RepairEngineerAgent.fix', () => {
     await expect(agent.fix(makeSource())).resolves.not.toThrow();
   });
 });
-

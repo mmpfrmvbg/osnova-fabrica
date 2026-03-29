@@ -1,23 +1,24 @@
-id: ATM-EPK-260328-018-010
+id: ATM-EPK-260328-018-011
 epic: EPK-260328-018
-seq: 10
+seq: 11
 zone: pipeline
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Восстановить pipeline.test.ts — обновить тесты под новую реализацию
+goal: E2E прогон — запустить vitest и зафиксировать результаты
 scope:
+- src/agents/agents.test.ts
 - src/pipeline/pipeline.test.ts
 notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Исправить моки агентов
-- Обновить assertions под новые типы
-- Устранить TypeScript-ошибки в тестах
+- Запустить npx vitest run src/agents/
+- Запустить npx vitest run src/pipeline/
+- Зафиксировать вывод и ошибки
 deps:
-- ATM-EPK-260328-018-009
+- ATM-EPK-260328-018-010
 maxiter: 3
 retries: 0
 status: done
 priority: P0
 max_retries: 3
-review_base_sha: cce2be9d90620457b212ea14fb9244e8e18409aa
+review_base_sha: 739ead6815df2f4f040cdcff388c2c4785e6c077

@@ -3,7 +3,7 @@ epic: EPK-260328-018
 seq: 11
 zone: pipeline
 risk: LOW
-executor: qwen
+executor: cursor
 goal: E2E прогон — запустить vitest и зафиксировать результаты
 scope:
 - src/agents/agents.test.ts
@@ -18,5 +18,8 @@ deps:
 - ATM-EPK-260328-018-010
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: 739ead6815df2f4f040cdcff388c2c4785e6c077
+produced_files: []
