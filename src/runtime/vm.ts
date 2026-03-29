@@ -22,6 +22,22 @@
  * **Публичная связка с агентами:** фабрика `createPipelineVmFromExecContext` и `safeExecutePipelineVm` экспортируются из
  * {@link import("../agents/index")} и {@link import("../pipeline/pipeline")} (фасад пайплайна); реализация — в
  * {@link import("../agents/exec-agent")}, сборка VM — {@link createPipelineVmFromSpec} + {@link applyPipelineSpecToVm}.
+ *
+ * ### Индекс контракта (обзор поверхности)
+ *
+ * **Класс:** {@link OsVbcVM}. **Типы:** {@link OsVbcVMOptions}, {@link OsVbcExecuteOptions}, {@link VmExecutionLogEvent},
+ * {@link VmExecutionLogPhase}, {@link PipelineVmExecuteResult}. **Константы/утилиты:** {@link VM_ERROR_CONCURRENT_EXECUTE},
+ * {@link PIPELINE_VM_GLOBAL_KEYS}, {@link formatVmRuntimeError}, {@link vmExecuteTimeoutMessage}. **Пайплайн из spec:**
+ * {@link defaultPipelineProcedureFromSpec}, {@link mergePipelineVmExecuteOptions}, {@link safeExecutePipelineVm},
+ * {@link buildPipelineVmGlobals}, {@link applyPipelineSpecToVm}, {@link createPipelineInvokeHandlerForVm},
+ * {@link createPipelineVmFromSpec}, {@link createGoldenCheckVm}. Реэкспорты: {@link createDefaultInvokeHandler}, {@link OpCode},
+ * типы интерпретатора.
+ *
+ * **ExecContext ↔ VM:** тот же {@link OsnovaSpec}, что в {@link import("../agents/exec-agent").ExecContext.spec}, до прогона
+ * попадает в {@link OsVbcVM.globals} через {@link applyPipelineSpecToVm} (и syscall `система.пайплайн.*` через
+ * {@link createPipelineInvokeHandlerForVm}). Фасад из контекста: {@link import("../agents/exec-agent").createPipelineVmFromExecContext}.
+ *
+ * **JSDoc у {@link PIPELINE_VM_GLOBAL_KEYS}:** есть (ключи globals, соответствие полям {@link OsnovaSpec} и syscall).
  */
 
 import { Interpreter, InterpreterError } from "./interpreter";

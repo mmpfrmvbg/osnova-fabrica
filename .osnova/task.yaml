@@ -1,24 +1,28 @@
-id: ATM-EPK-260328-018-011
-epic: EPK-260328-018
-seq: 11
-zone: pipeline
-risk: LOW
+id: ATM-EPK-260328-FBK016-001
+epic: EPK-260328-FBK016
+seq: 1
+zone: lang
+risk: MEDIUM
 executor: cursor
-goal: E2E прогон — запустить vitest и зафиксировать результаты
+goal: Анализ текущей структуры src/runtime/vm.ts и выявление мест для документации
+  контракта VM
 scope:
-- src/agents/agents.test.ts
-- src/pipeline/pipeline.test.ts
-notouch: []
+- src/runtime/vm.ts
+notouch:
+- forge/
+- .github/
+- docs/legacy/
+- apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Запустить npx vitest run src/agents/
-- Запустить npx vitest run src/pipeline/
-- Зафиксировать вывод и ошибки
-deps:
-- ATM-EPK-260328-018-010
+- Прочитать src/runtime/vm.ts полностью
+- Выявить текущие экспорты, интерфейсы, классы
+- Определить отсутствие JSDoc для PIPELINE_VM_GLOBAL_KEYS
+- Зафиксировать точки интеграции с ExecContext/OsnovaSpec
+deps: []
 maxiter: 3
 retries: 0
 status: done
-priority: P0
+priority: P2
 max_retries: 3
-review_base_sha: 739ead6815df2f4f040cdcff388c2c4785e6c077
+review_base_sha: ac6af2ac8b02fc93c8806c87c2577e528ec007fb
