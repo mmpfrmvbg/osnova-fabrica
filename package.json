@@ -82,12 +82,12 @@
     "@types/node": "^20.11.0",
     "@types/supertest": "^6.0.3",
     "@types/ws": "^8.5.10",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^3.2.4",
     "prettier": "^3.2.0",
     "supertest": "^7.1.4",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^4.1.2"
+    "vitest": "^3.2.4"
   }
 }

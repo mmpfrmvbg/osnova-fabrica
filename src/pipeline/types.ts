@@ -6,7 +6,7 @@
 
 import type { LLMProviderStatus } from '../llm/types';
 import type { SemanticError } from '../compiler/semantic';
-import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
+import { QUALITY_PASS, QUALITY_PARTIAL } from './thresholds';
 
 // ─── Диагностика ошибок ───
 
