@@ -1,22 +1,22 @@
-id: ATM-EPK-260329-025-004
+id: ATM-EPK-260329-025-005
 epic: EPK-260329-025
-seq: 4
-zone: compiler
-risk: MED
+seq: 5
+zone: runtime
+risk: HIGH
 executor: cursor
-goal: Выровнять публичный API компилятора с parser/semantic после фиксов.
-scope: src/compiler/index.ts — реэкспорты и точки входа compile/pipeline
+goal: Устранить блокеры исполнения VM (основной цикл и инварианты стека).
+scope: src/runtime/vm.ts — ядро интерпретатора и syscall-диспетчер
 notouch:
-- src/pipeline/executor.ts
-- src/runtime/vm.ts
-- .tmp/diagnostics.log
-done: npx vitest run src/compiler/compiler.test.ts
+- src/compiler/index.ts
+- src/pipeline/types.ts
+- src/pipeline-llm/runner.ts
+done: npx vitest run src/runtime/vm.test.ts
 steps:
-- Проверить экспорты и сигнатуры относительно parser/semantic.
-- Убрать устаревшие или дублирующие entrypoints, вызывающие блокеры.
-- Минимизировать побочные эффекты при импорте.
+- Воспроизвести сбои из трасс на минимальных программах.
+- Исправить нарушения инвариантов без изменения контракта байткода.
+- Сверить с compiler/vm при необходимости только чтением.
 deps:
-- ATM-EPK-260329-025-003
+- ATM-EPK-260329-025-004
 maxiter: 3
 retries: 0
 status: PENDING

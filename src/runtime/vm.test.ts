@@ -360,6 +360,32 @@ describe("OsVbcVM: vm-crash % (rem), safeExecute и контракт пайпл�
     expect(await new OsVbcVM(okMod, { maxSteps: 1000 }).execute()).toBe(1);
   });
 
+  it("тот же OsVbcVM: после rem-crash следующий execute() не наследует грязные frames", async () => {
+    const crashThenOk: OsVbcModule = {
+      version: 1,
+      moduleName: "RemПовтор",
+      constants: [10, 3, 0],
+      procedures: [
+        { name: "сбой", codeOffset: 0, argc: 0, localsCount: 0 },
+        { name: "главная", codeOffset: 4, argc: 0, localsCount: 0 },
+      ],
+      code: [
+        ri("const", { type: "i32", k: 0 }),
+        ri("const", { type: "i32", k: 2 }),
+        ri("rem"),
+        ri("ret"),
+        ri("const", { type: "i32", k: 0 }),
+        ri("const", { type: "i32", k: 1 }),
+        ri("rem"),
+        ri("ret"),
+      ],
+    };
+    const vm = new OsVbcVM(crashThenOk, { maxSteps: 1000 });
+    await expect(vm.execute({ procedure: "сбой" })).rejects.toMatchObject({ message: "Remainder by zero" });
+    expect(await vm.execute()).toBe(1);
+    expect(vm.getReturnValue()).toBe(1);
+  });
+
   it("пороги G3: QUALITY_PARTIAL < QUALITY_PASS (thresholds.ts ↔ gates)", () => {
     expect(QUALITY_PASS).toBe(0.7);
     expect(QUALITY_PARTIAL).toBe(0.5);

@@ -603,6 +603,10 @@ def _process_epic(
     avail: dict[str, Any],
     on_update: OnAtomUpdate | None = None,
 ) -> list[dict[str, Any]]:
+    LOG.info(
+        "parallel_executor: FORGE_WAVE_PARALLEL=%s",
+        os.environ.get("FORGE_WAVE_PARALLEL"),
+    )
     state["current_epic"] = epic.get("id")
     state["current_epic_issue"] = epic.get("githubissue")
     state["current_epic_started_at"] = now_iso()
@@ -673,6 +677,11 @@ def _process_epic(
                 wi + 1,
                 len(waves),
                 [a.get("id") for a in wave],
+            )
+            LOG.info(
+                "parallel_executor: wave %d scopes_overlap=%s",
+                wi + 1,
+                wave_scopes_overlap(wave),
             )
             if forge_wave_parallel_enabled() and len(wave) > 1 and not dry_run:
 

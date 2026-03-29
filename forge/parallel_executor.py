@@ -10,10 +10,10 @@ from typing import Any, Callable
 
 try:
     from forge.atomizer import _coerce_dep_to_atm_id
-    from forge.common import SUBPROCESS_TEXT, set_thread_project, setup_logging
+    from forge.common import SUBPROCESS_TEXT, forge_dotenv_setting, set_thread_project, setup_logging
 except ImportError:  # pragma: no cover
     from atomizer import _coerce_dep_to_atm_id
-    from common import SUBPROCESS_TEXT, set_thread_project, setup_logging
+    from common import SUBPROCESS_TEXT, forge_dotenv_setting, set_thread_project, setup_logging
 
 LOG = setup_logging("parallel_executor")
 
@@ -192,12 +192,14 @@ def cleanup_wave_worktrees(project: Path, paths: list[Path]) -> None:
 
 
 def forge_wave_parallel_enabled() -> bool:
-    return os.environ.get("FORGE_WAVE_PARALLEL", "").strip().lower() in ("1", "true", "yes")
+    """Reads each call: ``os.environ`` then forge/project ``.env`` (same merge as :func:`forge_dotenv_setting`)."""
+    v = forge_dotenv_setting("FORGE_WAVE_PARALLEL", "0").strip().lower()
+    return v in ("1", "true", "yes")
 
 
 def forge_wave_max_workers() -> int:
     try:
-        return max(1, int(os.environ.get("FORGE_WAVE_MAX_WORKERS", "4")))
+        return max(1, int(forge_dotenv_setting("FORGE_WAVE_MAX_WORKERS", "4").strip()))
     except ValueError:
         return 4
 

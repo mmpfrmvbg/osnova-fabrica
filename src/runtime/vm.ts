@@ -247,7 +247,9 @@ export function createPipelineVmFromSpec(spec: OsnovaSpec, module: unknown): OsV
  */
 export class OsVbcVM {
   private readonly module: OsVbcModule;
-  private readonly interpreter: Interpreter;
+  /** Опции интерпретатора без `globals` / `onExecutionLog`; на каждый {@link OsVbcVM.execute} создаётся новый {@link Interpreter}, чтобы после прерванного прогона (throw) не оставались грязные frames/pc. */
+  private readonly interpreterOptions: InterpreterOptions;
+  private interpreter: Interpreter;
   private readonly onExecutionLog?: (e: VmExecutionLogEvent) => void;
   private lastReturnValue: StackValue | undefined;
   /** Один активный {@link OsVbcVM.execute}: интерпретатор не потокобезопасен (общий pc/stack/frames). */
@@ -268,7 +270,8 @@ export class OsVbcVM {
     this.module = module;
     this.onExecutionLog = onExecutionLog;
     this.globals = Object.assign(Object.create(null) as Record<string, StackValue>, initial);
-    this.interpreter = new Interpreter(module, rest);
+    this.interpreterOptions = rest;
+    this.interpreter = new Interpreter(module, this.interpreterOptions);
   }
 
   /**
@@ -291,6 +294,7 @@ export class OsVbcVM {
     let procedure: string;
 
     try {
+      this.interpreter = new Interpreter(this.module, this.interpreterOptions);
       let procedureIndex: number;
       try {
         procedureIndex = this.resolveProcedureIndex(opts.procedure);
