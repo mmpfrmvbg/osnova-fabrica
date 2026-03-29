@@ -34,3 +34,8 @@ items:
   epic: EPK-260328-014
   reason: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно баг
     diff-range (review_mismatch)'
+- ts: '2026-03-29T18:18:12.648702+03:00'
+  atm_id: ATM-EPK-260328-014-004
+  epic: EPK-260328-014
+  reason: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно баг
+    diff-range (review_mismatch)'

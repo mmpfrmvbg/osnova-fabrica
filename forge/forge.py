@@ -758,9 +758,12 @@ def _process_epic(
     avail: dict[str, Any],
     on_update: OnAtomUpdate | None = None,
 ) -> list[dict[str, Any]]:
+    wave_par_eff = forge_dotenv_setting("FORGE_WAVE_PARALLEL", "0")
     LOG.info(
-        "parallel_executor: FORGE_WAVE_PARALLEL=%s",
-        os.environ.get("FORGE_WAVE_PARALLEL"),
+        "parallel_executor: FORGE_WAVE_PARALLEL effective=%r (process env unset=%s), wave_parallel_enabled=%s",
+        wave_par_eff,
+        os.environ.get("FORGE_WAVE_PARALLEL") is None,
+        forge_wave_parallel_enabled(),
     )
     state["current_epic"] = epic.get("id")
     state["current_epic_issue"] = epic.get("githubissue")
@@ -840,6 +843,17 @@ def _process_epic(
         else:
             waves = build_waves(pending, max_parallel=cap, completed_ids=completed_ids)
         LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
+        if (
+            len(pending) > 1
+            and len(waves) == len(pending)
+            and all(len(w) == 1 for w in waves)
+        ):
+            LOG.info(
+                "parallel_executor: one ATM per wave — usually linear deps between pending ATMs or scope "
+                "conflicts under cap=%s. Missing atomizer_meta does not force this; meta only skips re-atomize. "
+                "Override with epic['waves'] or relax deps/scopes.",
+                cap,
+            )
         atm_total = len(atoms_sorted)
         epic_issue = epic.get("githubissue")
         pw = parallel_workers()

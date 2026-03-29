@@ -102,8 +102,10 @@ export type OpCode = (typeof OpCode)[keyof typeof OpCode];
  * {@link OpCode.PUSH} (`const` + индекс `k` в пуле констант модуля),
  * {@link OpCode.POP} (снять вершину; пустой стек → {@link InterpreterError}),
  * {@link OpCode.DUP} (копия вершины на стек),
- * {@link OpCode.ADD} / {@link OpCode.SUB} / {@link OpCode.MUL} / {@link OpCode.DIV}
- * (снять b, затем a; положить a±b, a×b, a/b; при {@link OpCode.DIV} и b=0 → {@link InterpreterError}).
+ * {@link OpCode.ADD} / {@link OpCode.SUB} / {@link OpCode.MUL} / {@link OpCode.DIV} / {@link OpCode.REM}
+ * (снять b, затем a; положить результат; при {@link OpCode.DIV}/{@link OpCode.REM} и b=0 → {@link InterpreterError}),
+ * сравнения {@link OpCode.EQ} / {@link OpCode.NE} / {@link OpCode.LT} / {@link OpCode.LE} / {@link OpCode.GT} / {@link OpCode.GE},
+ * логика {@link OpCode.AND} / {@link OpCode.OR} / {@link OpCode.NOT} (снятие и порядок операндов — как у арифметики, кроме {@link OpCode.NOT}: один операнд).
  */
 export class Interpreter extends VM {
   /** Стек исполнения (верх — последний элемент). */

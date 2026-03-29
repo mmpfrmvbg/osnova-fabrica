@@ -14,8 +14,12 @@ steps:
 - Реализовать OpCode.AND, OpCode.OR — логические операции
 - Реализовать OpCode.NOT — логическое отрицание
 deps:
-- 3
+- ATM-EPK-260328-014-003
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: d109344d2dd5791fb3c1a4c9ce4b442c76983975
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'

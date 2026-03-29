@@ -1,24 +1,23 @@
-id: ATM-EPK-260328-014-003
+id: ATM-EPK-260328-014-004
 epic: EPK-260328-014
-seq: 3
+seq: 4
 zone: src/runtime/interpreter.ts
 risk: MEDIUM
 executor: cursor
-goal: Реализовать арифметические инструкции (ADD, SUB, MUL, DIV)
+goal: Реализовать инструкции сравнения и логические операции
 scope:
 - src/runtime/interpreter.ts
 notouch: []
 done: npx vitest run src/runtime/
 steps:
-- Добавить обработку OpCode.ADD — сложение двух верхних элементов
-- Добавить OpCode.SUB — вычитание
-- Добавить OpCode.MUL — умножение
-- Добавить OpCode.DIV — деление с проверкой на ноль
+- Реализовать OpCode.EQ, OpCode.LT, OpCode.GT — операции сравнения
+- Реализовать OpCode.AND, OpCode.OR — логические операции
+- Реализовать OpCode.NOT — логическое отрицание
 deps:
-- ATM-EPK-260328-014-002
+- ATM-EPK-260328-014-003
 maxiter: 3
 retries: 0
 status: in_progress
 priority: P1
 max_retries: 3
-review_base_sha: d80a1746f961402e082b414c61abfcbfeff4194f
+review_base_sha: d109344d2dd5791fb3c1a4c9ce4b442c76983975
