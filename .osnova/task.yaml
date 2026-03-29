@@ -1,21 +1,21 @@
-id: ATM-007
+id: ATM-008
 epic: EPK-260329-022
-seq: 7
-zone: runtime
+seq: 8
+zone: agents
 risk: LOW
 executor: cursor
-goal: Interpreter.test — спек на InterpreterError и сообщения для типовых сбоев (vm-crash
-  контракт).
+goal: IntakeAgent — spec-тесты low-confidence пути (Issues 2–4), мок LLM.
 scope:
-- src/runtime/interpreter.test.ts — ошибки интерпретации
+- src/agents/intake-agent.test.ts — parseLlmConfidence и не-JSON ответ
 notouch:
-- src/runtime/interpreter.ts
-done: npx vitest run src/runtime/interpreter.test.ts
+- src/agents/IntakeAgent.ts
+done: npx vitest run src/agents/intake-agent.test.ts
 steps:
-- Найти существующие кейсы ошибок.
-- Добавить тесты на текст/код ошибки при делении на ноль или неверном op если применимо.
+- Расширить моки mockLlmComplete для граничных confidence и пустого content.
+- Добавить it на переход в fallbackIntent/fallbackSpec при низкой уверенности.
+- Проверить intentId и поля OsnovaIntent.
 deps:
-- ATM-006
+- ATM-004
 maxiter: 3
 retries: 0
 status: PENDING

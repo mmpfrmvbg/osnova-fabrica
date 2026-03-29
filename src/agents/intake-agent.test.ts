@@ -12,9 +12,14 @@ vi.mock('../llm/index', () => ({
   }),
 }));
 
+/** Ответ «модель не уверена»: не-JSON / пусто — в parseIntent уходит в fallbackIntent. */
+function mockLlmUnusableContent(content: string) {
+  return { content, model: 'mock', done: true as const };
+}
+
 beforeEach(() => {
   mockLlmComplete.mockReset();
-  mockLlmComplete.mockResolvedValue({ content: 'не JSON', model: 'mock', done: true });
+  mockLlmComplete.mockResolvedValue(mockLlmUnusableContent('не JSON'));
 });
 
 // ─── fallbackIntent ───
@@ -118,6 +123,28 @@ describe('IntakeAgent.cleanJsonResponse', () => {
   });
 });
 
+// ─── parseLlmConfidence (граничные значения, Issues 2–4 / ATM-008) ───
+
+describe('parseLlmConfidence', () => {
+  it('Issue #2: пустая и пробельная строка → 0.8', () => {
+    expect(parseLlmConfidence('')).toBe(0.8);
+    expect(parseLlmConfidence('   \t\n')).toBe(0.8);
+  });
+
+  it('Issue #3: NaN / ±Infinity как число → 0.8 (не finite)', () => {
+    expect(parseLlmConfidence(Number.NaN)).toBe(0.8);
+    expect(parseLlmConfidence(Number.POSITIVE_INFINITY)).toBe(0.8);
+    expect(parseLlmConfidence(Number.NEGATIVE_INFINITY)).toBe(0.8);
+  });
+
+  it('Issue #4: не строка и не число → 0.8', () => {
+    expect(parseLlmConfidence(undefined)).toBe(0.8);
+    expect(parseLlmConfidence(null)).toBe(0.8);
+    expect(parseLlmConfidence({})).toBe(0.8);
+    expect(parseLlmConfidence([])).toBe(0.8);
+  });
+});
+
 // ─── parseIntent с mock LLM ───
 
 describe('IntakeAgent.parseIntent (mock LLM)', () => {
@@ -128,6 +155,28 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     expect(intent.description).toBe('любая задача');
     expect(intent.appType).toBe('утилита');
     expect(intent.confidence).toBe(0.5);
+    expect(typeof intent.intentId).toBe('string');
+    expect(intent.intentId.length).toBeGreaterThan(0);
+    expect(intent.constraints).toEqual({});
+  });
+
+  it('Issues #2–4: пустой content от LLM → fallbackIntent (confidence 0.5), валидный OsnovaIntent', async () => {
+    mockLlmComplete.mockResolvedValue(mockLlmUnusableContent(''));
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'задача с пустым ответом модели' });
+    expect(intent.description).toBe('задача с пустым ответом модели');
+    expect(intent.confidence).toBe(0.5);
+    expect(intent.features).toEqual(['задача с пустым ответом модели']);
+    expect(typeof intent.intentId).toBe('string');
+    expect(intent.intentId.length).toBeGreaterThan(0);
+  });
+
+  it('Issues #2–4: только пробелы в content → fallbackIntent', async () => {
+    mockLlmComplete.mockResolvedValue(mockLlmUnusableContent(' \t\n '));
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'x' });
+    expect(intent.confidence).toBe(0.5);
+    expect(intent.description).toBe('x');
   });
 
   it('fallback учитывает префикс Алгоритм: и фиксирует низкую confidence 0.5 (fallbackIntent)', async () => {
@@ -469,6 +518,42 @@ describe('IntakeAgent.generateSpec (mock LLM)', () => {
     expect(spec.mainModule).toBe('main');
     expect(spec.procedures.some((p) => p.name === 'главная')).toBe(true);
     expect(spec.modules[0].description).toBe('описание для спека');
+  });
+
+  it('Issues #2–4: низкая confidence у intent + пустой content LLM → fallbackSpec', async () => {
+    mockLlmComplete.mockResolvedValue(mockLlmUnusableContent(''));
+    const agent = new IntakeAgent();
+    const intent: OsnovaIntent = {
+      intentId: 'i-very-low',
+      description: 'неясная постановка',
+      features: ['vague'],
+      appType: 'утилита',
+      constraints: {},
+      confidence: 0.18,
+    };
+    const spec = await agent.generateSpec(intent);
+    expect(spec.mainModule).toBe('main');
+    expect(spec.modules).toHaveLength(1);
+    expect(spec.modules[0].isMain).toBe(true);
+    expect(spec.modules[0].description).toBe('неясная постановка');
+    expect(typeof spec.specId).toBe('string');
+    expect(spec.specId.length).toBeGreaterThan(0);
+  });
+
+  it('Issues #2–4: низкая confidence + не-JSON от LLM → fallbackSpec (как при сбое разбора)', async () => {
+    mockLlmComplete.mockResolvedValue(mockLlmUnusableContent('низкая уверенность, без JSON'));
+    const agent = new IntakeAgent();
+    const intent: OsnovaIntent = {
+      intentId: 'i-gate',
+      description: 'для gateChecker',
+      features: ['a'],
+      appType: 'модуль',
+      constraints: {},
+      confidence: 0.22,
+    };
+    const spec = await agent.generateSpec(intent);
+    expect(spec.mainModule).toBe('main');
+    expect(intent.confidence).toBeLessThan(0.7);
   });
 });
 
