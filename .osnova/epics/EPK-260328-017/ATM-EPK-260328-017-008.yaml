@@ -17,8 +17,11 @@ steps:
 - исправить обработку контекста выполнения
 - добавить защиту от незавершённых асинхронных операций
 deps:
-- ATM-003
+- ATM-EPK-260328-017-003
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: cb020b37d8671634ab5a03e0f5fe01d381c0d28a
+produced_files: []

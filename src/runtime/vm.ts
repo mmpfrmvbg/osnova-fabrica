@@ -26,6 +26,9 @@
 
 import { Interpreter, InterpreterError } from "./interpreter";
 import type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";
+import type { OsnovaSpec } from "../pipeline/types";
+import { isOsVbcModule, type OsVbcModule } from "./vm/bytecode";
+import { createDefaultInvokeHandler } from "./vm/interpreter";
 
 /** Сообщение при повторном входе в {@link OsVbcVM.execute}, пока идёт прогон (единый текст для throw и пайплайна). */
 export const VM_ERROR_CONCURRENT_EXECUTE =
@@ -50,9 +53,6 @@ export function formatVmRuntimeError(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
-import type { OsnovaSpec } from "../pipeline/types";
-import { isOsVbcModule, type OsVbcModule } from "./vm/bytecode";
-import { createDefaultInvokeHandler } from "./vm/interpreter";
 
 /** Системный invoke по умолчанию; используйте для цепочки с пользовательским `invoke`. */
 export { createDefaultInvokeHandler } from "./vm/interpreter";
@@ -145,18 +145,25 @@ export async function safeExecutePipelineVm(
 
 function runWithTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   if (!Number.isFinite(ms) || ms <= 0) return promise;
+  let settled = false;
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => {
-      // Прогон байткода может завершиться после таймаута — подавляем поздний reject, иначе unhandledRejection.
+      if (settled) return;
+      settled = true;
+      // Прогон байткода и ожидание invoke могут завершиться после таймаута — гасим поздний reject, иначе unhandledRejection.
       void promise.catch(() => {});
       reject(new InterpreterError(message));
     }, ms);
     promise.then(
       (v) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(t);
         resolve(v);
       },
       (e) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(t);
         reject(e);
       },
@@ -251,7 +258,8 @@ export function createPipelineInvokeHandlerForVm(
       const v = g[PIPELINE_VM_GLOBAL_KEYS.EXPECT_RETURN];
       return v === undefined ? null : v;
     }
-    return inner(name, args);
+    // Единый async-путь: sync/async/thenable от inner всегда даёт Promise, чтобы интерпретатор стабильно ждал завершения.
+    return Promise.resolve(inner(name, args));
   };
 }
 
@@ -274,13 +282,8 @@ export function createPipelineVmFromSpec(spec: OsnovaSpec, module: unknown): OsV
   if (!isOsVbcModule(module)) {
     return null;
   }
-  let pipelineInvoke: ReturnType<typeof createPipelineInvokeHandlerForVm> | undefined;
-  const vm = new OsVbcVM(module, {
-    invoke: (name, args) => {
-      pipelineInvoke ??= createPipelineInvokeHandlerForVm(vm);
-      return pipelineInvoke(name, args);
-    },
-  });
+  // Один слой pipeline-invoke задаётся в {@link OsVbcVM.execute} (createPipelineInvokeHandlerForVm + base invoke).
+  const vm = new OsVbcVM(module, {});
   applyPipelineSpecToVm(vm, spec);
   return vm;
 }
