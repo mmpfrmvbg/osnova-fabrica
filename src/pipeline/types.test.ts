@@ -10,6 +10,19 @@ import type {
   PipelineStatus,
   PipelineResult,
 } from './types';
+import {
+  is015DiagnosticCode,
+  isFBK016DiagnosticCode,
+  isBlockedStatus,
+  isResolvedStatus,
+  isIgnoredStatus,
+  DIAGNOSTIC_015_ATOM_NOT_FOUND,
+  DIAGNOSTIC_015_ATOM_CORRUPTED,
+  DIAGNOSTIC_015_DEP_UNRESOLVED,
+  DIAGNOSTIC_FBK016_REJECTED,
+  DIAGNOSTIC_FBK016_TIMEOUT,
+  DIAGNOSTIC_FBK016_LIMIT_EXCEEDED,
+} from './types';
 
 describe('DiagnosticCode', () => {
   it('серия 015: атом не найден', () => {
@@ -235,5 +248,77 @@ describe('Экспорт типов для agents и runtime', () => {
   it('PipelineStatus с расширенными типами экспортирован', () => {
     const status: PipelineStatus = 'error_015_atom_corrupted';
     expect(status).toBeDefined();
+  });
+});
+
+describe('Type-guards для DiagnosticCode', () => {
+  it('is015DiagnosticCode: true для 015-*', () => {
+    expect(is015DiagnosticCode('015-001')).toBe(true);
+    expect(is015DiagnosticCode('015-002')).toBe(true);
+    expect(is015DiagnosticCode('015-003')).toBe(true);
+  });
+
+  it('is015DiagnosticCode: false для FBK016-*', () => {
+    expect(is015DiagnosticCode('FBK016-001')).toBe(false);
+    expect(is015DiagnosticCode('FBK016-002')).toBe(false);
+    expect(is015DiagnosticCode('FBK016-003')).toBe(false);
+  });
+
+  it('isFBK016DiagnosticCode: true для FBK016-*', () => {
+    expect(isFBK016DiagnosticCode('FBK016-001')).toBe(true);
+    expect(isFBK016DiagnosticCode('FBK016-002')).toBe(true);
+    expect(isFBK016DiagnosticCode('FBK016-003')).toBe(true);
+  });
+
+  it('isFBK016DiagnosticCode: false для 015-*', () => {
+    expect(isFBK016DiagnosticCode('015-001')).toBe(false);
+    expect(isFBK016DiagnosticCode('015-002')).toBe(false);
+    expect(isFBK016DiagnosticCode('015-003')).toBe(false);
+  });
+});
+
+describe('Type-guards для DiagnosticStatus', () => {
+  it('isBlockedStatus: true для blocked', () => {
+    expect(isBlockedStatus('blocked')).toBe(true);
+    expect(isBlockedStatus('resolved')).toBe(false);
+    expect(isBlockedStatus('ignored')).toBe(false);
+  });
+
+  it('isResolvedStatus: true для resolved', () => {
+    expect(isResolvedStatus('resolved')).toBe(true);
+    expect(isResolvedStatus('blocked')).toBe(false);
+    expect(isResolvedStatus('ignored')).toBe(false);
+  });
+
+  it('isIgnoredStatus: true для ignored', () => {
+    expect(isIgnoredStatus('ignored')).toBe(true);
+    expect(isIgnoredStatus('blocked')).toBe(false);
+    expect(isIgnoredStatus('resolved')).toBe(false);
+  });
+});
+
+describe('Алиасы DiagnosticCode', () => {
+  it('алиасы серии 015', () => {
+    expect(DIAGNOSTIC_015_ATOM_NOT_FOUND).toBe('015-001');
+    expect(DIAGNOSTIC_015_ATOM_CORRUPTED).toBe('015-002');
+    expect(DIAGNOSTIC_015_DEP_UNRESOLVED).toBe('015-003');
+  });
+
+  it('алиасы серии FBK016', () => {
+    expect(DIAGNOSTIC_FBK016_REJECTED).toBe('FBK016-001');
+    expect(DIAGNOSTIC_FBK016_TIMEOUT).toBe('FBK016-002');
+    expect(DIAGNOSTIC_FBK016_LIMIT_EXCEEDED).toBe('FBK016-003');
+  });
+
+  it('алиас FBK016 проходит type-guard', () => {
+    expect(isFBK016DiagnosticCode(DIAGNOSTIC_FBK016_REJECTED)).toBe(true);
+    expect(isFBK016DiagnosticCode(DIAGNOSTIC_FBK016_TIMEOUT)).toBe(true);
+    expect(isFBK016DiagnosticCode(DIAGNOSTIC_FBK016_LIMIT_EXCEEDED)).toBe(true);
+  });
+
+  it('алиас 015 проходит type-guard', () => {
+    expect(is015DiagnosticCode(DIAGNOSTIC_015_ATOM_NOT_FOUND)).toBe(true);
+    expect(is015DiagnosticCode(DIAGNOSTIC_015_ATOM_CORRUPTED)).toBe(true);
+    expect(is015DiagnosticCode(DIAGNOSTIC_015_DEP_UNRESOLVED)).toBe(true);
   });
 });

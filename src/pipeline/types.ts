@@ -29,6 +29,50 @@ export interface DiagnosticReport {
   readonly timestamp: string;
 }
 
+// ─── Type-guards для DiagnosticCode ───
+
+/** Проверка: код ошибки серии 015 (атомы). */
+export function is015DiagnosticCode(code: DiagnosticCode): code is `015-${'001' | '002' | '003'}` {
+  return code.startsWith('015-');
+}
+
+/** Проверка: код ошибки серии FBK016 (обратная связь). */
+export function isFBK016DiagnosticCode(code: DiagnosticCode): code is `FBK016-${'001' | '002' | '003'}` {
+  return code.startsWith('FBK016-');
+}
+
+// ─── Type-guards для DiagnosticStatus ───
+
+/** Проверка: статус blocked. */
+export function isBlockedStatus(status: DiagnosticStatus): status is 'blocked' {
+  return status === 'blocked';
+}
+
+/** Проверка: статус resolved. */
+export function isResolvedStatus(status: DiagnosticStatus): status is 'resolved' {
+  return status === 'resolved';
+}
+
+/** Проверка: статус ignored. */
+export function isIgnoredStatus(status: DiagnosticStatus): status is 'ignored' {
+  return status === 'ignored';
+}
+
+// ─── Алиасы PipelineStatus ↔ DiagnosticCode ───
+
+/** Серия 015: атом не найден. */
+export const DIAGNOSTIC_015_ATOM_NOT_FOUND: DiagnosticCode = '015-001';
+/** Серия 015: атом повреждён. */
+export const DIAGNOSTIC_015_ATOM_CORRUPTED: DiagnosticCode = '015-002';
+/** Серия 015: зависимость атома не разрешена. */
+export const DIAGNOSTIC_015_DEP_UNRESOLVED: DiagnosticCode = '015-003';
+/** Серия FBK016: обратная связь отклонена. */
+export const DIAGNOSTIC_FBK016_REJECTED: DiagnosticCode = 'FBK016-001';
+/** Серия FBK016: таймаут обратной связи. */
+export const DIAGNOSTIC_FBK016_TIMEOUT: DiagnosticCode = 'FBK016-002';
+/** Серия FBK016: лимит попыток обратной связи превышен. */
+export const DIAGNOSTIC_FBK016_LIMIT_EXCEEDED: DiagnosticCode = 'FBK016-003';
+
 // ─── Входные данные ───
 
 export interface RawText {
