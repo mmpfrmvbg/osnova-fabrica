@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-29T19:59:12.737903+03:00'
+updatedat: '2026-03-29T20:02:26.014888+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -315,7 +315,7 @@ zones:
     done: 0
     blk: 0
 budget:
-  qwenusedtoday: 136
+  qwenusedtoday: 138
   qwenlimit: 900
   cursortaskstoday: 0
   qwenatomizerusedtoday: 14
@@ -346,178 +346,178 @@ testcommands:
   validate: npm run validate:spec
 codebase:
   implemented:
-    - src/agents/IntakeAgent.ts                     # ✅ done
-    - src/agents/OsnovaCodegen.ts                   # ✅ done
-    - src/agents/RepairEngineer.test.ts             # ✅ done
-    - src/agents/RepairEngineer.ts                  # ✅ done
-    - src/agents/agents.test.ts                     # ✅ done
-    - src/agents/exec-agent.ts                      # ✅ done
-    - src/agents/index.test.ts                      # ✅ done
-    - src/agents/index.ts                           # ✅ done
-    - src/agents/intake-agent.test.ts               # ✅ done
-    - src/agents/intake-agent.ts                    # ✅ done
-    - src/agents/plan-agent.test.ts                 # ✅ done
-    - src/agents/plan-agent.ts                      # ✅ done
-    - src/agents/review-agent.ts                    # ✅ done
-    - src/agents/types.ts                           # ✅ done
-    - src/atm/atm.ts                                # ✅ done
-    - src/atm/cli.ts                                # ✅ done
-    - src/auto-agent.ts                             # ✅ done
-    - src/center/index.ts                           # ✅ done
-    - src/center/server.ts                          # ✅ done
-    - src/cli.ts                                    # ✅ done
-    - src/cli/index.ts                              # ✅ done
-    - src/compiler/ast.ts                           # ✅ done
-    - src/compiler/cli.ts                           # ✅ done
-    - src/compiler/codegen.test.ts                  # ✅ done
-    - src/compiler/codegen.ts                       # ✅ done
-    - src/compiler/compile-fixtures.ts              # ✅ done
-    - src/compiler/compiler.test.ts                 # ✅ done
-    - src/compiler/compiler.ts                      # ✅ done
-    - src/compiler/export-language-schema.ts        # ✅ done
-    - src/compiler/golden-runner.test.ts            # ✅ done
-    - src/compiler/index.ts                         # ✅ done
-    - src/compiler/language-registry.ts             # ✅ done
-    - src/compiler/language-schema.ts               # ✅ done
-    - src/compiler/lexer.test.ts                    # ✅ done
-    - src/compiler/lexer.ts                         # ✅ done
-    - src/compiler/parser.test.ts                   # ✅ done
-    - src/compiler/parser.ts                        # ✅ done
-    - src/compiler/semantic.test.ts                 # ✅ done
-    - src/compiler/semantic.ts                      # ✅ done
-    - src/compiler/semanticKinds.test.ts            # ✅ done
-    - src/compiler/semanticKinds.ts                 # ✅ done
-    - src/compiler/validate-language-registry.ts    # ✅ done
-    - src/compiler/vm.test.ts                       # ✅ done
-    - src/compiler/vm.ts                            # ✅ done
-    - src/env.test.ts                               # ✅ done
-    - src/env.ts                                    # ✅ done
-    - src/intelligence/collector.ts                 # ✅ done
-    - src/intelligence/decay.ts                     # ✅ done
-    - src/intelligence/digest.ts                    # ✅ done
-    - src/intelligence/index.ts                     # ✅ done
-    - src/intelligence/intelligence.test.ts         # ✅ done
-    - src/intelligence/lifecycle.ts                 # ✅ done
-    - src/intelligence/planner.test.ts              # ✅ done
-    - src/intelligence/planner.ts                   # ✅ done
-    - src/intelligence/prefilter.ts                 # ✅ done
-    - src/intelligence/sources/cvt-weekly.ts        # ✅ done
-    - src/intelligence/sources/hh.ts                # ✅ done
-    - src/intelligence/sources/rss-generic.test.ts  # ✅ done
-    - src/intelligence/sources/rss-generic.ts       # ✅ done
-    - src/intelligence/store.ts                     # ✅ done
-    - src/intelligence/summarizer.ts                # ✅ done
-    - src/lib/usage-logger.ts                       # ✅ done
-    - src/llm/DeepSeekProvider.test.ts              # ✅ done
-    - src/llm/DeepSeekProvider.ts                   # ✅ done
-    - src/llm/OllamaProvider.test.ts                # ✅ done
-    - src/llm/OllamaProvider.ts                     # ✅ done
-    - src/llm/QwenCliProvider.test.ts               # ✅ done
-    - src/llm/QwenCliProvider.ts                    # ✅ done
-    - src/llm/defaults.ts                           # ✅ done
-    - src/llm/errors.ts                             # ✅ done
-    - src/llm/index.ts                              # ✅ done
-    - src/llm/qwen-stdout-parser.test.ts            # ✅ done
-    - src/llm/qwen-stdout-parser.ts                 # ✅ done
-    - src/llm/stripMarkdownFence.test.ts            # ✅ done
-    - src/llm/stripMarkdownFence.ts                 # ✅ done
-    - src/llm/types.ts                              # ✅ done
-    - src/logger.ts                                 # ✅ done
-    - src/mcp-server.ts                             # ✅ done
-    - src/patch-agent/diff-parser.ts                # ✅ done
-    - src/patch-agent/exec.ts                       # ✅ done
-    - src/patch-agent/index.ts                      # ✅ done
-    - src/patch-agent/prompt.ts                     # ✅ done
-    - src/patch-agent/qwen-cli.ts                   # ✅ done
-    - src/patch-agent/types.ts                      # ✅ done
-    - src/patch-agent/validator.ts                  # ✅ done
-    - src/pipeline-llm/buildOsnovaPrompt.ts         # ✅ done
-    - src/pipeline-llm/repairTarget.test.ts         # ✅ done
-    - src/pipeline-llm/repairTarget.ts              # ✅ done
-    - src/pipeline/blocker-resolver.ts              # ✅ done
-    - src/pipeline/executor.ts                      # ✅ done
-    - src/pipeline/gateChecker.test.ts              # ✅ done
-    - src/pipeline/gateChecker.ts                   # ✅ done
-    - src/pipeline/healthScore.test.ts              # ✅ done
-    - src/pipeline/healthScore.ts                   # ✅ done
-    - src/pipeline/index.ts                         # ✅ done
-    - src/pipeline/orchestrator.partial.test.ts     # ✅ done
-    - src/pipeline/orchestrator.test.ts             # ✅ done
-    - src/pipeline/orchestrator.ts                  # ✅ done
-    - src/pipeline/pipeline.test.ts                 # ✅ done
-    - src/pipeline/pipeline.ts                      # ✅ done
-    - src/pipeline/semanticKinds.ts                 # ✅ done
-    - src/pipeline/shadowMode.test.ts               # ✅ done
-    - src/pipeline/shadowMode.ts                    # ✅ done
-    - src/pipeline/thresholds.ts                    # ✅ done
-    - src/pipeline/types.test.ts                    # ✅ done
-    - src/pipeline/types.ts                         # ✅ done
-    - src/runtime/cli.ts                            # ✅ done
-    - src/runtime/frame.ts                          # ✅ done
-    - src/runtime/goldenApps.test.ts                # ✅ done
-    - src/runtime/goldenApps.ts                     # ✅ done
-    - src/runtime/index.ts                          # ✅ done
-    - src/runtime/interpreter.test.ts               # ✅ done
-    - src/runtime/interpreter.ts                    # ✅ done
-    - src/runtime/loadRegistry.ts                   # ✅ done
-    - src/runtime/run.ts                            # ✅ done
-    - src/runtime/runner.ts                         # ✅ done
-    - src/runtime/sandbox.ts                        # ✅ done
-    - src/runtime/storage.ts                        # ✅ done
-    - src/runtime/types.ts                          # ✅ done
-    - src/runtime/ui.ts                             # ✅ done
-    - src/runtime/vm-runner.ts                      # ✅ done
-    - src/runtime/vm.test.ts                        # ✅ done
-    - src/runtime/vm.ts                             # ✅ done
-    - src/runtime/vm/bytecode.ts                    # ✅ done
-    - src/runtime/vm/interpreter.test.ts            # ✅ done
-    - src/runtime/vm/interpreter.ts                 # ✅ done
-    - src/runtime/vm/invokeRegistry.ts              # ✅ done
-    - src/scripts/aggregate-shadow.ts               # ✅ done
-    - src/scripts/analyze-dataset-health.test.ts    # ✅ done
-    - src/scripts/analyze-dataset-health.ts         # ✅ done
-    - src/scripts/analyze-language-health.test.ts   # ✅ done
-    - src/scripts/analyze-language-health.ts        # ✅ done
-    - src/scripts/batch-run.ts                      # ✅ done
-    - src/scripts/beta-gate.ts                      # ✅ done
-    - src/scripts/check-yaml-drift.ts               # ✅ done
-    - src/scripts/export-dataset.test.ts            # ✅ done
-    - src/scripts/export-dataset.ts                 # ✅ done
-    - src/scripts/osnova-mini-os-e2e.ts             # ✅ done
-    - src/scripts/patch-legacy-traces.ts            # ✅ done
-    - src/scripts/trace-viewer.test.ts              # ✅ done
-    - src/scripts/trace-viewer.ts                   # ✅ done
-    - src/steward/auto-approve.test.ts              # ✅ done
-    - src/steward/auto-approve.ts                   # ✅ done
-    - src/steward/decision-journal.test.ts          # ✅ done
-    - src/steward/decision-journal.ts               # ✅ done
-    - src/steward/rfc-registry.ts                   # ✅ done
-    - src/steward/rfc.test.ts                       # ✅ done
-    - src/steward/rfc.ts                            # ✅ done
-    - src/tools/ab-prompt-test.ts                   # ✅ done
-    - src/tools/blocker-resolver.ts                 # ✅ done
-    - src/tools/blocker-types.ts                    # ✅ done
-    - src/tools/dataset-stats.ts                    # ✅ done
-    - src/tools/export-dataset-v2.ts                # ✅ done
-    - src/tools/health-diff.test.ts                 # ✅ done
-    - src/tools/health-diff.ts                      # ✅ done
-    - src/tools/health-metrics-extended.ts          # ✅ done
-    - src/tools/submit-finetune.ts                  # ✅ done
-    - src/tools/weekly-health-diff.ts               # ✅ done
-    - src/trace/traceStore.test.ts                  # ✅ done
-    - src/trace/traceStore.ts                       # ✅ done
-    - src/trace/types.ts                            # ✅ done
-    - src/types/agents.ts                           # ✅ done
-    - src/vliw/cli.ts                               # ✅ done
-    - src/vliw/dependencyGraph.ts                   # ✅ done
-    - src/vliw/e2kModel.ts                          # ✅ done
-    - src/vliw/index.ts                             # ✅ done
-    - src/vliw/scheduler.test.ts                    # ✅ done
-    - src/vliw/scheduler.ts                         # ✅ done
+  - src/agents/IntakeAgent.ts
+  - src/agents/OsnovaCodegen.ts
+  - src/agents/RepairEngineer.test.ts
+  - src/agents/RepairEngineer.ts
+  - src/agents/agents.test.ts
+  - src/agents/exec-agent.ts
+  - src/agents/index.test.ts
+  - src/agents/index.ts
+  - src/agents/intake-agent.test.ts
+  - src/agents/intake-agent.ts
+  - src/agents/plan-agent.test.ts
+  - src/agents/plan-agent.ts
+  - src/agents/review-agent.ts
+  - src/agents/types.ts
+  - src/atm/atm.ts
+  - src/atm/cli.ts
+  - src/auto-agent.ts
+  - src/center/index.ts
+  - src/center/server.ts
+  - src/cli.ts
+  - src/cli/index.ts
+  - src/compiler/ast.ts
+  - src/compiler/cli.ts
+  - src/compiler/codegen.test.ts
+  - src/compiler/codegen.ts
+  - src/compiler/compile-fixtures.ts
+  - src/compiler/compiler.test.ts
+  - src/compiler/compiler.ts
+  - src/compiler/export-language-schema.ts
+  - src/compiler/golden-runner.test.ts
+  - src/compiler/index.ts
+  - src/compiler/language-registry.ts
+  - src/compiler/language-schema.ts
+  - src/compiler/lexer.test.ts
+  - src/compiler/lexer.ts
+  - src/compiler/parser.test.ts
+  - src/compiler/parser.ts
+  - src/compiler/semantic.test.ts
+  - src/compiler/semantic.ts
+  - src/compiler/semanticKinds.test.ts
+  - src/compiler/semanticKinds.ts
+  - src/compiler/validate-language-registry.ts
+  - src/compiler/vm.test.ts
+  - src/compiler/vm.ts
+  - src/env.test.ts
+  - src/env.ts
+  - src/intelligence/collector.ts
+  - src/intelligence/decay.ts
+  - src/intelligence/digest.ts
+  - src/intelligence/index.ts
+  - src/intelligence/intelligence.test.ts
+  - src/intelligence/lifecycle.ts
+  - src/intelligence/planner.test.ts
+  - src/intelligence/planner.ts
+  - src/intelligence/prefilter.ts
+  - src/intelligence/sources/cvt-weekly.ts
+  - src/intelligence/sources/hh.ts
+  - src/intelligence/sources/rss-generic.test.ts
+  - src/intelligence/sources/rss-generic.ts
+  - src/intelligence/store.ts
+  - src/intelligence/summarizer.ts
+  - src/lib/usage-logger.ts
+  - src/llm/DeepSeekProvider.test.ts
+  - src/llm/DeepSeekProvider.ts
+  - src/llm/OllamaProvider.test.ts
+  - src/llm/OllamaProvider.ts
+  - src/llm/QwenCliProvider.test.ts
+  - src/llm/QwenCliProvider.ts
+  - src/llm/defaults.ts
+  - src/llm/errors.ts
+  - src/llm/index.ts
+  - src/llm/qwen-stdout-parser.test.ts
+  - src/llm/qwen-stdout-parser.ts
+  - src/llm/stripMarkdownFence.test.ts
+  - src/llm/stripMarkdownFence.ts
+  - src/llm/types.ts
+  - src/logger.ts
+  - src/mcp-server.ts
+  - src/patch-agent/diff-parser.ts
+  - src/patch-agent/exec.ts
+  - src/patch-agent/index.ts
+  - src/patch-agent/prompt.ts
+  - src/patch-agent/qwen-cli.ts
+  - src/patch-agent/types.ts
+  - src/patch-agent/validator.ts
+  - src/pipeline-llm/buildOsnovaPrompt.ts
+  - src/pipeline-llm/repairTarget.test.ts
+  - src/pipeline-llm/repairTarget.ts
+  - src/pipeline/blocker-resolver.ts
+  - src/pipeline/executor.ts
+  - src/pipeline/gateChecker.test.ts
+  - src/pipeline/gateChecker.ts
+  - src/pipeline/healthScore.test.ts
+  - src/pipeline/healthScore.ts
+  - src/pipeline/index.ts
+  - src/pipeline/orchestrator.partial.test.ts
+  - src/pipeline/orchestrator.test.ts
+  - src/pipeline/orchestrator.ts
+  - src/pipeline/pipeline.test.ts
+  - src/pipeline/pipeline.ts
+  - src/pipeline/semanticKinds.ts
+  - src/pipeline/shadowMode.test.ts
+  - src/pipeline/shadowMode.ts
+  - src/pipeline/thresholds.ts
+  - src/pipeline/types.test.ts
+  - src/pipeline/types.ts
+  - src/runtime/cli.ts
+  - src/runtime/frame.ts
+  - src/runtime/goldenApps.test.ts
+  - src/runtime/goldenApps.ts
+  - src/runtime/index.ts
+  - src/runtime/interpreter.test.ts
+  - src/runtime/interpreter.ts
+  - src/runtime/loadRegistry.ts
+  - src/runtime/run.ts
+  - src/runtime/runner.ts
+  - src/runtime/sandbox.ts
+  - src/runtime/storage.ts
+  - src/runtime/types.ts
+  - src/runtime/ui.ts
+  - src/runtime/vm-runner.ts
+  - src/runtime/vm.test.ts
+  - src/runtime/vm.ts
+  - src/runtime/vm/bytecode.ts
+  - src/runtime/vm/interpreter.test.ts
+  - src/runtime/vm/interpreter.ts
+  - src/runtime/vm/invokeRegistry.ts
+  - src/scripts/aggregate-shadow.ts
+  - src/scripts/analyze-dataset-health.test.ts
+  - src/scripts/analyze-dataset-health.ts
+  - src/scripts/analyze-language-health.test.ts
+  - src/scripts/analyze-language-health.ts
+  - src/scripts/batch-run.ts
+  - src/scripts/beta-gate.ts
+  - src/scripts/check-yaml-drift.ts
+  - src/scripts/export-dataset.test.ts
+  - src/scripts/export-dataset.ts
+  - src/scripts/osnova-mini-os-e2e.ts
+  - src/scripts/patch-legacy-traces.ts
+  - src/scripts/trace-viewer.test.ts
+  - src/scripts/trace-viewer.ts
+  - src/steward/auto-approve.test.ts
+  - src/steward/auto-approve.ts
+  - src/steward/decision-journal.test.ts
+  - src/steward/decision-journal.ts
+  - src/steward/rfc-registry.ts
+  - src/steward/rfc.test.ts
+  - src/steward/rfc.ts
+  - src/tools/ab-prompt-test.ts
+  - src/tools/blocker-resolver.ts
+  - src/tools/blocker-types.ts
+  - src/tools/dataset-stats.ts
+  - src/tools/export-dataset-v2.ts
+  - src/tools/health-diff.test.ts
+  - src/tools/health-diff.ts
+  - src/tools/health-metrics-extended.ts
+  - src/tools/submit-finetune.ts
+  - src/tools/weekly-health-diff.ts
+  - src/trace/traceStore.test.ts
+  - src/trace/traceStore.ts
+  - src/trace/types.ts
+  - src/types/agents.ts
+  - src/vliw/cli.ts
+  - src/vliw/dependencyGraph.ts
+  - src/vliw/e2kModel.ts
+  - src/vliw/index.ts
+  - src/vliw/scheduler.test.ts
+  - src/vliw/scheduler.ts
   pending:
-    - src/agents/index.ts — epic agents/base.ts                 # ❌ not yet
-    - src/intelligence/index.ts — epic intelligence/core.ts     # ❌ not yet
-    - src/pipeline/executor.ts — epic pipeline-llm/executor.ts  # ❌ not yet
+  - src/agents/index.ts — epic agents/base.ts
+  - src/intelligence/index.ts — epic intelligence/core.ts
+  - src/pipeline/executor.ts — epic pipeline-llm/executor.ts
 last_scopes:
 - - src/runtime/vm.ts
   - src/runtime/interpreter.ts
