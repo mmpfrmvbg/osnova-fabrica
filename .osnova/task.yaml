@@ -1,20 +1,21 @@
-id: ATM-EPK-260329-027-007
+id: ATM-EPK-260329-027-008
 epic: EPK-260329-027
-seq: 7
+seq: 8
 zone: runtime
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Устранить блокеры интерпретатора (исполнение, стек, ошибки ATM)
-scope: src/runtime/interpreter.ts
+goal: Выровнять под-интерпретатор VM с interpreter.ts
+scope: src/runtime/interpreter.ts — vm/interpreter parity
 notouch:
-- src/compiler/codegen.ts
-- src/intelligence/index.ts
-done: npx vitest run src/runtime/interpreter.test.ts
+- src/runtime/vm.ts
+- src/pipeline/types.ts
+done: npx vitest run src/runtime/vm/interpreter.test.ts
 steps:
-- interpreter.test
-- Сверить с vm.ts контрактом вызовов
-- Минимальный фикс interpreter.ts
-deps: []
+- src/runtime/vm/interpreter.test.ts
+- Убрать расхождение путей исполнения
+- Патч interpreter.ts
+deps:
+- ATM-EPK-260329-027-007
 maxiter: 3
 retries: 0
 status: PENDING
