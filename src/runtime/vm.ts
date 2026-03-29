@@ -225,6 +225,7 @@ function runWithTimeout<T>(promise: Promise<T>, ms: number, message: string): Pr
  * в `ExecContext.spec` ({@link import("../agents/exec-agent").ExecContext}), через {@link applyPipelineSpecToVm}.
  * Тогда байткод и тесты могут согласованно читать идентификатор спецификации, точку входа (главный модуль) и эталон возврата
  * для golden-проверок и отчётов — без дублирования структуры спецификации в коде VM.
+ * Строковые литералы ключей с префиксом `__osnova_pipeline_` резервируют имена в {@link OsVbcVM.globals} и не должны совпадать с пользовательскими глобалами модуля.
  *
  * @property SPEC_ID — {@link OsnovaSpec.specId}; соответствует syscall `система.пайплайн.ид_спецификации`.
  * @property MAIN_MODULE — {@link OsnovaSpec.mainModule}; соответствует syscall `система.пайплайн.главный_модуль`.
