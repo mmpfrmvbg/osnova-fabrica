@@ -6,7 +6,7 @@ import unittest
 from typing import Any
 
 from forge.atomizer import _coerce_dep_to_atm_id, _normalize_atoms
-from forge.parallel_executor import build_waves
+from forge.parallel_executor import build_waves, waves_from_epic_override
 
 _EPIC = "EPK-260328-015"
 _KNOWN = {f"ATM-{_EPIC}-{i:03d}" for i in range(1, 6)}
@@ -73,6 +73,29 @@ class TestAtomizerDepsNormalization(unittest.TestCase):
         self.assertEqual(atoms[2]["deps"], [f"ATM-{_EPIC}-002"])
         waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))))
         self.assertEqual(len(waves), 3)
+
+    def test_epic_waves_field_overrides_deps(self) -> None:
+        """Explicit epic['waves'] fixes order; deps need not define a DAG."""
+        epic = {
+            "id": _EPIC,
+            "done": "true",
+            "zone": "lang",
+            "risk": "LOW",
+            "waves": [
+                [1, 2],
+                [3, 4, 5],
+            ],
+        }
+        raw = [
+            {"seq": i, "goal": f"g{i}", "scope": [], "notouch": [], "steps": [], "deps": []}
+            for i in range(1, 6)
+        ]
+        atoms = _normalize_atoms(epic, raw)
+        for a in atoms:
+            a["deps"] = ["ATM-nonexistent"]
+        got = waves_from_epic_override(epic, sorted(atoms, key=lambda x: int(x.get("seq", 0))))
+        assert got is not None
+        self.assertEqual([[x["id"] for x in w] for w in got], [[f"ATM-{_EPIC}-001", f"ATM-{_EPIC}-002"], [f"ATM-{_EPIC}-00{i}" for i in (3, 4, 5)]])
 
 
 if __name__ == "__main__":

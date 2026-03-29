@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 try:
+    from forge.atomizer import _coerce_dep_to_atm_id
     from forge.common import SUBPROCESS_TEXT, setup_logging
 except ImportError:  # pragma: no cover
+    from atomizer import _coerce_dep_to_atm_id
     from common import SUBPROCESS_TEXT, setup_logging
 
 LOG = setup_logging("parallel_executor")
@@ -86,6 +88,57 @@ def build_waves(atoms: list[dict[str, Any]], max_parallel: int | None = None) ->
             remaining.remove(a)
 
     return waves
+
+
+def waves_from_epic_override(
+    epic: dict[str, Any],
+    atoms: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]] | None:
+    """
+    Если в EPIC задано поле ``waves`` (список волн, каждая волна — список ссылок на ATM),
+    строим волны **только** по нему и **игнорируем** ``deps`` для порядка.
+
+    Ссылки резолвятся через :func:`forge.atomizer._coerce_dep_to_atm_id` (полный id, seq, ``ATM-…`` и т.д.).
+    При любой ошибке возвращаем ``None`` — вызывающий код падает обратно на :func:`build_waves`.
+    """
+    raw = epic.get("waves")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        if raw == []:
+            return None
+        LOG.warning("parallel_executor: epic['waves'] must be a non-empty list — ignoring")
+        return None
+    by_id = {str(a["id"]): a for a in atoms}
+    if not by_id:
+        return None
+    known = set(by_id.keys())
+    eid = str(epic.get("id") or "").strip()
+    out: list[list[dict[str, Any]]] = []
+    for wi, wave in enumerate(raw):
+        if not isinstance(wave, list):
+            LOG.error(
+                "parallel_executor: epic['waves'][%s] must be a list — falling back to deps-based waves",
+                wi,
+            )
+            return None
+        row: list[dict[str, Any]] = []
+        for ref in wave:
+            aid = _coerce_dep_to_atm_id(ref, eid, known)
+            if aid not in by_id:
+                LOG.error(
+                    "parallel_executor: epic['waves'][%s] unknown ATM ref %r — falling back to deps-based waves",
+                    wi,
+                    ref,
+                )
+                return None
+            row.append(by_id[aid])
+        out.append(row)
+    LOG.info(
+        "parallel_executor: using epic['waves'] (%s wave(s)); ATM deps ignored for ordering",
+        len(out),
+    )
+    return out
 
 
 def _sanitize_branch_segment(s: str) -> str:

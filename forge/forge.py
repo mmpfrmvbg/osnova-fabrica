@@ -43,6 +43,7 @@ try:
         parallel_workers,
         prepare_wave_worktrees,
         wave_scopes_overlap,
+        waves_from_epic_override,
     )
     from forge.qwenexec import run_atom as run_qwen_atom
     from forge.reviewer import review
@@ -81,6 +82,7 @@ except ImportError:  # pragma: no cover
         parallel_workers,
         prepare_wave_worktrees,
         wave_scopes_overlap,
+        waves_from_epic_override,
     )
     from qwenexec import run_atom as run_qwen_atom
     from reviewer import review
@@ -615,7 +617,12 @@ def _process_epic(
             atm_total=len(atoms),
         )
         cap = effective_max_parallel()
-        waves = build_waves(sorted(atoms, key=lambda x: int(x.get("seq", 0))), max_parallel=cap)
+        atoms_sorted = sorted(atoms, key=lambda x: int(x.get("seq", 0)))
+        waves_ov = waves_from_epic_override(epic, atoms_sorted)
+        if waves_ov is not None:
+            waves = waves_ov
+        else:
+            waves = build_waves(atoms_sorted, max_parallel=cap)
         LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
         atm_total = len(atoms)
         epic_issue = epic.get("githubissue")
