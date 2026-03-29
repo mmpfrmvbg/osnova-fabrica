@@ -1,12 +1,12 @@
-id: ATM-EPK-260328-FBK016-010
+id: ATM-EPK-260328-FBK016-011
 epic: EPK-260328-FBK016
-seq: 10
+seq: 11
 zone: lang
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Добавить тест на интеграцию VM контракта в src/pipeline/pipeline.test.ts
+goal: Финальная валидация JSDoc в src/runtime/vm.ts
 scope:
-- src/pipeline/pipeline.test.ts
+- src/runtime/vm.ts
 notouch:
 - forge/
 - .github/
@@ -14,16 +14,17 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать тест applyPipelineSpecToVm с моком OsnovaSpec
-- Проверить установку PIPELINE_VM_GLOBAL_KEYS
-- Верифицировать ExecContext связь
+- Проверить полноту документации контракта VM
+- Убедиться в наличии всех ссылок на ExecContext/OsnovaSpec
+- Вычитать стиль JSDoc
 deps:
+- ATM-EPK-260328-FBK016-004
 - ATM-EPK-260328-FBK016-005
 - ATM-EPK-260328-FBK016-006
 - ATM-EPK-260328-FBK016-007
 maxiter: 3
 retries: 0
-status: in_progress
+status: done
 priority: P2
 max_retries: 3
-review_base_sha: 1438c7f7d11c1ff375f6b0be9072c46cebf3d722
+review_base_sha: fa47958408bad695a6d03596e386e76fa38b89bf

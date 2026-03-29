@@ -113,8 +113,9 @@ export interface OsVbcVMOptions extends InterpreterOptions {
 /**
  * Аргументы для {@link OsVbcVM.execute}: какую процедуру запустить и начальные значения стека.
  *
- * **Интеграция с агентами:** используется в {@link safeExecutePipelineVm} и {@link createPipelineVmFromExecContext}
- * для запуска процедур с таймаутом и аргументами из спецификации {@link OsnovaSpec}.
+ * **Интеграция с агентами:** используется в {@link safeExecutePipelineVm} и
+ * {@link import("../agents/exec-agent").createPipelineVmFromExecContext} для запуска процедур с таймаутом и аргументами из
+ * спецификации {@link OsnovaSpec}.
  */
 export interface OsVbcExecuteOptions {
   /** Имя процедуры; если не задано — `главная` / `main` / индекс 0. */
@@ -140,6 +141,12 @@ export function defaultPipelineProcedureFromSpec(spec: OsnovaSpec | undefined): 
 /**
  * Объединяет опции {@link OsVbcVM.execute} с контекстом пайплайна: при отсутствии или пустом `procedure`
  * подставляет {@link defaultPipelineProcedureFromSpec} (тот же снимок spec, что попал в VM через {@link applyPipelineSpecToVm}).
+ *
+ * **Связь с ExecContext / OsnovaSpec:** в {@link import("../agents/exec-agent").safeExecutePipelineVmFromExecContext} сюда передаётся
+ * {@link import("../agents/exec-agent").ExecContext.spec} — тот же {@link OsnovaSpec}, что уже согласован с VM.
+ *
+ * @param spec — снимок {@link OsnovaSpec} (часто {@link import("../agents/exec-agent").ExecContext.spec}).
+ * @param opts — опции execute; при необходимости дополняется `procedure` из spec.
  */
 export function mergePipelineVmExecuteOptions(
   spec: OsnovaSpec | undefined,
@@ -167,7 +174,8 @@ export type PipelineVmExecuteResult =
 
 /**
  * Обёртка над {@link OsVbcVM.execute}: перехватывает исключения и возвращает {@link PipelineVmExecuteResult}.
- * Контекст spec/globals должен быть уже применён ({@link applyPipelineSpecToVm} / {@link createPipelineVmFromSpec}).
+ * Контекст spec/globals должен быть уже применён ({@link applyPipelineSpecToVm} / {@link createPipelineVmFromSpec}) —
+ * обычно это тот же {@link OsnovaSpec}, что в {@link import("../agents/exec-agent").ExecContext.spec} до прогона.
  *
  * **Интеграция с агентами:** вызывается в {@link import("../agents/exec-agent").ExecAgent} для безопасного
  * прогона VM без throw; ошибка возвращается через `result.error` для отчёта пайплайна.
@@ -319,7 +327,7 @@ export function createPipelineInvokeHandlerForVm(
  * Запуск: {@link OsVbcVM.execute} (async); результат процедуры — возврат `execute` и {@link OsVbcVM.getReturnValue}
  * (после ошибки — `undefined`, как у внутреннего {@link Interpreter#runProcedure}).
  *
- * @param spec — спецификация {@link OsnovaSpec} из {@link IntakeAgent} или пайплайна.
+ * @param spec — спецификация {@link OsnovaSpec} из {@link import("../agents/IntakeAgent").IntakeAgent} или пайплайна.
  * @param module — загруженный байткод модуля ({@link OsVbcModule}).
  * @returns Экземпляр VM или `null` при невалидном модуле.
  */
@@ -406,7 +414,8 @@ export class OsVbcVM implements VM {
 
   /**
    * Глобальный контекст хоста: копия из {@link OsVbcVMOptions.globals} при создании; мутации видны байткоду и `invoke`.
-   * Ключи пайплайна — {@link PIPELINE_VM_GLOBAL_KEYS}; заполняются через {@link applyPipelineSpecToVm} из `ExecContext.spec`.
+   * Ключи пайплайна — {@link PIPELINE_VM_GLOBAL_KEYS}; заполняются через {@link applyPipelineSpecToVm} из
+   * {@link import("../agents/exec-agent").ExecContext.spec}.
    */
   readonly globals: Record<string, StackValue>;
 
