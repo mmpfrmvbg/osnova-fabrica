@@ -50,9 +50,10 @@ function createMockSpawn(stdout: string, stderr: string, exitCode: number) {
   });
 }
 
-vi.mock(import('node:child_process'), () => ({
-  spawn: vi.fn(),
-}));
+vi.mock('node:child_process', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:child_process')>();
+  return { ...mod, spawn: vi.fn() };
+});
 
 describe('QwenCliProvider: stdout/stderr', () => {
   let spawnMock: ReturnType<typeof createMockSpawn>;

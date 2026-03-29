@@ -6,7 +6,6 @@
 //   - удалены зависимости VectorDB / EmbeddingService / RAG
 //     (в osnova-fabrica нет RAG-слоя в v0.1)
 // ============================================================
-import { spawn } from 'node:child_process';
 import { platform, tmpdir } from 'node:os';
 import type {
   LLMProvider,
@@ -116,11 +115,12 @@ export class QwenCliProvider implements LLMProvider {
     throw new Error('Qwen CLI streaming not implemented in osnova-fabrica v0.1');
   }
 
-  private runQwenWithStdin(
+  private async runQwenWithStdin(
     prompt: string,
     args: string[],
     env: NodeJS.ProcessEnv,
   ): Promise<string> {
+    const { spawn } = await import('node:child_process');
     return new Promise((resolve, reject) => {
       const command = isWindows ? 'cmd' : 'qwen';
       const finalArgs = isWindows ? ['/c', 'qwen.cmd', ...args] : args;

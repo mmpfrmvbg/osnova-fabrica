@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 15
 zone: ci
 risk: HIGH
-executor: qwen
+executor: cursor
 goal: Запуск полного ci пайплайна для проверки всех исправлений
 scope:
 - vitest.config.ts
@@ -20,6 +20,14 @@ deps:
 - ATM-013
 - ATM-014
 maxiter: 3
-retries: 0
-status: PENDING
+retries: 1
+status: blk
 priority: P0
+max_retries: 3
+review_base_sha: 2d39d101f05209a70728399b74dda21177dc0b5c
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: executor BLK — reviewer skipped'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'agent -p failed (model token: auto)'
