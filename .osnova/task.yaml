@@ -1,22 +1,22 @@
-id: ATM-EPK-260329-023-007
+id: ATM-EPK-260329-023-008
 epic: EPK-260329-023
-seq: 7
-zone: pipeline
+seq: 8
+zone: pipeline-llm
 risk: LOW
 executor: cursor
-goal: Расширить pipeline.spec проверками spec-гейтов и health с учётом типов контракта.
-scope: src/pipeline/pipeline.test.ts — gateChecker / healthScore vs types
+goal: Укрепить spec-покрытие LLM-ветки пайплайна через тесты repair target (аналог
+  llm-pipeline.spec).
+scope: src/pipeline-llm/repairTarget.test.ts — границы repair target и промпта
 notouch:
-- src/pipeline/orchestrator.ts
-- src/trace/
-done: npx vitest run src/pipeline/pipeline.test.ts
+- src/pipeline-llm/buildOsnovaPrompt.ts
+- src/llm/
+done: npx vitest run src/pipeline-llm/repairTarget.test.ts
 steps:
-- Связать тесты с полями из src/pipeline/types.ts.
-- Добавить кейсы на границе допустимого health/crash метрик.
-- Проверить отсутствие регрессий orchestrator.partial.
+- Покрыть граничные входы repairTarget.
+- Зафиксировать ожидания по полям spec для LLM-ремонта.
+- Избежать сетевых вызовов — только юнит-моки.
 deps:
-- ATM-EPK-260329-023-002
-- ATM-EPK-260329-023-003
+- ATM-EPK-260329-023-001
 maxiter: 3
 retries: 0
 status: PENDING
