@@ -105,12 +105,18 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             if (ctx.source) {
               const shadowReport = analyzeShadow(ctx.source.source);
               shadowHits = shadowReport.hits;
-              return { ok: true, patch: { source: ctx.source } };
+              return {
+                ok: true,
+                patch: { source: ctx.source, intent: ctx.intent, spec: ctx.spec },
+              };
             }
             const source = await codegen.generate(ctx.spec!);
             const shadowReport = analyzeShadow(source.source);
             shadowHits = shadowReport.hits;
-            return { ok: true, patch: { source } };
+            return {
+              ok: true,
+              patch: { source, intent: ctx.intent, spec: ctx.spec },
+            };
           }
           if (phase === 'build') {
             const buildReport = compileToBuildReport(compileOsnovaSource(ctx.source!.source));
@@ -119,7 +125,10 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             if (!g2.passed) {
               return { ok: false, error: `G2 failed: ${g2.failedChecks[0]}` };
             }
-            return { ok: true, patch: { buildReport } };
+            return {
+              ok: true,
+              patch: { buildReport, intent: ctx.intent, spec: ctx.spec },
+            };
           }
           if (phase === 'golden_check') {
             const goldenReport = await runGoldenCheck(ctx.buildReport!.bytecode, ctx.spec!);
@@ -130,12 +139,15 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
               if (qualityScore >= QUALITY_PARTIAL && qualityScore < QUALITY_PASS) {
                 return {
                   ok: true,
-                  patch: { goldenReport },
+                  patch: { goldenReport, intent: ctx.intent, spec: ctx.spec },
                 };
               }
               return { ok: false, error: `G3 failed: ${g3.failedChecks[0]}` };
             }
-            return { ok: true, patch: { goldenReport } };
+            return {
+              ok: true,
+              patch: { goldenReport, intent: ctx.intent, spec: ctx.spec },
+            };
           }
           return { ok: false, error: `unexpected phase: ${phase}` };
         },

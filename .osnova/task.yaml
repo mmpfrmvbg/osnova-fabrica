@@ -1,29 +1,28 @@
-id: ATM-EPK-260328-016-007
+id: ATM-EPK-260328-016-008
 epic: EPK-260328-016
-seq: 7
+seq: 8
 zone: pipeline
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Диагностика интеграции pipeline с agents — выявление разрывов после восстановления
-  агентов
+goal: Восстановить pipeline integration — синхронизация с исправленным agents layer
 scope:
 - src/pipeline/pipeline.ts
 - src/pipeline/pipeline.test.ts
-- src/agents/agents.test.ts — как референс
 notouch:
 - src/runtime/vm.ts
 - src/runtime/interpreter.ts
 - src/compiler/compiler.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Запустить npx vitest run src/pipeline/
-- Идентифицировать failures, связанные с agents integration
-- Сопоставить с исправлениями из ATM 2-5
+- Актуализировать вызовы агентов в pipeline.ts
+- Исправить передачу контекста между gate → agent
+- 'Убедиться: pipeline тесты проходят'
 deps:
 - ATM-EPK-260328-016-006
+- ATM-EPK-260328-016-007
 maxiter: 3
 retries: 0
 status: done
 priority: P0
 max_retries: 3
-review_base_sha: 8c67aa2aecb31c76760dd86746285244aef56ad7
+review_base_sha: a7720d1bbdd163d54888bc5d23be4cca9b1e04f5
