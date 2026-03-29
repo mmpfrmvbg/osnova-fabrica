@@ -16,8 +16,11 @@ steps:
 - исправить типы и логику интерпретации
 - убедиться что interpreter.ts корректно работает с исправленным vm.ts
 deps:
-- ATM-008
+- ATM-EPK-260328-017-008
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: c87284f9ab61881dbe4e168ef5a1c9466395e25b
+produced_files: []

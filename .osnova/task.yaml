@@ -1,26 +1,25 @@
-id: ATM-EPK-260328-017-008
+id: ATM-EPK-260328-017-009
 epic: EPK-260328-017
-seq: 8
+seq: 9
 zone: runtime
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Исправить vm.ts — критические ошибки выполнения кода
+goal: Исправить interpreter.ts — ошибки интерпретации шагов
 scope:
-- src/runtime/vm.ts
+- src/runtime/interpreter.ts
 notouch:
 - src/agents/*
 - src/pipeline/*
 - src/compiler/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- audit vm.ts на TS-ошибки и runtime-исключения
-- исправить обработку контекста выполнения
-- добавить защиту от незавершённых асинхронных операций
+- исправить типы и логику интерпретации
+- убедиться что interpreter.ts корректно работает с исправленным vm.ts
 deps:
-- ATM-EPK-260328-017-003
+- ATM-EPK-260328-017-008
 maxiter: 3
 retries: 0
 status: done
 priority: P0
 max_retries: 3
-review_base_sha: cb020b37d8671634ab5a03e0f5fe01d381c0d28a
+review_base_sha: c87284f9ab61881dbe4e168ef5a1c9466395e25b

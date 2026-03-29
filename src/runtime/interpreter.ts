@@ -11,6 +11,8 @@ import { VM } from "./vm/interpreter";
 import type { InterpreterOptions, StackValue, TryFrame } from "./vm/interpreter";
 import type { Op, RawInstruction } from "./vm/bytecode";
 
+export type { CodeElement } from "./vm/bytecode";
+
 export type { InterpreterOptions, StackValue, InvokeHandler, RunProgramOptions, TryFrame } from "./vm/interpreter";
 export {
   InterpreterError,
