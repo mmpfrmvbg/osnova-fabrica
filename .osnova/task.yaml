@@ -1,27 +1,28 @@
-id: ATM-EPK-260328-016-003
+id: ATM-EPK-260328-016-004
 epic: EPK-260328-016
-seq: 3
+seq: 4
 zone: agents
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Восстановить PlanAgent — устранить причины BLK в ATM-008, ATM-009
+goal: Восстановить ExecAgent — устранить причины BLK в ATM-010, ATM-011
 scope:
-- src/agents/plan-agent.ts
-- src/agents/agents.test.ts — тесты ATM-008, ATM-009
+- src/agents/exec-agent.ts
+- src/agents/agents.test.ts — тесты ATM-010, ATM-011
 notouch:
 - src/agents/intake-agent.ts
-- src/agents/exec-agent.ts
+- src/agents/plan-agent.ts
 - src/agents/review-agent.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Локализовать failing tests для ATM-008, ATM-009
-- Исправить планирование шагов pipeline (очередность gate → role)
+- Локализовать failing tests для ATM-010, ATM-011
+- Исправить выполнение команд (обработка ошибок, контекст выполнения)
 - 'Верифицировать: оба теста проходят'
 deps:
 - ATM-EPK-260328-016-001
+- ATM-EPK-260328-016-003
 maxiter: 3
 retries: 0
-status: done
+status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 354ce647b31f35ac3775c113edacb8abe5201cfb
+review_base_sha: ceed4a5a2471449f8b045058cb3068c4d992131b

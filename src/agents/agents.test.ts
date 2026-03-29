@@ -314,6 +314,86 @@ describe('PlanAgent — инкрементальный план для ExecAgent
   });
 });
 
+describe('ExecAgent — ошибки выполнения шага (ATM-010)', () => {
+  it('исключение в runPhase не на первом шаге: stop, error, шаг с ok: false', async () => {
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: false,
+      includeRepair: false,
+    });
+    const exec = new ExecAgent(planAgent);
+    const result = await exec.execute(plan, async phase => {
+      if (phase === 'build') {
+        throw new Error('runPhase failure');
+      }
+      return { ok: true };
+    });
+    expect(result.completed).toBe(false);
+    expect(result.stoppedAtPhase).toBe('build');
+    expect(result.error).toBe('runPhase failure');
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[1]!.ok).toBe(false);
+    expect(result.steps[1]!.error).toBe('runPhase failure');
+  });
+});
+
+describe('ExecAgent — контекст выполнения runPhase (ATM-011)', () => {
+  it('runPhase получает phase, step (order) и накопленный ctx между шагами', async () => {
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: false,
+      includeRepair: false,
+    });
+    const exec = new ExecAgent(planAgent);
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const seen: Array<{ phase: string; order: number; hasSource: boolean }> = [];
+
+    const result = await exec.execute(
+      plan,
+      async (phase, step, ctx) => {
+        expect(step.phase).toBe(phase);
+        seen.push({
+          phase,
+          order: step.order,
+          hasSource: ctx.source != null,
+        });
+        if (phase === 'codegen') {
+          return { ok: true, patch: { source: { filename: 'm.osnova', source: 'модуль M\nконец' } } };
+        }
+        if (phase === 'build') {
+          expect(ctx.intent).toEqual(intent);
+          expect(ctx.spec).toEqual(spec);
+          expect(ctx.source?.filename).toBe('m.osnova');
+          return {
+            ok: true,
+            patch: {
+              buildReport: {
+                success: true,
+                lexerErrors: [],
+                parserErrors: [],
+                compilerErrors: [],
+                bytecode: null,
+                compilerSuccess: true,
+                durationMs: 0,
+              },
+            },
+          };
+        }
+        return { ok: true };
+      },
+      { intent, spec, repairAttempts: 0 },
+    );
+
+    expect(result.completed).toBe(true);
+    expect(seen).toEqual([
+      { phase: 'codegen', order: 1, hasSource: false },
+      { phase: 'build', order: 2, hasSource: true },
+      { phase: 'golden_check', order: 3, hasSource: true },
+    ]);
+  });
+});
+
 describe('PlanAgent — зависимости фаз (переходы)', () => {
   it('isValidPhaseTransition: допустимые рёбра пайплайна', () => {
     expect(isValidPhaseTransition('intake', 'spec_generation')).toBe(true);
