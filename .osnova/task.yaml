@@ -1,20 +1,20 @@
-id: ATM-004
+id: ATM-005
 epic: EPK-260329-026
-seq: 4
+seq: 5
 zone: intelligence
-risk: LOW
+risk: MED
 executor: cursor
-goal: Barrel src/intelligence/index.ts exporting planner and minimal stable public
-  surface.
-scope: src/intelligence/index.ts — public exports
+goal: Define planner core types and pure plan construction in planner.ts.
+scope: src/intelligence/planner.ts — types + pure core
 notouch:
+- src/vliw/index.ts
 - scripts/blocker-sync.ts
-- src/vliw/scheduler.ts
-done: npx vitest run src/intelligence/intelligence.test.ts
+done: npx vitest run src/intelligence/planner.test.ts
 steps:
-- Re-export planner entrypoints without deep internal leakage.
-- Keep import graph acyclic vs existing intelligence modules.
-deps: []
+- Introduce Plan/Step types aligned with pipeline vocabulary in repo.
+- No side effects; unit-testable pure builders only in this slice.
+deps:
+- ATM-004
 maxiter: 3
 retries: 0
 status: PENDING
