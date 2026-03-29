@@ -190,3 +190,115 @@ def merge_epic_tail_into_state_before_write(
 ) -> None:
     """Вызов из ``_update_project_state`` перед ``atomic_write_yaml``."""
     apply_epic_tail_to_state_dict(state, project, epic, results, summary, status_upper)
+
+
+def backfill_state_tail_from_history(project: Path | str) -> None:
+    """
+    Однократно наполняет ``recent``, ``last_scopes``, ``ci.*`` из ``.osnova/history/*.yaml``
+    и scope из ``.osnova/epics/{id}.yaml`` / ATM (как после серии ``finalize_epic``).
+    """
+    root = Path(project)
+    hist = root / ".osnova" / "history"
+    if not hist.is_dir():
+        LOG.warning("backfill: no .osnova/history — skip")
+        return
+
+    parsed: list[tuple[datetime, str, dict[str, Any], dict[str, Any]]] = []
+    for p in hist.glob("*.yaml"):
+        d = load_yaml(p, default={}) or {}
+        if not isinstance(d, dict):
+            continue
+        epic_id = str(d.get("epic") or "").strip()
+        summ = d.get("summary") or {}
+        if not epic_id or not isinstance(summ, dict):
+            continue
+        ts_raw = d.get("createdat") or ""
+        try:
+            t = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+        except Exception:
+            try:
+                t = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                continue
+        parsed.append((t, epic_id, d, summ))
+
+    parsed.sort(key=lambda x: x[0], reverse=True)
+
+    recent: list[dict[str, Any]] = []
+    seen_epic: set[str] = set()
+    for _t, epic_id, doc, summ in parsed:
+        if epic_id in seen_epic:
+            continue
+        seen_epic.add(epic_id)
+        atom_ok = int(summ.get("atomsdone") or 0)
+        atom_total = int(summ.get("atomstotal") or 0)
+        status_up = str(summ.get("status") or "BLK")
+        pr = float(summ.get("passrate") or 0.0)
+        epic_path = root / ".osnova" / "epics" / f"{epic_id}.yaml"
+        epic_meta = load_yaml(epic_path, default={}) or {}
+        if not isinstance(epic_meta, dict):
+            epic_meta = {}
+        epic_meta.setdefault("id", epic_id)
+        scope = collect_epic_scope_paths(root, epic_meta)
+        recent.append(
+            {
+                "epic": epic_id,
+                "scope": scope,
+                "result": recent_result_label(atom_ok, atom_total),
+                "status": _ci_status_token(status_up),
+                "passrate": pr,
+                "updated": str(doc.get("createdat") or now_iso()),
+            }
+        )
+        if len(recent) >= RECENT_MAX:
+            break
+
+    state_path = root / ".osnova" / "state.yaml"
+    state = load_yaml(state_path, default={}) or {}
+    if not isinstance(state, dict):
+        state = {}
+    state["recent"] = recent
+    ls: list[list[str]] = []
+    for item in recent[:LAST_SCOPES_N]:
+        sc = item.get("scope") if isinstance(item, dict) else None
+        if isinstance(sc, list):
+            ls.append([str(x) for x in sc if str(x).strip()])
+        else:
+            ls.append([])
+    state["last_scopes"] = ls
+
+    ci_prev = state.get("ci")
+    ci: dict[str, Any] = dict(ci_prev) if isinstance(ci_prev, dict) else {}
+    pr7 = compute_passrate_7d_from_history(root)
+    if pr7 is not None:
+        ci["passrate7d"] = round(pr7, 4)
+    if parsed:
+        _t0, _e0, doc0, summ0 = parsed[0]
+        ci["lastrun"] = str(doc0.get("createdat") or now_iso())
+        ci["laststatus"] = _ci_status_token(str(summ0.get("status") or "BLK"))
+    state["ci"] = ci
+    state["updatedat"] = now_iso()
+    atomic_write_yaml(state_path, state)
+    LOG.info(
+        "backfill_state_tail_from_history: recent=%s entries, passrate7d=%s",
+        len(recent),
+        ci.get("passrate7d"),
+    )
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import os
+    import sys
+
+    proj = Path(os.environ.get("OSNOVA_PROJECT", ".")).resolve()
+    if len(sys.argv) > 1:
+        proj = Path(sys.argv[1]).resolve()
+    backfill_state_tail_from_history(proj)
+    try:
+        from forge.codebase_state import merge_codebase_into_state_yaml
+    except ImportError:
+        from codebase_state import merge_codebase_into_state_yaml
+    merge_codebase_into_state_yaml(proj)
+    print("OK:", proj / ".osnova" / "state.yaml")

@@ -13,6 +13,7 @@ from forge.brain_context import build_brain_context
 from forge.common import atomic_write_yaml, load_yaml, now_iso
 from forge.retrospective import finalize_epic
 from forge.state_epic_tail import (
+    backfill_state_tail_from_history,
     collect_epic_scope_paths,
     compute_passrate_7d_from_history,
     recent_result_label,
@@ -109,6 +110,39 @@ class TestStateEpicTail(unittest.TestCase):
             self.assertIn("lastrun", ci)
             self.assertEqual(ci.get("laststatus"), "ok")
             self.assertIsNotNone(ci.get("passrate7d"))
+
+    def test_backfill_from_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            osn = root / ".osnova"
+            h = osn / "history"
+            h.mkdir(parents=True)
+            ed = osn / "epics"
+            ed.mkdir(parents=True)
+            atomic_write_yaml(
+                ed / "EPK-A.yaml",
+                {"id": "EPK-A", "scope": ["src/x.ts"], "goal": "g", "done": "true"},
+            )
+            atomic_write_yaml(
+                h / "t1.yaml",
+                {
+                    "epic": "EPK-A",
+                    "summary": {
+                        "status": "OK",
+                        "passrate": 1.0,
+                        "atomsdone": 1,
+                        "atomstotal": 1,
+                    },
+                    "createdat": "2026-03-29T12:00:00+00:00",
+                },
+            )
+            atomic_write_yaml(osn / "state.yaml", {"v": 1, "ci": {}, "recent": []})
+            backfill_state_tail_from_history(root)
+            st = load_yaml(osn / "state.yaml", default={}) or {}
+            self.assertEqual(len(st.get("recent") or []), 1)
+            self.assertEqual(st["recent"][0]["epic"], "EPK-A")
+            self.assertEqual(st["last_scopes"], [["src/x.ts"]])
+            self.assertEqual(st["ci"].get("laststatus"), "ok")
 
     def test_build_brain_context_uses_ci_passrate7d(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
