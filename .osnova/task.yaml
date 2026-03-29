@@ -1,28 +1,30 @@
-id: ATM-EPK-260328-016-005
+id: ATM-EPK-260328-016-006
 epic: EPK-260328-016
-seq: 5
+seq: 6
 zone: agents
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Восстановить ReviewAgent — устранить причины BLK в ATM-012
+goal: Консолидировать тесты agents — убедиться passrate ≥ 0.8
 scope:
-- src/agents/review-agent.ts
-- src/agents/agents.test.ts — тест ATM-012
-notouch:
+- src/agents/agents.test.ts
 - src/agents/intake-agent.ts
 - src/agents/plan-agent.ts
 - src/agents/exec-agent.ts
+- src/agents/review-agent.ts
+notouch: []
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Локализовать failing test для ATM-012
-- Исправить ревью результатов (агрегация, фильтрация)
-- 'Верифицировать: тест проходит'
+- Запустить npx vitest run src/agents/
+- Зафиксировать итоговый passrate
+- При passrate < 0.8 — добить остаточные failures
 deps:
-- ATM-EPK-260328-016-001
+- ATM-EPK-260328-016-002
+- ATM-EPK-260328-016-003
 - ATM-EPK-260328-016-004
+- ATM-EPK-260328-016-005
 maxiter: 3
 retries: 0
-status: in_progress
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: 6a0616324d7b4ab972a3e08f40542405e05a90ef
+review_base_sha: b980ca6212ef073f2ff7766cb279e8f62537c31d
