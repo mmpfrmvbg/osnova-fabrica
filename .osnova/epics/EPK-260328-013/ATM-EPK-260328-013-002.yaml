@@ -18,8 +18,12 @@ steps:
 - Добавить обработку синтаксических ошибок
 - Покрыть unit-тестами парсинг всех конструкций
 deps:
-- 1
+- ATM-EPK-260328-013-001
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: ceff725368f28368e0749223c91a4c84891b9d9e
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'
