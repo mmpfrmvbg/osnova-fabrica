@@ -429,6 +429,64 @@ export interface PlanStep {
   readonly description?: string;
 }
 
+// ─── Интерфейс шага пайплайна ───
+
+/** Контекст выполнения шага пайплайна. */
+export interface PipelineContext {
+  readonly intent?: OsnovaIntent;
+  readonly spec?: OsnovaSpec;
+  readonly source?: OsnovaSource;
+  readonly buildReport?: BuildReport;
+  readonly goldenReport?: GoldenReport;
+  readonly repairAttempts: number;
+  readonly diagnostics?: DiagnosticReport[];
+}
+
+/** Результат выполнения шага пайплайна. */
+export interface StepResult {
+  readonly success: boolean;
+  readonly context: PipelineContext;
+  readonly error?: PipelineError;
+  readonly nextPhase?: PipelinePhase;
+}
+
+/** Типы ошибок пайплайна. */
+export type PipelineErrorType =
+  | 'atom_not_found'
+  | 'atom_corrupted'
+  | 'dependency_unresolved'
+  | 'feedback_rejected'
+  | 'feedback_timeout'
+  | 'feedback_limit_exceeded'
+  | 'compilation_failed'
+  | 'validation_failed'
+  | 'execution_failed'
+  | 'timeout'
+  | 'unknown';
+
+/** Ошибка выполнения пайплайна. */
+export interface PipelineError {
+  readonly type: PipelineErrorType;
+  readonly message: string;
+  readonly phase?: PipelinePhase;
+  readonly code?: DiagnosticCode;
+  readonly retryable?: boolean;
+}
+
+/** Интерфейс шага обработки пайплайна. */
+export interface IPipelineStep {
+  /** Идентификатор шага. */
+  readonly id: string;
+  /** Фаза пайплайна, которую обрабатывает шаг. */
+  readonly phase: PipelinePhase;
+  /** Порядок выполнения. */
+  readonly order: number;
+  /** Выполняет шаг пайплайна. */
+  execute(context: PipelineContext): Promise<StepResult>;
+  /** Проверяет готовность шага к выполнению. */
+  canExecute?(context: PipelineContext): boolean;
+}
+
 export interface ExecutionPlan {
   readonly planId: string;
   readonly intentId: string;
