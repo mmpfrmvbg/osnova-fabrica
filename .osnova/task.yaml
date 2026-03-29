@@ -1,22 +1,21 @@
-id: ATM-EPK-260329-019-002
+id: ATM-EPK-260329-019-007
 epic: EPK-260329-019
-seq: 2
-zone: toolchain
+seq: 7
+zone: pipeline
 risk: MEDIUM
 executor: cursor
-goal: Выровнять npm-скрипты и зависимости с CI (self-fix корневых причин падений серии
-  015).
-scope: package.json — scripts/deps/engines; без смены major без необходимости
+goal: Закрыть полный happy-path оркестратора после правок index/types.
+scope: src/pipeline/index.ts — без смены контрактов Osiris
 notouch:
-- package-lock.json
-- apps/osiris/package.json
-done: npx vitest run package.test.ts
+- apps/osiris/**
+- src/compiler/index.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
 steps:
-- Сопоставить npm run ci с локальным минимальным набором команд.
-- Исправить скрипты/зависимости, блокирующие tsc или vitest в корне.
-- Проверить, что корневой тест на манифест зелёный.
+- Прогнать полный orchestrator test и зафиксировать оставшиеся расхождения.
+- Внести минимальные правки в index для стабильного прохождения.
+- Убедиться в отсутствии регрессий gate/shadow если задействованы.
 deps:
-- ATM-EPK-260329-019-001
+- ATM-EPK-260329-019-006
 maxiter: 3
 retries: 0
 status: PENDING
