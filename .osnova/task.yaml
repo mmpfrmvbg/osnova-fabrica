@@ -1,31 +1,26 @@
-id: ATM-EPIC-001
-epic: EPK-260327-001
+id: ATM-EPK-260328-013-001
+epic: EPK-260328-013
 seq: 1
-zone: lang
-risk: MEDIUM
+zone: src/compiler
+risk: HIGH
 executor: cursor
-goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
+goal: Реализовать lexer (токенизатор) для языка Основа с поддержкой всех типов токенов
 scope:
 - src/compiler/lexer.ts
+notouch:
 - src/compiler/parser.ts
 - src/compiler/ast.ts
 - src/compiler/codegen.ts
-- src/compiler/compiler.ts
-notouch:
-- src/runtime/
-- src/agents/
-- pipeline.yaml
-done: npx vitest run src/compiler/ && npx vitest run src/agents/
+done: npx vitest run src/compiler/
 steps:
-- Изучить docs/language-v2.md и docs/osnova/language-schema.json
-- Реализовать lexer: токенизация кириллических ключевых слов
-- Реализовать parser: построение AST для procedure/if/loop/match
-- Реализовать codegen: генерация .osvbc JSON байткода
-- Покрыть unit-тестами vitest
+- Определить все типы токенов (идентификаторы, ключевые слова, операторы, литералы)
+- Реализовать функцию tokenize() для преобразования исходного кода в поток токенов
+- Добавить обработку ошибок лексического анализа
+- Покрыть unit-тестами все сценарии токенизации
 deps: []
 maxiter: 3
 retries: 0
 status: in_progress
-priority: P2
+priority: P1
 max_retries: 3
-review_base_sha: b3d7a2ea45d1c8939974fd954ba1e784ca082dac
+review_base_sha: 3af869a9dbea4dbc7d6410cb981a28f5182e313c
