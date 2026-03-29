@@ -1,27 +1,27 @@
-id: ATM-EPK-260328-013-002
+id: ATM-EPK-260328-013-003
 epic: EPK-260328-013
-seq: 2
+seq: 3
 zone: src/compiler
 risk: HIGH
 executor: cursor
-goal: Реализовать parser для построения AST из потока токенов
+goal: Реализовать codegen для генерации кода из AST
 scope:
-- src/compiler/parser.ts
-- src/compiler/ast.ts
+- src/compiler/codegen.ts
 notouch:
 - src/compiler/lexer.ts
-- src/compiler/codegen.ts
+- src/compiler/parser.ts
+- src/compiler/ast.ts
 done: npx vitest run src/compiler/
 steps:
-- Определить узлы AST для всех конструкций языка
-- Реализовать рекурсивный спуск или precedence parsing
-- Добавить обработку синтаксических ошибок
-- Покрыть unit-тестами парсинг всех конструкций
+- Реализовать обход AST и генерацию выходного кода
+- Добавить поддержку всех узлов AST
+- Обеспечить корректную генерацию для вложенных конструкций
+- Покрыть unit-тестами генерацию кода
 deps:
-- ATM-EPK-260328-013-001
+- ATM-EPK-260328-013-002
 maxiter: 3
 retries: 0
-status: done
+status: in_progress
 priority: P1
 max_retries: 3
-review_base_sha: ceff725368f28368e0749223c91a4c84891b9d9e
+review_base_sha: a3033cd4cb2ab5bbe86a965b085213542332df69

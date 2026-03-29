@@ -18,8 +18,12 @@ steps:
 - Обеспечить корректную генерацию для вложенных конструкций
 - Покрыть unit-тестами генерацию кода
 deps:
-- 2
+- ATM-EPK-260328-013-002
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: a3033cd4cb2ab5bbe86a965b085213542332df69
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'

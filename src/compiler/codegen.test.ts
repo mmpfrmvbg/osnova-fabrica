@@ -366,6 +366,196 @@ describe("codegen compile()", () => {
     expect(slice.length).toBe(8);
     expect(slice[7].op).toBe("ret");
   });
+
+  it("иначе_если: цепочка jmp_if_not и финальный jmp к концу", () => {
+    const body: Stmt[] = [
+      {
+        kind: "если",
+        condition: { kind: "булево", value: false },
+        body: [{ kind: "вернуть", value: { kind: "число", value: 1 } }],
+        elseIfClauses: [
+          {
+            condition: { kind: "булево", value: true },
+            body: [{ kind: "вернуть", value: { kind: "число", value: 2 } }],
+          },
+        ],
+        elseBody: [{ kind: "вернуть", value: { kind: "число", value: 3 } }],
+      },
+    ];
+    const m = compile(moduleAst("Elif", [{ name: "e", params: [], body }]));
+    const slice = m.code.slice(m.procedures[0].codeOffset);
+    expect(slice.filter((i) => i.op === "jmp_if_not").length).toBeGreaterThanOrEqual(2);
+    expect(slice.filter((i) => i.op === "jmp").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("унарное не: eq со стеком false", () => {
+    const m = compile(
+      moduleAst("Not", [
+        {
+          name: "n",
+          params: [],
+          body: [
+            {
+              kind: "вернуть",
+              value: {
+                kind: "унарное",
+                op: "не",
+                arg: { kind: "булево", value: true },
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    const slice = m.code.slice(m.procedures[0].codeOffset);
+    expect(slice.some((i) => i.op === "eq")).toBe(true);
+  });
+
+  it("бинарное или: jmp_if и короткое замыкание", () => {
+    const m = compile(
+      moduleAst("Or", [
+        {
+          name: "p",
+          params: [],
+          body: [
+            {
+              kind: "вернуть",
+              value: {
+                kind: "бинарное",
+                op: "или",
+                left: { kind: "булево", value: true },
+                right: { kind: "булево", value: false },
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    const slice = m.code.slice(m.procedures[0].codeOffset);
+    expect(slice.some((i) => i.op === "jmp_if")).toBe(true);
+    expect(slice.some((i) => i.op === "jmp")).toBe(true);
+  });
+
+  it("поле_присвоить: obj.set в потоке инструкций", () => {
+    const m = compile(
+      moduleAst("Set", [
+        {
+          name: "s",
+          params: [],
+          body: [
+            { kind: "пусть", name: "o", init: { kind: "объект", entries: [] } },
+            {
+              kind: "поле_присвоить",
+              object: { kind: "переменная", name: "o" },
+              field: "x",
+              value: { kind: "число", value: 5 },
+            },
+            { kind: "вернуть", value: { kind: "переменная", name: "o" } },
+          ],
+        },
+      ]),
+    );
+    expect(m.code.filter((i) => i.op === "obj.set").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("пока: прервать и продолжить — jmp с заплатками", () => {
+    const m = compile(
+      moduleAst("Brk", [
+        {
+          name: "w",
+          params: [],
+          body: [
+            {
+              kind: "пока",
+              condition: { kind: "булево", value: true },
+              body: [
+                { kind: "прервать" },
+                { kind: "вернуть", value: { kind: "число", value: 99 } },
+              ],
+            },
+            { kind: "вернуть", value: { kind: "число", value: 0 } },
+          ],
+        },
+      ]),
+    );
+    const slice = m.code.slice(m.procedures[0].codeOffset);
+    expect(slice.filter((i) => i.op === "jmp").length).toBeGreaterThanOrEqual(2);
+    const cont = compile(
+      moduleAst("Cont", [
+        {
+          name: "c",
+          params: [],
+          body: [
+            {
+              kind: "пока",
+              condition: { kind: "булево", value: true },
+              body: [
+                { kind: "продолжить" },
+                { kind: "вернуть", value: { kind: "число", value: 1 } },
+              ],
+            },
+            { kind: "вернуть", value: { kind: "число", value: 0 } },
+          ],
+        },
+      ]),
+    );
+    expect(cont.code.slice(cont.procedures[0].codeOffset).some((i) => i.op === "jmp")).toBe(true);
+  });
+
+  it("цикл: безусловный jmp с абсолютным off к началу тела (назад по PC)", () => {
+    const m = compile(
+      moduleAst("Loop", [
+        {
+          name: "l",
+          params: [],
+          body: [
+            {
+              kind: "цикл",
+              body: [{ kind: "прервать" }],
+            },
+            { kind: "вернуть", value: { kind: "число", value: 0 } },
+          ],
+        },
+      ]),
+    );
+    const procOffset = m.procedures[0].codeOffset;
+    const slice = m.code.slice(procOffset);
+    let hasBackwardJmp = false;
+    slice.forEach((ins, relIdx) => {
+      if (ins.op !== "jmp") return;
+      const absPc = procOffset + relIdx;
+      const target = (ins as { off: number }).off;
+      if (target < absPc) hasBackwardJmp = true;
+    });
+    expect(hasBackwardJmp).toBe(true);
+  });
+
+  it("для_каждого с индексом: local.set для item и index", () => {
+    const src: Expr = { kind: "массив", elements: [{ kind: "число", value: 7 }] };
+    const m = compile(
+      moduleAst("Idx", [
+        {
+          name: "f",
+          params: [],
+          body: [
+            {
+              kind: "для_каждого",
+              item: "v",
+              index: "i",
+              variable: "v",
+              source: src,
+              collection: src,
+              body: [{ kind: "выражение", expr: { kind: "переменная", name: "i" } }],
+            },
+            { kind: "вернуть", value: { kind: "число", value: 0 } },
+          ],
+        },
+      ]),
+    );
+    expect(m.procedures[0].localsCount).toBeGreaterThanOrEqual(4);
+    const slice = m.code.slice(m.procedures[0].codeOffset);
+    expect(slice.filter((i) => i.op === "local.set").length).toBeGreaterThanOrEqual(3);
+  });
 });
 
 describe("codegen compileProgram()", () => {

@@ -545,6 +545,8 @@ function cloneExprWithResolver(expr: Expr, resolveCall: (name: string) => string
         object: cloneExprWithResolver(expr.object, resolveCall),
         field: expr.field,
       };
+    default:
+      return assertNever(expr, "cloneExprWithResolver");
   }
 }
 
@@ -621,6 +623,8 @@ function cloneStmtWithResolver(stmt: Stmt, resolveCall: (name: string) => string
         kind: "вернуть",
         value: stmt.value ? cloneExprWithResolver(stmt.value, resolveCall) : undefined,
       };
+    default:
+      return assertNever(stmt, "cloneStmtWithResolver");
   }
 }
 
