@@ -29,13 +29,19 @@ import type {
   OsnovaIntent,
   OsnovaSource,
   OsnovaSpec,
+  PipelinePhase,
   PipelineResult,
 } from './types';
 
 export { runPipelineOrchestrator as runPipeline };
 
 /** VM из контекста агентов после build: spec + bytecode → {@link import("../runtime/vm").applyPipelineSpecToVm}. */
-export { createPipelineVmFromExecContext, safeExecutePipelineVm } from '../agents';
+export {
+  createPipelineVmFromExecContext,
+  safeExecutePipelineVm,
+  safeExecutePipelineVmFromExecContext,
+  EXEC_CONTEXT_VM_UNAVAILABLE,
+} from '../agents';
 export type { ExecContext, PipelineVmExecuteResult } from '../agents';
 
 /**
@@ -101,56 +107,68 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
 
       const execResult = await exec.execute(
         plan,
-        async (phase, _step, ctx) => {
-          if (phase === 'codegen') {
-            if (ctx.source) {
-              const shadowReport = analyzeShadow(ctx.source.source);
+        async (phase: PipelinePhase, _step, ctx) => {
+          switch (phase) {
+            case 'codegen':
+              if (ctx.source) {
+                const shadowReport = analyzeShadow(ctx.source.source);
+                shadowHits = shadowReport.hits;
+                return {
+                  ok: true,
+                  patch: { source: ctx.source, intent: ctx.intent, spec: ctx.spec },
+                };
+              }
+              const source = await codegen.generate(ctx.spec!);
+              const shadowReport = analyzeShadow(source.source);
               shadowHits = shadowReport.hits;
               return {
                 ok: true,
-                patch: { source: ctx.source, intent: ctx.intent, spec: ctx.spec },
+                patch: { source, intent: ctx.intent, spec: ctx.spec },
+              };
+            case 'build': {
+              const buildReport = compileToBuildReport(compileSource(ctx.source!.source));
+              lastBuildForRepair = buildReport;
+              const g2 = checkG2(buildReport);
+              if (!g2.passed) {
+                return { ok: false, error: `G2 failed: ${g2.failedChecks[0]}` };
+              }
+              return {
+                ok: true,
+                patch: { buildReport, intent: ctx.intent, spec: ctx.spec },
               };
             }
-            const source = await codegen.generate(ctx.spec!);
-            const shadowReport = analyzeShadow(source.source);
-            shadowHits = shadowReport.hits;
-            return {
-              ok: true,
-              patch: { source, intent: ctx.intent, spec: ctx.spec },
-            };
-          }
-          if (phase === 'build') {
-            const buildReport = compileToBuildReport(compileSource(ctx.source!.source));
-            lastBuildForRepair = buildReport;
-            const g2 = checkG2(buildReport);
-            if (!g2.passed) {
-              return { ok: false, error: `G2 failed: ${g2.failedChecks[0]}` };
-            }
-            return {
-              ok: true,
-              patch: { buildReport, intent: ctx.intent, spec: ctx.spec },
-            };
-          }
-          if (phase === 'golden_check') {
-            const goldenReport = await runGoldenCheck(ctx.buildReport!.bytecode, ctx.spec!);
-            lastGoldenForRepair = goldenReport;
-            const g3 = checkG3(goldenReport);
-            const { qualityScore } = goldenReport;
-            if (!g3.passed) {
-              if (qualityScore >= QUALITY_PARTIAL && qualityScore < QUALITY_PASS) {
-                return {
-                  ok: true,
-                  patch: { goldenReport, intent: ctx.intent, spec: ctx.spec },
-                };
+            case 'golden_check': {
+              const goldenReport = await runGoldenCheck(ctx.buildReport!.bytecode, ctx.spec!);
+              lastGoldenForRepair = goldenReport;
+              const g3 = checkG3(goldenReport);
+              const { qualityScore } = goldenReport;
+              if (!g3.passed) {
+                if (qualityScore >= QUALITY_PARTIAL && qualityScore < QUALITY_PASS) {
+                  return {
+                    ok: true,
+                    patch: { goldenReport, intent: ctx.intent, spec: ctx.spec },
+                  };
+                }
+                return { ok: false, error: `G3 failed: ${g3.failedChecks[0]}` };
               }
-              return { ok: false, error: `G3 failed: ${g3.failedChecks[0]}` };
+              return {
+                ok: true,
+                patch: { goldenReport, intent: ctx.intent, spec: ctx.spec },
+              };
             }
-            return {
-              ok: true,
-              patch: { goldenReport, intent: ctx.intent, spec: ctx.spec },
-            };
+            case 'intake':
+            case 'spec_generation':
+            case 'g1_spec_ready':
+            case 'repair':
+              return {
+                ok: false,
+                error: `runPipelineWithExecAgent: фаза «${phase}» не используется при fromScratch: false / includeRepair: false`,
+              };
+            default: {
+              const _exhaustive: never = phase;
+              return { ok: false, error: `unexpected phase: ${String(_exhaustive)}` };
+            }
           }
-          return { ok: false, error: `unexpected phase: ${phase}` };
         },
         { intent, spec, source: seedSource, repairAttempts },
       );

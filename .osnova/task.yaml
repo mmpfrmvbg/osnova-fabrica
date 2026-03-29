@@ -1,24 +1,26 @@
-id: ATM-EPK-260328-018-008
+id: ATM-EPK-260328-018-009
 epic: EPK-260328-018
-seq: 8
-zone: runtime
-risk: MEDIUM
+seq: 9
+zone: pipeline
+risk: HIGH
 executor: cursor
-goal: Восстановить ExecAgent — интеграция с vm.ts
+goal: Pipeline integration — обновить pipeline.ts под исправленные агенты
 scope:
-- src/agents/exec-agent.ts
-- src/runtime/vm.ts
-notouch: []
+- src/pipeline/pipeline.ts — основной файл для исправлений
+notouch:
+- src/pipeline/pipeline.test.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Исправить передачу контекста в VM
-- Обработать исключения выполнения
-- Обновить типы результатов
+- Обновить вызовы агентов в pipeline
+- Исправить обработку результатов каждого этапа
+- Устранить ошибки типов между pipeline и агентами
 deps:
-- ATM-EPK-260328-018-004
+- ATM-EPK-260328-018-006
+- ATM-EPK-260328-018-007
+- ATM-EPK-260328-018-008
 maxiter: 3
 retries: 0
-status: in_progress
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: 6709841e0bcc0ad1af1ea126cd8f511d87c0a612
+review_base_sha: 0f478a0e4ba72613289577ed68cea156226c9c4a
