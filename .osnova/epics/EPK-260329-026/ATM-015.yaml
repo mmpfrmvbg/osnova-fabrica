@@ -1,0 +1,23 @@
+id: ATM-015
+epic: EPK-260329-026
+seq: 15
+zone: scripts
+risk: MED
+executor: qwen
+goal: Final blocker-sync polish — config via env, non-zero on sync drift, align log
+  with .tmp path.
+scope: scripts/blocker-sync.ts — exit semantics + env
+notouch:
+- src/vliw/vliw.test.ts
+- src/intelligence/planner.test.ts
+done: npx vitest run src/vliw/vliw.test.ts
+steps:
+- Map STALE_BLOCKER_* env vars if used elsewhere in repo; otherwise document defaults.
+- Single code path calls log helper from ATM-003 contract.
+deps:
+- ATM-003
+- ATM-014
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

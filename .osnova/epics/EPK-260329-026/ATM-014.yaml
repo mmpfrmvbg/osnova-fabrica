@@ -1,0 +1,21 @@
+id: ATM-014
+epic: EPK-260329-026
+seq: 14
+zone: intelligence
+risk: LOW
+executor: qwen
+goal: Cross-check intelligence public API docs/strings vs blocker-sync consumer expectations.
+scope: src/intelligence/index.ts — doc + stability pass
+notouch:
+- src/vliw/scheduler.ts
+- src/vliw/scheduler.test.ts
+done: npx vitest run src/intelligence/intelligence.test.ts
+steps:
+- Add brief module header comment listing stable exports.
+- Ensure no rename without updating ATM-008 imports.
+deps:
+- ATM-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

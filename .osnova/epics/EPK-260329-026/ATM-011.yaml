@@ -1,0 +1,21 @@
+id: ATM-011
+epic: EPK-260329-026
+seq: 11
+zone: vliw
+risk: HIGH
+executor: qwen
+goal: Refine packetsToCodeElements mapping for mixed RawInstruction/VliwPacket output.
+scope: src/vliw/scheduler.ts — serialization bridge
+notouch:
+- src/intelligence/planner.test.ts
+- .tmp/blocker-sync.log
+done: npx vitest run src/vliw/scheduler.test.ts
+steps:
+- Align output order with fixtures under src/vliw/fixtures/.
+- Avoid breaking VM consumer types in ../runtime/vm/bytecode.
+deps:
+- ATM-010
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

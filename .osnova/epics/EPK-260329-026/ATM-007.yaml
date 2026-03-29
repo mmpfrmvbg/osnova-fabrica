@@ -1,0 +1,21 @@
+id: ATM-007
+epic: EPK-260329-026
+seq: 7
+zone: intelligence
+risk: LOW
+executor: qwen
+goal: planner.test.ts covers pure planners, edge cases, and mock adapters.
+scope: src/intelligence/planner.test.ts — unit coverage
+notouch:
+- src/vliw/vliw.test.ts
+- scripts/blocker-sync.ts
+done: npx vitest run src/intelligence/planner.test.ts
+steps:
+- Add vitest suites for empty plan, single step, failure propagation.
+- Mock external intelligence sources; no real network in tests.
+deps:
+- ATM-006
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

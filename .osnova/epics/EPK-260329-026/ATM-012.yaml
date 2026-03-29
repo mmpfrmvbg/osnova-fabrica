@@ -1,0 +1,22 @@
+id: ATM-012
+epic: EPK-260329-026
+seq: 12
+zone: vliw
+risk: MED
+executor: qwen
+goal: Extend scheduler.test.ts for new scheduler invariants and regression on linear-sum
+  fixture.
+scope: src/vliw/scheduler.test.ts — regression tests
+notouch:
+- scripts/blocker-sync.ts
+- src/intelligence/intelligence.test.ts
+done: npx vitest run src/vliw/scheduler.test.ts
+steps:
+- Add cases covering multi-packet schedules and opcode classification boundaries.
+- Run fixture round-trip where scheduler.test already uses execSync/cli.
+deps:
+- ATM-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

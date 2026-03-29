@@ -1,0 +1,29 @@
+t: EPK
+id: EPK-260329-026
+goal: 'Стратегия изменена из-за loop: предыдущие 5 EPIC исчерпали compiler/runtime/pipeline/agents.
+  Атакуем незатронутые зоны: src/intelligence/, src/vliw/, + скрипт синхронизации
+  stale-blockers в scripts/blocker-sync.ts'
+scope:
+- scripts/blocker-sync.ts
+- src/intelligence/index.ts
+- src/intelligence/intelligence.test.ts
+- src/vliw/index.ts
+- src/vliw/vliw.test.ts
+- src/intelligence/planner.ts
+- src/intelligence/planner.test.ts
+- src/vliw/scheduler.ts
+- src/vliw/scheduler.test.ts
+- .tmp/blocker-sync.log
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+  - ATM-005
+- - ATM-006
+  - ATM-007
+  - ATM-008
+- - ATM-009
+done: npx vitest run src/intelligence/ && npx vitest run src/vliw/
+priority: P1
+githubissue: 93

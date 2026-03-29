@@ -1,0 +1,21 @@
+id: ATM-004
+epic: EPK-260329-026
+seq: 4
+zone: intelligence
+risk: LOW
+executor: qwen
+goal: Barrel src/intelligence/index.ts exporting planner and minimal stable public
+  surface.
+scope: src/intelligence/index.ts — public exports
+notouch:
+- scripts/blocker-sync.ts
+- src/vliw/scheduler.ts
+done: npx vitest run src/intelligence/intelligence.test.ts
+steps:
+- Re-export planner entrypoints without deep internal leakage.
+- Keep import graph acyclic vs existing intelligence modules.
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

@@ -1,0 +1,21 @@
+id: ATM-001
+epic: EPK-260329-026
+seq: 1
+zone: scripts
+risk: LOW
+executor: qwen
+goal: Add scripts/blocker-sync.ts entry (CLI argv, help, exit codes) for stale-blocker
+  sync.
+scope: scripts/blocker-sync.ts — scaffold only
+notouch:
+- src/intelligence/planner.ts
+- src/vliw/scheduler.ts
+done: npx vitest run src/vliw/scheduler.test.ts
+steps:
+- Create TypeScript CLI with documented flags and safe default no-op.
+- Wire tsx/node shebang pattern consistent with scripts/pipeline-metrics.ts.
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

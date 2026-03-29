@@ -1,0 +1,22 @@
+id: ATM-013
+epic: EPK-260329-026
+seq: 13
+zone: vliw
+risk: LOW
+executor: qwen
+goal: Create src/vliw/vliw.test.ts as thin suite delegating to key exports (index-level
+  smoke).
+scope: src/vliw/vliw.test.ts — package-level smoke
+notouch:
+- src/intelligence/planner.ts
+- .tmp/blocker-sync.log
+done: npx vitest run src/vliw/vliw.test.ts
+steps:
+- Import from src/vliw/index.ts; minimal tests not duplicated from scheduler.test.ts.
+- Keep file small; deep cases stay in scheduler.test.ts.
+deps:
+- ATM-012
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1

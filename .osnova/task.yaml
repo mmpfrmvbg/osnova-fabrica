@@ -1,23 +1,21 @@
-id: ATM-EPK-260329-025-008
-epic: EPK-260329-025
-seq: 8
-zone: pipeline
-risk: MED
+id: ATM-001
+epic: EPK-260329-026
+seq: 1
+zone: scripts
+risk: LOW
 executor: cursor
-goal: Исправить блокеры обработки ошибок и откатов в executor.
-scope: src/pipeline/executor.ts — ошибки, ретраи, финализация
+goal: Add scripts/blocker-sync.ts entry (CLI argv, help, exit codes) for stale-blocker
+  sync.
+scope: scripts/blocker-sync.ts — scaffold only
 notouch:
-- src/compiler/index.ts
-- src/agents/base.ts
-- .tmp/diagnostics.log
-done: npx vitest run src/runtime/goldenApps.test.ts
+- src/intelligence/planner.ts
+- src/vliw/scheduler.ts
+done: npx vitest run src/vliw/scheduler.test.ts
 steps:
-- Закрыть оставшиеся кейсы из списка 14 блокеров в этой зоне.
-- Согласовать с types.ts и runner без циклических импортов.
-- Проверить, что агенты получают стабильные статусы шага.
-deps:
-- ATM-EPK-260329-025-007
+- Create TypeScript CLI with documented flags and safe default no-op.
+- Wire tsx/node shebang pattern consistent with scripts/pipeline-metrics.ts.
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING
-priority: P0
+priority: P1

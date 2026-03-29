@@ -1,0 +1,22 @@
+id: ATM-010
+epic: EPK-260329-026
+seq: 10
+zone: vliw
+risk: HIGH
+executor: qwen
+goal: Harden scheduleLinearBlock packing invariants (slot conflicts, ready set) in
+  scheduler.ts.
+scope: src/vliw/scheduler.ts — list scheduling
+notouch:
+- src/intelligence/index.ts
+- scripts/blocker-sync.ts
+done: npx vitest run src/vliw/scheduler.test.ts
+steps:
+- Preserve deterministic order when multiple nodes compete for same slot.
+- Keep graph semantics unchanged; extend comments for stuck detection.
+deps:
+- ATM-009
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P1
