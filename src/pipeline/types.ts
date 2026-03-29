@@ -473,6 +473,22 @@ export interface PipelineError {
   readonly retryable?: boolean;
 }
 
+/**
+ * Конвертирует CompileError из компилятора в PipelineError.
+ * Используется для связки ошибок компиляции с pipeline ошибками.
+ */
+export function pipelineErrorFromCompileError(
+  error: { message: string; line?: number; column?: number; kind?: string; node?: string },
+  phase?: PipelinePhase
+): PipelineError {
+  return {
+    type: 'compilation_failed',
+    message: error.message,
+    phase: phase ?? 'build',
+    retryable: false,
+  };
+}
+
 /** Интерфейс шага обработки пайплайна. */
 export interface IPipelineStep {
   /** Идентификатор шага. */

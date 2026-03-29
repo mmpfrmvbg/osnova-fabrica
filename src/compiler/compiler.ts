@@ -23,6 +23,23 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { BuildReport } from '../pipeline/types';
 
+/**
+ * Базовый интерфейс ошибки компиляции.
+ * Используется для унификации ошибок всех фаз: lexer, parser, semantic, codegen.
+ */
+export interface CompileError {
+  /** Сообщение об ошибке */
+  message: string;
+  /** Номер строки (опционально) */
+  line?: number;
+  /** Номер колонки (опционально) */
+  column?: number;
+  /** Тип/категория ошибки */
+  kind?: string;
+  /** Узел AST или контекст (опционально) */
+  node?: string;
+}
+
 export interface CompileResult {
   /** Скомпилированный модуль — null если есть ошибки */
   module: OsVbcModule | null;
@@ -40,6 +57,22 @@ export interface CompileResult {
   semanticErrors: SemanticError[];
   /** Время компиляции в мс */
   durationMs: number;
+  /** Логи компиляции для отладки и трассировки */
+  logs?: CompileLog[];
+}
+
+/** Запись лога компиляции */
+export interface CompileLog {
+  /** Уровень лога */
+  level: 'info' | 'warn' | 'error';
+  /** Фаза компиляции */
+  phase: 'lexer' | 'parser' | 'semantic' | 'codegen';
+  /** Сообщение */
+  message: string;
+  /** Время события (мс от начала компиляции) */
+  timestamp: number;
+  /** Контекст ошибки (опционально) */
+  error?: CompileError;
 }
 
 export interface CompileOptions {
@@ -93,6 +126,39 @@ export class Compiler {
     }
     return await osvm.execute({ procedure, args });
   }
+}
+
+/** Вспомогательная функция для добавления записи лога */
+function addLog(
+  logs: CompileLog[],
+  level: CompileLog['level'],
+  phase: CompileLog['phase'],
+  message: string,
+  startTime: number,
+  error?: CompileError
+): void {
+  logs.push({
+    level,
+    phase,
+    message,
+    timestamp: Date.now() - startTime,
+    error,
+  });
+}
+
+/** Преобразует ошибку в интерфейс CompileError */
+function toCompileError(
+  error: Error | { message: string },
+  line?: number,
+  column?: number,
+  kind?: string
+): CompileError {
+  return {
+    message: error.message,
+    line,
+    column,
+    kind,
+  };
 }
 
 function resolveImportPath(importPath: string, baseDir: string): string {
@@ -415,8 +481,19 @@ export function optimizeIrModule(ir: OsVbcModule): OsVbcModule {
 
 export function compileSource(source: string, options: CompileOptions = {}): CompileResult {
   const start = Date.now();
+  const logs: CompileLog[] = [];
   const { tokens, errors: lexerErrors } = tokenize(source);
   const { ast: program, errors: parserErrors } = parse(tokens);
+
+  // Логирование ошибок лексера
+  for (const err of lexerErrors) {
+    addLog(logs, 'error', 'lexer', err.message, start, toCompileError(err, err.line, err.column, 'lexer_error'));
+  }
+
+  // Логирование ошибок парсера
+  for (const err of parserErrors) {
+    addLog(logs, 'error', 'parser', err.message, start, toCompileError(err, err.line, undefined, 'parser_error'));
+  }
 
   if (lexerErrors.length > 0 || parserErrors.length > 0 || !program || program.modules.length === 0) {
     return {
@@ -428,6 +505,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       compilerErrors: [],
       semanticErrors: [],
       durationMs: Date.now() - start,
+      logs,
     };
   }
 
@@ -438,15 +516,18 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     const ast = getFirstModuleOrThrow(program);
     expandedAst = expandModuleImports(ast, baseDir);
   } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    addLog(logs, 'error', 'codegen', errorMsg, start, toCompileError(e instanceof Error ? e : { message: errorMsg }, undefined, undefined, 'import_error'));
     return {
       module: null,
       modules: [],
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
-      compilerErrors: [{ message: e instanceof Error ? e.message : String(e) }],
+      compilerErrors: [{ message: errorMsg }],
       semanticErrors: [],
       durationMs: Date.now() - start,
+      logs,
     };
   }
 
@@ -465,6 +546,9 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     }
   }
   if (namedTypeErrors.length > 0) {
+    for (const msg of namedTypeErrors) {
+      addLog(logs, 'error', 'codegen', msg, start, toCompileError({ message: msg }, undefined, undefined, 'type_error'));
+    }
     return {
       module: null,
       modules: [],
@@ -474,11 +558,17 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       compilerErrors: namedTypeErrors.map((message) => ({ message })),
       semanticErrors: [],
       durationMs: Date.now() - start,
+      logs,
     };
   }
 
   const semanticErrors = analyzeProgram({ modules: [expandedAst] }).errors;
   const semanticAsCompiler = semanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
+
+  // Логирование семантических ошибок
+  for (const err of semanticErrors) {
+    addLog(logs, 'warn', 'semantic', err.message, start, toCompileError({ message: err.message }, err.line, undefined, err.kind));
+  }
 
   if (program.modules.length > 1) {
     const programSemanticErrors = analyzeProgram(program).errors;
@@ -494,8 +584,11 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
         compilerErrors: programSemanticAsCompiler,
         semanticErrors: programSemanticErrors,
         durationMs: Date.now() - start,
+        logs,
       };
     } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      addLog(logs, 'error', 'codegen', errorMsg, start, toCompileError(e instanceof Error ? e : { message: errorMsg }, undefined, undefined, 'codegen_error'));
       return {
         module: null,
         modules: [],
@@ -504,10 +597,11 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
         parserErrors: [],
         compilerErrors: [
           ...programSemanticAsCompiler,
-          { message: e instanceof Error ? e.message : String(e) },
+          { message: errorMsg },
         ],
         semanticErrors: programSemanticErrors,
         durationMs: Date.now() - start,
+        logs,
       };
     }
   }
@@ -523,8 +617,11 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       compilerErrors: semanticAsCompiler,
       semanticErrors,
       durationMs: Date.now() - start,
+      logs,
     };
   } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    addLog(logs, 'error', 'codegen', errorMsg, start, toCompileError(e instanceof Error ? e : { message: errorMsg }, undefined, undefined, 'codegen_error'));
     return {
       module: null,
       modules: [],
@@ -533,10 +630,11 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       parserErrors: [],
       compilerErrors: [
         ...semanticAsCompiler,
-        { message: e instanceof Error ? e.message : String(e) },
+        { message: errorMsg },
       ],
       semanticErrors,
       durationMs: Date.now() - start,
+      logs,
     };
   }
 }

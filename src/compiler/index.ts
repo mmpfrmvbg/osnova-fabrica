@@ -11,3 +11,6 @@ export * from "./semantic";
 export * from "./codegen";
 export * from "./compiler";
 export * from "./vm";
+
+// Экспорт для обработки ошибок и логирования
+export type { CompileError, CompileLog } from "./compiler";
