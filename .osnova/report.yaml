@@ -1,10 +1,9 @@
 v: 5
 t: RPT
-id: ATM-001
+id: ATM-002
 s: OK
 changed: []
 elapsed: 0
 qwen_result:
-  lines_delta: 0
-  zero_line_delta_done_verified: true
+  lines_delta: 2
 reviewer_skip_done: true
