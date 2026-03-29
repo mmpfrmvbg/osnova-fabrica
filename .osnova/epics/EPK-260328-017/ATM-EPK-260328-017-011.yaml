@@ -17,11 +17,14 @@ steps:
 - зафиксировать failing tests и исправить причины
 - повторять до достижения passrate > 0.8
 deps:
-- ATM-005
-- ATM-007
-- ATM-008
-- ATM-009
+- ATM-EPK-260328-017-005
+- ATM-EPK-260328-017-007
+- ATM-EPK-260328-017-008
+- ATM-EPK-260328-017-009
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: 77a10bf42879c271471b0daddf22e9f5e4ba1953
+produced_files: []
