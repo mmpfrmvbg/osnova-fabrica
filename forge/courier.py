@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
+
+# qwenexec summary like "~60 lines" must never become a git pathspec
+_CHANGED_SUMMARY_RE = re.compile(r"^~\d+\s+lines\s*$", re.IGNORECASE)
 
 try:
     from forge.common import atomic_write_yaml, env_paths, gh_request, load_forge_state, load_yaml, now_iso, save_forge_state, setup_logging
@@ -11,6 +15,25 @@ except ImportError:  # pragma: no cover
     from common import atomic_write_yaml, env_paths, gh_request, load_forge_state, load_yaml, now_iso, save_forge_state, setup_logging
 
 LOG = setup_logging("courier")
+
+
+def paths_for_git_add(changed: list[Any]) -> list[str]:
+    """Оставляет только реальные pathspec; отбрасывает плейсхолдеры вроде ``~60 lines`` из report[\"changed\"]."""
+    out: list[str] = []
+    for x in changed or []:
+        s = str(x).strip()
+        if not s or _CHANGED_SUMMARY_RE.match(s):
+            continue
+        out.append(s)
+    return out
+
+
+def _git_stage_report_changes(project: Path, changed: list[Any]) -> None:
+    paths = paths_for_git_add(changed)
+    if paths:
+        subprocess.run(["git", "add", "--", *paths], cwd=project, check=False)
+    else:
+        subprocess.run(["git", "add", "."], cwd=project, check=False)
 
 
 def _blocker_title(atm_id: Any) -> str:
@@ -153,11 +176,7 @@ def git_commit_atm_report(project: Path, atom: dict[str, Any], report: dict[str,
     if dry_run:
         LOG.info("[dry-run] Would git commit ATM %s status=%s", atom.get("id"), status)
         return
-    changed = report.get("changed") or []
-    if changed:
-        subprocess.run(["git", "add", *changed], cwd=project, check=False)
-    else:
-        subprocess.run(["git", "add", "."], cwd=project, check=False)
+    _git_stage_report_changes(project, report.get("changed") or [])
     subprocess.run(["git", "commit", "-m", f"ATM {atom.get('id')} {status}"], cwd=project, check=False)
 
 
@@ -178,10 +197,7 @@ def process_result(
     if dry_run:
         LOG.info("[dry-run] Would git commit ATM %s status=%s", atom.get("id"), status)
     elif not only_state:
-        if changed:
-            subprocess.run(["git", "add", *changed], cwd=project, check=False)
-        else:
-            subprocess.run(["git", "add", "."], cwd=project, check=False)
+        _git_stage_report_changes(project, changed)
         subprocess.run(["git", "commit", "-m", f"ATM {atom.get('id')} {status}"], cwd=project, check=False)
         if not skip_push:
             subprocess.run(["git", "push", "origin", "main"], cwd=project, check=False)

@@ -427,11 +427,40 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
             output_tail=json.dumps(result, ensure_ascii=False)[:2000],
         )
     if delta <= 0:
+        try:
+            from forge.reviewer import run_atom_done_subprocess
+        except ImportError:  # pragma: no cover
+            from reviewer import run_atom_done_subprocess
+        done_proc = run_atom_done_subprocess(atom, timeout_s=900)
+        if done_proc is None:
+            return _blk(
+                "qwen code made no file changes (stats) and atom has no done command",
+                retry_cursor=True,
+                proc_returncode=proc.returncode,
+                output_tail=json.dumps(result, ensure_ascii=False)[:2000],
+            )
+        if done_proc.returncode == 0:
+            report_ok: dict[str, Any] = {
+                "v": 5,
+                "t": "RPT",
+                "id": atom_id,
+                "s": "OK",
+                "changed": [],
+                "elapsed": 0,
+                "qwen_result": {
+                    "lines_delta": delta,
+                    "zero_line_delta_done_verified": True,
+                },
+                "reviewer_skip_done": True,
+            }
+            _write_report(project, atom_id, report_ok)
+            return True, report_ok
+        done_tail = f"{done_proc.stdout or ''}\n{done_proc.stderr or ''}".strip()[-2000:]
         return _blk(
-            "qwen code made no file changes (stats)",
+            "qwen code zero line delta; ATM done command failed after OK agent result",
             retry_cursor=True,
-            proc_returncode=proc.returncode,
-            output_tail=json.dumps(result, ensure_ascii=False)[:2000],
+            proc_returncode=done_proc.returncode,
+            output_tail=f"{json.dumps(result, ensure_ascii=False)[:1200]}\n--- done ---\n{done_tail}",
         )
 
     report: dict[str, Any] = {
@@ -439,7 +468,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         "t": "RPT",
         "id": atom_id,
         "s": "OK",
-        "changed": [f"~{delta} lines"],
+        "changed": [],
         "elapsed": 0,
         "qwen_result": {"lines_delta": delta},
         # Agent prompt already runs `done`; reviewer can skip second vitest (see forge.review skip_done_command).

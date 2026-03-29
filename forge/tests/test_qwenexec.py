@@ -132,6 +132,49 @@ class TestRunAtomMocked(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(rep.get("s"), "OK")
         self.assertTrue(rep.get("reviewer_skip_done"))
+        self.assertEqual(rep.get("changed"), [])
+
+    def test_ok_zero_line_delta_when_done_exits_zero(self) -> None:
+        from forge import qwenexec as qe
+
+        out = json.dumps(
+            {
+                "type": "result",
+                "is_error": False,
+                "stats": {"files": {"totalLinesAdded": 0, "totalLinesRemoved": 0}},
+            }
+        )
+        atom = {"id": "ATM-1", "goal": "g", "scope": ["a.ts"], "steps": [], "done": "true", "notouch": []}
+        mock_qwen = MagicMock(returncode=0, stdout=out + "\n", stderr="")
+        mock_done = MagicMock(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            (proj / ".osnova").mkdir(parents=True)
+            fake_env = {
+                "OSNOVA_PROJECT": str(proj),
+                "OSNOVA_FORGE": str(proj / "forge"),
+                "GHREPO": "o/r",
+                "GH_TOKEN": "",
+                "QWENBIN": "qwen",
+                "CURSORBIN": "agent",
+            }
+
+            def _paths() -> dict[str, str]:
+                return fake_env
+
+            with (
+                patch.object(qe, "env_paths", _paths),
+                patch.object(qe, "can_call_executor", return_value=True),
+                patch.object(qe, "record", return_value={}),
+                patch("forge.qwenexec.subprocess.run", return_value=mock_qwen),
+                patch("forge.reviewer.run_atom_done_subprocess", return_value=mock_done),
+            ):
+                ok, rep = qe.run_atom(atom, dry_run=False)
+        self.assertTrue(ok)
+        self.assertEqual(rep.get("s"), "OK")
+        self.assertTrue((rep.get("qwen_result") or {}).get("zero_line_delta_done_verified"))
+        self.assertEqual(rep.get("changed"), [])
 
     def test_blk_no_result_retries_cursor(self) -> None:
         from forge import qwenexec as qe

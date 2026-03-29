@@ -242,6 +242,55 @@ def _run_qwen_review_subprocess(prompt: str, rev_s: int) -> subprocess.Completed
     )
 
 
+def run_atom_done_subprocess(
+    atom: dict[str, Any],
+    *,
+    timeout_s: int = 900,
+) -> subprocess.CompletedProcess[str] | None:
+    """
+    Запускает ``atom["done"]`` так же, как в :func:`review` (env, Windows npm/vitest).
+    ``None``, если ``done`` пустой.
+    """
+    project = Path(env_paths()["OSNOVA_PROJECT"])
+    done_cmd = str(atom.get("done", "")).strip()
+    if not done_cmd:
+        return None
+    done_cmd = done_cmd.replace(" && ", " ; ") if sys.platform == "win32" else done_cmd
+    cmd_eff, done_env = _prepare_done_invocation(project, done_cmd)
+    log_cmd = " ".join(cmd_eff) if isinstance(cmd_eff, list) else cmd_eff
+    LOG.info(
+        "reviewer: running ATM done-command (up to %ss): %s",
+        timeout_s,
+        log_cmd[:500] + ("…" if len(log_cmd) > 500 else ""),
+    )
+    cwd = str(project.resolve())
+    if isinstance(cmd_eff, list):
+        return subprocess.run(
+            cmd_eff,
+            cwd=cwd,
+            shell=False,
+            timeout=timeout_s,
+            check=False,
+            env=done_env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            **SUBPROCESS_TEXT,
+        )
+    return subprocess.run(
+        cmd_eff,
+        cwd=cwd,
+        shell=True,
+        timeout=timeout_s,
+        check=False,
+        env=done_env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        **SUBPROCESS_TEXT,
+    )
+
+
 def _qwen_review(
     atom: dict[str, Any], diff: str
 ) -> tuple[str, bool, bool]:
@@ -305,7 +354,11 @@ def _qwen_review(
     record(served=True)
     raw_qwen_output = combined.strip()
     reason_full = raw_qwen_output if raw_qwen_output else "No reviewer output"
-    qwen_pass_no_done = _parse_qwen_review_pass(raw_qwen_output)
+    try:
+        qwen_pass_no_done = _parse_qwen_review_pass(raw_qwen_output)
+    except Exception:
+        LOG.exception("reviewer: _parse_qwen_review_pass crashed (ATM %s)", atom.get("id"))
+        qwen_pass_no_done = False
     LOG.debug("reviewer _parse_qwen_review_pass (used only if atom has no done-cmd): %s", qwen_pass_no_done)
     return reason_full, False, qwen_pass_no_done
 
@@ -327,8 +380,17 @@ def review(
         )
         elapsed = int(time.time() - start)
         return False, "FAIL: executor BLK — reviewer skipped", elapsed
-    diff = _git_diff(project)
-    llm_reason, need_done_fallback, qwen_pass_no_done = _qwen_review(atom, diff)
+    try:
+        diff = _git_diff(project)
+        llm_reason, need_done_fallback, qwen_pass_no_done = _qwen_review(atom, diff)
+    except Exception:
+        LOG.exception(
+            "reviewer: unexpected error during diff or Qwen review (ATM %s)",
+            atom.get("id"),
+        )
+        llm_reason = "FAIL: reviewer internal error (see forge.reviewer.log)"
+        need_done_fallback = False
+        qwen_pass_no_done = False
     done_cmd = str(atom.get("done", "")).strip()
     done_cmd = done_cmd.replace(" && ", " ; ") if sys.platform == "win32" else done_cmd
     if not done_cmd:
@@ -363,39 +425,10 @@ def review(
             pass
         return passed, _stored_review_reason(reason), elapsed
 
-    cmd_eff, done_env = _prepare_done_invocation(project, done_cmd)
-    log_cmd = " ".join(cmd_eff) if isinstance(cmd_eff, list) else cmd_eff
-    LOG.info(
-        "reviewer: running ATM done-command (up to 900s, no log until finish): %s",
-        log_cmd[:500] + ("…" if len(log_cmd) > 500 else ""),
-    )
-    cwd = str(project.resolve())
-    if isinstance(cmd_eff, list):
-        done = subprocess.run(
-            cmd_eff,
-            cwd=cwd,
-            shell=False,
-            timeout=900,
-            check=False,
-            env=done_env,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            **SUBPROCESS_TEXT,
-        )
-    else:
-        done = subprocess.run(
-            cmd_eff,
-            cwd=cwd,
-            shell=True,
-            timeout=900,
-            check=False,
-            env=done_env,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            **SUBPROCESS_TEXT,
-        )
+    done = run_atom_done_subprocess(atom, timeout_s=900)
+    if done is None:
+        elapsed = int(time.time() - start)
+        return False, "FAIL: internal reviewer error (empty done after check)", elapsed
     try:
         from forge.humanlog import hlog_tests_run_from_output
 
