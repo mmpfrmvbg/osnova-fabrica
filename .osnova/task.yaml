@@ -1,20 +1,20 @@
-id: ATM-006
+id: ATM-007
 epic: EPK-260329-024
-seq: 6
-zone: forge
-risk: HIGH
+seq: 7
+zone: infra
+risk: MEDIUM
 executor: cursor
-goal: Встроить вызов blocker-resolver при применении sweep к state через executor
-scope: src/pipeline/executor.ts — оркестрация prune+write
+goal: Создать scripts/forge-cleanup.ts с режимом dry-run для списка stale blockers
+scope: scripts/forge-cleanup.ts — CLI entry
 notouch:
-- scripts/forge-cleanup.ts
-done: npx vitest run src/pipeline/pipeline.test.ts
+- .osnova/state.yaml
+done: npx vitest run src/pipeline/healthScore.test.ts
 steps:
-- Импортировать функции из blocker-resolver.ts
-- Собрать публичный applyStaleBlockerCleanup(statePath, closedIds)
-- Логировать diff counts без утечки секретов
+- Использовать ts-node/vite-node или существующий паттерн скриптов репо
+- Читать путь state из argv/env
+- Печатать human-readable план удаления без записи
 deps:
-- ATM-005
+- ATM-004
 maxiter: 3
 retries: 0
 status: PENDING
