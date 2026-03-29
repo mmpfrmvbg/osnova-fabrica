@@ -8,6 +8,8 @@ import type { AgentReport, BaseAgent } from '../types/agents';
 import {
   OsVbcVM,
   createPipelineVmFromSpec,
+  formatVmRuntimeError,
+  mergePipelineVmExecuteOptions,
   safeExecutePipelineVm,
   type OsVbcExecuteOptions,
   type PipelineVmExecuteResult,
@@ -107,11 +109,16 @@ export async function safeExecutePipelineVmFromExecContext(
   ctx: ExecContext,
   opts?: OsVbcExecuteOptions,
 ): Promise<PipelineVmExecuteResult> {
-  const vm = createPipelineVmFromExecContext(ctx);
-  if (!vm) {
-    return { ok: false, error: EXEC_CONTEXT_VM_UNAVAILABLE };
+  try {
+    const vm = createPipelineVmFromExecContext(ctx);
+    if (!vm) {
+      return { ok: false, error: EXEC_CONTEXT_VM_UNAVAILABLE };
+    }
+    const merged = mergePipelineVmExecuteOptions(ctx.spec, opts);
+    return await safeExecutePipelineVm(vm, merged);
+  } catch (err) {
+    return { ok: false, error: formatVmRuntimeError(err), cause: err };
   }
-  return safeExecutePipelineVm(vm, opts);
 }
 
 export class ExecAgent implements BaseAgent {

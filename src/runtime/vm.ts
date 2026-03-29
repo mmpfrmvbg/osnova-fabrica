@@ -114,6 +114,32 @@ export interface OsVbcExecuteOptions {
 }
 
 /**
+ * Точка входа по спецификации пайплайна: имя первой процедуры в {@link OsnovaSpec.procedures}, если задано.
+ * Используется {@link import("../agents/exec-agent").safeExecutePipelineVmFromExecContext}, когда в опциях нет `procedure`.
+ */
+export function defaultPipelineProcedureFromSpec(spec: OsnovaSpec | undefined): string | undefined {
+  const name = spec?.procedures?.[0]?.name;
+  return name !== undefined && name !== "" ? name : undefined;
+}
+
+/**
+ * Объединяет опции {@link OsVbcVM.execute} с контекстом пайплайна: при отсутствии или пустом `procedure`
+ * подставляет {@link defaultPipelineProcedureFromSpec} (тот же снимок spec, что попал в VM через {@link applyPipelineSpecToVm}).
+ */
+export function mergePipelineVmExecuteOptions(
+  spec: OsnovaSpec | undefined,
+  opts?: OsVbcExecuteOptions,
+): OsVbcExecuteOptions {
+  const out: OsVbcExecuteOptions = { ...opts };
+  const needProcedure = opts?.procedure === undefined || opts.procedure === "";
+  if (needProcedure) {
+    const d = defaultPipelineProcedureFromSpec(spec);
+    if (d !== undefined) out.procedure = d;
+  }
+  return out;
+}
+
+/**
  * Результат {@link safeExecutePipelineVm}: успешный возврат из процедуры или ошибка без throw
  * (таймаут, {@link InterpreterError}, сбой `invoke` и т.д.).
  *
