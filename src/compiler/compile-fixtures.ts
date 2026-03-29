@@ -6,7 +6,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { compileSource } from "./compiler";
+import { compileSource } from ".";
 
 const FIXTURES_DIR = path.join(__dirname, "..", "runtime", "fixtures");
 

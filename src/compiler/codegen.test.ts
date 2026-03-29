@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { compile, compileProgram } from "./codegen";
+import { compile, compileProgram } from ".";
 import type { Expr, Module, Program, Stmt } from "./ast";
 
 function moduleAst(name: string, procedures: Module["procedures"]): Module {

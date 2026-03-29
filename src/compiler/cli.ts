@@ -5,7 +5,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { compileSource } from "./compiler";
+import { compileSource } from ".";
 import { printParseError } from "./parser";
 
 function main(): number {

@@ -1,22 +1,22 @@
-id: ATM-005
+id: ATM-006
 epic: EPK-260329-020
-seq: 5
-zone: pipeline
+seq: 6
+zone: compiler
 risk: MED
 executor: cursor
-goal: Выровнять типы с поведением pipeline (health, gates) без смены публичного API
-  HTTP
-scope: src/pipeline/types.ts — расширения для gate/health/trace полей
+goal: Свести публичный вход компилятора (barrel/index) к одному контракту для codegen
+  и VM
+scope: src/compiler/index.ts — реэкспорт compile/codegen API
 notouch:
-- src/pipeline-llm/
-- apps/osiris/src/http/
-done: npx vitest run src/pipeline/pipeline.test.ts
+- src/compiler/parser.ts
+- src/compiler/lexer.ts
+done: npx vitest run src/compiler/compiler.test.ts
 steps:
-- Найти несоответствия между types и pipeline.test/orchestrator
-- Добавить или сузить поля
-- Убедиться что pipeline.test зелёный
+- Если файла нет — создать index с явными реэкспортами из compiler.ts/codegen.ts
+- Убрать дублирующие пути импорта внутри src/compiler
+- Проверить compiler.test на импорт с индекса
 deps:
-- ATM-004
+- ATM-005
 maxiter: 3
 retries: 0
 status: PENDING

@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import * as os from "os";
 import * as fs from "fs";
-import { compileSource } from "./compiler";
+import { compileSource } from ".";
 import { VM } from "../runtime/vm/interpreter";
 
 type GoldenTest = {

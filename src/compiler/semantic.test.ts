@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compileSource } from './compiler';
+import { compileSource } from ".";
 import { tokenize } from './lexer';
 import { parse } from './parser';
 import { analyzeProgram } from './semantic';
