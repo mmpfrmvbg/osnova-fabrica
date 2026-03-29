@@ -503,6 +503,54 @@ describe('PlanAgent — edge cases: run, validate, двойной repair', () =>
   });
 });
 
+describe('PlanAgent — defaults, report, контракт с IntakeAgent (ATM-002)', () => {
+  const agent = new PlanAgent();
+
+  it('buildPlan без options: инкремент + repair по умолчанию (как после IntakeAgent.run + готовый артефакт)', () => {
+    const plan = agent.buildPlan(sampleIntent(), sampleSpec());
+    expect(plan.fromScratch).toBe(false);
+    expect(plan.steps.map(s => s.phase)).toEqual([
+      'codegen',
+      'build',
+      'golden_check',
+      'repair',
+    ]);
+  });
+
+  it('report: до buildPlan/run — подсказка что план ещё не строился', () => {
+    const fresh = new PlanAgent();
+    const rep = fresh.report();
+    expect(rep.ok).toBe(false);
+    expect(rep.summaryText).toContain('ещё не строился');
+  });
+
+  it('validatePlan: пустой planId', () => {
+    expect(() =>
+      agent.validatePlan({
+        planId: '',
+        intentId: 'i',
+        specId: 's',
+        fromScratch: false,
+        steps: [
+          { phase: 'codegen', order: 1 },
+          { phase: 'build', order: 2 },
+          { phase: 'golden_check', order: 3 },
+        ],
+      }),
+    ).toThrow(PlanValidationError);
+  });
+
+  it('цепочка IntakeAgent (sample) → PlanAgent.buildPlan: те же intentId/specId в плане', () => {
+    const intake = new IntakeAgent();
+    const intent = sampleIntent({ intentId: 'intake-plan-bridge' });
+    const spec = sampleSpec({ specId: 'intake-plan-spec' });
+    intake.checkSpec(spec);
+    const plan = agent.buildPlan(intent, spec, { fromScratch: true, includeRepair: false });
+    expect(plan.intentId).toBe(intent.intentId);
+    expect(plan.specId).toBe(spec.specId);
+  });
+});
+
 describe('PlanAgent — граничные случаи validatePlan', () => {
   const agent = new PlanAgent();
 

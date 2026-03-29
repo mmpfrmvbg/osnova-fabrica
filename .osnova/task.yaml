@@ -1,26 +1,27 @@
-id: ATM-EPK-260328-017-001
+id: ATM-EPK-260328-017-002
 epic: EPK-260328-017
-seq: 1
+seq: 2
 zone: agents
 risk: HIGH
 executor: cursor
-goal: Восстановить IntakeAgent — базовый парсинг и валидацию входных данных
+goal: Восстановить PlanAgent — построение плана выполнения
 scope:
-- src/agents/intake-agent.ts
-- src/agents/agents.test.ts — добавить тесты на intake
+- src/agents/plan-agent.ts
+- src/agents/agents.test.ts — тесты plan-логики
 notouch:
-- src/runtime/*
-- src/compiler/*
+- src/runtime/vm.ts
+- src/pipeline/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- audit intake-agent.ts на наличие TS-ошибок и незавершённых TODO
-- исправить типы и логику парсинга входного контекста
-- добавить юнит-тесты на корректный/некорректный инпут
-- запустить npx vitest run src/agents/intake-agent.test.ts
-deps: []
+- исправить ошибки типизации в plan-agent.ts
+- восстановить логику декомпозиции задач на шаги
+- добавить тесты на edge-cases планирования
+- убедиться что PlanAgent использует исправленный IntakeAgent
+deps:
+- ATM-EPK-260328-017-001
 maxiter: 3
 retries: 0
-status: in_progress
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: c552ba1e2d94d90430a39666b85b21002f2c020f
+review_base_sha: 81fd340ceb2110cbfaefbfbdc21ab2dcaec7f05e

@@ -1,7 +1,7 @@
 // ============================================================
 // src/agents/plan-agent.ts — PlanAgent: план выполнения пайплайна
-// OsnovaIntent / OsnovaSpec — те же контракты, что выдаёт IntakeAgent
-// (parseIntent → generateSpec); идентификаторы должны совпадать с проверенным контекстом.
+// OsnovaIntent / OsnovaSpec — те же контракты, что выдаёт {@link IntakeAgent}
+// (parseIntent → generateSpec → checkSpec); идентификаторы должны совпадать с проверенным контекстом.
 // ============================================================
 
 import { randomUUID } from 'crypto';

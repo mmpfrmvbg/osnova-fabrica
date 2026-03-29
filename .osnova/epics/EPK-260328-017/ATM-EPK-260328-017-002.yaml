@@ -18,8 +18,11 @@ steps:
 - добавить тесты на edge-cases планирования
 - убедиться что PlanAgent использует исправленный IntakeAgent
 deps:
-- ATM-001
+- ATM-EPK-260328-017-001
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: 81fd340ceb2110cbfaefbfbdc21ab2dcaec7f05e
+produced_files: []
