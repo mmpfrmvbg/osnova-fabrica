@@ -334,7 +334,8 @@ def _execute_atom_with_retries(
         run_done = exec_report_ok
         skip_done = False
         if exec_report_ok and report.get("reviewer_skip_done") and str(atom.get("executor") or "").lower() == "qwen":
-            skip_raw = forge_dotenv_setting("FORGE_REVIEWER_SKIP_DONE_AFTER_QWEN", "1").strip().lower()
+            # Default 0: re-run done in reviewer so git/diff and vitest match post-commit tree (avoids false ❌).
+            skip_raw = forge_dotenv_setting("FORGE_REVIEWER_SKIP_DONE_AFTER_QWEN", "0").strip().lower()
             skip_done = skip_raw not in ("0", "false", "no")
         if not run_done:
             LOG.info(
@@ -343,13 +344,16 @@ def _execute_atom_with_retries(
                 success,
                 report.get("s"),
             )
-        passed, reason, elapsed, verdict = review(
+        passed, reason, elapsed, verdict, review_extras = review(
             atom,
             dry_run=dry_run,
             run_done=run_done,
             skip_done_command=skip_done,
+            executor_report=report,
         )
         report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
+        if review_extras:
+            report["review"].update(review_extras)
         if verdict == "review_mismatch":
             report["s"] = "REVIEW_MISMATCH"
         else:

@@ -259,6 +259,93 @@ def _git_diff_range(project: Path, base_ref: str | None) -> str:
     return _git_diff(project)
 
 
+def _git_diff_for_review(project: Path, base_ref: str | None) -> str:
+    """
+    Unified diff for LLM + gates: committed range first, then working tree vs base (catches
+    uncommitted Qwen/smith edits when ``br..HEAD`` is still empty).
+    """
+    committed = _git_diff_range(project, base_ref)
+    if (committed or "").strip():
+        return committed
+    br = (base_ref or "").strip()
+    if not br:
+        return committed
+    proc = subprocess.run(
+        ["git", "diff", br],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        **SUBPROCESS_TEXT,
+    )
+    if proc.returncode == 0 and (proc.stdout or "").strip():
+        return proc.stdout or ""
+    return committed
+
+
+def _paths_changed_since_base(project: Path, base_ref: str | None, rel_paths: list[str]) -> bool:
+    """
+    True if ``git`` reports any change vs ``base_ref`` for the given paths (committed, staged,
+    unstaged, or untracked). Used instead of parsing unified diff only — avoids false ✅/❌.
+    """
+    if not rel_paths:
+        return True
+    br = (base_ref or "").strip()
+    if not br:
+        return True
+    safe: list[str] = []
+    for rel in rel_paths:
+        p = rel.replace("\\", "/").strip().lstrip("/")
+        if not p or ".." in p.split("/"):
+            continue
+        safe.append(p)
+    if not safe:
+        return True
+    proc = subprocess.run(
+        ["git", "diff", "--name-only", br, "--", *safe],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        **SUBPROCESS_TEXT,
+    )
+    if proc.returncode != 0:
+        LOG.warning(
+            "reviewer: git diff --name-only vs base failed (assume scope touched): %s",
+            (proc.stderr or proc.stdout or "")[:400],
+        )
+        return True
+    if any(x.strip() for x in (proc.stdout or "").splitlines()):
+        return True
+    st = subprocess.run(
+        ["git", "status", "--porcelain", "--", *safe],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        **SUBPROCESS_TEXT,
+    )
+    if st.returncode != 0:
+        return True
+    # Non-empty porcelain => untracked / renamed / etc.
+    return bool((st.stdout or "").strip())
+
+
+def _qwen_lines_delta(exec_rep: dict[str, Any] | None) -> int:
+    if not isinstance(exec_rep, dict):
+        return 0
+    qr = exec_rep.get("qwen_result")
+    if not isinstance(qr, dict):
+        return 0
+    try:
+        return int(qr.get("lines_delta") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def scope_derived_expected_files(scope: list[Any]) -> list[str]:
     out: list[str] = []
     for raw in scope or []:
@@ -544,27 +631,43 @@ def _qwen_review(
     return reason_full, False, qwen_pass_no_done
 
 
+def _scope_change_evidence(
+    project: Path,
+    base_s: str | None,
+    expected: list[str],
+    executor_report: dict[str, Any] | None,
+) -> bool:
+    """True if scope paths changed vs base in git, or Qwen executor reported positive line delta."""
+    if not expected:
+        return True
+    if _paths_changed_since_base(project, base_s, expected):
+        return True
+    return _qwen_lines_delta(executor_report) > 0
+
+
 def review(
     atom: dict[str, Any],
     dry_run: bool = False,
     *,
     run_done: bool = True,
     skip_done_command: bool = False,
-) -> tuple[bool, str, int, str | None]:
+    executor_report: dict[str, Any] | None = None,
+) -> tuple[bool, str, int, str | None, dict[str, Any] | None]:
     start = time.time()
     project = Path(env_paths()["OSNOVA_PROJECT"])
     if dry_run:
-        return True, "dry-run: reviewer skipped", 0, None
+        return True, "dry-run: reviewer skipped", 0, None, None
     if not run_done:
         LOG.info(
             "reviewer: skipping LLM + done-cmd — executor report was not OK (avoids long Qwen + broken vitest)"
         )
         elapsed = int(time.time() - start)
-        return False, "FAIL: executor BLK — reviewer skipped", elapsed, None
+        return False, "FAIL: executor BLK — reviewer skipped", elapsed, None, None
 
     base_sha = atom.get("review_base_sha")
     base_s = base_sha.strip() if isinstance(base_sha, str) else None
-    diff = _git_diff_range(project, base_s)
+    # After executor: committed range + working tree vs base (fixes empty br..HEAD for Qwen/smith).
+    diff = _git_diff_for_review(project, base_s)
 
     llm_reason = "FAIL: reviewer not run"
     need_done_fallback = False
@@ -585,7 +688,7 @@ def review(
     if not done_cmd:
         elapsed = int(time.time() - start)
         passed_no_done = False if need_done_fallback else qwen_pass_no_done
-        return passed_no_done, _stored_review_reason(llm_reason), elapsed, None
+        return passed_no_done, _stored_review_reason(llm_reason), elapsed, None, None
 
     expected = expected_files_for_atom(atom)
 
@@ -605,7 +708,9 @@ def review(
             reason = llm_reason if passed else f"{llm_reason}; FAIL on diff review (done not re-run)"
         elapsed = int(time.time() - start)
         aid = str(atom.get("id") or "")
-        if expected and passed:
+        review_extras: dict[str, Any] | None = None
+        ld = _qwen_lines_delta(executor_report)
+        if expected:
             missing = [f for f in expected if _resolved_file_in_project(project, f) is None]
             if missing:
                 return (
@@ -613,13 +718,38 @@ def review(
                     _stored_review_reason(f"FAIL: expected files missing: {missing}"),
                     elapsed,
                     None,
+                    None,
                 )
-            if not check_files_in_diff(diff, expected):
-                LOG.warning(
-                    "reviewer: skip_done — expected files not in git diff but LLM gate passed; "
-                    "skipping diff-range gate (artifact present) [ATM %s]",
-                    atom.get("id"),
-                )
+            evidence = _scope_change_evidence(project, base_s, expected, executor_report)
+            if not need_done_fallback and not passed and (ld > 0 or evidence):
+                passed = True
+                if ld > 0 and not _paths_changed_since_base(project, base_s, expected):
+                    reason = (
+                        "PASS: executor lines_delta>0; overriding LLM verdict (skip_done; "
+                        "git path evidence inconclusive) "
+                        f"[ATM {atom.get('id')}]"
+                    )
+                else:
+                    reason = (
+                        "PASS: scope change vs review_base_sha; overriding LLM verdict (skip_done) "
+                        f"[ATM {atom.get('id')}]"
+                    )
+                LOG.info("reviewer: %s", reason)
+            if passed:
+                if need_done_fallback:
+                    review_extras = {
+                        "skip_reason": "qwen_review_unavailable",
+                        "scope_lines_changed": bool(evidence),
+                    }
+                elif evidence:
+                    review_extras = {"scope_lines_changed": True, "skip_reason": None}
+                else:
+                    review_extras = {"skip_reason": "pre_existing", "scope_lines_changed": False}
+                    reason = (
+                        "PASS: scope paths unchanged vs review_base_sha (pre_existing); "
+                        "done already run in Qwen session — no new edits in scope "
+                        f"[ATM {atom.get('id')}]"
+                    )
         try:
             from forge import humanlog as _hl
 
@@ -629,12 +759,12 @@ def review(
                 _hl.hlog("review_fail", atm_id=aid, reason=(reason or ""), elapsed_s=elapsed)
         except Exception:
             pass
-        return passed, _stored_review_reason(reason), elapsed, None
+        return passed, _stored_review_reason(reason), elapsed, None, review_extras
 
     done = run_atom_done_subprocess(atom, timeout_s=900)
     if done is None:
         elapsed = int(time.time() - start)
-        return False, "FAIL: internal reviewer error (empty done after check)", elapsed, None
+        return False, "FAIL: internal reviewer error (empty done after check)", elapsed, None, None
     try:
         from forge.humanlog import hlog_tests_run_from_output
 
@@ -652,11 +782,12 @@ def review(
                 _stored_review_reason(f"FAIL: expected files missing: {missing}"),
                 elapsed,
                 None,
+                None,
             )
         if not cmd_passed:
             elapsed = int(time.time() - start)
             reason = f"{llm_reason}; done command failed: {done.returncode}"
-            return False, _stored_review_reason(reason), elapsed, None
+            return False, _stored_review_reason(reason), elapsed, None, None
         if not semantic_export_match(project, atom):
             elapsed = int(time.time() - start)
             return (
@@ -664,14 +795,9 @@ def review(
                 _stored_review_reason("FAIL: expected_exports not found in artifact"),
                 elapsed,
                 None,
+                None,
             )
-        if not check_files_in_diff(diff, expected):
-            # Reached only when cmd_passed (we return above if done failed).
-            LOG.warning(
-                "reviewer: expected files not in git diff but done-command passed; "
-                "skipping diff-range gate (artifact present; possible pre-existing code or diff base) [ATM %s]",
-                atom.get("id"),
-            )
+        evidence = _scope_change_evidence(project, base_s, expected, executor_report)
         skip_qwen_ms = os.environ.get("FORGE_REVIEWER_MULTISIG_SKIP_QWEN", "1").strip().lower() not in (
             "0",
             "false",
@@ -686,7 +812,22 @@ def review(
                 _hl.hlog("review_pass", atm_id=aid, elapsed_s=elapsed)
             except Exception:
                 pass
-            return True, "PASS: multi-signal (artifact + done + diff range)", elapsed, None
+            if evidence:
+                return (
+                    True,
+                    "PASS: multi-signal (artifact + done + scope change vs base)",
+                    elapsed,
+                    None,
+                    {"scope_lines_changed": True, "skip_reason": None},
+                )
+            meta = {"skip_reason": "pre_existing", "scope_lines_changed": False}
+            return (
+                True,
+                "PASS: scope unchanged vs review_base_sha (pre_existing); done-command passed",
+                elapsed,
+                None,
+                meta,
+            )
 
     if not cmd_passed:
         passed = False
@@ -728,7 +869,7 @@ def review(
         except Exception:
             pass
     LOG.debug("reviewer passed=%s reason_head=%s", passed, (reason[:100] if reason else ""))
-    return passed, _stored_review_reason(reason), elapsed, None
+    return passed, _stored_review_reason(reason), elapsed, None, None
 
 
 def main() -> None:

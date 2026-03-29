@@ -53,7 +53,8 @@ class TestReviewerMultisignal(unittest.TestCase):
             diff_text = "diff --git a/src/x.ts b/src/x.ts\n+x"
             with (
                 patch.object(reviewer, "env_paths", return_value=fake_env),
-                patch.object(reviewer, "_git_diff_range", return_value=diff_text),
+                patch.object(reviewer, "_git_diff_for_review", return_value=diff_text),
+                patch.object(reviewer, "_paths_changed_since_base", return_value=True),
                 patch.object(
                     reviewer,
                     "_qwen_review",
@@ -65,13 +66,15 @@ class TestReviewerMultisignal(unittest.TestCase):
                 patch("forge.reviewer.subprocess.run") as mock_run,
             ):
                 mock_run.return_value = MagicMock(returncode=0)
-                ok, reason, elapsed, ver = reviewer.review(atom, dry_run=False, run_done=True)
+                ok, reason, elapsed, ver, meta = reviewer.review(atom, dry_run=False, run_done=True)
             self.assertTrue(ok)
             self.assertIsNone(ver)
             self.assertIn("multi-signal", reason)
+            self.assertEqual(meta.get("skip_reason"), None)
+            self.assertTrue(meta.get("scope_lines_changed"))
 
-    def test_multisignal_pass_when_expected_not_in_diff_but_done_ok(self) -> None:
-        """Pre-existing file / wrong diff base: done passes → do not review_mismatch on missing diff paths."""
+    def test_multisignal_pre_existing_when_no_scope_git_change_but_done_ok(self) -> None:
+        """Done passes but git shows no edits in scope vs base → explicit pre_existing (not silent OK)."""
         from forge import reviewer
 
         with tempfile.TemporaryDirectory() as td:
@@ -84,6 +87,7 @@ class TestReviewerMultisignal(unittest.TestCase):
                 "expected_files": ["src/x.ts"],
                 "scope": [],
                 "done": "echo ok",
+                "review_base_sha": "deadbeef",
             }
             fake_env = {
                 "OSNOVA_PROJECT": str(proj),
@@ -95,7 +99,8 @@ class TestReviewerMultisignal(unittest.TestCase):
             }
             with (
                 patch.object(reviewer, "env_paths", return_value=fake_env),
-                patch.object(reviewer, "_git_diff_range", return_value=""),
+                patch.object(reviewer, "_git_diff_for_review", return_value=""),
+                patch.object(reviewer, "_paths_changed_since_base", return_value=False),
                 patch.object(
                     reviewer,
                     "_qwen_review",
@@ -107,10 +112,12 @@ class TestReviewerMultisignal(unittest.TestCase):
                 patch("forge.reviewer.subprocess.run") as mock_run,
             ):
                 mock_run.return_value = MagicMock(returncode=0)
-                ok, reason, _elapsed, ver = reviewer.review(atom, dry_run=False, run_done=True)
+                ok, reason, _elapsed, ver, meta = reviewer.review(atom, dry_run=False, run_done=True)
             self.assertTrue(ok)
             self.assertIsNone(ver)
-            self.assertIn("multi-signal", reason)
+            self.assertIn("pre_existing", reason)
+            self.assertEqual(meta.get("skip_reason"), "pre_existing")
+            self.assertFalse(meta.get("scope_lines_changed"))
 
 
 if __name__ == "__main__":

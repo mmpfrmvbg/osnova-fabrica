@@ -15,9 +15,11 @@ steps:
 - Протестировать валидацию результатов ReviewAgent
 - Добавить тесты error handling
 deps:
-- 4
-- 5
+- ATM-EPK-260328-015-004
+- ATM-EPK-260328-015-005
 maxiter: 3
 retries: 0
-status: PENDING
+status: in_progress
 priority: P1
+max_retries: 3
+review_base_sha: f7ef4ecddf36bfb0eca1a866d4f5a637fcaef0ae

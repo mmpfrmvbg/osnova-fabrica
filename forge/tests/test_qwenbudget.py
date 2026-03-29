@@ -179,6 +179,7 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch.object(reviewer, "env_paths", return_value=fake_env),
                 patch.object(reviewer, "_git_diff", return_value=""),
                 patch.object(reviewer, "_git_diff_range", return_value=""),
+                patch.object(reviewer, "_git_diff_for_review", return_value=""),
                 patch.object(
                     reviewer,
                     "_qwen_review",
@@ -190,7 +191,7 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch("forge.reviewer.subprocess.run") as mock_run,
             ):
                 mock_run.return_value = MagicMock(returncode=0)
-                ok, reason, elapsed, _ver = reviewer.review(atom, dry_run=False, run_done=True)
+                ok, reason, elapsed, _ver, _meta = reviewer.review(atom, dry_run=False, run_done=True)
         self.assertTrue(ok)
         self.assertIn("auto-approved", reason)
         self.assertGreaterEqual(elapsed, 0)
@@ -214,6 +215,7 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch.object(reviewer, "env_paths", return_value=fake_env),
                 patch.object(reviewer, "_git_diff", return_value=""),
                 patch.object(reviewer, "_git_diff_range", return_value=""),
+                patch.object(reviewer, "_git_diff_for_review", return_value=""),
                 patch.object(
                     reviewer,
                     "_qwen_review",
@@ -225,7 +227,7 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch("forge.reviewer.subprocess.run") as mock_run,
             ):
                 mock_run.return_value = MagicMock(returncode=0)
-                ok, reason, elapsed, _ver = reviewer.review(atom, dry_run=False, run_done=True)
+                ok, reason, elapsed, _ver, _meta = reviewer.review(atom, dry_run=False, run_done=True)
         self.assertTrue(ok)
 
     def test_fail_when_done_command_nonzero(self) -> None:
@@ -246,6 +248,7 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch.object(reviewer, "env_paths", return_value=fake_env),
                 patch.object(reviewer, "_git_diff", return_value=""),
                 patch.object(reviewer, "_git_diff_range", return_value=""),
+                patch.object(reviewer, "_git_diff_for_review", return_value=""),
                 patch.object(
                     reviewer,
                     "_qwen_review",
@@ -257,7 +260,7 @@ class TestReviewerQuotaFallback(unittest.TestCase):
                 patch("forge.reviewer.subprocess.run") as mock_run,
             ):
                 mock_run.return_value = MagicMock(returncode=1)
-                ok, reason, elapsed, _ver = reviewer.review(atom, dry_run=False, run_done=True)
+                ok, reason, elapsed, _ver, _meta = reviewer.review(atom, dry_run=False, run_done=True)
         self.assertFalse(ok)
 
 

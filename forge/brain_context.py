@@ -205,6 +205,12 @@ def build_brain_context(project: Path | None = None) -> dict[str, Any]:
     recent = state.get("recent") if isinstance(state.get("recent"), list) else []
     last_scopes = state.get("last_scopes") if isinstance(state.get("last_scopes"), list) else []
 
+    last_epic_atm_review: dict[str, Any] = {}
+    if recent and isinstance(recent[0], dict):
+        ar0 = recent[0].get("atm_review")
+        if isinstance(ar0, dict):
+            last_epic_atm_review = dict(ar0)
+
     return {
         "recent_commits": _git_oneline_log(proj, 20),
         "epics_summary": epics_summary,
@@ -217,6 +223,7 @@ def build_brain_context(project: Path | None = None) -> dict[str, Any]:
         "ci": ci,
         "recent": recent,
         "last_scopes": last_scopes,
+        "last_epic_atm_review": last_epic_atm_review,
         "codebase": cb,
     }
 

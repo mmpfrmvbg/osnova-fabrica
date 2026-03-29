@@ -73,6 +73,50 @@ def recent_result_label(atom_ok: int, atom_total: int) -> str:
     return "partial"
 
 
+def atm_review_counters(results: list[dict[str, Any]] | None) -> dict[str, int]:
+    """
+    Сводка по ``report["review"]`` в результатах EPIC — для ``state.yaml`` / Brain.
+
+    История ``.osnova/history/*.yaml`` уже хранит полные ``results``; здесь компактные счётчики
+    в ``recent[].atm_review``, чтобы Brain отличал pre_existing от реальных правок без чтения history.
+    """
+    if not results:
+        return {}
+    counts: dict[str, int] = {
+        "ok_pre_existing": 0,
+        "ok_scope_changed": 0,
+        "ok_qwen_review_skipped": 0,
+        "ok_other": 0,
+        "review_mismatch": 0,
+        "blk": 0,
+        "other_status": 0,
+    }
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        s = str(r.get("s") or "").strip().upper()
+        rev = r.get("review")
+        if not isinstance(rev, dict):
+            rev = {}
+        if s == "OK":
+            sr = rev.get("skip_reason")
+            if sr == "pre_existing":
+                counts["ok_pre_existing"] += 1
+            elif sr == "qwen_review_unavailable":
+                counts["ok_qwen_review_skipped"] += 1
+            elif rev.get("scope_lines_changed") is True:
+                counts["ok_scope_changed"] += 1
+            else:
+                counts["ok_other"] += 1
+        elif s == "REVIEW_MISMATCH":
+            counts["review_mismatch"] += 1
+        elif s == "BLK":
+            counts["blk"] += 1
+        else:
+            counts["other_status"] += 1
+    return {k: v for k, v in counts.items() if v}
+
+
 def _ci_status_token(status_upper: str) -> str:
     return status_upper.strip().lower()
 
@@ -124,7 +168,7 @@ def apply_epic_tail_to_state_dict(
     atom_ok = int(summary.get("atomsdone") or 0)
     atom_total = int(summary.get("atomstotal") or 0)
     scope = collect_epic_scope_paths(project, epic)
-    entry = {
+    entry: dict[str, Any] = {
         "epic": epic_id,
         "scope": scope,
         "result": recent_result_label(atom_ok, atom_total),
@@ -132,6 +176,9 @@ def apply_epic_tail_to_state_dict(
         "passrate": float(summary.get("passrate") or 0.0),
         "updated": now_iso(),
     }
+    ar = atm_review_counters(results)
+    if ar:
+        entry["atm_review"] = ar
     recent = state.get("recent")
     if not isinstance(recent, list):
         recent = []
@@ -242,16 +289,20 @@ def backfill_state_tail_from_history(project: Path | str) -> None:
             epic_meta = {}
         epic_meta.setdefault("id", epic_id)
         scope = collect_epic_scope_paths(root, epic_meta)
-        recent.append(
-            {
-                "epic": epic_id,
-                "scope": scope,
-                "result": recent_result_label(atom_ok, atom_total),
-                "status": _ci_status_token(status_up),
-                "passrate": pr,
-                "updated": str(doc.get("createdat") or now_iso()),
-            }
-        )
+        res_list = doc.get("results")
+        hist_results = res_list if isinstance(res_list, list) else []
+        row: dict[str, Any] = {
+            "epic": epic_id,
+            "scope": scope,
+            "result": recent_result_label(atom_ok, atom_total),
+            "status": _ci_status_token(status_up),
+            "passrate": pr,
+            "updated": str(doc.get("createdat") or now_iso()),
+        }
+        ar = atm_review_counters([x for x in hist_results if isinstance(x, dict)])
+        if ar:
+            row["atm_review"] = ar
+        recent.append(row)
         if len(recent) >= RECENT_MAX:
             break
 

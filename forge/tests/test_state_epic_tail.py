@@ -13,6 +13,8 @@ from forge.brain_context import build_brain_context
 from forge.common import atomic_write_yaml, load_yaml, now_iso
 from forge.retrospective import finalize_epic
 from forge.state_epic_tail import (
+    apply_epic_tail_to_state_dict,
+    atm_review_counters,
     backfill_state_tail_from_history,
     collect_epic_scope_paths,
     compute_passrate_7d_from_history,
@@ -25,6 +27,38 @@ class TestStateEpicTail(unittest.TestCase):
         self.assertEqual(recent_result_label(3, 3), "ok")
         self.assertEqual(recent_result_label(0, 3), "retry-exhausted")
         self.assertEqual(recent_result_label(1, 3), "partial")
+
+    def test_atm_review_counters(self) -> None:
+        results = [
+            {"s": "OK", "review": {"skip_reason": "pre_existing"}},
+            {"s": "OK", "review": {"scope_lines_changed": True}},
+            {"s": "OK", "review": {"passed": True}},
+            {"s": "OK", "review": {"skip_reason": "qwen_review_unavailable"}},
+            {"s": "REVIEW_MISMATCH", "review": {"passed": False}},
+            {"s": "BLK"},
+        ]
+        c = atm_review_counters(results)
+        self.assertEqual(c.get("ok_pre_existing"), 1)
+        self.assertEqual(c.get("ok_scope_changed"), 1)
+        self.assertEqual(c.get("ok_other"), 1)
+        self.assertEqual(c.get("ok_qwen_review_skipped"), 1)
+        self.assertEqual(c.get("review_mismatch"), 1)
+        self.assertEqual(c.get("blk"), 1)
+
+    def test_apply_epic_tail_includes_atm_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state: dict = {"recent": []}
+            epic = {"id": "EPK-X", "scope": ["a.ts"]}
+            results = [
+                {"s": "OK", "review": {"skip_reason": "pre_existing"}},
+                {"s": "OK", "review": {"scope_lines_changed": True}},
+            ]
+            summary = {"atomsdone": 2, "atomstotal": 2, "passrate": 1.0, "status": "OK"}
+            apply_epic_tail_to_state_dict(state, root, epic, results, summary, "OK")
+        r0 = state["recent"][0]
+        self.assertEqual(r0.get("atm_review", {}).get("ok_pre_existing"), 1)
+        self.assertEqual(r0.get("atm_review", {}).get("ok_scope_changed"), 1)
 
     def test_scope_from_epic_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -110,6 +144,7 @@ class TestStateEpicTail(unittest.TestCase):
             self.assertIn("lastrun", ci)
             self.assertEqual(ci.get("laststatus"), "ok")
             self.assertIsNotNone(ci.get("passrate7d"))
+            self.assertEqual((recent[0].get("atm_review") or {}).get("ok_other"), 1)
 
     def test_backfill_from_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,6 +168,9 @@ class TestStateEpicTail(unittest.TestCase):
                         "atomsdone": 1,
                         "atomstotal": 1,
                     },
+                    "results": [
+                        {"s": "OK", "review": {"skip_reason": "pre_existing", "passed": True}},
+                    ],
                     "createdat": "2026-03-29T12:00:00+00:00",
                 },
             )
@@ -143,6 +181,7 @@ class TestStateEpicTail(unittest.TestCase):
             self.assertEqual(st["recent"][0]["epic"], "EPK-A")
             self.assertEqual(st["last_scopes"], [["src/x.ts"]])
             self.assertEqual(st["ci"].get("laststatus"), "ok")
+            self.assertEqual((st["recent"][0].get("atm_review") or {}).get("ok_pre_existing"), 1)
 
     def test_build_brain_context_uses_ci_passrate7d(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -161,6 +200,28 @@ class TestStateEpicTail(unittest.TestCase):
             ctx = build_brain_context(root)
             self.assertAlmostEqual(float(ctx.get("passrate") or 0), 0.88)
             self.assertEqual(ctx.get("passrate_source"), "ci.passrate7d")
+
+    def test_build_brain_context_last_epic_atm_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            osn = root / ".osnova"
+            osn.mkdir(parents=True)
+            atomic_write_yaml(
+                osn / "state.yaml",
+                {
+                    "sessionstats": {"passrate": 0.5},
+                    "ci": {},
+                    "recent": [
+                        {
+                            "epic": "EPK-Z",
+                            "atm_review": {"ok_pre_existing": 3, "ok_scope_changed": 1},
+                        }
+                    ],
+                    "blockers": [],
+                },
+            )
+            ctx = build_brain_context(root)
+            self.assertEqual(ctx.get("last_epic_atm_review"), {"ok_pre_existing": 3, "ok_scope_changed": 1})
 
 
 if __name__ == "__main__":

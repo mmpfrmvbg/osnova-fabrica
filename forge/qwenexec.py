@@ -6,6 +6,9 @@ Qwen **Code** CLI (агент с tools), не LLM-only.
 
 Здесь: **обязательно** ``-p`` / ``--prompt`` для headless (см. Qwen Code docs); позиционный промпт без ``-p``
 может открыть интерактив/приветствие вместо JSON. Разбор последнего ``{"type": "result"}`` в stdout+stderr.
+
+По умолчанию процесс запускается через ``Popen`` + потоки: stderr/stdout (опц.) в лог с префиксом
+``qwen │ native │``, раз в ``FORGE_QWEN_HEARTBEAT_SEC`` — heartbeat (как smith). Отключить: ``FORGE_QWEN_STREAM=0``.
 """
 
 from __future__ import annotations
@@ -15,6 +18,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import Any
@@ -166,6 +171,242 @@ def _qwen_code_argv(prompt: str) -> list[str]:
     """Совместимость со старыми импортами; для stdin используйте ``_qwen_code_invocation``."""
     argv, _stdin, _via = _qwen_code_invocation(prompt, max_session_turns=None)
     return argv
+
+
+class _QwenStreamStats:
+    __slots__ = ("_lock", "out_lines", "err_lines")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.out_lines = 0
+        self.err_lines = 0
+
+    def inc(self, stream: str) -> None:
+        with self._lock:
+            if stream == "out":
+                self.out_lines += 1
+            else:
+                self.err_lines += 1
+
+    def snapshot(self) -> tuple[int, int]:
+        with self._lock:
+            return self.out_lines, self.err_lines
+
+
+def _qwen_stream_enabled() -> bool:
+    v = forge_dotenv_setting("FORGE_QWEN_STREAM", "1").strip().lower()
+    return v not in ("0", "false", "no")
+
+
+def _qwen_heartbeat_sec() -> float:
+    raw = forge_dotenv_setting("FORGE_QWEN_HEARTBEAT_SEC", "60").strip()
+    if not raw or raw in ("0", "false", "no"):
+        return 0.0
+    try:
+        return max(15.0, float(raw))
+    except ValueError:
+        return 60.0
+
+
+def _qwen_log_stdout_lines() -> bool:
+    v = forge_dotenv_setting("FORGE_QWEN_LOG_STDOUT", "0").strip().lower()
+    return v in ("1", "true", "yes")
+
+
+def _qwen_stats_for_report(result: dict[str, Any]) -> dict[str, Any]:
+    """Subset of Qwen ``type=result`` stats for report.yaml / reviewer hints."""
+    out: dict[str, Any] = {}
+    st = result.get("stats")
+    if not isinstance(st, dict):
+        return out
+    files = st.get("files")
+    if not isinstance(files, dict):
+        return out
+    for key in ("totalLinesAdded", "totalLinesRemoved", "totalFiles"):
+        if key in files:
+            try:
+                out[key] = int(files[key])
+            except (TypeError, ValueError):
+                out[key] = files[key]
+    for key in ("changedFiles", "paths", "touched", "edited"):
+        v = files.get(key)
+        if isinstance(v, list) and v:
+            out["changed_files"] = [str(x) for x in v[:50]]
+            break
+    return out
+
+
+def _log_qwen_post_session_summary(atom_id: str, result: dict[str, Any]) -> None:
+    prefix = "qwen │ native │"
+    delta = _files_delta(result)
+    bits = [f"lines±={delta}"]
+    ex = _qwen_stats_for_report(result)
+    if ex.get("changed_files"):
+        cf = ex["changed_files"]
+        tail = ", ".join(cf[:12])
+        if len(cf) > 12:
+            tail += f" …(+{len(cf) - 12})"
+        bits.append(f"changed_files=[{tail}]")
+    for k in ("totalLinesAdded", "totalLinesRemoved"):
+        if k in ex:
+            bits.append(f"{k}={ex[k]}")
+    LOG.info("%s session end: %s [ATM %s]", prefix, " · ".join(bits), atom_id)
+
+
+def _run_qwen_capture(
+    cmd: list[str],
+    run_kw: dict[str, Any],
+    *,
+    atom_id: str,
+) -> subprocess.CompletedProcess[str]:
+    """
+    Run Qwen CLI: by default stream stderr/stdout to logs + periodic heartbeat (like smith native).
+    Set FORGE_QWEN_STREAM=0 to use one-shot ``subprocess.run`` (tests / minimal env).
+    """
+    if not _qwen_stream_enabled():
+        return _run_qwen(cmd, run_kw)
+
+    run_s = int(run_kw.get("timeout") or _qwen_run_timeout())
+    cwd = run_kw.get("cwd")
+    env = dict(run_kw.get("env") or os.environ)
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    text_mode = bool(run_kw.get("text", True))
+    stdin_payload = run_kw.get("input")
+    use_stdin_pipe = stdin_payload is not None
+
+    cmd_eff = list(cmd)
+    if sys.platform == "win32":
+        exe = cmd_eff[0]
+        if not Path(exe).is_file():
+            exe2 = resolve_executable(env_paths()["QWENBIN"])
+            if Path(exe2).is_file():
+                cmd_eff = [exe2] + cmd_eff[1:]
+            else:
+                return _run_qwen(cmd, run_kw)
+
+    out_chunks: list[str] = []
+    err_chunks: list[str] = []
+    stats = _QwenStreamStats()
+    prefix = "qwen │ native │"
+    log_stdout = _qwen_log_stdout_lines()
+
+    popen_kw: dict[str, Any] = {
+        "cwd": cwd,
+        "env": env,
+        "stdin": subprocess.PIPE if use_stdin_pipe else subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": text_mode,
+        "bufsize": 1,
+        **SUBPROCESS_TEXT,
+    }
+    proc = subprocess.Popen(cmd_eff, **popen_kw)
+
+    if use_stdin_pipe and proc.stdin is not None:
+        try:
+            proc.stdin.write(stdin_payload)
+        except Exception as exc:  # pragma: no cover
+            LOG.warning("qwenexec: stdin write failed: %s", exc)
+        finally:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+
+    def _drain_stdout() -> None:
+        if proc.stdout is None:
+            return
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                out_chunks.append(line)
+                stats.inc("out")
+                if log_stdout and line.strip():
+                    LOG.info("%s %s", prefix, line.rstrip("\r\n"))
+        except Exception as exc:  # pragma: no cover
+            LOG.warning("qwenexec stdout reader: %s", exc)
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+
+    def _drain_stderr() -> None:
+        if proc.stderr is None:
+            return
+        try:
+            for line in iter(proc.stderr.readline, ""):
+                err_chunks.append(line)
+                stats.inc("err")
+                if line.strip():
+                    LOG.info("%s %s", prefix, line.rstrip("\r\n"))
+        except Exception as exc:  # pragma: no cover
+            LOG.warning("qwenexec stderr reader: %s", exc)
+        finally:
+            try:
+                proc.stderr.close()
+            except Exception:
+                pass
+
+    t_out = threading.Thread(target=_drain_stdout, daemon=True, name="qwenexec-stdout")
+    t_err = threading.Thread(target=_drain_stderr, daemon=True, name="qwenexec-stderr")
+    t_out.start()
+    t_err.start()
+
+    stop_hb = threading.Event()
+    hb_sec = _qwen_heartbeat_sec()
+
+    def _heartbeat() -> None:
+        t0 = time.monotonic()
+        while not stop_hb.wait(timeout=hb_sec):
+            elapsed = int(time.monotonic() - t0)
+            ol, el = stats.snapshot()
+            LOG.info(
+                "%s heartbeat: %ss · stdout_lines=%d stderr_lines=%d · pid=%s · ATM=%s",
+                prefix,
+                elapsed,
+                ol,
+                el,
+                proc.pid,
+                atom_id,
+            )
+
+    hb_thread: threading.Thread | None = None
+    if hb_sec > 0:
+        hb_thread = threading.Thread(target=_heartbeat, daemon=True, name="qwenexec-hb")
+        hb_thread.start()
+
+    try:
+        rc = proc.wait(timeout=run_s)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=30)
+        except Exception:
+            pass
+        stop_hb.set()
+        if hb_thread:
+            hb_thread.join(timeout=2.0)
+        t_out.join(timeout=30.0)
+        t_err.join(timeout=30.0)
+        raise subprocess.TimeoutExpired(cmd_eff, run_s) from None
+    finally:
+        stop_hb.set()
+        if hb_thread:
+            hb_thread.join(timeout=2.0)
+
+    t_out.join(timeout=120.0)
+    t_err.join(timeout=120.0)
+    stdout = "".join(out_chunks)
+    stderr = "".join(err_chunks)
+    return subprocess.CompletedProcess(
+        args=cmd_eff,
+        returncode=rc if rc is not None else -1,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 def _run_qwen(cmd: list[str], run_kw: dict[str, Any]) -> subprocess.CompletedProcess[str]:
@@ -346,7 +587,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
             run_kw["input"] = stdin_payload
         else:
             run_kw["stdin"] = subprocess.DEVNULL
-        return _run_qwen(cmd, run_kw)
+        return _run_qwen_capture(cmd, run_kw, atom_id=atom_id)
 
     try:
         proc = _run_once(base_turns)
@@ -429,6 +670,8 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
             output_tail=tail,
         )
 
+    _log_qwen_post_session_summary(atom_id, result)
+    st_rep = _qwen_stats_for_report(result)
     is_err = bool(result.get("is_error"))
     delta = _files_delta(result)
     if is_err:
@@ -483,6 +726,7 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
                 "qwen_result": {
                     "lines_delta": delta,
                     "zero_line_delta_done_verified": True,
+                    **st_rep,
                 },
                 "reviewer_skip_done": True,
             }
@@ -501,9 +745,9 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
         "t": "RPT",
         "id": atom_id,
         "s": "OK",
-        "changed": [],
+        "changed": list(st_rep.get("changed_files") or []),
         "elapsed": 0,
-        "qwen_result": {"lines_delta": delta},
+        "qwen_result": {"lines_delta": delta, **st_rep},
         # Agent prompt already runs `done`; reviewer can skip second vitest (see forge.review skip_done_command).
         "reviewer_skip_done": True,
     }

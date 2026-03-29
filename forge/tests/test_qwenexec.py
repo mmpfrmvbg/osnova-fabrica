@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CompletedProcess
 from unittest.mock import MagicMock, patch
 
 
@@ -91,6 +92,17 @@ class TestParseResultEvent(unittest.TestCase):
         r = {"stats": {"files": {"totalLinesAdded": 2, "totalLinesRemoved": 5}}}
         self.assertEqual(qe._files_delta(r), 7)
 
+    def test_qwen_stats_for_report_changed_files(self) -> None:
+        from forge import qwenexec as qe
+
+        r = {
+            "type": "result",
+            "stats": {"files": {"totalLinesAdded": 3, "changedFiles": ["a.ts", "b.ts"]}},
+        }
+        got = qe._qwen_stats_for_report(r)
+        self.assertEqual(got.get("totalLinesAdded"), 3)
+        self.assertEqual(got.get("changed_files"), ["a.ts", "b.ts"])
+
 
 class TestRunAtomMocked(unittest.TestCase):
     def test_ok_when_result_ok_and_lines(self) -> None:
@@ -120,13 +132,13 @@ class TestRunAtomMocked(unittest.TestCase):
             def _paths() -> dict[str, str]:
                 return fake_env
 
-            mock_proc = MagicMock(returncode=0, stdout=out + "\n", stderr="")
+            mock_proc = CompletedProcess([], 0, out + "\n", "")
 
             with (
                 patch.object(qe, "env_paths", _paths),
                 patch.object(qe, "can_call_executor", return_value=True),
                 patch.object(qe, "record", return_value={}),
-                patch("forge.qwenexec.subprocess.run", return_value=mock_proc),
+                patch.object(qe, "_run_qwen_capture", return_value=mock_proc),
             ):
                 ok, rep = qe.run_atom(atom, dry_run=False)
         self.assertTrue(ok)
@@ -145,7 +157,7 @@ class TestRunAtomMocked(unittest.TestCase):
             }
         )
         atom = {"id": "ATM-1", "goal": "g", "scope": ["a.ts"], "steps": [], "done": "true", "notouch": []}
-        mock_qwen = MagicMock(returncode=0, stdout=out + "\n", stderr="")
+        mock_qwen = CompletedProcess([], 0, out + "\n", "")
         mock_done = MagicMock(returncode=0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as td:
@@ -167,7 +179,7 @@ class TestRunAtomMocked(unittest.TestCase):
                 patch.object(qe, "env_paths", _paths),
                 patch.object(qe, "can_call_executor", return_value=True),
                 patch.object(qe, "record", return_value={}),
-                patch("forge.qwenexec.subprocess.run", return_value=mock_qwen),
+                patch.object(qe, "_run_qwen_capture", return_value=mock_qwen),
                 patch("forge.reviewer.run_atom_done_subprocess", return_value=mock_done),
             ):
                 ok, rep = qe.run_atom(atom, dry_run=False)
@@ -196,13 +208,13 @@ class TestRunAtomMocked(unittest.TestCase):
             def _paths() -> dict[str, str]:
                 return fake_env
 
-            mock_proc = MagicMock(returncode=0, stdout="not json\n", stderr="")
+            mock_proc = CompletedProcess([], 0, "not json\n", "")
 
             with (
                 patch.object(qe, "env_paths", _paths),
                 patch.object(qe, "can_call_executor", return_value=True),
                 patch.object(qe, "record", return_value={}),
-                patch("forge.qwenexec.subprocess.run", return_value=mock_proc),
+                patch.object(qe, "_run_qwen_capture", return_value=mock_proc),
             ):
                 ok, rep = qe.run_atom(atom, dry_run=False)
         self.assertFalse(ok)
@@ -220,11 +232,11 @@ class TestRunAtomMocked(unittest.TestCase):
             }
         )
         lim_json = json.dumps({"error": {"type": "FatalTurnLimitedError", "code": 53}})
-        mock_lim = MagicMock(returncode=1, stdout=lim_json, stderr="")
-        mock_ok = MagicMock(returncode=0, stdout=ok_json + "\n", stderr="")
+        mock_lim = CompletedProcess([], 1, lim_json, "")
+        mock_ok = CompletedProcess([], 0, ok_json + "\n", "")
         calls = {"n": 0}
 
-        def side_effect(*_a: object, **_k: object) -> MagicMock:
+        def side_effect(*_a: object, **_k: object) -> CompletedProcess:
             calls["n"] += 1
             return mock_lim if calls["n"] == 1 else mock_ok
 
@@ -251,7 +263,7 @@ class TestRunAtomMocked(unittest.TestCase):
                 patch.object(qe, "env_paths", _paths),
                 patch.object(qe, "can_call_executor", return_value=True),
                 patch.object(qe, "record", record_mock),
-                patch("forge.qwenexec.subprocess.run", side_effect=side_effect),
+                patch.object(qe, "_run_qwen_capture", side_effect=side_effect),
             ):
                 ok, rep = qe.run_atom(atom, dry_run=False)
         self.assertTrue(ok)

@@ -1,25 +1,25 @@
-id: ATM-EPK-260328-015-007
+id: ATM-EPK-260328-015-008
 epic: EPK-260328-015
-seq: 7
+seq: 8
 zone: agents
 risk: HIGH
 executor: cursor
-goal: Написать unit-тесты для IntakeAgent и PlanAgent
+goal: Написать unit-тесты для ExecAgent и ReviewAgent
 scope:
-- src/agents/agents.test.ts — тесты для intake-agent и plan-agent
+- src/agents/agents.test.ts — тесты для exec-agent и review-agent
 notouch:
 - src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать тесты для валидации входных данных IntakeAgent
-- Протестировать построение плана PlanAgent
-- Добавить тесты граничных случаев
+- Протестировать выполнение операций ExecAgent
+- Протестировать валидацию результатов ReviewAgent
+- Добавить тесты error handling
 deps:
-- ATM-EPK-260328-015-002
-- ATM-EPK-260328-015-003
+- ATM-EPK-260328-015-004
+- ATM-EPK-260328-015-005
 maxiter: 3
 retries: 0
 status: in_progress
 priority: P1
 max_retries: 3
-review_base_sha: e25a954961ebd7c89b1439d9f0c53ab67b871b2d
+review_base_sha: f7ef4ecddf36bfb0eca1a866d4f5a637fcaef0ae

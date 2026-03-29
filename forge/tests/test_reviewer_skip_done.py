@@ -34,6 +34,7 @@ class TestSkipDoneAfterQwen(unittest.TestCase):
                 patch.object(reviewer, "env_paths", return_value=fake_env),
                 patch.object(reviewer, "_git_diff", return_value="diff"),
                 patch.object(reviewer, "_git_diff_range", return_value="diff"),
+                patch.object(reviewer, "_git_diff_for_review", return_value="diff"),
                 patch.object(
                     reviewer,
                     "_qwen_review",
@@ -42,7 +43,7 @@ class TestSkipDoneAfterQwen(unittest.TestCase):
                 patch.object(reviewer, "_prepare_done_invocation") as mock_prep,
                 patch("forge.reviewer.subprocess.run") as mock_run,
             ):
-                ok, reason, elapsed, _ver = reviewer.review(
+                ok, reason, elapsed, _ver, _meta = reviewer.review(
                     atom,
                     dry_run=False,
                     run_done=True,

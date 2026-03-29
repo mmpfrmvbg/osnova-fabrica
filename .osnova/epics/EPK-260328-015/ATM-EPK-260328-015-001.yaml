@@ -16,10 +16,10 @@ steps:
 deps: []
 maxiter: 3
 retries: 1
-status: blk
+status: in_progress
 priority: P1
 max_retries: 3
-review_base_sha: efa276bfc617b4dbb082ee3853750c54b9511395
+review_base_sha: f7ef4ecddf36bfb0eca1a866d4f5a637fcaef0ae
 retry_context:
   attempt: 2
   previous_failure: 'FAIL: Diff пустой — файлы не созданы, цель не достигнута; FAIL
