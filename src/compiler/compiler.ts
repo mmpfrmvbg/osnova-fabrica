@@ -17,6 +17,7 @@ import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction }
 import { OsVbcVM, type OsVbcVMOptions, type StackValue } from '../runtime/vm';
 import { InterpreterError } from '../runtime/vm/interpreter';
 import { analyzeProgram, type SemanticError } from './semantic';
+import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -546,7 +547,8 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
 
 /**
  * Адаптер: CompileResult (src/compiler/compiler.ts) → BuildReport (src/pipeline/types.ts).
- * Вынесено из orchestrator.ts для избежания циклических зависимостей в тестах.
+ * Каноническая реализация — та же логика, что {@link import("../pipeline/orchestrator").compileToBuildReport}
+ * (orchestrator реэкспортирует отсюда, чтобы не дублировать список blocking kinds).
  *
  * Разница:
  *   CompileResult.module      → BuildReport.bytecode
@@ -554,7 +556,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
  */
 export function compileToBuildReport(r: CompileResult): BuildReport {
   const blockingSemanticErrors = (r.semanticErrors ?? []).filter(
-    e => ['undeclared_var', 'duplicate_decl', 'type_mismatch', 'invalid_return'].includes(e.kind),
+    e => (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
   );
   return {
     success:

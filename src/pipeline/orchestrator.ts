@@ -15,7 +15,7 @@ import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import { saveTrace } from '../trace/traceStore';
 import { logger } from '../logger';
-import { compileSource, type CompileResult } from '../compiler/compiler';
+import { compileSource, compileToBuildReport, type CompileResult } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
 import { loadRegistry, loadAppRegistry, registryToContext } from '../runtime/loadRegistry';
 import {
@@ -29,6 +29,9 @@ import {
 } from './types';
 import { analyzeShadow } from './shadowMode';
 import type { ShadowHit } from './shadowMode';
+
+/** Реэкспорт из compiler — единая логика blocking semantic kinds. */
+export { compileToBuildReport };
 
 const log = logger('pipeline');
 const MAX_REPAIR_LOOPS = 3;
@@ -56,34 +59,6 @@ function categoryForRepairFailure(intent?: OsnovaIntent): string {
   if (intent.appType) return String(intent.appType);
   const f = intent.features?.[0];
   return f ?? 'unknown';
-}
-
-/**
- * Адаптер: CompileResult (src/compiler/compiler.ts) → BuildReport (src/pipeline/types.ts).
- *
- * Разница:
- *   CompileResult.module       → BuildReport.bytecode
- *   + добавляет BuildReport.success = compilerSuccess && lexerErrors.length === 0
- */
-export function compileToBuildReport(r: CompileResult): BuildReport {
-  const blockingSemanticErrors = (r.semanticErrors ?? []).filter(
-    e => (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
-  );
-  return {
-    success:
-      r.compilerSuccess &&
-      r.lexerErrors.length === 0 &&
-      r.parserErrors.length === 0 &&
-      blockingSemanticErrors.length === 0,
-    lexerErrors: r.lexerErrors,
-    parserErrors: r.parserErrors,
-    compilerErrors: r.compilerErrors,
-    semanticErrors: r.semanticErrors ?? [],
-    semanticErrorCount: (r.semanticErrors ?? []).length,
-    bytecode: r.module ?? null,
-    compilerSuccess: r.compilerSuccess,
-    durationMs: r.durationMs,
-  };
 }
 
 /**
