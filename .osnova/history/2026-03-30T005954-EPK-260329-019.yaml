@@ -1,0 +1,42 @@
+epic: EPK-260329-019
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 2
+  atomstotal: 2
+results:
+- v: 5
+  t: RPT
+  id: ATM-004
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 28
+    totalLinesAdded: 28
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 12
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-005
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 58
+    totalLinesAdded: 58
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 12
+    scope_lines_changed: true
+    skip_reason: null
+createdat: '2026-03-30T00:59:54.350633+03:00'
