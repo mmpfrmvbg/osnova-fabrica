@@ -1,22 +1,22 @@
-id: ATM-003
+id: ATM-004
 epic: EPK-260329-024
-seq: 3
+seq: 4
 zone: forge
 risk: MEDIUM
 executor: cursor
-goal: Создать blocker-resolver.ts с парсингом atm_id и распознаванием эпиков 015/FBK016
-scope: src/pipeline/blocker-resolver.ts — новый модуль
+goal: Реализовать чистую фильтрацию списка blockers по закрытым issues и stale-префиксам
+scope: src/pipeline/blocker-resolver.ts — чистые функции без fs
 notouch:
 - .osnova/state.yaml
 - scripts/forge-cleanup.ts
 - src/pipeline/executor.ts
-done: npx vitest run src/pipeline/pipeline.test.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
 steps:
-- Добавить файл рядом с orchestrator/pipeline
-- Реализовать извлечение префикса эпика из atm_id
-- Покрыть краевые форматы без IO
+- Ввести сигнатуру (entries, closedIssueIds) → pruned[]
+- Сохранить порядок и поля записей где возможно
+- Документировать контракт «stale» для EPK-260328-015/FBK016
 deps:
-- ATM-002
+- ATM-003
 maxiter: 3
 retries: 0
 status: PENDING
