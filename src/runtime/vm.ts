@@ -315,7 +315,11 @@ export class OsVbcVM {
     let procedure: string;
 
     try {
-      this.interpreter = new Interpreter(this.module, this.interpreterOptions);
+      const baseInvoke = this.interpreterOptions.invoke ?? createDefaultInvokeHandler();
+      this.interpreter = new Interpreter(this.module, {
+        ...this.interpreterOptions,
+        invoke: createPipelineInvokeHandlerForVm(this, baseInvoke),
+      });
       let procedureIndex: number;
       try {
         procedureIndex = this.resolveProcedureIndex(opts.procedure);

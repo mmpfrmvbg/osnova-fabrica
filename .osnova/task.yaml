@@ -1,21 +1,20 @@
-id: ATM-EPK-260329-027-004
+id: ATM-EPK-260329-027-005
 epic: EPK-260329-027
-seq: 4
-zone: compiler
-risk: MEDIUM
+seq: 5
+zone: runtime
+risk: HIGH
 executor: cursor
-goal: Выровнять семантику с codegen для сценариев FBK016
-scope: src/compiler/codegen.ts — semantic coupling
+goal: Исправить блокеры VM (globals, syscalls, пайплайн-ключи)
+scope: src/runtime/vm.ts
 notouch:
-- src/compiler/index.ts
-- src/runtime/interpreter.ts
-done: npx vitest run src/compiler/semantic.test.ts
+- src/compiler/codegen.ts
+- src/pipeline/executor.ts
+done: npx vitest run src/runtime/vm.test.ts
 steps:
-- Запустить semantic.test
-- Сверить AST→codegen инварианты
-- Минимальный фикс в codegen.ts
-deps:
-- ATM-EPK-260329-027-003
+- vm.test на изоляцию падающих кейсов
+- Сопоставить с PIPELINE_VM_GLOBAL_KEYS / applyPipelineSpecToVm
+- Патч только vm.ts
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING
