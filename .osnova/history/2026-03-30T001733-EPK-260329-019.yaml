@@ -1,0 +1,194 @@
+epic: EPK-260329-019
+summary:
+  status: PARTIAL
+  passrate: 0.5
+  atomsdone: 4
+  atomstotal: 8
+results:
+- v: 5
+  t: RPT
+  id: ATM-001
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 16
+    skip_reason: pre_existing
+    scope_lines_changed: false
+- v: 5
+  t: RPT
+  id: ATM-002
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 21
+    skip_reason: pre_existing
+    scope_lines_changed: false
+- v: 5
+  t: RPT
+  id: ATM-003
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 17
+    skip_reason: pre_existing
+    scope_lines_changed: false
+  err: 'cherry-pick conflict: error: could not apply 394e2a6... ATM ATM-003 OK
+
+    hint: After resolving the conflicts, mark them with
+
+    hint: "git add/rm <pathspec>", then run
+
+    hint: "git cherry-pick --continue".
+
+    hint: You can instead skip this commit with "git cherry-pick --skip".
+
+    hint: To abort and get back to the state before "git '
+- v: 5
+  t: RPT
+  id: ATM-004
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 27
+    totalLinesAdded: 27
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 20
+    scope_lines_changed: true
+    skip_reason: null
+  err: 'cherry-pick conflict: error: could not apply 09643dc... ATM ATM-004 OK
+
+    hint: After resolving the conflicts, mark them with
+
+    hint: "git add/rm <pathspec>", then run
+
+    hint: "git cherry-pick --continue".
+
+    hint: You can instead skip this commit with "git cherry-pick --skip".
+
+    hint: To abort and get back to the state before "git '
+- v: 5
+  t: RPT
+  id: ATM-005
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 257
+    totalLinesAdded: 257
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+  err: 'cherry-pick conflict: error: could not apply abf0cfa... ATM ATM-005 OK
+
+    hint: After resolving the conflicts, mark them with
+
+    hint: "git add/rm <pathspec>", then run
+
+    hint: "git cherry-pick --continue".
+
+    hint: You can instead skip this commit with "git cherry-pick --skip".
+
+    hint: To abort and get back to the state before "git '
+- v: 5
+  t: RPT
+  id: ATM-006
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 121
+    totalLinesAdded: 108
+    totalLinesRemoved: 13
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-007
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 154
+    totalLinesAdded: 141
+    totalLinesRemoved: 13
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 22
+    scope_lines_changed: true
+    skip_reason: null
+  err: 'cherry-pick conflict: error: could not apply d512d81... ATM ATM-007 OK
+
+    hint: After resolving the conflicts, mark them with
+
+    hint: "git add/rm <pathspec>", then run
+
+    hint: "git cherry-pick --continue".
+
+    hint: You can instead skip this commit with "git cherry-pick --skip".
+
+    hint: To abort and get back to the state before "git '
+- v: 5
+  t: RPT
+  id: ATM-008
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 50
+    totalLinesAdded: 45
+    totalLinesRemoved: 5
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 16
+    scope_lines_changed: true
+    skip_reason: null
+createdat: '2026-03-30T00:17:33.360041+03:00'
