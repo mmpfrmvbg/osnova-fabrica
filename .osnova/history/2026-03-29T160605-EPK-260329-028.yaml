@@ -1,0 +1,110 @@
+epic: EPK-260329-028
+summary:
+  status: PARTIAL
+  passrate: 0.5714285714285714
+  atomsdone: 4
+  atomstotal: 7
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-028-001
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 27
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: Diff содержит только обновления метаданных .osnova, но не показывает
+      изменений в scripts/blocker-resolver.test.ts для каркаса Vitest; FAIL on diff
+      review (done not re-run)'
+    elapsed: 7
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-028-002
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 76
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: Файл src/tools/blocker-types.ts отсутствует в диффе — цель ATM-EPK-260329-028-002
+      не выполнена.; FAIL on diff review (done not re-run)'
+    elapsed: 26
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-028-003
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 158
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: Тесты заменены с todo на фактические проверки структуры и инвариантов
+      в рамках сьюита blocker-types.'
+    elapsed: 8
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-028-004
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 248
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: Дифф содержит только тесты, но не реализацию функций loadForgeState,
+      extractBlockersFromState и loadAndExtractBlockers в src/tools/blocker-resolver.ts;
+      FAIL on diff review (done not re-run)'
+    elapsed: 11
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-028-005
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: Дифф добавляет тесты для loadForgeState, extractBlockersFromState
+      и loadAndExtractBlockers, покрывая чтение state и граничные случаи (file_not_found,
+      пустой массив, отсутствие blockers, невалидные atm_id).'
+    elapsed: 8
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-028-006
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 96
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: Дифф добавляет функцию pruneForgeStateBlockers в src/tools/blocker-resolver.ts
+      для классификации stale ATM-блокеров и корректно расширяет тесты.'
+    elapsed: 8
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-028-007
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 96
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: Добавлены исчерпывающие тесты классификации stale и закрытых issues
+      с проверкой pruneTools, эквивалентности prunePipeline и таблицы входов/выходов.'
+    elapsed: 14
+createdat: '2026-03-29T16:06:05.741358+03:00'
