@@ -1,19 +1,22 @@
-id: ATM-002
+id: ATM-EPK-260329-019-002
 epic: EPK-260329-019
 seq: 2
-zone: config
-risk: HIGH
+zone: toolchain
+risk: MEDIUM
 executor: cursor
-goal: Исправить критические ошибки в tsconfig.json блокирующие компиляцию
-scope:
-- tsconfig.json
-notouch: []
-done: npx vitest run tsconfig.test.ts
+goal: Выровнять npm-скрипты и зависимости с CI (self-fix корневых причин падений серии
+  015).
+scope: package.json — scripts/deps/engines; без смены major без необходимости
+notouch:
+- package-lock.json
+- apps/osiris/package.json
+done: npx vitest run package.test.ts
 steps:
-- Проверить настройки strict mode
-- Исправить пути moduleResolution
-- Добавить missing lib компилятору
-deps: []
+- Сопоставить npm run ci с локальным минимальным набором команд.
+- Исправить скрипты/зависимости, блокирующие tsc или vitest в корне.
+- Проверить, что корневой тест на манифест зелёный.
+deps:
+- ATM-EPK-260329-019-001
 maxiter: 3
 retries: 0
 status: PENDING

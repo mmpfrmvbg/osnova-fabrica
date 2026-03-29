@@ -2011,8 +2011,8 @@
         "args": [],
         "returns": "any"
       },
-      "description": "",
-      "status": "experimental"
+      "description": "Получить имя главного модуля пайплайна",
+      "status": "stable"
     },
     {
       "id": "система.пайплайн.ид_спецификации",
@@ -2020,8 +2020,8 @@
         "args": [],
         "returns": "any"
       },
-      "description": "",
-      "status": "experimental"
+      "description": "Получить ID спецификации пайплайна",
+      "status": "stable"
     },
     {
       "id": "система.пайплайн.ожидаемый_возврат",
@@ -2029,8 +2029,8 @@
         "args": [],
         "returns": "any"
       },
-      "description": "",
-      "status": "experimental"
+      "description": "Получить ожидаемое возвращаемое значение пайплайна",
+      "status": "stable"
     },
     {
       "id": "система.сеть.запрос",

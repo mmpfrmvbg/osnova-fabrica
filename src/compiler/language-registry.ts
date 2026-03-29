@@ -563,6 +563,9 @@ const SYSCALLS_V01: SyscallSpec[] = [
   { name: "система.объект.ключи", argc: 1, status: "stable", description: "Массив ключей объекта", since: "2.0.2" },
   { name: "система.объект.установить", argc: 3, status: "stable", description: "Установить значение поля объекта", since: "2.0.2" },
   { name: "система.итератор.из", argc: 1, status: "stable", description: "Нормализация к массиву: массив → как есть, объект → Object.keys", since: "2.0.2" },
+  { name: "система.пайплайн.ид_спецификации", argc: 0, status: "stable", description: "Получить ID спецификации пайплайна", since: "2.0.0" },
+  { name: "система.пайплайн.главный_модуль", argc: 0, status: "stable", description: "Получить имя главного модуля пайплайна", since: "2.0.0" },
+  { name: "система.пайплайн.ожидаемый_возврат", argc: 0, status: "stable", description: "Получить ожидаемое возвращаемое значение пайплайна", since: "2.0.0" },
 ];
 
 const LITERALS_V01: LiteralSpec[] = [

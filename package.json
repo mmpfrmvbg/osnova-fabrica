@@ -29,7 +29,7 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "validate:spec": "tsx src/compiler/validate-language-registry.ts",
     "osnova-language:validate": "npx tsx src/compiler/validate-language-registry.ts",
-    "ci": "tsc --noEmit && vitest run src/ && npm run osnova-language:validate && npm run check:language-schema",
+    "ci": "npm --prefix apps/osiris ci --no-audit && npm run typecheck && npm test && npm run lint && npx tsx src/scripts/check-yaml-drift.ts && npm run golden && npm run validate:spec && npm run coverage",
     "osnova-mini-os:e2e": "tsx src/scripts/osnova-mini-os-e2e.ts",
     "traces": "tsx src/scripts/trace-viewer.ts",
     "center": "tsx src/center/index.ts",

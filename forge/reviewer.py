@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -107,6 +108,55 @@ def _prepare_done_invocation(project: Path, done_cmd: str) -> tuple[DoneCmd, dic
         cmd = cmd.replace("npx vitest", f'node "{mjs}"')
 
     return cmd, done_env
+
+
+def _parse_review_json(text: str) -> tuple[bool, str] | None:
+    """
+    Expect ``{"passed": bool, "reason": str}``. Tolerates leading chatter / markdown fences:
+    model must still emit one JSON object (first successful ``raw_decode`` from each ``{``).
+    """
+    s = (text or "").strip()
+    if not s:
+        return None
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", s, re.IGNORECASE)
+    if fence:
+        inner = fence.group(1).strip()
+        if inner:
+            s = inner
+    dec = json.JSONDecoder()
+    start = 0
+    while True:
+        i = s.find("{", start)
+        if i < 0:
+            break
+        try:
+            obj, _end = dec.raw_decode(s, i)
+        except json.JSONDecodeError:
+            start = i + 1
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("passed"), bool):
+            r = obj.get("reason", "")
+            if not isinstance(r, str):
+                r = str(r) if r is not None else ""
+            return (bool(obj["passed"]), r.strip())
+        start = i + 1
+    return None
+
+
+def _normalize_qwen_review_output(raw: str) -> tuple[str, bool, bool]:
+    """
+    Prefer structured JSON verdict; else keep legacy PASS:/FAIL: heuristics.
+    Returns (reason_text_for_storage, passed_when_no_done_cmd, used_json_verdict).
+    """
+    stripped = (raw or "").strip()
+    parsed = _parse_review_json(stripped)
+    if parsed is not None:
+        passed, reason = parsed
+        tag = "PASS" if passed else "FAIL"
+        body = reason if reason else ("ok" if passed else "rejected")
+        return f"{tag}: {body}", passed, True
+    base = stripped if stripped else "No reviewer output"
+    return base, _parse_qwen_review_pass(base), False
 
 
 def _line_verdict(line: str) -> bool | None:
@@ -316,14 +366,16 @@ def _qwen_review(
         return "FAIL: forge Qwen daily budget exhausted (local)", True, False
 
     prompt = (
-        "Review ATM result. You MUST include either PASS: or FAIL: (with colon). "
-        "Put PASS: or FAIL: at the start of a line — not only at the end of a long paragraph.\n"
+        "You are a code-review gate for an automated forge pipeline. "
+        "Your reply MUST be machine-readable JSON only.\n\n"
+        "Hard rules:\n"
+        "- Output a single JSON object and nothing else: no markdown fences, no preamble, "
+        "no lines like \"I will analyze\" / \"Проанализирую\" / thinking out loud before the JSON.\n"
+        '- Schema exactly: {"passed": <true or false>, "reason": "<one short sentence>"}\n'
+        "- passed=true if the diff adequately addresses the goal and respects scope; false otherwise.\n"
+        "- reason: concise justification (any language).\n\n"
         f"Goal: {atom.get('goal')}\nScope: {atom.get('scope')}\n"
         f"Done command: {atom.get('done')}\nDiff:\n{diff}\n"
-        "Последняя строка твоего ответа ДОЛЖНА быть ровно одним из двух вариантов:\n"
-        "PASS: <одна фраза причина>\n"
-        "FAIL: <одна фраза причина>\n"
-        "Никакого текста после этой строки.\n"
     )
     rev_s = _qwen_review_timeout()
     try:
@@ -353,13 +405,19 @@ def _qwen_review(
 
     record(served=True)
     raw_qwen_output = combined.strip()
-    reason_full = raw_qwen_output if raw_qwen_output else "No reviewer output"
     try:
-        qwen_pass_no_done = _parse_qwen_review_pass(raw_qwen_output)
+        reason_full, qwen_pass_no_done, used_json = _normalize_qwen_review_output(raw_qwen_output)
     except Exception:
-        LOG.exception("reviewer: _parse_qwen_review_pass crashed (ATM %s)", atom.get("id"))
-        qwen_pass_no_done = False
-    LOG.debug("reviewer _parse_qwen_review_pass (used only if atom has no done-cmd): %s", qwen_pass_no_done)
+        LOG.exception("reviewer: _normalize_qwen_review_output crashed (ATM %s)", atom.get("id"))
+        reason_full = raw_qwen_output if raw_qwen_output else "No reviewer output"
+        qwen_pass_no_done = _parse_qwen_review_pass(raw_qwen_output)
+        used_json = False
+    if not used_json and raw_qwen_output:
+        LOG.debug(
+            "reviewer: Qwen reply was not valid JSON verdict — used PASS:/FAIL: fallback (ATM %s)",
+            atom.get("id"),
+        )
+    LOG.debug("reviewer verdict (used if atom has no done-cmd): passed=%s", qwen_pass_no_done)
     return reason_full, False, qwen_pass_no_done
 
 
