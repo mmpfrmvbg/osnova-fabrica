@@ -1,12 +1,11 @@
-id: ATM-001
+id: ATM-002
 epic: EPK-260329-024
-seq: 1
+seq: 2
 zone: pipeline
 risk: MEDIUM
 executor: cursor
-goal: Зафиксировать типы и константы для записей blockers в state v5 и префиксов EPK-260328-015/FBK016
-scope: src/pipeline/types.ts — доменные типы blocker/issue без изменения рантайма
-  пайплайна
+goal: Добавить чистые функции маппинга diagnostic↔blocker для сценариев 015/FBK016
+scope: src/pipeline/types.ts — хелперы рядом с PIPELINE_STATUS_FOR_DIAGNOSTIC
 notouch:
 - .osnova/state.yaml
 - scripts/forge-cleanup.ts
@@ -14,11 +13,11 @@ notouch:
 - src/pipeline/blocker-resolver.ts
 done: npx vitest run src/pipeline/types.test.ts
 steps:
-- Прочитать текущие PipelineStatus/DiagnosticCode для 015/FBK016
-- Добавить минимальные типы/алиасы для atm_id и github issue id
-- Согласовать имена с комментариями в types.ts
-- Прогнать узкий тест types
-deps: []
+- Вынести повторяющиеся проверки кодов в маленькие type-guards
+- Не менять публичные контракты orchestrator
+- Обновить только types.ts и экспорт из index при необходимости отдельным ATM
+deps:
+- ATM-001
 maxiter: 3
 retries: 0
 status: PENDING

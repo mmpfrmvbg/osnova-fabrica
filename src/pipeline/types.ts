@@ -60,6 +60,41 @@ export interface ForgeStateBlockerRecord {
   readonly updated: string;
 }
 
+/** Префикс `atm_id` blockers v5 для серии 015 (до порядкового суффикса). */
+export const FORGE_STATE_BLOCKER_ATM_015_PREFIX =
+  `${FORGE_STATE_BLOCKER_ATM_PREFIX}${FORGE_STATE_BLOCKER_EPK_ATM_015}-` as const;
+
+/** Префикс `atm_id` blockers v5 для серии FBK016 (до порядкового суффикса). */
+export const FORGE_STATE_BLOCKER_ATM_FBK016_PREFIX =
+  `${FORGE_STATE_BLOCKER_ATM_PREFIX}${FORGE_STATE_BLOCKER_EPK_ATM_FBK016}-` as const;
+
+/** Проверка: `atm_id` относится к сценарию blockers серии 015. */
+export function is015ForgeBlockerAtmId(atmId: string): boolean {
+  return atmId.startsWith(FORGE_STATE_BLOCKER_ATM_015_PREFIX);
+}
+
+/** Проверка: `atm_id` относится к сценарию blockers серии FBK016. */
+export function isFBK016ForgeBlockerAtmId(atmId: string): boolean {
+  return atmId.startsWith(FORGE_STATE_BLOCKER_ATM_FBK016_PREFIX);
+}
+
+/**
+ * Семья сценария Forge blockers по `atm_id` (`015` / `FBK016`), если строка совпадает с префиксами v5.
+ */
+export function forgeBlockerScenarioFromAtmId(atmId: string): '015' | 'FBK016' | null {
+  if (is015ForgeBlockerAtmId(atmId)) return '015';
+  if (isFBK016ForgeBlockerAtmId(atmId)) return 'FBK016';
+  return null;
+}
+
+/** Собирает `atm_id` записи blockers v5 из EPK-базы и порядкового суффикса. */
+export function composeForgeStateBlockerAtmId(
+  epkBase: typeof FORGE_STATE_BLOCKER_EPK_ATM_015 | typeof FORGE_STATE_BLOCKER_EPK_ATM_FBK016,
+  ordinalSuffix: string
+): ForgeStateBlockerAtmId {
+  return `${FORGE_STATE_BLOCKER_ATM_PREFIX}${epkBase}-${ordinalSuffix}` as ForgeStateBlockerAtmId;
+}
+
 // ─── Type-guards для DiagnosticCode ───
 
 /** Проверка: код ошибки серии 015 (атомы). */
@@ -127,23 +162,6 @@ export function pipelineStatusFromDiagnosticCode(code: DiagnosticCode): Diagnost
   return PIPELINE_STATUS_FOR_DIAGNOSTIC[code];
 }
 
-export function diagnosticCodeFromPipelineStatus(status: DiagnosticPipelineStatus): DiagnosticCode {
-  switch (status) {
-    case 'error_015_atom_not_found':
-      return '015-001';
-    case 'error_015_atom_corrupted':
-      return '015-002';
-    case 'error_015_dep_unresolved':
-      return '015-003';
-    case 'error_fbk016_rejected':
-      return 'FBK016-001';
-    case 'error_fbk016_timeout':
-      return 'FBK016-002';
-    case 'error_fbk016_limit_exceeded':
-      return 'FBK016-003';
-  }
-}
-
 /** Все {@link DiagnosticCode} (6) — исчерпывающий перечень для Forge / оркестратора. */
 export const ALL_DIAGNOSTIC_CODES = [
   DIAGNOSTIC_015_ATOM_NOT_FOUND,
@@ -163,6 +181,36 @@ export const ALL_DIAGNOSTIC_PIPELINE_STATUSES = [
   'error_fbk016_timeout',
   'error_fbk016_limit_exceeded',
 ] as const satisfies readonly DiagnosticPipelineStatus[];
+
+function buildDiagnosticCodeForPipelineStatus(): Readonly<Record<DiagnosticPipelineStatus, DiagnosticCode>> {
+  const m = {} as Record<DiagnosticPipelineStatus, DiagnosticCode>;
+  for (const code of ALL_DIAGNOSTIC_CODES) {
+    m[PIPELINE_STATUS_FOR_DIAGNOSTIC[code]] = code;
+  }
+  return m;
+}
+
+/** Обратное к {@link PIPELINE_STATUS_FOR_DIAGNOSTIC}: исход пайплайна → код диагностики. */
+export const DIAGNOSTIC_CODE_FOR_PIPELINE_STATUS: Readonly<Record<DiagnosticPipelineStatus, DiagnosticCode>> =
+  buildDiagnosticCodeForPipelineStatus();
+
+export function diagnosticCodeFromPipelineStatus(status: DiagnosticPipelineStatus): DiagnosticCode {
+  return DIAGNOSTIC_CODE_FOR_PIPELINE_STATUS[status];
+}
+
+/** Семья сценария (`015` / `FBK016`) по коду диагностики. */
+export function forgeBlockerScenarioFromDiagnosticCode(code: DiagnosticCode): '015' | 'FBK016' {
+  return is015DiagnosticCode(code) ? '015' : 'FBK016';
+}
+
+/** EPK-база `atm_id` blockers v5 для данного {@link DiagnosticCode}. */
+export function forgeBlockerEpkBaseForDiagnosticCode(
+  code: DiagnosticCode
+): typeof FORGE_STATE_BLOCKER_EPK_ATM_015 | typeof FORGE_STATE_BLOCKER_EPK_ATM_FBK016 {
+  return forgeBlockerScenarioFromDiagnosticCode(code) === '015'
+    ? FORGE_STATE_BLOCKER_EPK_ATM_015
+    : FORGE_STATE_BLOCKER_EPK_ATM_FBK016;
+}
 
 /**
  * 14 токенов сценариев blockers диагностики Forge: 6 кодов, 6 исходов пайплайна 015/FBK016,
@@ -398,6 +446,41 @@ export type PipelineStatus =
   | 'repair_exhausted'
   | 'error'
   | DiagnosticPipelineStatus;
+
+/** Проверка: исход пайплайна — одна из ошибок серии 015 (атомы Forge). */
+export function is015DiagnosticPipelineStatus(
+  status: PipelineStatus
+): status is Extract<
+  DiagnosticPipelineStatus,
+  'error_015_atom_not_found' | 'error_015_atom_corrupted' | 'error_015_dep_unresolved'
+> {
+  return (
+    status === 'error_015_atom_not_found' ||
+    status === 'error_015_atom_corrupted' ||
+    status === 'error_015_dep_unresolved'
+  );
+}
+
+/** Проверка: исход пайплайна — одна из ошибок серии FBK016 (обратная связь). */
+export function isFBK016DiagnosticPipelineStatus(
+  status: PipelineStatus
+): status is Extract<
+  DiagnosticPipelineStatus,
+  | 'error_fbk016_rejected'
+  | 'error_fbk016_timeout'
+  | 'error_fbk016_limit_exceeded'
+> {
+  return (
+    status === 'error_fbk016_rejected' ||
+    status === 'error_fbk016_timeout' ||
+    status === 'error_fbk016_limit_exceeded'
+  );
+}
+
+/** Семья сценария blockers по исходу пайплайна 015/FBK016. */
+export function forgeBlockerScenarioFromPipelineStatus(status: DiagnosticPipelineStatus): '015' | 'FBK016' {
+  return is015DiagnosticPipelineStatus(status) ? '015' : 'FBK016';
+}
 
 export interface PipelineResult {
   readonly status: PipelineStatus;

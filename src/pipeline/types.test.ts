@@ -21,6 +21,8 @@ import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import {
   is015DiagnosticCode,
   isFBK016DiagnosticCode,
+  is015DiagnosticPipelineStatus,
+  isFBK016DiagnosticPipelineStatus,
   isBlockedStatus,
   isResolvedStatus,
   isIgnoredStatus,
@@ -31,8 +33,18 @@ import {
   DIAGNOSTIC_FBK016_TIMEOUT,
   DIAGNOSTIC_FBK016_LIMIT_EXCEEDED,
   PIPELINE_STATUS_FOR_DIAGNOSTIC,
+  DIAGNOSTIC_CODE_FOR_PIPELINE_STATUS,
   pipelineStatusFromDiagnosticCode,
   diagnosticCodeFromPipelineStatus,
+  forgeBlockerScenarioFromDiagnosticCode,
+  forgeBlockerEpkBaseForDiagnosticCode,
+  forgeBlockerScenarioFromAtmId,
+  forgeBlockerScenarioFromPipelineStatus,
+  composeForgeStateBlockerAtmId,
+  is015ForgeBlockerAtmId,
+  isFBK016ForgeBlockerAtmId,
+  FORGE_STATE_BLOCKER_ATM_015_PREFIX,
+  FORGE_STATE_BLOCKER_ATM_FBK016_PREFIX,
   SPEC_G1_CONFIDENCE_MIN,
   SPEC_INTENT_CONFIDENCE_DEFAULT,
   SPEC_QUALITY_PASS,
@@ -46,32 +58,32 @@ import {
 describe('DiagnosticCode', () => {
   it('серия 015: атом не найден', () => {
     const code: DiagnosticCode = '015-001';
-    expect(code).toMatch(/^015-/);
+    expect(is015DiagnosticCode(code)).toBe(true);
   });
 
   it('серия 015: атом повреждён', () => {
     const code: DiagnosticCode = '015-002';
-    expect(code).toMatch(/^015-/);
+    expect(is015DiagnosticCode(code)).toBe(true);
   });
 
   it('серия 015: зависимость атома не разрешена', () => {
     const code: DiagnosticCode = '015-003';
-    expect(code).toMatch(/^015-/);
+    expect(is015DiagnosticCode(code)).toBe(true);
   });
 
   it('серия FBK016: обратная связь отклонена', () => {
     const code: DiagnosticCode = 'FBK016-001';
-    expect(code).toMatch(/^FBK016-/);
+    expect(isFBK016DiagnosticCode(code)).toBe(true);
   });
 
   it('серия FBK016: таймаут обратной связи', () => {
     const code: DiagnosticCode = 'FBK016-002';
-    expect(code).toMatch(/^FBK016-/);
+    expect(isFBK016DiagnosticCode(code)).toBe(true);
   });
 
   it('серия FBK016: лимит попыток превышен', () => {
     const code: DiagnosticCode = 'FBK016-003';
-    expect(code).toMatch(/^FBK016-/);
+    expect(isFBK016DiagnosticCode(code)).toBe(true);
   });
 });
 
@@ -102,7 +114,7 @@ describe('ForgeStateBlockerRecord (state v5)', () => {
   it('запись blockers с issue и atm_id серии 015', () => {
     const row: ForgeStateBlockerRecord = {
       issue: 68 as ForgeStateBlockerIssueId,
-      atm_id: `${FORGE_STATE_BLOCKER_ATM_PREFIX}${FORGE_STATE_BLOCKER_EPK_ATM_015}-001` as ForgeStateBlockerAtmId,
+      atm_id: composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001'),
       open: true,
       updated: '2026-03-28T17:38:41.541959+03:00',
     };
@@ -113,11 +125,16 @@ describe('ForgeStateBlockerRecord (state v5)', () => {
   it('запись blockers с atm_id серии FBK016', () => {
     const row: ForgeStateBlockerRecord = {
       issue: 75 as ForgeStateBlockerIssueId,
-      atm_id: `${FORGE_STATE_BLOCKER_ATM_PREFIX}${FORGE_STATE_BLOCKER_EPK_ATM_FBK016}-001` as ForgeStateBlockerAtmId,
+      atm_id: composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '001'),
       open: true,
       updated: '2026-03-28T20:33:26.507566+03:00',
     };
     expect(row.atm_id).toBe('ATM-EPK-260328-FBK016-001');
+  });
+
+  it('префиксы atm_id 015 / FBK016', () => {
+    expect(FORGE_STATE_BLOCKER_ATM_015_PREFIX).toBe('ATM-EPK-260328-015-');
+    expect(FORGE_STATE_BLOCKER_ATM_FBK016_PREFIX).toBe('ATM-EPK-260328-FBK016-');
   });
 });
 
@@ -168,8 +185,8 @@ describe('DiagnosticReport', () => {
       },
     ];
     expect(diagnostics).toHaveLength(2);
-    expect(diagnostics[0].code).toMatch(/^015-/);
-    expect(diagnostics[1].code).toMatch(/^FBK016-/);
+    expect(is015DiagnosticCode(diagnostics[0].code)).toBe(true);
+    expect(isFBK016DiagnosticCode(diagnostics[1].code)).toBe(true);
   });
 });
 
@@ -231,6 +248,48 @@ describe('DiagnosticCode ↔ DiagnosticPipelineStatus', () => {
     for (const [code, st] of pairs) {
       expect(diagnosticCodeFromPipelineStatus(st)).toBe(code);
     }
+  });
+
+  it('DIAGNOSTIC_CODE_FOR_PIPELINE_STATUS согласован с PIPELINE_STATUS_FOR_DIAGNOSTIC', () => {
+    for (const [code, st] of pairs) {
+      expect(DIAGNOSTIC_CODE_FOR_PIPELINE_STATUS[st]).toBe(code);
+    }
+  });
+});
+
+describe('DiagnosticCode ↔ blockers (015 / FBK016)', () => {
+  it('forgeBlockerScenarioFromDiagnosticCode и EPK-база', () => {
+    expect(forgeBlockerScenarioFromDiagnosticCode('015-001')).toBe('015');
+    expect(forgeBlockerEpkBaseForDiagnosticCode('015-001')).toBe(FORGE_STATE_BLOCKER_EPK_ATM_015);
+    expect(forgeBlockerScenarioFromDiagnosticCode('FBK016-003')).toBe('FBK016');
+    expect(forgeBlockerEpkBaseForDiagnosticCode('FBK016-003')).toBe(FORGE_STATE_BLOCKER_EPK_ATM_FBK016);
+  });
+
+  it('composeForgeStateBlockerAtmId + forgeBlockerScenarioFromAtmId', () => {
+    const atm015 = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '042');
+    expect(atm015).toBe('ATM-EPK-260328-015-042');
+    expect(is015ForgeBlockerAtmId(atm015)).toBe(true);
+    expect(isFBK016ForgeBlockerAtmId(atm015)).toBe(false);
+    expect(forgeBlockerScenarioFromAtmId(atm015)).toBe('015');
+
+    const atmFb = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '007');
+    expect(isFBK016ForgeBlockerAtmId(atmFb)).toBe(true);
+    expect(forgeBlockerScenarioFromAtmId(atmFb)).toBe('FBK016');
+    expect(forgeBlockerScenarioFromAtmId('ATM-other')).toBeNull();
+  });
+
+  it('forgeBlockerScenarioFromPipelineStatus', () => {
+    expect(forgeBlockerScenarioFromPipelineStatus('error_015_dep_unresolved')).toBe('015');
+    expect(forgeBlockerScenarioFromPipelineStatus('error_fbk016_timeout')).toBe('FBK016');
+  });
+
+  it('is015DiagnosticPipelineStatus / isFBK016DiagnosticPipelineStatus', () => {
+    expect(is015DiagnosticPipelineStatus('error_015_atom_not_found')).toBe(true);
+    expect(is015DiagnosticPipelineStatus('error_fbk016_rejected')).toBe(false);
+    expect(is015DiagnosticPipelineStatus('success')).toBe(false);
+
+    expect(isFBK016DiagnosticPipelineStatus('error_fbk016_limit_exceeded')).toBe(true);
+    expect(isFBK016DiagnosticPipelineStatus('error_015_atom_corrupted')).toBe(false);
   });
 });
 
