@@ -67,6 +67,7 @@ center-err.txt
 
 # Forge parallel worktrees (git worktree add .forge-worker-N)
 .forge-worker-*/
+.forge-worktrees/
 
 # Extra batch task files
 src/scripts/batch-tasks-*.txt

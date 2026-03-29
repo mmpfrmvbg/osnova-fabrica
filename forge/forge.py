@@ -39,6 +39,9 @@ try:
         build_waves,
         cleanup_wave_worktrees,
         effective_max_parallel,
+        execute_wave_parallel,
+        forge_wave_max_workers,
+        forge_wave_parallel_enabled,
         integrate_wave_branches,
         parallel_workers,
         prepare_wave_worktrees,
@@ -78,6 +81,9 @@ except ImportError:  # pragma: no cover
         build_waves,
         cleanup_wave_worktrees,
         effective_max_parallel,
+        execute_wave_parallel,
+        forge_wave_max_workers,
+        forge_wave_parallel_enabled,
         integrate_wave_branches,
         parallel_workers,
         prepare_wave_worktrees,
@@ -166,11 +172,16 @@ def _execute_atom_with_retries(
             if not fb_raw:
                 fb_raw = forge_dotenv_setting("FORGE_QWEN_QUOTA_FALLBACK", "1").strip()
             fb = fb_raw.lower()
-            if (
-                report.get("forge_retry_executor") == "cursor"
-                and fb not in ("0", "false", "no")
+            want_cursor_fb = (
+                fb not in ("0", "false", "no")
                 and avail.get("cursor")
-            ):
+                and not report.get("forge_done_cmd_invalid")
+                and (
+                    report.get("forge_retry_executor") == "cursor"
+                    or str(report.get("s") or "").strip().upper() == "BLK"
+                )
+            )
+            if want_cursor_fb:
                 LOG.warning("ATM %s — Qwen BLK, falling back to Cursor", aid)
                 why = str(report.get("err") or "").strip() or "(no err in report)"
                 if len(why) > 600:
@@ -179,6 +190,19 @@ def _execute_atom_with_retries(
                 atom["executor"] = "cursor"
                 success, report = run_cursor_atom(atom, dry_run=dry_run)
                 report.pop("forge_retry_executor", None)
+            elif report.get("forge_done_cmd_invalid"):
+                LOG.warning(
+                    "ATM %s — invalid done command paths (ATM_DONE_CMD_INVALID), skipping Cursor fallback",
+                    aid,
+                )
+                report.setdefault(
+                    "review",
+                    {"passed": False, "reason": str(report.get("err") or ""), "elapsed": 0},
+                )
+                _atm_commit_or_process(atom, report, dry_run, defer_process_result)
+                if on_update:
+                    on_update(str(aid or ""), "WARN", report)
+                return report
         else:
             success, report = run_cursor_atom(atom, dry_run=dry_run)
         LOG.info(
@@ -217,7 +241,7 @@ def _execute_atom_with_retries(
         hlog(
             "atm_blk",
             atm_id=aid,
-            reason=str(report.get("err") or report.get("review") or "BLK")[:120],
+            reason=str(report.get("err") or report.get("review") or "BLK"),
         )
         kind = classify_blk(
             exec_report_ok=exec_report_ok,
@@ -650,6 +674,47 @@ def _process_epic(
                 len(waves),
                 [a.get("id") for a in wave],
             )
+            if forge_wave_parallel_enabled() and len(wave) > 1 and not dry_run:
+
+                def _wave_run(atom: dict[str, Any], cwd: Path) -> dict[str, Any]:
+                    defer = cwd.resolve() != project.resolve()
+                    return _execute_atom_with_retries(
+                        atom,
+                        epic,
+                        state,
+                        dry_run,
+                        avail,
+                        epic_issue,
+                        atm_total,
+                        on_update=on_update,
+                        defer_process_result=defer,
+                    )
+
+                wave_reports = execute_wave_parallel(
+                    wave,
+                    wi,
+                    epic,
+                    project,
+                    _wave_run,
+                    max_workers=forge_wave_max_workers(),
+                    dry_run=dry_run,
+                )
+                for rep in wave_reports:
+                    results.append(rep)
+                if not dry_run:
+                    subprocess.run(
+                        ["git", "push", "origin", "main"],
+                        cwd=project,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        check=False,
+                        **SUBPROCESS_TEXT,
+                    )
+                for atom, rep in zip(wave, wave_reports, strict=True):
+                    process_result(atom, rep, dry_run=dry_run, state_only=True)
+                continue
+
             use_parallel = (
                 not dry_run
                 and len(wave) > 1

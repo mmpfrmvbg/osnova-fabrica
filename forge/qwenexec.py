@@ -28,6 +28,7 @@ try:
         resolve_executable,
         setup_logging,
     )
+    from forge.done_paths import check_done_cmd_paths
     from forge.qwenbudget import (
         can_call_executor,
         is_quota_exhausted_output,
@@ -43,6 +44,7 @@ except ImportError:  # pragma: no cover
         resolve_executable,
         setup_logging,
     )
+    from done_paths import check_done_cmd_paths
     from qwenbudget import (
         can_call_executor,
         is_quota_exhausted_output,
@@ -427,6 +429,27 @@ def run_atom(atom: dict[str, Any], dry_run: bool = False) -> tuple[bool, dict[st
             output_tail=json.dumps(result, ensure_ascii=False)[:2000],
         )
     if delta <= 0:
+        done_str = (atom.get("done") or "").strip()
+        if done_str:
+            missing = check_done_cmd_paths(done_str, project)
+            if missing:
+                LOG.warning(
+                    "ATM %s done-cmd references nonexistent path(s) %s and zero delta "
+                    "— skipping Cursor fallback (ATM_DONE_CMD_INVALID)",
+                    atom_id,
+                    missing,
+                )
+                report_invalid: dict[str, Any] = {
+                    "v": 5,
+                    "t": "RPT",
+                    "id": atom_id,
+                    "s": "WARN",
+                    "err": f"ATM_DONE_CMD_INVALID: done-cmd references missing files: {missing}",
+                    "forge_done_cmd_invalid": True,
+                    "changed": [],
+                }
+                _write_report(project, atom_id, report_invalid)
+                return False, report_invalid
         try:
             from forge.reviewer import run_atom_done_subprocess
         except ImportError:  # pragma: no cover

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 from datetime import datetime
@@ -17,6 +18,19 @@ except ImportError:  # pragma: no cover
 
 _last_vitest_total: int = 0
 _epic_tests_before: int = 0
+
+LOG_DBG = logging.getLogger(__name__)
+
+
+def _reason_for_display(reason: str | None, *, atm_id: str | None, event: str) -> str:
+    r = (reason or "").strip()
+    if len(r) <= 200:
+        return r
+    if atm_id:
+        LOG_DBG.debug("ATM %s full %s reason: %s", atm_id, event, r)
+    else:
+        LOG_DBG.debug("full %s reason: %s", event, r)
+    return r[:200] + "…"
 
 try:
     from colorama import Fore, Style, init as colorama_init
@@ -101,18 +115,20 @@ def _format_message(event: str, **kwargs: Any) -> str:
         e = int(kwargs.get("elapsed_s") or 0)
         return f"✅ [{t}] Ревью пройдено ({e} сек)"
     if event == "review_fail":
-        reason = (kwargs.get("reason") or "")[:80]
+        aid = kwargs.get("atm_id")
+        reason = _reason_for_display(kwargs.get("reason"), atm_id=str(aid) if aid is not None else None, event="review_fail")
         e = int(kwargs.get("elapsed_s") or 0)
         return f"❌ [{t}] Ревью не пройдено: {reason} ({e} сек)"
     if event == "review_skip":
-        reason = (kwargs.get("reason") or "")[:120]
+        aid = kwargs.get("atm_id")
+        reason = _reason_for_display(kwargs.get("reason"), atm_id=str(aid) if aid is not None else None, event="review_skip")
         return f"⚠️  [{t}] Ревью пропущено — {reason}. Авто-PASS (тесты зелёные)."
     if event == "atm_ok":
         e = int(kwargs.get("elapsed_s") or 0)
         return f"✅ [{t}] Задача выполнена ({e} сек)"
     if event == "atm_blk":
         aid = kwargs.get("atm_id", "?")
-        reason = (kwargs.get("reason") or "")[:120]
+        reason = _reason_for_display(kwargs.get("reason"), atm_id=str(aid), event="atm_blk")
         return f"❌ [{t}] Задача заблокирована: {reason} — {aid}"
     if event == "epic_done":
         eid = kwargs.get("epic_id", "?")

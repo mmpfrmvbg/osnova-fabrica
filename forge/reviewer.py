@@ -420,7 +420,7 @@ def review(
             if passed:
                 _hl.hlog("review_pass", atm_id=aid, elapsed_s=elapsed)
             else:
-                _hl.hlog("review_fail", atm_id=aid, reason=(reason or "")[:80], elapsed_s=elapsed)
+                _hl.hlog("review_fail", atm_id=aid, reason=(reason or ""), elapsed_s=elapsed)
         except Exception:
             pass
         return passed, _stored_review_reason(reason), elapsed
@@ -470,7 +470,7 @@ def review(
                 _hl.hlog(
                     "review_fail",
                     atm_id=aid,
-                    reason=(llm_reason or "")[:80],
+                    reason=(llm_reason or ""),
                     elapsed_s=elapsed,
                 )
         except Exception:

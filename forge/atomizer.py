@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ try:
         cursor_cli_available,
         cursor_headless_argv,
         env_paths,
+        find_cursor_agent_node_bundle,
         qwen_headless_argv,
         resolve_executable,
         setup_logging,
@@ -28,6 +30,7 @@ except ImportError:  # pragma: no cover
         cursor_cli_available,
         cursor_headless_argv,
         env_paths,
+        find_cursor_agent_node_bundle,
         qwen_headless_argv,
         resolve_executable,
         setup_logging,
@@ -355,7 +358,6 @@ def _run_cursor_atomizer(prompt: str, timeout: int) -> subprocess.CompletedProce
     """Invoke Cursor agent for atomizer; prefer stdin for long prompts on Windows."""
     use_stdin = _atomizer_use_stdin()
     proj = env_paths()["OSNOVA_PROJECT"]
-    argv = cursor_headless_argv("", workspace=proj, use_stdin=use_stdin)
     kw: dict[str, Any] = {
         "capture_output": True,
         "text": True,
@@ -363,6 +365,23 @@ def _run_cursor_atomizer(prompt: str, timeout: int) -> subprocess.CompletedProce
         "check": False,
         **SUBPROCESS_TEXT,
     }
+    if sys.platform == "win32":
+        bundle = find_cursor_agent_node_bundle()
+        if bundle:
+            node_exe, index_js = bundle
+            tail: list[str] = ["-p", "--yolo", "--trust", "--workspace", str(proj)]
+            model = os.environ.get("FORGE_ATOMIZER_CURSOR_MODEL", "").strip()
+            if model and model not in ("_", "-"):
+                tail.extend(["--model", model])
+            if use_stdin:
+                tail.append("-")
+                kw["input"] = prompt
+            else:
+                tail.append(prompt)
+                kw["stdin"] = subprocess.DEVNULL
+            argv = [str(node_exe), str(index_js), *tail]
+            return subprocess.run(argv, **kw)
+    argv = cursor_headless_argv("", workspace=proj, use_stdin=use_stdin)
     if use_stdin:
         kw["input"] = prompt
     else:

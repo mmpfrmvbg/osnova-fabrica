@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import tempfile
 import urllib.error
 import urllib.request
@@ -73,10 +74,30 @@ def _load_dotenv_defaults() -> dict[str, str]:
     return data
 
 
+_tls = threading.local()
+
+
+def set_thread_project(path: str | None) -> None:
+    """Per-thread override for ``OSNOVA_PROJECT`` (e.g. parallel wave worktrees). ``None`` clears."""
+    if path is None:
+        if hasattr(_tls, "osnova_project"):
+            delattr(_tls, "osnova_project")
+    else:
+        _tls.osnova_project = path
+
+
+def get_thread_project() -> str | None:
+    return getattr(_tls, "osnova_project", None)
+
+
 def env_paths() -> dict[str, str]:
     dot = _load_dotenv_defaults()
     home = os.path.expanduser("~")
-    project = os.environ.get("OSNOVA_PROJECT", dot.get("OSNOVA_PROJECT", os.path.join(home, "osnova-fabrica")))
+    thread_proj = get_thread_project()
+    if thread_proj is not None and str(thread_proj).strip():
+        project = str(thread_proj).strip()
+    else:
+        project = os.environ.get("OSNOVA_PROJECT", dot.get("OSNOVA_PROJECT", os.path.join(home, "osnova-fabrica")))
     forge = os.environ.get("OSNOVA_FORGE", dot.get("OSNOVA_FORGE", "/opt/osnova-forge"))
     ghrepo = (
         os.environ.get("GHREPO")
