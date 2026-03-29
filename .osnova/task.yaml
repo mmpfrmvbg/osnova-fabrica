@@ -1,30 +1,29 @@
-id: ATM-EPK-260328-016-006
+id: ATM-EPK-260328-016-007
 epic: EPK-260328-016
-seq: 6
-zone: agents
-risk: LOW
+seq: 7
+zone: pipeline
+risk: HIGH
 executor: cursor
-goal: Консолидировать тесты agents — убедиться passrate ≥ 0.8
+goal: Диагностика интеграции pipeline с agents — выявление разрывов после восстановления
+  агентов
 scope:
-- src/agents/agents.test.ts
-- src/agents/intake-agent.ts
-- src/agents/plan-agent.ts
-- src/agents/exec-agent.ts
-- src/agents/review-agent.ts
-notouch: []
+- src/pipeline/pipeline.ts
+- src/pipeline/pipeline.test.ts
+- src/agents/agents.test.ts — как референс
+notouch:
+- src/runtime/vm.ts
+- src/runtime/interpreter.ts
+- src/compiler/compiler.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Запустить npx vitest run src/agents/
-- Зафиксировать итоговый passrate
-- При passrate < 0.8 — добить остаточные failures
+- Запустить npx vitest run src/pipeline/
+- Идентифицировать failures, связанные с agents integration
+- Сопоставить с исправлениями из ATM 2-5
 deps:
-- ATM-EPK-260328-016-002
-- ATM-EPK-260328-016-003
-- ATM-EPK-260328-016-004
-- ATM-EPK-260328-016-005
+- ATM-EPK-260328-016-006
 maxiter: 3
 retries: 0
 status: done
 priority: P0
 max_retries: 3
-review_base_sha: b980ca6212ef073f2ff7766cb279e8f62537c31d
+review_base_sha: 8c67aa2aecb31c76760dd86746285244aef56ad7
