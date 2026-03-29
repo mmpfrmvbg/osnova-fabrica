@@ -1,0 +1,21 @@
+id: ATM-003
+epic: EPK-260329-019
+seq: 3
+zone: config
+risk: HIGH
+executor: qwen
+goal: Исправить package.json зависимости блокирующие сборку
+scope:
+- package.json
+notouch: []
+done: npx vitest run package.test.ts
+steps:
+- Обновить vitest до совместимой версии
+- Проверить peer dependencies typescript и eslint
+- Исправить конфликты версий в devDependencies
+deps:
+- ATM-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

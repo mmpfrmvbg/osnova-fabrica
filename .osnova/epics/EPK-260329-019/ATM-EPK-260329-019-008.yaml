@@ -1,23 +1,20 @@
 id: ATM-EPK-260329-019-008
 epic: EPK-260329-019
 seq: 8
-zone: runtime
-risk: LOW
+zone: lang
+risk: MEDIUM
 executor: qwen
-goal: Устранить TypeScript-ошибки в vm.ts (OsVbcVM и PIPELINE_VM_GLOBAL_KEYS)
+goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
+  (серии 015 и FBK016) (part 8/8: src/pipeline/index.ts)'
 scope:
-- src/runtime/vm.ts
-notouch:
-- src/runtime/interpreter.ts
-- src/runtime/vm/bytecode.ts
-done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+- src/pipeline/index.ts
+notouch: []
+done: npx vitest run src/
 steps:
-- Проверить типы OsVbcVMOptions, OsVbcExecuteOptions
-- Исправить импорты из pipeline/types
-- Запустить tsc --noEmit для проверки
+- Implement changes in src/pipeline/index.ts
 deps:
-- ATM-EPK-260329-019-001
+- ATM-EPK-260329-019-007
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0

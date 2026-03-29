@@ -1,23 +1,8 @@
-import { platform } from 'node:os';
-
 import { defineConfig } from 'vitest/config';
-
-// Windows: Vitest from Python/subprocess sometimes collects all *.test.ts as empty suites
-// ("No test suite found"). forks + singleFork + no file-parallelism avoids tinypool quirks.
-const isWin = platform() === 'win32';
 
 export default defineConfig({
   test: {
-    pool: isWin ? 'forks' : 'threads',
-    ...(isWin
-      ? {
-          // isolate: true — иначе при isolate: false один vi.mock('../llm/index') (intake-agent.test)
-          // перекрывает мок в другом файле (RepairEngineer.test), complete() зависает по таймауту.
-          isolate: true,
-          fileParallelism: false,
-          poolOptions: { forks: { singleFork: true } },
-        }
-      : {}),
+    pool: 'vmThreads',
     retry: 2,
     // Root vitest should only validate the core compiler/runtime in /src.
     // Osiris has its own job + its own dependency install in CI.

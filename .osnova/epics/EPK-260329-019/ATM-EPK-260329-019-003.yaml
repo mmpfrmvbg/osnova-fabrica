@@ -1,22 +1,19 @@
 id: ATM-EPK-260329-019-003
 epic: EPK-260329-019
 seq: 3
-zone: agents
+zone: lang
 risk: MEDIUM
 executor: qwen
-goal: Устранить TypeScript-ошибки в plan-agent.ts (типы и импорты)
+goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
+  (серии 015 и FBK016) (part 3/8: vitest.config.ts)'
 scope:
-- src/agents/plan-agent.ts
-notouch:
-- src/compiler/compiler.ts
-- src/pipeline/types.ts
-done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+- vitest.config.ts
+notouch: []
+done: npx vitest run src/
 steps:
-- Проверить импорты Compiler и типы
-- Исправить типы ExecutionPlan, PipelinePhase, PlanStep
-- Запустить tsc --noEmit для проверки
+- Implement changes in vitest.config.ts
 deps:
-- ATM-EPK-260329-019-001
+- ATM-EPK-260329-019-002
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,0 +1,25 @@
+id: ATM-015
+epic: EPK-260329-019
+seq: 15
+zone: ci
+risk: HIGH
+executor: qwen
+goal: Запуск полного ci пайплайна для проверки всех исправлений
+scope:
+- vitest.config.ts
+notouch: []
+done: npm run ci
+steps:
+- Запустить npm run ci
+- Зафиксировать оставшиеся ошибки
+- Подготовить отчет по серии 015 и FBK016
+deps:
+- ATM-004
+- ATM-010
+- ATM-012
+- ATM-013
+- ATM-014
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

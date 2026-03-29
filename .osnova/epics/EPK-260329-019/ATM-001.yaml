@@ -1,0 +1,20 @@
+id: ATM-001
+epic: EPK-260329-019
+seq: 1
+zone: diagnostics
+risk: P0
+executor: qwen
+goal: Диагностика корневых причин 14 блокеров через анализ логов и статусов
+scope:
+- src/pipeline/types.ts
+notouch: []
+done: npx vitest run src/pipeline/types.test.ts
+steps:
+- Добавить интерфейс DiagnosticReport для сбора статусов ошибок
+- Расширить PipelineStatus типами ошибок серий 015 и FBK016
+- Экспортировать типы для использования в agents и runtime
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

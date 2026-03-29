@@ -1,22 +1,18 @@
 id: ATM-EPK-260329-019-004
 epic: EPK-260329-019
 seq: 4
-zone: agents
+zone: lang
 risk: MEDIUM
 executor: qwen
-goal: Устранить TypeScript-ошибки в exec-agent.ts (ExecContext и PhaseRunner)
+goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
+  (серии 015 и FBK016) (part 4/8: src/pipeline/types.ts)'
 scope:
-- src/agents/exec-agent.ts
-notouch:
-- src/agents/plan-agent.ts
-- src/runtime/vm.ts
-done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+- src/pipeline/types.ts
+notouch: []
+done: npx vitest run src/
 steps:
-- Проверить типы ExecContext, PhaseRunResult
-- Исправить импорты из plan-agent и vm
-- Запустить tsc --noEmit для проверки
+- Implement changes in src/pipeline/types.ts
 deps:
-- ATM-EPK-260329-019-002
 - ATM-EPK-260329-019-003
 maxiter: 3
 retries: 0

@@ -1,25 +1,18 @@
 id: ATM-EPK-260329-019-006
 epic: EPK-260329-019
 seq: 6
-zone: pipeline
+zone: lang
 risk: MEDIUM
 executor: qwen
-goal: Устранить TypeScript-ошибки в pipeline.ts (импорты агентов)
+goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
+  (серии 015 и FBK016) (part 6/8: src/runtime/index.ts)'
 scope:
-- src/pipeline/pipeline.ts
-notouch:
-- src/agents/IntakeAgent.ts
-- src/agents/OsnovaCodegen.ts
-- src/agents/RepairEngineer.ts
-done: npx vitest run src/pipeline/pipeline.test.ts --reporter=verbose
+- src/runtime/index.ts
+notouch: []
+done: npx vitest run src/
 steps:
-- Проверить импорты из agents/
-- Исправить типы PipelineResult, BuildReport, GoldenReport
-- Запустить tsc --noEmit для проверки
+- Implement changes in src/runtime/index.ts
 deps:
-- ATM-EPK-260329-019-002
-- ATM-EPK-260329-019-003
-- ATM-EPK-260329-019-004
 - ATM-EPK-260329-019-005
 maxiter: 3
 retries: 0

@@ -1,0 +1,22 @@
+id: ATM-010
+epic: EPK-260329-019
+seq: 10
+zone: pipeline
+risk: HIGH
+executor: qwen
+goal: Добавить самовосстановление пайплайна при ошибках
+scope:
+- src/pipeline/index.ts
+notouch: []
+done: npx vitest run src/pipeline/recovery.test.ts
+steps:
+- Реализовать retry механизм для сбойных этапов
+- Добавить fallback обработчики для серии 015
+- Интегрировать с DiagnosticReport из types
+deps:
+- ATM-009
+- ATM-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

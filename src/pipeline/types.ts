@@ -4,6 +4,31 @@
 // ВСЕ артефакты пайплайна описаны здесь.
 // ============================================================
 
+// ─── Диагностика ошибок ───
+
+/** Код ошибки пайплайна: серия 015 (атомы) и FBK016 (обратная связь). */
+export type DiagnosticCode =
+  | '015-001'  // атом не найден
+  | '015-002'  // атом повреждён
+  | '015-003'  // зависимость атома не разрешена
+  | 'FBK016-001'  // обратная связь отклонена
+  | 'FBK016-002'  // таймаут обратной связи
+  | 'FBK016-003'; // лимит попыток обратной связи превышен
+
+/** Статус ошибки диагностики. */
+export type DiagnosticStatus = 'blocked' | 'resolved' | 'ignored';
+
+/** Отчёт о диагностике ошибки для сбора статусов. */
+export interface DiagnosticReport {
+  readonly code: DiagnosticCode;
+  readonly status: DiagnosticStatus;
+  readonly message: string;
+  readonly phase?: string;
+  readonly atomId?: string;
+  readonly retryCount?: number;
+  readonly timestamp: string;
+}
+
 // ─── Входные данные ───
 
 export interface RawText {
@@ -161,7 +186,18 @@ export interface PlanAgentBuildOptions {
 
 // ─── Результат всего прогона ───
 
-export type PipelineStatus = 'success' | 'partial' | 'repair_exhausted' | 'error';
+/** Статус пайплайна с учётом ошибок серий 015 и FBK016. */
+export type PipelineStatus =
+  | 'success'
+  | 'partial'
+  | 'repair_exhausted'
+  | 'error'
+  | 'error_015_atom_not_found'
+  | 'error_015_atom_corrupted'
+  | 'error_015_dep_unresolved'
+  | 'error_fbk016_rejected'
+  | 'error_fbk016_timeout'
+  | 'error_fbk016_limit_exceeded';
 
 export interface PipelineResult {
   readonly status: PipelineStatus;
@@ -175,4 +211,6 @@ export interface PipelineResult {
   /** Shadow Mode: hits по RFC-002 / RFC-003 (не влияет на логику) */
   readonly shadow_hits?: import('./shadowMode').ShadowHit[];
   readonly error?: string;
+  /** Диагностика ошибок серий 015 и FBK016 */
+  readonly diagnostics?: readonly DiagnosticReport[];
 }

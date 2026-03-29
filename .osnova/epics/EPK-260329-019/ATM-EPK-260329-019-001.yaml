@@ -1,20 +1,19 @@
 id: ATM-EPK-260329-019-001
 epic: EPK-260329-019
 seq: 1
-zone: agents
-risk: LOW
+zone: lang
+risk: MEDIUM
 executor: qwen
-goal: Диагностика TypeScript-ошибок в src/agents/ и src/pipeline/
+goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
+  (серии 015 и FBK016) (part 1/8: tsconfig.json)'
 scope:
-- src/agents/intake-agent.ts
+- tsconfig.json
 notouch: []
-done: npx tsc --noEmit > diagnostics.log 2>&1
+done: npx vitest run src/
 steps:
-- Запустить tsc --noEmit для src/agents/ и src/pipeline/
-- Сохранить вывод в лог-файл diagnostics.log
-- Классифицировать ошибки по файлам (intake, plan, exec, review, pipeline)
+- Implement changes in tsconfig.json
 deps: []
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0

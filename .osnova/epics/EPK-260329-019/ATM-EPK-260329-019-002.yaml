@@ -1,20 +1,17 @@
 id: ATM-EPK-260329-019-002
 epic: EPK-260329-019
 seq: 2
-zone: agents
+zone: lang
 risk: MEDIUM
 executor: qwen
-goal: Устранить TypeScript-ошибки в intake-agent.ts (импорты и типы)
+goal: 'P0 self-fix: диагностика и устранение корневых причин 14 открытых блокеров
+  (серии 015 и FBK016) (part 2/8: package.json)'
 scope:
-- src/agents/intake-agent.ts
-notouch:
-- src/agents/IntakeAgent.ts
-- src/runtime/vm.ts
-done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+- package.json
+notouch: []
+done: npx vitest run src/
 steps:
-- Проверить экспорты из ./IntakeAgent
-- Исправить пути импортов и типы
-- Запустить tsc --noEmit для проверки
+- Implement changes in package.json
 deps:
 - ATM-EPK-260329-019-001
 maxiter: 3

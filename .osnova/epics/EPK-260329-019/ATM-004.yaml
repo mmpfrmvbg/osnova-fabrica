@@ -1,0 +1,22 @@
+id: ATM-004
+epic: EPK-260329-019
+seq: 4
+zone: config
+risk: MEDIUM
+executor: qwen
+goal: Настроить vitest.config.ts для корректного запуска тестов
+scope:
+- vitest.config.ts
+notouch: []
+done: npx vitest run vitest.config.test.ts
+steps:
+- Добавить alias для src/ путей
+- Настроить coverage для pipeline и compiler модулей
+- Исправить проблемы с tsconfig paths
+deps:
+- ATM-002
+- ATM-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

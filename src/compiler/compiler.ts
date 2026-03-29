@@ -16,6 +16,7 @@ import { analyzeProgram, type SemanticError } from './semantic';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { BuildReport } from '../pipeline/types';
 
 export interface CompileResult {
   /** Скомпилированный модуль — null если есть ошибки */
@@ -528,4 +529,33 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       durationMs: Date.now() - start,
     };
   }
+}
+
+/**
+ * Адаптер: CompileResult (src/compiler/compiler.ts) → BuildReport (src/pipeline/types.ts).
+ * Вынесено из orchestrator.ts для избежания циклических зависимостей в тестах.
+ *
+ * Разница:
+ *   CompileResult.module      → BuildReport.bytecode
+ *   + добавляет BuildReport.success = compilerSuccess && lexerErrors.length === 0
+ */
+export function compileToBuildReport(r: CompileResult): BuildReport {
+  const blockingSemanticErrors = (r.semanticErrors ?? []).filter(
+    e => ['undeclared_var', 'duplicate_decl', 'type_mismatch', 'invalid_return'].includes(e.kind),
+  );
+  return {
+    success:
+      r.compilerSuccess &&
+      r.lexerErrors.length === 0 &&
+      r.parserErrors.length === 0 &&
+      blockingSemanticErrors.length === 0,
+    lexerErrors: r.lexerErrors,
+    parserErrors: r.parserErrors,
+    compilerErrors: r.compilerErrors,
+    semanticErrors: r.semanticErrors ?? [],
+    semanticErrorCount: (r.semanticErrors ?? []).length,
+    bytecode: r.module ?? null,
+    compilerSuccess: r.compilerSuccess,
+    durationMs: r.durationMs,
+  };
 }

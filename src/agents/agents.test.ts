@@ -2,9 +2,16 @@
  * Unit and integration tests for IntakeAgent, PlanAgent, ExecAgent, and ReviewAgent.
  * Integration scenarios: full-cycle simulation (validate → plan → execute → review) and error propagation in the chain.
  */
-import { describe, it, expect } from 'vitest';
-import { compileSource } from '../compiler/compiler';
-import { compileToBuildReport } from '../pipeline/orchestrator';
+import { describe, it, expect, vi } from 'vitest';
+
+// Mock LLM provider to avoid real API calls during tests
+vi.mock('../llm/index', () => ({
+  getLLMProvider: () => ({
+    complete: async () => ({ content: '{"intent":"test","confidence":0.9,"language":"osnova","features":["test"],"appType":"утилита"}', model: 'mock', done: true }),
+  }),
+}));
+
+import { compileSource, compileToBuildReport } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
 import { IntakeAgent, SpecValidationError, parseLlmConfidence } from './IntakeAgent';
 import { PlanAgent, PlanValidationError, isValidPhaseTransition } from './plan-agent';
@@ -12,7 +19,7 @@ import { ExecAgent, createPipelineVmFromExecContext, type ExecContext } from './
 import { PIPELINE_VM_GLOBAL_KEYS } from '../runtime/vm';
 import { ReviewAgent } from './review-agent';
 import { IntakeValidationError } from './types';
-import type { OsnovaIntent, OsnovaSpec, RawText } from '../pipeline/types';
+import type { OsnovaIntent, OsnovaSpec, RawText, ExecutionPlan } from '../pipeline/types';
 
 function sampleIntent(over: Partial<OsnovaIntent> = {}): OsnovaIntent {
   return {
