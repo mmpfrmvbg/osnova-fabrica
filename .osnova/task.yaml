@@ -1,10 +1,10 @@
-id: ATM-EPK-260328-FBK016-008
+id: ATM-EPK-260328-FBK016-010
 epic: EPK-260328-FBK016
-seq: 8
+seq: 10
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Исправить тесты в src/pipeline/pipeline.test.ts для корректного exit code
+goal: Добавить тест на интеграцию VM контракта в src/pipeline/pipeline.test.ts
 scope:
 - src/pipeline/pipeline.test.ts
 notouch:
@@ -14,14 +14,16 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Выявить тесты с ложноположительным статусом
-- Добавить проверки на фактический результат VM
-- Устранить swallow ошибок
+- Создать тест applyPipelineSpecToVm с моком OsnovaSpec
+- Проверить установку PIPELINE_VM_GLOBAL_KEYS
+- Верифицировать ExecContext связь
 deps:
-- ATM-EPK-260328-FBK016-002
+- ATM-EPK-260328-FBK016-005
+- ATM-EPK-260328-FBK016-006
+- ATM-EPK-260328-FBK016-007
 maxiter: 3
 retries: 0
-status: done
+status: in_progress
 priority: P2
 max_retries: 3
-review_base_sha: 7d7d3f3877b174f200347a6cbeb6715a75ecbd10
+review_base_sha: 1438c7f7d11c1ff375f6b0be9072c46cebf3d722

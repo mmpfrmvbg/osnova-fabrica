@@ -336,10 +336,10 @@ zones:
     done: 0
     blk: 0
 budget:
-  qwenusedtoday: 192
+  qwenusedtoday: 1
   qwenlimit: 900
   cursortaskstoday: 0
-  qwenatomizerusedtoday: 14
+  qwenatomizerusedtoday: 0
   qwenatomizerlimit: 200
 zonemap:
   lang:

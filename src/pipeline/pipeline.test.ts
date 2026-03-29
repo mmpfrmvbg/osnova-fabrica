@@ -12,9 +12,10 @@
  *
  * --- Глобальные ключи (`PIPELINE_VM_GLOBAL_KEYS`, `applyPipelineSpecToVm`) ---
  * `runGoldenCheck` → {@link createGoldenCheckVm} вызывает `applyPipelineSpecToVm`; контракт syscall
- * `система.пайплайн.*` и сами ключи покрыты в `src/runtime/vm.test.ts`. В этом файле E2E не
- * ассертит значения `vm.globals` и не дергает `система.пайплайн.*` — мок-код использует только
- * `система.лог.вывести`.
+ * `система.пайплайн.*` и сами ключи покрыты в `src/runtime/vm.test.ts`. Отдельно в этом файле —
+ * интеграционный тест `applyPipelineSpecToVm` + {@link import("../agents/exec-agent").createPipelineVmFromExecContext}
+ * (мок {@link OsnovaSpec}, проверка `PIPELINE_VM_GLOBAL_KEYS`). E2E сценарии по-прежнему не дергают
+ * `система.пайплайн.*` — мок-код использует только `система.лог.вывести`.
  *
  * Карта сценариев (VM / отчёт):
  * - Реальная VM + полный отчёт: успешные `Pipeline.run` / `runPipelineWithExecAgent`, ReviewAgent,
@@ -43,7 +44,8 @@ import { IntakeAgent } from '../agents/IntakeAgent';
 import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { ReviewAgent } from '../agents/review-agent';
 import { PlanAgent } from '../agents/plan-agent';
-import type { ExecContext } from '../agents/exec-agent';
+import { createPipelineVmFromExecContext, type ExecContext } from '../agents/exec-agent';
+import { applyPipelineSpecToVm, OsVbcVM, PIPELINE_VM_GLOBAL_KEYS } from '../runtime/vm';
 import {
   ALL_DIAGNOSTIC_PIPELINE_STATUSES,
   SPEC_BUILD_DURATION_WARN_MS,
@@ -178,6 +180,63 @@ async function assertVmReturnValueIsSum1To10(bytecode: unknown, spec: OsnovaSpec
   expect(report.qualityScore, 'полный набор проверок без пропусков').toBe(1);
   expect(report.outputDiff, 'при несовпадении return был бы JSON с vmReturnDiff').toBeNull();
 }
+
+describe('VM: applyPipelineSpecToVm + ExecContext (интеграция контракта)', () => {
+  it('applyPipelineSpecToVm выставляет PIPELINE_VM_GLOBAL_KEYS; тот же снимок через createPipelineVmFromExecContext', () => {
+    const osnovaSource = `
+модуль Главный
+процедура главная()
+  вернуть 42
+конец
+`.trim();
+    const compiled = compileSource(osnovaSource);
+    expect(compiled.compilerSuccess).toBe(true);
+    expect(compiled.module).toBeTruthy();
+
+    const mockSpec: OsnovaSpec = {
+      specId: 'ATM-FBK016-mock-spec',
+      modules: [{ name: 'Главный', description: 'Mock', isMain: true }],
+      mainModule: 'главная',
+      types: [],
+      procedures: [{ name: 'главная', params: {}, returnType: 'Целое' }],
+      syscalls: [],
+      conventions: {},
+      expectedReturnValue: 42,
+    };
+
+    const vmDirect = new OsVbcVM(compiled.module!, {});
+    applyPipelineSpecToVm(vmDirect, mockSpec);
+    expect(vmDirect.globals[PIPELINE_VM_GLOBAL_KEYS.SPEC_ID]).toBe(mockSpec.specId);
+    expect(vmDirect.globals[PIPELINE_VM_GLOBAL_KEYS.MAIN_MODULE]).toBe(mockSpec.mainModule);
+    expect(vmDirect.globals[PIPELINE_VM_GLOBAL_KEYS.EXPECT_RETURN]).toBe(42);
+
+    const ctx: ExecContext = {
+      repairAttempts: 0,
+      spec: mockSpec,
+      buildReport: {
+        success: true,
+        lexerErrors: [],
+        parserErrors: [],
+        compilerErrors: [],
+        semanticErrors: [],
+        bytecode: compiled.module!,
+        compilerSuccess: true,
+        durationMs: 1,
+      },
+    };
+    const vmFromExec = createPipelineVmFromExecContext(ctx);
+    expect(vmFromExec).not.toBeNull();
+    expect(vmFromExec!.globals[PIPELINE_VM_GLOBAL_KEYS.SPEC_ID]).toBe(
+      vmDirect.globals[PIPELINE_VM_GLOBAL_KEYS.SPEC_ID],
+    );
+    expect(vmFromExec!.globals[PIPELINE_VM_GLOBAL_KEYS.MAIN_MODULE]).toBe(
+      vmDirect.globals[PIPELINE_VM_GLOBAL_KEYS.MAIN_MODULE],
+    );
+    expect(vmFromExec!.globals[PIPELINE_VM_GLOBAL_KEYS.EXPECT_RETURN]).toBe(
+      vmDirect.globals[PIPELINE_VM_GLOBAL_KEYS.EXPECT_RETURN],
+    );
+  });
+});
 
 describe('оркестрация — успешный прогон (инварианты)', () => {
   it('оба фасада: success, totalDurationMs > 0, shadow_hits — массив', async () => {
