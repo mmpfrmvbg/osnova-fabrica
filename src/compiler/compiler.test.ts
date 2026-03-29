@@ -401,14 +401,29 @@ describe("Spec (ATM-EPK-260329-023-009): реестр языка ↔ лексе�
 });
 
 /**
- * Интеграция с пайплайном: `orchestrator.compileToBuildReport(compileSource(...))` — тот же мост
- * CompileResult → BuildReport, что использует runPipeline перед golden / выполнением.
+ * ATM-EPK-260328-014-012: интеграция с runtime pipeline — `compileToBuildReport(compileSource(...))`
+ * — тот же мост CompileResult → BuildReport, что использует orchestrator перед golden / выполнением.
  * После успешной сборки байткод гоняется в VM (как при проверке приложений).
  *
- * Passrate рантайма (`npx vitest run src/runtime/`): по состоянию на 2026-03-28 — 89/89 (100%),
- * порог ATM > 0.8 выполнен.
+ * Passrate рантайма (`npx vitest run src/runtime/`): по состоянию на 2026-03-29 — 118/118 (100%);
+ * порог ATM > 0.8 выполнен (проверено командой `done` атома).
  */
 describe("Compiler ↔ runtime pipeline (compileToBuildReport + VM)", () => {
+  it("buildReport.bytecode — тот же объект OsVbcModule, что и CompileResult.module", () => {
+    const src = `
+модуль ТестСсылка
+процедура главная()
+  вернуть 0
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.compilerSuccess).toBe(true);
+    expect(cr.module).toBeTruthy();
+    const report = compileToBuildReport(cr);
+    expect(report.success).toBe(true);
+    expect(report.bytecode).toBe(cr.module);
+  });
+
   it("успех: buildReport.success, bytecode в VM → ожидаемый результат", async () => {
     const src = `
 модуль ТестПайплайн

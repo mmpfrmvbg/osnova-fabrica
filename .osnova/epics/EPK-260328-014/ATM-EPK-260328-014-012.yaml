@@ -14,9 +14,12 @@ steps:
 - Проверить passrate > 0.8 через npx vitest run src/runtime/
 - Задокументировать результаты в комментарии к тесту
 deps:
-- 10
-- 11
+- ATM-EPK-260328-014-010
+- ATM-EPK-260328-014-011
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: 278aef20a602593ce9142c869ad2f7bca7e1a873
+produced_files: []

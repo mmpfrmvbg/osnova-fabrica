@@ -1,23 +1,24 @@
-id: ATM-EPK-260328-014-011
+id: ATM-EPK-260328-014-012
 epic: EPK-260328-014
-seq: 11
-zone: src/compiler/compiler.ts
+seq: 12
+zone: src/compiler/compiler.test.ts
 risk: LOW
 executor: cursor
-goal: Обновить компилятор для генерации байткода совместимого с runtime VM
+goal: Обновить тесты компилятора для интеграции с runtime pipeline
 scope:
-- src/compiler/compiler.ts
+- src/compiler/compiler.test.ts
 notouch: []
 done: npx vitest run src/runtime/
 steps:
-- Проверить соответствие генерируемых OpCode инструкциям interpreter.ts
-- Добавить генерацию инструкций для исключений если отсутствует
-- Обновить сигнатуры функций для совместимости с VM API
+- Добавить тесты компиляции с последующим выполнением в VM
+- Проверить passrate > 0.8 через npx vitest run src/runtime/
+- Задокументировать результаты в комментарии к тесту
 deps:
-- ATM-EPK-260328-014-007
+- ATM-EPK-260328-014-010
+- ATM-EPK-260328-014-011
 maxiter: 3
 retries: 0
 status: done
 priority: P1
 max_retries: 3
-review_base_sha: bb0752ef3fd365a84cc77424673ade3869bb0d24
+review_base_sha: 278aef20a602593ce9142c869ad2f7bca7e1a873
