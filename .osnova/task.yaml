@@ -1,21 +1,20 @@
-id: ATM-EPK-260329-027-006
+id: ATM-EPK-260329-027-007
 epic: EPK-260329-027
-seq: 6
+seq: 7
 zone: runtime
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Закрыть VM-блокеры на golden-приложениях
-scope: src/runtime/vm.ts — golden integration
+goal: Устранить блокеры интерпретатора (исполнение, стек, ошибки ATM)
+scope: src/runtime/interpreter.ts
 notouch:
-- src/compiler/index.ts
-- src/agents/index.ts
-done: npx vitest run src/runtime/goldenApps.test.ts
+- src/compiler/codegen.ts
+- src/intelligence/index.ts
+done: npx vitest run src/runtime/interpreter.test.ts
 steps:
-- goldenApps.test
-- Локализовать отличие bytecode vs ожидание
-- Фикс в vm.ts без изменения golden-файлов без необходимости
-deps:
-- ATM-EPK-260329-027-005
+- interpreter.test
+- Сверить с vm.ts контрактом вызовов
+- Минимальный фикс interpreter.ts
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

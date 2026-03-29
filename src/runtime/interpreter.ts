@@ -97,7 +97,7 @@ export class Interpreter extends VM {
   async interpret(ins: RawInstruction): Promise<number | "ret"> {
     const next = await this.interpretInstruction(ins);
     if (typeof next === "number") {
-      (this as unknown as { pc: number }).pc = next;
+      this.setProgramCounter(next);
     }
     return next;
   }

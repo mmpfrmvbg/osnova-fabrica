@@ -330,6 +330,11 @@ export class VM {
     return this.exceptionHandlerStack;
   }
 
+  /** PC после одного шага interpretInstruction (пошаговый фасад Interpreter). */
+  protected setProgramCounter(next: number): void {
+    this.pc = next;
+  }
+
   /** Вершина стека без pop (для obj.set). */
   private stackPeek(): StackValue {
     return this.stack[this.stack.length - 1];
