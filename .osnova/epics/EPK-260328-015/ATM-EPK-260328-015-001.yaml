@@ -15,6 +15,16 @@ steps:
 - Экспортировать типы из index.ts
 deps: []
 maxiter: 3
-retries: 0
-status: PENDING
+retries: 1
+status: blk
 priority: P1
+max_retries: 3
+review_base_sha: efa276bfc617b4dbb082ee3853750c54b9511395
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: Diff пустой — файлы не созданы, цель не достигнута; FAIL
+    on diff review (done not re-run)'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: Diff пустой — файлы не созданы, цель не достигнута; FAIL on diff
+  review (done not re-run)'
