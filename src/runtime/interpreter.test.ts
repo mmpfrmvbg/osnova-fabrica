@@ -466,6 +466,31 @@ describe("Interpreter + OpCode stack ops", () => {
   });
 
   describe("CALL / RETURN и фреймы", () => {
+    it("отдельный фрейм: локали caller не меняются после call/ret callee", async () => {
+      const m: OsVbcModule = {
+        version: 1,
+        moduleName: "t_frame_iso",
+        constants: [100, 42, 2],
+        procedures: [
+          { name: "main", codeOffset: 0, argc: 0, localsCount: 1 },
+          { name: "inner", codeOffset: 6, argc: 1, localsCount: 1 },
+        ],
+        code: [
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: "local.set", i: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.CALL, fi: 1 } as RawInstruction,
+          { op: "local.get", i: 0 } as RawInstruction,
+          { op: OpCode.RETURN } as RawInstruction,
+          { op: "local.get", i: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 2 } as RawInstruction,
+          { op: OpCode.MUL } as RawInstruction,
+          { op: OpCode.RETURN } as RawInstruction,
+        ],
+      };
+      expect(await new Interpreter(m).runProcedure(0, [])).toBe(100);
+    });
+
     it("call передаёт аргументы в локали callee; ret возвращает значение вызывающему кадру", async () => {
       const callMod: OsVbcModule = {
         version: 1,

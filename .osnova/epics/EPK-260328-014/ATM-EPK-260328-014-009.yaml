@@ -15,8 +15,11 @@ steps:
 - Тесты для THROW и обработки исключений
 - Тесты для вложенных вызовов функций
 deps:
-- 6
+- ATM-EPK-260328-014-006
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: 514f791647d569fc39fe5e3ac336a1316095a4e3
+produced_files: []
