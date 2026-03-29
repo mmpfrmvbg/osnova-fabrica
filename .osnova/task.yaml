@@ -1,20 +1,19 @@
-id: ATM-EPK-260329-023-002
+id: ATM-EPK-260329-023-003
 epic: EPK-260329-023
-seq: 2
-zone: compiler
-risk: LOW
+seq: 3
+zone: runtime
+risk: MED
 executor: cursor
-goal: Покрыть граничные случаи операций деления на уровне spec-контракта компилятора
-  в тестах.
-scope: src/compiler/compiler.test.ts — деление / целочисленное деление / edge opcodes
+goal: Покрыть vm-crash % и связанные пороги поведения VM в spec-ориентированных тестах.
+scope: src/runtime/vm.test.ts — crash-rate и деградация VM
 notouch:
-- src/compiler/codegen.ts
-- golden/
-done: npx vitest run src/compiler/compiler.test.ts
+- src/runtime/vm.ts
+- src/runtime/vm-runner.ts
+done: npx vitest run src/runtime/vm.test.ts
 steps:
-- Найти существующие тесты компиляции деления.
-- Добавить кейсы из language-registry / semantic для spec-границ.
-- Убедиться что bytecode/диагностики соответствуют ожиданиям контракта.
+- Идентифицировать сценарии падения/ошибок VM в тестах.
+- Добавить граничные кейсы для процента crash и восстановления.
+- Сверить с syscall/invoke контрактом из реестра.
 deps:
 - ATM-EPK-260329-023-001
 maxiter: 3
