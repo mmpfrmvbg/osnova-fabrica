@@ -75,6 +75,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
         totalDurationMs: Date.now() - startTime,
         shadow_hits: shadowHits,
         error: `G1 failed: ${g1.failedChecks[0]}`,
+        lastErrorKind: undefined,
       };
     }
 
@@ -157,6 +158,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             totalDurationMs,
             shadow_hits: shadowHits,
             error: execResult.error ?? 'exec incomplete',
+            lastErrorKind: undefined,
           };
         }
 
@@ -172,6 +174,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             totalDurationMs,
             shadow_hits: shadowHits,
             error: 'missing build or golden report',
+            lastErrorKind: undefined,
           };
         }
 
@@ -188,6 +191,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             repairAttempts,
             totalDurationMs,
             shadow_hits: shadowHits,
+            lastErrorKind: undefined,
           };
         }
 
@@ -203,6 +207,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             totalDurationMs,
             shadow_hits: shadowHits,
             error: `G3 failed: ${g3.failedChecks[0]}`,
+            lastErrorKind: undefined,
           };
         }
 
@@ -220,6 +225,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
           repairAttempts,
           totalDurationMs,
           shadow_hits: shadowHits,
+          lastErrorKind: undefined,
         };
       }
 
@@ -238,6 +244,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
           totalDurationMs,
           shadow_hits: shadowHits,
           error: errMsg,
+          lastErrorKind: undefined,
         };
       }
 
@@ -253,6 +260,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
           totalDurationMs,
           shadow_hits: shadowHits,
           error: 'max repair loops reached',
+          lastErrorKind: undefined,
         };
       }
 
@@ -289,6 +297,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
         totalDurationMs,
         shadow_hits: shadowHits,
         error: errMsg,
+        lastErrorKind: undefined,
       };
     }
 
@@ -300,6 +309,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
       totalDurationMs: Date.now() - startTime,
       shadow_hits: shadowHits,
       error: 'max repair loops reached',
+      lastErrorKind: undefined,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -311,6 +321,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
       totalDurationMs: Date.now() - startTime,
       shadow_hits: shadowHits,
       error: message,
+      lastErrorKind: undefined,
     };
   }
 }

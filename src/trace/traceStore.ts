@@ -13,7 +13,7 @@ import type {
   OsnovaSource,
   BuildReport,
   GoldenReport,
-  PipelineStatus,
+  PipelineTracePersistedStatus,
 } from '../pipeline/types';
 import type { ShadowHit } from '../pipeline/shadowMode';
 import { BLOCKING_SEMANTIC_KINDS, NON_BLOCKING_SEMANTIC_KINDS } from '../compiler/semanticKinds';
@@ -167,7 +167,7 @@ function getTracePath(): string {
 
 export async function saveTrace(data: {
   runId: string;
-  status: PipelineStatus;
+  status: PipelineTracePersistedStatus;
   task: string;
   modelId?: string;
   intent?: OsnovaIntent;

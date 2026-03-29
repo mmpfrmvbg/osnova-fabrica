@@ -4,6 +4,8 @@
 // ВСЕ артефакты пайплайна описаны здесь.
 // ============================================================
 
+import type { LLMProviderStatus } from '../llm/types';
+
 // ─── Диагностика ошибок ───
 
 /** Код ошибки пайплайна: серия 015 (атомы) и FBK016 (обратная связь). */
@@ -193,6 +195,20 @@ export interface GoldenReport {
   readonly durationMs: number;
 }
 
+// ─── Quality gates (gates.yaml) — исполнитель: gateChecker.ts ───
+
+export type GateId = 'G1_spec_ready' | 'G2_build_pass' | 'G3_golden_pass';
+
+export interface GateResult {
+  readonly passed: boolean;
+  readonly gateId: GateId;
+  readonly failedChecks: readonly string[];
+  readonly action?: string;
+}
+
+/** Снимок {@link LLMProvider.checkHealth} на границе пайплайна (без смены HTTP API). */
+export type PipelineLLMHealth = LLMProviderStatus;
+
 // ─── План выполнения (PlanAgent / ExecAgent; фазы см. orchestrator.ts) ───
 
 /** Фаза линейного пайплайна. */
@@ -255,6 +271,29 @@ export interface PipelineResult {
   /** Shadow Mode: hits по RFC-002 / RFC-003 (не влияет на логику) */
   readonly shadow_hits?: import('./shadowMode').ShadowHit[];
   readonly error?: string;
-  /** Диагностика ошибок серий 015 и FBK016 */
-  readonly diagnostics?: readonly DiagnosticReport[];
+  /** Kind последней ошибки при repair_exhausted (A-2) */
+  readonly lastErrorKind?: string;
+}
+
+/**
+ * Статус, сохраняемый в `runs/traces.jsonl` (схема в `traceStore.ts`).
+ * Подмножество {@link PipelineStatus}; коды 015/FBK016 в трейс не пишутся.
+ */
+export type PipelineTracePersistedStatus =
+  | 'success'
+  | 'partial'
+  | 'repair_exhausted'
+  | 'error';
+
+/** Нормализует статус для записи трейса: прочие {@link PipelineStatus} → `error`. */
+export function toPipelineTracePersistedStatus(status: PipelineStatus): PipelineTracePersistedStatus {
+  if (
+    status === 'success' ||
+    status === 'partial' ||
+    status === 'repair_exhausted' ||
+    status === 'error'
+  ) {
+    return status;
+  }
+  return 'error';
 }

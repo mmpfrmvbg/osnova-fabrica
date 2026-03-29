@@ -11,14 +11,14 @@ import type {
   OsnovaSource,
   BuildReport,
   GoldenReport,
-  PipelineStatus,
+  PipelineTracePersistedStatus,
 } from '../pipeline/types';
 import type { ShadowHit } from '../pipeline/shadowMode';
 
 export interface TraceEntry {
   readonly runId: string;
   readonly timestamp: string;   // ISO 8601
-  readonly status: PipelineStatus;
+  readonly status: PipelineTracePersistedStatus;
   readonly task: string;        // исходный текстовый запрос
   readonly modelId?: string;    // OSNOVA_MODEL, для анализа качества по провайдерам
   readonly intent?: OsnovaIntent;

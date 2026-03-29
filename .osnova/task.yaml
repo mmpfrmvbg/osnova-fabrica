@@ -1,21 +1,22 @@
-id: ATM-EPK-260329-019-007
-epic: EPK-260329-019
-seq: 7
+id: ATM-005
+epic: EPK-260329-020
+seq: 5
 zone: pipeline
-risk: MEDIUM
+risk: MED
 executor: cursor
-goal: Закрыть полный happy-path оркестратора после правок index/types.
-scope: src/pipeline/index.ts — без смены контрактов Osiris
+goal: Выровнять типы с поведением pipeline (health, gates) без смены публичного API
+  HTTP
+scope: src/pipeline/types.ts — расширения для gate/health/trace полей
 notouch:
-- apps/osiris/**
-- src/compiler/index.ts
-done: npx vitest run src/pipeline/orchestrator.test.ts
+- src/pipeline-llm/
+- apps/osiris/src/http/
+done: npx vitest run src/pipeline/pipeline.test.ts
 steps:
-- Прогнать полный orchestrator test и зафиксировать оставшиеся расхождения.
-- Внести минимальные правки в index для стабильного прохождения.
-- Убедиться в отсутствии регрессий gate/shadow если задействованы.
+- Найти несоответствия между types и pipeline.test/orchestrator
+- Добавить или сузить поля
+- Убедиться что pipeline.test зелёный
 deps:
-- ATM-EPK-260329-019-006
+- ATM-004
 maxiter: 3
 retries: 0
 status: PENDING

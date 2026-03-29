@@ -21,7 +21,13 @@ export type {
   PipelinePhase,
   PlanStep,
   PlanAgentBuildOptions,
+  GateId,
+  GateResult,
+  PipelineLLMHealth,
+  PipelineTracePersistedStatus,
 } from './types';
+
+export { toPipelineTracePersistedStatus } from './types';
 
 // Вспомогательные модули
 export { analyzeShadow, aggregateShadow } from './shadowMode';

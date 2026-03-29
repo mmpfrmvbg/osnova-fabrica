@@ -18,13 +18,14 @@ import { logger } from '../logger';
 import { compileSource, type CompileResult } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
 import { loadRegistry, loadAppRegistry, registryToContext } from '../runtime/loadRegistry';
-import type {
-  OsnovaIntent,
-  OsnovaSpec,
-  OsnovaSource,
-  BuildReport,
-  GoldenReport,
-  PipelineResult,
+import {
+  toPipelineTracePersistedStatus,
+  type OsnovaIntent,
+  type OsnovaSpec,
+  type OsnovaSource,
+  type BuildReport,
+  type GoldenReport,
+  type PipelineResult,
 } from './types';
 import { analyzeShadow } from './shadowMode';
 import type { ShadowHit } from './shadowMode';
@@ -219,7 +220,7 @@ export async function runPipeline(
           const result = finish('partial');
           await saveTrace({
             runId,
-            status: result.status,
+            status: toPipelineTracePersistedStatus(result.status),
             task,
             modelId,
             intent,
@@ -260,7 +261,7 @@ export async function runPipeline(
       const result = finish(finalStatus);
       await saveTrace({
         runId,
-        status: result.status,
+        status: toPipelineTracePersistedStatus(result.status),
         task,
         modelId,
         intent,
@@ -282,10 +283,10 @@ export async function runPipeline(
     } else {
       log.error('repair loop exhausted', { repairAttempts, lastErrorKind });
     }
-    const result = finish('repair_exhausted', 'max repair loops reached');
+    const result = finish('repair_exhausted', 'max repair loops reached', lastErrorKind);
     await saveTrace({
       runId,
-      status: result.status,
+      status: toPipelineTracePersistedStatus(result.status),
       task,
       intent,
       spec,
@@ -330,7 +331,7 @@ export async function runPipeline(
     return finish('error', message);
   }
 
-  function finish(status: PipelineResult['status'], error?: string): PipelineResult {
+  function finish(status: PipelineResult['status'], error?: string, lastErrorKind?: string): PipelineResult {
     return {
       status,
       intent,
@@ -342,6 +343,7 @@ export async function runPipeline(
       totalDurationMs: Date.now() - startTime,
       shadow_hits: shadowHits,
       error,
+      lastErrorKind,
     };
   }
 }

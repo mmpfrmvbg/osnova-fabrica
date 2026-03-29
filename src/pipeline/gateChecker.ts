@@ -6,16 +6,9 @@
 
 import { QUALITY_PASS, QUALITY_PARTIAL } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
-import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport } from './types';
+import type { OsnovaIntent, OsnovaSpec, BuildReport, GoldenReport, GateId, GateResult } from './types';
 
-export type GateId = 'G1_spec_ready' | 'G2_build_pass' | 'G3_golden_pass';
-
-export interface GateResult {
-  readonly passed: boolean;
-  readonly gateId: GateId;
-  readonly failedChecks: readonly string[];
-  readonly action?: string;
-}
+export type { GateId, GateResult } from './types';
 
 // ─── G1: Spec Ready (после intake, перед codegen) ───
 export function checkG1(

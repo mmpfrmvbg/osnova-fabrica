@@ -162,65 +162,40 @@ describe('PipelineStatus с ошибками 015 и FBK016', () => {
   });
 });
 
-describe('PipelineResult с diagnostics', () => {
-  it('успешный результат без диагностик', () => {
+describe('PipelineResult с lastErrorKind', () => {
+  it('успешный результат без lastErrorKind', () => {
     const result: PipelineResult = {
       status: 'success',
       repairAttempts: 0,
       totalDurationMs: 1500,
     };
     expect(result.status).toBe('success');
-    expect(result.diagnostics).toBeUndefined();
+    expect(result.lastErrorKind).toBeUndefined();
   });
 
-  it('результат с ошибкой 015 и диагностикой', () => {
+  it('результат repair_exhausted с lastErrorKind', () => {
     const result: PipelineResult = {
-      status: 'error_015_atom_not_found',
-      repairAttempts: 0,
-      totalDurationMs: 500,
-      error: 'Атом не найден',
-      diagnostics: [
-        {
-          code: '015-001',
-          status: 'blocked',
-          message: 'Атом EPK-260328-015-001 не найден в хранилище',
-          atomId: 'EPK-260328-015-001',
-          timestamp: '2026-03-29T10:00:00.000Z',
-        },
-      ],
-    };
-    expect(result.status).toBe('error_015_atom_not_found');
-    expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics![0].code).toBe('015-001');
-  });
-
-  it('результат с ошибкой FBK016 и множественной диагностикой', () => {
-    const result: PipelineResult = {
-      status: 'error_fbk016_timeout',
+      status: 'repair_exhausted',
       repairAttempts: 3,
       totalDurationMs: 30000,
-      error: 'Таймаут обратной связи',
-      diagnostics: [
-        {
-          code: 'FBK016-002',
-          status: 'blocked',
-          message: 'Таймаут ожидания ответа от агента',
-          phase: 'repair',
-          retryCount: 3,
-          timestamp: '2026-03-29T10:10:00.000Z',
-        },
-        {
-          code: '015-003',
-          status: 'ignored',
-          message: 'Зависимость не разрешена, но не критично',
-          atomId: 'EPK-260328-015-002',
-          timestamp: '2026-03-29T10:10:05.000Z',
-        },
-      ],
+      error: 'max repair loops reached',
+      lastErrorKind: 'parser_error',
     };
-    expect(result.status).toBe('error_fbk016_timeout');
-    expect(result.diagnostics).toHaveLength(2);
+    expect(result.status).toBe('repair_exhausted');
+    expect(result.lastErrorKind).toBe('parser_error');
     expect(result.repairAttempts).toBe(3);
+  });
+
+  it('результат error с lastErrorKind', () => {
+    const result: PipelineResult = {
+      status: 'error',
+      repairAttempts: 0,
+      totalDurationMs: 500,
+      error: 'LLM недоступен',
+      lastErrorKind: undefined,
+    };
+    expect(result.status).toBe('error');
+    expect(result.lastErrorKind).toBeUndefined();
   });
 });
 
