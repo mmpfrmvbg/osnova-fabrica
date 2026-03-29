@@ -1,21 +1,20 @@
-id: ATM-003
+id: ATM-004
 epic: EPK-260329-026
-seq: 3
-zone: scripts
+seq: 4
+zone: intelligence
 risk: LOW
 executor: cursor
-goal: Ensure .tmp/blocker-sync.log path creation, append mode, and timestamped lines
-  from blocker-sync.
-scope: .tmp/blocker-sync.log — writer contract
+goal: Barrel src/intelligence/index.ts exporting planner and minimal stable public
+  surface.
+scope: src/intelligence/index.ts — public exports
 notouch:
-- src/vliw/scheduler.test.ts
-- src/intelligence/planner.test.ts
-done: npx vitest run src/intelligence/planner.test.ts
+- scripts/blocker-sync.ts
+- src/vliw/scheduler.ts
+done: npx vitest run src/intelligence/intelligence.test.ts
 steps:
-- Define single log helper used by scripts/blocker-sync.ts (path join from repo root).
-- Document rotation/truncate policy in script comments only.
-deps:
-- ATM-002
+- Re-export planner entrypoints without deep internal leakage.
+- Keep import graph acyclic vs existing intelligence modules.
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING
