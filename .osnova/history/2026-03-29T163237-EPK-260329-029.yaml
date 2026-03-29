@@ -1,0 +1,127 @@
+epic: EPK-260329-029
+summary:
+  status: PARTIAL
+  passrate: 0.14285714285714285
+  atomsdone: 1
+  atomstotal: 7
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-029-001
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: Дифф не содержит изменений в tsconfig.json — цель по moduleResolution/module
+      для Vitest не выполнена; показаны только изменения в forge/*.py и метаданных
+      .osnova.; FAIL on diff review (done not re-run)'
+    elapsed: 18
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-029-002
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 8
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: Изменения в tsconfig.json корректно удаляют исключение тестовых
+      файлов **/*.test.ts из exclude, что соответствует цели ATM-002 по согласованию
+      include/exclude с паттернами тестов.'
+    elapsed: 20
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-029-003
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 2
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: tsconfig.json изменён корректно: lib уменьшен до ES2022, что соответствует
+      Node 20 и совместимо с Vitest; цель и scope соблюдены.'
+    elapsed: 18
+  err: 'cherry-pick conflict: error: could not apply d087d75... ATM ATM-EPK-260329-029-003
+    OK
+
+    hint: After resolving the conflicts, mark them with
+
+    hint: "git add/rm <pathspec>", then run
+
+    hint: "git cherry-pick --continue".
+
+    hint: You can instead skip this commit with "git cherry-pick --skip".
+
+    hint: To abort and get back to the sta'
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-029-004
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: Diff не содержит изменений в vitest.config.ts — основном файле
+      scope; вместо этого изменены файлы forge (atm_store.py, forge.py и др.), что
+      выходит за рамки заявленного scope.; FAIL on diff review (done not re-run)'
+    elapsed: 23
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-029-005
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: Изменения в tsconfig.json не соответствуют заявленной цели — нужно
+      было править exclude/include в vitest.config.ts, а не в tsconfig.json.; FAIL
+      on diff review (done not re-run)'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-029-006
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: Diff не содержит изменений в vitest.config.ts — не выполнен scope
+      задачи по настройке test.globals и базовых опций; FAIL on diff review (done
+      not re-run)'
+    elapsed: 16
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-029-007
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 6
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: Изменения выходят за рамки scope: затронуты файлы forge/*.py, tsconfig.json,
+      а не только vitest.config.ts; FAIL on diff review (done not re-run)'
+    elapsed: 17
+createdat: '2026-03-29T16:32:37.240105+03:00'
