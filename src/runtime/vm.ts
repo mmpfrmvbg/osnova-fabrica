@@ -6,14 +6,14 @@
  * @remarks
  * ### Интеграция VM ↔ агенты (пайплайн)
  *
- * **Поток данных IntakeAgent → spec → VM → результат.** {@link import("../agents/IntakeAgent").IntakeAgent}
- * формирует {@link import("../pipeline/types").OsnovaSpec}; после фазы build тот же снимок попадает в
- * {@link import("../agents/exec-agent").ExecContext} и/или в {@link createPipelineVmFromSpec}. Перед прогоном байткода
- * {@link import("../pipeline/types").OsnovaSpec} передаётся в VM через
- * {@link applyPipelineSpecToVm} (запись в {@link OsVbcVM.globals} по {@link PIPELINE_VM_GLOBAL_KEYS}) и
- * обработчик {@link createPipelineInvokeHandlerForVm} для syscall `система.пайплайн.*`. Итог процедуры —
- * возврат из {@link OsVbcVM.execute} и {@link OsVbcVM.getReturnValue}; дальнейшие патчи контекста и отчёты
- * формирует слой фаз/оркестратора поверх VM.
+ * **Поток данных ExecContext → VM → результат.** После фазы build в {@link import("../agents/exec-agent").ExecContext}
+ * лежат `spec` и байткод в `buildReport`; {@link import("../agents/exec-agent").createPipelineVmFromExecContext} собирает
+ * {@link OsVbcVM} через {@link createPipelineVmFromSpec}. Перед прогоном {@link import("../pipeline/types").OsnovaSpec}
+ * передаётся в VM через {@link applyPipelineSpecToVm} (запись в {@link OsVbcVM.globals} по {@link PIPELINE_VM_GLOBAL_KEYS}) и
+ * {@link createPipelineInvokeHandlerForVm} для syscall `система.пайплайн.*`. Итог — возврат из {@link OsVbcVM.execute} и
+ * {@link OsVbcVM.getReturnValue} (либо {@link PipelineVmExecuteResult} из {@link safeExecutePipelineVm}); патчи контекста и отчёты
+ * формирует слой фаз/оркестратора поверх VM. Вверх по пайплайну тот же снимок spec задаёт
+ * {@link import("../agents/IntakeAgent").IntakeAgent} (intake / spec_generation).
  *
  * **Точки расширения:** цепочка `invoke` — {@link OsVbcVMOptions} / {@link createDefaultInvokeHandler} и обёртка
  * {@link createPipelineInvokeHandlerForVm}; произвольные ключи {@link OsVbcVM.globals}; лимиты и опции интерпретатора
@@ -33,9 +33,8 @@
  * {@link createPipelineVmFromSpec}, {@link createGoldenCheckVm}. Реэкспорты: {@link createDefaultInvokeHandler}, {@link OpCode},
  * типы интерпретатора.
  *
- * **ExecContext ↔ VM:** тот же {@link OsnovaSpec}, что в {@link import("../agents/exec-agent").ExecContext.spec}, до прогона
- * попадает в {@link OsVbcVM.globals} через {@link applyPipelineSpecToVm} (и syscall `система.пайплайн.*` через
- * {@link createPipelineInvokeHandlerForVm}). Фасад из контекста: {@link import("../agents/exec-agent").createPipelineVmFromExecContext}.
+ * **Фасад ExecContext → VM:** {@link import("../agents/exec-agent").createPipelineVmFromExecContext},
+ * {@link import("../agents/exec-agent").safeExecutePipelineVmFromExecContext}.
  *
  * **JSDoc у {@link PIPELINE_VM_GLOBAL_KEYS}:** есть (ключи globals, соответствие полям {@link OsnovaSpec} и syscall).
  */

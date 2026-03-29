@@ -1,10 +1,10 @@
-id: ATM-EPK-260328-FBK016-006
+id: ATM-EPK-260328-FBK016-007
 epic: EPK-260328-FBK016
-seq: 6
+seq: 7
 zone: lang
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Документировать функцию applyPipelineSpecToVm в src/runtime/vm.ts
+goal: Добавить интеграционный JSDoc блок VM↔agents в src/runtime/vm.ts
 scope:
 - src/runtime/vm.ts
 notouch:
@@ -14,14 +14,16 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Найти функцию applyPipelineSpecToVm
-- Добавить JSDoc с параметрами, возвращаемым значением
-- Описать связь с OsnovaSpec
+- Создать блок документации о взаимодействии VM с агентами
+- Описать поток данных ExecContext → VM → результат
+- Указать точки расширения
 deps:
-- ATM-EPK-260328-FBK016-001
+- ATM-EPK-260328-FBK016-004
+- ATM-EPK-260328-FBK016-005
+- ATM-EPK-260328-FBK016-006
 maxiter: 3
 retries: 0
-status: in_progress
+status: done
 priority: P2
 max_retries: 3
-review_base_sha: e82ddf83592676d573822289c667f47cf7bebf5d
+review_base_sha: ca3083d66c948ff36b9e2d091a66d5e924e3a486
