@@ -30,8 +30,22 @@ import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { ReviewAgent } from '../agents/review-agent';
 import { PlanAgent } from '../agents/plan-agent';
 import type { ExecContext } from '../agents/exec-agent';
-import type { OsnovaIntent, OsnovaSpec } from './types';
+import {
+  ALL_DIAGNOSTIC_PIPELINE_STATUSES,
+  SPEC_BUILD_DURATION_WARN_MS,
+  SPEC_G1_CONFIDENCE_MIN,
+  SPEC_QUALITY_PARTIAL,
+  SPEC_QUALITY_PASS,
+  type BuildReport,
+  type GoldenReport,
+  type OsnovaIntent,
+  type OsnovaSpec,
+} from './types';
+import { checkG1, checkG2, checkG3 } from './gateChecker';
+import { calcHealthScore } from './healthScore';
+import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { compileSource } from '../compiler/compiler';
+import * as goldenApps from '../runtime/goldenApps';
 import { runGoldenCheck } from '../runtime/goldenApps';
 
 const createMockProvider = () => ({
@@ -285,6 +299,178 @@ describe('оркестрация — ошибки агентов и gates (фа�
     const result = await runPipelineWithExecAgent('тест G1');
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/G1 failed/);
+  }, 20000);
+});
+
+// ─── Фабрики для gate / health (поля совпадают с gateChecker.test, имена привязаны к types) ───
+
+function makeGateIntent(overrides: Partial<OsnovaIntent> = {}): OsnovaIntent {
+  return {
+    intentId: 'gate-i',
+    description: 'тест',
+    features: ['x'],
+    appType: 'утилита',
+    constraints: {},
+    confidence: 0.9,
+    ...overrides,
+  };
+}
+
+function makeGateSpec(overrides: Partial<OsnovaSpec> = {}): OsnovaSpec {
+  return {
+    specId: 'gate-s',
+    modules: [{ name: 'м', description: '', isMain: true }],
+    mainModule: 'м',
+    types: [],
+    procedures: [],
+    syscalls: [],
+    conventions: {},
+    ...overrides,
+  };
+}
+
+function makeGateBuild(overrides: Partial<BuildReport> = {}): BuildReport {
+  return {
+    success: true,
+    lexerErrors: [],
+    parserErrors: [],
+    compilerErrors: [],
+    semanticErrors: [],
+    bytecode: {},
+    compilerSuccess: true,
+    durationMs: 100,
+    ...overrides,
+  };
+}
+
+function makeGateGolden(overrides: Partial<GoldenReport> = {}): GoldenReport {
+  return {
+    executed: true,
+    passed: true,
+    qualityScore: 0.9,
+    vmErrors: [],
+    outputDiff: null,
+    durationMs: 10,
+    ...overrides,
+  };
+}
+
+describe('spec-гейты и healthScore — контракт types.ts / thresholds', () => {
+  it('SPEC_QUALITY_PASS / SPEC_QUALITY_PARTIAL совпадают с thresholds.ts (G3)', () => {
+    expect(SPEC_QUALITY_PASS).toBe(QUALITY_PASS);
+    expect(SPEC_QUALITY_PARTIAL).toBe(QUALITY_PARTIAL);
+  });
+
+  it('G1: для не-утилиты блок при confidence < SPEC_G1_CONFIDENCE_MIN, проход на границе', () => {
+    const low = checkG1(
+      makeGateIntent({ appType: 'алгоритм', confidence: SPEC_G1_CONFIDENCE_MIN - 1e-6 }),
+      makeGateSpec(),
+    );
+    expect(low.passed).toBe(false);
+    expect(low.failedChecks.some(f => f.startsWith('g1_confidence'))).toBe(true);
+
+    const edge = checkG1(
+      makeGateIntent({ appType: 'модуль', confidence: SPEC_G1_CONFIDENCE_MIN }),
+      makeGateSpec(),
+    );
+    expect(edge.passed).toBe(true);
+  });
+
+  it('G2: предупреждение по длительности строго после SPEC_BUILD_DURATION_WARN_MS', () => {
+    const ok = checkG2(makeGateBuild({ durationMs: SPEC_BUILD_DURATION_WARN_MS }));
+    expect(ok.passed).toBe(true);
+    expect(ok.failedChecks.filter(f => f.includes('g2_build_time'))).toHaveLength(0);
+
+    const warn = checkG2(makeGateBuild({ durationMs: SPEC_BUILD_DURATION_WARN_MS + 1 }));
+    expect(warn.passed).toBe(true);
+    expect(warn.failedChecks.some(f => f.startsWith('g2_build_time'))).toBe(true);
+  });
+
+  it('G3: границы qualityScore относительно SPEC_QUALITY_PASS / SPEC_QUALITY_PARTIAL', () => {
+    expect(checkG3(makeGateGolden({ qualityScore: SPEC_QUALITY_PASS })).passed).toBe(true);
+
+    const belowPass = checkG3(makeGateGolden({ qualityScore: SPEC_QUALITY_PASS - 1e-6 }));
+    expect(belowPass.passed).toBe(false);
+    expect(belowPass.failedChecks.some(f => f.startsWith('g3_golden_or_quality'))).toBe(true);
+
+    const atPartial = checkG3(
+      makeGateGolden({ qualityScore: SPEC_QUALITY_PARTIAL, outputDiff: 'x', passed: false }),
+    );
+    expect(atPartial.passed).toBe(false);
+    expect(atPartial.failedChecks.some(f => f.startsWith('g3_golden_or_quality'))).toBe(true);
+    expect(atPartial.failedChecks.some(f => f.startsWith('g3_output_diff_acceptable'))).toBe(false);
+
+    const diffCrash = checkG3(
+      makeGateGolden({
+        qualityScore: SPEC_QUALITY_PARTIAL - 1e-6,
+        outputDiff: 'diff',
+        passed: false,
+      }),
+    );
+    expect(diffCrash.passed).toBe(false);
+    expect(diffCrash.failedChecks.some(f => f.startsWith('g3_output_diff_acceptable'))).toBe(true);
+  });
+
+  it('G3: VM crash (executed=false) блокирует независимо от qualityScore', () => {
+    const r = checkG3(
+      makeGateGolden({ executed: false, qualityScore: 1, vmErrors: [], passed: false }),
+    );
+    expect(r.passed).toBe(false);
+    expect(r.failedChecks.some(f => f.startsWith('g3_vm_executed'))).toBe(true);
+  });
+
+  it('calcHealthScore: partial + golden 1.0; все DiagnosticPipelineStatus дают 0 без golden', () => {
+    expect(
+      calcHealthScore({
+        status: 'partial',
+        repairAttempts: 0,
+        goldenQualityScore: 1,
+      }),
+    ).toBe(0.8);
+
+    for (const status of ALL_DIAGNOSTIC_PIPELINE_STATUSES) {
+      expect(calcHealthScore({ status, repairAttempts: 0 }), status).toBe(0);
+    }
+    expect(calcHealthScore({ status: 'error', repairAttempts: 0 })).toBe(0);
+    expect(calcHealthScore({ status: 'success', repairAttempts: 0 })).toBe(1);
+  });
+});
+
+describe('partial: qualityScore ∈ [SPEC_QUALITY_PARTIAL, SPEC_QUALITY_PASS) без регрессии фасадов', () => {
+  const midPartialQuality = (SPEC_QUALITY_PARTIAL + SPEC_QUALITY_PASS) / 2;
+
+  function mockGoldenInPartialBand() {
+    return vi.spyOn(goldenApps, 'runGoldenCheck').mockResolvedValue({
+      executed: true,
+      passed: false,
+      qualityScore: midPartialQuality,
+      vmErrors: [],
+      outputDiff: null,
+      durationMs: 1,
+    });
+  }
+
+  it('Pipeline.run (оркестратор) → status partial, repairAttempts = 0', async () => {
+    const spy = mockGoldenInPartialBand();
+    try {
+      const result = await new Pipeline().run('посчитай сумму от 1 до 10');
+      expect(result.status).toBe('partial');
+      expect(result.repairAttempts).toBe(0);
+      expect(result.goldenReport?.qualityScore).toBe(midPartialQuality);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 20000);
+
+  it('runPipelineWithExecAgent → status partial при том же qualityScore', async () => {
+    const spy = mockGoldenInPartialBand();
+    try {
+      const result = await runPipelineWithExecAgent('посчитай сумму от 1 до 10');
+      expect(result.status).toBe('partial');
+      expect(result.repairAttempts).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
   }, 20000);
 });
 

@@ -1,21 +1,22 @@
-id: ATM-EPK-260329-023-006
+id: ATM-EPK-260329-023-007
 epic: EPK-260329-023
-seq: 6
-zone: agents
+seq: 7
+zone: pipeline
 risk: LOW
 executor: cursor
-goal: Добавить spec-ориентированные проверки PlanAgent относительно контракта шагов/полей.
-scope: src/agents/plan-agent.test.ts — структура плана и границы входа
+goal: Расширить pipeline.spec проверками spec-гейтов и health с учётом типов контракта.
+scope: src/pipeline/pipeline.test.ts — gateChecker / healthScore vs types
 notouch:
-- src/agents/exec-agent.ts
-- src/agents/review-agent.ts
-done: npx vitest run src/agents/plan-agent.test.ts
+- src/pipeline/orchestrator.ts
+- src/trace/
+done: npx vitest run src/pipeline/pipeline.test.ts
 steps:
-- Обозначить поля плана из types/agents.
-- Добавить тесты на пустой/минимальный/переполненный контекст.
-- Согласовать с intake threshold где план следует за intake.
+- Связать тесты с полями из src/pipeline/types.ts.
+- Добавить кейсы на границе допустимого health/crash метрик.
+- Проверить отсутствие регрессий orchestrator.partial.
 deps:
 - ATM-EPK-260329-023-002
+- ATM-EPK-260329-023-003
 maxiter: 3
 retries: 0
 status: PENDING
