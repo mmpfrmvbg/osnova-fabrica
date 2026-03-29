@@ -208,6 +208,43 @@ def waves_from_epic_override(
     return out
 
 
+def compute_epic_waves(
+    epic: dict[str, Any],
+    atoms_sorted: list[dict[str, Any]],
+    pending: list[dict[str, Any]],
+    *,
+    max_parallel: int,
+) -> list[list[dict[str, Any]]]:
+    """
+    Execution waves: optional ``epic['waves']`` override, else deps-based :func:`build_waves`.
+
+    If the override lists only ATMs that are no longer pending, filtering yields ``[]`` while
+    ``pending`` is still non-empty — that would run 0 waves forever (resume CONTINUE). In that
+    case we fall back to deps-based waves.
+    """
+    cap = max_parallel
+    pending_ids = {str(p["id"]) for p in pending}
+    completed_ids = {str(a["id"]) for a in atoms_sorted if str(a["id"]) not in pending_ids}
+    waves_ov = waves_from_epic_override(epic, atoms_sorted)
+    if waves_ov is not None:
+        waves: list[list[dict[str, Any]]] = []
+        for w in waves_ov:
+            fw = [a for a in w if str(a["id"]) in pending_ids]
+            if fw:
+                waves.append(fw)
+    else:
+        waves = build_waves(pending, max_parallel=cap, completed_ids=completed_ids)
+    if not waves and pending:
+        LOG.warning(
+            "EPIC %s: epic['waves'] produced no runnable work for %s pending ATM(s); "
+            "using deps-based waves",
+            epic.get("id"),
+            len(pending),
+        )
+        waves = build_waves(pending, max_parallel=cap, completed_ids=completed_ids)
+    return waves
+
+
 def _sanitize_branch_segment(s: str) -> str:
     t = re.sub(r"[^a-zA-Z0-9._/-]+", "-", str(s)).strip("-")
     return (t[:80] or "epic").replace("/", "-")
@@ -268,6 +305,87 @@ def forge_wave_max_workers() -> int:
         return max(1, int(forge_dotenv_setting("FORGE_WAVE_MAX_WORKERS", "4").strip()))
     except ValueError:
         return 4
+
+
+def _wave_cherry_pick_merge_option() -> str | None:
+    """
+    Опция ``-X`` для ``git cherry-pick`` при интеграции волны на ``main``.
+
+    Параллельные worktree форкаются от одного SHA; последовательный cherry-pick на уже
+    обновлённый ``main`` даёт конфликты в общих файлах. ``theirs`` оставляет версию из
+    коммита ATM. ``none`` — без ``-X`` (старое поведение).
+
+    Env: ``FORGE_WAVE_CHERRY_PICK_MERGE_OPTION`` = ``theirs`` | ``ours`` | ``none``.
+    По умолчанию: ``theirs``.
+    """
+    raw = forge_dotenv_setting("FORGE_WAVE_CHERRY_PICK_MERGE_OPTION", "theirs").strip().lower()
+    if raw in ("", "none", "off", "0", "false"):
+        return None
+    if raw in ("theirs", "ours"):
+        return raw
+    LOG.warning("parallel_executor: unknown FORGE_WAVE_CHERRY_PICK_MERGE_OPTION=%r — no -X", raw)
+    return None
+
+
+def _cherry_pick_onto_main(project: Path, sha: str, *, timeout: int = 300) -> subprocess.CompletedProcess:
+    argv = ["cherry-pick"]
+    xopt = _wave_cherry_pick_merge_option()
+    if xopt is not None:
+        argv.extend(["-X", xopt])
+    argv.append(sha)
+    return _git_run(project, argv, timeout=timeout)
+
+
+def _merge_worker_branch_fallback(
+    project: Path,
+    branch: str,
+    atm_id: str,
+    *,
+    timeout: int = 300,
+) -> subprocess.CompletedProcess:
+    """Если ``cherry-pick`` падает — ``merge --no-ff`` ветки worktree (тот же ``-X``)."""
+    msg = f"forge parallel wave: {atm_id}"
+    argv = ["merge", "--no-ff", branch, "-m", msg]
+    xopt = _wave_cherry_pick_merge_option()
+    if xopt is not None:
+        argv.extend(["-X", xopt])
+    return _git_run(project, argv, timeout=timeout)
+
+
+def _log_wave_strategy_touched_files(
+    project: Path,
+    prev_head: str,
+    atm_id: str,
+    method: str,
+) -> None:
+    """
+    При активном ``-X theirs/ours`` список файлов ``git diff --name-only prev..HEAD`` —
+    видимость пересечений с предыдущими ATM волны (тихая перезапись при конфликтах).
+    """
+    if _wave_cherry_pick_merge_option() is None:
+        return
+    if not prev_head:
+        return
+    diff = _git_run(project, ["diff", "--name-only", f"{prev_head}..HEAD"], timeout=60)
+    if diff.returncode != 0:
+        LOG.debug(
+            "parallel_executor: diff --name-only %s..HEAD failed for %s",
+            prev_head[:12],
+            atm_id,
+        )
+        return
+    names = (diff.stdout or "").strip()
+    if not names:
+        return
+    xopt = _wave_cherry_pick_merge_option()
+    LOG.warning(
+        "parallel_executor: wave %s used -X %s — files now on main (check overlap with earlier ATMs in wave): "
+        "ATM=%s\n%s",
+        method,
+        xopt,
+        atm_id,
+        names,
+    )
 
 
 def execute_wave_parallel(
@@ -385,7 +503,7 @@ def execute_wave_parallel(
                     )
                     return reports_out
 
-            for i, (atm_id, wt_path, _branch) in enumerate(worktrees):
+            for i, (atm_id, wt_path, wt_branch) in enumerate(worktrees):
                 rep = reports_out[i]
                 if not rep or str(rep.get("s") or "").upper() not in ("OK", "REVIEW_MISMATCH"):
                     LOG.info(
@@ -402,23 +520,45 @@ def execute_wave_parallel(
                 if not sha:
                     LOG.error("parallel_executor: empty SHA for %s", atm_id)
                     continue
-                cp = _git_run(root, ["cherry-pick", sha], timeout=300)
+                prev_r = _git_run(root, ["rev-parse", "HEAD"], timeout=60)
+                prev_head = (prev_r.stdout or "").strip()
+                cp = _cherry_pick_onto_main(root, sha, timeout=300)
                 if cp.returncode != 0:
                     tail = (cp.stderr or cp.stdout or "").strip()[:300]
-                    LOG.error(
-                        "parallel_executor: cherry-pick failed for %s (sha=%s): %s",
-                        atm_id,
-                        sha[:8],
-                        tail,
-                    )
                     _git_run(root, ["cherry-pick", "--abort"], timeout=60)
-                    reports_out[i] = {
-                        **rep,
-                        "s": "MERGE_CONFLICT",
-                        "err": f"cherry-pick conflict: {tail}",
-                    }
+                    try_merge = forge_dotenv_setting(
+                        "FORGE_WAVE_MERGE_AFTER_CHERRY_FAIL", "1"
+                    ).strip().lower() not in ("0", "false", "no")
+                    merged_ok = False
+                    if try_merge:
+                        mg = _merge_worker_branch_fallback(root, wt_branch, atm_id, timeout=300)
+                        if mg.returncode == 0:
+                            merged_ok = True
+                            LOG.info(
+                                "parallel_executor: merge --no-ff OK for %s (after cherry-pick failed)",
+                                atm_id,
+                            )
+                            _log_wave_strategy_touched_files(
+                                root, prev_head, atm_id, "merge --no-ff"
+                            )
+                        else:
+                            _git_run(root, ["merge", "--abort"], timeout=60)
+                            tail = (mg.stderr or mg.stdout or "").strip()[:300] or tail
+                    if not merged_ok:
+                        LOG.error(
+                            "parallel_executor: cherry-pick/merge failed for %s (sha=%s): %s",
+                            atm_id,
+                            sha[:8],
+                            tail,
+                        )
+                        reports_out[i] = {
+                            **rep,
+                            "s": "MERGE_CONFLICT",
+                            "err": f"cherry-pick/merge conflict: {tail}",
+                        }
                 else:
                     LOG.info("parallel_executor: cherry-pick OK for %s (%s)", atm_id, sha[:8])
+                    _log_wave_strategy_touched_files(root, prev_head, atm_id, "cherry-pick")
 
             return reports_out
         finally:

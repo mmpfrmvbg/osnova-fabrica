@@ -17,6 +17,14 @@ steps:
 - Прогнать узкий тест и убедиться, что типовая матрица не сломана.
 deps: []
 maxiter: 3
-retries: 0
-status: PENDING
+retries: 1
+status: blk
 priority: P0
+max_retries: 3
+review_base_sha: 88a3ca81e4485cf395db420b745bf269ecb2bff8
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: expected files missing: ['''', '''', '''']'

@@ -52,8 +52,8 @@ try:
     from forge.epic_socket import accept_epic_event, ensure_listener
     from forge.epicwatcher import fetch_epic, poll_next_github_epic, watch_once
     from forge.parallel_executor import (
-        build_waves,
         cleanup_wave_worktrees,
+        compute_epic_waves,
         effective_max_parallel,
         execute_wave_parallel,
         forge_wave_max_workers,
@@ -63,7 +63,6 @@ try:
         prepare_wave_worktrees,
         state_yaml_stashed_for_wave,
         wave_scopes_overlap,
-        waves_from_epic_override,
     )
     from forge.qwenexec import run_atom as run_qwen_atom
     from forge.reviewer import review
@@ -111,8 +110,8 @@ except ImportError:  # pragma: no cover
     from epic_socket import accept_epic_event, ensure_listener
     from epicwatcher import fetch_epic, poll_next_github_epic, watch_once
     from parallel_executor import (
-        build_waves,
         cleanup_wave_worktrees,
+        compute_epic_waves,
         effective_max_parallel,
         execute_wave_parallel,
         forge_wave_max_workers,
@@ -122,7 +121,6 @@ except ImportError:  # pragma: no cover
         prepare_wave_worktrees,
         state_yaml_stashed_for_wave,
         wave_scopes_overlap,
-        waves_from_epic_override,
     )
     from qwenexec import run_atom as run_qwen_atom
     from reviewer import review
@@ -837,17 +835,7 @@ def _process_epic(
             atm_total=len(atoms_sorted),
         )
         cap = effective_max_parallel()
-        pending_ids = {str(p["id"]) for p in pending}
-        completed_ids = {str(a["id"]) for a in atoms_sorted if str(a["id"]) not in pending_ids}
-        waves_ov = waves_from_epic_override(epic, atoms_sorted)
-        if waves_ov is not None:
-            waves = []
-            for w in waves_ov:
-                fw = [a for a in w if str(a["id"]) in pending_ids]
-                if fw:
-                    waves.append(fw)
-        else:
-            waves = build_waves(pending, max_parallel=cap, completed_ids=completed_ids)
+        waves = compute_epic_waves(epic, atoms_sorted, pending, max_parallel=cap)
         LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
         if (
             len(pending) > 1

@@ -6,7 +6,8 @@ import unittest
 from typing import Any
 
 from forge.atomizer import _coerce_dep_to_atm_id, _normalize_atoms
-from forge.parallel_executor import build_waves, waves_from_epic_override
+from forge.atm_store import get_pending_atms
+from forge.parallel_executor import build_waves, compute_epic_waves, waves_from_epic_override
 
 _EPIC = "EPK-260328-015"
 _KNOWN = {f"ATM-{_EPIC}-{i:03d}" for i in range(1, 6)}
@@ -106,6 +107,31 @@ class TestAtomizerDepsNormalization(unittest.TestCase):
         self.assertEqual(_coerce_dep_to_atm_id("001", eid, known), "ATM-EPK-260329-019-001")
         self.assertEqual(_coerce_dep_to_atm_id("ATM-002", eid, known), "ATM-EPK-260329-019-002")
         self.assertIsNone(_coerce_dep_to_atm_id("ATM-999", eid, known))
+
+    def test_compute_epic_waves_fallback_when_override_has_no_pending(self) -> None:
+        """epic['waves'] only references done ATMs → filter is [] but pending remains → use deps."""
+        epic = {
+            "id": _EPIC,
+            "done": "true",
+            "zone": "lang",
+            "risk": "LOW",
+            "waves": [[1, 2]],
+        }
+        raw = [
+            {"seq": i, "goal": f"g{i}", "scope": [], "notouch": [], "steps": [], "deps": []}
+            for i in range(1, 6)
+        ]
+        atoms = _normalize_atoms(epic, raw)
+        atoms_sorted = sorted(atoms, key=lambda x: int(x.get("seq", 0)))
+        for a in atoms_sorted:
+            if str(a["id"]) in (f"ATM-{_EPIC}-001", f"ATM-{_EPIC}-002"):
+                a["status"] = "done"
+        pending = get_pending_atms(atoms_sorted)
+        self.assertEqual(len(pending), 3)
+        waves = compute_epic_waves(epic, atoms_sorted, pending, max_parallel=3)
+        self.assertGreaterEqual(len(waves), 1)
+        ran = {a["id"] for w in waves for a in w}
+        self.assertEqual(ran, {p["id"] for p in pending})
 
 
 if __name__ == "__main__":
