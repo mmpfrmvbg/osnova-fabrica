@@ -1,0 +1,186 @@
+epic: EPK-260328-017
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 11
+  atomstotal: 11
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-001
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 128
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 20
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-002
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 166
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 15
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-003
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 300
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-004
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 226
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-005
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 96
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 22
+    skip_reason: pre_existing
+    scope_lines_changed: false
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-006
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 188
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-007
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 101
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-008
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 243
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 20
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-009
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 329
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 22
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-010
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 510
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-017-011
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 79
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 19
+    skip_reason: pre_existing
+    scope_lines_changed: false
+createdat: '2026-03-29T22:09:40.365851+03:00'

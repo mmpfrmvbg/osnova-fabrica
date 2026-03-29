@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-29T21:25:06.904295+03:00'
+updatedat: '2026-03-29T22:09:44.335906+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -8,17 +8,17 @@ epicprogress:
   blocked: 0
   current: null
 sessionstats:
-  epicsreceived: 33
-  epicsdone: 21
+  epicsreceived: 34
+  epicsdone: 22
   epicsblocked: 12
-  atomstotal: 221
-  atomsdone: 148
+  atomstotal: 232
+  atomsdone: 159
   atomsblocked: 73
-  passrate: 0.669683257918552
+  passrate: 0.6853448275862069
 ci:
-  lastrun: '2026-03-29T21:23:49.058454+03:00'
+  lastrun: '2026-03-29T22:09:40.493960+03:00'
   laststatus: ok
-  passrate7d: 0.5427
+  passrate7d: 0.5561
   openblockerissues: 0
   lastepicissue: null
 brainsource: github
@@ -37,6 +37,25 @@ executors:
   activefallback: null
 blockers: []
 recent:
+- epic: EPK-260328-017
+  scope:
+  - src/agents/intake-agent.ts
+  - src/agents/plan-agent.ts
+  - src/agents/exec-agent.ts
+  - src/agents/review-agent.ts
+  - src/agents/agents.test.ts
+  - src/pipeline/pipeline.ts
+  - src/pipeline/pipeline.test.ts
+  - src/runtime/vm.ts
+  - src/runtime/interpreter.ts
+  - src/compiler/compiler.ts
+  result: ok
+  status: ok
+  passrate: 1.0
+  updated: '2026-03-29T22:09:40.493845+03:00'
+  atm_review:
+    ok_pre_existing: 2
+    ok_scope_changed: 9
 - epic: EPK-260328-016
   scope:
   - src/agents/intake-agent.ts
@@ -295,24 +314,6 @@ recent:
   updated: '2026-03-29T00:15:50.131721+03:00'
   atm_review:
     ok_other: 12
-- epic: EPK-260328-017
-  scope:
-  - src/agents/intake-agent.ts
-  - src/agents/plan-agent.ts
-  - src/agents/exec-agent.ts
-  - src/agents/review-agent.ts
-  - src/agents/agents.test.ts
-  - src/pipeline/pipeline.ts
-  - src/pipeline/pipeline.test.ts
-  - src/runtime/vm.ts
-  - src/runtime/interpreter.ts
-  - src/compiler/compiler.ts
-  result: ok
-  status: ok
-  passrate: 1.0
-  updated: '2026-03-28T23:26:10.625951+03:00'
-  atm_review:
-    ok_other: 12
 - epic: EPK-260327-001
   scope:
   - src/compiler/vm.test.ts
@@ -557,10 +558,13 @@ last_scopes:
   - src/pipeline/pipeline.test.ts
   - src/runtime/vm.ts
   - src/runtime/interpreter.ts
-- - src/runtime/vm.ts
-  - src/runtime/interpreter.ts
-  - src/runtime/frame.ts
-  - src/runtime/vm.test.ts
-  - src/runtime/interpreter.test.ts
   - src/compiler/compiler.ts
-  - src/compiler/compiler.test.ts
+- - src/agents/intake-agent.ts
+  - src/agents/plan-agent.ts
+  - src/agents/exec-agent.ts
+  - src/agents/review-agent.ts
+  - src/agents/agents.test.ts
+  - src/pipeline/pipeline.ts
+  - src/pipeline/pipeline.test.ts
+  - src/runtime/vm.ts
+  - src/runtime/interpreter.ts
