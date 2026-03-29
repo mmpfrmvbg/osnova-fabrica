@@ -16,11 +16,14 @@ steps:
 - восстановить вызов цепочки агентов в правильном порядке
 - добавить обработку ошибок и retry-логику
 deps:
-- ATM-001
-- ATM-002
-- ATM-003
-- ATM-004
+- ATM-EPK-260328-017-001
+- ATM-EPK-260328-017-002
+- ATM-EPK-260328-017-003
+- ATM-EPK-260328-017-004
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: 60319eb228db68bc4ef6acdb2e3e52bfb601c780
+produced_files: []

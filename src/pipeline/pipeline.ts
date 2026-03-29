@@ -9,13 +9,14 @@ import {
   OsnovaCodegenAgent,
   PlanAgent,
   RepairEngineerAgent,
-  compileOsnovaSource,
 } from '../agents';
+import { compileSource } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
 import { loadAppRegistry, loadRegistry, registryToContext } from '../runtime/loadRegistry';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import {
   compileToBuildReport,
+  extractLastErrorKind,
   hasBlockingSemanticErrors,
   runPipeline as runPipelineOrchestrator,
 } from './orchestrator';
@@ -119,7 +120,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             };
           }
           if (phase === 'build') {
-            const buildReport = compileToBuildReport(compileOsnovaSource(ctx.source!.source));
+            const buildReport = compileToBuildReport(compileSource(ctx.source!.source));
             lastBuildForRepair = buildReport;
             const g2 = checkG2(buildReport);
             if (!g2.passed) {
@@ -268,39 +269,74 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
       }
 
       if (loop >= MAX_EXEC_REPAIR_LOOPS) {
+        const br = state.buildReport ?? lastBuildForRepair;
         return {
           status: 'repair_exhausted',
           intent: state.intent ?? intent,
           spec: state.spec ?? spec,
           source: state.source,
-          buildReport: state.buildReport ?? lastBuildForRepair,
+          buildReport: br,
           goldenReport: state.goldenReport ?? lastGoldenForRepair,
           repairAttempts,
           totalDurationMs,
           shadow_hits: shadowHits,
           error: 'max repair loops reached',
-          lastErrorKind: undefined,
+          lastErrorKind: extractLastErrorKind(br),
         };
       }
 
       if (stoppedAtPhase === 'build') {
-        seedSource = await repairEngineer.fix(
-          state.source,
-          lastBuildForRepair,
-          undefined,
-          loop + 1,
-        );
+        try {
+          seedSource = await repairEngineer.fix(
+            state.source,
+            lastBuildForRepair,
+            undefined,
+            loop + 1,
+          );
+        } catch (repairErr) {
+          const msg = repairErr instanceof Error ? repairErr.message : String(repairErr);
+          return {
+            status: 'error',
+            intent: state.intent ?? intent,
+            spec: state.spec ?? spec,
+            source: state.source,
+            buildReport: state.buildReport ?? lastBuildForRepair,
+            goldenReport: state.goldenReport,
+            repairAttempts,
+            totalDurationMs,
+            shadow_hits: shadowHits,
+            error: `repair failed: ${msg}`,
+            lastErrorKind: extractLastErrorKind(lastBuildForRepair),
+          };
+        }
         repairAttempts++;
         continue;
       }
 
       if (stoppedAtPhase === 'golden_check') {
-        seedSource = await repairEngineer.fix(
-          state.source,
-          state.buildReport ?? lastBuildForRepair,
-          lastGoldenForRepair,
-          loop + 1,
-        );
+        try {
+          seedSource = await repairEngineer.fix(
+            state.source,
+            state.buildReport ?? lastBuildForRepair,
+            lastGoldenForRepair,
+            loop + 1,
+          );
+        } catch (repairErr) {
+          const msg = repairErr instanceof Error ? repairErr.message : String(repairErr);
+          return {
+            status: 'error',
+            intent: state.intent ?? intent,
+            spec: state.spec ?? spec,
+            source: state.source,
+            buildReport: state.buildReport ?? lastBuildForRepair,
+            goldenReport: state.goldenReport ?? lastGoldenForRepair,
+            repairAttempts,
+            totalDurationMs,
+            shadow_hits: shadowHits,
+            error: `repair failed: ${msg}`,
+            lastErrorKind: extractLastErrorKind(state.buildReport ?? lastBuildForRepair),
+          };
+        }
         repairAttempts++;
         continue;
       }
@@ -328,7 +364,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
       totalDurationMs: Date.now() - startTime,
       shadow_hits: shadowHits,
       error: 'max repair loops reached',
-      lastErrorKind: undefined,
+      lastErrorKind: extractLastErrorKind(undefined),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
