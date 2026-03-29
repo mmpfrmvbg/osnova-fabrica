@@ -6,12 +6,13 @@
 //
 // Закрытые issues (как в pruneForgeStateBlockers): --closed "1,2,3" или FORGE_CLOSED_BLOCKER_ISSUES.
 //
-// Запуск: npx tsx scripts/forge-cleanup.ts [--dry-run] [--state path] [path]
+// Запуск: npx tsx scripts/forge-cleanup.ts [--dry-run] [--apply] [--state path] [path]
+// Запись на диск только с явным --apply (через applyStaleBlockerCleanup в executor).
 
 import * as path from 'path';
 
 import { parseForgeBlockerAtmId, pruneForgeStateBlockers } from '../src/pipeline/blocker-resolver';
-import { loadForgeState } from '../src/pipeline/executor';
+import { applyStaleBlockerCleanup, loadForgeState } from '../src/pipeline/executor';
 import type { ForgeStateBlockerIssueId } from '../src/pipeline/types';
 
 function parseClosedIds(raw: string | undefined): Set<ForgeStateBlockerIssueId> {
@@ -26,9 +27,14 @@ function parseClosedIds(raw: string | undefined): Set<ForgeStateBlockerIssueId> 
   return out;
 }
 
-function resolveStatePath(argv: string[]): { path: string; closed: Set<ForgeStateBlockerIssueId> } {
+function resolveStatePath(argv: string[]): {
+  path: string;
+  closed: Set<ForgeStateBlockerIssueId>;
+  apply: boolean;
+} {
   let explicit: string | undefined;
   let closedRaw: string | undefined;
+  let apply = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--state' || a === '-s') {
@@ -40,6 +46,10 @@ function resolveStatePath(argv: string[]): { path: string; closed: Set<ForgeStat
       continue;
     }
     if (a === '--dry-run') continue;
+    if (a === '--apply') {
+      apply = true;
+      continue;
+    }
     if (!a.startsWith('-')) {
       explicit ??= a;
     }
@@ -49,7 +59,7 @@ function resolveStatePath(argv: string[]): { path: string; closed: Set<ForgeStat
   const closed = parseClosedIds(
     closedRaw ?? process.env.FORGE_CLOSED_BLOCKER_ISSUES ?? process.env.FORGE_CLOSED_ISSUES
   );
-  return { path: p, closed };
+  return { path: p, closed, apply };
 }
 
 function reasonLabel(
@@ -70,12 +80,16 @@ function reasonLabel(
 }
 
 function main(): void {
-  const { path: statePath, closed } = resolveStatePath(process.argv.slice(2));
+  const { path: statePath, closed, apply } = resolveStatePath(process.argv.slice(2));
 
   const state = loadForgeState(statePath);
   if (state === null) {
-    console.log(`forge-cleanup (dry-run): нет файла или пустой YAML — ${statePath}`);
+    console.log(`forge-cleanup${apply ? ' (--apply)' : ' (dry-run)'}: нет файла или пустой YAML — ${statePath}`);
     console.log('Действий по blockers не требуется.');
+    if (apply) {
+      console.error('forge-cleanup: --apply требует существующего state v5; запись невозможна.');
+      process.exit(1);
+    }
     process.exit(0);
   }
 
@@ -97,7 +111,11 @@ function main(): void {
   const pruned = pruneForgeStateBlockers(entries, closed);
   const totalRemove = entries.length - pruned.length;
 
-  console.log('Forge blocker cleanup — только dry-run (файл state не изменяется).');
+  console.log(
+    apply
+      ? 'Forge blocker cleanup — dry-run план, затем запись через executor (applyStaleBlockerCleanup).'
+      : 'Forge blocker cleanup — только dry-run (файл state не изменяется).'
+  );
   console.log(`State: ${statePath}`);
   console.log(`Записей blockers: ${entries.length}`);
   if (closed.size > 0) {
@@ -132,7 +150,23 @@ function main(): void {
     console.log('(ничего не удалится — список уже соответствует правилам pruneForgeStateBlockers)');
   } else {
     console.log(`Итого к удалению: ${totalRemove}; останется записей: ${pruned.length}.`);
-    console.log('Чтобы применить на диске, используйте пайплайн с applyStaleBlockerCleanup (не этот скрипт).');
+    if (!apply) {
+      console.log('Чтобы применить на диске, повторите с флагом --apply.');
+    }
+  }
+
+  if (!apply) {
+    return;
+  }
+
+  console.log('');
+  console.log('Применение (--apply): запись state через applyStaleBlockerCleanup…');
+  try {
+    applyStaleBlockerCleanup(statePath, closed);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`forge-cleanup: ошибка записи state: ${msg}`);
+    process.exit(1);
   }
 }
 
