@@ -230,21 +230,39 @@ def cursor_headless_argv(
     Cursor agent headless for atomizer: ``cursor-agent -p --yolo --trust --workspace <repo> <prompt>``.
     Matches ``forge/smith.sh`` (without the node-bundle path).
 
+    Windows: если ``CURSORBIN`` резолвится в ``*.ps1``, ``-p`` уходит в PowerShell как чужой параметр
+    (ошибка про ``name``). Тогда: ``node.exe`` + ``index.js`` из ``cursor-agent\\versions\\…``.
+
     - ``FORGE_ATOMIZER_CURSOR_MODEL`` — optional ``--model`` (omit if unset or ``_``).
     - If ``use_stdin`` is True, the last argument is ``-``; pass ``input=prompt`` to ``subprocess.run`` (long prompts on Windows).
     """
     raw = env_paths()["CURSORBIN"]
     exe = resolve_cursor_bin_for_smith(raw) or resolve_executable(raw)
     proj = (workspace or env_paths()["OSNOVA_PROJECT"] or "").strip() or "."
-    argv: list[str] = [exe, "-p", "--yolo", "--trust", "--workspace", proj]
+    tail: list[str] = ["-p", "--yolo", "--trust", "--workspace", proj]
     model = os.environ.get("FORGE_ATOMIZER_CURSOR_MODEL", "").strip()
     if model and model not in ("_", "-"):
-        argv.extend(["--model", model])
+        tail.extend(["--model", model])
     if use_stdin:
-        argv.append("-")
+        tail.append("-")
     else:
-        argv.append(prompt)
-    return argv
+        tail.append(prompt)
+
+    if sys.platform == "win32":
+        try:
+            suf = Path(exe).suffix.lower()
+        except OSError:
+            suf = ""
+        if suf == ".ps1":
+            bundle = find_cursor_agent_node_bundle()
+            if bundle:
+                node, idx = bundle
+                try:
+                    return [str(node.resolve()), str(idx.resolve()), *tail]
+                except OSError:
+                    return [str(node), str(idx), *tail]
+
+    return [exe, *tail]
 
 
 def cursor_cli_available() -> bool:

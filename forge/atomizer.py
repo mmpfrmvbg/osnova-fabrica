@@ -45,6 +45,12 @@ ATM_COUNT_MIN = 8
 ATM_COUNT_MAX = 20
 MAX_SCOPE_FILES_EPIC = 12
 
+_ATOM_LIST_WRAPPER_KEYS = frozenset({"atoms", "tasks", "atms", "items", "atm_list", "list"})
+_SINGLE_ATOM_TOP_KEYS = frozenset(
+    {"goal", "scope", "steps", "seq", "id", "name", "zone", "risk", "done", "notouch", "deps", "executor"},
+)
+_ATM_OR_NUMERIC_KEY_RE = re.compile(r"^(ATM-[A-Za-z0-9_.-]+|[0-9]+)$")
+
 
 def _atomizer_timeout() -> int:
     raw = os.environ.get("FORGE_ATOMIZER_TIMEOUT", "").strip()
@@ -83,9 +89,23 @@ def _atomizer_use_stdin() -> bool:
     return v not in ("0", "false", "no")
 
 
+def _epic_for_atomizer_prompt(epic: dict[str, Any], *, engine: str) -> dict[str, Any]:
+    """
+    Для Cursor: в тексте промпта подменяем ``id`` с дефисами на подчёркивания — часть PS/CLI цепочек
+    некорректно парсит hyphenated slug рядом с другими флагами. На данные epics/*.yaml не влияет.
+    """
+    if engine != "cursor":
+        return epic
+    e = dict(epic)
+    oid = e.get("id")
+    if oid is not None and str(oid).strip():
+        e["id"] = str(oid).strip().replace("-", "_")
+    return e
+
+
 def _epic_trailer(epic: dict[str, Any], *, engine: str) -> str:
     """Short repeated summary so the model sees id/goal/scope even if long YAML is truncated upstream."""
-    eid = epic.get("id", "")
+    eid = _epic_for_atomizer_prompt(epic, engine=engine).get("id", "")
     goal = str(epic.get("goal", ""))[:600]
     scope = epic.get("scope") or []
     paths = ", ".join(str(p).split("—")[0].strip() for p in scope[:MAX_SCOPE_FILES_EPIC] if p)
@@ -109,7 +129,7 @@ def _epic_trailer(epic: dict[str, Any], *, engine: str) -> str:
 
 
 def _prompt(epic: dict[str, Any], *, engine: str) -> str:
-    dumped = yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)
+    dumped = yaml.safe_dump(_epic_for_atomizer_prompt(epic, engine=engine), allow_unicode=True, sort_keys=False)
     core_rules = (
         "CRITICAL — read before answering:\n"
         "- The EPIC is the YAML block below. It is NOT a filename. "
@@ -143,7 +163,7 @@ def _prompt(epic: dict[str, Any], *, engine: str) -> str:
 
 
 def _prompt_retry(epic: dict[str, Any], bad_tail: str, *, engine: str) -> str:
-    dumped = yaml.safe_dump(epic, allow_unicode=True, sort_keys=False)
+    dumped = yaml.safe_dump(_epic_for_atomizer_prompt(epic, engine=engine), allow_unicode=True, sort_keys=False)
     return (
         "Your previous reply was NOT valid: empty [], questions, or not parseable. "
         "Reply with ONLY a non-empty YAML list or JSON array — no prose, no [].\n\n"
@@ -211,7 +231,7 @@ def _coerce_atom_list(data: Any) -> list[dict[str, Any]]:
         LOG.warning("atomizer: list has non-dict items — dropping invalid entries")
         return [x for x in data if isinstance(x, dict)]
     if isinstance(data, dict):
-        for key in ("atoms", "tasks", "atms", "items", "atm_list", "list"):
+        for key in _ATOM_LIST_WRAPPER_KEYS:
             v = data.get(key)
             if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
                 LOG.info("atomizer: unwrapped list from key %r", key)
@@ -220,9 +240,25 @@ def _coerce_atom_list(data: Any) -> list[dict[str, Any]]:
         if isinstance(one, dict):
             LOG.info("atomizer: unwrapped single key 'atm'")
             return [one]
-        if any(k in data for k in ("goal", "scope", "steps", "seq")):
+        if any(k in data for k in _SINGLE_ATOM_TOP_KEYS):
             LOG.warning("atomizer: one top-level mapping — treating as single ATM (model should return a list)")
             return [data]
+        # Mapping keyed by ATM-… or numeric id → list of dicts (model omitted list dashes)
+        if data and all(isinstance(v, dict) for v in data.values()):
+            keys = [str(k) for k in data.keys()]
+            if keys and all(_ATM_OR_NUMERIC_KEY_RE.match(k) for k in keys):
+                if not any(k in data for k in _ATOM_LIST_WRAPPER_KEYS):
+                    LOG.info("atomizer: coerced mapping keyed by ATM / seq id to list (%s items)", len(keys))
+                    out: list[dict[str, Any]] = []
+                    for k, v in data.items():
+                        row = dict(v)
+                        ks = str(k).strip()
+                        if ks.isdigit():
+                            row.setdefault("seq", int(ks))
+                        elif not row.get("id") and not row.get("name"):
+                            row["id"] = ks
+                        out.append(row)
+                    return out
     return []
 
 
@@ -371,6 +407,39 @@ def _run_qwen_atomizer(prompt: str, timeout: int) -> subprocess.CompletedProcess
     )
 
 
+def _seq_and_atom_id(atom: dict[str, Any], idx: int, epic_id: str) -> tuple[int, str]:
+    """
+    Числовой seq и стабильный id. Поддержка: ``id`` / ``name``; ``seq`` как int или строка ``ATM-…-009``.
+    """
+    raw_id = atom.get("id") or atom.get("name")
+    if raw_id is not None:
+        sid = str(raw_id).strip()
+        if sid:
+            m = re.search(r"-(\d{1,4})\s*$", sid)
+            seq_guess = int(m.group(1)) if m and m.group(1).isdigit() else idx
+            return seq_guess, sid
+    raw = atom.get("seq")
+    if raw is None:
+        return idx, f"ATM-{epic_id}-{idx:03d}"
+    if isinstance(raw, bool):
+        return idx, f"ATM-{epic_id}-{idx:03d}"
+    if isinstance(raw, int):
+        return raw, f"ATM-{epic_id}-{raw:03d}"
+    s = str(raw).strip()
+    if s.isdigit():
+        n = int(s)
+        return n, f"ATM-{epic_id}-{n:03d}"
+    if s.upper().startswith("ATM"):
+        m = re.search(r"-(\d{1,4})\s*$", s)
+        n = int(m.group(1)) if m and m.group(1).isdigit() else idx
+        return n, s
+    try:
+        n = int(float(s))
+        return n, f"ATM-{epic_id}-{n:03d}"
+    except ValueError:
+        return idx, f"ATM-{epic_id}-{idx:03d}"
+
+
 def _coerce_dep_to_atm_id(raw: Any, epic_id: str, known_ids: set[str]) -> str | None:
     """Map atomizer output (often seq numbers) to ATM-{epic}-{seq:03d} for parallel_executor."""
     if raw is None:
@@ -431,8 +500,7 @@ def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[
     epic_id = str(epic["id"])
     done_cmd = epic["done"]
     for idx, atom in enumerate(atoms, start=1):
-        seq = int(atom.get("seq", idx))
-        atom_id = atom.get("id") or f"ATM-{epic_id}-{seq:03d}"
+        seq, atom_id = _seq_and_atom_id(atom, idx, epic_id)
         ex = _normalized_executor(atom, epic)
         if ex is None:
             ex = "qwen"
