@@ -53,3 +53,7 @@ export { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 
 // Semantic kinds
 export { BLOCKING_SEMANTIC_KINDS, NON_BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
+
+// Retry
+export { withRetry, withRetryOrThrow, DEFAULT_PIPELINE_RETRY_CONFIG } from './retry';
+export type { RetryConfig, RetryResult } from './retry';
