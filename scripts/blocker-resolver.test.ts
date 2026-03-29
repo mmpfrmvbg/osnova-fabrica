@@ -8,13 +8,14 @@ import {
 } from '../src/tools/blocker-types';
 import {
   parseForgeBlockerAtmId,
-  pruneForgeStateBlockers,
+  pruneForgeStateBlockers as prunePipeline,
   resolveForgeBlockerScenarioFromAtmId,
 } from '../src/pipeline/blocker-resolver';
 import {
   loadForgeState,
   extractBlockersFromState,
   loadAndExtractBlockers,
+  pruneForgeStateBlockers as pruneTools,
   type ForgeStateV5,
 } from '../src/tools/blocker-resolver';
 
@@ -88,7 +89,7 @@ describe('blocker-types', () => {
     it('сохраняет валидные v5 записи с открытыми issues', () => {
       const valid015 = makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001'));
       const validFbk = makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '001'));
-      const result = pruneForgeStateBlockers([valid015, validFbk], new Set());
+      const result = prunePipeline([valid015, validFbk], new Set());
       expect(result).toHaveLength(2);
       expect(result[0].issue).toBe(1);
       expect(result[1].issue).toBe(2);
@@ -97,7 +98,7 @@ describe('blocker-types', () => {
     it('удаляет записи с закрытыми issues', () => {
       const rec1 = makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001'));
       const rec2 = makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '001'));
-      const result = pruneForgeStateBlockers([rec1, rec2], new Set([2]));
+      const result = prunePipeline([rec1, rec2], new Set([2]));
       expect(result).toHaveLength(1);
       expect(result[0].issue).toBe(1);
     });
@@ -105,7 +106,7 @@ describe('blocker-types', () => {
     it('удаляет записи с невалидным atm_id форматом', () => {
       const valid = makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001'));
       const invalid = makeRecord(2, 'ATM-EPK-UNKNOWN-001');
-      const result = pruneForgeStateBlockers([valid, invalid], new Set());
+      const result = prunePipeline([valid, invalid], new Set());
       expect(result).toHaveLength(1);
       expect(result[0].issue).toBe(1);
     });
@@ -114,17 +115,17 @@ describe('blocker-types', () => {
       const rec1 = makeRecord(10, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '010'));
       const rec2 = makeRecord(20, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '020'));
       const rec3 = makeRecord(30, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '030'));
-      const result = pruneForgeStateBlockers([rec1, rec2, rec3], new Set());
+      const result = prunePipeline([rec1, rec2, rec3], new Set());
       expect(result.map((r) => r.issue)).toEqual([10, 20, 30]);
     });
 
     it('обрабатывает пустой массив entries', () => {
-      expect(pruneForgeStateBlockers([], new Set())).toEqual([]);
+      expect(prunePipeline([], new Set())).toEqual([]);
     });
 
     it('обрабатывает пустой set closedIssueIds', () => {
       const rec = makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001'));
-      expect(pruneForgeStateBlockers([rec], new Set())).toEqual([rec]);
+      expect(prunePipeline([rec], new Set())).toEqual([rec]);
     });
   });
 
@@ -148,6 +149,57 @@ describe('blocker-types', () => {
       const atmId = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '001');
       expect(resolveForgeBlockerScenarioFromAtmId(`  ${atmId}  `)).toBe('FBK016');
     });
+  });
+});
+
+describe('tool classify — классификация stale ATM-блокеров', () => {
+  const makeRecord = (issue: number, atmId: string, open = true): typeof import('../src/tools/blocker-types').ForgeStateBlockerRecord => ({
+    issue,
+    atm_id: atmId,
+    open,
+    updated: '2026-03-29T00:00:00Z',
+  });
+
+  it('pruneTools: сохраняет валидные 015/FBK016 записи', () => {
+    const rec015 = makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001'));
+    const recFbk = makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '001'));
+    const result = pruneTools([rec015, recFbk], new Set());
+    expect(result).toHaveLength(2);
+  });
+
+  it('pruneTools: удаляет закрытые issues', () => {
+    const rec1 = makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001'));
+    const rec2 = makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '001'));
+    const result = pruneTools([rec1, rec2], new Set([2]));
+    expect(result).toHaveLength(1);
+    expect(result[0].issue).toBe(1);
+  });
+
+  it('pruneTools: удаляет stale atm_id (invalid format)', () => {
+    const valid = makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001'));
+    const stale = makeRecord(2, 'ATM-EPK-UNKNOWN-001');
+    const result = pruneTools([valid, stale], new Set());
+    expect(result).toHaveLength(1);
+    expect(result[0].issue).toBe(1);
+  });
+
+  it('pruneTools: приоритет — closed issue > invalid atm_id', () => {
+    const recClosedInvalid = makeRecord(5, 'INVALID-ATM');
+    const result = pruneTools([recClosedInvalid], new Set([5]));
+    expect(result).toHaveLength(0);
+  });
+
+  it('pruneTools: эквивалентность pruneTools и prunePipeline', () => {
+    const entries = [
+      makeRecord(1, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001')),
+      makeRecord(2, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '002')),
+      makeRecord(3, 'ATM-EPK-UNKNOWN-003'),
+      makeRecord(4, composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '004')),
+    ];
+    const closed = new Set([2]);
+    const resultTools = pruneTools(entries, closed);
+    const resultPipeline = prunePipeline(entries, closed);
+    expect(resultTools).toEqual(resultPipeline);
   });
 });
 
