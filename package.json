@@ -17,6 +17,7 @@
     "test:e2e-osiris": "vitest run --config vitest.e2e.config.ts",
     "coverage": "vitest run --coverage",
     "test:watch": "vitest",
+    "test:forge": "python -m unittest discover -s forge/tests -p \"test_*.py\"",
     "golden": "tsx src/runtime/goldenApps.ts",
     "compile:fixtures": "tsx src/compiler/compile-fixtures.ts",
     "export:schema": "tsx src/compiler/export-language-schema.ts",

@@ -242,10 +242,9 @@ def execute_wave_parallel(
 
     if wave_scopes_overlap(wave_atoms):
         LOG.warning(
-            "parallel_executor: wave %d scopes overlap — falling back to sequential",
+            "parallel_executor: wave %d scopes overlap — continuing parallel (worktrees isolate scopes)",
             wave_index + 1,
         )
-        return _sequential_on_main()
 
     pool_n = min(n, max(1, max_workers))
     LOG.info(
@@ -355,7 +354,11 @@ def execute_wave_parallel(
                     tail,
                 )
                 _git_run(root, ["cherry-pick", "--abort"], timeout=60)
-                reports_out[i] = {**rep, "s": "BLK", "err": f"cherry-pick conflict: {tail}"}
+                reports_out[i] = {
+                    **rep,
+                    "s": "MERGE_CONFLICT",
+                    "err": f"cherry-pick conflict: {tail}",
+                }
             else:
                 LOG.info("parallel_executor: cherry-pick OK for %s (%s)", atm_id, sha[:8])
 

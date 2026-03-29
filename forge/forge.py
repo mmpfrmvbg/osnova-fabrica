@@ -28,6 +28,7 @@ try:
     )
     from forge.blk_classify import classify_blk
     from forge.brain_context import build_brain_context, decide_brain_action, resume_epic_if_pending
+    from forge.worktree_manager import cleanup_stale_worktrees
     from forge.brain_fallback import generate_fallback_epic
     from forge.common import (
         SUBPROCESS_TEXT,
@@ -84,6 +85,7 @@ except ImportError:  # pragma: no cover
     )
     from blk_classify import classify_blk
     from brain_context import build_brain_context, decide_brain_action, resume_epic_if_pending
+    from worktree_manager import cleanup_stale_worktrees
     from brain_fallback import generate_fallback_epic
     from common import (
         SUBPROCESS_TEXT,
@@ -128,6 +130,18 @@ LOG = setup_logging("forge")
 _NO_EXECUTOR_WARN_EMITTED = False
 
 OnAtomUpdate = Callable[[str, str, Any], None]
+
+
+def _persist_merge_conflict_atom(
+    project: Path,
+    atom: dict[str, Any],
+    rep: dict[str, Any],
+    dry_run: bool,
+) -> None:
+    if str(rep.get("s") or "").upper() != "MERGE_CONFLICT":
+        return
+    apply_report_to_atom(atom, rep)
+    save_atm_yaml(project, atom, dry_run=dry_run)
 
 
 def _atm_commit_or_process(
@@ -892,18 +906,14 @@ def _process_epic(
                         **SUBPROCESS_TEXT,
                     )
                 for atom, rep in zip(wave, wave_reports, strict=True):
+                    _persist_merge_conflict_atom(project, atom, rep, dry_run)
                     process_result(atom, rep, dry_run=dry_run, state_only=True)
                 continue
 
-            use_parallel = (
-                not dry_run
-                and len(wave) > 1
-                and pw > 1
-                and not wave_scopes_overlap(wave)
-            )
+            use_parallel = not dry_run and len(wave) > 1 and pw > 1
             if not use_parallel:
                 if len(wave) > 1 and pw > 1 and not dry_run and wave_scopes_overlap(wave):
-                    LOG.warning("scope overlap in wave — sequential fallback")
+                    LOG.warning("scope overlap in wave — sequential (FORGE_PARALLEL_WORKERS=1 or single worker)")
                 for atom in wave:
                     _run_one(atom)
                 continue
@@ -945,6 +955,7 @@ def _process_epic(
                         **SUBPROCESS_TEXT,
                     )
                 for atom, rep in zip(wave, ordered_reports, strict=True):
+                    _persist_merge_conflict_atom(project, atom, rep, dry_run)
                     process_result(atom, rep, dry_run=dry_run, state_only=True)
             finally:
                 if wt and not dry_run:
@@ -1050,6 +1061,11 @@ def cycle(dry_run: bool = False) -> str:
     if not dry_run:
         _merge_epic_queue_after_git_pull(pre_queue)
     sha_after = _git_rev_parse_head(project) if not dry_run else ""
+    if not dry_run:
+        try:
+            cleanup_stale_worktrees(project)
+        except Exception as exc:
+            LOG.warning("cleanup_stale_worktrees: %s", exc)
     pulled = "noop"
     if not dry_run and sha_before and sha_after:
         pulled = "changed" if sha_before != sha_after else "noop"
