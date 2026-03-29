@@ -11,14 +11,15 @@ import * as fs from 'fs';
 import { getLLMProvider } from '../llm/index';
 import { IntakeValidationError, type IAgent } from './types';
 import type { AgentReport, BaseAgent } from '../types/agents';
-import type {
-  RawText,
-  OsnovaIntent,
-  OsnovaSpec,
-  AppType,
-  OsnovaModule,
-  OsnovaType,
-  ProcedureSignature,
+import {
+  SPEC_INTENT_CONFIDENCE_DEFAULT,
+  type RawText,
+  type OsnovaIntent,
+  type OsnovaSpec,
+  type AppType,
+  type OsnovaModule,
+  type OsnovaType,
+  type ProcedureSignature,
 } from '../pipeline/types';
 import type { CompileResult } from '../compiler/compiler';
 import { wrapLlmError } from '../llm/errors';
@@ -79,7 +80,7 @@ export function parseLlmConfidence(value: unknown): number {
       return n;
     }
   }
-  return 0.8;
+  return SPEC_INTENT_CONFIDENCE_DEFAULT;
 }
 
 type LlmIntentJson = {
@@ -93,15 +94,37 @@ type LlmIntentJson = {
   confidence?: unknown;
 };
 
-function featuresFromLlmParsed(parsed: LlmIntentJson, fallbackText: string): string[] {
-  const rawFeatures = parsed.features;
-  const rawRoles = parsed.roles;
-  if (Array.isArray(rawFeatures) && rawFeatures.length > 0) {
-    return rawFeatures.map(String);
+/** Извлекает непустой список строк из features/roles (массив, строка, объект значений). */
+function nonEmptyStringListFromUnknown(value: unknown): string[] | null {
+  if (value == null) return null;
+  if (Array.isArray(value)) {
+    const out = value.map(String).map(s => s.trim()).filter(s => s.length > 0);
+    return out.length > 0 ? out : null;
   }
-  if (Array.isArray(rawRoles) && rawRoles.length > 0) {
-    return rawRoles.map(String);
+  if (typeof value === 'string') {
+    const t = value.trim();
+    if (!t) return null;
+    if (t.includes(',')) {
+      return t.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    }
+    return [t];
   }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const out = Object.values(value as Record<string, unknown>)
+      .filter(v => v != null)
+      .map(v => String(v).trim())
+      .filter(s => s.length > 0);
+    return out.length > 0 ? out : null;
+  }
+  return null;
+}
+
+/** Features для intent: features → roles (массив / строка / объект) → intent|fallback. */
+export function intentFeaturesFromLlmPayload(parsed: LlmIntentJson, fallbackText: string): string[] {
+  const fromFeatures = nonEmptyStringListFromUnknown(parsed.features);
+  if (fromFeatures) return fromFeatures;
+  const fromRoles = nonEmptyStringListFromUnknown(parsed.roles);
+  if (fromRoles) return fromRoles;
   return [String(parsed.intent ?? fallbackText)];
 }
 
@@ -317,7 +340,7 @@ export class IntakeAgent implements IAgent, BaseAgent {
       description: String(
         p.intent ?? p.description ?? normalized.text,
       ),
-      features: featuresFromLlmParsed(p, normalized.text),
+      features: intentFeaturesFromLlmPayload(p, normalized.text),
       appType: prefixAppType ?? coerceAppType(p.appType, 'утилита'),
       constraints:
         p.constraints != null && typeof p.constraints === 'object' && !Array.isArray(p.constraints)

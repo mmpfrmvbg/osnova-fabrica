@@ -1,23 +1,27 @@
-id: ATM-EPK-260328-015-010
-epic: EPK-260328-015
-seq: 10
-zone: pipeline
+id: ATM-EPK-260328-016-002
+epic: EPK-260328-016
+seq: 2
+zone: agents
 risk: HIGH
 executor: cursor
-goal: Написать интеграционные тесты pipeline с agents
+goal: Восстановить IntakeAgent — устранить причины BLK в ATM-001
 scope:
-- src/pipeline/pipeline.test.ts — E2E тесты pipeline + agents
-notouch: []
+- src/agents/intake-agent.ts
+- src/agents/agents.test.ts — соответствующие тесты
+notouch:
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать тест полного цикла compiler → runtime → agents
-- Протестировать passrate > 0.8
-- Добавить тесты взаимодействия всех компонентов
+- Локализовать failing test для ATM-001
+- Исправить логику intake (валидация gate, парсинг roles)
+- 'Убедиться: тест ATM-001 проходит'
 deps:
-- ATM-EPK-260328-015-009
+- ATM-EPK-260328-016-001
 maxiter: 3
 retries: 0
-status: done
-priority: P1
+status: in_progress
+priority: P0
 max_retries: 3
-review_base_sha: 4ef26934bea636f841140d1bb057e5a14604d31f
+review_base_sha: a5d51833929a847a4a8ec165de438520b819ebcb

@@ -13,13 +13,19 @@ vi.mock('../llm/index', () => ({
 
 import { compileSource, compileToBuildReport } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
-import { IntakeAgent, SpecValidationError, parseLlmConfidence } from './IntakeAgent';
+import {
+  IntakeAgent,
+  SpecValidationError,
+  intentFeaturesFromLlmPayload,
+  parseLlmConfidence,
+} from './IntakeAgent';
 import { PlanAgent, PlanValidationError, isValidPhaseTransition } from './plan-agent';
 import { ExecAgent, createPipelineVmFromExecContext, type ExecContext } from './exec-agent';
 import { PIPELINE_VM_GLOBAL_KEYS } from '../runtime/vm';
 import { ReviewAgent } from './review-agent';
 import { IntakeValidationError } from './types';
 import type { OsnovaIntent, OsnovaSpec, RawText, ExecutionPlan } from '../pipeline/types';
+import { SPEC_INTENT_CONFIDENCE_DEFAULT } from '../pipeline/types';
 
 function sampleIntent(over: Partial<OsnovaIntent> = {}): OsnovaIntent {
   return {
@@ -52,12 +58,59 @@ describe('parseLlmConfidence — порог G1 (ATM-002)', () => {
     expect(parseLlmConfidence(' 0.699 ')).toBeCloseTo(0.699);
   });
 
-  it('нечисловая строка → 0.8', () => {
-    expect(parseLlmConfidence('высокая')).toBe(0.8);
+  it('нечисловая строка → SPEC_INTENT_CONFIDENCE_DEFAULT', () => {
+    expect(parseLlmConfidence('высокая')).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
   });
 
   it('число как раньше', () => {
     expect(parseLlmConfidence(0.42)).toBe(0.42);
+  });
+});
+
+describe('intentFeaturesFromLlmPayload — roles/features для G1 (ATM-001)', () => {
+  it('roles строка (одна capability) → один элемент', () => {
+    expect(
+      intentFeaturesFromLlmPayload(
+        { features: [], roles: 'file read', intent: 'x' },
+        'fallback',
+      ),
+    ).toEqual(['file read']);
+  });
+
+  it('roles строка с запятыми → несколько capability', () => {
+    expect(
+      intentFeaturesFromLlmPayload(
+        { features: [], roles: ' read log ,  export ', intent: 'x' },
+        'fallback',
+      ),
+    ).toEqual(['read log', 'export']);
+  });
+
+  it('roles объект значений → значения как features', () => {
+    expect(
+      intentFeaturesFromLlmPayload(
+        { features: [], roles: { a: 'storage', b: 'logging' }, intent: 'x' },
+        'fallback',
+      ),
+    ).toEqual(['storage', 'logging']);
+  });
+
+  it('пустой features[] и только пробельные строки в массиве → intent + fallback', () => {
+    expect(
+      intentFeaturesFromLlmPayload(
+        { features: ['', '  ', '\t'], roles: [], intent: 'цель' },
+        'задача',
+      ),
+    ).toEqual(['цель']);
+  });
+
+  it('features имеет приоритет над roles', () => {
+    expect(
+      intentFeaturesFromLlmPayload(
+        { features: ['only'], roles: ['ignored'], intent: 'x' },
+        'fallback',
+      ),
+    ).toEqual(['only']);
   });
 });
 
