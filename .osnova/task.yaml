@@ -1,21 +1,19 @@
-id: ATM-EPK-260329-027-008
-epic: EPK-260329-027
-seq: 8
-zone: runtime
-risk: MEDIUM
+id: ATM-EPK-260329-028-001
+epic: EPK-260329-028
+seq: 1
+zone: types
+risk: LOW
 executor: cursor
-goal: Выровнять под-интерпретатор VM с interpreter.ts
-scope: src/runtime/interpreter.ts — vm/interpreter parity
+goal: Определить типы и константы для CLI resolver/check (exit codes, режимы dry-run/apply)
+scope: src/tools/blocker-types.ts — базовые типы без IO
 notouch:
-- src/runtime/vm.ts
-- src/pipeline/types.ts
-done: npx vitest run src/runtime/vm/interpreter.test.ts
+- src/pipeline/blocker-resolver.ts
+- src/pipeline/executor.ts
+done: npx vitest run scripts/blocker-resolver.test.ts -t "blocker-types"
 steps:
-- src/runtime/vm/interpreter.test.ts
-- Убрать расхождение путей исполнения
-- Патч interpreter.ts
-deps:
-- ATM-EPK-260329-027-007
+- Создать src/tools/blocker-types.ts с типами режимов и кодов завершения
+- Не импортировать executor/state IO
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

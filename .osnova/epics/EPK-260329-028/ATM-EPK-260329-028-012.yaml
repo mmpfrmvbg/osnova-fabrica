@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-012
+epic: EPK-260329-028
+seq: 12
+zone: test
+risk: LOW
+executor: qwen
+goal: Юнит-тесты lib — parse re-export, classify, buildPrunedBlockers на фикстурах
+scope: scripts/blocker-resolver.test.ts — lib tests
+notouch:
+- src/pipeline/pipeline.test.ts
+done: npx vitest run scripts/blocker-resolver.test.ts -t "lib unit"
+steps:
+- Добавить describe для src/tools/* поведения через публичный API scripts или tools
+- Фикстуры массивов ForgeStateBlockerRecord в памяти
+deps:
+- seq 5
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-006
+epic: EPK-260329-028
+seq: 6
+zone: tools
+risk: MED
+executor: qwen
+goal: Классифицировать stale ATM-блокеры и сопоставление с закрытыми GitHub issues
+scope: src/tools/blocker-resolver.ts — classify / closed-set
+notouch:
+- .github/
+done: npx vitest run scripts/blocker-resolver.test.ts -t "tool classify"
+steps:
+- Портировать/скопировать правила atm_id 015/FBK016 в tools-слой
+- Принять множество closed issue ids и помечать строки к удалению
+deps:
+- ATM-EPK-260329-028-005
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

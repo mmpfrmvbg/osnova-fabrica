@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-010
+epic: EPK-260329-028
+seq: 10
+zone: tools
+risk: MED
+executor: qwen
+goal: Применить план к state (apply), сохранить YAML и завершить с кодами успеха/ошибки
+scope: src/tools/blocker-resolver.ts — apply / save / exit semantics
+notouch:
+- src/pipeline/blocker-resolver.ts
+done: npx vitest run scripts/blocker-resolver.test.ts -t "tool apply"
+steps:
+- Обернуть сохранение через существующий сериализатор state если доступен из tools
+- Разделить dry-run и apply; логировать итог одной строкой
+deps:
+- ATM-EPK-260329-028-009
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

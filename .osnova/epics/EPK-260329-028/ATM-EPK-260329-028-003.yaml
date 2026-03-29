@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-003
+epic: EPK-260329-028
+seq: 3
+zone: quality
+risk: LOW
+executor: qwen
+goal: Заменить todo-тесты типов на проверки структуры и узких инвариантов
+scope: scripts/blocker-resolver.test.ts — сьюит blocker-types
+notouch:
+- package.json
+done: npx vitest run scripts/blocker-resolver.test.ts -t "blocker-types"
+steps:
+- Импортировать публичные типы/константы из src/tools/blocker-types.ts
+- Проверить дискриминанты и литералы, нужные CLI
+deps:
+- ATM-EPK-260329-028-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

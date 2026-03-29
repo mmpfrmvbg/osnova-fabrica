@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-009
+epic: EPK-260329-028
+seq: 9
+zone: quality
+risk: LOW
+executor: qwen
+goal: Тесты плана удаления и отчёта (количества строк, порядок сохранения)
+scope: scripts/blocker-resolver.test.ts — сьюит tool plan
+notouch:
+- .osnova/state.yaml
+done: npx vitest run scripts/blocker-resolver.test.ts -t "tool plan"
+steps:
+- Сравнить стабильный JSON/hash списков как в blocker-sync
+- Проверить dry-run не мутирует входные массивы
+deps:
+- ATM-EPK-260329-028-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

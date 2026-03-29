@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-013
+epic: EPK-260329-028
+seq: 13
+zone: test
+risk: MED
+executor: qwen
+goal: Интеграционные тесты CLI — временный state YAML, spawn tsx scripts/blocker-resolver.ts
+scope: scripts/blocker-resolver.test.ts — CLI integration
+notouch:
+- apps/
+done: npx vitest run scripts/blocker-resolver.test.ts -t "CLI integration"
+steps:
+- mkdtemp + минимальный state v5 с blockers
+- Проверить dry-run не пишет, apply пишет ожидаемый pruned список
+deps:
+- seq 9
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

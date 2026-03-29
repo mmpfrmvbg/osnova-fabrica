@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-001
+epic: EPK-260329-028
+seq: 1
+zone: quality
+risk: LOW
+executor: qwen
+goal: Добавить каркас Vitest для blocker-resolver (describe/it.todo под будущие сьюиты)
+scope: scripts/blocker-resolver.test.ts — каркас и префиксы имён для -t
+notouch:
+- src/pipeline/blocker-resolver.ts
+- scripts/blocker-sync.ts
+done: npx vitest run scripts/blocker-resolver.test.ts -t "blocker-resolver scaffold"
+steps:
+- Создать файл с корневыми describe, совпадающими с фильтрами done ниже по эпику
+- Пометить кейсы как todo/skip так, чтобы прогон с -t проходил
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

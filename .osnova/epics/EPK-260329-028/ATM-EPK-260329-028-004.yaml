@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-028-004
+epic: EPK-260329-028
+seq: 4
+zone: tools
+risk: LOW
+executor: qwen
+goal: Реализовать чтение state и извлечение списка blockers (чистые функции + безопасные
+  ошибки)
+scope: src/tools/blocker-resolver.ts — load/extract без записи
+notouch:
+- src/pipeline/executor.ts
+- scripts/blocker-sync.ts
+done: npx vitest run scripts/blocker-resolver.test.ts -t "tool read"
+steps:
+- Добавить функции чтения YAML state по пути репозитория
+- Вернуть нормализованный список blockers и диагностические коды
+deps:
+- ATM-EPK-260329-028-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

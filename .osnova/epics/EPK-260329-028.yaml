@@ -1,0 +1,21 @@
+t: EPK
+id: EPK-260329-028
+goal: 'Создать инструмент закрытия блокеров: blocker-resolver CLI для автоматической
+  диагностики и закрытия stale ATM-блокеров'
+scope:
+- scripts/blocker-resolver.ts
+- scripts/blocker-resolver.test.ts
+- scripts/blocker-check.ts
+- src/tools/blocker-resolver.ts
+- src/tools/blocker-types.ts
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+- - ATM-005
+  - ATM-006
+- - ATM-007
+done: npx vitest run scripts/blocker-resolver.test.ts
+priority: P0
+githubissue: 95

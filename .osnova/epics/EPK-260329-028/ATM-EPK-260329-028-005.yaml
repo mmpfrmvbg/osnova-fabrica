@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-005
+epic: EPK-260329-028
+seq: 5
+zone: quality
+risk: LOW
+executor: qwen
+goal: Покрыть тестами чтение state и граничные случаи отсутствующего/битого файла
+scope: scripts/blocker-resolver.test.ts — сьюит tool read
+notouch:
+- src/pipeline/blocker-resolver.ts
+done: npx vitest run scripts/blocker-resolver.test.ts -t "tool read"
+steps:
+- Временные фикстуры в памяти или tmp под один сценарий
+- Утвердить контракт возвращаемых ошибок для CLI
+deps:
+- ATM-EPK-260329-028-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

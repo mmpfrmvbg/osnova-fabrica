@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-028-014
+epic: EPK-260329-028
+seq: 14
+zone: test
+risk: LOW
+executor: qwen
+goal: Тесты scripts/blocker-check.ts — exit 0 и формат вывода на фикстурах
+scope: scripts/blocker-resolver.test.ts — blocker-check tests
+notouch:
+- src/pipeline/executor.ts
+done: npx vitest run scripts/blocker-resolver.test.ts -t "blocker-check integration"
+steps:
+- Spawn scripts/blocker-check.ts с --state
+- Снапшот или assert по ключевым строкам/JSON
+deps:
+- seq 11
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

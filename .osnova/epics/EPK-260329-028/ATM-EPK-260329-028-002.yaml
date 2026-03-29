@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-028-002
+epic: EPK-260329-028
+seq: 2
+zone: tools
+risk: LOW
+executor: qwen
+goal: Ввести типы и константы контракта ATM/EPK для слоя src/tools (без IO)
+scope: src/tools/blocker-types.ts — зеркало контрактов state v5 для CLI
+notouch:
+- src/pipeline/blocker-resolver.ts
+- scripts/blocker-sync.ts
+done: npx vitest run scripts/blocker-resolver.test.ts -t "blocker-types"
+steps:
+- Описать типы записей блокера, идентификаторов issue и флагов резолвера
+- Зафиксировать перечисления причин stale/closed без импорта pipeline
+deps:
+- ATM-EPK-260329-028-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

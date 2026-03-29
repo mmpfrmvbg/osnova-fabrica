@@ -1,0 +1,16 @@
+id: ATM-EPK-260329-028-011
+epic: EPK-260329-028
+seq: 11
+zone: lang
+risk: MEDIUM
+executor: qwen
+goal: ''
+scope: []
+notouch: []
+done: npx vitest run scripts/blocker-resolver.test.ts
+steps: []
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0
