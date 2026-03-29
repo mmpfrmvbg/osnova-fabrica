@@ -15,8 +15,11 @@ steps:
 - Тесты для сравнений EQ/LT/GT
 - Тесты для логических операций
 deps:
-- 4
+- ATM-EPK-260328-014-004
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: d1d0e8ab59b5839c272f39552afd3ef540e22abd
+produced_files: []

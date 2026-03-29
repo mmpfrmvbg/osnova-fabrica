@@ -1,5 +1,5 @@
 /**
- * Фасад Interpreter (executionStack, OpCode) и инструкция pop.
+ * Фасад Interpreter: executionStack, OpCode, пошаговый interpret и runProcedure для стека/арифметики/сравнений/логики.
  */
 
 import { describe, it, expect } from "vitest";
@@ -29,6 +29,43 @@ describe("Interpreter + OpCode stack ops", () => {
     expect(ip.executionStack).toEqual([42]);
   });
 
+  it("interpret: const + pop по шагам очищает executionStack", async () => {
+    const m = tinyMod([], [99]);
+    const ip = new Interpreter(m);
+    await ip.interpret({ op: "const", type: "i32", k: 0 } as RawInstruction);
+    expect(ip.executionStack).toEqual([99]);
+    await ip.interpret({ op: "pop" } as RawInstruction);
+    expect(ip.executionStack).toEqual([]);
+  });
+
+  it("interpret: const + dup по шагам дублирует вершину на executionStack", async () => {
+    const m = tinyMod([], [7]);
+    const ip = new Interpreter(m);
+    await ip.interpret({ op: "const", type: "i32", k: 0 } as RawInstruction);
+    await ip.interpret({ op: "dup" } as RawInstruction);
+    expect(ip.executionStack).toEqual([7, 7]);
+  });
+
+  it("interpret: по шагам add / lt / and без runProcedure", async () => {
+    const ipAdd = new Interpreter(tinyMod([], [2, 3]));
+    await ipAdd.interpret({ op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction);
+    await ipAdd.interpret({ op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction);
+    await ipAdd.interpret({ op: OpCode.ADD } as RawInstruction);
+    expect(ipAdd.executionStack).toEqual([5]);
+
+    const ipLt = new Interpreter(tinyMod([], [1, 2]));
+    await ipLt.interpret({ op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction);
+    await ipLt.interpret({ op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction);
+    await ipLt.interpret({ op: OpCode.LT } as RawInstruction);
+    expect(ipLt.executionStack).toEqual([true]);
+
+    const ipAnd = new Interpreter(tinyMod([]));
+    await ipAnd.interpret({ op: "const.true" } as RawInstruction);
+    await ipAnd.interpret({ op: "const.false" } as RawInstruction);
+    await ipAnd.interpret({ op: OpCode.AND } as RawInstruction);
+    expect(ipAnd.executionStack).toEqual([false]);
+  });
+
   describe("PUSH / POP / DUP", () => {
     it("OpCode.PUSH maps to const; после ret executionStack показывает остаток; DUP дублирует вершину", async () => {
       expect(OpCode.PUSH).toBe("const");
@@ -37,9 +74,13 @@ describe("Interpreter + OpCode stack ops", () => {
       expect(OpCode.SUB).toBe("sub");
       expect(OpCode.MUL).toBe("mul");
       expect(OpCode.DIV).toBe("div");
+      expect(OpCode.REM).toBe("rem");
       expect(OpCode.EQ).toBe("eq");
+      expect(OpCode.NE).toBe("ne");
       expect(OpCode.LT).toBe("lt");
+      expect(OpCode.LE).toBe("le");
       expect(OpCode.GT).toBe("gt");
+      expect(OpCode.GE).toBe("ge");
       expect(OpCode.AND).toBe("and");
       expect(OpCode.OR).toBe("or");
       expect(OpCode.NOT).toBe("not");
