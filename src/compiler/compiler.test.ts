@@ -95,6 +95,100 @@ describe("Compiler class: compile / execute (E2E)", () => {
 });
 
 /**
+ * Спек-кейсы сбоя VM / компиляции при прогоне через реальный исходник → compile + execute.
+ * Невалидный исходник: ошибка на этапе компиляции (Error). Стресс / деление на ноль / throw: InterpreterError.
+ */
+describe("Spec (ATM-003): VM / compile через compileSource + Compiler.execute", () => {
+  it("деление на ноль: компиляция успешна → execute бросает InterpreterError (div)", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 1 / 0
+конец`.trim();
+    expect(compileSource(src).compilerSuccess).toBe(true);
+    await expect(new Compiler().execute(src, { procedureName: "main" })).rejects.toMatchObject({
+      name: "InterpreterError",
+      message: "Division by zero",
+      op: "div",
+    });
+  });
+
+  it("остаток % 0: компиляция успешна → InterpreterError (rem)", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 7 % 0
+конец`.trim();
+    expect(compileSource(src).compilerSuccess).toBe(true);
+    await expect(new Compiler().execute(src, { procedureName: "main" })).rejects.toMatchObject({
+      name: "InterpreterError",
+      message: "Remainder by zero",
+      op: "rem",
+    });
+  });
+
+  it("необработанный выбросить → InterpreterError (throw)", async () => {
+    const src = `
+модуль t
+процедура main()
+  выбросить "fail"
+конец`.trim();
+    expect(compileSource(src).compilerSuccess).toBe(true);
+    await expect(new Compiler().execute(src, { procedureName: "main" })).rejects.toSatisfy((e: unknown) => {
+      return (
+        e instanceof InterpreterError &&
+        e.op === "throw" &&
+        /Необработанное исключение/.test(e.message)
+      );
+    });
+  });
+
+  it("execute: несуществующее имя процедуры → Procedure not found", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 0
+конец`.trim();
+    await expect(new Compiler().execute(src, { procedureName: "нет_такой" })).rejects.toMatchObject({
+      name: "InterpreterError",
+      message: "Procedure not found: нет_такой",
+    });
+  });
+
+  it("execute: битый исходник → Error компиляции, не InterpreterError", async () => {
+    const src = "модуль\n";
+    let err: unknown;
+    try {
+      await new Compiler().execute(src);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(InterpreterError);
+  });
+
+  it("stress: глубокая рекурсия + низкий maxSteps → Max steps exceeded", async () => {
+    const src = `
+модуль t
+процедура r(n)
+  если n <= 0
+    вернуть 0
+  конец
+  вернуть r(n - 1)
+конец
+процедура main()
+  вернуть r(10000)
+конец`.trim();
+    expect(compileSource(src).compilerSuccess).toBe(true);
+    await expect(
+      new Compiler().execute(src, { procedureName: "main", vm: { maxSteps: 150 } }),
+    ).rejects.toSatisfy((e: unknown) => {
+      return e instanceof InterpreterError && /Max steps exceeded \(150\)/.test((e as InterpreterError).message);
+    });
+  });
+});
+
+/**
  * Интеграция с пайплайном: `orchestrator.compileToBuildReport(compileSource(...))` — тот же мост
  * CompileResult → BuildReport, что использует runPipeline перед golden / выполнением.
  * После успешной сборки байткод гоняется в VM (как при проверке приложений).

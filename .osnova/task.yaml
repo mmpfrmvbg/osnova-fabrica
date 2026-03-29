@@ -1,20 +1,20 @@
-id: ATM-002
+id: ATM-003
 epic: EPK-260329-022
-seq: 2
+seq: 3
 zone: compiler
 risk: LOW
 executor: cursor
-goal: Увеличить покрытие codegen.test — граничные op-комбинации и константы.
+goal: Спек-кейсы «vm-crash %» через компиляцию невалидного/стресс исходника в compiler.test.
 scope:
-- src/compiler/codegen.test.ts — raw bytecode expectations
+- src/compiler/compiler.test.ts — malformed и stress к compile/execute
 notouch:
-- src/compiler/codegen.ts
-- src/compiler/lexer.ts
-done: npx vitest run src/compiler/codegen.test.ts
+- src/runtime/vm/interpreter.ts
+- src/runtime/vm.ts
+done: npx vitest run src/compiler/compiler.test.ts
 steps:
-- Найти пробелы по op/константам в codegen.test.ts.
-- Добавить 2–4 теста на граничные литералы и короткие процедуры.
-- Убедиться что снапшоты/ожидания совпадают с codegen.ts.
+- Сформировать минимальные программы, дающие сбой на уровне VM или чёткий InterpreterError.
+- Зафиксировать ожидаемое поведение (throw / код ошибки), без изменения рантайма.
+- Прогнать vitest только для этого файла.
 deps:
 - ATM-001
 maxiter: 3
