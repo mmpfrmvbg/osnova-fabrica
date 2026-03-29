@@ -15,8 +15,11 @@ steps:
 - Интегрировать с типами из intake-agent
 - Добавить валидацию плана
 deps:
-- 2
+- ATM-EPK-260328-015-002
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: 405145d6f3cab2efa266c9622aa0b3c4364cdee1
+produced_files: []
