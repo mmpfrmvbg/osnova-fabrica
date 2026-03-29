@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IntakeAgent, detectAppTypeFromPrefix, parseLlmConfidence } from './IntakeAgent';
-import type { OsnovaIntent } from '../pipeline/types';
+import { checkG1 } from '../pipeline/gateChecker';
+import {
+  type OsnovaIntent,
+  type OsnovaSpec,
+  SPEC_G1_CONFIDENCE_MIN,
+  SPEC_INTENT_CONFIDENCE_DEFAULT,
+} from '../pipeline/types';
 
 const { mockLlmComplete } = vi.hoisted(() => ({
   mockLlmComplete: vi.fn(),
@@ -126,22 +132,34 @@ describe('IntakeAgent.cleanJsonResponse', () => {
 // ─── parseLlmConfidence (граничные значения, Issues 2–4 / ATM-008) ───
 
 describe('parseLlmConfidence', () => {
-  it('Issue #2: пустая и пробельная строка → 0.8', () => {
-    expect(parseLlmConfidence('')).toBe(0.8);
-    expect(parseLlmConfidence('   \t\n')).toBe(0.8);
+  it('Issue #2: пустая и пробельная строка → SPEC_INTENT_CONFIDENCE_DEFAULT', () => {
+    expect(parseLlmConfidence('')).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
+    expect(parseLlmConfidence('   \t\n')).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
   });
 
-  it('Issue #3: NaN / ±Infinity как число → 0.8 (не finite)', () => {
-    expect(parseLlmConfidence(Number.NaN)).toBe(0.8);
-    expect(parseLlmConfidence(Number.POSITIVE_INFINITY)).toBe(0.8);
-    expect(parseLlmConfidence(Number.NEGATIVE_INFINITY)).toBe(0.8);
+  it('Issue #3: NaN / ±Infinity как число → SPEC_INTENT_CONFIDENCE_DEFAULT (не finite)', () => {
+    expect(parseLlmConfidence(Number.NaN)).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
+    expect(parseLlmConfidence(Number.POSITIVE_INFINITY)).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
+    expect(parseLlmConfidence(Number.NEGATIVE_INFINITY)).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
   });
 
-  it('Issue #4: не строка и не число → 0.8', () => {
-    expect(parseLlmConfidence(undefined)).toBe(0.8);
-    expect(parseLlmConfidence(null)).toBe(0.8);
-    expect(parseLlmConfidence({})).toBe(0.8);
-    expect(parseLlmConfidence([])).toBe(0.8);
+  it('Issue #4: не строка и не число → SPEC_INTENT_CONFIDENCE_DEFAULT', () => {
+    expect(parseLlmConfidence(undefined)).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
+    expect(parseLlmConfidence(null)).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
+    expect(parseLlmConfidence({})).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
+    expect(parseLlmConfidence([])).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
+  });
+
+  it('строка чуть ниже SPEC_G1_CONFIDENCE_MIN → число для gateChecker', () => {
+    const below = SPEC_G1_CONFIDENCE_MIN - 0.001;
+    expect(parseLlmConfidence(String(below))).toBeCloseTo(below, 10);
+    expect(parseLlmConfidence(String(below))).toBeLessThan(SPEC_G1_CONFIDENCE_MIN);
+  });
+
+  it('строка чуть выше SPEC_G1_CONFIDENCE_MIN → число для gateChecker', () => {
+    const above = SPEC_G1_CONFIDENCE_MIN + 0.001;
+    expect(parseLlmConfidence(String(above))).toBeCloseTo(above, 10);
+    expect(parseLlmConfidence(String(above))).toBeGreaterThan(SPEC_G1_CONFIDENCE_MIN);
   });
 });
 
@@ -245,7 +263,7 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     expect(intent.description).toBe('разобрать неоднозначный запрос');
   });
 
-  it('при отсутствии confidence в JSON подставляет 0.8', async () => {
+  it('при отсутствии confidence в JSON подставляет SPEC_INTENT_CONFIDENCE_DEFAULT', async () => {
     mockLlmComplete.mockResolvedValue({
       content: JSON.stringify({
         intent: 'ясная задача',
@@ -259,7 +277,7 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     });
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'ясная задача' });
-    expect(intent.confidence).toBe(0.8);
+    expect(intent.confidence).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
   });
 
   it('недостаточный контекст: короткий запрос → LLM даёт низкую confidence', async () => {
@@ -302,11 +320,11 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     expect(intent.features.join(' ')).toMatch(/веб|UI/i);
   });
 
-  it('граница G1: confidence ровно 0.7 сохраняется', async () => {
+  it('граница G1: confidence ровно SPEC_G1_CONFIDENCE_MIN сохраняется', async () => {
     mockLlmComplete.mockResolvedValue({
       content: JSON.stringify({
         intent: 'на грани',
-        confidence: 0.7,
+        confidence: SPEC_G1_CONFIDENCE_MIN,
         language: 'osnova',
         features: ['a'],
         appType: 'утилита',
@@ -317,14 +335,15 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     });
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'задача' });
-    expect(intent.confidence).toBe(0.7);
+    expect(intent.confidence).toBe(SPEC_G1_CONFIDENCE_MIN);
   });
 
-  it('граница G1: confidence 0.699 ниже порога — сохраняется для gateChecker', async () => {
+  it('граница G1: confidence чуть ниже SPEC_G1_CONFIDENCE_MIN — сохраняется для gateChecker', async () => {
+    const below = SPEC_G1_CONFIDENCE_MIN - 0.001;
     mockLlmComplete.mockResolvedValue({
       content: JSON.stringify({
         intent: 'x',
-        confidence: 0.699,
+        confidence: below,
         language: 'osnova',
         features: ['a'],
         appType: 'модуль',
@@ -335,8 +354,8 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     });
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'задача' });
-    expect(intent.confidence).toBe(0.699);
-    expect(intent.confidence).toBeLessThan(0.7);
+    expect(intent.confidence).toBe(below);
+    expect(intent.confidence).toBeLessThan(SPEC_G1_CONFIDENCE_MIN);
   });
 
   it('границы шкалы: confidence 0 и 1 пробрасываются как числа', async () => {
@@ -390,7 +409,7 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     expect(intent.confidence).toBe(0.95);
   });
 
-  it('confidence как нечисловая строка → 0.8', async () => {
+  it('confidence как нечисловая строка → SPEC_INTENT_CONFIDENCE_DEFAULT', async () => {
     mockLlmComplete.mockResolvedValue({
       content: JSON.stringify({
         intent: 'x',
@@ -405,10 +424,10 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     });
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'y' });
-    expect(intent.confidence).toBe(0.8);
+    expect(intent.confidence).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
   });
 
-  it('confidence: null в JSON → подстановка 0.8 (не number)', async () => {
+  it('confidence: null в JSON → подстановка SPEC_INTENT_CONFIDENCE_DEFAULT (не number)', async () => {
     mockLlmComplete.mockResolvedValue({
       content: JSON.stringify({
         intent: 'задача',
@@ -423,10 +442,10 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     });
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'x' });
-    expect(intent.confidence).toBe(0.8);
+    expect(intent.confidence).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
   });
 
-  it('confidence: boolean в JSON → подстановка 0.8', async () => {
+  it('confidence: boolean в JSON → подстановка SPEC_INTENT_CONFIDENCE_DEFAULT', async () => {
     mockLlmComplete.mockResolvedValue({
       content: JSON.stringify({
         intent: 'задача',
@@ -441,14 +460,15 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     });
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'x' });
-    expect(intent.confidence).toBe(0.8);
+    expect(intent.confidence).toBe(SPEC_INTENT_CONFIDENCE_DEFAULT);
   });
 
-  it('граница G1: confidence 0.701 строго выше порога 0.7 — сохраняется', async () => {
+  it('граница G1: confidence чуть выше SPEC_G1_CONFIDENCE_MIN — сохраняется', async () => {
+    const above = SPEC_G1_CONFIDENCE_MIN + 0.001;
     mockLlmComplete.mockResolvedValue({
       content: JSON.stringify({
         intent: 'чуть выше порога',
-        confidence: 0.701,
+        confidence: above,
         language: 'osnova',
         features: ['a'],
         appType: 'утилита',
@@ -459,8 +479,8 @@ describe('IntakeAgent.parseIntent (mock LLM)', () => {
     });
     const agent = new IntakeAgent();
     const intent = await agent.parseIntent({ text: 'задача' });
-    expect(intent.confidence).toBe(0.701);
-    expect(intent.confidence).toBeGreaterThan(0.7);
+    expect(intent.confidence).toBe(above);
+    expect(intent.confidence).toBeGreaterThan(SPEC_G1_CONFIDENCE_MIN);
   });
 
   it('низкая уверенность: расплывчатая формулировка → LLM даёт confidence около порога', async () => {
@@ -553,7 +573,127 @@ describe('IntakeAgent.generateSpec (mock LLM)', () => {
     };
     const spec = await agent.generateSpec(intent);
     expect(spec.mainModule).toBe('main');
-    expect(intent.confidence).toBeLessThan(0.7);
+    expect(intent.confidence).toBeLessThan(SPEC_G1_CONFIDENCE_MIN);
+  });
+});
+
+/** Минимальный spec для checkG1 (модули + mainModule; процедуры G1 не смотрит). */
+const minimalSpecForG1: OsnovaSpec = {
+  specId: 'fixture-g1',
+  modules: [{ name: 'Главный', description: '', isMain: true }],
+  mainModule: 'Главный',
+  types: [],
+  procedures: [],
+  syscalls: [],
+  conventions: {},
+};
+
+describe('IntakeAgent × checkG1: порог SPEC_G1_CONFIDENCE_MIN и маршрутизация', () => {
+  it('не-утилита: confidence чуть ниже порога → G1 падает (g1_confidence)', async () => {
+    const below = SPEC_G1_CONFIDENCE_MIN - 0.001;
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'низкая уверенность',
+        confidence: below,
+        language: 'osnova',
+        features: ['a'],
+        appType: 'модуль',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'задача' });
+    expect(intent.confidence).toBe(below);
+    const g1 = checkG1(intent, minimalSpecForG1);
+    expect(g1.passed).toBe(false);
+    expect(g1.failedChecks.some((f) => f.startsWith('g1_confidence'))).toBe(true);
+  });
+
+  it('не-утилита: confidence ровно на пороге → G1 проходит по confidence', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'на пороге',
+        confidence: SPEC_G1_CONFIDENCE_MIN,
+        language: 'osnova',
+        features: ['a'],
+        appType: 'библиотека',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'задача' });
+    const g1 = checkG1(intent, minimalSpecForG1);
+    expect(g1.passed).toBe(true);
+    expect(g1.failedChecks.some((f) => f.startsWith('g1_confidence'))).toBe(false);
+  });
+
+  it('не-утилита: строковый confidence чуть выше порога → парсится, G1 проходит', async () => {
+    const above = SPEC_G1_CONFIDENCE_MIN + 0.001;
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'x',
+        confidence: String(above),
+        language: 'osnova',
+        features: ['a'],
+        appType: 'актор',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'y' });
+    expect(intent.confidence).toBeCloseTo(above, 10);
+    expect(checkG1(intent, minimalSpecForG1).passed).toBe(true);
+  });
+
+  it('утилита: confidence сильно ниже порога → G1 не блокирует по confidence', async () => {
+    mockLlmComplete.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'x',
+        confidence: SPEC_G1_CONFIDENCE_MIN - 0.2,
+        language: 'osnova',
+        features: ['a'],
+        appType: 'утилита',
+        params: {},
+      }),
+      model: 'mock',
+      done: true,
+    });
+    const agent = new IntakeAgent();
+    const intent = await agent.parseIntent({ text: 'z' });
+    expect(intent.confidence).toBeLessThan(SPEC_G1_CONFIDENCE_MIN);
+    expect(checkG1(intent, minimalSpecForG1).passed).toBe(true);
+  });
+
+  it('mock LLM: два parseIntent подряд — детерминированные score/features/appType (intentId разный)', async () => {
+    const payload = {
+      content: JSON.stringify({
+        intent: 'same',
+        confidence: SPEC_G1_CONFIDENCE_MIN + 0.05,
+        language: 'osnova',
+        features: ['f1', 'f2'],
+        appType: 'актор',
+        params: {},
+      }),
+      model: 'mock',
+      done: true as const,
+    };
+    mockLlmComplete.mockResolvedValue(payload);
+    const agent = new IntakeAgent();
+    const a = await agent.parseIntent({ text: 'одинаковый ввод' });
+    const b = await agent.parseIntent({ text: 'одинаковый ввод' });
+    expect(a.confidence).toBe(b.confidence);
+    expect(a.description).toBe(b.description);
+    expect(a.features).toEqual(b.features);
+    expect(a.appType).toBe(b.appType);
+    expect(checkG1(a, minimalSpecForG1).passed).toBe(checkG1(b, minimalSpecForG1).passed);
+    expect(a.intentId).not.toBe(b.intentId);
+    expect(mockLlmComplete).toHaveBeenCalledTimes(2);
   });
 });
 

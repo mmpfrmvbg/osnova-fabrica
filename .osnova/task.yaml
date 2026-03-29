@@ -1,19 +1,19 @@
-id: ATM-EPK-260329-023-004
+id: ATM-EPK-260329-023-005
 epic: EPK-260329-023
-seq: 4
-zone: runtime
+seq: 5
+zone: agents
 risk: LOW
 executor: cursor
-goal: Расширить interpreter-тесты граничными случаями деления и spec-семантики исполнения.
-scope: src/runtime/interpreter.test.ts — division / overflow edges в интерпретации
+goal: Покрыть IntakeAgent threshold и пороговую логику на уровне spec-ожиданий в тестах.
+scope: src/agents/intake-agent.test.ts — threshold / routing по score
 notouch:
-- src/runtime/interpreter.ts
-- src/runtime/goldenApps.test.ts
-done: npx vitest run src/runtime/interpreter.test.ts
+- src/agents/IntakeAgent.ts
+- apps/osiris/
+done: npx vitest run src/agents/intake-agent.test.ts
 steps:
-- Найти существующие arithmetic-тесты.
-- Добавить деление на ноль и границы по контракту языка.
-- Проверить согласованность с vm.test при пересечении сценариев.
+- Зафиксировать текущие пороги из intake-agent и types.
+- Добавить кейсы чуть выше/ниже threshold.
+- Проверить детерминизм моков LLM.
 deps:
 - ATM-EPK-260329-023-001
 maxiter: 3
