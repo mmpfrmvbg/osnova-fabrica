@@ -18,11 +18,14 @@ steps:
 - проверить передачу контекста между агентами
 - запустить npx vitest run src/agents/agents.test.ts
 deps:
-- ATM-001
-- ATM-002
-- ATM-003
-- ATM-004
+- ATM-EPK-260328-017-001
+- ATM-EPK-260328-017-002
+- ATM-EPK-260328-017-003
+- ATM-EPK-260328-017-004
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: aa6e3dff73db6cfabec1fa4c1d4d0b008f7e8baa
+produced_files: []

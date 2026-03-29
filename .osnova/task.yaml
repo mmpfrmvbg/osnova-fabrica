@@ -1,26 +1,30 @@
-id: ATM-EPK-260328-017-004
+id: ATM-EPK-260328-017-005
 epic: EPK-260328-017
-seq: 4
+seq: 5
 zone: agents
 risk: MEDIUM
 executor: cursor
-goal: Восстановить ReviewAgent — валидация результатов выполнения
+goal: Интеграционные тесты agents layer — проверить взаимодействие 4 агентов
 scope:
-- src/agents/review-agent.ts
-- src/agents/agents.test.ts — тесты review-логики
+- src/agents/agents.test.ts
 notouch:
-- src/pipeline/*
-- src/compiler/*
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- исправить типы и логику валидации результатов
-- добавить тесты на позитивные и негативные сценарии review
-- убедиться что ReviewAgent получает данные от исправленного ExecAgent
+- добавить E2E-тест полного цикла: intake → plan → exec → review
+- проверить передачу контекста между агентами
+- запустить npx vitest run src/agents/agents.test.ts
 deps:
+- ATM-EPK-260328-017-001
+- ATM-EPK-260328-017-002
 - ATM-EPK-260328-017-003
+- ATM-EPK-260328-017-004
 maxiter: 3
 retries: 0
 status: done
 priority: P0
 max_retries: 3
-review_base_sha: 75f834fb8dac31f3f7f237408c3806704da1d941
+review_base_sha: aa6e3dff73db6cfabec1fa4c1d4d0b008f7e8baa
