@@ -626,6 +626,81 @@ describe('ExecAgent.executeStep', () => {
     expect(r1.stop).toBe(false);
     expect(state.repairAttempts).toBe(1);
   });
+
+  it('executeStep: исключение в runPhase — stop, fatalError, patch не применяется', async () => {
+    const planAgent = new PlanAgent();
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), {
+      fromScratch: false,
+      includeRepair: false,
+    });
+    const exec = new ExecAgent(planAgent);
+    const state: ExecContext = { repairAttempts: 0 };
+
+    const r = await exec.executeStep(
+      plan.steps[0]!,
+      async () => {
+        throw new Error('phase handler down');
+      },
+      state,
+    );
+
+    expect(r.stop).toBe(true);
+    expect(r.fatalError).toBe('phase handler down');
+    expect(r.stepResult.ok).toBe(false);
+    expect(state.intent).toBeUndefined();
+  });
+});
+
+describe('ExecAgent — validate, run, report (BaseAgent)', () => {
+  const planAgent = new PlanAgent();
+
+  it('validate: отклоняет не-план и делегирует validatePlan валидному плану', () => {
+    const exec = new ExecAgent(planAgent);
+    expect(() => exec.validate(null)).toThrow(PlanValidationError);
+    expect(() => exec.validate({})).toThrow(PlanValidationError);
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), { fromScratch: false, includeRepair: false });
+    expect(() => exec.validate(plan)).not.toThrow();
+  });
+
+  it('run: требует plan и runPhase', async () => {
+    const exec = new ExecAgent(planAgent);
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), { fromScratch: false, includeRepair: false });
+    await expect(exec.run(undefined)).rejects.toThrow(PlanValidationError);
+    await expect(exec.run({ plan } as unknown as Parameters<ExecAgent['run']>[0])).rejects.toThrow(PlanValidationError);
+    await expect(exec.run({ runPhase: async () => ({ ok: true }) } as unknown as Parameters<ExecAgent['run']>[0])).rejects.toThrow(
+      PlanValidationError,
+    );
+  });
+
+  it('run: делегирует execute; report отражает успех и ошибку', async () => {
+    const exec = new ExecAgent(planAgent);
+    const plan = planAgent.buildPlan(sampleIntent(), sampleSpec(), { fromScratch: false, includeRepair: false });
+
+    const ok = await exec.run({
+      plan,
+      runPhase: async () => ({ ok: true }),
+    });
+    expect(ok.completed).toBe(true);
+    let rep = exec.report();
+    expect(rep.ok).toBe(true);
+    expect(rep.summaryText).toContain('completed=true');
+
+    const fail = await exec.run({
+      plan,
+      runPhase: async phase => (phase === 'codegen' ? { ok: false, error: 'x' } : { ok: true }),
+    });
+    expect(fail.completed).toBe(false);
+    rep = exec.report();
+    expect(rep.ok).toBe(false);
+    expect(rep.summaryText).toContain('error=x');
+  });
+
+  it('report: до execute — подсказка что execute/run не вызывались', () => {
+    const exec = new ExecAgent(planAgent);
+    const rep = exec.report();
+    expect(rep.ok).toBe(false);
+    expect(rep.summaryText).toContain('ещё не вызывались');
+  });
 });
 
 function reviewOkCtx(over: Partial<ExecContext> = {}): ExecContext {
@@ -865,6 +940,63 @@ describe('ReviewAgent.validate', () => {
     });
     const report = agent.validate(spec, ctx);
     expect(report.items.find(i => i.id === 'golden')?.ok).toBe(false);
+    expect(report.ok).toBe(false);
+  });
+});
+
+describe('ReviewAgent — run, report и ошибки validate (BaseAgent)', () => {
+  const agent = new ReviewAgent();
+  const spec = sampleSpec();
+
+  it('run: отклоняет undefined, не-объект, отсутствие spec или ctx', () => {
+    expect(() => agent.run()).toThrow(/ожидается/);
+    expect(() => agent.run('x' as unknown as Parameters<ReviewAgent['run']>[0])).toThrow(/ожидается/);
+    expect(() => agent.run({ spec } as Parameters<ReviewAgent['run']>[0])).toThrow(/ожидается/);
+    expect(() => agent.run({ ctx: reviewOkCtx() } as Parameters<ReviewAgent['run']>[0])).toThrow(/ожидается/);
+  });
+
+  it('run: эквивалентен review при валидных полях', () => {
+    const ctx = reviewOkCtx();
+    const a = agent.review(spec, ctx);
+    const b = agent.run({ spec, ctx });
+    expect(b.ok).toBe(a.ok);
+    expect(b.items.map(i => i.id)).toEqual(a.items.map(i => i.id));
+  });
+
+  it('report: до review — подсказка вызвать review/validate/run', () => {
+    const fresh = new ReviewAgent();
+    const rep = fresh.report();
+    expect(rep.ok).toBe(false);
+    expect(rep.summaryText).toContain('нет отчёта');
+  });
+
+  it('report: после review отражает ok и summaryText', () => {
+    const r = new ReviewAgent();
+    const repOk = r.review(spec, reviewOkCtx());
+    const out = r.report();
+    expect(out.ok).toBe(repOk.ok);
+    expect(out.summaryText).toBe(repOk.summaryText);
+  });
+
+  it('validate: одна форма-аргумент с невалидным объектом — ошибка', () => {
+    expect(() => agent.validate(null as unknown as { spec: OsnovaSpec; ctx: ExecContext })).toThrow(
+      /ожидается \(spec, ctx/,
+    );
+    expect(() => agent.validate({ spec } as unknown as { spec: OsnovaSpec; ctx: ExecContext })).toThrow(
+      /ожидается \(spec, ctx/,
+    );
+  });
+
+  it('review: инкрементальный план и intent в контексте с другим intentId — plan_intent проваливается', () => {
+    const planAgent = new PlanAgent();
+    const intent = sampleIntent({ intentId: 'plan-intent' });
+    const specLocal = sampleSpec();
+    const plan = planAgent.buildPlan(intent, specLocal, { fromScratch: false, includeRepair: false });
+    const ctx = reviewOkCtx({
+      intent: sampleIntent({ intentId: 'другой-intent' }),
+    });
+    const report = agent.review(specLocal, ctx, plan);
+    expect(report.items.find(i => i.id === 'plan_intent')?.ok).toBe(false);
     expect(report.ok).toBe(false);
   });
 });
