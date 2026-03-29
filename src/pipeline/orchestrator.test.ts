@@ -118,31 +118,41 @@ vi.mock('../llm/index', () => ({
   PROVIDER_DEFAULT_MODEL: {},
 }));
 
-vi.mock('../trace/traceStore', () => ({
-  saveTrace: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('../trace/traceStore', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    saveTrace: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
-vi.mock('../runtime/goldenApps', () => ({
-  runGoldenCheck: vi.fn().mockResolvedValue({
-    executed: true,
-    passed: true,
-    qualityScore: 0.9,
-    vmErrors: [],
-    outputDiff: null,
-    durationMs: 10,
-  }),
-}));
+vi.mock('../runtime/goldenApps', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    runGoldenCheck: vi.fn().mockResolvedValue({
+      executed: true,
+      passed: true,
+      qualityScore: 0.9,
+      vmErrors: [],
+      outputDiff: null,
+      durationMs: 10,
+    }),
+  };
+});
 vi.mock('../agents/IntakeAgent', async () => {
   const actual = await vi.importActual('../agents/IntakeAgent');
   return actual;
 });
 
 describe('Pipeline integration (mock LLM)', () => {
-  beforeEach(() => {
-    vi.mocked(saveTrace).mockClear();
-    vi.mocked(runGoldenCheck).mockReset();
+  beforeEach(async () => {
+    const traceStore = await vi.importMocked('../trace/traceStore');
+    const goldenApps = await vi.importMocked('../runtime/goldenApps');
+    traceStore.saveTrace.mockClear();
+    goldenApps.runGoldenCheck.mockReset();
     // Базовый ответ, чтобы между тестами и для последующих файлов не было undefined
-    vi.mocked(runGoldenCheck).mockResolvedValue({
+    goldenApps.runGoldenCheck.mockResolvedValue({
       executed: true,
       passed: true,
       qualityScore: 0.9,
@@ -153,7 +163,8 @@ describe('Pipeline integration (mock LLM)', () => {
   });
 
   it('runPipeline: task → success with mock LLM', async () => {
-    vi.mocked(runGoldenCheck).mockResolvedValueOnce({
+    const goldenApps = await vi.importMocked('../runtime/goldenApps');
+    goldenApps.runGoldenCheck.mockResolvedValueOnce({
       executed: true,
       passed: true,
       qualityScore: 0.9,
@@ -175,14 +186,16 @@ describe('Pipeline integration (mock LLM)', () => {
     expect(result.buildReport?.success).toBe(true);
     expect(result.goldenReport?.executed).toBe(true);
     expect(result.repairAttempts).toBe(0);
-    expect(vi.mocked(saveTrace)).toHaveBeenCalledWith(
+    const traceStore = await vi.importMocked('../trace/traceStore');
+    expect(traceStore.saveTrace).toHaveBeenCalledWith(
       expect.objectContaining({ modelId: expect.any(String) }),
     );
   }, 15000);
 
   it('runPipeline: partial — qualityScore в [0.5, 0.7)', async () => {
     // mock goldenCheck возвращает qualityScore=0.6 → ожидаем статус partial
-    vi.mocked(runGoldenCheck).mockResolvedValueOnce({
+    const goldenApps = await vi.importMocked('../runtime/goldenApps');
+    goldenApps.runGoldenCheck.mockResolvedValueOnce({
       executed: true,
       passed: false,
       qualityScore: 0.6,
@@ -197,7 +210,8 @@ describe('Pipeline integration (mock LLM)', () => {
 
   it('runPipeline: repair_exhausted — G3 всегда падает', async () => {
     // mock goldenCheck всегда возвращает qualityScore=0.1 → repair loop исчерпывается
-    vi.mocked(runGoldenCheck).mockResolvedValue({
+    const goldenApps = await vi.importMocked('../runtime/goldenApps');
+    goldenApps.runGoldenCheck.mockResolvedValue({
       executed: true,
       passed: false,
       qualityScore: 0.1,
@@ -580,8 +594,9 @@ const createPartialFileMockProvider = () => ({
 });
 
 describe('Pipeline: partial (alternate LLM stub)', () => {
-  beforeEach(() => {
-    vi.mocked(runGoldenCheck).mockResolvedValue({
+  beforeEach(async () => {
+    const goldenApps = await import('../runtime/goldenApps');
+    (goldenApps.runGoldenCheck as ReturnType<typeof vi.fn>).mockResolvedValue({
       executed: true,
       passed: false,
       qualityScore: 0.6,
@@ -608,8 +623,9 @@ describe('Pipeline: partial (alternate LLM stub)', () => {
 });
 
 describe('Pipeline: repair cycle', () => {
-  beforeEach(() => {
-    vi.mocked(runGoldenCheck).mockResolvedValue({
+  beforeEach(async () => {
+    const goldenApps = await import('../runtime/goldenApps');
+    (goldenApps.runGoldenCheck as ReturnType<typeof vi.fn>).mockResolvedValue({
       executed: true,
       passed: false,
       qualityScore: 0.6,
@@ -708,7 +724,8 @@ describe('Pipeline: repair cycle', () => {
       },
     });
 
-    const saveTraceCalls = vi.mocked(saveTrace);
+    const traceStore = await import('../trace/traceStore');
+    const saveTraceCalls = traceStore.saveTrace;
 
     const result = await runPipeline('тест repair-цикла');
 
