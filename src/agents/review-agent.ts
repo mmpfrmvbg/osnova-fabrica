@@ -22,9 +22,34 @@ export interface ReviewReport {
   readonly summaryText: string;
 }
 
+/** Фиксированный порядок id в отчёте (стабильные трейсы и diff). */
+const REVIEW_CHECK_ORDER = [
+  'spec_parameter',
+  'spec_in_context',
+  'plan_spec_ids',
+  'plan_intent',
+  'plan_source',
+  'build',
+  'golden',
+] as const;
+
+function sortReviewItems(items: readonly ReviewCheckItem[]): ReviewCheckItem[] {
+  const rank = (id: string): number => {
+    const ix = (REVIEW_CHECK_ORDER as readonly string[]).indexOf(id);
+    return ix >= 0 ? ix : REVIEW_CHECK_ORDER.length;
+  };
+  return [...items].sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
+}
+
+/** Итог ok: есть хотя бы одна проверка и все активные строки прошли. */
+function aggregateReviewOk(items: readonly ReviewCheckItem[]): boolean {
+  return items.length > 0 && items.every(i => i.ok);
+}
+
 function linesForReport(items: readonly ReviewCheckItem[]): string {
-  const header = `[ReviewAgent] проверок: ${items.length}, пройдено: ${items.filter(i => i.ok).length}`;
-  const body = items.map(i => `  ${i.ok ? '✓' : '✗'} ${i.id}: ${i.detail}`).join('\n');
+  const ordered = sortReviewItems(items);
+  const header = `[ReviewAgent] проверок: ${ordered.length}, пройдено: ${ordered.filter(i => i.ok).length}`;
+  const body = ordered.map(i => `  ${i.ok ? '✓' : '✗'} ${i.id}: ${i.detail}`).join('\n');
   return `${header}\n${body}`;
 }
 
@@ -204,10 +229,10 @@ export class ReviewAgent implements BaseAgent {
       });
     }
 
-    const ok = items.every(i => i.ok);
+    const ok = aggregateReviewOk(items);
     const report: ReviewReport = {
       ok,
-      items,
+      items: sortReviewItems(items),
       summaryText: linesForReport(items),
     };
     this.lastReport = report;

@@ -863,7 +863,7 @@ function reviewOkCtx(over: Partial<ExecContext> = {}): ExecContext {
   };
 }
 
-describe('ReviewAgent.validate', () => {
+describe('ReviewAgent.validate (ATM-012)', () => {
   const agent = new ReviewAgent();
 
   it('возвращает ok при согласованном spec и успешных build/golden', () => {
@@ -1077,7 +1077,7 @@ describe('ReviewAgent.validate', () => {
   });
 });
 
-describe('ReviewAgent — run, report и ошибки validate (BaseAgent)', () => {
+describe('ReviewAgent — run, report и ошибки validate (BaseAgent) (ATM-012)', () => {
   const agent = new ReviewAgent();
   const spec = sampleSpec();
 
