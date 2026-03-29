@@ -12,7 +12,20 @@ from pathlib import Path
 from typing import Any, Callable
 
 try:
-    from forge.atomizer import atomize
+    from forge.atomizer import _normalize_deps_list, atomize
+    from forge.atm_store import (
+        apply_report_to_atom,
+        build_retry_context,
+        get_pending_atms,
+        load_all_atms_from_disk,
+        mark_epic_complete_in_state_yaml,
+        max_retries_for_atom,
+        all_atms_successfully_done,
+        normalize_atm_status,
+        save_atm_yaml,
+        set_atom_in_progress,
+        should_skip_atomize,
+    )
     from forge.blk_classify import classify_blk
     from forge.brain_fallback import generate_fallback_epic
     from forge.common import (
@@ -54,7 +67,20 @@ try:
     from forge.retrospective import finalize_epic
     from forge.router import choose_executor
 except ImportError:  # pragma: no cover
-    from atomizer import atomize
+    from atomizer import _normalize_deps_list, atomize
+    from atm_store import (
+        apply_report_to_atom,
+        build_retry_context,
+        get_pending_atms,
+        load_all_atms_from_disk,
+        mark_epic_complete_in_state_yaml,
+        max_retries_for_atom,
+        all_atms_successfully_done,
+        normalize_atm_status,
+        save_atm_yaml,
+        set_atom_in_progress,
+        should_skip_atomize,
+    )
     from blk_classify import classify_blk
     from brain_fallback import generate_fallback_epic
     from common import (
@@ -116,6 +142,47 @@ def _atm_commit_or_process(
         process_result(atom, report, dry_run=dry_run)
 
 
+def resolve_atoms_for_epic(epic: dict[str, Any], dry_run: bool) -> list[dict[str, Any]]:
+    project = Path(env_paths()["OSNOVA_PROJECT"])
+    if dry_run:
+        return atomize(epic, dry_run=True)
+    if should_skip_atomize(project, epic):
+        loaded = load_all_atms_from_disk(project, str(epic["id"]))
+        if loaded:
+            epic_id = str(epic["id"])
+            known = {str(a["id"]) for a in loaded}
+            for a in loaded:
+                a["deps"] = _normalize_deps_list(a.get("deps"), epic_id, known)
+            LOG.info("EPIC %s: loaded %s ATM from disk (skip atomize)", epic_id, len(loaded))
+            return loaded
+    return atomize(epic, dry_run=False)
+
+
+def _synthetic_results_from_stored_atms(atoms_sorted: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    r: list[dict[str, Any]] = []
+    for a in atoms_sorted:
+        st = normalize_atm_status(a.get("status", "todo"))
+        if st in ("done", "superseded", "obsolete", "review_mismatch"):
+            pf = a.get("produced_files")
+            r.append(
+                {
+                    "id": a.get("id"),
+                    "s": "OK",
+                    "changed": pf if isinstance(pf, list) else [],
+                }
+            )
+        else:
+            r.append(
+                {
+                    "id": a.get("id"),
+                    "s": "BLK",
+                    "err": str(a.get("last_failure") or "BLK"),
+                    "changed": [],
+                }
+            )
+    return r
+
+
 def _execute_atom_with_retries(
     atom: dict[str, Any],
     epic: dict[str, Any],
@@ -130,12 +197,39 @@ def _execute_atom_with_retries(
 ) -> dict[str, Any]:
     """One ATM: executor + review + process_result path (extracted from _process_epic._run_one)."""
     aid = atom.get("id")
+    project = Path(env_paths()["OSNOVA_PROJECT"])
     executor = choose_executor(atom, avail)
     atom["executor"] = executor
-    maxiter = int(atom.get("maxiter") or 3)
+    mr = max_retries_for_atom(atom)
+    safety_cap = max(25, mr + 5)
+
+    def _failure_reason(rep: dict[str, Any], review_passed: bool, review_reason: str) -> str:
+        if isinstance(rep.get("review"), dict) and rep["review"].get("reason"):
+            return str(rep["review"]["reason"])
+        return str(rep.get("err") or review_reason or "BLK")
+
+    if int(atom.get("retries") or 0) >= mr:
+        report = {
+            "id": atom.get("id"),
+            "s": "BLK",
+            "err": str(atom.get("last_failure") or "max_retries exhausted"),
+            "changed": [],
+            "review": {"passed": False, "reason": "skipped — retries exhausted", "elapsed": 0},
+        }
+        apply_report_to_atom(atom, report)
+        save_atm_yaml(project, atom, dry_run=dry_run)
+        if not defer_process_result:
+            _bump_issue_attempts_on_permanent_blk(state, epic_issue)
+        _atm_commit_or_process(atom, report, dry_run, defer_process_result)
+        if on_update:
+            on_update(str(aid or ""), "BLK", report)
+        return report
+
     attempt = 0
-    while attempt < maxiter:
+    while attempt < safety_cap:
         attempt += 1
+        set_atom_in_progress(atom)
+        save_atm_yaml(project, atom, dry_run=dry_run)
         if on_update:
             on_update(str(aid or ""), "RUN", atom)
         hlog(
@@ -146,11 +240,11 @@ def _execute_atom_with_retries(
             goal=str(atom.get("goal", "")),
         )
         LOG.info(
-            "ATM %s — executor=%s attempt %s/%s",
+            "ATM %s — executor=%s forge attempt %s (max_retries=%s)",
             aid,
             atom["executor"],
             attempt,
-            maxiter,
+            mr,
         )
         ex = atom["executor"]
         if ex == "none":
@@ -160,6 +254,8 @@ def _execute_atom_with_retries(
                 "err": "No executor available",
                 "changed": [],
             }
+            apply_report_to_atom(atom, report)
+            save_atm_yaml(project, atom, dry_run=dry_run)
             if not defer_process_result:
                 _bump_issue_attempts_on_permanent_blk(state, epic_issue)
             _atm_commit_or_process(atom, report, dry_run, defer_process_result)
@@ -199,6 +295,8 @@ def _execute_atom_with_retries(
                     "review",
                     {"passed": False, "reason": str(report.get("err") or ""), "elapsed": 0},
                 )
+                apply_report_to_atom(atom, report)
+                save_atm_yaml(project, atom, dry_run=dry_run)
                 _atm_commit_or_process(atom, report, dry_run, defer_process_result)
                 if on_update:
                     on_update(str(aid or ""), "WARN", report)
@@ -234,6 +332,8 @@ def _execute_atom_with_retries(
         LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
         if report.get("s") == "OK":
             hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
+            apply_report_to_atom(atom, report)
+            save_atm_yaml(project, atom, dry_run=dry_run)
             _atm_commit_or_process(atom, report, dry_run, defer_process_result)
             if on_update:
                 on_update(str(aid or ""), "OK", report)
@@ -248,8 +348,19 @@ def _execute_atom_with_retries(
             review_passed=passed,
             report=report,
         )
-        if kind == "transient" and attempt < maxiter:
-            LOG.warning("ATM %s — transient BLK, retry %s/%s", aid, attempt, maxiter)
+        prev_reason = _failure_reason(report, passed, reason)
+        atom["retries"] = int(atom.get("retries") or 0) + 1
+        atom["retry_context"] = build_retry_context(atom, int(atom["retries"]) + 1, prev_reason)
+        apply_report_to_atom(atom, report)
+        save_atm_yaml(project, atom, dry_run=dry_run)
+        if kind == "transient" and int(atom["retries"]) < mr:
+            LOG.warning(
+                "ATM %s — transient BLK, yaml retries=%s/%s forge loop attempt=%s",
+                aid,
+                atom["retries"],
+                mr,
+                attempt,
+            )
             continue
         if kind == "permanent" and not defer_process_result:
             _bump_issue_attempts_on_permanent_blk(state, epic_issue)
@@ -262,6 +373,8 @@ def _execute_atom_with_retries(
         "s": "BLK",
         "err": "max iterations exceeded",
     }
+    apply_report_to_atom(atom, report)
+    save_atm_yaml(project, atom, dry_run=dry_run)
     if on_update:
         on_update(str(aid or ""), "BLK", report)
     return report
@@ -630,31 +743,63 @@ def _process_epic(
         )
         hb_thread.start()
     results: list[dict[str, Any]] = []
+    project = Path(env_paths()["OSNOVA_PROJECT"])
     try:
-        atoms = atomize(epic, dry_run=dry_run)
+        atoms = resolve_atoms_for_epic(epic, dry_run=dry_run)
+        atoms_sorted = sorted(atoms, key=lambda x: int(x.get("seq", 0)))
+        pending = get_pending_atms(atoms_sorted)
+
+        if not pending and atoms_sorted:
+            LOG.info("EPIC %s: no pending ATM — all terminal (resume / already done)", epic.get("id"))
+            synth = _synthetic_results_from_stored_atms(atoms_sorted)
+            if not dry_run:
+                mark_epic_complete_in_state_yaml(
+                    project,
+                    str(epic.get("id") or ""),
+                    all_success=all_atms_successfully_done(atoms_sorted),
+                )
+            finalize_epic(
+                epic,
+                synth,
+                dry_run=dry_run,
+                forge_state=state,
+                skip_session_stats=True,
+            )
+            state["current_epic"] = None
+            state["current_epic_issue"] = None
+            state["current_epic_started_at"] = None
+            state["epic_popped_from_queue"] = False
+            save_forge_state(state)
+            return synth
+
         epic_start_snapshot()
         LOG.info(
-            "EPIC %s: atomized to %s ATM — target 12-16 ATM, ≤12 files in epic scope",
+            "EPIC %s: %s ATM total, %s pending (resume-aware)",
             epic.get("id"),
-            len(atoms),
+            len(atoms_sorted),
+            len(pending),
         )
         hlog(
             "epic_start",
             epic_id=epic.get("id"),
             goal=str(epic.get("goal", "")),
-            atm_total=len(atoms),
+            atm_total=len(atoms_sorted),
         )
         cap = effective_max_parallel()
-        atoms_sorted = sorted(atoms, key=lambda x: int(x.get("seq", 0)))
+        pending_ids = {str(p["id"]) for p in pending}
+        completed_ids = {str(a["id"]) for a in atoms_sorted if str(a["id"]) not in pending_ids}
         waves_ov = waves_from_epic_override(epic, atoms_sorted)
         if waves_ov is not None:
-            waves = waves_ov
+            waves = []
+            for w in waves_ov:
+                fw = [a for a in w if str(a["id"]) in pending_ids]
+                if fw:
+                    waves.append(fw)
         else:
-            waves = build_waves(atoms_sorted, max_parallel=cap)
+            waves = build_waves(pending, max_parallel=cap, completed_ids=completed_ids)
         LOG.info("EPIC %s waves: %s", epic.get("id"), [[a.get("id") for a in w] for w in waves])
-        atm_total = len(atoms)
+        atm_total = len(atoms_sorted)
         epic_issue = epic.get("githubissue")
-        project = Path(env_paths()["OSNOVA_PROJECT"])
         pw = parallel_workers()
 
         def _run_one(atom: dict[str, Any]) -> None:

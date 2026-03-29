@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-029-014
+epic: EPK-260329-029
+seq: 14
+zone: infra
+risk: LOW
+executor: qwen
+goal: Финальная сверка engines и вспомогательных script полей с Vitest 4
+scope:
+- package.json — engines и devDependencies-ожидания
+notouch:
+- package-lock.json
+done: npx vitest run src/agents/plan-agent.test.ts
+steps:
+- Сверить engines.node с фактическим vitest в devDependencies
+- Убедиться что нет устаревших хуков ломающих npm test
+deps:
+- ATM-EPK-260329-029-008
+- ATM-EPK-260329-029-010
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

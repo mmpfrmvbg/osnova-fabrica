@@ -61,10 +61,19 @@ def wave_scopes_overlap(wave: list[dict[str, Any]]) -> bool:
     return False
 
 
-def build_waves(atoms: list[dict[str, Any]], max_parallel: int | None = None) -> list[list[dict[str, Any]]]:
-    """Topological waves by deps; inside wave, cap width with scope conflicts (v5.2)."""
+def build_waves(
+    atoms: list[dict[str, Any]],
+    max_parallel: int | None = None,
+    *,
+    completed_ids: set[str] | frozenset[str] | None = None,
+) -> list[list[dict[str, Any]]]:
+    """Topological waves by deps; inside wave, cap width with scope conflicts (v5.2).
+
+    If ``completed_ids`` is set, those ATM ids are treated as already satisfied for deps
+    (stateful resume: pending-only list + prereq done ids).
+    """
     cap = max_parallel if max_parallel is not None else MAX_PARALLEL
-    done_ids: set[str] = set()
+    done_ids: set[str] = set(completed_ids) if completed_ids else set()
     remaining = list(atoms)
     waves: list[list[dict[str, Any]]] = []
 

@@ -1,0 +1,20 @@
+t: EPK
+id: EPK-260329-029
+goal: 'Корневая причина retry-exhausted: исправить конфиг tsconfig/vitest/package
+  чтобы ATM-агенты могли завершаться с exit 0'
+scope:
+- tsconfig.json
+- vitest.config.ts
+- package.json
+- src/pipeline/types.ts
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+- - ATM-005
+  - ATM-006
+- - ATM-007
+done: npx vitest run src/
+priority: P0
+githubissue: 96

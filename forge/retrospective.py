@@ -85,6 +85,8 @@ def finalize_epic(
     results: list[dict[str, Any]],
     dry_run: bool = False,
     forge_state: dict[str, Any] | None = None,
+    *,
+    skip_session_stats: bool = False,
 ) -> dict[str, Any]:
     atom_total = len(results)
     atom_ok = sum(1 for r in results if r.get("s") == "OK")
@@ -92,6 +94,21 @@ def finalize_epic(
     status = _status(atom_total, atom_ok)
     passrate = atom_ok / atom_total if atom_total else 0.0
     summary = {"status": status, "passrate": passrate, "atomsdone": atom_ok, "atomstotal": atom_total}
+
+    if skip_session_stats:
+        tb, ta = epic_done_tests()
+        try:
+            hlog(
+                "epic_done",
+                epic_id=epic.get("id"),
+                ok=atom_ok,
+                total=atom_total,
+                tests_before=tb,
+                tests_after=ta,
+            )
+        except Exception:
+            pass
+        return summary
 
     requeue = (
         not dry_run

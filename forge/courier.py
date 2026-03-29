@@ -36,6 +36,17 @@ def _git_stage_report_changes(project: Path, changed: list[Any]) -> None:
         subprocess.run(["git", "add", "."], cwd=project, check=False)
 
 
+def _git_stage_atm_yaml(project: Path, atom: dict[str, Any]) -> None:
+    eid = str(atom.get("epic") or "").strip()
+    aid = str(atom.get("id") or "").strip()
+    if not eid or not aid:
+        return
+    rel = Path(".osnova") / "epics" / eid / f"{aid}.yaml"
+    p = project / rel
+    if p.is_file():
+        subprocess.run(["git", "add", "--", str(rel).replace("\\", "/")], cwd=project, check=False)
+
+
 def _blocker_title(atm_id: Any) -> str:
     return f"ATM blocked: {atm_id}"
 
@@ -177,6 +188,7 @@ def git_commit_atm_report(project: Path, atom: dict[str, Any], report: dict[str,
         LOG.info("[dry-run] Would git commit ATM %s status=%s", atom.get("id"), status)
         return
     _git_stage_report_changes(project, report.get("changed") or [])
+    _git_stage_atm_yaml(project, atom)
     subprocess.run(["git", "commit", "-m", f"ATM {atom.get('id')} {status}"], cwd=project, check=False)
 
 
@@ -198,6 +210,7 @@ def process_result(
         LOG.info("[dry-run] Would git commit ATM %s status=%s", atom.get("id"), status)
     elif not only_state:
         _git_stage_report_changes(project, changed)
+        _git_stage_atm_yaml(project, atom)
         subprocess.run(["git", "commit", "-m", f"ATM {atom.get('id')} {status}"], cwd=project, check=False)
         if not skip_push:
             subprocess.run(["git", "push", "origin", "main"], cwd=project, check=False)

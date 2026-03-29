@@ -584,6 +584,15 @@ def write_smith_agent_prompt(project: Path) -> str:
     with task.open("r", encoding="utf-8") as f:
         d = yaml.safe_load(f) or {}
     atm_id = str(d.get("id", "UNKNOWN"))
+    rc = d.get("retry_context")
+    retry_extra = ""
+    if isinstance(rc, dict) and (rc.get("previous_failure") or rc.get("attempt")):
+        retry_extra = (
+            "\n--- Retry after BLK ---\n"
+            f"attempt: {rc.get('attempt')}\n"
+            f"previous_failure: {rc.get('previous_failure')}\n"
+            f"hint: {rc.get('hint', '')}\n"
+        )
     text = f"""OSNOVA Forge — execute one ATM (atom).
 
 Read the full atom definition in this YAML file (open it with your tools):
@@ -594,7 +603,7 @@ Workspace (git repo root):
 
 Follow goal, scope, steps, and priority from that file. Respect notouch paths.
 Make concrete file edits; be minimal. When finished, the atom's `done` command should be runnable from the repo root.
-"""
+{retry_extra}"""
     out.write_text(text, encoding="utf-8")
     return atm_id
 

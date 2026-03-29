@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-029-006
+epic: EPK-260329-029
+seq: 6
+zone: infra
+risk: MEDIUM
+executor: qwen
+goal: Настроить globals и минимальные дефолты test для предсказуемого завершения
+scope:
+- vitest.config.ts — test.globals и базовые опции
+notouch:
+- package.json
+done: npx vitest run src/pipeline/orchestrator.partial.test.ts
+steps:
+- Проверить test.globals и побочные эффекты на изоляцию
+- Убедиться что дефолты не провоцируют зависание воркеров
+deps:
+- ATM-EPK-260329-029-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

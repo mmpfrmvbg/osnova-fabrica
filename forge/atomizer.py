@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 try:
+    from forge.atm_store import write_atomizer_meta
     from forge.common import (
         SUBPROCESS_TEXT,
         atomic_write_yaml,
@@ -24,6 +25,13 @@ try:
     )
     from forge.qwenbudget import can_call_atomizer, is_quota_exhausted_output, log_remote_qwen_limit, record
 except ImportError:  # pragma: no cover
+    try:
+        from atm_store import write_atomizer_meta
+    except ImportError:  # pragma: no cover
+
+        def write_atomizer_meta(epic_dir: Path, epic: dict[str, Any]) -> None:  # type: ignore[misc]
+            pass
+
     from common import (
         SUBPROCESS_TEXT,
         atomic_write_yaml,
@@ -577,8 +585,9 @@ def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[
                 "steps": atom.get("steps", []),
                 "deps": atom.get("deps", []),
                 "maxiter": 3,
+                "max_retries": 3,
                 "retries": 0,
-                "status": "PENDING",
+                "status": "todo",
                 "priority": epic.get("priority", "P2"),
             }
         )
@@ -714,6 +723,7 @@ def atomize(epic: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]]
     base.mkdir(parents=True, exist_ok=True)
     for atom in atoms:
         atomic_write_yaml(base / f"{atom['id']}.yaml", atom)
+    write_atomizer_meta(base, epic)
     return atoms
 
 

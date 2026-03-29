@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-029-009
+epic: EPK-260329-029
+seq: 9
+zone: infra
+risk: MEDIUM
+executor: qwen
+goal: Согласовать test:forge:* скрипты с vitest.config.ts для однопоточных пакетов
+scope:
+- package.json — test:forge:compiler и test:forge:agents
+notouch:
+- vitest.config.ts
+done: npx vitest run src/pipeline/gateChecker.test.ts
+steps:
+- Проверить флаги --config vitest.config.ts --pool=threads --maxWorkers=1
+- Убрать противоречия с корневым pool vmThreads если они дают retry-exhausted
+deps:
+- ATM-EPK-260329-029-004
+- ATM-EPK-260329-029-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

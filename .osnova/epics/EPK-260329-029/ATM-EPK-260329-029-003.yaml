@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-029-003
+epic: EPK-260329-029
+seq: 3
+zone: infra
+risk: LOW
+executor: qwen
+goal: Выровнять target/lib с рантаймом Node 20 и тестовым окружением
+scope:
+- tsconfig.json — target и lib без сюрпризов для Vitest
+notouch:
+- src/pipeline/types.ts
+done: npx vitest run package.test.ts
+steps:
+- Сверить target/lib с engines.node из package.json
+- Избежать предупреждений/фейлов из-за несовпадения lib
+deps:
+- ATM-EPK-260329-029-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

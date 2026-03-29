@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-029-005
+epic: EPK-260329-029
+seq: 5
+zone: infra
+risk: MEDIUM
+executor: qwen
+goal: Уточнить exclude/include тестового раннера под только корневой src/
+scope:
+- vitest.config.ts — exclude e2e и apps/osiris
+notouch:
+- apps/osiris/vitest.config.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
+steps:
+- Сверить exclude с фактической структурой репозитория
+- Исключить e2e и osiris из корневого прогона
+deps:
+- ATM-EPK-260329-029-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

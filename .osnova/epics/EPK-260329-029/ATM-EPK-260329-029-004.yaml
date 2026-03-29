@@ -1,0 +1,20 @@
+id: ATM-EPK-260329-029-004
+epic: EPK-260329-029
+seq: 4
+zone: infra
+risk: HIGH
+executor: qwen
+goal: Стабилизировать pool/потоки Vitest чтобы прогоны завершались exit 0
+scope:
+- vitest.config.ts — pool vmThreads и отсутствие лишних retry
+notouch:
+- apps/osiris/**
+done: npx vitest run src/pipeline/pipeline.test.ts
+steps:
+- Проверить test.pool и test.retry на соответствие CI/ATM
+- Зафиксировать настройки без флакового повторного запуска
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

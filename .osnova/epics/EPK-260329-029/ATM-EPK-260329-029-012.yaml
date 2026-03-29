@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-029-012
+epic: EPK-260329-029
+seq: 12
+zone: lang
+risk: LOW
+executor: qwen
+goal: Ужесточить или упростить union/опциональные поля в типах для стабильных ассертов
+scope:
+- src/pipeline/types.ts — optional/required поля для retry и статусов
+notouch:
+- src/pipeline/orchestrator.ts
+done: npx vitest run src/pipeline/types.test.ts
+steps:
+- Сверить типы статусов с gateChecker и healthScore
+- Избежать never/any в местах граничных состояний
+deps:
+- ATM-EPK-260329-029-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

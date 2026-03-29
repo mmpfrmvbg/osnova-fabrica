@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-029-010
+epic: EPK-260329-029
+seq: 10
+zone: infra
+risk: LOW
+executor: qwen
+goal: Проверить build/typecheck скрипты относительно исправленного tsconfig
+scope:
+- package.json — scripts.build и typecheck
+notouch:
+- tsconfig.typecheck.json
+done: npx vitest run src/env.test.ts
+steps:
+- Сверить build с tsconfig.json и typecheck с tsconfig.typecheck.json
+- Убедиться что команды в package.json указывают на существующие проекты
+deps:
+- ATM-EPK-260329-029-001
+- ATM-EPK-260329-029-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

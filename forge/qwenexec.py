@@ -68,6 +68,15 @@ def _qwen_run_timeout() -> int:
 
 def _prompt(atom: dict[str, Any]) -> str:
     project = env_paths()["OSNOVA_PROJECT"]
+    rc = atom.get("retry_context")
+    retry_block = ""
+    if isinstance(rc, dict) and (rc.get("previous_failure") or rc.get("attempt")):
+        retry_block = (
+            "\n--- ПОВТОР после BLK ---\n"
+            f"attempt: {rc.get('attempt')}\n"
+            f"previous_failure: {rc.get('previous_failure')}\n"
+            f"hint: {rc.get('hint', '')}\n"
+        )
     return (
         "Ты — forge smith. Репозиторий: "
         f"{project}.\n"
@@ -76,6 +85,7 @@ def _prompt(atom: dict[str, Any]) -> str:
         f"Шаги: {atom.get('steps')}\n"
         f"Проверка: запусти {atom.get('done')} и убедись что exit code 0.\n"
         f"Не трогай: {atom.get('notouch')}\n"
+        f"{retry_block}"
         "Ответь кратко что изменил.\n"
     )
 
