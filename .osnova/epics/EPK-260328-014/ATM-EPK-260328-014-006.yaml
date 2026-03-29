@@ -15,8 +15,12 @@ steps:
 - Реализовать OpCode.TRY_CATCH — регистрация обработчика
 - Реализовать механизм unwinding стека при исключении
 deps:
-- 5
+- ATM-EPK-260328-014-005
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: 82995e91a80e1c313d4623b42a4da3b2b54753e5
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'

@@ -107,7 +107,10 @@ export type OpCode = (typeof OpCode)[keyof typeof OpCode];
  * сравнения {@link OpCode.EQ} / {@link OpCode.NE} / {@link OpCode.LT} / {@link OpCode.LE} / {@link OpCode.GT} / {@link OpCode.GE},
  * логика {@link OpCode.AND} / {@link OpCode.OR} / {@link OpCode.NOT} (снятие и порядок операндов — как у арифметики, кроме {@link OpCode.NOT}: один операнд),
  * управление потоком: {@link OpCode.JUMP} (абсолютный `off`), {@link OpCode.JUMP_IF_FALSE} (снять условие; при falsy → `off`),
- * {@link OpCode.CALL} (новый фрейм по `fi`, аргументы со стека), {@link OpCode.RETURN} (`ret`: значение результата на вершине стека).
+ * {@link OpCode.CALL} (новый фрейм по `fi`, аргументы со стека), {@link OpCode.RETURN} (`ret`: значение результата на вершине стека);
+ * исключения: {@link OpCode.TRY_CATCH} (`try_begin`, `off` → catch), {@link OpCode.THROW} (снять значение; при активном обработчике — unwinding
+ * {@link VM} call-фреймов до глубины на момент `try_begin`, значение на стек, переход в catch; иначе {@link InterpreterError}),
+ * {@link OpCode.FINALLY} (`try_end` — снять верхний обработчик после нормального прохода try). Активные записи — {@link Interpreter.exceptionHandlers}.
  */
 export class Interpreter extends VM {
   /** Стек исполнения (верх — последний элемент). */
