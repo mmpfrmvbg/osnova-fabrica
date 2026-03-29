@@ -1,32 +1,27 @@
-id: ATM-EPK-260328-FBK016-012
-epic: EPK-260328-FBK016
-seq: 12
-zone: lang
+id: ATM-EPK-260329-019-003
+epic: EPK-260329-019
+seq: 3
+zone: toolchain
 risk: MEDIUM
 executor: cursor
-goal: Запустить done-команду и верифицировать exit code 0
-scope:
-- src/runtime/vm.ts
-- src/pipeline/pipeline.test.ts
-- vitest.config.ts
+goal: Исправить конфиг Vitest (pool/retry/exclude/coverage), чтобы src/-прогон CI
+  был детерминированным.
+scope: vitest.config.ts — test.pool, exclude, coverage thresholds только в рамках
+  P0
 notouch:
-- forge/
-- .github/
-- docs/legacy/
-- apps/
-done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+- apps/osiris/**
+- e2e-спеки
+done: npx vitest run src/env.test.ts
 steps:
-- Выполнить npx vitest run src/agents/ && npx vitest run src/pipeline/
-- Убедиться в exit code 0
-- При неудаче — исправить тесты/конфигурацию
+- Воспроизвести флейки/исключения, связанные с vmThreads и exclude.
+- Сузить или скорректировать exclude/thresholds без ослабления сигнала качества.
+- Подтвердить зелёный прогон одного стабильного src-теста.
 deps:
-- ATM-EPK-260328-FBK016-008
-- ATM-EPK-260328-FBK016-009
-- ATM-EPK-260328-FBK016-010
-- ATM-EPK-260328-FBK016-011
+- ATM-EPK-260329-019-001
+- ATM-EPK-260329-019-002
 maxiter: 3
 retries: 0
-status: done
-priority: P2
+status: in_progress
+priority: P0
 max_retries: 3
-review_base_sha: a8d5536c7fe6b06bfc12873766e55d1ff8fd49b2
+review_base_sha: 90f14df4e00ca0310dc98d71a10e7bf39923e96e

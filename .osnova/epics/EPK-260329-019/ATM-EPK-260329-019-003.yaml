@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 3
 zone: toolchain
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Исправить конфиг Vitest (pool/retry/exclude/coverage), чтобы src/-прогон CI
   был детерминированным.
 scope: vitest.config.ts — test.pool, exclude, coverage thresholds только в рамках
@@ -21,5 +21,8 @@ deps:
 - ATM-EPK-260329-019-002
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: 90f14df4e00ca0310dc98d71a10e7bf39923e96e
+produced_files: []

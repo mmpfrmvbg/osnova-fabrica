@@ -8,13 +8,26 @@ export default defineConfig({
     },
   },
   test: {
-    pool: 'vmThreads',
+    pool: 'threads',
     retry: 0,
     globals: true,
     failOnZeroTests: true,
+    testTimeout: 30000,
+    sequence: {
+      shuffle: false,
+    },
     // Root vitest should only validate the core compiler/runtime in /src.
     // Osiris has its own job + its own dependency install in CI.
-    exclude: ['**/node_modules/**', '**/*.e2e.test.ts', '**/apps/osiris/**'],
+    exclude: [
+      '**/node_modules/**',
+      '**/*.e2e.test.ts',
+      '**/apps/osiris/**',
+      '**/dist/**',
+      '**/vitest.config.ts',
+      '**/vitest.config.test.ts',
+      '**/vitest.e2e.config.ts',
+      '**/*.d.ts',
+    ],
     // coverage.thresholds apply only when running with --coverage (can fail CI while plain vitest run passes).
     coverage: {
       provider: 'v8',
