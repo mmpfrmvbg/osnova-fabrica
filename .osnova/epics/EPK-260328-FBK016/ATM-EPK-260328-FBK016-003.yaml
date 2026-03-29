@@ -3,7 +3,7 @@ epic: EPK-260328-FBK016
 seq: 3
 zone: lang
 risk: LOW
-executor: qwen
+executor: cursor
 goal: Проверить vitest.config.ts на предмет конфигурации, влияющей на exit code
 scope:
 - vitest.config.ts
@@ -20,5 +20,8 @@ steps:
 deps: []
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P2
+max_retries: 3
+review_base_sha: 8b5f8329961f3602866e719f2d3e4a812002ce30
+produced_files: []

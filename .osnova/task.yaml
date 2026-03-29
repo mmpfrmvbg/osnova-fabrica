@@ -1,12 +1,12 @@
-id: ATM-EPK-260328-FBK016-002
+id: ATM-EPK-260328-FBK016-003
 epic: EPK-260328-FBK016
-seq: 2
+seq: 3
 zone: lang
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Изучить src/pipeline/pipeline.test.ts для понимания тестовых сценариев VM
+goal: Проверить vitest.config.ts на предмет конфигурации, влияющей на exit code
 scope:
-- src/pipeline/pipeline.test.ts
+- vitest.config.ts
 notouch:
 - forge/
 - .github/
@@ -14,14 +14,13 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Прочитать тесты пайплайна
-- Выявить тесты, связанные с VM и глобальными ключами
-- Определить пробелы в покрытии контракта VM
-deps:
-- ATM-EPK-260328-FBK016-001
+- Прочитать конфигурацию vitest
+- Выявить настройки onConsole.log, failOnZeroTests, coverage
+- Определить причины расхождения review/done
+deps: []
 maxiter: 3
 retries: 0
-status: done
+status: in_progress
 priority: P2
 max_retries: 3
-review_base_sha: 4172c830e47d1843cec6153fbb20bfda0022889d
+review_base_sha: 8b5f8329961f3602866e719f2d3e4a812002ce30
