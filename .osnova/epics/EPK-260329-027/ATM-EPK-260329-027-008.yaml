@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-027-008
+epic: EPK-260329-027
+seq: 8
+zone: runtime
+risk: MEDIUM
+executor: qwen
+goal: Выровнять под-интерпретатор VM с interpreter.ts
+scope: src/runtime/interpreter.ts — vm/interpreter parity
+notouch:
+- src/runtime/vm.ts
+- src/pipeline/types.ts
+done: npx vitest run src/runtime/vm/interpreter.test.ts
+steps:
+- src/runtime/vm/interpreter.test.ts
+- Убрать расхождение путей исполнения
+- Патч interpreter.ts
+deps:
+- ATM-EPK-260329-027-007
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

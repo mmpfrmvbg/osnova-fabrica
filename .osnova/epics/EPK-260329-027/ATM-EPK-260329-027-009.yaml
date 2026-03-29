@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-027-009
+epic: EPK-260329-027
+seq: 9
+zone: pipeline
+risk: MEDIUM
+executor: qwen
+goal: Зафиксировать контракты ForgeState/blockers в types для ATM id 015
+scope: src/pipeline/types.ts
+notouch:
+- src/pipeline/executor.ts
+- src/compiler/index.ts
+done: npx vitest run src/pipeline/types.test.ts
+steps:
+- types.test
+- Проверить ForgeStateBlocker* типы vs state v5
+- Патч только types.ts
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

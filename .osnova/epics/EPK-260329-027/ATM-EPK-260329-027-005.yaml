@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-027-005
+epic: EPK-260329-027
+seq: 5
+zone: runtime
+risk: HIGH
+executor: qwen
+goal: Исправить блокеры VM (globals, syscalls, пайплайн-ключи)
+scope: src/runtime/vm.ts
+notouch:
+- src/compiler/codegen.ts
+- src/pipeline/executor.ts
+done: npx vitest run src/runtime/vm.test.ts
+steps:
+- vm.test на изоляцию падающих кейсов
+- Сопоставить с PIPELINE_VM_GLOBAL_KEYS / applyPipelineSpecToVm
+- Патч только vm.ts
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

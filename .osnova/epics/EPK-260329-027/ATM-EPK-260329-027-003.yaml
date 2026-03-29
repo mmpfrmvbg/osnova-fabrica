@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-027-003
+epic: EPK-260329-027
+seq: 3
+zone: compiler
+risk: MEDIUM
+executor: qwen
+goal: Устранить блокеры генерации кода (bytecode/emit) из списка 14
+scope: src/compiler/codegen.ts
+notouch:
+- src/runtime/vm.ts
+- src/pipeline/types.ts
+done: npx vitest run src/compiler/codegen.test.ts
+steps:
+- Прогнать codegen.test и semantic.test на регрессии
+- Локализовать OFFender по стеку ATM
+- Патч только в codegen.ts
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

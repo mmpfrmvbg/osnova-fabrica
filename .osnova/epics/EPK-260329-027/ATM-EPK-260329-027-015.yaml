@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-027-015
+epic: EPK-260329-027
+seq: 15
+zone: intelligence
+risk: LOW
+executor: qwen
+goal: Выровнять planner API после фикса index
+scope: src/intelligence/index.ts — planner surface
+notouch:
+- src/intelligence/store.ts
+- src/agents/index.ts
+done: npx vitest run src/intelligence/planner.test.ts
+steps:
+- planner.test
+- Проверить импорты из index
+- Точечный фикс index.ts
+deps:
+- ATM-EPK-260329-027-014
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

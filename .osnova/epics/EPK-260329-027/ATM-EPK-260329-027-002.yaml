@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-027-002
+epic: EPK-260329-027
+seq: 2
+zone: compiler
+risk: MEDIUM
+executor: qwen
+goal: Закрыть оставшиеся блокеры разбора/токенизации, затрагивающие index
+scope: src/compiler/index.ts — lexer/parser glue
+notouch:
+- src/compiler/codegen.ts
+- src/runtime/interpreter.ts
+done: npx vitest run src/compiler/lexer.test.ts
+steps:
+- Запустить lexer/parser тесты и собрать diff с ожиданиями index
+- Исправить делегирование в index без смены контрактов codegen
+- Убедиться что golden-runner не регрессирует на уровне импорта
+deps:
+- ATM-EPK-260329-027-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

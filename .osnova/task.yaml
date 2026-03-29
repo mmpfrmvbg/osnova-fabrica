@@ -1,21 +1,22 @@
-id: ATM-009
-epic: EPK-260329-026
-seq: 9
-zone: vliw
-risk: LOW
+id: ATM-EPK-260329-027-001
+epic: EPK-260329-027
+seq: 1
+zone: compiler
+risk: HIGH
 executor: cursor
-goal: Audit src/vliw/index.ts re-exports vs scheduler/dependencyGraph/e2kModel public
-  API.
-scope: src/vliw/index.ts — export surface
+goal: Снять блокеры компилятора в точке входа index — публичный API и связка фаз
+scope: src/compiler/index.ts — EPK compiler surface
 notouch:
-- scripts/blocker-sync.ts
-- src/intelligence/planner.ts
-done: npx vitest run src/vliw/scheduler.test.ts
+- src/compiler/codegen.ts
+- src/runtime/vm.ts
+done: npx vitest run src/compiler/compiler.test.ts
 steps:
-- Ensure scheduleLinearBlock and packetsToCodeElements remain exported.
-- Add type-only exports only where already used by tests or cli.
+- Прогнать vitest по compiler.test и зафиксировать падающие кейсы
+- Сопоставить стек с ATM/FBK016 из EPK-260328-015
+- Внести минимальный фикс только в index.ts
+- Повторить узкий тест
 deps: []
 maxiter: 3
 retries: 0
 status: PENDING
-priority: P1
+priority: P0

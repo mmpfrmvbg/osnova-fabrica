@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-027-016
+epic: EPK-260329-027
+seq: 16
+zone: pipeline-llm
+risk: MEDIUM
+executor: qwen
+goal: Закрыть LLM-repair блокеры связанные с prompt/target
+scope: src/pipeline-llm/repairTarget.ts
+notouch:
+- src/pipeline/executor.ts
+- src/compiler/index.ts
+done: npx vitest run src/pipeline-llm/repairTarget.test.ts
+steps:
+- repairTarget.test
+- Сверить с buildOsnovaPrompt
+- Патч repairTarget.ts при необходимости
+deps:
+- ATM-EPK-260329-027-012
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

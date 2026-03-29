@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-027-007
+epic: EPK-260329-027
+seq: 7
+zone: runtime
+risk: HIGH
+executor: qwen
+goal: Устранить блокеры интерпретатора (исполнение, стек, ошибки ATM)
+scope: src/runtime/interpreter.ts
+notouch:
+- src/compiler/codegen.ts
+- src/intelligence/index.ts
+done: npx vitest run src/runtime/interpreter.test.ts
+steps:
+- interpreter.test
+- Сверить с vm.ts контрактом вызовов
+- Минимальный фикс interpreter.ts
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0
