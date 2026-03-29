@@ -1,0 +1,27 @@
+t: EPK
+id: EPK-260329-023
+goal: 'Расширение spec-валидации и feature: добавить validate:spec для compiler/runtime/agents,
+  покрыть граничные случаи spec-контрактов (операции деления, vm-crash %, IntakeAgent
+  threshold) — продолжение EPK-022 test-coverage на уровне спецификации'
+scope:
+- src/compiler/compiler.spec.ts
+- src/runtime/vm.spec.ts
+- src/runtime/interpreter.spec.ts
+- src/agents/intake-agent.spec.ts
+- src/agents/plan-agent.spec.ts
+- src/pipeline/pipeline.spec.ts
+- src/pipeline-llm/llm-pipeline.spec.ts
+- src/pipeline/types.ts
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+  - ATM-005
+- - ATM-006
+  - ATM-007
+  - ATM-008
+- - ATM-009
+done: npx vitest run src/
+priority: P2
+githubissue: 90

@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-023-004
+epic: EPK-260329-023
+seq: 4
+zone: runtime
+risk: LOW
+executor: qwen
+goal: Расширить interpreter-тесты граничными случаями деления и spec-семантики исполнения.
+scope: src/runtime/interpreter.test.ts — division / overflow edges в интерпретации
+notouch:
+- src/runtime/interpreter.ts
+- src/runtime/goldenApps.test.ts
+done: npx vitest run src/runtime/interpreter.test.ts
+steps:
+- Найти существующие arithmetic-тесты.
+- Добавить деление на ноль и границы по контракту языка.
+- Проверить согласованность с vm.test при пересечении сценариев.
+deps:
+- ATM-EPK-260329-023-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

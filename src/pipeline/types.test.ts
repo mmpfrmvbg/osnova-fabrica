@@ -10,7 +10,11 @@ import type {
   DiagnosticPipelineStatus,
   PipelineStatus,
   PipelineResult,
+  SpecG1CheckPrefix,
+  SpecG2CheckPrefix,
+  SpecG3CheckPrefix,
 } from './types';
+import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import {
   is015DiagnosticCode,
   isFBK016DiagnosticCode,
@@ -26,6 +30,11 @@ import {
   PIPELINE_STATUS_FOR_DIAGNOSTIC,
   pipelineStatusFromDiagnosticCode,
   diagnosticCodeFromPipelineStatus,
+  SPEC_G1_CONFIDENCE_MIN,
+  SPEC_INTENT_CONFIDENCE_DEFAULT,
+  SPEC_QUALITY_PASS,
+  SPEC_QUALITY_PARTIAL,
+  SPEC_BUILD_DURATION_WARN_MS,
 } from './types';
 
 describe('DiagnosticCode', () => {
@@ -343,5 +352,33 @@ describe('Алиасы DiagnosticCode', () => {
     expect(is015DiagnosticCode(DIAGNOSTIC_015_ATOM_NOT_FOUND)).toBe(true);
     expect(is015DiagnosticCode(DIAGNOSTIC_015_ATOM_CORRUPTED)).toBe(true);
     expect(is015DiagnosticCode(DIAGNOSTIC_015_DEP_UNRESOLVED)).toBe(true);
+  });
+});
+
+describe('Spec / gate пороги (EPK-022)', () => {
+  it('SPEC_G1_CONFIDENCE_MIN совпадает с порогом G1 в gateChecker', () => {
+    expect(SPEC_G1_CONFIDENCE_MIN).toBe(0.7);
+  });
+
+  it('SPEC_INTENT_CONFIDENCE_DEFAULT — дефолт intake при невалидном confidence', () => {
+    expect(SPEC_INTENT_CONFIDENCE_DEFAULT).toBe(0.8);
+  });
+
+  it('SPEC_QUALITY_* согласованы с thresholds.ts', () => {
+    expect(SPEC_QUALITY_PASS).toBe(QUALITY_PASS);
+    expect(SPEC_QUALITY_PARTIAL).toBe(QUALITY_PARTIAL);
+  });
+
+  it('SPEC_BUILD_DURATION_WARN_MS — 30s для предупреждения G2', () => {
+    expect(SPEC_BUILD_DURATION_WARN_MS).toBe(30_000);
+  });
+
+  it('префиксы gate в failedChecks (литералы контракта)', () => {
+    const g1: SpecG1CheckPrefix = 'g1_confidence';
+    const g2: SpecG2CheckPrefix = 'g2_semantic_clean';
+    const g3: SpecG3CheckPrefix = 'g3_no_vm_errors';
+    expect(`${g1}:`).toMatch(/^g1_confidence:/);
+    expect(`${g2}:`).toMatch(/^g2_semantic_clean:/);
+    expect(`${g3}:`).toMatch(/^g3_no_vm_errors:/);
   });
 });

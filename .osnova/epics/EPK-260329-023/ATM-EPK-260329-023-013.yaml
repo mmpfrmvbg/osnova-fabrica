@@ -1,0 +1,24 @@
+id: ATM-EPK-260329-023-013
+epic: EPK-260329-023
+seq: 13
+zone: pipeline
+risk: LOW
+executor: qwen
+goal: Добавить в pipeline.test узкий smoke на то что конфигурация соответствует spec-полям
+  из types.
+scope: src/pipeline/pipeline.test.ts — smoke сопоставления types и orchestration
+notouch:
+- src/pipeline-llm/
+- src/agents/
+done: npx vitest run src/pipeline/pipeline.test.ts
+steps:
+- Построить минимальный pipeline fixture.
+- Assert на поля из types без изменения runtime компилятора.
+- Один быстрый интеграционный тест без LLM.
+deps:
+- ATM-EPK-260329-023-007
+- ATM-EPK-260329-023-012
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

@@ -1,0 +1,23 @@
+id: ATM-EPK-260329-023-009
+epic: EPK-260329-023
+seq: 9
+zone: compiler
+risk: LOW
+executor: qwen
+goal: Закрепить в compiler.test инварианты согласованности с npm run validate:spec
+  (реестр/лексер/syscalls).
+scope: src/compiler/compiler.test.ts — интеграционные ожидания validate:spec для компилятора
+notouch:
+- src/compiler/validate-language-registry.ts
+- package.json
+done: npx vitest run src/compiler/compiler.test.ts
+steps:
+- Добавить тесты на ключевые слова/операции присутствующие в LANGUAGE_REGISTRY.
+- Проверить что компиляция эталонных фрагментов не противоречит реестру.
+- Не дублировать сам скрипт validate — только поведенческие инварианты.
+deps:
+- ATM-EPK-260329-023-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

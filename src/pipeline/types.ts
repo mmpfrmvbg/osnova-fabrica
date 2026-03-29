@@ -5,6 +5,7 @@
 // ============================================================
 
 import type { LLMProviderStatus } from '../llm/types';
+import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 
 // ─── Диагностика ошибок ───
 
@@ -281,6 +282,49 @@ export interface GateResult {
 
 /** Снимок {@link LLMProvider.checkHealth} на границе пайплайна (без смены HTTP API). */
 export type PipelineLLMHealth = LLMProviderStatus;
+
+// ─── Spec / gate пороги (EPK-022 контракт; согласовано с thresholds.ts и gateChecker) ───
+
+/** Минимум {@link OsnovaIntent.confidence} для G1, если {@link OsnovaIntent.appType} не `утилита`. */
+export const SPEC_G1_CONFIDENCE_MIN = 0.7;
+
+/** Подстановка confidence в intake, если в JSON нет валидного числа (IntakeAgent). */
+export const SPEC_INTENT_CONFIDENCE_DEFAULT = 0.8;
+
+/** Порог G3 «pass»: то же значение, что {@link QUALITY_PASS}. */
+export const SPEC_QUALITY_PASS = QUALITY_PASS;
+
+/** Порог G3 «partial / diff»: то же значение, что {@link QUALITY_PARTIAL}. */
+export const SPEC_QUALITY_PARTIAL = QUALITY_PARTIAL;
+
+/** Предупреждение G2 по длительности build (мс), см. checkG2. */
+export const SPEC_BUILD_DURATION_WARN_MS = 30_000;
+
+/** Префикс строки в {@link GateResult.failedChecks} для G1 (до `:`). */
+export type SpecG1CheckPrefix =
+  | 'g1_confidence'
+  | 'g1_features_present'
+  | 'g1_modules_defined'
+  | 'g1_main_module_set'
+  | 'g1_app_type_classified';
+
+/** Префикс строки в {@link GateResult.failedChecks} для G2 (до `:`). */
+export type SpecG2CheckPrefix =
+  | 'g2_lexer_clean'
+  | 'g2_parser_clean'
+  | 'g2_compiler_success'
+  | 'g2_semantic_clean'
+  | 'g2_build_time';
+
+/** Префикс строки в {@link GateResult.failedChecks} для G3 (до `:`). */
+export type SpecG3CheckPrefix =
+  | 'g3_vm_executed'
+  | 'g3_no_vm_errors'
+  | 'g3_golden_or_quality'
+  | 'g3_output_diff_acceptable';
+
+/** Объединение префиксов gate-проверок для spec-валидации и агентов. */
+export type SpecGateCheckPrefix = SpecG1CheckPrefix | SpecG2CheckPrefix | SpecG3CheckPrefix;
 
 // ─── План выполнения (PlanAgent / ExecAgent; фазы см. orchestrator.ts) ───
 

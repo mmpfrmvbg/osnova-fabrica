@@ -1,0 +1,23 @@
+id: ATM-EPK-260329-023-008
+epic: EPK-260329-023
+seq: 8
+zone: pipeline-llm
+risk: LOW
+executor: qwen
+goal: Укрепить spec-покрытие LLM-ветки пайплайна через тесты repair target (аналог
+  llm-pipeline.spec).
+scope: src/pipeline-llm/repairTarget.test.ts — границы repair target и промпта
+notouch:
+- src/pipeline-llm/buildOsnovaPrompt.ts
+- src/llm/
+done: npx vitest run src/pipeline-llm/repairTarget.test.ts
+steps:
+- Покрыть граничные входы repairTarget.
+- Зафиксировать ожидания по полям spec для LLM-ремонта.
+- Избежать сетевых вызовов — только юнит-моки.
+deps:
+- ATM-EPK-260329-023-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

@@ -1,20 +1,21 @@
-id: ATM-009
-epic: EPK-260329-022
-seq: 9
-zone: agents
+id: ATM-EPK-260329-023-001
+epic: EPK-260329-023
+seq: 1
+zone: pipeline
 risk: LOW
 executor: cursor
-goal: Plan-agent.test — покрытие веток планирования и устойчивость к пустому LLM.
-scope:
-- src/agents/plan-agent.test.ts — branch coverage
+goal: Зафиксировать в types пороги/поля контракта spec для пайплайна и агентов без
+  расширения поверхности API.
+scope: src/pipeline/types.ts — константы и типы для spec-threshold и health/gate
 notouch:
-- src/agents/PlanAgent.ts
-done: npx vitest run src/agents/plan-agent.test.ts
+- src/pipeline/orchestrator.ts
+- apps/
+done: npx vitest run src/pipeline/types.test.ts
 steps:
-- Прочитать plan-agent.test.ts и PlanAgent API.
-- Добавить тесты на деградацию при ошибке LLM и валидный план при успехе.
-deps:
-- ATM-008
+- Прочитать текущие типы и thresholds.ts на согласованность.
+- Добавить минимальные поля/литералы под EPK-022 spec-контракт.
+- Обновить импорты только внутри pipeline при необходимости.
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-023-003
+epic: EPK-260329-023
+seq: 3
+zone: runtime
+risk: MED
+executor: qwen
+goal: Покрыть vm-crash % и связанные пороги поведения VM в spec-ориентированных тестах.
+scope: src/runtime/vm.test.ts — crash-rate и деградация VM
+notouch:
+- src/runtime/vm.ts
+- src/runtime/vm-runner.ts
+done: npx vitest run src/runtime/vm.test.ts
+steps:
+- Идентифицировать сценарии падения/ошибок VM в тестах.
+- Добавить граничные кейсы для процента crash и восстановления.
+- Сверить с syscall/invoke контрактом из реестра.
+deps:
+- ATM-EPK-260329-023-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2

@@ -1,0 +1,23 @@
+id: ATM-EPK-260329-023-010
+epic: EPK-260329-023
+seq: 10
+zone: runtime
+risk: MED
+executor: qwen
+goal: Согласовать vm.test с interpreter-контрактом деления и syscall argc из реестра.
+scope: src/runtime/vm.test.ts — согласованность с interpreter и invokeRegistry
+notouch:
+- src/runtime/vm/invokeRegistry.ts
+- src/compiler/language-registry.ts
+done: npx vitest run src/runtime/vm.test.ts
+steps:
+- Добавить пары сценариев vm/interpreter для одних и тех же программ.
+- Проверить argc syscalls на границе допустимых значений.
+- Оставить один чёткий набор фикстур.
+deps:
+- ATM-EPK-260329-023-003
+- ATM-EPK-260329-023-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P2
