@@ -146,6 +146,120 @@ describe("Interpreter + OpCode stack ops", () => {
       });
     });
 
+    it("div: нулевое делимое при ненулевом делителе → 0", async () => {
+      const m = tinyMod(
+        [
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.DIV } as RawInstruction,
+        ],
+        [0, 7],
+      );
+      expect(await new Interpreter(m).runProcedure(0, [])).toBe(0);
+    });
+
+    it("div: дробное частное согласовано с vm/interpreter.test (7/2=3.5)", async () => {
+      const m = tinyMod(
+        [
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.DIV } as RawInstruction,
+        ],
+        [7, 2],
+      );
+      expect(await new Interpreter(m).runProcedure(0, [])).toBe(3.5);
+    });
+
+    it("div: отрицательные операнды (как целочисленное деление со знаком в JS)", async () => {
+      const neg1 = tinyMod(
+        [
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.DIV } as RawInstruction,
+        ],
+        [-15, 3],
+      );
+      expect(await new Interpreter(neg1).runProcedure(0, [])).toBe(-5);
+      const neg2 = tinyMod(
+        [
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.DIV } as RawInstruction,
+        ],
+        [15, -3],
+      );
+      expect(await new Interpreter(neg2).runProcedure(0, [])).toBe(-5);
+    });
+
+    it("div: 0/0 → Division by zero (делитель ноль, тот же контракт)", async () => {
+      const m = tinyMod(
+        [
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.DIV } as RawInstruction,
+        ],
+        [0, 0],
+      );
+      await expect(new Interpreter(m).runProcedure(0, [])).rejects.toMatchObject({
+        name: "InterpreterError",
+        message: "Division by zero",
+        op: "div",
+        pc: 2,
+      });
+    });
+
+    it("div: делитель −0 трактуется как ноль → Division by zero", async () => {
+      const m = tinyMod(
+        [
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.DIV } as RawInstruction,
+        ],
+        [1, -0],
+      );
+      await expect(new Interpreter(m).runProcedure(0, [])).rejects.toMatchObject({
+        name: "InterpreterError",
+        message: "Division by zero",
+        op: "div",
+        pc: 2,
+      });
+    });
+
+    it("try_begin не перехватывает Division by zero (параллельно vm.test для rem)", async () => {
+      const m: OsVbcModule = {
+        version: 1,
+        moduleName: "t_div_try",
+        constants: [5, 0, 7],
+        procedures: [{ name: "main", codeOffset: 0, argc: 0, localsCount: 0 }],
+        code: [
+          { op: OpCode.TRY_CATCH, off: 5 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.DIV } as RawInstruction,
+          { op: OpCode.FINALLY } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 2 } as RawInstruction,
+          { op: OpCode.RETURN } as RawInstruction,
+        ],
+      };
+      await expect(new Interpreter(m).runProcedure(0, [])).rejects.toMatchObject({
+        name: "InterpreterError",
+        message: "Division by zero",
+        op: "div",
+      });
+    });
+
+    it("mul: переполнение в IEEE double → Infinity без throw (контракт JS в интерпретации)", async () => {
+      const m = tinyMod(
+        [
+          { op: OpCode.PUSH, type: "i32", k: 0 } as RawInstruction,
+          { op: OpCode.PUSH, type: "i32", k: 1 } as RawInstruction,
+          { op: OpCode.MUL } as RawInstruction,
+        ],
+        [1e200, 1e200],
+      );
+      expect(await new Interpreter(m).runProcedure(0, [])).toBe(Infinity);
+    });
+
     it("неверный op: InterpreterError с message, pc и полем op (vm-crash контракт)", async () => {
       const badOp = "unknown_opcode_for_test" as RawInstruction["op"];
       const m = tinyMod([{ op: badOp } as RawInstruction]);

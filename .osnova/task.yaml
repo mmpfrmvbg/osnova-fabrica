@@ -1,19 +1,19 @@
-id: ATM-EPK-260329-023-003
+id: ATM-EPK-260329-023-004
 epic: EPK-260329-023
-seq: 3
+seq: 4
 zone: runtime
-risk: MED
+risk: LOW
 executor: cursor
-goal: Покрыть vm-crash % и связанные пороги поведения VM в spec-ориентированных тестах.
-scope: src/runtime/vm.test.ts — crash-rate и деградация VM
+goal: Расширить interpreter-тесты граничными случаями деления и spec-семантики исполнения.
+scope: src/runtime/interpreter.test.ts — division / overflow edges в интерпретации
 notouch:
-- src/runtime/vm.ts
-- src/runtime/vm-runner.ts
-done: npx vitest run src/runtime/vm.test.ts
+- src/runtime/interpreter.ts
+- src/runtime/goldenApps.test.ts
+done: npx vitest run src/runtime/interpreter.test.ts
 steps:
-- Идентифицировать сценарии падения/ошибок VM в тестах.
-- Добавить граничные кейсы для процента crash и восстановления.
-- Сверить с syscall/invoke контрактом из реестра.
+- Найти существующие arithmetic-тесты.
+- Добавить деление на ноль и границы по контракту языка.
+- Проверить согласованность с vm.test при пересечении сценариев.
 deps:
 - ATM-EPK-260329-023-001
 maxiter: 3
