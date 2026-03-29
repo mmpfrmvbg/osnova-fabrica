@@ -152,10 +152,6 @@ vi.mock('../llm/index', () => ({
   PROVIDER_DEFAULT_MODEL: {},
 }));
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
 /** Сумма 1…10; без этой проверки golden мог пройти при неверном значении на стеке (см. runGoldenCheck). */
 async function assertVmReturnValueIsSum1To10(bytecode: unknown, spec: OsnovaSpec): Promise<void> {
   const report = await runGoldenCheck(bytecode, {

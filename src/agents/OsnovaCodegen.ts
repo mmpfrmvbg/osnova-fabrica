@@ -32,7 +32,7 @@ function loadFewShot(): string {
       const cat = (c as { category?: string }).category ?? 'generic';
       if (!byCategory.has(cat)) byCategory.set(cat, c);
     }
-    const selected = [...byCategory.values()].slice(0, 4);
+    const selected = Array.from(byCategory.values()).slice(0, 4);
     const goldenExamples = selected
       .filter(c => c.source || c.osnova)
       .map(c => `// Пример: ${c.name ?? c.id}\n${c.source ?? c.osnova}`)

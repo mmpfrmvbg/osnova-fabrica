@@ -51,7 +51,7 @@ const PHASE_RANK: Record<PipelinePhase, number> = {
 };
 
 function isPipelinePhase(value: unknown): value is PipelinePhase {
-  return typeof value === 'string' && Object.hasOwn(PHASE_RANK, value);
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(PHASE_RANK, value);
 }
 
 /** Допустимые переходы между фазами (зависимости: `to` требует предшествующий `from`). */

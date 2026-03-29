@@ -104,7 +104,7 @@ export function getRepairTarget(kind: string): RepairTarget {
  * Принимает массив kind из текущих ошибок трейса.
  */
 export function formatRepairTarget(kinds: string[]): string {
-  const unique = [...new Set(kinds)];
+  const unique = Array.from(new Set(kinds));
   const targets = unique.map((k) => getRepairTarget(k));
   const lines: string[] = ['═══ ЦЕЛЕВЫЕ ИНСТРУКЦИИ ПО ОШИБКАМ ═══'];
   for (const t of targets) {

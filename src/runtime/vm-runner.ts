@@ -320,7 +320,8 @@ function createInvokeHandler(
         try {
           // eslint-disable-next-line no-constant-condition
           while (true) {
-            const n = (await import("fs")).default.readSync(0, buf, 0, 1, null);
+            const fsMod = await import("fs");
+            const n = (fsMod as { default?: typeof import("fs") }).default?.readSync(0, buf, 0, 1, null) ?? 0;
             if (n === 0) break;
             const ch = buf.toString("utf8", 0, n);
             if (ch === "\n") break;
