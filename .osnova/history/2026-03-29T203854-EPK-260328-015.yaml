@@ -1,0 +1,112 @@
+epic: EPK-260328-015
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 6
+  atomstotal: 6
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-015-001
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 13
+    skip_reason: pre_existing
+    scope_lines_changed: false
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-015-006
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 19
+    skip_reason: pre_existing
+    scope_lines_changed: false
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-015-008
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 101
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 14
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-015-009
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 111
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 18
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-015-010
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 67
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 12
+    skip_reason: pre_existing
+    scope_lines_changed: false
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-015-011
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 54
+    totalLinesAdded: 49
+    totalLinesRemoved: 5
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 21
+    scope_lines_changed: true
+    skip_reason: null
+createdat: '2026-03-29T20:38:54.514469+03:00'

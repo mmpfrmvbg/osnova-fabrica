@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-29T20:02:26.014888+03:00'
+updatedat: '2026-03-29T20:38:57.032331+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -8,17 +8,17 @@ epicprogress:
   blocked: 0
   current: null
 sessionstats:
-  epicsreceived: 31
-  epicsdone: 19
+  epicsreceived: 32
+  epicsdone: 20
   epicsblocked: 12
-  atomstotal: 204
-  atomsdone: 131
+  atomstotal: 210
+  atomsdone: 137
   atomsblocked: 73
-  passrate: 0.6421568627450981
+  passrate: 0.6523809523809524
 ci:
-  lastrun: '2026-03-29T19:01:18.429188+03:00'
+  lastrun: '2026-03-29T20:38:54.580936+03:00'
   laststatus: ok
-  passrate7d: 0.5132
+  passrate7d: 0.5284
   openblockerissues: 0
   lastepicissue: null
 brainsource: github
@@ -37,6 +37,24 @@ executors:
   activefallback: null
 blockers: []
 recent:
+- epic: EPK-260328-015
+  scope:
+  - src/agents/intake-agent.ts
+  - src/agents/plan-agent.ts
+  - src/agents/exec-agent.ts
+  - src/agents/review-agent.ts
+  - src/agents/agents.test.ts
+  - src/pipeline/pipeline.ts
+  - src/pipeline/pipeline.test.ts
+  - src/runtime/vm.ts
+  - src/runtime/interpreter.ts
+  result: ok
+  status: ok
+  passrate: 1.0
+  updated: '2026-03-29T20:38:54.580857+03:00'
+  atm_review:
+    ok_pre_existing: 3
+    ok_scope_changed: 3
 - epic: EPK-260328-014
   scope:
   - src/runtime/vm.ts
@@ -276,24 +294,6 @@ recent:
   updated: '2026-03-28T23:26:10.625951+03:00'
   atm_review:
     ok_other: 12
-- epic: EPK-260328-015
-  scope:
-  - src/agents/intake-agent.ts
-  - src/agents/plan-agent.ts
-  - src/agents/exec-agent.ts
-  - src/agents/review-agent.ts
-  - src/agents/agents.test.ts
-  - src/pipeline/pipeline.ts
-  - src/pipeline/pipeline.test.ts
-  - src/runtime/vm.ts
-  - src/runtime/interpreter.ts
-  result: partial
-  status: partial
-  passrate: 0.5
-  updated: '2026-03-28T19:08:34.781772+03:00'
-  atm_review:
-    ok_other: 6
-    blk: 6
 - epic: EPK-260327-001
   scope:
   - src/compiler/vm.test.ts
@@ -519,6 +519,15 @@ codebase:
   - src/intelligence/index.ts — epic intelligence/core.ts
   - src/pipeline/executor.ts — epic pipeline-llm/executor.ts
 last_scopes:
+- - src/agents/intake-agent.ts
+  - src/agents/plan-agent.ts
+  - src/agents/exec-agent.ts
+  - src/agents/review-agent.ts
+  - src/agents/agents.test.ts
+  - src/pipeline/pipeline.ts
+  - src/pipeline/pipeline.test.ts
+  - src/runtime/vm.ts
+  - src/runtime/interpreter.ts
 - - src/runtime/vm.ts
   - src/runtime/interpreter.ts
   - src/runtime/frame.ts
@@ -531,7 +540,3 @@ last_scopes:
   - src/compiler/ast.ts
   - src/compiler/codegen.ts
   - src/compiler/compiler.test.ts
-- - tsconfig.json
-  - vitest.config.ts
-  - package.json
-  - src/pipeline/types.ts
