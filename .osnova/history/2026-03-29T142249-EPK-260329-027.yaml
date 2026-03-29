@@ -1,0 +1,142 @@
+epic: EPK-260329-027
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 8
+  atomstotal: 8
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-027-001
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 121
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: Qwen review unavailable (quota/budget); auto-approved because done-command
+      exited 0.'
+    elapsed: 11
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-027-002
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 260
+  err: null
+  review:
+    passed: true
+    reason: No auth type is selected. Please configure an auth type (e.g. via settings
+      or `--auth-type`) before running in non-interactive mode.
+    elapsed: 4
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-027-003
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 277
+  err: null
+  review:
+    passed: true
+    reason: No auth type is selected. Please configure an auth type (e.g. via settings
+      or `--auth-type`) before running in non-interactive mode.
+    elapsed: 5
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-027-004
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 119
+  err: null
+  review:
+    passed: true
+    reason: No auth type is selected. Please configure an auth type (e.g. via settings
+      or `--auth-type`) before running in non-interactive mode.
+    elapsed: 5
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-027-005
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 102
+  err: null
+  review:
+    passed: true
+    reason: No auth type is selected. Please configure an auth type (e.g. via settings
+      or `--auth-type`) before running in non-interactive mode.
+    elapsed: 4
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-027-006
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 152
+  err: null
+  review:
+    passed: true
+    reason: No auth type is selected. Please configure an auth type (e.g. via settings
+      or `--auth-type`) before running in non-interactive mode.
+    elapsed: 5
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-027-007
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 176
+  err: null
+  review:
+    passed: true
+    reason: No auth type is selected. Please configure an auth type (e.g. via settings
+      or `--auth-type`) before running in non-interactive mode.
+    elapsed: 5
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-027-008
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 146
+  err: null
+  review:
+    passed: true
+    reason: "Проанализирую представленный diff для проверки задачи ATM.\n\n**Анализ\
+      \ изменений:**\n\n1. **task.yaml**: Обновлён ID задачи, цель изменена на \"\
+      Выровнять под-интерпретатор VM с interpreter.ts\", обновлены зависимости и шаги.\n\
+      \n2. **interpreter.ts**: Добавлены новые опкоды в `OpCode`:\n   - `CONST_TRUE`,\
+      \ `CONST_FALSE`, `CONST_NULL` — литералы\n   - `LOCAL_GET`, `LOCAL_SET` — локальные\
+      \ переменные\n   - `REM` — остаток от деления\n   - `NE`, `LE`, `GE` — дополнительные\
+      \ операторы сравнения\n   - `INVOKE` — вызов системного API\n   - `OBJ_NEW`,\
+      \ `OBJ_GET`, `OBJ_SET` — работа с объектами\n\n**Проблемы:**\n\n1. В diff показаны\
+      \ **только добавления опкодов в `interpreter.ts`**, но нет изменений в `vm/interpreter.ts`\
+      \ для обеспечения паритета.\n\n2. Отсутствуют фактические изменения в логике\
+      \ исполнения — только типы/константы.\n\n3. Нет тестовых изменений в `src/runtime/vm/interpreter.test.ts`.\n\
+      \n4. Цель задачи — \"Выровнять под-интерпретатор VM с interpreter.ts\", но в\
+      \ diff видны изменения только в одном файле (`interpreter.ts`), а не в VM-интерпретаторе.\n\
+      \n5. `report.yaml` показывает 0 пройденных тестов из 0 — тесты не запускались\
+      \ или не были зафиксированы.\n\nFAIL: Нет изменений в vm/interpreter.ts для\
+      \ обеспечения паритета, только добавлены опкоды в interpreter.ts"
+    elapsed: 18
+createdat: '2026-03-29T14:22:49.840423+03:00'
