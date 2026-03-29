@@ -44,6 +44,15 @@ import type { InterpreterOptions, StackValue, InvokeHandler } from "./interprete
 import type { OsnovaSpec } from "../pipeline/types";
 import { isOsVbcModule, type OsVbcModule } from "./vm/bytecode";
 import { createDefaultInvokeHandler } from "./vm/interpreter";
+import {
+  TimeoutError,
+  ExecutionError,
+  InvokeError,
+  RecoveryManager,
+  type RuntimeError,
+  toRuntimeError,
+  isRecoverableError,
+} from "./index";
 
 /** Сообщение при повторном входе в {@link OsVbcVM.execute}, пока идёт прогон (единый текст для throw и пайплайна). */
 export const VM_ERROR_CONCURRENT_EXECUTE =
@@ -192,7 +201,102 @@ export async function safeExecutePipelineVm(
   }
 }
 
-function runWithTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+/**
+ * Расширенный результат выполнения с поддержкой recovery.
+ * Включает информацию о попытках восстановления.
+ */
+export interface PipelineVmExecuteResultWithRecovery extends PipelineVmExecuteResult {
+  /** Количество попыток восстановления. */
+  readonly recoveryAttempts?: number;
+  /** Была ли успешная попытка восстановления. */
+  readonly recoverySuccess?: boolean;
+}
+
+/**
+ * Опции для выполнения с восстановлением.
+ */
+export interface ExecuteWithRecoveryOptions extends OsVbcExecuteOptions {
+  /** Менеджер восстановления. */
+  recoveryManager?: RecoveryManager;
+  /** Максимальное количество попыток восстановления. */
+  maxRecoveryAttempts?: number;
+}
+
+/**
+ * Выполнение VM с механизмом восстановления после ошибок.
+ * Пытается восстановить выполнение при recoverable ошибках через {@link RecoveryManager}.
+ *
+ * **Интеграция с пайплайном:** используется в оркестраторе для устойчивого выполнения
+ * с автоматическим восстановлением после таймаутов и временных сбоев.
+ *
+ * @param vm — экземпляр VM.
+ * @param opts — опции выполнения с recovery.
+ * @returns Результат выполнения с информацией о восстановлении.
+ */
+export async function executeWithRecovery(
+  vm: OsVbcVM,
+  opts?: ExecuteWithRecoveryOptions,
+): Promise<PipelineVmExecuteResultWithRecovery> {
+  const recoveryManager = opts?.recoveryManager;
+  const maxAttempts = opts?.maxRecoveryAttempts ?? 3;
+  let recoveryAttempts = 0;
+  let lastError: unknown;
+
+  while (recoveryAttempts <= maxAttempts) {
+    try {
+      const returnValue = await vm.execute(opts);
+      return {
+        ok: true,
+        returnValue,
+        recoveryAttempts,
+        recoverySuccess: recoveryAttempts > 0,
+      };
+    } catch (err) {
+      lastError = err;
+      const runtimeError = toRuntimeError(err);
+
+      // Пытаемся восстановить только recoverable ошибки
+      if (!isRecoverableError(err) || !recoveryManager) {
+        break;
+      }
+
+      const recovered = await recoveryManager.attemptRecovery(runtimeError);
+      if (!recovered) {
+        break;
+      }
+
+      recoveryAttempts++;
+
+      // Обновляем метаданные для следующей попытки
+      if (runtimeError.metadata) {
+        runtimeError.metadata.retries = recoveryAttempts;
+      }
+
+      // Для TimeoutError увеличиваем таймаут
+      if (runtimeError.code === "TIMEOUT_ERROR") {
+        const currentTimeout = runtimeError.metadata?.timeoutMs as number | undefined;
+        if (currentTimeout && Number.isFinite(currentTimeout)) {
+          opts = { ...opts, timeoutMs: currentTimeout * 2 };
+        }
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    error: formatVmRuntimeError(lastError),
+    cause: lastError,
+    recoveryAttempts,
+    recoverySuccess: false,
+  };
+}
+
+function runWithTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+  procedure?: string,
+): Promise<T> {
   if (!Number.isFinite(ms) || ms <= 0) return promise;
   let settled = false;
   return new Promise<T>((resolve, reject) => {
@@ -201,7 +305,7 @@ function runWithTimeout<T>(promise: Promise<T>, ms: number, message: string): Pr
       settled = true;
       // Прогон байткода и ожидание invoke могут завершиться после таймаута — гасим поздний reject, иначе unhandledRejection.
       void promise.catch(() => {});
-      reject(new InterpreterError(message));
+      reject(new TimeoutError(message, { timeoutMs: ms, procedure, recoverable: true }));
     }, ms);
     promise.then(
       (v) => {
@@ -484,7 +588,7 @@ export class OsVbcVM implements VM {
       let run = this.interpreter.runProcedure(procedureIndex, args);
       const { timeoutMs } = opts;
       if (timeoutMs !== undefined && Number.isFinite(timeoutMs) && timeoutMs > 0) {
-        run = runWithTimeout(run, timeoutMs, vmExecuteTimeoutMessage(timeoutMs, procedure));
+        run = runWithTimeout(run, timeoutMs, vmExecuteTimeoutMessage(timeoutMs, procedure), procedure);
       }
 
       try {

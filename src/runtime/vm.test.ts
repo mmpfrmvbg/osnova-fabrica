@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { compileSource } from "../compiler/compiler";
+import * as runtime from "./index";
 import {
   OsVbcVM,
   applyPipelineSpecToVm,
@@ -227,7 +228,7 @@ describe("OsVbcVM integration", () => {
     };
     const invoke: InvokeHandler = () => new Promise(() => {});
     const vm = new OsVbcVM(m, { invoke, maxSteps: 1000 });
-    await expect(vm.execute({ timeoutMs: 30 })).rejects.toThrow(InterpreterError);
+    await expect(vm.execute({ timeoutMs: 30 })).rejects.toThrow(runtime.TimeoutError);
     expect(vm.getReturnValue()).toBeUndefined();
   });
 
