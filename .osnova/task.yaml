@@ -1,23 +1,22 @@
-id: ATM-001
+id: ATM-002
 epic: EPK-260329-021
-seq: 1
+seq: 2
 zone: pipeline
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Свести типы стадий/результатов пайплайна к одному контракту и убрать расхождения,
-  дающие blockers EPK-260328-015/016.
+goal: Проверить согласованность типов пайплайна с оркестратором после правок types.ts.
 scope:
-- src/pipeline/types.ts — аудит и правка доменных типов стадий
+- src/pipeline/types.ts — кросс-проверка с контрактом оркестратора
 notouch:
-- src/compiler/index.ts
-- src/runtime/index.ts
-- package.json
-done: npx vitest run src/pipeline/types.test.ts
+- src/pipeline-llm/index.ts
+- vitest.config.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
 steps:
-- Прочитать текущие типы стадий, ошибок и флагов в types.ts.
-- Сопоставить с фактическими полями в orchestrator/pipeline без изменения других зон.
-- Внести минимальные правки типов и экспортов; прогнать узкий тест.
-deps: []
+- Найти места импорта типов из types.ts в orchestrator/pipeline.
+- Устранить оставшиеся несоответствия только через типы или узкие алиасы в types.ts.
+- Убедиться что публичный API типов покрывает 14 сценариев blockers из диагностики.
+deps:
+- ATM-001
 maxiter: 3
 retries: 0
 status: PENDING

@@ -115,6 +115,39 @@ export function diagnosticCodeFromPipelineStatus(status: DiagnosticPipelineStatu
   }
 }
 
+/** Все {@link DiagnosticCode} (6) — исчерпывающий перечень для Forge / оркестратора. */
+export const ALL_DIAGNOSTIC_CODES = [
+  DIAGNOSTIC_015_ATOM_NOT_FOUND,
+  DIAGNOSTIC_015_ATOM_CORRUPTED,
+  DIAGNOSTIC_015_DEP_UNRESOLVED,
+  DIAGNOSTIC_FBK016_REJECTED,
+  DIAGNOSTIC_FBK016_TIMEOUT,
+  DIAGNOSTIC_FBK016_LIMIT_EXCEEDED,
+] as const satisfies readonly DiagnosticCode[];
+
+/** Все {@link DiagnosticPipelineStatus} (6), в том же порядке, что и {@link ALL_DIAGNOSTIC_CODES}. */
+export const ALL_DIAGNOSTIC_PIPELINE_STATUSES = [
+  'error_015_atom_not_found',
+  'error_015_atom_corrupted',
+  'error_015_dep_unresolved',
+  'error_fbk016_rejected',
+  'error_fbk016_timeout',
+  'error_fbk016_limit_exceeded',
+] as const satisfies readonly DiagnosticPipelineStatus[];
+
+/**
+ * 14 токенов сценариев blockers диагностики Forge: 6 кодов, 6 исходов пайплайна 015/FBK016,
+ * плюс два семейства (серия атомов / обратная связь).
+ */
+export const DIAGNOSTIC_FORGE_BLOCKER_SCENARIOS = [
+  ...ALL_DIAGNOSTIC_CODES,
+  ...ALL_DIAGNOSTIC_PIPELINE_STATUSES,
+  '015',
+  'FBK016',
+] as const;
+
+export type DiagnosticForgeBlockerScenarioToken = (typeof DIAGNOSTIC_FORGE_BLOCKER_SCENARIOS)[number];
+
 // ─── Входные данные ───
 
 export interface RawText {
