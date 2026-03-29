@@ -7,7 +7,7 @@ import type { OsVbcVMOptions, OsVbcExecuteOptions } from "./vm";
 import type { OsVbcModule } from "./vm/bytecode";
 
 export * from "./vm";
-export { Interpreter, InterpreterError, runProgram, loadModule, VM } from "./interpreter";
+export { Interpreter, InterpreterError, runProgram, loadModule, VM, OpCode } from "./interpreter";
 export type { RunProgramOptions, TryFrame } from "./interpreter";
 export type { ExecuteWithRecoveryOptions, PipelineVmExecuteResultWithRecovery } from "./vm";
 export { executeWithRecovery } from "./vm";
