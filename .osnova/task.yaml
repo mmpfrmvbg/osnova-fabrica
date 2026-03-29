@@ -1,25 +1,24 @@
-id: ATM-EPK-260328-015-004
+id: ATM-EPK-260328-015-005
 epic: EPK-260328-015
-seq: 4
+seq: 5
 zone: agents
 risk: MEDIUM
 executor: cursor
-goal: Реализовать ExecAgent для выполнения операций по плану
+goal: Реализовать ReviewAgent для проверки результатов выполнения
 scope:
-- src/agents/exec-agent.ts — реализация ExecAgent
+- src/agents/review-agent.ts — реализация ReviewAgent
 notouch:
-- src/runtime/vm.ts
+- src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать класс ExecAgent с методом execute()
-- Реализовать пошаговое выполнение операций
-- Добавить обработку результатов выполнения
+- Создать класс ReviewAgent с методом validate()
+- Реализовать проверку соответствия результатов ожиданиям
+- Добавить генерацию отчета о проверке
 deps:
-- ATM-EPK-260328-015-003
+- ATM-EPK-260328-015-004
 maxiter: 3
 retries: 0
 status: done
 priority: P1
 max_retries: 3
-review_base_sha: e0e1958a6896da1313dc38bb1d561e49c0d43502
-produced_files: []
+review_base_sha: 55ae383ebca0665cc51f11ed491ca59a39786d10

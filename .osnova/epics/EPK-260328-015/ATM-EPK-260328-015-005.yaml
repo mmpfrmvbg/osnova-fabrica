@@ -15,8 +15,11 @@ steps:
 - Реализовать проверку соответствия результатов ожиданиям
 - Добавить генерацию отчета о проверке
 deps:
-- 4
+- ATM-EPK-260328-015-004
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: 55ae383ebca0665cc51f11ed491ca59a39786d10
+produced_files: []
