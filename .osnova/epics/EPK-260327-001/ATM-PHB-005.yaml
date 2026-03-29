@@ -1,4 +1,4 @@
-id: ATM-PHB-005
+﻿id: ATM-PHB-005
 epic: EPK-260327-001
 seq: 5
 zone: golden
@@ -22,5 +22,5 @@ deps:
 - ATM-PHB-004
 maxiter: 3
 retries: 0
-status: PENDING
+status: obsolete
 priority: P2

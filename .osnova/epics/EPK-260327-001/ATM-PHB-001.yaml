@@ -1,4 +1,4 @@
-id: ATM-PHB-001
+﻿id: ATM-PHB-001
 epic: EPK-260327-001
 seq: 1
 zone: pipeline
@@ -21,5 +21,5 @@ steps:
 deps: []
 maxiter: 3
 retries: 0
-status: PENDING
+status: obsolete
 priority: P2

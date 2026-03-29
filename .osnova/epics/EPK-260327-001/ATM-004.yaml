@@ -1,4 +1,4 @@
-id: ATM-004
+﻿id: ATM-004
 epic: EPK-260327-001
 seq: 4
 zone: lang
@@ -20,5 +20,5 @@ deps:
 - ATM-003
 maxiter: 3
 retries: 0
-status: PENDING
+status: obsolete
 priority: P2

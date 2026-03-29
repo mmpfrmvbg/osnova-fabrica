@@ -28,6 +28,7 @@ try:
     )
     from forge.blk_classify import classify_blk
     from forge.brain_context import build_brain_context, decide_brain_action, resume_epic_if_pending
+    from forge.codebase_state import merge_codebase_into_state_yaml
     from forge.worktree_manager import cleanup_stale_worktrees
     from forge.brain_fallback import generate_fallback_epic
     from forge.common import (
@@ -85,6 +86,7 @@ except ImportError:  # pragma: no cover
     )
     from blk_classify import classify_blk
     from brain_context import build_brain_context, decide_brain_action, resume_epic_if_pending
+    from codebase_state import merge_codebase_into_state_yaml
     from worktree_manager import cleanup_stale_worktrees
     from brain_fallback import generate_fallback_epic
     from common import (
@@ -1143,6 +1145,7 @@ def cycle(dry_run: bool = False) -> str:
     if not dry_run:
         try:
             proj = Path(env_paths()["OSNOVA_PROJECT"])
+            merge_codebase_into_state_yaml(proj)
             bc = build_brain_context(proj)
             act = decide_brain_action(bc, project=proj)
             LOG.info(

@@ -1,4 +1,4 @@
-id: ATM-INTAKE-CONF
+﻿id: ATM-INTAKE-CONF
 epic: EPK-260327-001
 seq: 2
 zone: lang
@@ -23,5 +23,5 @@ steps:
 deps: []
 maxiter: 3
 retries: 0
-status: PENDING
+status: obsolete
 priority: P2

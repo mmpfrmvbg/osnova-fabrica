@@ -1,4 +1,4 @@
-id: ATM-EPIC-001
+﻿id: ATM-EPIC-001
 epic: EPK-260327-001
 seq: 1
 zone: lang
@@ -25,5 +25,7 @@ steps:
 deps: []
 maxiter: 3
 retries: 0
-status: PENDING
+status: obsolete
 priority: P2
+max_retries: 3
+review_base_sha: b3d7a2ea45d1c8939974fd954ba1e784ca082dac

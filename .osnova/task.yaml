@@ -1,24 +1,31 @@
-id: ATM-001
+id: ATM-EPIC-001
 epic: EPK-260327-001
 seq: 1
 zone: lang
-risk: LOW
+risk: MEDIUM
 executor: cursor
-goal: Реализовать регрессионные тесты для операции % в src/compiler/vm.test.ts
+goal: Реализовать компилятор языка Основа (lexer → parser → AST → codegen)
 scope:
-- src/compiler/vm.test.ts
-- src/compiler/vm.ts
+- src/compiler/lexer.ts
+- src/compiler/parser.ts
+- src/compiler/ast.ts
+- src/compiler/codegen.ts
+- src/compiler/compiler.ts
 notouch:
-- .github/
-- infra/
-- deploy/
-- Cargo.lock
+- src/runtime/
+- src/agents/
+- pipeline.yaml
 done: npx vitest run src/compiler/ && npx vitest run src/agents/
-steps: []
+steps:
+- Изучить docs/language-v2.md и docs/osnova/language-schema.json
+- Реализовать lexer: токенизация кириллических ключевых слов
+- Реализовать parser: построение AST для procedure/if/loop/match
+- Реализовать codegen: генерация .osvbc JSON байткода
+- Покрыть unit-тестами vitest
 deps: []
 maxiter: 3
 retries: 0
 status: in_progress
 priority: P2
 max_retries: 3
-review_base_sha: a23909e8bf464a5fb5f9215adb1341960697dc56
+review_base_sha: b3d7a2ea45d1c8939974fd954ba1e784ca082dac

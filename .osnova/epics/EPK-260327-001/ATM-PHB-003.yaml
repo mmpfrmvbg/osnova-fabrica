@@ -1,4 +1,4 @@
-id: ATM-PHB-003
+﻿id: ATM-PHB-003
 epic: EPK-260327-001
 seq: 3
 zone: agents
@@ -22,5 +22,5 @@ deps:
 - ATM-PHB-001
 maxiter: 3
 retries: 0
-status: PENDING
+status: obsolete
 priority: P2

@@ -188,6 +188,10 @@ def build_brain_context(project: Path | None = None) -> dict[str, Any]:
     epics_root = proj / ".osnova" / "epics"
     epics_summary = [_epic_status_summary(proj, eid) for eid in _discover_epic_ids(epics_root)]
 
+    cb = state.get("codebase")
+    if not isinstance(cb, dict):
+        cb = {}
+
     return {
         "recent_commits": _git_oneline_log(proj, 20),
         "epics_summary": epics_summary,
@@ -195,6 +199,7 @@ def build_brain_context(project: Path | None = None) -> dict[str, Any]:
         "open_blockers": state.get("blockers") or [],
         "passrate": pr,
         "passrate_trend": trend,
+        "codebase": cb,
     }
 
 
