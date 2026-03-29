@@ -1,24 +1,25 @@
-id: ATM-EPK-260328-015-005
+id: ATM-EPK-260328-015-007
 epic: EPK-260328-015
-seq: 5
+seq: 7
 zone: agents
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Реализовать ReviewAgent для проверки результатов выполнения
+goal: Написать unit-тесты для IntakeAgent и PlanAgent
 scope:
-- src/agents/review-agent.ts — реализация ReviewAgent
+- src/agents/agents.test.ts — тесты для intake-agent и plan-agent
 notouch:
 - src/runtime/*
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Создать класс ReviewAgent с методом validate()
-- Реализовать проверку соответствия результатов ожиданиям
-- Добавить генерацию отчета о проверке
+- Создать тесты для валидации входных данных IntakeAgent
+- Протестировать построение плана PlanAgent
+- Добавить тесты граничных случаев
 deps:
-- ATM-EPK-260328-015-004
+- ATM-EPK-260328-015-002
+- ATM-EPK-260328-015-003
 maxiter: 3
 retries: 0
-status: done
+status: in_progress
 priority: P1
 max_retries: 3
-review_base_sha: 55ae383ebca0665cc51f11ed491ca59a39786d10
+review_base_sha: e25a954961ebd7c89b1439d9f0c53ab67b871b2d

@@ -106,6 +106,11 @@ describe('IntakeAgent — validate и parse', () => {
     agent.validate(raw);
     expect(agent.parse(raw)).toEqual({ text: 'задача' });
   });
+
+  it('validate: отклоняет пустой и пробельный text (тот же порог, что parseIntent)', () => {
+    expect(() => agent.validate({ text: '' })).toThrow(IntakeValidationError);
+    expect(() => agent.validate({ text: ' \t\n ' })).toThrow(IntakeValidationError);
+  });
 });
 
 describe('IntakeAgent — валидация входа parseIntent', () => {
@@ -208,6 +213,21 @@ describe('PlanAgent — построение плана', () => {
     expect(plan.planId.length).toBeGreaterThan(0);
     expect(plan.intentId).toBe('intent-agents');
     expect(plan.specId).toBe('spec-agents');
+  });
+
+  it('buildPlan: отклоняет пустой intentId или specId (validateInputs)', () => {
+    expect(() =>
+      agent.buildPlan(sampleIntent({ intentId: '' }), sampleSpec()),
+    ).toThrow(PlanValidationError);
+    expect(() =>
+      agent.buildPlan(sampleIntent({ intentId: '   ' }), sampleSpec()),
+    ).toThrow(PlanValidationError);
+    expect(() =>
+      agent.buildPlan(sampleIntent(), sampleSpec({ specId: '' })),
+    ).toThrow(PlanValidationError);
+    expect(() =>
+      agent.buildPlan(sampleIntent(), sampleSpec({ specId: '\t' })),
+    ).toThrow(PlanValidationError);
   });
 });
 

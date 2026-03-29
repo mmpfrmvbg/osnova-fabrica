@@ -15,9 +15,12 @@ steps:
 - Протестировать построение плана PlanAgent
 - Добавить тесты граничных случаев
 deps:
-- 2
-- 3
+- ATM-EPK-260328-015-002
+- ATM-EPK-260328-015-003
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: e25a954961ebd7c89b1439d9f0c53ab67b871b2d
+produced_files: []
