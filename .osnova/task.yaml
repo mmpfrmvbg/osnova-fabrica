@@ -1,21 +1,22 @@
-id: ATM-EPK-260329-023-001
+id: ATM-EPK-260329-023-002
 epic: EPK-260329-023
-seq: 1
-zone: pipeline
+seq: 2
+zone: compiler
 risk: LOW
 executor: cursor
-goal: Зафиксировать в types пороги/поля контракта spec для пайплайна и агентов без
-  расширения поверхности API.
-scope: src/pipeline/types.ts — константы и типы для spec-threshold и health/gate
+goal: Покрыть граничные случаи операций деления на уровне spec-контракта компилятора
+  в тестах.
+scope: src/compiler/compiler.test.ts — деление / целочисленное деление / edge opcodes
 notouch:
-- src/pipeline/orchestrator.ts
-- apps/
-done: npx vitest run src/pipeline/types.test.ts
+- src/compiler/codegen.ts
+- golden/
+done: npx vitest run src/compiler/compiler.test.ts
 steps:
-- Прочитать текущие типы и thresholds.ts на согласованность.
-- Добавить минимальные поля/литералы под EPK-022 spec-контракт.
-- Обновить импорты только внутри pipeline при необходимости.
-deps: []
+- Найти существующие тесты компиляции деления.
+- Добавить кейсы из language-registry / semantic для spec-границ.
+- Убедиться что bytecode/диагностики соответствуют ожиданиям контракта.
+deps:
+- ATM-EPK-260329-023-001
 maxiter: 3
 retries: 0
 status: PENDING

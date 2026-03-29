@@ -189,6 +189,144 @@ describe("Spec (ATM-003): VM / compile через compileSource + Compiler.execu
 });
 
 /**
+ * ATM-EPK-260329-023-002: границы контракта `/` → opcode `div`, `%` → `rem` (language-schema),
+ * вещественное деление по правилам JavaScript; «целочисленное деление» в языке — через `система.математика.пол`.
+ */
+describe("Spec (ATM-EPK-260329-023-002): деление, остаток, целочисленное деление", () => {
+  async function runMain(src: string, maxSteps = 500) {
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module).toBeTruthy();
+    const vm = new VM(r.module!, { maxSteps });
+    return vm.runProcedure(0, []);
+  }
+
+  it("div: 10 / 2 → 5", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 10 / 2
+конец`.trim();
+    expect(await runMain(src)).toBe(5);
+  });
+
+  it("div: приоритет — деление раньше сложения", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 1 + 10 / 2
+конец`.trim();
+    expect(await runMain(src)).toBe(6);
+  });
+
+  it("div: левоассоциативность a / b / c", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 100 / 10 / 2
+конец`.trim();
+    expect(await runMain(src)).toBe(100 / 10 / 2);
+  });
+
+  it.each([
+    { expr: "10 / 3", expected: 10 / 3 },
+    { expr: "-10 / 3", expected: -10 / 3 },
+    { expr: "10 / -3", expected: 10 / -3 },
+    { expr: "-10 / -3", expected: -10 / -3 },
+  ] as const)("div: комбинации знаков %s → %s", async ({ expr, expected }) => {
+    const src = `
+модуль t
+процедура main()
+  вернуть ${expr}
+конец`.trim();
+    expect(await runMain(src)).toBe(expected);
+  });
+
+  it("div: 7 / 2 → 3.5 (не целочисленное усечение на уровне /)", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 7 / 2
+конец`.trim();
+    expect(await runMain(src)).toBe(3.5);
+  });
+
+  it("div: 0 / 5 → 0", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 0 / 5
+конец`.trim();
+    expect(await runMain(src)).toBe(0);
+  });
+
+  it.each([
+    { expr: "5 % 2", expected: 5 % 2 },
+    { expr: "-5 % 2", expected: -5 % 2 },
+    { expr: "5 % -2", expected: 5 % -2 },
+    { expr: "-5 % -2", expected: -5 % -2 },
+  ] as const)("rem: комбинации 5 и ±2 (как JavaScript) %s → %s", async ({ expr, expected }) => {
+    const src = `
+модуль t
+процедура main()
+  вернуть ${expr}
+конец`.trim();
+    expect(await runMain(src)).toBe(expected);
+  });
+
+  it("rem: приоритет — % раньше сложения", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 1 + 10 % 3
+конец`.trim();
+    expect(await runMain(src)).toBe(2);
+  });
+
+  it("целочисленное деление: математика.пол от частного совпадает с Math.floor для ±7/2", async () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть система.математика.пол(7 / 2) == 3 и система.математика.пол(-7 / 2) == -4
+конец`.trim();
+    expect(await runMain(src)).toBe(true);
+  });
+
+  it("/=: составное присваивание деления", async () => {
+    const src = `
+модуль t
+процедура main()
+  пусть x = 100
+  x /= 10
+  вернуть x
+конец`.trim();
+    expect(await runMain(src)).toBe(10);
+  });
+
+  it("bytecode: выражение с / эмитит op div", () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 3 / 2
+конец`.trim();
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module!.code.some((i) => i.op === "div")).toBe(true);
+  });
+
+  it("bytecode: выражение с % эмитит op rem", () => {
+    const src = `
+модуль t
+процедура main()
+  вернуть 3 % 2
+конец`.trim();
+    const r = compileSource(src);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module!.code.some((i) => i.op === "rem")).toBe(true);
+  });
+});
+
+/**
  * Интеграция с пайплайном: `orchestrator.compileToBuildReport(compileSource(...))` — тот же мост
  * CompileResult → BuildReport, что использует runPipeline перед golden / выполнением.
  * После успешной сборки байткод гоняется в VM (как при проверке приложений).
