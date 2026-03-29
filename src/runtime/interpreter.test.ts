@@ -39,6 +39,7 @@ describe("Interpreter + OpCode stack ops", () => {
       expect(OpCode.OR).toBe("or");
       expect(OpCode.NOT).toBe("not");
       expect(OpCode.JUMP).toBe("jmp");
+      expect(OpCode.JUMP_IF).toBe("jmp_if");
       expect(OpCode.JUMP_IF_FALSE).toBe("jmp_if_not");
       expect(OpCode.CALL).toBe("call");
       expect(OpCode.RETURN).toBe("ret");

@@ -1,22 +1,22 @@
-id: ATM-008
+id: ATM-009
 epic: EPK-260329-020
-seq: 8
-zone: compiler
+seq: 9
+zone: runtime
 risk: MED
 executor: cursor
-goal: Закрыть регрессии end-to-end compile→run через golden/интеграцию
-scope: src/compiler/codegen.ts — согласование с golden fixtures и runner
+goal: Устранить расхождения исполнителя стека/фреймов с codegen
+scope: src/runtime/vm.ts — dispatch, опкоды, границы ошибок
 notouch:
-- docs/
-- examples/
-done: npx vitest run src/compiler/golden-runner.test.ts
+- src/runtime/runner.ts
+- src/runtime/sandbox.ts
+done: npx vitest run src/runtime/vm.test.ts
 steps:
-- Прогнать golden-runner и зафиксировать первый красный сценарий
-- Править codegen только по цепочке до зелёного golden
-- Не трогать lexer/parser без прямой причины
+- Сверить порядок опкодов с codegen
+- Исправить vm по падениям vm.test
+- Добавить минимальную диагностику только если тест требует
 deps:
-- ATM-007
+- ATM-008
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0

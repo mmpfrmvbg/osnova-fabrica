@@ -27,7 +27,9 @@ import { isOsVbcModule, type OsVbcModule } from "./vm/bytecode";
 import { createDefaultInvokeHandler } from "./vm/interpreter";
 
 /** Системный invoke по умолчанию; используйте для цепочки с пользовательским `invoke`. */
-export { createDefaultInvokeHandler };
+export { createDefaultInvokeHandler } from "./vm/interpreter";
+/** Имена опкодов в поле `op` байткода; совпадают с emit в {@link import("../compiler/codegen")} и списком opcodes в language-schema. */
+export { OpCode } from "./interpreter";
 export type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";
 
 /** Фаза записи в {@link OsVbcVMOptions.onExecutionLog}. */
