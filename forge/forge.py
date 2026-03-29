@@ -61,6 +61,7 @@ try:
         integrate_wave_branches,
         parallel_workers,
         prepare_wave_worktrees,
+        state_yaml_stashed_for_wave,
         wave_scopes_overlap,
         waves_from_epic_override,
     )
@@ -119,6 +120,7 @@ except ImportError:  # pragma: no cover
         integrate_wave_branches,
         parallel_workers,
         prepare_wave_worktrees,
+        state_yaml_stashed_for_wave,
         wave_scopes_overlap,
         waves_from_epic_override,
     )
@@ -939,47 +941,48 @@ def _process_epic(
                 continue
 
             wt: list[tuple[Path, str]] = []
-            try:
-                wt = prepare_wave_worktrees(project, len(wave), str(epic.get("id") or "epic"), wi + 1)
-                branches = [b for _, b in wt]
-                futs: dict[Any, int] = {}
-                with ProcessPoolExecutor(max_workers=len(wave)) as pool:
-                    for idx, atom in enumerate(wave):
-                        payload = (
-                            atom,
-                            epic,
-                            state,
-                            dry_run,
-                            avail,
-                            epic_issue,
-                            atm_total,
-                            str(wt[idx][0]),
+            with state_yaml_stashed_for_wave(project):
+                try:
+                    wt = prepare_wave_worktrees(project, len(wave), str(epic.get("id") or "epic"), wi + 1)
+                    branches = [b for _, b in wt]
+                    futs: dict[Any, int] = {}
+                    with ProcessPoolExecutor(max_workers=len(wave)) as pool:
+                        for idx, atom in enumerate(wave):
+                            payload = (
+                                atom,
+                                epic,
+                                state,
+                                dry_run,
+                                avail,
+                                epic_issue,
+                                atm_total,
+                                str(wt[idx][0]),
+                            )
+                            fut = pool.submit(_parallel_atom_worker, payload)
+                            futs[fut] = idx
+                        chunk: dict[int, dict[str, Any]] = {}
+                        for fut in as_completed(futs):
+                            chunk[futs[fut]] = fut.result()
+                        ordered_reports = [chunk[i] for i in sorted(chunk)]
+                    for rep in ordered_reports:
+                        results.append(rep)
+                    if not dry_run:
+                        integrate_wave_branches(project, branches)
+                        subprocess.run(
+                            ["git", "push", "origin", "main"],
+                            cwd=project,
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                            check=False,
+                            **SUBPROCESS_TEXT,
                         )
-                        fut = pool.submit(_parallel_atom_worker, payload)
-                        futs[fut] = idx
-                    chunk: dict[int, dict[str, Any]] = {}
-                    for fut in as_completed(futs):
-                        chunk[futs[fut]] = fut.result()
-                    ordered_reports = [chunk[i] for i in sorted(chunk)]
-                for rep in ordered_reports:
-                    results.append(rep)
-                if not dry_run:
-                    integrate_wave_branches(project, branches)
-                    subprocess.run(
-                        ["git", "push", "origin", "main"],
-                        cwd=project,
-                        capture_output=True,
-                        text=True,
-                        timeout=120,
-                        check=False,
-                        **SUBPROCESS_TEXT,
-                    )
-                for atom, rep in zip(wave, ordered_reports, strict=True):
-                    _persist_merge_conflict_atom(project, atom, rep, dry_run)
-                    process_result(atom, rep, dry_run=dry_run, state_only=True)
-            finally:
-                if wt and not dry_run:
-                    cleanup_wave_worktrees(project, [p for p, _ in wt])
+                    for atom, rep in zip(wave, ordered_reports, strict=True):
+                        _persist_merge_conflict_atom(project, atom, rep, dry_run)
+                        process_result(atom, rep, dry_run=dry_run, state_only=True)
+                finally:
+                    if wt and not dry_run:
+                        cleanup_wave_worktrees(project, [p for p, _ in wt])
         finalize_epic(epic, results, dry_run=dry_run, forge_state=state)
         state["current_epic"] = None
         state["current_epic_issue"] = None

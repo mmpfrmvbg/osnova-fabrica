@@ -1,2 +1,2 @@
-.github/workflow-scripts/*.sh text eol=lf
-forge/*.sh text eol=lf
+# Forge: основное дерево владеет сессионным состоянием; при cherry-pick из worktree остаётся версия main.
+.osnova/state.yaml merge=ours

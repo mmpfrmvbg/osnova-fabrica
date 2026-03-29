@@ -4,9 +4,10 @@ import os
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 try:
     from forge.atomizer import _coerce_dep_to_atm_id
@@ -18,6 +19,62 @@ except ImportError:  # pragma: no cover
 LOG = setup_logging("parallel_executor")
 
 MAX_PARALLEL = int(os.environ.get("OSNOVA_MAX_PARALLEL", "3"))
+
+# Незакоммиченный state.yaml мешает worktree/cherry-pick; см. .gitattributes merge=ours.
+_STATE_YAML_REL = ".osnova/state.yaml"
+_STASH_MSG = "forge-pre-wave-state-yaml"
+
+
+def _state_yaml_dirty(project: Path, rel: str = _STATE_YAML_REL) -> bool:
+    if not (project / rel).is_file():
+        return False
+    if _git_run(project, ["diff", "--quiet", "--", rel]).returncode != 0:
+        return True
+    return _git_run(project, ["diff", "--cached", "--quiet", "--", rel]).returncode != 0
+
+
+@contextmanager
+def state_yaml_stashed_for_wave(project: Path) -> Iterator[bool]:
+    """
+    Перед параллельной волной: убрать незакоммиченные изменения ``.osnova/state.yaml`` в stash,
+    чтобы ``git worktree add`` / ``cherry-pick`` опирались на ``HEAD``. После волны — ``stash pop``.
+
+    ``FORGE_SKIP_STATE_YAML_STASH=1`` — отключить (отладка).
+    Yields: ``True`` если stash был создан.
+    """
+    root = project.resolve()
+    rel = _STATE_YAML_REL
+    if forge_dotenv_setting("FORGE_SKIP_STATE_YAML_STASH", "0").strip().lower() in ("1", "true", "yes"):
+        yield False
+        return
+    if not _state_yaml_dirty(root, rel):
+        yield False
+        return
+    st = _git_run(
+        root,
+        ["stash", "push", "-m", _STASH_MSG, "--", rel],
+        timeout=120,
+    )
+    if st.returncode != 0:
+        LOG.warning(
+            "parallel_executor: git stash push %s failed: %s",
+            rel,
+            (st.stderr or st.stdout or "").strip()[:300],
+        )
+        yield False
+        return
+    LOG.info("parallel_executor: stashed %s before parallel wave", rel)
+    try:
+        yield True
+    finally:
+        pop = _git_run(root, ["stash", "pop"], timeout=120)
+        if pop.returncode != 0:
+            LOG.warning(
+                "parallel_executor: git stash pop after wave failed (check `git stash list`): %s",
+                (pop.stderr or pop.stdout or "").strip()[:400],
+            )
+        else:
+            LOG.info("parallel_executor: restored %s from stash after parallel wave", rel)
 
 
 def effective_max_parallel() -> int:
@@ -253,126 +310,130 @@ def execute_wave_parallel(
         pool_n,
     )
 
-    safe_epic = _sanitize_branch_segment(str(epic.get("id") or "epic"))
-    worktrees: list[tuple[str, Path, str]] = []
-    try:
-        for atom in wave_atoms:
-            atm_id = str(atom.get("id") or "atm")
-            safe_atm = _sanitize_branch_segment(atm_id)
-            branch = f"forge-wave/{safe_epic}/w{wave_index + 1}-{safe_atm}"
-            wt_path = (root / ".forge-worktrees" / atm_id).resolve()
-            wt_path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                wt_arg = str(wt_path.relative_to(root))
-            except ValueError:
-                wt_arg = str(wt_path)
-            proc = _git_run(root, ["worktree", "add", wt_arg, "-b", branch, "HEAD"])
-            if proc.returncode != 0:
-                err = (proc.stderr or proc.stdout or "").strip()
-                raise RuntimeError(f"git worktree add failed for {atm_id}: {err}")
-            worktrees.append((atm_id, wt_path, branch))
-            LOG.info("parallel_executor: worktree %s branch %s", wt_path, branch)
-
-        ordered_reports: list[dict[str, Any] | None] = [None] * n
-        futures: dict[Any, int] = {}
-
-        def _worker(idx: int, atom: dict[str, Any], wt: Path) -> dict[str, Any]:
-            set_thread_project(str(wt))
-            try:
-                return run_one_fn(atom, wt)
-            finally:
-                set_thread_project(None)
-
-        with ThreadPoolExecutor(max_workers=pool_n) as pool:
-            for i, atom in enumerate(wave_atoms):
-                _wt = worktrees[i][1]
-                fut = pool.submit(_worker, i, atom, _wt)
-                futures[fut] = i
-            for fut in as_completed(futures):
-                idx = futures[fut]
-                atm_id = str(wave_atoms[idx].get("id") or "")
+    def _parallel_wave_body() -> list[dict[str, Any]]:
+        safe_epic = _sanitize_branch_segment(str(epic.get("id") or "epic"))
+        worktrees: list[tuple[str, Path, str]] = []
+        try:
+            for atom in wave_atoms:
+                atm_id = str(atom.get("id") or "atm")
+                safe_atm = _sanitize_branch_segment(atm_id)
+                branch = f"forge-wave/{safe_epic}/w{wave_index + 1}-{safe_atm}"
+                wt_path = (root / ".forge-worktrees" / atm_id).resolve()
+                wt_path.parent.mkdir(parents=True, exist_ok=True)
                 try:
-                    ordered_reports[idx] = fut.result()
-                except Exception as exc:
-                    LOG.error("parallel_executor: ATM %s raised exception: %s", atm_id, exc)
-                    ordered_reports[idx] = {
-                        "v": 5,
-                        "t": "RPT",
-                        "id": atm_id,
-                        "s": "BLK",
-                        "err": str(exc),
-                        "changed": [],
-                    }
+                    wt_arg = str(wt_path.relative_to(root))
+                except ValueError:
+                    wt_arg = str(wt_path)
+                proc = _git_run(root, ["worktree", "add", wt_arg, "-b", branch, "HEAD"])
+                if proc.returncode != 0:
+                    err = (proc.stderr or proc.stdout or "").strip()
+                    raise RuntimeError(f"git worktree add failed for {atm_id}: {err}")
+                worktrees.append((atm_id, wt_path, branch))
+                LOG.info("parallel_executor: worktree %s branch %s", wt_path, branch)
 
-        reports_out = [
-            r
-            if r is not None
-            else {
-                "v": 5,
-                "t": "RPT",
-                "s": "BLK",
-                "err": "missing report",
-                "changed": [],
-            }
-            for r in ordered_reports
-        ]
+            ordered_reports: list[dict[str, Any] | None] = [None] * n
+            futures: dict[Any, int] = {}
 
-        cur = _git_run(root, ["branch", "--show-current"])
-        if (cur.stdout or "").strip() != "main":
-            sw = _git_run(root, ["checkout", "main"])
-            if sw.returncode != 0:
-                LOG.error(
-                    "parallel_executor: checkout main failed: %s",
-                    (sw.stderr or sw.stdout or "").strip(),
-                )
-                return reports_out
+            def _worker(idx: int, atom: dict[str, Any], wt: Path) -> dict[str, Any]:
+                set_thread_project(str(wt))
+                try:
+                    return run_one_fn(atom, wt)
+                finally:
+                    set_thread_project(None)
 
-        for i, (atm_id, wt_path, _branch) in enumerate(worktrees):
-            rep = reports_out[i]
-            if not rep or str(rep.get("s") or "").upper() not in ("OK", "REVIEW_MISMATCH"):
-                LOG.info(
-                    "parallel_executor: skip cherry-pick for %s (s=%s)",
-                    atm_id,
-                    rep.get("s") if rep else "None",
-                )
-                continue
-            sha_r = _git_run(wt_path, ["rev-parse", "HEAD"], timeout=60)
-            if sha_r.returncode != 0:
-                LOG.error("parallel_executor: cannot get SHA for %s", atm_id)
-                continue
-            sha = (sha_r.stdout or "").strip()
-            if not sha:
-                LOG.error("parallel_executor: empty SHA for %s", atm_id)
-                continue
-            cp = _git_run(root, ["cherry-pick", sha], timeout=300)
-            if cp.returncode != 0:
-                tail = (cp.stderr or cp.stdout or "").strip()[:300]
-                LOG.error(
-                    "parallel_executor: cherry-pick failed for %s (sha=%s): %s",
-                    atm_id,
-                    sha[:8],
-                    tail,
-                )
-                _git_run(root, ["cherry-pick", "--abort"], timeout=60)
-                reports_out[i] = {
-                    **rep,
-                    "s": "MERGE_CONFLICT",
-                    "err": f"cherry-pick conflict: {tail}",
+            with ThreadPoolExecutor(max_workers=pool_n) as pool:
+                for i, atom in enumerate(wave_atoms):
+                    _wt = worktrees[i][1]
+                    fut = pool.submit(_worker, i, atom, _wt)
+                    futures[fut] = i
+                for fut in as_completed(futures):
+                    idx = futures[fut]
+                    atm_id = str(wave_atoms[idx].get("id") or "")
+                    try:
+                        ordered_reports[idx] = fut.result()
+                    except Exception as exc:
+                        LOG.error("parallel_executor: ATM %s raised exception: %s", atm_id, exc)
+                        ordered_reports[idx] = {
+                            "v": 5,
+                            "t": "RPT",
+                            "id": atm_id,
+                            "s": "BLK",
+                            "err": str(exc),
+                            "changed": [],
+                        }
+
+            reports_out = [
+                r
+                if r is not None
+                else {
+                    "v": 5,
+                    "t": "RPT",
+                    "s": "BLK",
+                    "err": "missing report",
+                    "changed": [],
                 }
-            else:
-                LOG.info("parallel_executor: cherry-pick OK for %s (%s)", atm_id, sha[:8])
+                for r in ordered_reports
+            ]
 
-        return reports_out
-    finally:
-        for _atm_id, wt_path, branch in worktrees:
-            cleanup_wave_worktrees(root, [wt_path])
-            bd = _git_run(root, ["branch", "-D", branch], timeout=60)
-            if bd.returncode != 0:
-                LOG.debug(
-                    "parallel_executor: branch -D %s: %s",
-                    branch,
-                    (bd.stderr or bd.stdout or "").strip()[:200],
-                )
+            cur = _git_run(root, ["branch", "--show-current"])
+            if (cur.stdout or "").strip() != "main":
+                sw = _git_run(root, ["checkout", "main"])
+                if sw.returncode != 0:
+                    LOG.error(
+                        "parallel_executor: checkout main failed: %s",
+                        (sw.stderr or sw.stdout or "").strip(),
+                    )
+                    return reports_out
+
+            for i, (atm_id, wt_path, _branch) in enumerate(worktrees):
+                rep = reports_out[i]
+                if not rep or str(rep.get("s") or "").upper() not in ("OK", "REVIEW_MISMATCH"):
+                    LOG.info(
+                        "parallel_executor: skip cherry-pick for %s (s=%s)",
+                        atm_id,
+                        rep.get("s") if rep else "None",
+                    )
+                    continue
+                sha_r = _git_run(wt_path, ["rev-parse", "HEAD"], timeout=60)
+                if sha_r.returncode != 0:
+                    LOG.error("parallel_executor: cannot get SHA for %s", atm_id)
+                    continue
+                sha = (sha_r.stdout or "").strip()
+                if not sha:
+                    LOG.error("parallel_executor: empty SHA for %s", atm_id)
+                    continue
+                cp = _git_run(root, ["cherry-pick", sha], timeout=300)
+                if cp.returncode != 0:
+                    tail = (cp.stderr or cp.stdout or "").strip()[:300]
+                    LOG.error(
+                        "parallel_executor: cherry-pick failed for %s (sha=%s): %s",
+                        atm_id,
+                        sha[:8],
+                        tail,
+                    )
+                    _git_run(root, ["cherry-pick", "--abort"], timeout=60)
+                    reports_out[i] = {
+                        **rep,
+                        "s": "MERGE_CONFLICT",
+                        "err": f"cherry-pick conflict: {tail}",
+                    }
+                else:
+                    LOG.info("parallel_executor: cherry-pick OK for %s (%s)", atm_id, sha[:8])
+
+            return reports_out
+        finally:
+            for _atm_id, wt_path, branch in worktrees:
+                cleanup_wave_worktrees(root, [wt_path])
+                bd = _git_run(root, ["branch", "-D", branch], timeout=60)
+                if bd.returncode != 0:
+                    LOG.debug(
+                        "parallel_executor: branch -D %s: %s",
+                        branch,
+                        (bd.stderr or bd.stdout or "").strip()[:200],
+                    )
+
+    with state_yaml_stashed_for_wave(root):
+        return _parallel_wave_body()
 
 
 def integrate_wave_branches(project: Path, branches_ordered: list[str]) -> None:
