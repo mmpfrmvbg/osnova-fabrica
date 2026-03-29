@@ -448,9 +448,9 @@ export function compile(ast: Module): OsVbcModule {
         case "прервать": {
           const target = breakTargets[breakTargets.length - 1];
           if (!target) {
-            log.warn("прервать вне цикла дошел до codegen; emit const.null fallback");
-            emit({ op: "const.null" } as RawInstruction);
-            break;
+            // Семантика: break_outside_loop — сюда не должны попадать при исправном AST;
+            // жёсткая ошибка вместо const.null, чтобы bytecode не расходился с диагностикой.
+            throw new Error("оператор 'прервать' допустим только внутри цикла");
           }
           target.patches.push(code.length);
           emit({ op: "jmp", off: 0 } as RawInstruction);
@@ -459,9 +459,7 @@ export function compile(ast: Module): OsVbcModule {
         case "продолжить": {
           const ct = continueTargets[continueTargets.length - 1];
           if (!ct) {
-            log.warn("продолжить вне цикла дошел до codegen; emit const.null fallback");
-            emit({ op: "const.null" } as RawInstruction);
-            break;
+            throw new Error("оператор 'продолжить' допустим только внутри цикла");
           }
           if (ct.foreachPatches) {
             ct.foreachPatches.push(code.length);

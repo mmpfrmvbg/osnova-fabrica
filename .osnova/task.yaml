@@ -1,21 +1,22 @@
-id: ATM-EPK-260329-027-003
+id: ATM-EPK-260329-027-004
 epic: EPK-260329-027
-seq: 3
+seq: 4
 zone: compiler
 risk: MEDIUM
 executor: cursor
-goal: Устранить блокеры генерации кода (bytecode/emit) из списка 14
-scope: src/compiler/codegen.ts
+goal: Выровнять семантику с codegen для сценариев FBK016
+scope: src/compiler/codegen.ts — semantic coupling
 notouch:
-- src/runtime/vm.ts
-- src/pipeline/types.ts
-done: npx vitest run src/compiler/codegen.test.ts
+- src/compiler/index.ts
+- src/runtime/interpreter.ts
+done: npx vitest run src/compiler/semantic.test.ts
 steps:
-- Прогнать codegen.test и semantic.test на регрессии
-- Локализовать OFFender по стеку ATM
-- Патч только в codegen.ts
-deps: []
+- Запустить semantic.test
+- Сверить AST→codegen инварианты
+- Минимальный фикс в codegen.ts
+deps:
+- ATM-EPK-260329-027-003
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0
