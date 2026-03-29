@@ -1,22 +1,22 @@
-id: ATM-EPK-260329-023-008
+id: ATM-EPK-260329-023-009
 epic: EPK-260329-023
-seq: 8
-zone: pipeline-llm
+seq: 9
+zone: compiler
 risk: LOW
 executor: cursor
-goal: Укрепить spec-покрытие LLM-ветки пайплайна через тесты repair target (аналог
-  llm-pipeline.spec).
-scope: src/pipeline-llm/repairTarget.test.ts — границы repair target и промпта
+goal: Закрепить в compiler.test инварианты согласованности с npm run validate:spec
+  (реестр/лексер/syscalls).
+scope: src/compiler/compiler.test.ts — интеграционные ожидания validate:spec для компилятора
 notouch:
-- src/pipeline-llm/buildOsnovaPrompt.ts
-- src/llm/
-done: npx vitest run src/pipeline-llm/repairTarget.test.ts
+- src/compiler/validate-language-registry.ts
+- package.json
+done: npx vitest run src/compiler/compiler.test.ts
 steps:
-- Покрыть граничные входы repairTarget.
-- Зафиксировать ожидания по полям spec для LLM-ремонта.
-- Избежать сетевых вызовов — только юнит-моки.
+- Добавить тесты на ключевые слова/операции присутствующие в LANGUAGE_REGISTRY.
+- Проверить что компиляция эталонных фрагментов не противоречит реестру.
+- Не дублировать сам скрипт validate — только поведенческие инварианты.
 deps:
-- ATM-EPK-260329-023-001
+- ATM-EPK-260329-023-002
 maxiter: 3
 retries: 0
 status: PENDING

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { compileToBuildReport } from "../pipeline/orchestrator";
 import { Compiler, compile, compileSource, compileProgram, optimizeIrModule } from ".";
+import { LANGUAGE_REGISTRY } from "./language-registry";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { analyzeProgram } from "./semantic";
@@ -323,6 +324,79 @@ describe("Spec (ATM-EPK-260329-023-002): деление, остаток, цел�
     const r = compileSource(src);
     expect(r.compilerSuccess).toBe(true);
     expect(r.module!.code.some((i) => i.op === "rem")).toBe(true);
+  });
+});
+
+/**
+ * ATM-EPK-260329-023-009: поведенческие инварианты, совпадающие с целями `npm run validate:spec`
+ * (согласованность реестра, лексера и списка syscalls с семантикой компилятора). Сам скрипт валидации не дублируется.
+ */
+describe("Spec (ATM-EPK-260329-023-009): реестр языка ↔ лексер ↔ syscalls (инварианты validate:spec)", () => {
+  it("каждое implemented-ключевое слово из LANGUAGE_REGISTRY токенизируется как keyword, а не как идентификатор", () => {
+    const implemented = LANGUAGE_REGISTRY.keywords.filter((k) => k.implemented);
+    expect(implemented.length).toBeGreaterThan(0);
+    for (const { lexeme } of implemented) {
+      const { tokens, errors } = tokenize(`${lexeme}\n`);
+      expect(errors, lexeme).toHaveLength(0);
+      expect(tokens[0]?.kind, lexeme).toBe(lexeme);
+      expect(tokens[0]?.kind, lexeme).not.toBe("идентификатор");
+    }
+  });
+
+  it("каждый implemented-оператор из реестра (кроме псевдо-символа унарного минуса) даёт один токен с тем же kind", () => {
+    const ops = LANGUAGE_REGISTRY.operators.filter(
+      (o) => o.implemented && !o.symbol.includes("унарный"),
+    );
+    expect(ops.length).toBeGreaterThan(0);
+    for (const { symbol } of ops) {
+      const { tokens, errors } = tokenize(`0${symbol}0\n`);
+      expect(errors, symbol).toHaveLength(0);
+      const opTok = tokens.find((t) => t.lexeme === symbol || t.kind === symbol);
+      expect(opTok, symbol).toBeTruthy();
+      expect(opTok!.kind, symbol).toBe(symbol);
+    }
+  });
+
+  /** Литералы-заглушки только для проверки argc в семантике (как в реестре). */
+  function registryDummyArgList(argc: number): string {
+    const parts: string[] = [];
+    for (let i = 0; i < argc; i++) {
+      if (i % 3 === 0) parts.push(`"x${i}"`);
+      else if (i % 3 === 1) parts.push(String(i + 1));
+      else parts.push("[]");
+    }
+    return parts.join(", ");
+  }
+
+  it("каждый syscall из LANGUAGE_REGISTRY компилируется при числе аргументов из реестра (семантика знает вызов)", () => {
+    expect(LANGUAGE_REGISTRY.syscalls.length).toBeGreaterThan(0);
+    for (const spec of LANGUAGE_REGISTRY.syscalls) {
+      const args = registryDummyArgList(spec.argc);
+      const src = [
+        "модуль t",
+        "процедура main()",
+        `  ${spec.name}(${args})`,
+        "  вернуть 0",
+        "конец",
+      ].join("\n");
+      const r = compileSource(src);
+      expect(r.semanticErrors.filter((e) => e.kind === "unknown_syscall"), spec.name).toHaveLength(0);
+      expect(r.semanticErrors.filter((e) => e.kind === "syscall_argc"), spec.name).toHaveLength(0);
+    }
+  });
+
+  it("для зарегистрированного syscall неверный argc → syscall_argc (зеркало контракта реестра)", () => {
+    const spec = LANGUAGE_REGISTRY.syscalls.find((s) => s.name === "система.лог.вывести");
+    expect(spec).toBeTruthy();
+    const bad = [
+      "модуль t",
+      "процедура main()",
+      "  система.лог.вывести(\"a\", \"b\")",
+      "  вернуть 0",
+      "конец",
+    ].join("\n");
+    const r = compileSource(bad);
+    expect(r.semanticErrors.some((e) => e.kind === "syscall_argc")).toBe(true);
   });
 });
 
