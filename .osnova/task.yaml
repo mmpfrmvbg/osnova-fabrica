@@ -1,28 +1,25 @@
-id: ATM-014
+id: ATM-EPK-260329-019-014
 epic: EPK-260329-019
 seq: 14
-zone: config
-risk: LOW
+zone: agents
+risk: MEDIUM
 executor: cursor
-goal: Финальная валидация конфигурации и запуск ci
-scope:
-- package.json
+goal: Стабилизировать агентский фасад (intake/plan/repair) для пайплайна self-fix.
+scope: src/agents/index.ts — агрегированный export и фабрики
 notouch:
-- tsconfig.json
-- vitest.config.ts
-done: npm run ci
+- src/llm/**
+- apps/osiris/**
+done: npx vitest run src/agents/agents.test.ts
 steps:
-- Проверить все зависимости установлены
-- Запустить npm run ci
-- Зафиксировать успешное прохождение
+- Сверить agents index с pipeline/orchestrator ожиданиями.
+- Убрать циклические импорты agents↔pipeline.
+- Подтвердить агентские тесты по очереди.
 deps:
-- ATM-010
-- ATM-011
-- ATM-012
-- ATM-013
+- ATM-EPK-260329-019-005
+- ATM-EPK-260329-019-007
 maxiter: 3
 retries: 0
-status: done
+status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 074cd206b6fa08fbff0903f4fb7710a03c8a13fa
+review_base_sha: de2a45509f2f8b292c77003a53bc4e8cb21a5daf

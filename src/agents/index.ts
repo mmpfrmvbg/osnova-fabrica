@@ -8,10 +8,15 @@
  *   • Все классы агентов (IntakeAgent, PlanAgent, ExecAgent, ReviewAgent, OsnovaCodegenAgent, RepairEngineerAgent)
  *   • Типы и интерфейсы для работы с агентами
  *   • Вспомогательные функции и утилиты
- *   • Пространства имён для группировки (intake, plan)
+ *   • Пространства имён для группировки (intake, plan, repair)
+ *   • Фабрика {@link createOrchestratorAgentBundle} — тот же набор агентов, что линейный {@link import("../pipeline/orchestrator").runPipeline}
  *
  * @module agents
  */
+
+import { IntakeAgent } from './intake-agent';
+import { OsnovaCodegenAgent } from './OsnovaCodegen';
+import { RepairEngineerAgent } from './RepairEngineer';
 
 // ============================================================================
 // АГЕНТЫ: КЛАССЫ
@@ -52,6 +57,18 @@ export { RepairEngineerAgent } from './RepairEngineer';
  * DiagnosticAgent — самодиагностика и автофикс ошибок пайплайна
  */
 export { DiagnosticAgent } from './DiagnosticAgent';
+
+/**
+ * Набор агентов оркестратора: intake → codegen → repair (как в {@link import("../pipeline/orchestrator").runPipeline}).
+ * `registryContext` — строка контекста реестра (см. {@link import("../runtime/loadRegistry").registryToContext}).
+ */
+export function createOrchestratorAgentBundle(registryContext = '') {
+  return {
+    intake: new IntakeAgent(registryContext),
+    codegen: new OsnovaCodegenAgent(registryContext),
+    repair: new RepairEngineerAgent(),
+  };
+}
 
 // ============================================================================
 // ОШИБКИ ВАЛИДАЦИИ
@@ -134,6 +151,11 @@ export * as intake from './intake-agent';
  */
 export * as plan from './plan-agent';
 
+/**
+ * Пространство имён repair — агент починки исходников (RepairEngineer)
+ */
+export * as repair from './RepairEngineer';
+
 // ============================================================================
 // ТИПЫ: ИНТЕРФЕЙСЫ АГЕНТОВ
 // ============================================================================
@@ -173,7 +195,7 @@ export type {
   PlanAgentBuildOptions,
   /** Шаг плана: фаза + порядок + описание */
   PlanStep,
-} from '../pipeline/types';
+} from './plan-agent';
 
 // ============================================================================
 // ТИПЫ: EXEC AGENT (синхронизировано с pipeline/types и runtime/vm)

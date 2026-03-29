@@ -13,6 +13,7 @@ import {
   OsnovaCodegenAgent,
   RepairEngineerAgent,
   DiagnosticAgent,
+  createOrchestratorAgentBundle,
   // Ошибки валидации
   IntakeValidationError,
   SpecValidationError,
@@ -32,6 +33,7 @@ import {
   // Пространства имён
   intake,
   plan,
+  repair,
   // Компилятор
   Compiler,
 } from './index';
@@ -157,6 +159,20 @@ describe('src/agents/index.ts — единый экспортный интерф
       expect(typeof plan).toBe('object');
       expect(plan.PlanAgent).toBeDefined();
       expect(plan.Compiler).toBeDefined();
+    });
+
+    it('repair — пространство имён', () => {
+      expect(repair).toBeDefined();
+      expect(repair.RepairEngineerAgent).toBe(RepairEngineerAgent);
+    });
+  });
+
+  describe('createOrchestratorAgentBundle', () => {
+    it('возвращает intake, codegen, repair как в orchestrator.runPipeline', () => {
+      const b = createOrchestratorAgentBundle('ctx');
+      expect(b.intake).toBeInstanceOf(IntakeAgent);
+      expect(b.codegen).toBeInstanceOf(OsnovaCodegenAgent);
+      expect(b.repair).toBeInstanceOf(RepairEngineerAgent);
     });
   });
 
