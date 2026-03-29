@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as path from 'path';
 import {
   FORGE_STATE_BLOCKER_ATM_PREFIX,
   FORGE_STATE_BLOCKER_EPK_ATM_015,
@@ -10,6 +11,12 @@ import {
   pruneForgeStateBlockers,
   resolveForgeBlockerScenarioFromAtmId,
 } from '../src/pipeline/blocker-resolver';
+import {
+  loadForgeState,
+  extractBlockersFromState,
+  loadAndExtractBlockers,
+  type ForgeStateV5,
+} from '../src/tools/blocker-resolver';
 
 describe('blocker-types', () => {
   describe('parseForgeBlockerAtmId — дискриминанты и литералы', () => {
@@ -140,6 +147,104 @@ describe('blocker-types', () => {
     it('игнорирует пробелы вокруг atm_id', () => {
       const atmId = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '001');
       expect(resolveForgeBlockerScenarioFromAtmId(`  ${atmId}  `)).toBe('FBK016');
+    });
+  });
+});
+
+describe('tool read — загрузка и извлечение blockers', () => {
+  const REPO_ROOT = path.resolve(__dirname, '..');
+  const STATE_PATH = '.osnova/state.yaml';
+
+  describe('loadForgeState', () => {
+    it('загружает валидный state v5 из репозитория', () => {
+      const result = loadForgeState(REPO_ROOT, STATE_PATH);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.v).toBe(5);
+        expect(Array.isArray(result.state.blockers)).toBe(true);
+      }
+    });
+
+    it('возвращает file_not_found для несуществующего пути', () => {
+      const result = loadForgeState(REPO_ROOT, 'nonexistent.yaml');
+      expect(result).toEqual({ ok: false, reason: 'file_not_found' });
+    });
+
+    it('возвращает file_not_found для несуществующего относительного пути', () => {
+      const result = loadForgeState(REPO_ROOT, '.osnova/missing.yaml');
+      expect(result).toEqual({ ok: false, reason: 'file_not_found' });
+    });
+  });
+
+  describe('extractBlockersFromState', () => {
+    const makeState = (blockers: Array<Partial<ForgeStateV5['blockers'][number]>>): ForgeStateV5 => ({
+      v: 5,
+      blockers: blockers.map((b) => ({
+        issue: b.issue ?? 1,
+        atm_id: b.atm_id ?? 'ATM-EPK-260328-015-001',
+        open: b.open ?? true,
+        updated: b.updated ?? '2026-03-29T00:00:00Z',
+      })),
+    });
+
+    it('извлекает валидные blockers и считает диагностику', () => {
+      const state = makeState([
+        { issue: 1, atm_id: composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001') },
+        { issue: 2, atm_id: composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '002') },
+      ]);
+      const result = extractBlockersFromState(state);
+      expect(result.blockers).toHaveLength(2);
+      expect(result.diagnostics.total).toBe(2);
+      expect(result.diagnostics.valid).toBe(2);
+      expect(result.diagnostics.invalid).toBe(0);
+      expect(result.diagnostics.invalidReasons).toEqual([]);
+    });
+
+    it('отфильтровывает невалидные atm_id и возвращает причины', () => {
+      const state = makeState([
+        { issue: 1, atm_id: composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001') },
+        { issue: 2, atm_id: 'ATM-EPK-UNKNOWN-001' },
+        { issue: 3, atm_id: '' },
+      ]);
+      const result = extractBlockersFromState(state);
+      expect(result.blockers).toHaveLength(1);
+      expect(result.blockers[0].issue).toBe(1);
+      expect(result.diagnostics.total).toBe(3);
+      expect(result.diagnostics.valid).toBe(1);
+      expect(result.diagnostics.invalid).toBe(2);
+      expect(result.diagnostics.invalidReasons).toHaveLength(2);
+    });
+
+    it('обрабатывает пустой массив blockers', () => {
+      const state = makeState([]);
+      const result = extractBlockersFromState(state);
+      expect(result.blockers).toEqual([]);
+      expect(result.diagnostics.total).toBe(0);
+      expect(result.diagnostics.valid).toBe(0);
+      expect(result.diagnostics.invalid).toBe(0);
+    });
+
+    it('обрабатывает отсутствие поля blockers в state', () => {
+      const state: ForgeStateV5 = { v: 5 };
+      const result = extractBlockersFromState(state);
+      expect(result.blockers).toEqual([]);
+      expect(result.diagnostics.total).toBe(0);
+    });
+  });
+
+  describe('loadAndExtractBlockers', () => {
+    it('загружает state и извлекает blockers одним вызовом', () => {
+      const result = loadAndExtractBlockers(REPO_ROOT, STATE_PATH);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.blockers.length).toBeGreaterThan(0);
+        expect(result.diagnostics.total).toBeGreaterThanOrEqual(result.diagnostics.valid);
+      }
+    });
+
+    it('возвращает ошибку для несуществующего файла', () => {
+      const result = loadAndExtractBlockers(REPO_ROOT, 'nonexistent.yaml');
+      expect(result).toEqual({ ok: false, reason: 'file_not_found' });
     });
   });
 });
