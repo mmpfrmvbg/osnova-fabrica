@@ -1,22 +1,20 @@
-id: ATM-005
+id: ATM-006
 epic: EPK-260329-024
-seq: 5
+seq: 6
 zone: forge
 risk: HIGH
 executor: cursor
-goal: Добавить executor.ts с безопасным чтением/записью .osnova/state.yaml (atomic
-  write)
-scope: src/pipeline/executor.ts — новый модуль IO для state
+goal: Встроить вызов blocker-resolver при применении sweep к state через executor
+scope: src/pipeline/executor.ts — оркестрация prune+write
 notouch:
-- .osnova/state.yaml
 - scripts/forge-cleanup.ts
-done: npx vitest run src/pipeline/orchestrator.partial.test.ts
+done: npx vitest run src/pipeline/pipeline.test.ts
 steps:
-- Реализовать load/save YAML для структуры state v5
-- Не вызывать сеть; только fs path аргумент
-- Обработать отсутствие файла предсказуемо
+- Импортировать функции из blocker-resolver.ts
+- Собрать публичный applyStaleBlockerCleanup(statePath, closedIds)
+- Логировать diff counts без утечки секретов
 deps:
-- ATM-004
+- ATM-005
 maxiter: 3
 retries: 0
 status: PENDING

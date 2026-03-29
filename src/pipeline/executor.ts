@@ -8,7 +8,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import YAML from 'js-yaml';
 
-import type { ForgeStateBlockerRecord } from './types';
+import type { ForgeStateBlockerIssueId, ForgeStateBlockerRecord } from './types';
+import { parseForgeBlockerAtmId, pruneForgeStateBlockers } from './blocker-resolver';
 
 /** Секция `sessionstats` state v5 (ключи как в YAML). */
 export interface ForgeStateSessionStats {
@@ -187,4 +188,56 @@ export function saveForgeState(filePath: string, state: ForgeStateV5): void {
   const body = YAML.dump(state, YAML_DUMP_OPTS);
   const withNl = body.endsWith('\n') ? body : `${body}\n`;
   atomicWriteUtf8(filePath, withNl);
+}
+
+/**
+ * Sweep `blockers` в state v5: удаляет записи по закрытым issues и устаревший формат `atm_id`
+ * (см. {@link pruneForgeStateBlockers}). Запись на диск — только если список реально изменился.
+ * В лог только агрегированные числа (без номеров issues и строк `atm_id`).
+ */
+export function applyStaleBlockerCleanup(
+  statePath: string,
+  closedIds: ReadonlySet<ForgeStateBlockerIssueId> | Iterable<ForgeStateBlockerIssueId>
+): void {
+  const closed =
+    closedIds instanceof Set
+      ? closedIds
+      : new Set<ForgeStateBlockerIssueId>(closedIds);
+
+  const label = path.basename(statePath);
+  const state = loadForgeState(statePath);
+  if (state === null) {
+    console.info(`[forge-state] blocker sweep: skip (no state) file=${label}`);
+    return;
+  }
+
+  const entries = state.blockers ?? [];
+  const before = entries.length;
+
+  let removedClosed = 0;
+  let removedStaleAtm = 0;
+  for (const entry of entries) {
+    if (closed.has(entry.issue)) {
+      removedClosed += 1;
+      continue;
+    }
+    if (!parseForgeBlockerAtmId(entry.atm_id).ok) {
+      removedStaleAtm += 1;
+    }
+  }
+
+  const pruned = pruneForgeStateBlockers(entries, closed);
+  const after = pruned.length;
+
+  if (after === before) {
+    console.info(
+      `[forge-state] blocker sweep: no-op before=${before} removed_closed=${removedClosed} removed_stale_atm=${removedStaleAtm} file=${label}`
+    );
+    return;
+  }
+
+  saveForgeState(statePath, { ...state, blockers: pruned });
+  console.info(
+    `[forge-state] blocker sweep: wrote before=${before} after=${after} removed_closed=${removedClosed} removed_stale_atm=${removedStaleAtm} file=${label}`
+  );
 }
