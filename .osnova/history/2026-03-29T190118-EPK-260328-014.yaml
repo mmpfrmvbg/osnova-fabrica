@@ -1,0 +1,78 @@
+epic: EPK-260328-014
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 5
+  atomstotal: 5
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-008
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 176
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + diff range)'
+    elapsed: 13
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-009
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 314
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + diff range)'
+    elapsed: 13
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-010
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 93
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + diff range)'
+    elapsed: 11
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-011
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 318
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + diff range)'
+    elapsed: 117
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-014-012
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 134
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + diff range)'
+    elapsed: 12
+createdat: '2026-03-29T19:01:18.429188+03:00'

@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-29T18:30:50.165707+03:00'
+updatedat: '2026-03-29T19:01:20.839014+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -8,17 +8,17 @@ epicprogress:
   blocked: 0
   current: null
 sessionstats:
-  epicsreceived: 30
-  epicsdone: 18
+  epicsreceived: 31
+  epicsdone: 19
   epicsblocked: 12
-  atomstotal: 199
-  atomsdone: 126
+  atomstotal: 204
+  atomsdone: 131
   atomsblocked: 73
-  passrate: 0.6331658291457286
+  passrate: 0.6421568627450981
 ci:
-  lastrun: '2026-03-29T18:06:34.118787+03:00'
+  lastrun: '2026-03-29T19:01:18.467113+03:00'
   laststatus: ok
-  passrate7d: 0.497
+  passrate7d: 0.5132
   openblockerissues: 0
   lastepicissue: null
 brainsource: github
@@ -37,6 +37,19 @@ executors:
   activefallback: null
 blockers: []
 recent:
+- epic: EPK-260328-014
+  scope:
+  - src/runtime/vm.ts
+  - src/runtime/interpreter.ts
+  - src/runtime/frame.ts
+  - src/runtime/vm.test.ts
+  - src/runtime/interpreter.test.ts
+  - src/compiler/compiler.ts
+  - src/compiler/compiler.test.ts
+  result: ok
+  status: ok
+  passrate: 1.0
+  updated: '2026-03-29T19:01:18.467034+03:00'
 - epic: EPK-260328-013
   scope:
   - src/compiler/lexer.ts
@@ -244,19 +257,6 @@ recent:
   status: partial
   passrate: 0.5
   updated: '2026-03-28T19:08:34.781772+03:00'
-- epic: EPK-260328-014
-  scope:
-  - src/runtime/vm.ts
-  - src/runtime/interpreter.ts
-  - src/runtime/frame.ts
-  - src/runtime/vm.test.ts
-  - src/runtime/interpreter.test.ts
-  - src/compiler/compiler.ts
-  - src/compiler/compiler.test.ts
-  result: ok
-  status: ok
-  passrate: 1.0
-  updated: '2026-03-28T17:07:51.777299+03:00'
 - epic: EPK-260327-001
   scope:
   - src/compiler/vm.test.ts
@@ -478,6 +478,13 @@ codebase:
   - src/intelligence/index.ts — epic intelligence/core.ts
   - src/pipeline/executor.ts — epic pipeline-llm/executor.ts
 last_scopes:
+- - src/runtime/vm.ts
+  - src/runtime/interpreter.ts
+  - src/runtime/frame.ts
+  - src/runtime/vm.test.ts
+  - src/runtime/interpreter.test.ts
+  - src/compiler/compiler.ts
+  - src/compiler/compiler.test.ts
 - - src/compiler/lexer.ts
   - src/compiler/parser.ts
   - src/compiler/ast.ts
@@ -487,8 +494,3 @@ last_scopes:
   - vitest.config.ts
   - package.json
   - src/pipeline/types.ts
-- - scripts/blocker-resolver.ts
-  - scripts/blocker-resolver.test.ts
-  - scripts/blocker-check.ts
-  - src/tools/blocker-resolver.ts
-  - src/tools/blocker-types.ts
