@@ -1,20 +1,21 @@
-id: ATM-004
+id: ATM-005
 epic: EPK-260329-021
-seq: 4
-zone: compiler
-risk: MEDIUM
+seq: 5
+zone: runtime
+risk: HIGH
 executor: cursor
-goal: Проверить семантический слой после фиксации barrel компилятора.
+goal: Добавить или восстановить src/runtime/index.ts как стабильную точку входа VM/интерпретатора.
 scope:
-- src/compiler/index.ts — согласованность типов CompileResult/IR с потребителями
+- src/runtime/index.ts — публичный barrel рантайма
 notouch:
-- src/agents/index.ts
-- .tmp/diagnostics.log
-done: npx vitest run src/compiler/semantic.test.ts
+- src/pipeline/types.ts
+- package.json
+done: npx vitest run src/runtime/vm.test.ts
 steps:
-- Проверить что типы CompileResult/OsnovaIrModule доступны из barrel.
-- При необходимости добавить type-only re-export в index.ts.
-- Зафиксировать отсутствие циклических импортов через index.
+- Создать index.ts при отсутствии; re-export из vm.ts, interpreter.ts и связанных
+  типов.
+- Выравнять имена экспортов с импортами в pipeline/agents.
+- Не трогать goldenApps/cli в этом ATM.
 deps:
 - ATM-003
 maxiter: 3
