@@ -17,5 +17,20 @@ deps:
 - ATM-005
 maxiter: 3
 retries: 0
-status: PENDING
+status: merge_conflict
 priority: P0
+max_retries: 3
+review_base_sha: 8b73dbfdca3ab5058b9927074c2acbe2ba2a362f
+produced_files: []
+last_failure: 'cherry-pick conflict: error: could not apply d512d81... ATM ATM-007
+  OK
+
+  hint: After resolving the conflicts, mark them with
+
+  hint: "git add/rm <pathspec>", then run
+
+  hint: "git cherry-pick --continue".
+
+  hint: You can instead skip this commit with "git cherry-pick --skip".
+
+  hint: To abort and get back to the state before "git '

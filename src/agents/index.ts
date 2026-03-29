@@ -68,6 +68,20 @@ export { SpecValidationError } from './intake-agent';
 export { PlanValidationError } from './plan-agent';
 
 // ============================================================================
+// ОШИБКИ ВЫПОЛНЕНИЯ
+// ============================================================================
+
+/**
+ * Ошибка выполнения фазы пайплайна — выбрасывается при сбое обработчика фазы
+ */
+export { PhaseExecutionError } from './exec-agent';
+
+/**
+ * Ошибка выполнения VM — обёртка для ошибок времени выполнения
+ */
+export { VmExecutionError } from '../runtime/vm';
+
+// ============================================================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ============================================================================
 
@@ -140,7 +154,7 @@ export type { BaseAgent } from '../types/agents';
 export type { AgentReport } from '../types/agents';
 
 // ============================================================================
-// ТИПЫ: PLAN AGENT
+// ТИПЫ: PLAN AGENT (синхронизировано с pipeline/types)
 // ============================================================================
 
 export type {
@@ -148,6 +162,9 @@ export type {
   CompileOptions,
   /** Результат компиляции (успех/ошибки, bytecode) */
   CompileResult,
+} from './plan-agent';
+
+export type {
   /** Последовательность операций пайплайна */
   ExecutionPlan,
   /** Фаза пайплайна (intake, spec_generation, codegen, build, golden_check, repair) */
@@ -156,10 +173,10 @@ export type {
   PlanAgentBuildOptions,
   /** Шаг плана: фаза + порядок + описание */
   PlanStep,
-} from './plan-agent';
+} from '../pipeline/types';
 
 // ============================================================================
-// ТИПЫ: EXEC AGENT
+// ТИПЫ: EXEC AGENT (синхронизировано с pipeline/types и runtime/vm)
 // ============================================================================
 
 export type {
@@ -175,9 +192,12 @@ export type {
   ExecStepResult,
   /** Итог execute(): все шаги или остановка на первой ошибке */
   ExecResult,
+} from './exec-agent';
+
+export type {
   /** Результат выполнения VM пайплайна */
   PipelineVmExecuteResult,
-} from './exec-agent';
+} from '../runtime/vm';
 
 // ============================================================================
 // ТИПЫ: REVIEW AGENT

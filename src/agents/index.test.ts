@@ -12,10 +12,12 @@ import {
   ReviewAgent,
   OsnovaCodegenAgent,
   RepairEngineerAgent,
-  // Ошибки
+  // Ошибки валидации
   IntakeValidationError,
   SpecValidationError,
   PlanValidationError,
+  // Ошибки выполнения
+  PhaseExecutionError,
   // Функции
   detectAppTypeFromPrefix,
   parseLlmConfidence,
@@ -83,6 +85,12 @@ describe('src/agents/index.ts — единый экспортный интерф
       expect(typeof PlanValidationError).toBe('function');
       expect(new PlanValidationError('test')).toBeInstanceOf(PlanValidationError);
       expect(new PlanValidationError('test')).toBeInstanceOf(Error);
+    });
+
+    it('PhaseExecutionError — класс ошибки выполнения', () => {
+      expect(typeof PhaseExecutionError).toBe('function');
+      expect(new PhaseExecutionError('test')).toBeInstanceOf(PhaseExecutionError);
+      expect(new PhaseExecutionError('test')).toBeInstanceOf(Error);
     });
   });
 

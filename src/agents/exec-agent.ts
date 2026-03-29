@@ -15,6 +15,18 @@ import {
   type PipelineVmExecuteResult,
 } from '../runtime/vm';
 
+/** Ошибка выполнения фазы пайплайна — выбрасывается при сбое обработчика фазы. */
+export class PhaseExecutionError extends Error {
+  constructor(
+    message: string,
+    public readonly phase?: PipelinePhase,
+    public readonly stepOrder?: number,
+  ) {
+    super(message);
+    this.name = 'PhaseExecutionError';
+  }
+}
+
 /** Состояние пайплайна между шагами (накапливается при выполнении). */
 export interface ExecContext {
   intent?: OsnovaIntent;
