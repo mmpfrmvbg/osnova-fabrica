@@ -1,22 +1,19 @@
-id: ATM-EPK-260329-019-009
+id: ATM-002
 epic: EPK-260329-019
-seq: 9
-zone: runtime
-risk: LOW
+seq: 2
+zone: config
+risk: HIGH
 executor: cursor
-goal: Устранить TypeScript-ошибки в interpreter.ts (Interpreter и OpCode)
+goal: Исправить критические ошибки в tsconfig.json блокирующие компиляцию
 scope:
-- src/runtime/interpreter.ts
-notouch:
-- src/runtime/vm/interpreter.ts
-- src/runtime/vm/bytecode.ts
-done: npx vitest run src/agents/agents.test.ts --reporter=verbose
+- tsconfig.json
+notouch: []
+done: npx vitest run tsconfig.test.ts
 steps:
-- Проверить типы InterpreterOptions, StackValue
-- Исправить импорты из vm/bytecode
-- Запустить tsc --noEmit для проверки
-deps:
-- ATM-EPK-260329-019-008
+- Проверить настройки strict mode
+- Исправить пути moduleResolution
+- Добавить missing lib компилятору
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING
