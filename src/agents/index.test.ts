@@ -12,6 +12,7 @@ import {
   ReviewAgent,
   OsnovaCodegenAgent,
   RepairEngineerAgent,
+  DiagnosticAgent,
   // Ошибки валидации
   IntakeValidationError,
   SpecValidationError,
@@ -65,6 +66,11 @@ describe('src/agents/index.ts — единый экспортный интерф
     it('RepairEngineerAgent — класс', () => {
       expect(typeof RepairEngineerAgent).toBe('function');
       expect(new RepairEngineerAgent()).toBeInstanceOf(RepairEngineerAgent);
+    });
+
+    it('DiagnosticAgent — класс', () => {
+      expect(typeof DiagnosticAgent).toBe('function');
+      expect(new DiagnosticAgent()).toBeInstanceOf(DiagnosticAgent);
     });
   });
 
