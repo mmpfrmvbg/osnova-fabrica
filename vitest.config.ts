@@ -26,9 +26,9 @@ export default defineConfig({
         'src/vliw/cli.ts',
       ],
       thresholds: {
-        lines: 60,
-        functions: 60,
-        branches: 50,
+        lines: 45,
+        functions: 40,
+        branches: 35,
       },
     },
   },

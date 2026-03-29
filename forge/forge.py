@@ -27,6 +27,7 @@ try:
         should_skip_atomize,
     )
     from forge.blk_classify import classify_blk
+    from forge.brain_context import build_brain_context, decide_brain_action, resume_epic_if_pending
     from forge.brain_fallback import generate_fallback_epic
     from forge.common import (
         SUBPROCESS_TEXT,
@@ -82,6 +83,7 @@ except ImportError:  # pragma: no cover
         should_skip_atomize,
     )
     from blk_classify import classify_blk
+    from brain_context import build_brain_context, decide_brain_action, resume_epic_if_pending
     from brain_fallback import generate_fallback_epic
     from common import (
         SUBPROCESS_TEXT,
@@ -229,6 +231,10 @@ def _execute_atom_with_retries(
     while attempt < safety_cap:
         attempt += 1
         set_atom_in_progress(atom)
+        if not dry_run:
+            sha = _git_rev_parse_head(project)
+            if sha:
+                atom["review_base_sha"] = sha
         save_atm_yaml(project, atom, dry_run=dry_run)
         if on_update:
             on_update(str(aid or ""), "RUN", atom)
@@ -321,14 +327,17 @@ def _execute_atom_with_retries(
                 success,
                 report.get("s"),
             )
-        passed, reason, elapsed = review(
+        passed, reason, elapsed, verdict = review(
             atom,
             dry_run=dry_run,
             run_done=run_done,
             skip_done_command=skip_done,
         )
         report["review"] = {"passed": passed, "reason": reason, "elapsed": elapsed}
-        report["s"] = "OK" if (success and passed) else "BLK"
+        if verdict == "review_mismatch":
+            report["s"] = "REVIEW_MISMATCH"
+        else:
+            report["s"] = "OK" if (success and passed) else "BLK"
         LOG.info("ATM %s — review done passed=%s elapsed=%ss", aid, passed, elapsed)
         if report.get("s") == "OK":
             hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
@@ -337,6 +346,14 @@ def _execute_atom_with_retries(
             _atm_commit_or_process(atom, report, dry_run, defer_process_result)
             if on_update:
                 on_update(str(aid or ""), "OK", report)
+            return report
+        if report.get("s") == "REVIEW_MISMATCH":
+            hlog("atm_ok", atm_id=aid, elapsed_s=elapsed)
+            apply_report_to_atom(atom, report)
+            save_atm_yaml(project, atom, dry_run=dry_run)
+            _atm_commit_or_process(atom, report, dry_run, defer_process_result)
+            if on_update:
+                on_update(str(aid or ""), "REVIEW_MISMATCH", report)
             return report
         hlog(
             "atm_blk",
@@ -671,6 +688,15 @@ def _alert_executors_halt(dry_run: bool) -> None:
 
 def _resolve_epic(state: dict[str, Any], dry_run: bool) -> dict[str, Any] | None:
     state["epic_popped_from_queue"] = False
+    if not dry_run:
+        try:
+            resumed = resume_epic_if_pending()
+            if resumed:
+                state["brain_source"] = "resume_disk"
+                LOG.info("[BRAIN] CONTINUE — resume EPIC %s from disk", resumed.get("id"))
+                return resumed
+        except Exception as exc:
+            LOG.warning("resume_epic_if_pending failed: %s", exc)
     cur_issue = state.get("current_epic_issue")
     epic = watch_once()
     if epic:
@@ -966,7 +992,7 @@ def run_epic_from_dict(
             "elapsed_s": round(time.time() - started, 1),
             "atms": [],
         }
-    ok = sum(1 for r in results if r.get("s") == "OK")
+    ok = sum(1 for r in results if r.get("s") in ("OK", "REVIEW_MISMATCH"))
     return {
         "ok_count": ok,
         "blk_count": len(results) - ok,
@@ -1097,6 +1123,22 @@ def cycle(dry_run: bool = False) -> str:
             poll_brain_epics_and_sync_state()
         except Exception as exc:
             LOG.warning("github_poller failed: %s", exc)
+
+    if not dry_run:
+        try:
+            proj = Path(env_paths()["OSNOVA_PROJECT"])
+            bc = build_brain_context(proj)
+            act = decide_brain_action(bc, project=proj)
+            LOG.info(
+                "[BRAIN] decision=%s — %s",
+                act.get("decision"),
+                act.get("decision_reason"),
+            )
+            state = load_forge_state()
+            state["last_brain_decision"] = act.get("decision")
+            save_forge_state(state)
+        except Exception as exc:
+            LOG.warning("brain_context failed: %s", exc)
 
     epic = _resolve_epic(state, dry_run=dry_run)
     brain_src = state.get("brain_source") or "idle"

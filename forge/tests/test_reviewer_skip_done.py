@@ -15,7 +15,7 @@ class TestSkipDoneAfterQwen(unittest.TestCase):
         atom = {
             "id": "ATM-1",
             "goal": "g",
-            "scope": ["src/a.ts"],
+            "scope": [],
             "done": "npx vitest run src/a.test.ts",
             "notouch": [],
         }
@@ -33,6 +33,7 @@ class TestSkipDoneAfterQwen(unittest.TestCase):
             with (
                 patch.object(reviewer, "env_paths", return_value=fake_env),
                 patch.object(reviewer, "_git_diff", return_value="diff"),
+                patch.object(reviewer, "_git_diff_range", return_value="diff"),
                 patch.object(
                     reviewer,
                     "_qwen_review",
@@ -41,7 +42,7 @@ class TestSkipDoneAfterQwen(unittest.TestCase):
                 patch.object(reviewer, "_prepare_done_invocation") as mock_prep,
                 patch("forge.reviewer.subprocess.run") as mock_run,
             ):
-                ok, reason, elapsed = reviewer.review(
+                ok, reason, elapsed, _ver = reviewer.review(
                     atom,
                     dry_run=False,
                     run_done=True,

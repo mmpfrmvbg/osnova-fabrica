@@ -225,6 +225,13 @@ def apply_report_to_atom(atom: dict[str, Any], report: dict[str, Any]) -> None:
         if isinstance(ch, list):
             atom["produced_files"] = ch
         return
+    if st == "REVIEW_MISMATCH":
+        atom["status"] = "review_mismatch"
+        rev = report.get("review")
+        atom["last_failure"] = str(
+            (rev.get("reason") if isinstance(rev, dict) else None) or report.get("err") or "review_mismatch"
+        )
+        return
     if st == "MERGE_CONFLICT":
         atom["status"] = "merge_conflict"
         atom["last_failure"] = str(report.get("err") or "merge_conflict")

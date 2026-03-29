@@ -242,6 +242,129 @@ def _git_diff(project: Path) -> str:
     return (proc.stdout or "") if proc.returncode == 0 else ""
 
 
+def _git_diff_range(project: Path, base_ref: str | None) -> str:
+    br = (base_ref or "").strip()
+    if br:
+        proc = subprocess.run(
+            ["git", "diff", f"{br}..HEAD"],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+            **SUBPROCESS_TEXT,
+        )
+        if proc.returncode == 0:
+            return proc.stdout or ""
+    return _git_diff(project)
+
+
+def scope_derived_expected_files(scope: list[Any]) -> list[str]:
+    out: list[str] = []
+    for raw in scope or []:
+        s = str(raw).strip()
+        if not s:
+            continue
+        line = s.split("—")[0].strip().split("–")[0].strip()
+        if not line:
+            continue
+        tok = line.split()[0]
+        if "/" in tok or tok.endswith(
+            (".ts", ".tsx", ".js", ".mjs", ".cjs", ".json", ".yaml", ".yml", ".md", ".py", ".rs", ".go")
+        ):
+            out.append(tok.replace("\\", "/").lstrip("/"))
+    return out
+
+
+def expected_files_for_atom(atom: dict[str, Any]) -> list[str]:
+    ef = atom.get("expected_files")
+    if isinstance(ef, list) and ef:
+        return [str(x).strip().replace("\\", "/").lstrip("/") for x in ef if str(x).strip()]
+    return scope_derived_expected_files(atom.get("scope") or [])
+
+
+def _resolved_file_in_project(project: Path, rel: str) -> Path | None:
+    rel = rel.replace("\\", "/").strip().lstrip("/")
+    if not rel or ".." in rel.split("/"):
+        return None
+    try:
+        cand = (project / rel).resolve()
+        cand.relative_to(project.resolve())
+    except Exception:
+        return None
+    return cand if cand.is_file() else None
+
+
+def check_files_in_diff(diff_text: str, rel_paths: list[str]) -> bool:
+    if not rel_paths:
+        return True
+    for rel in rel_paths:
+        posix = rel.replace("\\", "/")
+        if posix in diff_text:
+            continue
+        if f"b/{posix}" in diff_text or f"a/{posix}" in diff_text:
+            continue
+        if f"diff --git a/{posix}" in diff_text:
+            continue
+        return False
+    return True
+
+
+def semantic_export_match(project: Path, atom: dict[str, Any]) -> bool:
+    ex = atom.get("expected_exports")
+    if not isinstance(ex, list) or not ex:
+        return True
+    ef = expected_files_for_atom(atom)
+    if not ef:
+        return True
+    target = _resolved_file_in_project(project, ef[0])
+    if target is None:
+        return False
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for name in ex:
+        if str(name) not in text:
+            return False
+    return True
+
+
+def append_review_mismatch_record(project: Path, atom: dict[str, Any], reason: str) -> None:
+    try:
+        from forge.common import atomic_write_yaml, now_iso
+    except ImportError:  # pragma: no cover
+        from common import atomic_write_yaml, now_iso
+
+    meta = project / ".osnova" / "meta"
+    meta.mkdir(parents=True, exist_ok=True)
+    path = meta / "review-mismatches.yaml"
+    data: Any
+    data = {}
+    if path.is_file():
+        try:
+            import yaml as _yaml
+
+            data = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    items = data.get("items")
+    if not isinstance(items, list):
+        items = []
+    items.append(
+        {
+            "ts": now_iso(),
+            "atm_id": str(atom.get("id") or ""),
+            "epic": str(atom.get("epic") or ""),
+            "reason": reason[:4000],
+        }
+    )
+    data["items"] = items[-300:]
+    atomic_write_yaml(path, data)
+
+
 def _qwen_review_timeout() -> int:
     raw = os.environ.get("FORGE_QWEN_REVIEW_TIMEOUT", "").strip()
     if raw.isdigit():
@@ -427,19 +550,26 @@ def review(
     *,
     run_done: bool = True,
     skip_done_command: bool = False,
-) -> tuple[bool, str, int]:
+) -> tuple[bool, str, int, str | None]:
     start = time.time()
     project = Path(env_paths()["OSNOVA_PROJECT"])
     if dry_run:
-        return True, "dry-run: reviewer skipped", 0
+        return True, "dry-run: reviewer skipped", 0, None
     if not run_done:
         LOG.info(
             "reviewer: skipping LLM + done-cmd — executor report was not OK (avoids long Qwen + broken vitest)"
         )
         elapsed = int(time.time() - start)
-        return False, "FAIL: executor BLK — reviewer skipped", elapsed
+        return False, "FAIL: executor BLK — reviewer skipped", elapsed, None
+
+    base_sha = atom.get("review_base_sha")
+    base_s = base_sha.strip() if isinstance(base_sha, str) else None
+    diff = _git_diff_range(project, base_s)
+
+    llm_reason = "FAIL: reviewer not run"
+    need_done_fallback = False
+    qwen_pass_no_done = False
     try:
-        diff = _git_diff(project)
         llm_reason, need_done_fallback, qwen_pass_no_done = _qwen_review(atom, diff)
     except Exception:
         LOG.exception(
@@ -449,12 +579,15 @@ def review(
         llm_reason = "FAIL: reviewer internal error (see forge.reviewer.log)"
         need_done_fallback = False
         qwen_pass_no_done = False
+
     done_cmd = str(atom.get("done", "")).strip()
     done_cmd = done_cmd.replace(" && ", " ; ") if sys.platform == "win32" else done_cmd
     if not done_cmd:
         elapsed = int(time.time() - start)
         passed_no_done = False if need_done_fallback else qwen_pass_no_done
-        return passed_no_done, _stored_review_reason(llm_reason), elapsed
+        return passed_no_done, _stored_review_reason(llm_reason), elapsed, None
+
+    expected = expected_files_for_atom(atom)
 
     if skip_done_command:
         LOG.info(
@@ -472,6 +605,21 @@ def review(
             reason = llm_reason if passed else f"{llm_reason}; FAIL on diff review (done not re-run)"
         elapsed = int(time.time() - start)
         aid = str(atom.get("id") or "")
+        if expected and passed:
+            missing = [f for f in expected if _resolved_file_in_project(project, f) is None]
+            if missing:
+                return (
+                    False,
+                    _stored_review_reason(f"FAIL: expected files missing: {missing}"),
+                    elapsed,
+                    None,
+                )
+            if not check_files_in_diff(diff, expected):
+                msg = (
+                    "FAIL: файлы есть в дереве и LLM OK, но не видны в diff — вероятно неверный diff-range (review_mismatch)"
+                )
+                append_review_mismatch_record(project, atom, msg)
+                return False, _stored_review_reason(msg), elapsed, "review_mismatch"
         try:
             from forge import humanlog as _hl
 
@@ -481,12 +629,12 @@ def review(
                 _hl.hlog("review_fail", atm_id=aid, reason=(reason or ""), elapsed_s=elapsed)
         except Exception:
             pass
-        return passed, _stored_review_reason(reason), elapsed
+        return passed, _stored_review_reason(reason), elapsed, None
 
     done = run_atom_done_subprocess(atom, timeout_s=900)
     if done is None:
         elapsed = int(time.time() - start)
-        return False, "FAIL: internal reviewer error (empty done after check)", elapsed
+        return False, "FAIL: internal reviewer error (empty done after check)", elapsed, None
     try:
         from forge.humanlog import hlog_tests_run_from_output
 
@@ -494,6 +642,52 @@ def review(
     except Exception:
         pass
     cmd_passed = done.returncode == 0
+
+    if expected and not skip_done_command:
+        missing = [f for f in expected if _resolved_file_in_project(project, f) is None]
+        if missing:
+            elapsed = int(time.time() - start)
+            return (
+                False,
+                _stored_review_reason(f"FAIL: expected files missing: {missing}"),
+                elapsed,
+                None,
+            )
+        if not cmd_passed:
+            elapsed = int(time.time() - start)
+            reason = f"{llm_reason}; done command failed: {done.returncode}"
+            return False, _stored_review_reason(reason), elapsed, None
+        if not semantic_export_match(project, atom):
+            elapsed = int(time.time() - start)
+            return (
+                False,
+                _stored_review_reason("FAIL: expected_exports not found in artifact"),
+                elapsed,
+                None,
+            )
+        if not check_files_in_diff(diff, expected):
+            msg = (
+                "FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно баг diff-range (review_mismatch)"
+            )
+            append_review_mismatch_record(project, atom, msg)
+            elapsed = int(time.time() - start)
+            return False, _stored_review_reason(msg), elapsed, "review_mismatch"
+        skip_qwen_ms = os.environ.get("FORGE_REVIEWER_MULTISIG_SKIP_QWEN", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
+        if skip_qwen_ms:
+            elapsed = int(time.time() - start)
+            aid = str(atom.get("id") or "")
+            try:
+                from forge import humanlog as _hl
+
+                _hl.hlog("review_pass", atm_id=aid, elapsed_s=elapsed)
+            except Exception:
+                pass
+            return True, "PASS: multi-signal (artifact + done + diff range)", elapsed, None
+
     if not cmd_passed:
         passed = False
     elif need_done_fallback:
@@ -534,7 +728,7 @@ def review(
         except Exception:
             pass
     LOG.debug("reviewer passed=%s reason_head=%s", passed, (reason[:100] if reason else ""))
-    return passed, _stored_review_reason(reason), elapsed
+    return passed, _stored_review_reason(reason), elapsed, None
 
 
 def main() -> None:

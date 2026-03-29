@@ -570,27 +570,36 @@ def _normalize_atoms(epic: dict[str, Any], atoms: list[dict[str, Any]]) -> list[
         per_done = atom.get("done")
         if per_done is None or str(per_done).strip() == "":
             per_done = done_cmd
-        out.append(
-            {
-                "id": atom_id,
-                "epic": epic_id,
-                "seq": seq,
-                "zone": atom.get("zone", epic.get("zone", "lang")),
-                "risk": atom.get("risk", epic.get("risk", "MEDIUM")),
-                "executor": ex,
-                "goal": atom.get("goal", ""),
-                "scope": atom.get("scope", []),
-                "notouch": atom.get("notouch", epic.get("notouch", [])),
-                "done": per_done,
-                "steps": atom.get("steps", []),
-                "deps": atom.get("deps", []),
-                "maxiter": 3,
-                "max_retries": 3,
-                "retries": 0,
-                "status": "todo",
-                "priority": epic.get("priority", "P2"),
-            }
-        )
+        ef = atom.get("expected_files")
+        if not isinstance(ef, list):
+            ef = None
+        ee = atom.get("expected_exports")
+        if not isinstance(ee, list):
+            ee = None
+        row: dict[str, Any] = {
+            "id": atom_id,
+            "epic": epic_id,
+            "seq": seq,
+            "zone": atom.get("zone", epic.get("zone", "lang")),
+            "risk": atom.get("risk", epic.get("risk", "MEDIUM")),
+            "executor": ex,
+            "goal": atom.get("goal", ""),
+            "scope": atom.get("scope", []),
+            "notouch": atom.get("notouch", epic.get("notouch", [])),
+            "done": per_done,
+            "steps": atom.get("steps", []),
+            "deps": atom.get("deps", []),
+            "maxiter": 3,
+            "max_retries": 3,
+            "retries": 0,
+            "status": "todo",
+            "priority": epic.get("priority", "P2"),
+        }
+        if ef is not None:
+            row["expected_files"] = ef
+        if ee is not None:
+            row["expected_exports"] = ee
+        out.append(row)
     known_ids = {a["id"] for a in out}
     for a in out:
         a["deps"] = _normalize_deps_list(a.get("deps"), epic_id, known_ids)

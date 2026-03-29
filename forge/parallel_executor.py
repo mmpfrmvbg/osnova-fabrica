@@ -330,7 +330,7 @@ def execute_wave_parallel(
 
         for i, (atm_id, wt_path, _branch) in enumerate(worktrees):
             rep = reports_out[i]
-            if not rep or str(rep.get("s") or "").upper() != "OK":
+            if not rep or str(rep.get("s") or "").upper() not in ("OK", "REVIEW_MISMATCH"):
                 LOG.info(
                     "parallel_executor: skip cherry-pick for %s (s=%s)",
                     atm_id,

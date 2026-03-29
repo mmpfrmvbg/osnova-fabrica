@@ -89,7 +89,7 @@ def finalize_epic(
     skip_session_stats: bool = False,
 ) -> dict[str, Any]:
     atom_total = len(results)
-    atom_ok = sum(1 for r in results if r.get("s") == "OK")
+    atom_ok = sum(1 for r in results if r.get("s") in ("OK", "REVIEW_MISMATCH"))
     atom_blk = atom_total - atom_ok
     status = _status(atom_total, atom_ok)
     passrate = atom_ok / atom_total if atom_total else 0.0
