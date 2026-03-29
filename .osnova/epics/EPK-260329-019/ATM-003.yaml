@@ -4,15 +4,15 @@ seq: 3
 zone: config
 risk: HIGH
 executor: qwen
-goal: Исправить package.json зависимости блокирующие сборку
+goal: Синхронизировать зависимости package.json для устранения конфликтов версий
 scope:
 - package.json
 notouch: []
 done: npx vitest run package.test.ts
 steps:
-- Обновить vitest до совместимой версии
-- Проверить peer dependencies typescript и eslint
-- Исправить конфликты версий в devDependencies
+- Выявить конфликтующие версии devDependencies
+- Обновить vitest и связанные пакеты до совместимых версий
+- Проверить peerDependencies
 deps:
 - ATM-002
 maxiter: 3

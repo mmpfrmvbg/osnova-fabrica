@@ -4,15 +4,15 @@ seq: 2
 zone: config
 risk: HIGH
 executor: qwen
-goal: Исправить критические ошибки tsconfig.json блокирующие компиляцию
+goal: Исправить критические ошибки в tsconfig.json блокирующие компиляцию
 scope:
 - tsconfig.json
 notouch: []
 done: npx vitest run tsconfig.test.ts
 steps:
-- Проверить и исправить paths alias для src/*
-- Убедиться что strict режим не ломает существующий код
-- Добавить skipLibCheck если есть проблемы с зависимостями
+- Проверить настройки strict mode
+- Исправить пути moduleResolution
+- Добавить missing lib компилятору
 deps: []
 maxiter: 3
 retries: 0

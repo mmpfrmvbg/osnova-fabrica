@@ -35,6 +35,12 @@ export function calcHealthScore(input: HealthScoreInput): number {
     partial: 0.6,
     repair_exhausted: 0.2,
     error: 0.0,
+    error_015_atom_not_found: 0.0,
+    error_015_atom_corrupted: 0.0,
+    error_015_dep_unresolved: 0.0,
+    error_fbk016_rejected: 0.0,
+    error_fbk016_timeout: 0.0,
+    error_fbk016_limit_exceeded: 0.0,
   };
 
   let base = BASE[input.status];

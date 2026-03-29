@@ -1,22 +1,20 @@
 id: ATM-011
 epic: EPK-260329-019
 seq: 11
-zone: integration
-risk: HIGH
+zone: runtime
+risk: MEDIUM
 executor: qwen
-goal: Интеграционное тестирование compiler + runtime
+goal: Добавить обработку ошибок выполнения и recovery механизмы
 scope:
-- src/compiler/index.ts
-notouch:
 - src/runtime/index.ts
-done: npx vitest run src/compiler/integration.test.ts
+notouch: []
+done: npx vitest run src/runtime/index.test.ts
 steps:
-- Проверить передачу данных от compiler к runtime
-- Исправить ошибки сериализации между модулями
-- Добавить end-to-end тест для серии 015
+- Добавить интерфейс RuntimeError
+- Реализовать механизм восстановления
+- Интегрировать с pipeline
 deps:
-- ATM-005
-- ATM-006
+- ATM-007
 maxiter: 3
 retries: 0
 status: PENDING

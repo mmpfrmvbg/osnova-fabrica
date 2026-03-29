@@ -4,19 +4,17 @@ seq: 9
 zone: pipeline
 risk: P0
 executor: qwen
-goal: Исправить core pipeline ошибки блокирующие ci
+goal: Реализовать базовый pipeline orchestrator в pipeline/index.ts
 scope:
 - src/pipeline/index.ts
 notouch: []
 done: npx vitest run src/pipeline/index.test.ts
 steps:
-- Устранить ошибки типов из runtime и compiler
-- Исправить логику выполнения этапов пайплайна
-- Добавить обработку ошибок FBK016
+- Импортировать IPipelineStep из types.ts
+- Реализовать функцию executePipeline
+- Добавить обработку ошибок этапов
 deps:
 - ATM-005
-- ATM-006
-- ATM-008
 maxiter: 3
 retries: 0
 status: PENDING

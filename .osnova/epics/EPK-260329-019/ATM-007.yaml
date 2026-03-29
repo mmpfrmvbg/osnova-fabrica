@@ -2,19 +2,19 @@ id: ATM-007
 epic: EPK-260329-019
 seq: 7
 zone: runtime
-risk: HIGH
+risk: P0
 executor: qwen
-goal: Добавить диагностику runtime ошибок серии FBK016
+goal: Устранить ошибки runtime/index.ts связанные с типами pipeline
 scope:
 - src/runtime/index.ts
 notouch: []
-done: npx vitest run src/runtime/diagnostics.test.ts
+done: npx vitest run src/runtime/index.test.ts
 steps:
-- Логировать ошибки выполнения с контекстом
-- Добавить retry логику для временных сбоев
-- Экспортировать функции для отладки
+- Импортировать типы из pipeline/types.ts
+- Исправить сигнатуры функций
+- Добавить валидацию runtime конфигурации
 deps:
-- ATM-006
+- ATM-005
 maxiter: 3
 retries: 0
 status: PENDING

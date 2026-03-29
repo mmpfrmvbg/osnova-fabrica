@@ -1,22 +1,19 @@
 id: ATM-013
 epic: EPK-260329-019
 seq: 13
-zone: validation
-risk: MEDIUM
+zone: pipeline
+risk: LOW
 executor: qwen
-goal: Валидация tsconfig после всех исправлений
+goal: Добавить retry логику для pipeline этапов
 scope:
-- tsconfig.json
+- src/pipeline/index.ts
 notouch: []
-done: npx tsc --noEmit
+done: npx vitest run src/pipeline/index.test.ts
 steps:
-- Запустить tsc --noEmit для проверки типов
-- Исправить оставшиеся ошибки компиляции
-- Обновить include/exclude если нужно
+- Добавить интерфейс RetryConfig
+- Реализовать retry механизм
+- Настроить лимиты попыток
 deps:
-- ATM-005
-- ATM-006
-- ATM-008
 - ATM-009
 maxiter: 3
 retries: 0

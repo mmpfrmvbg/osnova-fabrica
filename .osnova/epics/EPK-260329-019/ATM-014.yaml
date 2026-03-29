@@ -1,20 +1,24 @@
 id: ATM-014
 epic: EPK-260329-019
 seq: 14
-zone: validation
-risk: MEDIUM
+zone: config
+risk: LOW
 executor: qwen
-goal: Финальная проверка package.json зависимостей
+goal: Финальная валидация конфигурации и запуск ci
 scope:
 - package.json
-notouch: []
-done: npm install --dry-run
+notouch:
+- tsconfig.json
+- vitest.config.ts
+done: npm run ci
 steps:
-- Запустить npm install для проверки разрешений
-- Проверить отсутствие peer dependency warnings
-- Обновить lock file если нужно
+- Проверить все зависимости установлены
+- Запустить npm run ci
+- Зафиксировать успешное прохождение
 deps:
-- ATM-003
+- ATM-010
+- ATM-011
+- ATM-012
 - ATM-013
 maxiter: 3
 retries: 0

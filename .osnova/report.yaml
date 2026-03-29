@@ -5,5 +5,6 @@ s: OK
 changed: []
 elapsed: 0
 qwen_result:
-  lines_delta: 279
+  lines_delta: 0
+  zero_line_delta_done_verified: true
 reviewer_skip_done: true

@@ -1,21 +1,20 @@
 id: ATM-010
 epic: EPK-260329-019
 seq: 10
-zone: pipeline
-risk: HIGH
+zone: compiler
+risk: MEDIUM
 executor: qwen
-goal: Добавить самовосстановление пайплайна при ошибках
+goal: Добавить обработку ошибок компиляции и логирование
 scope:
-- src/pipeline/index.ts
+- src/compiler/index.ts
 notouch: []
-done: npx vitest run src/pipeline/recovery.test.ts
+done: npx vitest run src/compiler/index.test.ts
 steps:
-- Реализовать retry механизм для сбойных этапов
-- Добавить fallback обработчики для серии 015
-- Интегрировать с DiagnosticReport из types
+- Добавить интерфейс CompileError
+- Реализовать логирование ошибок
+- Связать с pipeline ошибками
 deps:
-- ATM-009
-- ATM-001
+- ATM-006
 maxiter: 3
 retries: 0
 status: PENDING

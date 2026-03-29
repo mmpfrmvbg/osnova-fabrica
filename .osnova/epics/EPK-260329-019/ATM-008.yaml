@@ -2,19 +2,18 @@ id: ATM-008
 epic: EPK-260329-019
 seq: 8
 zone: agents
-risk: P0
+risk: HIGH
 executor: qwen
-goal: Исправить ошибки в agents модуле серии 015
+goal: Исправить ошибки agents/index.ts и синхронизировать с pipeline
 scope:
 - src/agents/index.ts
 notouch: []
 done: npx vitest run src/agents/index.test.ts
 steps:
-- Синхронизировать типы с pipeline/types
-- Исправить ошибки компиляции импортов
-- Добавить валидацию конфигурации агентов
+- Обновить импорты типов pipeline
+- Исправить интерфейсы агентов
+- Добавить обработку ошибок выполнения
 deps:
-- ATM-001
 - ATM-005
 maxiter: 3
 retries: 0

@@ -1,20 +1,19 @@
 id: ATM-006
 epic: EPK-260329-019
 seq: 6
-zone: runtime
+zone: compiler
 risk: P0
 executor: qwen
-goal: Исправить runtime ошибки блокирующие выполнение пайплайна
+goal: Исправить критические ошибки компиляции в compiler/index.ts
 scope:
-- src/runtime/index.ts
+- src/compiler/index.ts
 notouch: []
-done: npx vitest run src/runtime/index.test.ts
+done: npx vitest run src/compiler/index.test.ts
 steps:
-- Добавить обработку ошибок инициализации агентов
-- Исправить типы для pipeline executor
-- Реализовать fallback для критических сбоев
+- Устранить ошибки типов из pipeline/types.ts
+- Исправить импорты и экспорты
+- Добавить обработку ошибок компиляции
 deps:
-- ATM-001
 - ATM-005
 maxiter: 3
 retries: 0

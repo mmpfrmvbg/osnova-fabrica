@@ -4,15 +4,15 @@ seq: 1
 zone: diagnostics
 risk: P0
 executor: qwen
-goal: Диагностика корневых причин 14 блокеров через анализ логов и статусов
+goal: Диагностика корневых причин 14 блокеров через анализ логов CI и типов
 scope:
 - src/pipeline/types.ts
 notouch: []
 done: npx vitest run src/pipeline/types.test.ts
 steps:
-- Добавить интерфейс DiagnosticReport для сбора статусов ошибок
-- Расширить PipelineStatus типами ошибок серий 015 и FBK016
-- Экспортировать типы для использования в agents и runtime
+- Анализировать ошибки TypeScript в src/pipeline/types.ts
+- Выявить缺失 типы и интерфейсы для pipeline
+- Добавить базовые типы для обработки ошибок
 deps: []
 maxiter: 3
 retries: 0

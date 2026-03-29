@@ -1,21 +1,20 @@
 id: ATM-005
 epic: EPK-260329-019
 seq: 5
-zone: compiler
+zone: pipeline
 risk: P0
 executor: qwen
-goal: Исправить ошибки компиляции в src/compiler/index.ts
+goal: Реализовать базовый интерфейс IPipelineStep для обработки этапов
 scope:
-- src/compiler/index.ts
+- src/pipeline/types.ts
 notouch: []
-done: npx vitest run src/compiler/index.test.ts
+done: npx vitest run src/pipeline/types.test.ts
 steps:
-- Устранить ошибки типов из серии 015
-- Исправить импорты из pipeline/types
-- Добавить обработку ошибок FBK016
+- Добавить интерфейс IPipelineStep
+- Определить типы ошибок pipeline
+- Экспортировать типы для compiler/runtime
 deps:
 - ATM-001
-- ATM-002
 maxiter: 3
 retries: 0
 status: PENDING
