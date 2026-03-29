@@ -1,20 +1,20 @@
-id: ATM-006
+id: ATM-007
 epic: EPK-260329-026
-seq: 6
+seq: 7
 zone: intelligence
-risk: MED
+risk: LOW
 executor: cursor
-goal: Add planner side-effect hooks (store/read, lifecycle) behind narrow interfaces.
-scope: src/intelligence/planner.ts — IO adapters
+goal: planner.test.ts covers pure planners, edge cases, and mock adapters.
+scope: src/intelligence/planner.test.ts — unit coverage
 notouch:
-- src/vliw/scheduler.ts
-- .tmp/blocker-sync.log
+- src/vliw/vliw.test.ts
+- scripts/blocker-sync.ts
 done: npx vitest run src/intelligence/planner.test.ts
 steps:
-- Inject dependencies for store/summarizer boundaries used elsewhere under src/intelligence/.
-- Guard all filesystem/network behind async functions with timeouts where applicable.
+- Add vitest suites for empty plan, single step, failure propagation.
+- Mock external intelligence sources; no real network in tests.
 deps:
-- ATM-005
+- ATM-006
 maxiter: 3
 retries: 0
 status: PENDING
