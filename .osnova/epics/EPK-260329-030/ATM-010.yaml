@@ -1,0 +1,22 @@
+id: ATM-010
+epic: EPK-260329-030
+seq: 10
+zone: tests
+risk: LOW
+executor: qwen
+goal: Расширить src/pipeline/pipeline.test.ts проверками фасада после scaffold-совместимых
+  импортов.
+scope: src/pipeline/pipeline.test.ts — фасад Pipeline и exec-путь
+notouch:
+- src/pipeline/types.test.ts
+- src/pipeline/gateChecker.test.ts
+done: npx vitest run src/pipeline/pipeline.test.ts
+steps:
+- Добавить тесты на загрузку модулей pipeline/agents без предварительного tsc скриптов.
+- Покрыть минимальный happy-path существующими моками/фикстурами теста.
+deps:
+- ATM-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

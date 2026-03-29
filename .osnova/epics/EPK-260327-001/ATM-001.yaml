@@ -3,7 +3,7 @@ epic: EPK-260327-001
 seq: 1
 zone: lang
 risk: LOW
-executor: null
+executor: cursor
 goal: Реализовать регрессионные тесты для операции % в src/compiler/vm.test.ts
 scope:
 - src/compiler/vm.test.ts
@@ -17,6 +17,18 @@ done: npx vitest run src/compiler/ && npx vitest run src/agents/
 steps: []
 deps: []
 maxiter: 3
-retries: 0
-status: PENDING
+retries: 1
+status: blk
 priority: P2
+max_retries: 3
+review_base_sha: a23909e8bf464a5fb5f9215adb1341960697dc56
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: Дифф содержит только изменения в .osnova/report.yaml, но
+    не содержит изменений в src/compiler/vm.test.ts или src/compiler/vm.ts для реализации
+    регрессионных тестов операции %.; done command failed: 1'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: Дифф содержит только изменения в .osnova/report.yaml, но не содержит
+  изменений в src/compiler/vm.test.ts или src/compiler/vm.ts для реализации регрессионных
+  тестов операции %.; done command failed: 1'

@@ -1,0 +1,23 @@
+id: ATM-009
+epic: EPK-260329-030
+seq: 9
+zone: pipeline
+risk: HIGH
+executor: qwen
+goal: Сузить ветки repair/retry в pipeline.ts, чтобы заглушки не упирались в tsc и
+  retry-exhausted.
+scope: src/pipeline/pipeline.ts — лимиты попыток и обход компиляции для scaffold
+notouch:
+- src/pipeline/healthScore.ts
+- src/pipeline/thresholds.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
+steps:
+- Локализовать условия retry-exhausted и добавить безопасный путь при scaffold/минимальном
+  дереве.
+- Сохранить прежнее поведение при полном исходнике.
+deps:
+- ATM-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

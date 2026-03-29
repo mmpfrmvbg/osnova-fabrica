@@ -1,0 +1,22 @@
+id: ATM-012
+epic: EPK-260329-030
+seq: 12
+zone: scripts
+risk: LOW
+executor: qwen
+goal: Задокументировать в scripts/scaffold-agents.ts вызов через npx tsx (как остальные
+  scripts в репо).
+scope: scripts/scaffold-agents.ts — шапка и пример команды запуска
+notouch:
+- scripts/generate-language-schema.ts
+- scripts/check-language-schema.ts
+done: npx vitest run src/agents/agents.test.ts
+steps:
+- Добавить комментарий с полным примером `npx tsx scripts/scaffold-agents.ts ...`.
+- Указать ожидаемые аргументы и целевые пути под src/agents.
+deps:
+- ATM-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

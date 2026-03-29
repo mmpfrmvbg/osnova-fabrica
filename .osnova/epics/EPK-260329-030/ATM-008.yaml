@@ -1,0 +1,23 @@
+id: ATM-008
+epic: EPK-260329-030
+seq: 8
+zone: pipeline
+risk: HIGH
+executor: qwen
+goal: Обновить импорты и точки входа в src/pipeline/pipeline.ts под заглушки без компиляционного
+  цикла.
+scope: src/pipeline/pipeline.ts — импорты Intake/Plan/Exec и фасад Pipeline
+notouch:
+- src/pipeline/gateChecker.ts
+- src/pipeline/shadowMode.ts
+done: npx vitest run src/pipeline/pipeline.test.ts
+steps:
+- Зафиксировать пути к агентам согласно scaffold-выходу.
+- Сохранить делегирование в runPipelineOrchestrator и runPipelineWithExecAgent.
+deps:
+- ATM-004
+- ATM-007
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

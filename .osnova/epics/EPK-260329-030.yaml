@@ -1,0 +1,25 @@
+t: EPK
+id: EPK-260329-030
+goal: 'Корневая причина retry-exhausted: новый подход — прямая запись заглушек agents/pipeline
+  через scaffold-скрипт, минуя TypeScript-компилятор'
+scope:
+- scripts/scaffold-agents.ts
+- scripts/scaffold-pipeline.ts
+- src/agents/intake-agent.ts
+- src/agents/plan-agent.ts
+- src/agents/exec-agent.ts
+- src/pipeline/pipeline.ts
+- src/pipeline/pipeline.test.ts
+- src/agents/agents.test.ts
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+  - ATM-005
+- - ATM-006
+  - ATM-007
+- - ATM-008
+done: npx vitest run src/agents/ && npx vitest run src/pipeline/
+priority: P0
+githubissue: 97

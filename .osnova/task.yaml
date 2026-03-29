@@ -1,20 +1,24 @@
-id: ATM-EPK-260329-028-001
-epic: EPK-260329-028
+id: ATM-001
+epic: EPK-260327-001
 seq: 1
-zone: types
+zone: lang
 risk: LOW
 executor: cursor
-goal: Определить типы и константы для CLI resolver/check (exit codes, режимы dry-run/apply)
-scope: src/tools/blocker-types.ts — базовые типы без IO
+goal: Реализовать регрессионные тесты для операции % в src/compiler/vm.test.ts
+scope:
+- src/compiler/vm.test.ts
+- src/compiler/vm.ts
 notouch:
-- src/pipeline/blocker-resolver.ts
-- src/pipeline/executor.ts
-done: npx vitest run scripts/blocker-resolver.test.ts -t "blocker-types"
-steps:
-- Создать src/tools/blocker-types.ts с типами режимов и кодов завершения
-- Не импортировать executor/state IO
+- .github/
+- infra/
+- deploy/
+- Cargo.lock
+done: npx vitest run src/compiler/ && npx vitest run src/agents/
+steps: []
 deps: []
 maxiter: 3
 retries: 0
-status: PENDING
-priority: P0
+status: in_progress
+priority: P2
+max_retries: 3
+review_base_sha: a23909e8bf464a5fb5f9215adb1341960697dc56

@@ -4,6 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { validateEnv } from './env';
+import { resetLLMProvider } from './llm/index.js';
+import { QwenCliProvider } from './llm/QwenCliProvider.js';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -23,14 +25,19 @@ describe('validateEnv', () => {
 
   beforeEach(() => {
     restoreEnv();
+    resetLLMProvider();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('EXIT');
+    });
+    vi.spyOn(QwenCliProvider.prototype, 'checkHealth').mockResolvedValue({
+      available: true,
     });
   });
 
   afterEach(() => {
-    exitSpy.mockRestore();
+    vi.restoreAllMocks();
     restoreEnv();
+    resetLLMProvider();
   });
 
   it('проходит при qwen-cli (default)', async () => {

@@ -1,0 +1,22 @@
+id: ATM-006
+epic: EPK-260329-030
+seq: 6
+zone: agents
+risk: MEDIUM
+executor: qwen
+goal: Выровнять src/agents/plan-agent.ts под прямую генерацию scaffold без промежуточного
+  tsc.
+scope: src/agents/plan-agent.ts — минимальные compile/plan хуки
+notouch:
+- src/agents/OsnovaCodegen.ts
+- src/agents/RepairEngineer.ts
+done: npx vitest run src/agents/plan-agent.test.ts
+steps:
+- Проверить импорты plan-agent из pipeline и exec-agent.
+- Сохранить экспорт compileOsnovaSource и PlanAgent без циклов на codegen.
+deps:
+- ATM-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0
