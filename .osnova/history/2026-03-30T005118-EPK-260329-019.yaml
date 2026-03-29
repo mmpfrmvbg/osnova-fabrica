@@ -1,0 +1,64 @@
+epic: EPK-260329-019
+summary:
+  status: BLK
+  passrate: 0.0
+  atomsdone: 0
+  atomstotal: 3
+results:
+- v: 5
+  t: RPT
+  id: ATM-003
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 8
+    totalLinesAdded: 4
+    totalLinesRemoved: 4
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+  err: "cherry-pick conflict: error: Your local changes to the following files would\
+    \ be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes or\
+    \ stash them before you merge.\nAborting\nfatal: cherry-pick failed"
+- v: 5
+  t: RPT
+  id: ATM-004
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 6
+    totalLinesAdded: 6
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'PASS: Добавлена конфигурация resolve.alias для vitest, что исправляет
+      проблему с импортами в тестах.; done command failed: 1'
+    elapsed: 13
+- v: 5
+  t: RPT
+  id: ATM-005
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 49
+    totalLinesAdded: 49
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 18
+    scope_lines_changed: true
+    skip_reason: null
+  err: "cherry-pick conflict: error: Your local changes to the following files would\
+    \ be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes or\
+    \ stash them before you merge.\nAborting\nfatal: cherry-pick failed"
+createdat: '2026-03-30T00:51:18.148316+03:00'
