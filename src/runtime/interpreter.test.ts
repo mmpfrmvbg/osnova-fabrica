@@ -79,7 +79,12 @@ describe("Interpreter + OpCode stack ops", () => {
       const v = await ip.runProcedure(0, []);
       expect(v).toBe(1);
       const empty = tinyMod([{ op: "pop" } as RawInstruction]);
-      await expect(new Interpreter(empty).runProcedure(0, [])).rejects.toThrow(InterpreterError);
+      await expect(new Interpreter(empty).runProcedure(0, [])).rejects.toMatchObject({
+        name: "InterpreterError",
+        message: "Stack underflow on pop",
+        op: "pop",
+        pc: 0,
+      });
     });
   });
 
@@ -134,7 +139,21 @@ describe("Interpreter + OpCode stack ops", () => {
         [1, 0],
       );
       await expect(new Interpreter(divZero).runProcedure(0, [])).rejects.toMatchObject({
-        message: expect.stringContaining("Division by zero"),
+        name: "InterpreterError",
+        message: "Division by zero",
+        op: "div",
+        pc: 2,
+      });
+    });
+
+    it("неверный op: InterpreterError с message, pc и полем op (vm-crash контракт)", async () => {
+      const badOp = "unknown_opcode_for_test" as RawInstruction["op"];
+      const m = tinyMod([{ op: badOp } as RawInstruction]);
+      await expect(new Interpreter(m).runProcedure(0, [])).rejects.toMatchObject({
+        name: "InterpreterError",
+        message: `Unknown op: ${badOp}`,
+        op: badOp,
+        pc: 0,
       });
     });
   });
@@ -359,9 +378,14 @@ describe("Interpreter + OpCode stack ops", () => {
       expect(ip.exceptionHandlers.length).toBe(0);
     });
 
-    it("необработанный THROW → InterpreterError", async () => {
+    it("необработанный THROW → InterpreterError (сообщение, op, pc)", async () => {
       const m = tinyMod([{ op: OpCode.PUSH, type: "str", k: 0 } as RawInstruction, { op: OpCode.THROW } as RawInstruction], ["x"]);
-      await expect(new Interpreter(m).runProcedure(0, [])).rejects.toMatchObject({ name: "InterpreterError" });
+      await expect(new Interpreter(m).runProcedure(0, [])).rejects.toMatchObject({
+        name: "InterpreterError",
+        message: "Необработанное исключение: x",
+        op: "throw",
+        pc: 1,
+      });
     });
 
     it("try_begin фиксирует глубину кадров; throw подрезает лишние call-фреймы до catch", async () => {

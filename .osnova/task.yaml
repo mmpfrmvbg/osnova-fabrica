@@ -1,20 +1,21 @@
-id: ATM-006
+id: ATM-007
 epic: EPK-260329-022
-seq: 6
+seq: 7
 zone: runtime
 risk: LOW
 executor: cursor
-goal: OsVbcVM integration — invoke/native edge cases и лимиты шагов в vm.test.
+goal: Interpreter.test — спек на InterpreterError и сообщения для типовых сбоев (vm-crash
+  контракт).
 scope:
-- src/runtime/vm.test.ts — invoke handlers и maxSteps
+- src/runtime/interpreter.test.ts — ошибки интерпретации
 notouch:
-- src/runtime/vm/index.ts
-done: npx vitest run src/runtime/vm.test.ts
+- src/runtime/interpreter.ts
+done: npx vitest run src/runtime/interpreter.test.ts
 steps:
-- Расширить describe OsVbcVM integration новыми it для createDefaultInvokeHandler.
-- Покрыть ошибочный invoke и нормальный return path.
+- Найти существующие кейсы ошибок.
+- Добавить тесты на текст/код ошибки при делении на ноль или неверном op если применимо.
 deps:
-- ATM-003
+- ATM-006
 maxiter: 3
 retries: 0
 status: PENDING
