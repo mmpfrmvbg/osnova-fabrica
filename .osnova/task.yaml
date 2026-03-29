@@ -1,21 +1,20 @@
-id: ATM-005
+id: ATM-006
 epic: EPK-260329-022
-seq: 5
-zone: compiler
+seq: 6
+zone: runtime
 risk: LOW
 executor: cursor
-goal: Codegen regression для вызовов/ветвлений — отдельные it в codegen.test.
+goal: OsVbcVM integration — invoke/native edge cases и лимиты шагов в vm.test.
 scope:
-- src/compiler/codegen.test.ts — call/branch coverage
+- src/runtime/vm.test.ts — invoke handlers и maxSteps
 notouch:
-- src/compiler/parser.ts
-done: npx vitest run src/compiler/codegen.test.ts
+- src/runtime/vm/index.ts
+done: npx vitest run src/runtime/vm.test.ts
 steps:
-- Добавить тесты на цепочку call и простую условную логику если поддерживается текущим
-  codegen.
-- Сверить длину code и порядок инструкций.
+- Расширить describe OsVbcVM integration новыми it для createDefaultInvokeHandler.
+- Покрыть ошибочный invoke и нормальный return path.
 deps:
-- ATM-002
+- ATM-003
 maxiter: 3
 retries: 0
 status: PENDING

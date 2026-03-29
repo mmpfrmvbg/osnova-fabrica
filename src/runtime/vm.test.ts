@@ -120,6 +120,56 @@ describe("OsVbcVM integration", () => {
     expect(nativeCalls).toEqual([["a", "b"]]);
   });
 
+  it("createDefaultInvokeHandler: только системный handler — строка.объединить и return path", async () => {
+    const m: OsVbcModule = {
+      version: 1,
+      moduleName: "ДефолтИнвок",
+      constants: ["x", "y"],
+      procedures: [{ name: "главная", codeOffset: 0, argc: 0, localsCount: 0 }],
+      code: [
+        ri("const", { type: "str", k: 0 }),
+        ri("const", { type: "str", k: 1 }),
+        ri("invoke", { name: "система.строка.объединить" }),
+        ri("ret"),
+      ],
+    };
+    const vm = new OsVbcVM(m, { invoke: createDefaultInvokeHandler(), maxSteps: 1000 });
+    expect(await vm.execute()).toBe("xy");
+    expect(vm.getReturnValue()).toBe("xy");
+  });
+
+  it("createDefaultInvokeHandler: неизвестный invoke → InterpreterError до вызова handler", async () => {
+    const m: OsVbcModule = {
+      version: 1,
+      moduleName: "НеизвИнвок",
+      constants: [],
+      procedures: [{ name: "главная", codeOffset: 0, argc: 0, localsCount: 0 }],
+      code: [ri("invoke", { name: "система.__no_such__.invoke" }), ri("ret")],
+    };
+    const vm = new OsVbcVM(m, { invoke: createDefaultInvokeHandler(), maxSteps: 1000 });
+    await expect(vm.execute()).rejects.toMatchObject({
+      name: "InterpreterError",
+      message: expect.stringMatching(/Unknown invoke/),
+    });
+    expect(vm.getReturnValue()).toBeUndefined();
+  });
+
+  it("maxSteps: бесконечный jmp превышает лимит → InterpreterError", async () => {
+    const m: OsVbcModule = {
+      version: 1,
+      moduleName: "МаксШаги",
+      constants: [],
+      procedures: [{ name: "главная", codeOffset: 0, argc: 0, localsCount: 0 }],
+      code: [ri("jmp", { off: 0 })],
+    };
+    const vm = new OsVbcVM(m, { maxSteps: 50 });
+    await expect(vm.execute()).rejects.toMatchObject({
+      name: "InterpreterError",
+      message: expect.stringMatching(/Max steps exceeded/),
+    });
+    expect(vm.getReturnValue()).toBeUndefined();
+  });
+
   it("pipeline: buildPipelineVmGlobals + createPipelineInvokeHandlerForVm (без bytecode invoke)", () => {
     const m: OsVbcModule = {
       version: 1,
