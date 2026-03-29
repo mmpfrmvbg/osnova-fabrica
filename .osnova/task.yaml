@@ -1,22 +1,22 @@
-id: ATM-004
+id: ATM-005
 epic: EPK-260329-024
-seq: 4
+seq: 5
 zone: forge
-risk: MEDIUM
+risk: HIGH
 executor: cursor
-goal: Реализовать чистую фильтрацию списка blockers по закрытым issues и stale-префиксам
-scope: src/pipeline/blocker-resolver.ts — чистые функции без fs
+goal: Добавить executor.ts с безопасным чтением/записью .osnova/state.yaml (atomic
+  write)
+scope: src/pipeline/executor.ts — новый модуль IO для state
 notouch:
 - .osnova/state.yaml
 - scripts/forge-cleanup.ts
-- src/pipeline/executor.ts
-done: npx vitest run src/pipeline/orchestrator.test.ts
+done: npx vitest run src/pipeline/orchestrator.partial.test.ts
 steps:
-- Ввести сигнатуру (entries, closedIssueIds) → pruned[]
-- Сохранить порядок и поля записей где возможно
-- Документировать контракт «stale» для EPK-260328-015/FBK016
+- Реализовать load/save YAML для структуры state v5
+- Не вызывать сеть; только fs path аргумент
+- Обработать отсутствие файла предсказуемо
 deps:
-- ATM-003
+- ATM-004
 maxiter: 3
 retries: 0
 status: PENDING
