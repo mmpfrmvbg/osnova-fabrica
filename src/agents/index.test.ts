@@ -1,0 +1,144 @@
+/**
+ * Тест единого экспортного интерфейса src/agents/index.ts
+ */
+import { describe, it, expect } from 'vitest';
+
+// Проверяем что все экспорты доступны из единой точки импорта
+import {
+  // Классы агентов
+  IntakeAgent,
+  PlanAgent,
+  ExecAgent,
+  ReviewAgent,
+  OsnovaCodegenAgent,
+  RepairEngineerAgent,
+  // Ошибки
+  IntakeValidationError,
+  SpecValidationError,
+  PlanValidationError,
+  // Функции
+  detectAppTypeFromPrefix,
+  parseLlmConfidence,
+  isValidPhaseTransition,
+  compileOsnovaSource,
+  formatCompileFailureMessage,
+  createPipelineVmFromExecContext,
+  safeExecutePipelineVm,
+  // Пространства имён
+  intake,
+  plan,
+  // Компилятор
+  Compiler,
+} from './index';
+
+describe('src/agents/index.ts — единый экспортный интерфейс', () => {
+  describe('Классы агентов экспортированы', () => {
+    it('IntakeAgent — класс', () => {
+      expect(typeof IntakeAgent).toBe('function');
+      expect(new IntakeAgent()).toBeInstanceOf(IntakeAgent);
+    });
+
+    it('PlanAgent — класс', () => {
+      expect(typeof PlanAgent).toBe('function');
+      expect(new PlanAgent()).toBeInstanceOf(PlanAgent);
+    });
+
+    it('ExecAgent — класс', () => {
+      expect(typeof ExecAgent).toBe('function');
+      expect(new ExecAgent()).toBeInstanceOf(ExecAgent);
+    });
+
+    it('ReviewAgent — класс', () => {
+      expect(typeof ReviewAgent).toBe('function');
+      expect(new ReviewAgent()).toBeInstanceOf(ReviewAgent);
+    });
+
+    it('OsnovaCodegenAgent — класс', () => {
+      expect(typeof OsnovaCodegenAgent).toBe('function');
+      expect(new OsnovaCodegenAgent()).toBeInstanceOf(OsnovaCodegenAgent);
+    });
+
+    it('RepairEngineerAgent — класс', () => {
+      expect(typeof RepairEngineerAgent).toBe('function');
+      expect(new RepairEngineerAgent()).toBeInstanceOf(RepairEngineerAgent);
+    });
+  });
+
+  describe('Ошибки экспортированы', () => {
+    it('IntakeValidationError — класс ошибки', () => {
+      expect(typeof IntakeValidationError).toBe('function');
+      expect(new IntakeValidationError('test')).toBeInstanceOf(IntakeValidationError);
+      expect(new IntakeValidationError('test')).toBeInstanceOf(Error);
+    });
+
+    it('SpecValidationError — класс ошибки', () => {
+      expect(typeof SpecValidationError).toBe('function');
+      expect(new SpecValidationError([], 'test')).toBeInstanceOf(SpecValidationError);
+      expect(new SpecValidationError([], 'test')).toBeInstanceOf(Error);
+    });
+
+    it('PlanValidationError — класс ошибки', () => {
+      expect(typeof PlanValidationError).toBe('function');
+      expect(new PlanValidationError('test')).toBeInstanceOf(PlanValidationError);
+      expect(new PlanValidationError('test')).toBeInstanceOf(Error);
+    });
+  });
+
+  describe('Функции экспортированы', () => {
+    it('detectAppTypeFromPrefix — функция', () => {
+      expect(typeof detectAppTypeFromPrefix).toBe('function');
+      expect(detectAppTypeFromPrefix('алгоритм: тест')).toBe('алгоритм');
+    });
+
+    it('parseLlmConfidence — функция', () => {
+      expect(typeof parseLlmConfidence).toBe('function');
+      expect(parseLlmConfidence(0.9)).toBe(0.9);
+      expect(parseLlmConfidence('0.8')).toBe(0.8);
+    });
+
+    it('isValidPhaseTransition — функция', () => {
+      expect(typeof isValidPhaseTransition).toBe('function');
+      expect(isValidPhaseTransition('intake', 'spec_generation')).toBe(true);
+      expect(isValidPhaseTransition('intake', 'codegen')).toBe(false);
+    });
+
+    it('compileOsnovaSource — функция', () => {
+      expect(typeof compileOsnovaSource).toBe('function');
+    });
+
+    it('formatCompileFailureMessage — функция', () => {
+      expect(typeof formatCompileFailureMessage).toBe('function');
+    });
+
+    it('createPipelineVmFromExecContext — функция', () => {
+      expect(typeof createPipelineVmFromExecContext).toBe('function');
+    });
+
+    it('safeExecutePipelineVm — функция', () => {
+      expect(typeof safeExecutePipelineVm).toBe('function');
+    });
+  });
+
+  describe('Пространства имён экспортированы', () => {
+    it('intake — пространство имён', () => {
+      expect(intake).toBeDefined();
+      expect(typeof intake).toBe('object');
+      expect(intake.IntakeAgent).toBeDefined();
+      expect(intake.detectAppTypeFromPrefix).toBeDefined();
+    });
+
+    it('plan — пространство имён', () => {
+      expect(plan).toBeDefined();
+      expect(typeof plan).toBe('object');
+      expect(plan.PlanAgent).toBeDefined();
+      expect(plan.Compiler).toBeDefined();
+    });
+  });
+
+  describe('Компилятор экспортирован', () => {
+    it('Compiler — класс', () => {
+      expect(typeof Compiler).toBe('function');
+      expect(new Compiler()).toBeInstanceOf(Compiler);
+    });
+  });
+});

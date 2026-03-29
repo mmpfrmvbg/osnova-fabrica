@@ -14,11 +14,21 @@ steps:
 - Экспортировать типы и интерфейсы
 - Добавить документацию
 deps:
-- 2
-- 3
-- 4
-- 5
+- ATM-EPK-260328-015-002
+- ATM-EPK-260328-015-003
+- ATM-EPK-260328-015-004
+- ATM-EPK-260328-015-005
 maxiter: 3
-retries: 0
-status: PENDING
+retries: 1
+status: blk
 priority: P1
+max_retries: 3
+review_base_sha: 794b70d245fe9fa6483167bcbf5d45e2b9d3847a
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: Diff пуст — изменения не внесены, цель не достигнута; FAIL
+    on diff review (done not re-run)'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: Diff пуст — изменения не внесены, цель не достигнута; FAIL on
+  diff review (done not re-run)'
