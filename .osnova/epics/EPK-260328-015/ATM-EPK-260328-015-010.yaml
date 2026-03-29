@@ -14,8 +14,11 @@ steps:
 - Протестировать passrate > 0.8
 - Добавить тесты взаимодействия всех компонентов
 deps:
-- 9
+- ATM-EPK-260328-015-009
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: 4ef26934bea636f841140d1bb057e5a14604d31f
+produced_files: []
