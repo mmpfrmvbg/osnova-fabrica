@@ -270,6 +270,9 @@ export function buildPipelineVmGlobals(spec: OsnovaSpec): Record<string, StackVa
  * ({@link import("../agents/exec-agent").ExecContext}), чтобы VM не дублировала структуру спецификации и читала один источник правды,
  * что и оркестратор.
  *
+ * @see {@link buildPipelineVmGlobals} — какие поля {@link OsnovaSpec} кладутся в {@link OsVbcVM.globals} и под какими ключами
+ * ({@link PIPELINE_VM_GLOBAL_KEYS}).
+ *
  * @param vm — экземпляр VM; мутирует только {@link OsVbcVM.globals}.
  * @param spec — спецификация задачи (intake / pipeline).
  * @returns Ничего (`void`).

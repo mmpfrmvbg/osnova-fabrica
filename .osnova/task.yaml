@@ -1,10 +1,10 @@
-id: ATM-EPK-260328-FBK016-005
+id: ATM-EPK-260328-FBK016-006
 epic: EPK-260328-FBK016
-seq: 5
+seq: 6
 zone: lang
 risk: MEDIUM
 executor: cursor
-goal: Документировать PIPELINE_VM_GLOBAL_KEYS константу в src/runtime/vm.ts
+goal: Документировать функцию applyPipelineSpecToVm в src/runtime/vm.ts
 scope:
 - src/runtime/vm.ts
 notouch:
@@ -14,9 +14,9 @@ notouch:
 - apps/
 done: npx vitest run src/agents/ && npx vitest run src/pipeline/
 steps:
-- Найти объявление PIPELINE_VM_GLOBAL_KEYS
-- Добавить JSDoc с описанием каждого ключа
-- Указать назначение для пайплайна агентов
+- Найти функцию applyPipelineSpecToVm
+- Добавить JSDoc с параметрами, возвращаемым значением
+- Описать связь с OsnovaSpec
 deps:
 - ATM-EPK-260328-FBK016-001
 maxiter: 3
@@ -24,4 +24,4 @@ retries: 0
 status: in_progress
 priority: P2
 max_retries: 3
-review_base_sha: 63e5b8ee16c75701f76ecbe7a6787276d79aece4
+review_base_sha: e82ddf83592676d573822289c667f47cf7bebf5d
