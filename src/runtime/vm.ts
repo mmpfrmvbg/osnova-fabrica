@@ -22,6 +22,30 @@
 
 import { Interpreter, InterpreterError } from "./interpreter";
 import type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";
+
+/** Сообщение при повторном входе в {@link OsVbcVM.execute}, пока идёт прогон (единый текст для throw и пайплайна). */
+export const VM_ERROR_CONCURRENT_EXECUTE =
+  "VM.execute: параллельный запуск запрещён — дождитесь завершения предыдущего прогона";
+
+/** Текст таймаута wall-clock для {@link OsVbcVM.execute} (совпадает с {@link runWithTimeout}). */
+export function vmExecuteTimeoutMessage(timeoutMs: number, procedure: string): string {
+  return `VM.execute: превышен лимит времени (${timeoutMs} мс), процедура «${procedure}»`;
+}
+
+/**
+ * Единый текст ошибки VM для {@link safeExecutePipelineVm}, логов и отчётов пайплайна.
+ * Для {@link InterpreterError} добавляет `op` и `pc`, чтобы совпадать с диагностикой интерпретатора.
+ */
+export function formatVmRuntimeError(err: unknown): string {
+  if (err instanceof InterpreterError) {
+    const parts: string[] = [err.message];
+    if (err.op !== undefined) parts.push(`op=${err.op}`);
+    if (err.pc !== undefined) parts.push(`pc=${err.pc}`);
+    return parts.join(" ");
+  }
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
 import type { OsnovaSpec } from "../pipeline/types";
 import { isOsVbcModule, type OsVbcModule } from "./vm/bytecode";
 import { createDefaultInvokeHandler } from "./vm/interpreter";
@@ -92,8 +116,7 @@ export async function safeExecutePipelineVm(
     const returnValue = await vm.execute(opts);
     return { ok: true, returnValue };
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    return { ok: false, error, cause: err };
+    return { ok: false, error: formatVmRuntimeError(err), cause: err };
   }
 }
 
@@ -285,9 +308,7 @@ export class OsVbcVM {
    */
   async execute(opts: OsVbcExecuteOptions = {}): Promise<StackValue | undefined> {
     if (this.executing) {
-      throw new InterpreterError(
-        "VM.execute: параллельный запуск запрещён — дождитесь завершения предыдущего прогона",
-      );
+      throw new InterpreterError(VM_ERROR_CONCURRENT_EXECUTE);
     }
     this.executing = true;
     const t0 = Date.now();
@@ -320,11 +341,7 @@ export class OsVbcVM {
       let run = this.interpreter.runProcedure(procedureIndex, args);
       const { timeoutMs } = opts;
       if (timeoutMs !== undefined && Number.isFinite(timeoutMs) && timeoutMs > 0) {
-        run = runWithTimeout(
-          run,
-          timeoutMs,
-          `VM.execute: превышен лимит времени (${timeoutMs} мс), процедура «${procedure}»`,
-        );
+        run = runWithTimeout(run, timeoutMs, vmExecuteTimeoutMessage(timeoutMs, procedure));
       }
 
       try {

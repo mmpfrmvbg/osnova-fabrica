@@ -1,22 +1,22 @@
-id: ATM-EPK-260329-025-005
+id: ATM-EPK-260329-025-006
 epic: EPK-260329-025
-seq: 5
+seq: 6
 zone: runtime
-risk: HIGH
+risk: MED
 executor: cursor
-goal: Устранить блокеры исполнения VM (основной цикл и инварианты стека).
-scope: src/runtime/vm.ts — ядро интерпретатора и syscall-диспетчер
+goal: Закрыть оставшиеся блокеры VM (прерывания, границы кадров, ошибки рантайма).
+scope: src/runtime/vm.ts — вторичные пути и обработка ошибок
 notouch:
-- src/compiler/index.ts
-- src/pipeline/types.ts
-- src/pipeline-llm/runner.ts
-done: npx vitest run src/runtime/vm.test.ts
+- src/pipeline/executor.ts
+- src/agents/base.ts
+- .tmp/diagnostics.log
+done: npx vitest run src/runtime/interpreter.test.ts
 steps:
-- Воспроизвести сбои из трасс на минимальных программах.
-- Исправить нарушения инвариантов без изменения контракта байткода.
-- Сверить с compiler/vm при необходимости только чтением.
+- Пройти хвост списка блокеров, завязанный на vm.ts.
+- Унифицировать тексты/коды ошибок для пайплайна и логов.
+- Не трогать parser/compiler кроме импортов типов при необходимости.
 deps:
-- ATM-EPK-260329-025-004
+- ATM-EPK-260329-025-005
 maxiter: 3
 retries: 0
 status: PENDING
