@@ -304,6 +304,40 @@ describe('оркестрация — ошибки агентов и gates (фа�
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/G1 failed/);
   }, 20000);
+
+  it('Pipeline.run: G1 (пустые features у intent) → error', async () => {
+    vi.spyOn(IntakeAgent.prototype, 'parseIntent').mockResolvedValueOnce({
+      intentId: 'g1-test-pipeline',
+      description: 'тест',
+      features: [],
+      appType: 'утилита',
+      constraints: {},
+      confidence: 0.9,
+    } as OsnovaIntent);
+    const result = await new Pipeline().run('тест G1 pipeline');
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/G1 failed/);
+  }, 20000);
+
+  it('Pipeline.run и runPipelineWithExecAgent: generateSpec отклоняется → error', async () => {
+    const spy = vi
+      .spyOn(IntakeAgent.prototype, 'generateSpec')
+      .mockRejectedValueOnce(new Error('spec gen fail'));
+    const r1 = await new Pipeline().run('задача');
+    expect(r1.status).toBe('error');
+    expect(r1.error).toContain('spec gen fail');
+    spy.mockRejectedValueOnce(new Error('spec gen fail'));
+    const r2 = await runPipelineWithExecAgent('задача');
+    expect(r2.status).toBe('error');
+    expect(r2.error).toContain('spec gen fail');
+  }, 20000);
+
+  it('runPipelineWithExecAgent: OsnovaCodegenAgent.generate отклоняется → error', async () => {
+    vi.spyOn(OsnovaCodegenAgent.prototype, 'generate').mockRejectedValueOnce(new Error('codegen fail exec'));
+    const result = await runPipelineWithExecAgent('посчитай сумму от 1 до 10');
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('codegen fail exec');
+  }, 20000);
 });
 
 // ─── Фабрики для gate / health (поля совпадают с gateChecker.test, имена привязаны к types) ───

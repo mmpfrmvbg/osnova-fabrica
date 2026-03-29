@@ -16,8 +16,11 @@ steps:
 - добавить тесты на обработку ошибок агентов
 - запустить npx vitest run src/pipeline/pipeline.test.ts
 deps:
-- ATM-006
+- ATM-EPK-260328-017-006
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: 0ee062680200eddad391269e582904226b0d1bef
+produced_files: []
