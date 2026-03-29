@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-30T00:25:49.876636+03:00'
+updatedat: '2026-03-30T00:29:05.971411+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -8,17 +8,17 @@ epicprogress:
   blocked: 0
   current: null
 sessionstats:
-  epicsreceived: 38
+  epicsreceived: 39
   epicsdone: 26
-  epicsblocked: 12
-  atomstotal: 267
+  epicsblocked: 13
+  atomstotal: 270
   atomsdone: 187
-  atomsblocked: 80
-  passrate: 0.700374531835206
+  atomsblocked: 83
+  passrate: 0.6925925925925925
 ci:
-  lastrun: '2026-03-30T00:25:46.255322+03:00'
-  laststatus: partial
-  passrate7d: 0.57
+  lastrun: '2026-03-30T00:29:02.145995+03:00'
+  laststatus: blk
+  passrate7d: 0.5554
   openblockerissues: 0
   lastepicissue: null
 brainsource: github
@@ -47,14 +47,12 @@ recent:
   - src/runtime/index.ts
   - src/agents/index.ts
   - src/pipeline/index.ts
-  result: partial
-  status: partial
-  passrate: 0.25
-  updated: '2026-03-30T00:25:46.255215+03:00'
+  result: retry-exhausted
+  status: blk
+  passrate: 0.0
+  updated: '2026-03-30T00:29:02.145868+03:00'
   atm_review:
-    ok_scope_changed: 1
-    blk: 1
-    other_status: 2
+    other_status: 3
 - epic: EPK-260328-FBK016
   scope:
   - src/runtime/vm.ts
@@ -491,6 +489,7 @@ codebase:
   - src/runtime/frame.ts
   - src/runtime/goldenApps.test.ts
   - src/runtime/goldenApps.ts
+  - src/runtime/index.test.ts
   - src/runtime/index.ts
   - src/runtime/interpreter.test.ts
   - src/runtime/interpreter.ts

@@ -20,7 +20,7 @@ retries: 0
 status: merge_conflict
 priority: P0
 max_retries: 3
-review_base_sha: 572e6710c8ebfeaf10a259d982a18fed0a5e04a4
+review_base_sha: fbc166706feba70a2f5612dd365ed34e4588e9b8
 produced_files: []
 last_failure: "cherry-pick conflict: error: Your local changes to the following files\
   \ would be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes\
