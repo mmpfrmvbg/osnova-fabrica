@@ -18,5 +18,5 @@ deps:
 - ATM-006
 maxiter: 3
 retries: 0
-status: PENDING
+status: DONE
 priority: P0

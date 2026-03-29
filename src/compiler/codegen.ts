@@ -3,13 +3,14 @@
  * Stack Convention v0.1: push arg0, push arg1, op → result on stack.
  */
 
-import type { OsVbcModule, RawInstruction } from "../runtime/vm/bytecode";
+import type { Op, OsVbcModule, RawInstruction } from "../runtime/vm/bytecode";
 import type { Program, Module, Procedure, Stmt, Expr } from "./ast";
 import { logger } from "../logger";
 
 const log = logger("codegen");
 
-const BINARY_OP: Record<string, RawInstruction["op"]> = {
+/** Значения — только из {@link Op}; иначе VM выдаст Unknown op в interpretInstruction. */
+const BINARY_OP: Record<string, Op> = {
   "+": "add",
   "-": "sub",
   "*": "mul",
@@ -200,7 +201,11 @@ export function compile(ast: Module): OsVbcModule {
           }
           emitExpr(expr.left, l);
           emitExpr(expr.right, l);
-          emit({ op: BINARY_OP[expr.op] } as RawInstruction);
+          const binOp = BINARY_OP[expr.op];
+          if (binOp === undefined) {
+            throw new Error(`Неподдерживаемый бинарный оператор: ${expr.op}`);
+          }
+          emit({ op: binOp } as RawInstruction);
           break;
         }
         case "унарное":

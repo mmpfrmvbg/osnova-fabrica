@@ -1,23 +1,22 @@
-id: ATM-006
+id: ATM-007
 epic: EPK-260329-020
-seq: 6
+seq: 7
 zone: compiler
 risk: MED
 executor: cursor
-goal: Свести публичный вход компилятора (barrel/index) к одному контракту для codegen
-  и VM
-scope: src/compiler/index.ts — реэкспорт compile/codegen API
+goal: Убрать blockers генерации байткода/опкодов, влияющие на VM
+scope: src/compiler/codegen.ts — эмиссия инструкций и метаданные
 notouch:
+- src/runtime/vm.ts
 - src/compiler/parser.ts
-- src/compiler/lexer.ts
-done: npx vitest run src/compiler/compiler.test.ts
+done: npx vitest run src/compiler/codegen.test.ts
 steps:
-- Если файла нет — создать index с явными реэкспортами из compiler.ts/codegen.ts
-- Убрать дублирующие пути импорта внутри src/compiler
-- Проверить compiler.test на импорт с индекса
+- Локализовать падающие кейсы через codegen.test
+- Исправить генерацию для согласованности с vm op table
+- Не менять семантику вне failing кейсов
 deps:
-- ATM-005
+- ATM-006
 maxiter: 3
 retries: 0
-status: PENDING
+status: DONE
 priority: P0
