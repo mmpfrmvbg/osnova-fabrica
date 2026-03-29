@@ -1,0 +1,22 @@
+id: ATM-010
+epic: EPK-260329-020
+seq: 10
+zone: runtime
+risk: MED
+executor: qwen
+goal: Выровнять высокоуровневый interpreter с семантикой и VM
+scope: src/runtime/interpreter.ts — вызовы VM, обработка ошибок, встроенные
+notouch:
+- src/runtime/ui.ts
+- src/runtime/cli.ts
+done: npx vitest run src/runtime/interpreter.test.ts
+steps:
+- Пройти interpreter.test и классифицировать сбои
+- Синхронизировать с контрактом vm.ts
+- Избегать дублирования логики с vm-runner
+deps:
+- ATM-009
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

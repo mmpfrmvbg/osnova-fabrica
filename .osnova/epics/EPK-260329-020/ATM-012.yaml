@@ -1,0 +1,22 @@
+id: ATM-012
+epic: EPK-260329-020
+seq: 12
+zone: agents
+risk: MED
+executor: qwen
+goal: Починить выполнение шагов плана и I/O агента, блокирующие пайплайн
+scope: src/agents/executor.ts — runStep, таймауты, передача контекста
+notouch:
+- src/pipeline/orchestrator.ts
+- src/steward/
+done: npx vitest run src/agents/plan-agent.test.ts
+steps:
+- Сопоставить executor с pipeline types из ATM-004/005
+- Исправить гонки и неверные await
+- Узкий прогон plan-agent
+deps:
+- ATM-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

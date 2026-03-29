@@ -1,0 +1,22 @@
+id: ATM-013
+epic: EPK-260329-020
+seq: 13
+zone: agents
+risk: MED
+executor: qwen
+goal: Закрыть intake/repair путь, завязанный на executor и компилятор
+scope: src/agents/executor.ts — repair hooks и передача артефактов
+notouch:
+- src/compiler/parser.ts
+- src/pipeline-llm/
+done: npx vitest run src/agents/RepairEngineer.test.ts
+steps:
+- Проверить RepairEngineer.test на регрессии после executor
+- Согласовать пути к compiler/runtime entry
+- Минимальные правки интерфейсов
+deps:
+- ATM-012
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

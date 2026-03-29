@@ -1,0 +1,22 @@
+id: ATM-014
+epic: EPK-260329-020
+seq: 14
+zone: integration
+risk: LOW
+executor: qwen
+goal: Финальная приёмка зоны эпика — intake согласован с типами пайплайна
+scope: src/pipeline/types.ts — последние поля для agent payloads
+notouch:
+- golden-tests.json
+- docs/golden-schema.md
+done: npx vitest run src/agents/intake-agent.test.ts
+steps:
+- Прогнать intake-agent.test
+- При необходимости добавить узкие поля в types для intake
+- Не расширять scope за пределы эпика
+deps:
+- ATM-013
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

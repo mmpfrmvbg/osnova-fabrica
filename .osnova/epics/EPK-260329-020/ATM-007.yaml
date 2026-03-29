@@ -1,0 +1,22 @@
+id: ATM-007
+epic: EPK-260329-020
+seq: 7
+zone: compiler
+risk: MED
+executor: qwen
+goal: Убрать blockers генерации байткода/опкодов, влияющие на VM
+scope: src/compiler/codegen.ts — эмиссия инструкций и метаданные
+notouch:
+- src/runtime/vm.ts
+- src/compiler/parser.ts
+done: npx vitest run src/compiler/codegen.test.ts
+steps:
+- Локализовать падающие кейсы через codegen.test
+- Исправить генерацию для согласованности с vm op table
+- Не менять семантику вне failing кейсов
+deps:
+- ATM-006
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

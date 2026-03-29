@@ -1,0 +1,22 @@
+id: ATM-009
+epic: EPK-260329-020
+seq: 9
+zone: runtime
+risk: MED
+executor: qwen
+goal: Устранить расхождения исполнителя стека/фреймов с codegen
+scope: src/runtime/vm.ts — dispatch, опкоды, границы ошибок
+notouch:
+- src/runtime/runner.ts
+- src/runtime/sandbox.ts
+done: npx vitest run src/runtime/vm.test.ts
+steps:
+- Сверить порядок опкодов с codegen
+- Исправить vm по падениям vm.test
+- Добавить минимальную диагностику только если тест требует
+deps:
+- ATM-008
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

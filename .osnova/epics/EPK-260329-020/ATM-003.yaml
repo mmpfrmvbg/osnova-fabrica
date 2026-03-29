@@ -1,0 +1,22 @@
+id: ATM-003
+epic: EPK-260329-020
+seq: 3
+zone: toolchain
+risk: LOW
+executor: qwen
+goal: Согласовать пул тестов, exclude и coverage с зоной src/ из эпика
+scope: vitest.config.ts — include/exclude/coverage thresholds для compiler/runtime/agents
+notouch:
+- apps/osiris/vitest.config.ts
+- vitest.e2e.config.ts
+done: npx vitest run src/env.test.ts
+steps:
+- Проверить что src/agents и src/pipeline не отфильтрованы ошибочно
+- Подправить exclude/include при необходимости
+- Прогнать один быстрый тест из src/
+deps:
+- ATM-002
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

@@ -1,0 +1,22 @@
+id: ATM-001
+epic: EPK-260329-020
+seq: 1
+zone: toolchain
+risk: MED
+executor: qwen
+goal: Стабилизировать компиляторные опции и пути резолва под корневые blockers EPK-260328-015/FBK016
+scope: tsconfig.json — выровнять moduleResolution, paths, include/exclude без регрессий
+notouch:
+- package.json
+- vitest.config.ts
+- apps/
+done: npx vitest run tsconfig.test.ts
+steps:
+- Сверить текущие ошибки tsc/vitest с tsconfig
+- Минимально поправить compilerOptions и paths
+- Прогнать узкий тест и полный tsc если нужно
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

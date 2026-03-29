@@ -1,0 +1,22 @@
+id: ATM-004
+epic: EPK-260329-020
+seq: 4
+zone: pipeline
+risk: MED
+executor: qwen
+goal: Устранить рассинхрон типов стадий и статусов, блокирующий оркестратор
+scope: src/pipeline/types.ts — контракты Stage/Run/ошибок
+notouch:
+- src/pipeline/orchestrator.ts
+- apps/osiris/
+done: npx vitest run src/pipeline/types.test.ts
+steps:
+- Сопоставить types с фактическими полями в orchestrator/executor
+- Внести минимальные правки union/interface
+- Обновить узкие type-level ожидания в тестах при необходимости
+deps:
+- ATM-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

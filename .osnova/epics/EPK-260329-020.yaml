@@ -1,0 +1,27 @@
+t: EPK
+id: EPK-260329-020
+goal: Корневая диагностика и устранение 14 открытых blockers из EPK-260328-015 и FBK016
+scope:
+- src/compiler/index.ts
+- src/compiler/codegen.ts
+- src/runtime/vm.ts
+- src/runtime/interpreter.ts
+- src/pipeline/types.ts
+- src/agents/base.ts
+- src/agents/executor.ts
+- tsconfig.json
+- package.json
+- vitest.config.ts
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+  - ATM-005
+- - ATM-006
+  - ATM-007
+  - ATM-008
+- - ATM-009
+done: npx vitest run src/
+priority: P0
+githubissue: 87

@@ -1,0 +1,22 @@
+id: ATM-002
+epic: EPK-260329-020
+seq: 2
+zone: toolchain
+risk: MED
+executor: qwen
+goal: Выровнять скрипты, зависимости и engines под пайплайн и агентов
+scope: package.json — scripts/deps/engines для src/compiler, src/runtime, src/agents
+notouch:
+- apps/osiris/package.json
+- pnpm-lock.yaml
+done: npx vitest run package.test.ts
+steps:
+- Найти расхождения версий и скриптов с фактическим импортом
+- Обновить только необходимые поля
+- Убедиться что install не ломает корневой vitest
+deps:
+- ATM-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0
