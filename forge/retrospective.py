@@ -21,7 +21,21 @@ except ImportError:  # pragma: no cover
 LOG = setup_logging("retrospective")
 
 
-def _update_project_state(epic: dict[str, Any], atom_total: int, atom_ok: int, atom_blk: int) -> None:
+def _update_project_state(
+    epic: dict[str, Any],
+    atom_total: int,
+    atom_ok: int,
+    atom_blk: int,
+    *,
+    results: list[dict[str, Any]],
+    summary: dict[str, Any],
+    status: str,
+) -> None:
+    try:
+        from forge.state_epic_tail import merge_epic_tail_into_state_before_write
+    except ImportError:  # pragma: no cover
+        from state_epic_tail import merge_epic_tail_into_state_before_write
+
     project = Path(env_paths()["OSNOVA_PROJECT"])
     state_path = project / ".osnova" / "state.yaml"
     state = load_yaml(state_path, default={}) or {}
@@ -34,6 +48,7 @@ def _update_project_state(epic: dict[str, Any], atom_total: int, atom_ok: int, a
     stats["atomsblocked"] = int(stats.get("atomsblocked", 0)) + atom_blk
     stats["passrate"] = (stats["atomsdone"] / stats["atomstotal"]) if stats["atomstotal"] else 0.0
     state["currentepic"] = None
+    merge_epic_tail_into_state_before_write(state, project, epic, results, summary, status)
     state["updatedat"] = now_iso()
     atomic_write_yaml(state_path, state)
 
@@ -96,6 +111,13 @@ def finalize_epic(
     summary = {"status": status, "passrate": passrate, "atomsdone": atom_ok, "atomstotal": atom_total}
 
     if skip_session_stats:
+        project_early = Path(env_paths()["OSNOVA_PROJECT"])
+        if not dry_run:
+            try:
+                from forge.state_epic_tail import append_epic_tail_only
+            except ImportError:  # pragma: no cover
+                from state_epic_tail import append_epic_tail_only
+            append_epic_tail_only(project_early, epic, results, summary, status)
         tb, ta = epic_done_tests()
         try:
             hlog(
@@ -130,15 +152,26 @@ def finalize_epic(
     stamp = datetime.now().strftime("%Y-%m-%dT%H%M%S")
     history_path = project / ".osnova" / "history" / f"{stamp}-{epic.get('id')}.yaml"
     atomic_write_yaml(history_path, {"epic": epic.get("id"), "summary": summary, "results": results, "createdat": now_iso()})
-    _update_project_state(epic, atom_total, atom_ok, atom_blk)
+    _update_project_state(
+        epic,
+        atom_total,
+        atom_ok,
+        atom_blk,
+        results=results,
+        summary=summary,
+        status=status,
+    )
 
     latest_path = project / ".osnova" / "meta" / "retrospective-latest.yaml"
     latest = load_yaml(latest_path, default={}) or {}
     brain = (forge_state or {}).get("brain_source") or "idle"
     latest["brain_source"] = brain
     proj_state = load_yaml(project / ".osnova" / "state.yaml", default={}) or {}
-    gha = proj_state.get("gha") or {}
-    ci_pr = gha.get("ci_pass_rate_7d")
+    ci_block = proj_state.get("ci") if isinstance(proj_state.get("ci"), dict) else {}
+    ci_pr = ci_block.get("passrate7d")
+    if ci_pr is None:
+        gha = proj_state.get("gha") or {}
+        ci_pr = gha.get("ci_pass_rate_7d")
     latest.setdefault("daily", {})
     if ci_pr is not None:
         latest["daily"]["ci_pass_rate"] = ci_pr

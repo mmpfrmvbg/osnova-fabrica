@@ -164,7 +164,17 @@ def build_brain_context(project: Path | None = None) -> dict[str, Any]:
     if not isinstance(state, dict):
         state = {}
     stats = state.get("sessionstats") or {}
-    pr = float(stats.get("passrate") or 0.0)
+    ci = state.get("ci") if isinstance(state.get("ci"), dict) else {}
+    pr_ci_raw = ci.get("passrate7d")
+    passrate_from_ci = False
+    if pr_ci_raw is not None:
+        try:
+            pr = float(pr_ci_raw)
+            passrate_from_ci = True
+        except (TypeError, ValueError):
+            pr = float(stats.get("passrate") or 0.0)
+    else:
+        pr = float(stats.get("passrate") or 0.0)
     trend = "stable"
     try:
         hist = sorted((proj / ".osnova" / "history").glob("*.yaml"))
@@ -192,6 +202,9 @@ def build_brain_context(project: Path | None = None) -> dict[str, Any]:
     if not isinstance(cb, dict):
         cb = {}
 
+    recent = state.get("recent") if isinstance(state.get("recent"), list) else []
+    last_scopes = state.get("last_scopes") if isinstance(state.get("last_scopes"), list) else []
+
     return {
         "recent_commits": _git_oneline_log(proj, 20),
         "epics_summary": epics_summary,
@@ -199,6 +212,11 @@ def build_brain_context(project: Path | None = None) -> dict[str, Any]:
         "open_blockers": state.get("blockers") or [],
         "passrate": pr,
         "passrate_trend": trend,
+        "passrate_source": "ci.passrate7d" if passrate_from_ci else "sessionstats.passrate",
+        "session_passrate": float(stats.get("passrate") or 0.0),
+        "ci": ci,
+        "recent": recent,
+        "last_scopes": last_scopes,
         "codebase": cb,
     }
 
@@ -274,10 +292,11 @@ def decide_brain_action(ctx: dict[str, Any], *, project: Path | None = None) -> 
     blockers = ctx.get("open_blockers") or []
     open_n = len(blockers) if isinstance(blockers, list) else 0
 
+    pr_src = str(ctx.get("passrate_source") or "passrate")
     if pr > 0.92 and open_n == 0:
         return {
             "decision": "RESEARCH",
-            "decision_reason": "Высокий passrate и нет blockers — исследовательский EPIC",
+            "decision_reason": f"Высокий {pr_src} ({pr:.2f}) и нет blockers — исследовательский EPIC",
         }
 
     if pr > 0.8 and not any(
@@ -285,7 +304,7 @@ def decide_brain_action(ctx: dict[str, Any], *, project: Path | None = None) -> 
     ):
         return {
             "decision": "NEW",
-            "decision_reason": "Нет активного EPIC с pending; passrate > 0.8",
+            "decision_reason": f"Нет активного EPIC с pending; {pr_src} > 0.8 ({pr:.2f})",
         }
 
     return {
