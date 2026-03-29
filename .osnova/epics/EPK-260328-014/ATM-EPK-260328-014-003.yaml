@@ -15,8 +15,12 @@ steps:
 - Добавить OpCode.MUL — умножение
 - Добавить OpCode.DIV — деление с проверкой на ноль
 deps:
-- 2
+- ATM-EPK-260328-014-002
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: d80a1746f961402e082b414c61abfcbfeff4194f
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'
