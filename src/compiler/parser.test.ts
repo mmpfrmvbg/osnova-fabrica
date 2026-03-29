@@ -408,3 +408,63 @@ describe("parser: покрытие конструкций (AST из токено
   });
 });
 
+describe("parser: переносы строк и восстановление (границы для repair)", () => {
+  it("выражение после бинарного оператора может продолжиться на следующей строке", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  пусть x = 1 +",
+      "    2",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const letStmt = (ast as Program).modules[0]?.procedures[0]?.body.find((s: Stmt) => s.kind === "пусть");
+    expect(letStmt?.kind).toBe("пусть");
+    if (letStmt?.kind !== "пусть") return;
+    expect(letStmt.init).toEqual({
+      kind: "бинарное",
+      op: "+",
+      left: { kind: "число", value: 1 },
+      right: { kind: "число", value: 2 },
+    });
+  });
+
+  it("инициализатор пусть после переноса сразу после '='", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  пусть x =",
+      "    42",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const letStmt = (ast as Program).modules[0]?.procedures[0]?.body.find((s: Stmt) => s.kind === "пусть");
+    expect(letStmt?.kind).toBe("пусть");
+    if (letStmt?.kind !== "пусть") return;
+    expect(letStmt.init).toEqual({ kind: "число", value: 42 });
+  });
+
+  it("значение вернуть на следующей строке — одна инструкция", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  вернуть",
+      "    0",
+      "конец",
+      "конец",
+      "",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const body = (ast as Program).modules[0]?.procedures[0]?.body ?? [];
+    expect(body.length).toBe(1);
+    expect(body[0]).toEqual({ kind: "вернуть", value: { kind: "число", value: 0 } });
+  });
+});
+

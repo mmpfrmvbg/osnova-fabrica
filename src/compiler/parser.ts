@@ -61,11 +61,24 @@ export function parse(tokens: Token[]): ParseResult {
     while (peek().kind === "новая_строка") advance();
   }
 
-  /** Восстановление после ошибки: продвинуться до новой строки или конец/конец_файла. */
+  /** Восстановление после ошибки: до новой строки, конец/конец_файла или начала следующей инструкции. */
   function syncToStmtBoundary(): void {
+    const stmtHead: TokenKind[] = [
+      "пусть",
+      "если",
+      "пока",
+      "вернуть",
+      "для_каждого",
+      "попробовать",
+      "выбросить",
+      "прервать",
+      "продолжить",
+      "цикл",
+    ];
     while (pos < tokens.length) {
       const k = peek().kind;
       if (k === "новая_строка" || k === "конец" || k === "конец_файла") return;
+      if (stmtHead.includes(k)) return;
       advance();
     }
   }
@@ -388,12 +401,14 @@ export function parse(tokens: Token[]): ParseResult {
         typeAnnotation = t;
       }
       if (!consume("=", "Ожидается '='")) return null;
+      skipNewlines();
       const init = parseExpr();
       if (!init) return null;
       return { kind: "пусть", name, init, typeAnnotation };
     }
     if (peek().kind === "вернуть") {
       advance();
+      skipNewlines();
       let value: Expr | undefined;
       if (peek().kind !== "новая_строка" && peek().kind !== "конец" && peek().kind !== "конец_файла") {
         const v = parseExpr();
@@ -403,6 +418,7 @@ export function parse(tokens: Token[]): ParseResult {
     }
     if (peek().kind === "если") {
       advance();
+      skipNewlines();
       const condition = parseExpr();
       if (!condition) return null;
       if (peek().kind === "тогда") advance();
@@ -417,6 +433,7 @@ export function parse(tokens: Token[]): ParseResult {
       const elseIfClauses: Array<{ condition: Expr; body: Stmt[] }> = [];
       while (peek().kind === "иначе_если") {
         advance();
+        skipNewlines();
         const cond = parseExpr();
         if (!cond) return null;
         if (peek().kind === "тогда") advance();
@@ -456,6 +473,7 @@ export function parse(tokens: Token[]): ParseResult {
         skipNewlines();
       }
       if (!consume("иначе_попытка", "Ожидается 'иначе_попытка'")) return null;
+      skipNewlines();
       if (!isAt("идентификатор")) {
         const t = peek();
         errors.push({
@@ -484,12 +502,14 @@ export function parse(tokens: Token[]): ParseResult {
     }
     if (peek().kind === "выбросить") {
       advance();
+      skipNewlines();
       const value = parseExpr();
       if (!value) return null;
       return { kind: "выбросить", value };
     }
     if (peek().kind === "пока") {
       advance();
+      skipNewlines();
       const condition = parseExpr();
       if (!condition) return null;
       if (peek().kind === "тогда") advance();
@@ -541,6 +561,7 @@ export function parse(tokens: Token[]): ParseResult {
         index = String(tokIndex.value ?? tokIndex.lexeme);
       }
       if (!consume("в", "Ожидается 'в' после переменной для_каждого")) return null;
+      skipNewlines();
       const source = parseExpr();
       if (!source) return null;
       if (peek().kind === "тогда") advance();
@@ -595,12 +616,14 @@ export function parse(tokens: Token[]): ParseResult {
       // Сахар: arr[i] = val и arr[i] op= val
       if (peek().kind === "[") {
         advance(); // consume "["
+        skipNewlines();
         const idx = parseExpr();
         if (!idx) return null;
         if (!consume("]", "Ожидается ']'")) return null;
         const opKind = peek().kind;
         if (opKind === "=" || opKind === "+=" || opKind === "-=" || opKind === "*=" || opKind === "/=") {
           advance();
+          skipNewlines();
           const rhs = parseExpr();
           if (!rhs) return null;
 
@@ -649,6 +672,7 @@ export function parse(tokens: Token[]): ParseResult {
         while (peek().kind === "." && chainOk) {
           const dotPos = pos;
           advance(); // consume "."
+          skipNewlines();
           if (!isAt("идентификатор")) {
             pos = dotPos;
             chainOk = false;
@@ -661,6 +685,7 @@ export function parse(tokens: Token[]): ParseResult {
             // Нашли присваивание — lhsObject уже накоплен, lastField = fName
             lastField = fName;
             advance(); // consume op
+            skipNewlines();
             const rhs = parseExpr();
             if (!rhs) return null;
             if (opKind === "=") {
@@ -687,6 +712,7 @@ export function parse(tokens: Token[]): ParseResult {
         (peek().kind === "=" || peek().kind === "+=" || peek().kind === "-=" || peek().kind === "*=" || peek().kind === "/=")
       ) {
         const opKind = advance().kind;
+        skipNewlines();
         const rhs = parseExpr();
         if (!rhs) return null;
         if (opKind === "=") {
@@ -717,6 +743,7 @@ export function parse(tokens: Token[]): ParseResult {
     if (!left) return null;
     while (peek().kind === "или") {
       advance();
+      skipNewlines();
       const right = parseLogicalAnd();
       if (!right) return null;
       left = { kind: "бинарное", op: "или", left, right };
@@ -730,6 +757,7 @@ export function parse(tokens: Token[]): ParseResult {
     if (!left) return null;
     while (peek().kind === "и") {
       advance();
+      skipNewlines();
       const right = parseLogicalNot();
       if (!right) return null;
       left = { kind: "бинарное", op: "и", left, right };
@@ -741,6 +769,7 @@ export function parse(tokens: Token[]): ParseResult {
   function parseLogicalNot(): Expr | null {
     if (peek().kind === "не") {
       advance();
+      skipNewlines();
       const arg = parseLogicalNot();
       if (!arg) return null;
       return { kind: "унарное", op: "не", arg };
@@ -754,6 +783,7 @@ export function parse(tokens: Token[]): ParseResult {
     const op = peek().kind;
     if (op === "==" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=") {
       advance();
+      skipNewlines();
       const right = parseAdd();
       if (!right) return null;
       left = { kind: "бинарное", op, left, right };
@@ -766,6 +796,7 @@ export function parse(tokens: Token[]): ParseResult {
     if (!left) return null;
     while (peek().kind === "+" || peek().kind === "-") {
       const op = advance().kind;
+      skipNewlines();
       const right = parseMul();
       if (!right) return null;
       left = { kind: "бинарное", op, left, right };
@@ -778,6 +809,7 @@ export function parse(tokens: Token[]): ParseResult {
     if (!left) return null;
     while (peek().kind === "*" || peek().kind === "/" || peek().kind === "%") {
       const op = advance().kind;
+      skipNewlines();
       const right = parseUnary();
       if (!right) return null;
       left = { kind: "бинарное", op, left, right };
@@ -788,6 +820,7 @@ export function parse(tokens: Token[]): ParseResult {
   function parseUnary(): Expr | null {
     if (peek().kind === "-") {
       advance();
+      skipNewlines();
       const inner = parseUnary();
       if (!inner) return null;
       return { kind: "бинарное", op: "-", left: { kind: "число", value: 0 }, right: inner };
@@ -825,6 +858,7 @@ export function parse(tokens: Token[]): ParseResult {
     }
     if (t.kind === "(") {
       advance();
+      skipNewlines();
       const inner = parseExpr();
       consume(")", "Ожидается ')'");
       return inner;
@@ -902,8 +936,9 @@ export function parse(tokens: Token[]): ParseResult {
       // Чередование суффиксов `.поле` и `[i]`: `arr[0].x` → получить(arr,0) затем поле.
       for (;;) {
         const posBeforeSuffix = pos;
-        while (peek().kind === "." && peek().kind !== "конец_файла") {
+        while (peek().kind === ".") {
           advance();
+          skipNewlines();
           if (!isAt("идентификатор")) break;
           const fieldTok = advance();
           const field = String(fieldTok.value ?? fieldTok.lexeme);
@@ -926,8 +961,9 @@ export function parse(tokens: Token[]): ParseResult {
           }
           expr = { kind: "поле", object: expr, field };
         }
-        while (peek().kind === "[" && peek().kind !== "конец_файла") {
+        while (peek().kind === "[") {
           advance(); // "["
+          skipNewlines();
           const idx = parseExpr();
           if (!idx) return null;
           if (!consume("]", "Ожидается ']'")) return null;

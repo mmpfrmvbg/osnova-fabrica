@@ -1,23 +1,23 @@
-id: ATM-EPK-260329-025-002
+id: ATM-EPK-260329-025-003
 epic: EPK-260329-025
-seq: 2
+seq: 3
 zone: compiler
 risk: MED
 executor: cursor
-goal: Устранить первую группу блокеров парсера (синтаксис/ошибки разбора).
-scope: src/compiler/parser.ts — разбор и сообщения об ошибках, первая партия
+goal: Устранить вторую группу блокеров парсера (граничные токены и восстановление).
+scope: src/compiler/parser.ts — взаимодействие с лексером и краевые случаи
 notouch:
-- src/pipeline/types.ts
-- src/pipeline/executor.ts
-- .tmp/diagnostics.log
-done: npx vitest run src/compiler/parser.test.ts
+- src/compiler/index.ts
+- src/agents/base.ts
+- src/pipeline-llm/runner.ts
+done: npx vitest run src/compiler/lexer.test.ts
 steps:
-- Воспроизвести падения из golden/диагностик на минимальных фрагментах.
-- Внести точечные правки в parser.ts без расширения грамматики «вширь».
-- Проверить регресс lexer/parser.
+- Пройти оставшиеся ошибки разбора из списка блокеров.
+- Согласовать поведение с lexer.ts только через вызовы из parser.
+- Убедиться, что сообщения стабильны для LLM-repair.
 deps:
-- ATM-EPK-260329-025-001
+- ATM-EPK-260329-025-002
 maxiter: 3
 retries: 0
-status: DONE
+status: PENDING
 priority: P0
