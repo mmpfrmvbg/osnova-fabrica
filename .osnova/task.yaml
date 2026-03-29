@@ -1,24 +1,22 @@
-id: ATM-007
+id: ATM-008
 epic: EPK-260329-021
-seq: 7
+seq: 8
 zone: agents
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Добавить или восстановить src/agents/index.ts для единого импорта агентов и
-  ремонта.
+goal: Проверить intake/plan цепочки через публичный barrel агентов.
 scope:
-- src/agents/index.ts — barrel агентов и типов
+- src/agents/index.ts — видимость intake/plan для пайплайна
 notouch:
-- src/pipeline-llm/index.ts
-- tsconfig.json
-done: npx vitest run src/agents/agents.test.ts
+- src/runtime/index.ts
+- .tmp/diagnostics.log
+done: npx vitest run src/agents/plan-agent.test.ts
 steps:
-- Создать index при отсутствии; экспортировать публичные агенты и типы без deep-import
-  шума.
-- Согласовать с pipeline-llm и pipeline types на уровне имён.
-- Минимизировать побочные изменения в файлах агентов.
+- Проверить что intake/plan экспортируются или доступны через согласованный фасад.
+- Добавить недостающий export только в index.ts.
+- Прогнать тест план-агента.
 deps:
-- ATM-001
+- ATM-007
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,14 +1,18 @@
 /**
  * Barrel: публичные агенты пайплайна и типы — единая точка импорта из `src/agents`.
  * Контракты intent/spec/plan совпадают с `src/pipeline/types`; фазы — с `PlanAgent` / `ExecAgent`.
+ * Цепочка intake/plan: именованные экспорты и пространства `intake` / `plan` (фасады `intake-agent`, `plan-agent`).
  */
 
-export { IntakeAgent } from './IntakeAgent';
+export { IntakeAgent } from './intake-agent';
 export {
   SpecValidationError,
   detectAppTypeFromPrefix,
   parseLlmConfidence,
-} from './IntakeAgent';
+} from './intake-agent';
+
+export * as intake from './intake-agent';
+export * as plan from './plan-agent';
 
 export { IntakeValidationError, type IAgent } from './types';
 
