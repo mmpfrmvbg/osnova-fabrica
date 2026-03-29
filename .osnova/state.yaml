@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-29T17:56:24.559232+03:00'
+updatedat: '2026-03-29T18:06:37.815669+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -8,17 +8,17 @@ epicprogress:
   blocked: 0
   current: null
 sessionstats:
-  epicsreceived: 29
-  epicsdone: 17
+  epicsreceived: 30
+  epicsdone: 18
   epicsblocked: 12
-  atomstotal: 195
-  atomsdone: 122
+  atomstotal: 199
+  atomsdone: 126
   atomsblocked: 73
-  passrate: 0.6256410256410256
+  passrate: 0.6331658291457286
 ci:
-  lastrun: '2026-03-29T16:32:37.240105+03:00'
-  laststatus: partial
-  passrate7d: 0.4796
+  lastrun: '2026-03-29T18:06:34.118787+03:00'
+  laststatus: ok
+  passrate7d: 0.497
   openblockerissues: 0
   lastepicissue: null
 brainsource: github
@@ -37,6 +37,17 @@ executors:
   activefallback: null
 blockers: []
 recent:
+- epic: EPK-260328-013
+  scope:
+  - src/compiler/lexer.ts
+  - src/compiler/parser.ts
+  - src/compiler/ast.ts
+  - src/compiler/codegen.ts
+  - src/compiler/compiler.test.ts
+  result: ok
+  status: ok
+  passrate: 1.0
+  updated: '2026-03-29T18:06:34.118679+03:00'
 - epic: EPK-260329-029
   scope:
   - tsconfig.json
@@ -246,17 +257,6 @@ recent:
   status: ok
   passrate: 1.0
   updated: '2026-03-28T17:07:51.777299+03:00'
-- epic: EPK-260328-013
-  scope:
-  - src/compiler/lexer.ts
-  - src/compiler/parser.ts
-  - src/compiler/ast.ts
-  - src/compiler/codegen.ts
-  - src/compiler/compiler.test.ts
-  result: partial
-  status: partial
-  passrate: 0.75
-  updated: '2026-03-28T15:57:19.450173+03:00'
 - epic: EPK-260327-001
   scope:
   - src/compiler/vm.test.ts
@@ -478,6 +478,11 @@ codebase:
   - src/intelligence/index.ts — epic intelligence/core.ts
   - src/pipeline/executor.ts — epic pipeline-llm/executor.ts
 last_scopes:
+- - src/compiler/lexer.ts
+  - src/compiler/parser.ts
+  - src/compiler/ast.ts
+  - src/compiler/codegen.ts
+  - src/compiler/compiler.test.ts
 - - tsconfig.json
   - vitest.config.ts
   - package.json
@@ -487,11 +492,3 @@ last_scopes:
   - scripts/blocker-check.ts
   - src/tools/blocker-resolver.ts
   - src/tools/blocker-types.ts
-- - src/compiler/index.ts
-  - src/compiler/codegen.ts
-  - src/runtime/vm.ts
-  - src/runtime/interpreter.ts
-  - src/pipeline/types.ts
-  - src/agents/base.ts
-  - src/pipeline-llm/executor.ts
-  - src/intelligence/core.ts

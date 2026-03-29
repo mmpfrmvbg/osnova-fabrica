@@ -1,17 +1,18 @@
 v: 5
 t: RETRO
 for: BRAIN
-timestamp: '2026-03-29T16:32:37.352789+03:00'
+timestamp: '2026-03-29T18:06:36.326051+03:00'
 lastepic:
-  id: EPK-260329-029
-  githubissue: 96
-  atomstotal: 7
-  atomspass: 1
-  atomsblk: 6
+  id: EPK-260328-013
+  githubissue: 64
+  atomstotal: 4
+  atomspass: 4
+  atomsblk: 0
 daily:
-  passrate: 0.14285714285714285
+  passrate: 1.0
   qwenbudgetused: 0
   qwenbudgetremaining: 1000
+  ci_pass_rate: 0.497
 blockers: []
 recommendations:
 - Первый цикл Brain. Репозиторий инициализирован 2026-03-27. Рекомендуется начать
@@ -20,7 +21,7 @@ recommendations:
   (Issues #1, #3) — убедись что фиксы покрыты тестами в src/compiler/ и src/agents/.'
 - 'done: команды — использовать npm-скрипты из package.json: npx vitest run src/compiler/,
   npx vitest run src/runtime/, npm run ci. Make-файла в проекте нет.'
-brain_source: queue
+brain_source: resume_disk
 heart:
   restarts_recorded: 0
   last_beat: null

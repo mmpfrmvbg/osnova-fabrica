@@ -1,0 +1,68 @@
+epic: EPK-260328-013
+summary:
+  status: OK
+  passrate: 1.0
+  atomsdone: 4
+  atomstotal: 4
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-013-001
+  s: REVIEW_MISMATCH
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 102
+  err: null
+  review:
+    passed: false
+    reason: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+      баг diff-range (review_mismatch)'
+    elapsed: 13
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-013-002
+  s: REVIEW_MISMATCH
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 100
+  err: null
+  review:
+    passed: false
+    reason: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+      баг diff-range (review_mismatch)'
+    elapsed: 18
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-013-003
+  s: REVIEW_MISMATCH
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 220
+  err: null
+  review:
+    passed: false
+    reason: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+      баг diff-range (review_mismatch)'
+    elapsed: 17
+- v: 5
+  t: RPT
+  id: ATM-EPK-260328-013-004
+  s: REVIEW_MISMATCH
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 90
+  err: null
+  review:
+    passed: false
+    reason: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+      баг diff-range (review_mismatch)'
+    elapsed: 18
+createdat: '2026-03-29T18:06:34.009976+03:00'
