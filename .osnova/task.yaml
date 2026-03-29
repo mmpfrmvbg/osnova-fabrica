@@ -1,27 +1,24 @@
-id: ATM-015
+id: ATM-EPK-260329-019-015
 epic: EPK-260329-019
 seq: 15
-zone: ci
-risk: HIGH
+zone: agents
+risk: LOW
 executor: cursor
-goal: Запуск полного ci пайплайна для проверки всех исправлений
-scope:
-- vitest.config.ts
-notouch: []
-done: npm run ci
+goal: Проверить plan-agent контракт после стабилизации agents index.
+scope: src/agents/index.ts — plan-agent export path
+notouch:
+- src/pipeline/orchestrator.ts
+- src/runtime/index.ts
+done: npx vitest run src/agents/plan-agent.test.ts
 steps:
-- Запустить npm run ci
-- Зафиксировать оставшиеся ошибки
-- Подготовить отчет по серии 015 и FBK016
+- Убедиться, что plan-agent доступен тем же способом, что ждёт оркестратор.
+- Минимально поправить barrel без смены промптов.
+- Прогнать plan-agent тест.
 deps:
-- ATM-004
-- ATM-010
-- ATM-012
-- ATM-013
-- ATM-014
+- ATM-EPK-260329-019-014
 maxiter: 3
 retries: 0
 status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 2d39d101f05209a70728399b74dda21177dc0b5c
+review_base_sha: 6fcd927d7866ae22928a57b0d492afad2e877221

@@ -31,7 +31,7 @@ export { IntakeAgent } from './intake-agent';
 /**
  * PlanAgent — построение плана выполнения пайплайна (intent + spec → ExecutionPlan)
  */
-export { PlanAgent } from './plan-agent';
+export { PlanAgent } from './PlanAgent';
 
 /**
  * ExecAgent — пошаговое выполнение плана (ExecutionPlan → ExecResult)
@@ -87,7 +87,7 @@ export { SpecValidationError } from './intake-agent';
 /**
  * Ошибка валидации плана выполнения
  */
-export { PlanValidationError } from './plan-agent';
+export { PlanValidationError } from './PlanAgent';
 
 // ============================================================================
 // ОШИБКИ ВЫПОЛНЕНИЯ
@@ -115,17 +115,17 @@ export { parseLlmConfidence } from './intake-agent';
 /**
  * Проверка допустимости перехода между фазами пайплайна
  */
-export { isValidPhaseTransition } from './plan-agent';
+export { isValidPhaseTransition } from './PlanAgent';
 
 /**
  * Компиляция исходного кода Основа (делегат Compiler.compile)
  */
-export { compileOsnovaSource } from './plan-agent';
+export { compileOsnovaSource } from './PlanAgent';
 
 /**
  * Форматирование ошибок компиляции в человекочитаемое сообщение
  */
-export { formatCompileFailureMessage } from './plan-agent';
+export { formatCompileFailureMessage } from './PlanAgent';
 
 /**
  * Создание VM для выполнения пайплайна из ExecContext; безопасный прогон VM (в т.ч. из контекста после build)
@@ -147,9 +147,9 @@ export {
 export * as intake from './intake-agent';
 
 /**
- * Пространство имён plan — все экспорты из plan-agent
+ * Пространство имён plan — все экспорты из plan-agent (через {@link ./PlanAgent})
  */
-export * as plan from './plan-agent';
+export * as plan from './PlanAgent';
 
 /**
  * Пространство имён repair — агент починки исходников (RepairEngineer)
@@ -184,7 +184,7 @@ export type {
   CompileOptions,
   /** Результат компиляции (успех/ошибки, bytecode) */
   CompileResult,
-} from './plan-agent';
+} from './PlanAgent';
 
 export type {
   /** Последовательность операций пайплайна */
@@ -195,7 +195,7 @@ export type {
   PlanAgentBuildOptions,
   /** Шаг плана: фаза + порядок + описание */
   PlanStep,
-} from './plan-agent';
+} from './PlanAgent';
 
 // ============================================================================
 // ТИПЫ: EXEC AGENT (синхронизировано с pipeline/types и runtime/vm)
@@ -250,7 +250,7 @@ export type {
 } from './DiagnosticAgent';
 
 // ============================================================================
-// ЭКСПОРТ КОМПИЛЯТОРА (из plan-agent)
+// ЭКСПОРТ КОМПИЛЯТОРА (из PlanAgent / plan-agent)
 // ============================================================================
 
-export { Compiler } from './plan-agent';
+export { Compiler } from './PlanAgent';

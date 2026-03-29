@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 15
 zone: agents
 risk: LOW
-executor: qwen
+executor: cursor
 goal: Проверить plan-agent контракт после стабилизации agents index.
 scope: src/agents/index.ts — plan-agent export path
 notouch:
@@ -17,6 +17,14 @@ steps:
 deps:
 - ATM-EPK-260329-019-014
 maxiter: 3
-retries: 0
-status: PENDING
+retries: 1
+status: blk
 priority: P0
+max_retries: 3
+review_base_sha: 6fcd927d7866ae22928a57b0d492afad2e877221
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: expected files missing: ['''', '''']'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: expected files missing: ['''', '''']'
