@@ -1,20 +1,20 @@
-id: ATM-008
+id: ATM-009
 epic: EPK-260329-026
-seq: 8
-zone: intelligence
-risk: MED
+seq: 9
+zone: vliw
+risk: LOW
 executor: cursor
-goal: intelligence.test.ts integration smoke for index + planner wiring.
-scope: src/intelligence/intelligence.test.ts — integration smoke
+goal: Audit src/vliw/index.ts re-exports vs scheduler/dependencyGraph/e2kModel public
+  API.
+scope: src/vliw/index.ts — export surface
 notouch:
-- src/vliw/scheduler.ts
-- .tmp/blocker-sync.log
-done: npx vitest run src/intelligence/intelligence.test.ts
+- scripts/blocker-sync.ts
+- src/intelligence/planner.ts
+done: npx vitest run src/vliw/scheduler.test.ts
 steps:
-- Import from src/intelligence/index.ts and assert exported API shape.
-- One end-to-end happy path with mocked deps.
-deps:
-- ATM-007
+- Ensure scheduleLinearBlock and packetsToCodeElements remain exported.
+- Add type-only exports only where already used by tests or cli.
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING
