@@ -70,6 +70,48 @@ class TestReviewerMultisignal(unittest.TestCase):
             self.assertIsNone(ver)
             self.assertIn("multi-signal", reason)
 
+    def test_multisignal_pass_when_expected_not_in_diff_but_done_ok(self) -> None:
+        """Pre-existing file / wrong diff base: done passes → do not review_mismatch on missing diff paths."""
+        from forge import reviewer
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            (proj / "src" / "x.ts").parent.mkdir(parents=True)
+            (proj / "src" / "x.ts").write_text("//x", encoding="utf-8")
+            atom = {
+                "id": "ATM-1",
+                "goal": "g",
+                "expected_files": ["src/x.ts"],
+                "scope": [],
+                "done": "echo ok",
+            }
+            fake_env = {
+                "OSNOVA_PROJECT": str(proj),
+                "OSNOVA_FORGE": str(proj / "forge"),
+                "GHREPO": "o/r",
+                "GH_TOKEN": "",
+                "QWENBIN": "qwen",
+                "CURSORBIN": "agent",
+            }
+            with (
+                patch.object(reviewer, "env_paths", return_value=fake_env),
+                patch.object(reviewer, "_git_diff_range", return_value=""),
+                patch.object(
+                    reviewer,
+                    "_qwen_review",
+                    return_value=("PASS: json", False, True),
+                ),
+                patch.object(
+                    reviewer, "_prepare_done_invocation", return_value=(["cmd", "/c", "echo", "x"], {})
+                ),
+                patch("forge.reviewer.subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = MagicMock(returncode=0)
+                ok, reason, _elapsed, ver = reviewer.review(atom, dry_run=False, run_done=True)
+            self.assertTrue(ok)
+            self.assertIsNone(ver)
+            self.assertIn("multi-signal", reason)
+
 
 if __name__ == "__main__":
     unittest.main()

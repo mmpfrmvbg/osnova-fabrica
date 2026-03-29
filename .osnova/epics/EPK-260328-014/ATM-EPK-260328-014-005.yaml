@@ -15,9 +15,13 @@ steps:
 - Реализовать OpCode.CALL — вызов функции с созданием нового фрейма
 - Реализовать OpCode.RETURN — возврат из функции
 deps:
-- 1
-- 4
+- ATM-EPK-260328-014-001
+- ATM-EPK-260328-014-004
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: 0ef10a7760de095e2e4425004d54bee2617a3d4c
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'

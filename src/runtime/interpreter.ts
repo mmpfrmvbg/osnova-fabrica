@@ -1,6 +1,6 @@
 /**
- * Публичный фасад VM: класс {@link Interpreter} и имена опкодов для стековых операций.
- * Реализация шага — в ./vm/interpreter ({@link VM}).
+ * Публичный фасад VM: класс {@link Interpreter}, имена опкодов ({@link OpCode}) и пошаговый {@link interpret}.
+ * Реализация шага (в т.ч. {@link OpCode.JUMP}, {@link OpCode.JUMP_IF_FALSE}, {@link OpCode.CALL}, {@link OpCode.RETURN}) — в ./vm/interpreter ({@link VM}).
  *
  * В пайплайне после intake {@link import("../agents/IntakeAgent").IntakeAgent} высокоуровневый запуск байткода
  * с глобалами спецификации делается через {@link import("./vm").OsVbcVM} и {@link import("./vm").OsVbcVM.execute};
@@ -98,14 +98,16 @@ export type OpCode = (typeof OpCode)[keyof typeof OpCode];
 
 /**
  * Фасад стековой VM: {@link executionStack} и пошаговый {@link interpret}.
- * Базовые опкоды исполняются в {@link VM} (наследник):
+ * Опкоды исполняются в {@link VM} (наследник) через {@link interpretInstruction}:
  * {@link OpCode.PUSH} (`const` + индекс `k` в пуле констант модуля),
  * {@link OpCode.POP} (снять вершину; пустой стек → {@link InterpreterError}),
  * {@link OpCode.DUP} (копия вершины на стек),
  * {@link OpCode.ADD} / {@link OpCode.SUB} / {@link OpCode.MUL} / {@link OpCode.DIV} / {@link OpCode.REM}
  * (снять b, затем a; положить результат; при {@link OpCode.DIV}/{@link OpCode.REM} и b=0 → {@link InterpreterError}),
  * сравнения {@link OpCode.EQ} / {@link OpCode.NE} / {@link OpCode.LT} / {@link OpCode.LE} / {@link OpCode.GT} / {@link OpCode.GE},
- * логика {@link OpCode.AND} / {@link OpCode.OR} / {@link OpCode.NOT} (снятие и порядок операндов — как у арифметики, кроме {@link OpCode.NOT}: один операнд).
+ * логика {@link OpCode.AND} / {@link OpCode.OR} / {@link OpCode.NOT} (снятие и порядок операндов — как у арифметики, кроме {@link OpCode.NOT}: один операнд),
+ * управление потоком: {@link OpCode.JUMP} (абсолютный `off`), {@link OpCode.JUMP_IF_FALSE} (снять условие; при falsy → `off`),
+ * {@link OpCode.CALL} (новый фрейм по `fi`, аргументы со стека), {@link OpCode.RETURN} (`ret`: значение результата на вершине стека).
  */
 export class Interpreter extends VM {
   /** Стек исполнения (верх — последний элемент). */
