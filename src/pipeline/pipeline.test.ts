@@ -36,11 +36,15 @@ import {
   SPEC_G1_CONFIDENCE_MIN,
   SPEC_QUALITY_PARTIAL,
   SPEC_QUALITY_PASS,
+  composeForgeStateBlockerAtmId,
+  FORGE_STATE_BLOCKER_EPK_ATM_015,
+  FORGE_STATE_BLOCKER_EPK_ATM_FBK016,
   type BuildReport,
   type GoldenReport,
   type OsnovaIntent,
   type OsnovaSpec,
 } from './types';
+import { parseForgeBlockerAtmId, resolveForgeBlockerScenarioFromAtmId } from './blocker-resolver';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { calcHealthScore } from './healthScore';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
@@ -499,4 +503,40 @@ describe('Pipeline.run (оркестратор) + ReviewAgent — тот же с
     );
     expect(report.ok, report.summaryText).toBe(true);
   }, 20000);
+});
+
+describe('blocker-resolver — parse atm_id, эпики 015 / FBK016 (без IO)', () => {
+  it('parse: валидные atm_id серий 015 и FBK016', () => {
+    const a015 = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001');
+    const aFb = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '007');
+    expect(parseForgeBlockerAtmId(a015)).toEqual({
+      ok: true,
+      scenario: '015',
+      epkBase: FORGE_STATE_BLOCKER_EPK_ATM_015,
+      ordinal: '001',
+    });
+    expect(parseForgeBlockerAtmId(aFb)).toEqual({
+      ok: true,
+      scenario: 'FBK016',
+      epkBase: FORGE_STATE_BLOCKER_EPK_ATM_FBK016,
+      ordinal: '007',
+    });
+  });
+
+  it('parse: краевые форматы — пусто, нет ATM-, нет суффикса, неизвестный эпик', () => {
+    expect(parseForgeBlockerAtmId('')).toEqual({ ok: false, reason: 'empty' });
+    expect(parseForgeBlockerAtmId('   ')).toEqual({ ok: false, reason: 'empty' });
+    expect(parseForgeBlockerAtmId('EPK-260328-015-001')).toEqual({ ok: false, reason: 'missing_atm_prefix' });
+    expect(parseForgeBlockerAtmId('ATM-EPK-260328-015')).toEqual({ ok: false, reason: 'missing_ordinal' });
+    expect(parseForgeBlockerAtmId('ATM-EPK-260328-FBK016')).toEqual({ ok: false, reason: 'missing_ordinal' });
+    expect(parseForgeBlockerAtmId('ATM-EPK-260328-015-')).toEqual({ ok: false, reason: 'missing_ordinal' });
+    expect(parseForgeBlockerAtmId('ATM-other')).toEqual({ ok: false, reason: 'unknown_epic' });
+  });
+
+  it('resolve: совпадает с префиксным контрактом types; trim для пробелов', () => {
+    const id = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_FBK016, '001');
+    expect(resolveForgeBlockerScenarioFromAtmId(id)).toBe('FBK016');
+    expect(resolveForgeBlockerScenarioFromAtmId(`  ${id}  `)).toBe('FBK016');
+    expect(resolveForgeBlockerScenarioFromAtmId('ATM-other')).toBeNull();
+  });
 });

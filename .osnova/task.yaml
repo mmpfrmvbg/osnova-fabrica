@@ -1,23 +1,22 @@
-id: ATM-002
+id: ATM-003
 epic: EPK-260329-024
-seq: 2
-zone: pipeline
+seq: 3
+zone: forge
 risk: MEDIUM
 executor: cursor
-goal: Добавить чистые функции маппинга diagnostic↔blocker для сценариев 015/FBK016
-scope: src/pipeline/types.ts — хелперы рядом с PIPELINE_STATUS_FOR_DIAGNOSTIC
+goal: Создать blocker-resolver.ts с парсингом atm_id и распознаванием эпиков 015/FBK016
+scope: src/pipeline/blocker-resolver.ts — новый модуль
 notouch:
 - .osnova/state.yaml
 - scripts/forge-cleanup.ts
 - src/pipeline/executor.ts
-- src/pipeline/blocker-resolver.ts
-done: npx vitest run src/pipeline/types.test.ts
+done: npx vitest run src/pipeline/pipeline.test.ts
 steps:
-- Вынести повторяющиеся проверки кодов в маленькие type-guards
-- Не менять публичные контракты orchestrator
-- Обновить только types.ts и экспорт из index при необходимости отдельным ATM
+- Добавить файл рядом с orchestrator/pipeline
+- Реализовать извлечение префикса эпика из atm_id
+- Покрыть краевые форматы без IO
 deps:
-- ATM-001
+- ATM-002
 maxiter: 3
 retries: 0
 status: PENDING
