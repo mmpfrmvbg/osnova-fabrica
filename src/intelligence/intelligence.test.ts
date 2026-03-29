@@ -5,6 +5,7 @@ import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  blockerSyncLogPath,
   mergeForgeBlockerSources,
   parseArgs,
   readBlockersFromStatePath,
@@ -94,6 +95,13 @@ blockers:
       true
     );
     expect(result.summaryLines.some((l) => l.includes('drift=true'))).toBe(true);
+
+    const logPath = blockerSyncLogPath(dir);
+    expect(fs.existsSync(logPath)).toBe(true);
+    const logText = fs.readFileSync(logPath, 'utf8');
+    for (const line of logText.trim().split('\n').filter(Boolean)) {
+      expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T.+\[blocker_sync\]/);
+    }
 
     const after = fs.readFileSync(localPath, 'utf8');
     expect(after).toContain('issue: 1');

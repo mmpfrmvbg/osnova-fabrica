@@ -1,20 +1,21 @@
-id: ATM-002
+id: ATM-003
 epic: EPK-260329-026
-seq: 2
+seq: 3
 zone: scripts
-risk: MED
+risk: LOW
 executor: cursor
-goal: Implement stale-blocker fetch/merge and stdout/stderr reporting in blocker-sync.
-scope: scripts/blocker-sync.ts — sync logic
+goal: Ensure .tmp/blocker-sync.log path creation, append mode, and timestamped lines
+  from blocker-sync.
+scope: .tmp/blocker-sync.log — writer contract
 notouch:
-- src/intelligence/index.ts
-- src/vliw/index.ts
-done: npx vitest run src/intelligence/intelligence.test.ts
+- src/vliw/scheduler.test.ts
+- src/intelligence/planner.test.ts
+done: npx vitest run src/intelligence/planner.test.ts
 steps:
-- Isolate IO (read remote/local blocker sources) behind small functions.
-- Emit structured summary lines suitable for .tmp logging.
+- Define single log helper used by scripts/blocker-sync.ts (path join from repo root).
+- Document rotation/truncate policy in script comments only.
 deps:
-- ATM-001
+- ATM-002
 maxiter: 3
 retries: 0
 status: PENDING

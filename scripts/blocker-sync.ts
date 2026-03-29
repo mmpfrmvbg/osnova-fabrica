@@ -4,10 +4,14 @@
  * Stale-blocker sync: fetch local (+ optional remote) state v5 blockers, merge, prune
  * (closed issues + invalid atm_id per 015/FBK016), optional write to local state.
  *
- * Structured lines on stdout use prefix `[blocker_sync]` for .tmp logging.
- * Diagnostics and verbose argv go to stderr.
+ * Structured lines on stdout use prefix `[blocker_sync]`; the same lines are appended to
+ * `.tmp/blocker-sync.log` (see appendBlockerSyncLogFile). Diagnostics and verbose argv go to stderr.
+ *
+ * Log file policy (no code rotation): append-only under `.tmp/blocker-sync.log`. The script never
+ * truncates or rotates the file; archive or delete it manually if it grows too large.
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 
 import { parseForgeBlockerAtmId, pruneForgeStateBlockers } from '../src/pipeline/blocker-resolver';
@@ -34,6 +38,22 @@ export interface BlockerSyncResult {
 }
 
 const LOG_PREFIX = '[blocker_sync]';
+
+/** Resolved path to `.tmp/blocker-sync.log` under the repo root. */
+export function blockerSyncLogPath(repoRoot: string): string {
+  return path.join(repoRoot, '.tmp', 'blocker-sync.log');
+}
+
+/**
+ * Append one UTF-8 line to `.tmp/blocker-sync.log`: ensures `.tmp` exists, opens in append mode.
+ * Each line is prefixed with an ISO-8601 timestamp and a single space before the message body.
+ */
+export function appendBlockerSyncLogFile(repoRoot: string, line: string): void {
+  const tmpDir = path.join(repoRoot, '.tmp');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const stamp = new Date().toISOString();
+  fs.appendFileSync(blockerSyncLogPath(repoRoot), `${stamp} ${line}\n`, 'utf8');
+}
 
 function summaryLine(fields: Record<string, string | number | boolean>): string {
   const parts = Object.entries(fields).map(([k, v]) => `${k}=${v}`);
@@ -175,6 +195,12 @@ export function parseArgs(argv: string[]): BlockerSyncArgs {
 export function runBlockerSync(args: BlockerSyncArgs, cwd: string = process.cwd()): BlockerSyncResult {
   const summaryLines: string[] = [];
   const stderrLines: string[] = [];
+  const finish = (result: BlockerSyncResult): BlockerSyncResult => {
+    for (const line of result.summaryLines) {
+      appendBlockerSyncLogFile(cwd, line);
+    }
+    return result;
+  };
   const paths = resolveBlockerSyncPaths(args, cwd);
   const closed = parseClosedIds(
     process.env.FORGE_CLOSED_BLOCKER_ISSUES ?? process.env.FORGE_CLOSED_ISSUES
@@ -183,7 +209,7 @@ export function runBlockerSync(args: BlockerSyncArgs, cwd: string = process.cwd(
   const localRead = readBlockersFromStatePath(paths.localState);
   if (localRead.error) {
     stderrLines.push(`${LOG_PREFIX} local_load_error path=${paths.localState} msg=${localRead.error}`);
-    return { exitCode: 1, summaryLines, stderrLines };
+    return finish({ exitCode: 1, summaryLines, stderrLines });
   }
 
   let remoteBlockers: ForgeStateBlockerRecord[] = [];
@@ -192,7 +218,7 @@ export function runBlockerSync(args: BlockerSyncArgs, cwd: string = process.cwd(
     const remoteRead = readBlockersFromStatePath(paths.remoteState);
     if (remoteRead.error) {
       stderrLines.push(`${LOG_PREFIX} remote_load_error path=${paths.remoteState} msg=${remoteRead.error}`);
-      return { exitCode: 1, summaryLines, stderrLines };
+      return finish({ exitCode: 1, summaryLines, stderrLines });
     }
     remotePresent = remoteRead.present;
     remoteBlockers = remoteRead.blockers;
@@ -246,14 +272,14 @@ export function runBlockerSync(args: BlockerSyncArgs, cwd: string = process.cwd(
   );
 
   if (!args.apply) {
-    return { exitCode: 0, summaryLines, stderrLines };
+    return finish({ exitCode: 0, summaryLines, stderrLines });
   }
 
   if (!localRead.present) {
     stderrLines.push(
       `${LOG_PREFIX} apply_aborted reason=no_local_state path=${paths.localState}`
     );
-    return { exitCode: 1, summaryLines, stderrLines };
+    return finish({ exitCode: 1, summaryLines, stderrLines });
   }
 
   let state: ForgeStateV5;
@@ -261,13 +287,13 @@ export function runBlockerSync(args: BlockerSyncArgs, cwd: string = process.cwd(
     const loaded = loadForgeState(paths.localState);
     if (loaded === null) {
       stderrLines.push(`${LOG_PREFIX} apply_aborted reason=state_missing path=${paths.localState}`);
-      return { exitCode: 1, summaryLines, stderrLines };
+      return finish({ exitCode: 1, summaryLines, stderrLines });
     }
     state = loaded;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     stderrLines.push(`${LOG_PREFIX} apply_load_error msg=${msg}`);
-    return { exitCode: 1, summaryLines, stderrLines };
+    return finish({ exitCode: 1, summaryLines, stderrLines });
   }
 
   try {
@@ -275,7 +301,7 @@ export function runBlockerSync(args: BlockerSyncArgs, cwd: string = process.cwd(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     stderrLines.push(`${LOG_PREFIX} apply_save_error msg=${msg}`);
-    return { exitCode: 1, summaryLines, stderrLines };
+    return finish({ exitCode: 1, summaryLines, stderrLines });
   }
 
   summaryLines.push(
@@ -286,7 +312,7 @@ export function runBlockerSync(args: BlockerSyncArgs, cwd: string = process.cwd(
     })
   );
 
-  return { exitCode: 0, summaryLines, stderrLines };
+  return finish({ exitCode: 0, summaryLines, stderrLines });
 }
 
 function main(): void {
