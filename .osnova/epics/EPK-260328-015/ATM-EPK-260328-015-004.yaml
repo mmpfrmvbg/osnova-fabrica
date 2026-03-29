@@ -15,8 +15,11 @@ steps:
 - Реализовать пошаговое выполнение операций
 - Добавить обработку результатов выполнения
 deps:
-- 3
+- ATM-EPK-260328-015-003
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: e0e1958a6896da1313dc38bb1d561e49c0d43502
+produced_files: []
