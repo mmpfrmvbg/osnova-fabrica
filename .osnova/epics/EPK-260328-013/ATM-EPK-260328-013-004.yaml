@@ -19,10 +19,14 @@ steps:
 - Запустить npx vitest run src/compiler/ и достичь passrate >0.8
 - Исправить все failing tests
 deps:
-- 1
-- 2
-- 3
+- ATM-EPK-260328-013-001
+- ATM-EPK-260328-013-002
+- ATM-EPK-260328-013-003
 maxiter: 3
 retries: 0
-status: PENDING
+status: review_mismatch
 priority: P1
+max_retries: 3
+review_base_sha: fd9e05958a5a982959c1b9c51a874e867eea71d4
+last_failure: 'FAIL: файл существует в tree, тесты OK, но не виден в diff — вероятно
+  баг diff-range (review_mismatch)'

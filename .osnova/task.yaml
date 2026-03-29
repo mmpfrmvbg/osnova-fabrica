@@ -1,27 +1,30 @@
-id: ATM-EPK-260328-013-003
+id: ATM-EPK-260328-013-004
 epic: EPK-260328-013
-seq: 3
+seq: 4
 zone: src/compiler
-risk: HIGH
+risk: MEDIUM
 executor: cursor
-goal: Реализовать codegen для генерации кода из AST
+goal: Интегрировать все компоненты compiler pipeline и обеспечить end-to-end тестирование
 scope:
-- src/compiler/codegen.ts
-notouch:
+- src/compiler/compiler.test.ts
 - src/compiler/lexer.ts
 - src/compiler/parser.ts
 - src/compiler/ast.ts
+- src/compiler/codegen.ts
+notouch: []
 done: npx vitest run src/compiler/
 steps:
-- Реализовать обход AST и генерацию выходного кода
-- Добавить поддержку всех узлов AST
-- Обеспечить корректную генерацию для вложенных конструкций
-- Покрыть unit-тестами генерацию кода
+- Реализовать главный класс Compiler с методами compile()/execute()
+- Написать интеграционные тесты полного цикла
+- Запустить npx vitest run src/compiler/ и достичь passrate >0.8
+- Исправить все failing tests
 deps:
+- ATM-EPK-260328-013-001
 - ATM-EPK-260328-013-002
+- ATM-EPK-260328-013-003
 maxiter: 3
 retries: 0
-status: in_progress
+status: DONE
 priority: P1
 max_retries: 3
-review_base_sha: a3033cd4cb2ab5bbe86a965b085213542332df69
+review_base_sha: fd9e05958a5a982959c1b9c51a874e867eea71d4
