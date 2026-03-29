@@ -1,20 +1,20 @@
-id: ATM-007
+id: ATM-008
 epic: EPK-260329-026
-seq: 7
+seq: 8
 zone: intelligence
-risk: LOW
+risk: MED
 executor: cursor
-goal: planner.test.ts covers pure planners, edge cases, and mock adapters.
-scope: src/intelligence/planner.test.ts — unit coverage
+goal: intelligence.test.ts integration smoke for index + planner wiring.
+scope: src/intelligence/intelligence.test.ts — integration smoke
 notouch:
-- src/vliw/vliw.test.ts
-- scripts/blocker-sync.ts
-done: npx vitest run src/intelligence/planner.test.ts
+- src/vliw/scheduler.ts
+- .tmp/blocker-sync.log
+done: npx vitest run src/intelligence/intelligence.test.ts
 steps:
-- Add vitest suites for empty plan, single step, failure propagation.
-- Mock external intelligence sources; no real network in tests.
+- Import from src/intelligence/index.ts and assert exported API shape.
+- One end-to-end happy path with mocked deps.
 deps:
-- ATM-006
+- ATM-007
 maxiter: 3
 retries: 0
 status: PENDING

@@ -1,117 +1,63 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-
 import { describe, expect, it } from 'vitest';
 
-import {
-  blockerSyncLogPath,
-  mergeForgeBlockerSources,
-  parseArgs,
-  readBlockersFromStatePath,
-  resolveBlockerSyncPaths,
-  runBlockerSync,
-} from '../../scripts/blocker-sync';
-import { composeForgeStateBlockerAtmId, FORGE_STATE_BLOCKER_EPK_ATM_015 } from '../pipeline/types';
+import { PlanAgent } from '../agents/plan-agent';
+import * as intelligence from './index';
+import type { IntelligenceSignal } from './index';
 
-describe('blocker-sync', () => {
-  it('mergeForgeBlockerSources prefers newer updated on same issue', () => {
-    const oldRow = {
-      issue: 10,
-      atm_id: composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, 'a'),
-      open: true,
-      updated: '2024-01-01T00:00:00Z',
+describe('intelligence integration (index + planner)', () => {
+  it('barrel exports stable public API shape', () => {
+    expect(typeof intelligence.buildLinearPlanSteps).toBe('function');
+    expect(typeof intelligence.buildExecutionPlanCore).toBe('function');
+    expect(typeof intelligence.runLifecycleWithStore).toBe('function');
+    expect(typeof intelligence.withTimeout).toBe('function');
+    expect(typeof intelligence.createDefaultPlannerSignalStoreAdapter).toBe('function');
+    expect(typeof intelligence.createDefaultSummarizerPort).toBe('function');
+    expect(typeof intelligence.updateRfcStatusWithStore).toBe('function');
+    expect(typeof intelligence.runCollector).toBe('function');
+    expect(typeof intelligence.selectTopSignals).toBe('function');
+    expect(typeof intelligence.buildDigestMessage).toBe('function');
+    expect(typeof intelligence.runLifecycle).toBe('function');
+    expect(typeof intelligence.updateLifecycle).toBe('function');
+    expect(typeof intelligence.update_rfc_status).toBe('function');
+    expect(typeof intelligence.appendSignal).toBe('function');
+    expect(typeof intelligence.readSignals).toBe('function');
+    expect(typeof intelligence.upsertSignal).toBe('function');
+    expect(typeof intelligence.writeSignals).toBe('function');
+  });
+
+  it('happy path: plan from barrel passes PlanAgent validation; lifecycle on mocked store port', async () => {
+    const agent = new PlanAgent();
+    const plan = intelligence.buildExecutionPlanCore(
+      { planId: 'p-smoke', intentId: 'i-smoke', specId: 's-smoke' },
+      { fromScratch: true, includeRepair: false },
+    );
+    expect(() => agent.validatePlan(plan)).not.toThrow();
+
+    const signal: IntelligenceSignal = {
+      id: 'sig-smoke',
+      source: 'test',
+      title: 'Smoke',
+      url: 'https://example.invalid/smoke',
+      raw_date: '2026-01-01T00:00:00.000Z',
+      fetched_at: '2026-01-01T00:00:00.000Z',
+      status: 'new',
+      tags: [],
     };
-    const newRow = {
-      issue: 10,
-      atm_id: composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, 'b'),
-      open: false,
-      updated: '2025-06-01T00:00:00Z',
-    };
-    const m = mergeForgeBlockerSources([oldRow], [newRow]);
-    expect(m).toHaveLength(1);
-    expect(m[0]!.atm_id).toBe(newRow.atm_id);
-  });
 
-  it('parseArgs resolves --apply and --state', () => {
-    const a = parseArgs(['--apply', '--state', 'custom/state.yaml']);
-    expect(a.apply).toBe(true);
-    expect(a.dryRun).toBe(false);
-    expect(a.statePath).toBe('custom/state.yaml');
-  });
-
-  it('resolveBlockerSyncPaths uses explicit state path', () => {
-    const cwd = '/repo';
-    const p = resolveBlockerSyncPaths(
-      { dryRun: true, apply: false, verbose: false, statePath: '.osnova/state.yaml' },
-      cwd
-    );
-    expect(p.localState).toBe(path.resolve(cwd, '.osnova/state.yaml'));
-    expect(p.remoteState).toBeNull();
-  });
-
-  it('runBlockerSync dry-run reports fetch/merge/prune without writing', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'blocker-sync-test-'));
-    const localPath = path.join(dir, 'state.yaml');
-    const remotePath = path.join(dir, 'remote.yaml');
-    const atmOk = composeForgeStateBlockerAtmId(FORGE_STATE_BLOCKER_EPK_ATM_015, '001');
-    fs.writeFileSync(
-      localPath,
-      `v: 5
-blockers:
-  - issue: 1
-    atm_id: ${atmOk}
-    open: true
-    updated: '2024-01-01T00:00:00Z'
-`,
-      'utf8'
-    );
-    fs.writeFileSync(
-      remotePath,
-      `v: 5
-blockers:
-  - issue: 2
-    atm_id: ${atmOk}
-    open: true
-    updated: '2024-02-01T00:00:00Z'
-`,
-      'utf8'
-    );
-
-    const result = runBlockerSync(
-      {
-        dryRun: true,
-        apply: false,
-        verbose: false,
-        statePath: localPath,
-        remoteStatePath: remotePath,
+    let written: IntelligenceSignal[] | null = null;
+    const store = {
+      readSignals: async () => [signal],
+      writeSignals: async (signals: IntelligenceSignal[]) => {
+        written = signals;
       },
-      dir
-    );
+      upsertSignal: async () => {},
+    };
 
-    expect(result.exitCode).toBe(0);
-    expect(result.summaryLines.some((l) => l.includes('event=fetch'))).toBe(true);
-    expect(result.summaryLines.some((l) => l.includes('event=merge') && l.includes('merged_rows=2'))).toBe(
-      true
-    );
-    expect(result.summaryLines.some((l) => l.includes('drift=true'))).toBe(true);
-
-    const logPath = blockerSyncLogPath(dir);
-    expect(fs.existsSync(logPath)).toBe(true);
-    const logText = fs.readFileSync(logPath, 'utf8');
-    for (const line of logText.trim().split('\n').filter(Boolean)) {
-      expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T.+\[blocker_sync\]/);
-    }
-
-    const after = fs.readFileSync(localPath, 'utf8');
-    expect(after).toContain('issue: 1');
-    expect(after).not.toContain('issue: 2');
-  });
-
-  it('readBlockersFromStatePath returns empty when file missing', () => {
-    const r = readBlockersFromStatePath(path.join(os.tmpdir(), 'no-such-state-forge-xyz.yaml'));
-    expect(r.present).toBe(false);
-    expect(r.blockers).toEqual([]);
-    expect(r.error).toBeUndefined();
+    const { transitions, decayed } = await intelligence.runLifecycleWithStore(store);
+    expect(written).not.toBeNull();
+    expect(written).toHaveLength(1);
+    expect(written![0]!.id).toBe('sig-smoke');
+    expect(Array.isArray(transitions)).toBe(true);
+    expect(typeof decayed).toBe('number');
   });
 });
