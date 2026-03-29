@@ -1,12 +1,11 @@
 v: 5
 t: RPT
-id: ATM-003
+id: ATM-004
 s: OK
 changed: []
 elapsed: 0
 qwen_result:
-  lines_delta: 0
-  zero_line_delta_done_verified: true
-  totalLinesAdded: 0
+  lines_delta: 28
+  totalLinesAdded: 28
   totalLinesRemoved: 0
 reviewer_skip_done: true
