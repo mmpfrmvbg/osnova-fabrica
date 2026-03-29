@@ -1,0 +1,70 @@
+epic: EPK-260329-019
+summary:
+  status: BLK
+  passrate: 0.0
+  atomsdone: 0
+  atomstotal: 3
+results:
+- v: 5
+  t: RPT
+  id: ATM-003
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 13
+    skip_reason: pre_existing
+    scope_lines_changed: false
+  err: "cherry-pick conflict: error: Your local changes to the following files would\
+    \ be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes or\
+    \ stash them before you merge.\nAborting\nfatal: cherry-pick failed"
+- v: 5
+  t: RPT
+  id: ATM-004
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 25
+    totalLinesAdded: 25
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 14
+    scope_lines_changed: true
+    skip_reason: null
+  err: "cherry-pick conflict: error: Your local changes to the following files would\
+    \ be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes or\
+    \ stash them before you merge.\nAborting\nfatal: cherry-pick failed"
+- v: 5
+  t: RPT
+  id: ATM-005
+  s: MERGE_CONFLICT
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 61
+    totalLinesAdded: 61
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 15
+    scope_lines_changed: true
+    skip_reason: null
+  err: "cherry-pick conflict: error: Your local changes to the following files would\
+    \ be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes or\
+    \ stash them before you merge.\nAborting\nfatal: cherry-pick failed"
+createdat: '2026-03-30T00:46:01.689100+03:00'
