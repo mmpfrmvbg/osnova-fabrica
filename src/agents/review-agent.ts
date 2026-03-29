@@ -3,9 +3,17 @@
 // ============================================================
 
 import type { ExecContext } from './exec-agent';
-import type { ExecutionPlan, OsnovaSpec } from '../pipeline/types';
-import { hasBlockingSemanticErrors } from '../pipeline/orchestrator';
+import { BLOCKING_SEMANTIC_KINDS } from '../compiler/semanticKinds';
+import type { BuildReport, ExecutionPlan, OsnovaSpec } from '../pipeline/types';
 import type { AgentReport, BaseAgent } from '../types/agents';
+
+/** Та же логика, что {@link hasBlockingSemanticErrors} в orchestrator — без импорта оркестратора в слой агентов. */
+function hasBlockingSemanticErrorsInBuild(report: BuildReport | undefined): boolean {
+  if (!report) return false;
+  return (report.semanticErrors ?? []).some(e =>
+    (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
+  );
+}
 
 /** Одна строка проверки в отчёте. */
 export interface ReviewCheckItem {
@@ -179,7 +187,7 @@ export class ReviewAgent implements BaseAgent {
       });
     } else {
       const br = ctx.buildReport;
-      const semanticBlock = hasBlockingSemanticErrors(br);
+      const semanticBlock = hasBlockingSemanticErrorsInBuild(br);
       const lexer = br.lexerErrors?.length ?? 0;
       const parser = br.parserErrors?.length ?? 0;
       const compiler = br.compilerErrors?.length ?? 0;

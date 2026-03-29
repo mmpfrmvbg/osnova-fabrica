@@ -1097,6 +1097,69 @@ describe('ReviewAgent.validate (ATM-012)', () => {
     expect(report.ok).toBe(false);
   });
 
+  it('негатив: эталонный spec с пустым specId — spec_parameter и spec_in_context не проходят', () => {
+    const bad = { ...sampleSpec(), specId: '   ' };
+    const report = agent.review(bad, reviewOkCtx());
+    expect(report.items.find(i => i.id === 'spec_parameter')?.ok).toBe(false);
+    expect(report.items.find(i => i.id === 'spec_in_context')?.ok).toBe(false);
+    expect(report.ok).toBe(false);
+  });
+
+  it('позитив: ExecAgent.execute → state без лишнего маппинга совместим с ReviewAgent.review', async () => {
+    const planAgent = new PlanAgent();
+    const intent = sampleIntent();
+    const spec = sampleSpec();
+    const plan = planAgent.buildPlan(intent, spec, { fromScratch: false, includeRepair: false });
+    const exec = new ExecAgent(planAgent);
+    const execResult = await exec.execute(
+      plan,
+      async phase => {
+        if (phase === 'codegen') {
+          return {
+            ok: true,
+            patch: { source: { filename: 'x.osnova', source: 'модуль X\nконец' } },
+          };
+        }
+        if (phase === 'build') {
+          return {
+            ok: true,
+            patch: {
+              buildReport: {
+                success: true,
+                lexerErrors: [],
+                parserErrors: [],
+                compilerErrors: [],
+                bytecode: null,
+                compilerSuccess: true,
+                durationMs: 0,
+              },
+            },
+          };
+        }
+        if (phase === 'golden_check') {
+          return {
+            ok: true,
+            patch: {
+              goldenReport: {
+                executed: true,
+                passed: true,
+                qualityScore: 1,
+                vmErrors: [],
+                outputDiff: null,
+                durationMs: 0,
+              },
+            },
+          };
+        }
+        return { ok: true };
+      },
+      { intent, spec, repairAttempts: 0 },
+    );
+    expect(execResult.completed).toBe(true);
+    const report = agent.review(spec, execResult.state, plan);
+    expect(report.ok).toBe(true);
+  });
+
   it('validate: при двух аргументах без ctx — ошибка', () => {
     expect(() =>
       agent.validate(sampleSpec(), undefined as unknown as ExecContext),

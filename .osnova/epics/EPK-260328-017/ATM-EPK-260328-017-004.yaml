@@ -17,8 +17,11 @@ steps:
 - добавить тесты на позитивные и негативные сценарии review
 - убедиться что ReviewAgent получает данные от исправленного ExecAgent
 deps:
-- ATM-003
+- ATM-EPK-260328-017-003
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P0
+max_retries: 3
+review_base_sha: 75f834fb8dac31f3f7f237408c3806704da1d941
+produced_files: []
