@@ -32,6 +32,34 @@ export interface DiagnosticReport {
   readonly timestamp: string;
 }
 
+// ─── State v5: blockers (.osnova/state.yaml) — серии EPK-260328-015 / FBK016 ───
+
+/** Номер GitHub issue в поле `issue` записи `blockers` state v5. */
+export type ForgeStateBlockerIssueId = number;
+
+/**
+ * Поле `atm_id` записи `blockers`: обычно `{@link FORGE_STATE_BLOCKER_ATM_PREFIX}` +
+ * {@link FORGE_STATE_BLOCKER_EPK_ATM_015} или {@link FORGE_STATE_BLOCKER_EPK_ATM_FBK016} + `-` + порядковый суффикс.
+ */
+export type ForgeStateBlockerAtmId = string;
+
+/** Префикс идентификатора атома в `atm_id` state v5. */
+export const FORGE_STATE_BLOCKER_ATM_PREFIX = 'ATM-' as const;
+
+/** Базовый токен серии 015 в `atm_id` (атомы Forge); согласовано с {@link DiagnosticCode} `015-*`. */
+export const FORGE_STATE_BLOCKER_EPK_ATM_015 = 'EPK-260328-015' as const;
+
+/** Базовый токен серии FBK016 в `atm_id` (обратная связь); согласовано с {@link DiagnosticCode} `FBK016-*`. */
+export const FORGE_STATE_BLOCKER_EPK_ATM_FBK016 = 'EPK-260328-FBK016' as const;
+
+/** Запись в массиве `blockers` при `v: 5` в `.osnova/state.yaml`. */
+export interface ForgeStateBlockerRecord {
+  readonly issue: ForgeStateBlockerIssueId;
+  readonly atm_id: ForgeStateBlockerAtmId;
+  readonly open: boolean;
+  readonly updated: string;
+}
+
 // ─── Type-guards для DiagnosticCode ───
 
 /** Проверка: код ошибки серии 015 (атомы). */

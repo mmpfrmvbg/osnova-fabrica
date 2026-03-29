@@ -1,0 +1,23 @@
+id: ATM-005
+epic: EPK-260329-024
+seq: 5
+zone: forge
+risk: HIGH
+executor: qwen
+goal: Добавить executor.ts с безопасным чтением/записью .osnova/state.yaml (atomic
+  write)
+scope: src/pipeline/executor.ts — новый модуль IO для state
+notouch:
+- .osnova/state.yaml
+- scripts/forge-cleanup.ts
+done: npx vitest run src/pipeline/orchestrator.partial.test.ts
+steps:
+- Реализовать load/save YAML для структуры state v5
+- Не вызывать сеть; только fs path аргумент
+- Обработать отсутствие файла предсказуемо
+deps:
+- ATM-004
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

@@ -13,6 +13,9 @@ import type {
   SpecG1CheckPrefix,
   SpecG2CheckPrefix,
   SpecG3CheckPrefix,
+  ForgeStateBlockerIssueId,
+  ForgeStateBlockerAtmId,
+  ForgeStateBlockerRecord,
 } from './types';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import {
@@ -35,6 +38,9 @@ import {
   SPEC_QUALITY_PASS,
   SPEC_QUALITY_PARTIAL,
   SPEC_BUILD_DURATION_WARN_MS,
+  FORGE_STATE_BLOCKER_ATM_PREFIX,
+  FORGE_STATE_BLOCKER_EPK_ATM_015,
+  FORGE_STATE_BLOCKER_EPK_ATM_FBK016,
 } from './types';
 
 describe('DiagnosticCode', () => {
@@ -83,6 +89,35 @@ describe('DiagnosticStatus', () => {
   it('статус ignored', () => {
     const status: DiagnosticStatus = 'ignored';
     expect(status).toBe('ignored');
+  });
+});
+
+describe('ForgeStateBlockerRecord (state v5)', () => {
+  it('константы префиксов 015 / FBK016 для atm_id', () => {
+    expect(FORGE_STATE_BLOCKER_ATM_PREFIX).toBe('ATM-');
+    expect(FORGE_STATE_BLOCKER_EPK_ATM_015).toBe('EPK-260328-015');
+    expect(FORGE_STATE_BLOCKER_EPK_ATM_FBK016).toBe('EPK-260328-FBK016');
+  });
+
+  it('запись blockers с issue и atm_id серии 015', () => {
+    const row: ForgeStateBlockerRecord = {
+      issue: 68 as ForgeStateBlockerIssueId,
+      atm_id: `${FORGE_STATE_BLOCKER_ATM_PREFIX}${FORGE_STATE_BLOCKER_EPK_ATM_015}-001` as ForgeStateBlockerAtmId,
+      open: true,
+      updated: '2026-03-28T17:38:41.541959+03:00',
+    };
+    expect(row.issue).toBe(68);
+    expect(row.atm_id).toBe('ATM-EPK-260328-015-001');
+  });
+
+  it('запись blockers с atm_id серии FBK016', () => {
+    const row: ForgeStateBlockerRecord = {
+      issue: 75 as ForgeStateBlockerIssueId,
+      atm_id: `${FORGE_STATE_BLOCKER_ATM_PREFIX}${FORGE_STATE_BLOCKER_EPK_ATM_FBK016}-001` as ForgeStateBlockerAtmId,
+      open: true,
+      updated: '2026-03-28T20:33:26.507566+03:00',
+    };
+    expect(row.atm_id).toBe('ATM-EPK-260328-FBK016-001');
   });
 });
 

@@ -1,0 +1,23 @@
+id: ATM-004
+epic: EPK-260329-024
+seq: 4
+zone: forge
+risk: MEDIUM
+executor: qwen
+goal: Реализовать чистую фильтрацию списка blockers по закрытым issues и stale-префиксам
+scope: src/pipeline/blocker-resolver.ts — чистые функции без fs
+notouch:
+- .osnova/state.yaml
+- scripts/forge-cleanup.ts
+- src/pipeline/executor.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
+steps:
+- Ввести сигнатуру (entries, closedIssueIds) → pruned[]
+- Сохранить порядок и поля записей где возможно
+- Документировать контракт «stale» для EPK-260328-015/FBK016
+deps:
+- ATM-003
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

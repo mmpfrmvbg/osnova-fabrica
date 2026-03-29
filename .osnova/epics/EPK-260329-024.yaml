@@ -1,0 +1,22 @@
+t: EPK
+id: EPK-260329-024
+goal: 'P0 self-fix: очистить stale blockers в state.yaml от EPK-260328-015/FBK016,
+  восстановить passrate'
+scope:
+- .osnova/state.yaml
+- scripts/forge-cleanup.ts
+- src/pipeline/types.ts
+- src/pipeline/executor.ts
+- src/pipeline/blocker-resolver.ts
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+  - ATM-005
+- - ATM-006
+  - ATM-007
+- - ATM-008
+done: npx vitest run src/pipeline/
+priority: P0
+githubissue: 91

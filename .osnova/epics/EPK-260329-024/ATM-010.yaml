@@ -1,0 +1,22 @@
+id: ATM-010
+epic: EPK-260329-024
+seq: 10
+zone: state
+risk: MEDIUM
+executor: qwen
+goal: Очистить blockers issues 75–82 для FBK016 в state.yaml
+scope: .osnova/state.yaml — вторая порция blockers
+notouch:
+- src/pipeline/types.ts
+- scripts/forge-cleanup.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
+steps:
+- Продолжить список после ATM-009 без дубликатов issue
+- Нормализировать поля open/updated
+- Проверить что blockers не ссылаются на несуществующие atm_id
+deps:
+- ATM-009
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0
