@@ -17,10 +17,10 @@ deps:
 - ATM-002
 maxiter: 3
 retries: 0
-status: merge_conflict
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: 7c61a481aacceaac35eb983ed8c00f361266383c
+review_base_sha: 040406d0373a5c8d41fe073457cdd4411cdc3114
 produced_files: []
 last_failure: "cherry-pick conflict: error: Your local changes to the following files\
   \ would be overwritten by merge:\n\t.osnova/state.yaml\nPlease commit your changes\
