@@ -448,6 +448,7 @@ export interface StepResult {
   readonly context: PipelineContext;
   readonly error?: PipelineError;
   readonly nextPhase?: PipelinePhase;
+  readonly repairAttempts?: number;
 }
 
 /** Типы ошибок пайплайна. */

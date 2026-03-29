@@ -17,6 +17,14 @@ steps:
 deps:
 - ATM-EPK-260329-019-009
 maxiter: 3
-retries: 0
-status: PENDING
+retries: 1
+status: blk
 priority: P0
+max_retries: 3
+review_base_sha: ac4f80c4ec26f4bb0e3767704296c0442ad95d53
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: expected files missing: ['''', '''', '''']'
