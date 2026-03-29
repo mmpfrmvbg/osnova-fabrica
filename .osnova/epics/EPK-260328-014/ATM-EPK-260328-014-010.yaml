@@ -15,9 +15,12 @@ steps:
 - Тест обработки исключений на уровне VM
 - Тест с native function callbacks
 deps:
-- 7
-- 9
+- ATM-EPK-260328-014-007
+- ATM-EPK-260328-014-009
 maxiter: 3
 retries: 0
-status: PENDING
+status: done
 priority: P1
+max_retries: 3
+review_base_sha: fcf983ea1e16113414cb0e1b8c21aa0326035576
+produced_files: []

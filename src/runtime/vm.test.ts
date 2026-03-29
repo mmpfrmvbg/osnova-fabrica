@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { compileSource } from "../compiler/compiler";
 import {
   OsVbcVM,
   applyPipelineSpecToVm,
@@ -23,6 +24,22 @@ function ri(op: RawInstruction["op"], rest: Record<string, unknown> = {}): RawIn
 }
 
 describe("OsVbcVM integration", () => {
+  it("полный цикл: compileSource → OsVbcVM.execute возвращает литерал", async () => {
+    const src = `
+модуль ИнтегКомпил
+
+процедура главная()
+  вернуть 99
+конец
+`.trim();
+    const compiled = compileSource(src);
+    expect(compiled.compilerSuccess).toBe(true);
+    expect(compiled.module).not.toBeNull();
+    const vm = new OsVbcVM(compiled.module!, { maxSteps: 2000 });
+    expect(await vm.execute()).toBe(99);
+    expect(vm.getReturnValue()).toBe(99);
+  });
+
   it("выполняет простой модуль и возвращает значение с главная", async () => {
     const m: OsVbcModule = {
       version: 1,
