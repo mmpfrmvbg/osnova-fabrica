@@ -1,0 +1,24 @@
+id: ATM-EPK-260329-025-007
+epic: EPK-260329-025
+seq: 7
+zone: pipeline
+risk: HIGH
+executor: qwen
+goal: Исправить блокеры жизненного цикла шагов и задач в executor.
+scope: src/pipeline/executor.ts — планирование шагов и переходы состояний
+notouch:
+- src/compiler/parser.ts
+- src/runtime/vm.ts
+- src/pipeline-llm/runner.ts
+done: npx vitest run src/compiler/codegen.test.ts
+steps:
+- Сопоставить падения с конкретными ветками executor.
+- Устранить гонки/двойные submit без смены внешнего API types.
+- Добавить минимальную защиту инвариантов там, где ломается FBK016.
+deps:
+- ATM-EPK-260329-025-001
+- ATM-EPK-260329-025-006
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

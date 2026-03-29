@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-025-012
+epic: EPK-260329-025
+seq: 12
+zone: pipeline-llm
+risk: MED
+executor: qwen
+goal: Закрыть хвост блокеров runner (prompt boundaries, повторный repair).
+scope: src/pipeline-llm/runner.ts — повторные прогоны и согласование с компилятором
+notouch:
+- src/compiler/parser.ts
+- src/agents/base.ts
+done: npx vitest run src/agents/intake-agent.test.ts
+steps:
+- Дочистить сценарии multi-pass repair.
+- Синхронизировать контракт с compiler public API.
+- Проверить отсутствие утечек путей/секретов в логи.
+deps:
+- ATM-EPK-260329-025-011
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

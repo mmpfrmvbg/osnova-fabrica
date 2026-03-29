@@ -1,0 +1,25 @@
+t: EPK
+id: EPK-260329-025
+goal: Диагностика и устранение 14 активных блокеров из EPK-260328-015 и EPK-260328-FBK016
+scope:
+- src/compiler/index.ts
+- src/compiler/parser.ts
+- src/runtime/vm.ts
+- src/pipeline/executor.ts
+- src/pipeline/types.ts
+- src/agents/base.ts
+- src/pipeline-llm/runner.ts
+- .tmp/diagnostics.log
+waves:
+- - ATM-001
+- - ATM-002
+  - ATM-003
+  - ATM-004
+  - ATM-005
+- - ATM-006
+  - ATM-007
+- - ATM-008
+done: npx vitest run src/compiler/ && npx vitest run src/runtime/ && npx vitest run
+  src/agents/
+priority: P0
+githubissue: 92

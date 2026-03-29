@@ -1,0 +1,23 @@
+id: ATM-EPK-260329-025-002
+epic: EPK-260329-025
+seq: 2
+zone: compiler
+risk: MED
+executor: qwen
+goal: Устранить первую группу блокеров парсера (синтаксис/ошибки разбора).
+scope: src/compiler/parser.ts — разбор и сообщения об ошибках, первая партия
+notouch:
+- src/pipeline/types.ts
+- src/pipeline/executor.ts
+- .tmp/diagnostics.log
+done: npx vitest run src/compiler/parser.test.ts
+steps:
+- Воспроизвести падения из golden/диагностик на минимальных фрагментах.
+- Внести точечные правки в parser.ts без расширения грамматики «вширь».
+- Проверить регресс lexer/parser.
+deps:
+- ATM-EPK-260329-025-001
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

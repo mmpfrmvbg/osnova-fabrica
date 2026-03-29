@@ -5,6 +5,7 @@
 // ============================================================
 
 import type { LLMProviderStatus } from '../llm/types';
+import type { SemanticError } from '../compiler/semantic';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 
 // ─── Диагностика ошибок ───
@@ -310,17 +311,23 @@ export interface ParserError {
   readonly node?: string;
 }
 
+/** Ошибка codegen; `kind` опционально — для маршрутизации A-2 (`extractLastErrorKind` в orchestrator). */
 export interface CompilerError {
   readonly message: string;
   readonly node?: string;
+  readonly kind?: string;
 }
 
+/**
+ * Отчёт фазы build. `success` задаётся в `orchestrator.compileToBuildReport`:
+ * `compilerSuccess`, пустые lexer/parser, нет blocking semantic errors.
+ */
 export interface BuildReport {
   readonly success: boolean;
   readonly lexerErrors: readonly LexerError[];
   readonly parserErrors: readonly ParserError[];
   readonly compilerErrors: readonly CompilerError[];
-  readonly semanticErrors?: readonly import('../compiler/semantic').SemanticError[];
+  readonly semanticErrors?: readonly SemanticError[];
   /** Всего семантических ошибок (blocking + non-blocking), для трейсов и аналитики */
   readonly semanticErrorCount?: number;
   readonly bytecode: unknown | null;  // OsvbcModule JSON

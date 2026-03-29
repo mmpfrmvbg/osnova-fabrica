@@ -1,21 +1,21 @@
-id: ATM-008
-epic: EPK-260329-024
-seq: 8
-zone: infra
-risk: HIGH
+id: ATM-EPK-260329-025-001
+epic: EPK-260329-025
+seq: 1
+zone: pipeline
+risk: MED
 executor: cursor
-goal: Добавить в forge-cleanup флаг --apply с записью state через общий executor/sweep
-scope: scripts/forge-cleanup.ts — запись после подтверждения dry-run
+goal: Зафиксировать и устранить блокеры в контракте типов пайплайна (EPK-260328-015/016).
+scope: src/pipeline/types.ts — только типы и их согласованность с оркестрацией
 notouch:
-- src/pipeline/types.ts
-done: npx vitest run src/pipeline/shadowMode.test.ts
+- src/compiler/parser.ts
+- src/runtime/vm.ts
+- src/pipeline-llm/runner.ts
+done: npx vitest run src/compiler/semanticKinds.test.ts
 steps:
-- Переиспользовать публичный API executor.ts
-- Требовать явный флаг для мутации
-- Exit code 0 только при успешной записи
-deps:
-- ATM-006
-- ATM-007
+- Сверить типы с фактическими вызовами из executor/orchestrator.
+- Устранить расхождения, из-за которых падает сборка или рантайм-ветки.
+- Прогнать узкий тест и зафиксировать контракт в коде.
+deps: []
 maxiter: 3
 retries: 0
 status: PENDING

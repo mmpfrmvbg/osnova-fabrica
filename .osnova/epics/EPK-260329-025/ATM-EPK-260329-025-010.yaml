@@ -1,0 +1,22 @@
+id: ATM-EPK-260329-025-010
+epic: EPK-260329-025
+seq: 10
+zone: agents
+risk: MED
+executor: qwen
+goal: Закрепить расширения base (инструменты, журналирование) без регрессий repair.
+scope: src/agents/base.ts — хуки, telemetry, совместимость с RepairEngineer
+notouch:
+- src/runtime/vm.ts
+- .tmp/diagnostics.log
+done: npx vitest run src/agents/RepairEngineer.test.ts
+steps:
+- Проверить сценарии repair и intake/plan против base.
+- Устранить блокеры, где агенты обходят базу.
+- Минимизировать публичные изменения API.
+deps:
+- ATM-EPK-260329-025-009
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0

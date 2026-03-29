@@ -1,0 +1,21 @@
+id: ATM-EPK-260329-025-013
+epic: EPK-260329-025
+seq: 13
+zone: ops
+risk: LOW
+executor: qwen
+goal: Нормализовать запись диагностик для 14 блокеров (формат, поля, корреляция taskId).
+scope: .tmp/diagnostics.log — контракт строки лога и продюсеры
+notouch:
+- src/compiler/index.ts
+- src/runtime/vm.ts
+done: npx vitest run src/compiler/semantic.test.ts
+steps:
+- Задокументировать в коде ожидаемые поля для разбора логов.
+- Обновить места записи так, чтобы блокеры воспроизводились из лога.
+- Не раздувать объём лога сверх необходимого.
+deps: []
+maxiter: 3
+retries: 0
+status: PENDING
+priority: P0
