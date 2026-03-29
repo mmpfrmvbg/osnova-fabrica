@@ -1,6 +1,6 @@
 v: 5
 session: S-2026-03-27
-updatedat: '2026-03-30T00:36:19.117516+03:00'
+updatedat: '2026-03-30T00:39:47.553243+03:00'
 currentepic: null
 epicprogress:
   totalatoms: 0
@@ -8,17 +8,17 @@ epicprogress:
   blocked: 0
   current: null
 sessionstats:
-  epicsreceived: 41
+  epicsreceived: 42
   epicsdone: 26
-  epicsblocked: 15
-  atomstotal: 276
+  epicsblocked: 16
+  atomstotal: 279
   atomsdone: 187
-  atomsblocked: 89
-  passrate: 0.677536231884058
+  atomsblocked: 92
+  passrate: 0.6702508960573477
 ci:
-  lastrun: '2026-03-30T00:36:15.361085+03:00'
+  lastrun: '2026-03-30T00:39:43.799946+03:00'
   laststatus: blk
-  passrate7d: 0.5283
+  passrate7d: 0.5157
   openblockerissues: 0
   lastepicissue: null
 brainsource: github
@@ -50,9 +50,10 @@ recent:
   result: retry-exhausted
   status: blk
   passrate: 0.0
-  updated: '2026-03-30T00:36:15.360975+03:00'
+  updated: '2026-03-30T00:39:43.799840+03:00'
   atm_review:
-    other_status: 3
+    blk: 1
+    other_status: 2
 - epic: EPK-260328-FBK016
   scope:
   - src/runtime/vm.ts
