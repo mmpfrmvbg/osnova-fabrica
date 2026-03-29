@@ -1,21 +1,21 @@
-id: ATM-EPK-260329-023-005
+id: ATM-EPK-260329-023-006
 epic: EPK-260329-023
-seq: 5
+seq: 6
 zone: agents
 risk: LOW
 executor: cursor
-goal: Покрыть IntakeAgent threshold и пороговую логику на уровне spec-ожиданий в тестах.
-scope: src/agents/intake-agent.test.ts — threshold / routing по score
+goal: Добавить spec-ориентированные проверки PlanAgent относительно контракта шагов/полей.
+scope: src/agents/plan-agent.test.ts — структура плана и границы входа
 notouch:
-- src/agents/IntakeAgent.ts
-- apps/osiris/
-done: npx vitest run src/agents/intake-agent.test.ts
+- src/agents/exec-agent.ts
+- src/agents/review-agent.ts
+done: npx vitest run src/agents/plan-agent.test.ts
 steps:
-- Зафиксировать текущие пороги из intake-agent и types.
-- Добавить кейсы чуть выше/ниже threshold.
-- Проверить детерминизм моков LLM.
+- Обозначить поля плана из types/agents.
+- Добавить тесты на пустой/минимальный/переполненный контекст.
+- Согласовать с intake threshold где план следует за intake.
 deps:
-- ATM-EPK-260329-023-001
+- ATM-EPK-260329-023-002
 maxiter: 3
 retries: 0
 status: PENDING
