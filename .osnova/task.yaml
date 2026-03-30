@@ -1,24 +1,34 @@
-id: ATM-EPK-260329-019-016
+id: ATM-EPK-260329-019-001
 epic: EPK-260329-019
-seq: 16
-zone: close-blockers-2
+seq: 1
+zone: toolchain
 risk: MEDIUM
 executor: cursor
-goal: Закрыть blocker-issues
+goal: 'Стабилизировать корневые опции компиляции/резолва (блокеры 015/FBK016): tsconfig
+  без регрессий.'
+# Только compilerOptions/paths/include/exclude (self-fix).
 scope:
-- .github/issues/
+  - tsconfig.json
+expected_files:
+  - tsconfig.json
 notouch:
 - src/**
-done: forge close-blockers --issues 76,77,78,79,80,81,82 --dry-run
+- apps/**
+done: npx vitest run tsconfig.test.ts
 steps:
-- Выполнить forge close-blockers --issues 76,77,78,79,80,81,82
-- Зафиксировать результат
-deps:
-- ATM-EPK-260329-019-014
-- ATM-EPK-260329-019-015
+- Сверить tsconfig с фактическими entrypoints пайплайна и тестов.
+- Устранить расхождения, из-за которых падает tsc --noEmit в CI.
+- Прогнать узкий тест и убедиться, что типовая матрица не сломана.
+deps: []
 maxiter: 3
-retries: 0
-status: done
+retries: 1
+status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: f71084e4261d7fc87943f2fa12c1f6c00a16e1e8
+review_base_sha: 43f98b2fa65fda16ea61cdf72f1b4c27185ff67a
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: expected files missing: ['''', '''', '''']'

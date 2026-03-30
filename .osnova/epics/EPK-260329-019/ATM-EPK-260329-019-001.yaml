@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 1
 zone: toolchain
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: 'Стабилизировать корневые опции компиляции/резолва (блокеры 015/FBK016): tsconfig
   без регрессий.'
 scope: tsconfig.json — только compilerOptions/paths/include/exclude под self-fix
@@ -17,13 +17,13 @@ steps:
 - Прогнать узкий тест и убедиться, что типовая матрица не сломана.
 deps: []
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: 88a3ca81e4485cf395db420b745bf269ecb2bff8
+review_base_sha: 43f98b2fa65fda16ea61cdf72f1b4c27185ff67a
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.

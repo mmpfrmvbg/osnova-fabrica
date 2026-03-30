@@ -8,3 +8,8 @@ D:/PROJECTS/OSNOVA-FABRIKA
 
 Follow goal, scope, steps, and priority from that file. Respect notouch paths.
 Make concrete file edits; be minimal. When finished, the atom's `done` command should be runnable from the repo root.
+
+--- Retry after BLK ---
+attempt: 2
+previous_failure: FAIL: expected files missing: ['', '', '']
+hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope и done-команду.
