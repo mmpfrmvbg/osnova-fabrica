@@ -49,7 +49,7 @@ import {
   RecoveryManager,
   toRuntimeError,
   isRecoverableError,
-} from "./index";
+} from "./runtimeRecovery";
 
 /** Сообщение при повторном входе в {@link OsVbcVM.execute}, пока идёт прогон (единый текст для throw и пайплайна). */
 export const VM_ERROR_CONCURRENT_EXECUTE =

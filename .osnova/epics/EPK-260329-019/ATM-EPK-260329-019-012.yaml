@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 12
 zone: runtime
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Починить VM/runtime фасад для исполнения скомпилированных программ (блокеры
   исполнения FBK016).
 scope: src/runtime/index.ts — VM/interpreter exports и инициализация
@@ -18,13 +18,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-009
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: 03562a38045cd1b9ec4ec528f162fd27fcf9b067
+review_base_sha: fa1cda3f8d2c3fb744ae2cc9b0f2747d28b0ef5e
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
