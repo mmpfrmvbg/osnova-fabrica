@@ -1,11 +1,14 @@
 """osnova forge — запуск/остановка основного цикла forge (python -m forge.forge)."""
 from __future__ import annotations
 
+import urllib.error
 from typing import Annotated
 
 import typer
+import yaml
 
 from osnova.engine import ForgeEngine
+from osnova.paths import ensure_forge_imports
 from osnova.render import console
 
 engine = ForgeEngine()
@@ -75,4 +78,75 @@ def forge_tray():
     from osnova.commands.tray_cmd import run_forge_tray
 
     run_forge_tray()
+
+
+@app.command("close-blockers")
+def forge_close_blockers(
+    issues: Annotated[
+        str,
+        typer.Option(
+            "--issues",
+            help="Номера GitHub issues через запятую (например 76,77,78)",
+        ),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Только план: без записи файлов и без GitHub API"),
+    ] = False,
+):
+    """Записать зеркало закрытых blocker-issues в ``.github/issues/`` и при наличии GH_TOKEN закрыть issues в GitHub."""
+    from osnova import config
+
+    ensure_forge_imports()
+    from forge.common import env_paths, gh_request, now_iso
+
+    repo_root = config.project_dir()
+    issues_dir = repo_root / ".github" / "issues"
+    raw = [p.strip() for p in (issues or "").split(",") if p.strip()]
+    if not raw:
+        console.print("[red]Пустой --issues[/]")
+        raise typer.Exit(1)
+    try:
+        nums = [int(x) for x in raw]
+    except ValueError:
+        console.print("[red]--issues должен содержать целые номера через запятую[/]")
+        raise typer.Exit(1)
+
+    paths = env_paths()
+    gh_repo = paths["GHREPO"]
+    token = (paths.get("GH_TOKEN") or "").strip()
+
+    if dry_run:
+        for n in nums:
+            console.print(
+                f"[dim]dry-run:[/] записать [bold]{issues_dir / (str(n) + '.yaml')}[/] (state: closed)"
+            )
+            if token:
+                console.print(
+                    f"[dim]dry-run:[/] PATCH api.github.com/repos/{gh_repo}/issues/{n} state=closed"
+                )
+            else:
+                console.print("[yellow]dry-run:[/] GH_TOKEN не задан — шаг GitHub API будет пропущен")
+        return
+
+    issues_dir.mkdir(parents=True, exist_ok=True)
+    ts = now_iso()
+    for n in nums:
+        rec = {
+            "issue": n,
+            "state": "closed",
+            "updated": ts,
+            "source": "forge-close-blockers",
+        }
+        out = issues_dir / f"{n}.yaml"
+        out.write_text(yaml.safe_dump(rec, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        console.print(f"[green]recorded[/] {out.relative_to(repo_root)}")
+        if not token:
+            console.print(f"[yellow]GH_TOKEN не задан[/] — GitHub #{n} не трогали")
+            continue
+        try:
+            gh_request("PATCH", f"/repos/{gh_repo}/issues/{n}", {"state": "closed"})
+            console.print(f"[green]GitHub[/] issue #{n} закрыт")
+        except urllib.error.HTTPError as exc:
+            console.print(f"[yellow]GitHub #{n}[/] HTTP {exc.code} — локальный файл всё равно записан")
 

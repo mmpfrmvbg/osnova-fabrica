@@ -35,6 +35,7 @@ dev = [
 
 [project.scripts]
 osnova = "osnova.cli:app"
+forge = "osnova.forge_entry:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

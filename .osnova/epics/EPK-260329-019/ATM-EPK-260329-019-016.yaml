@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 16
 zone: close-blockers-2
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Закрыть blocker-issues
 scope:
 - .github/issues/
@@ -17,6 +17,14 @@ deps:
 - ATM-EPK-260329-019-014
 - ATM-EPK-260329-019-015
 maxiter: 3
-retries: 0
-status: PENDING
+retries: 1
+status: blk
 priority: P0
+max_retries: 3
+review_base_sha: f71084e4261d7fc87943f2fa12c1f6c00a16e1e8
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: expected files missing: [''.github/issues/'']'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: expected files missing: [''.github/issues/'']'
