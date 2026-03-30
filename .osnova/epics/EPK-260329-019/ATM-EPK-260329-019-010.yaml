@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 10
 zone: compiler
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Изолировать и починить парсер/лексер регрессии, влияющие на repair (серия 015).
 scope: src/compiler/index.ts — re-export parse/lex без семантики
 notouch:
@@ -17,13 +17,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-009
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: ac4f80c4ec26f4bb0e3767704296c0442ad95d53
+review_base_sha: 7d9e329a0b12361e51e3c87746c7659da74a9b1c
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.

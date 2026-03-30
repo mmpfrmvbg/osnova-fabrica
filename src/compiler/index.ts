@@ -4,11 +4,14 @@
  * сквозная сборка — `compileSource`, `Compiler`, `compileToBuildReport`; VM — `./vm`.
  * Self-fix / агенты: тот же контракт, что у внутреннего `./compiler` — `formatCompileFailureMessage`,
  * `compileToBuildReport` и `Compiler.execute` доступны из реэкспорта `./compiler`.
- * Связка токенизации/разбора: первые два `export *` — `./lexer` (`tokenize`) и `./parser` (`parse`), до semantic и codegen.
+ * Синтаксический слой (lex/parse) реэкспортируется явно из `./lexer` и `./parser` — без смешивания с семантикой;
+ * далее — semantic, codegen, фасад `./compiler`, VM.
  * Re-export подмодулей не пересекается по именам; порядок export — как у фаз, затем фасад, затем VM.
  */
-export * from "./lexer";
-export * from "./parser";
+export type { TokenKind, Token, LexerError, LexerResult } from "./lexer";
+export { ALL_TOKEN_KINDS, KEYWORDS, tokenize } from "./lexer";
+export type { ParseErrorContext, ParseError, ParseResult } from "./parser";
+export { parse, printParseError } from "./parser";
 export * from "./semantic";
 export * from "./codegen";
 export * from "./compiler";

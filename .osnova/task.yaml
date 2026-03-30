@@ -1,27 +1,30 @@
-id: ATM-EPK-260329-019-009
+id: ATM-EPK-260329-019-010
 epic: EPK-260329-019
-seq: 9
+seq: 10
 zone: compiler
 risk: MEDIUM
 executor: cursor
-goal: Стабилизировать компиляторный фасад (lexer/parser/codegen wiring) для self-fix
-  цикла.
-scope: src/compiler/index.ts — публичный API и wiring только
+goal: Изолировать и починить парсер/лексер регрессии, влияющие на repair (серия 015).
+scope: src/compiler/index.ts — re-export parse/lex без семантики
 notouch:
-- src/compiler/golden-runner.test.ts
-- src/runtime/**
-done: npx vitest run src/compiler/compiler.test.ts
+- src/compiler/semantic.ts
+- docs/**
+done: npx vitest run src/compiler/parser.test.ts
 steps:
-- Проверить цепочку compile entry vs внутренние модули.
-- Устранить ошибки инициализации/экспорта, блокирующие пайплайн.
-- Подтвердить агрегаторный тест компилятора.
+- Локализовать сбой на уровне parse/lex vs semantic.
+- Починить только surface index↔parser/lexer.
+- Прогнать узкий парсер-тест.
 deps:
-- ATM-EPK-260329-019-003
+- ATM-EPK-260329-019-009
 maxiter: 3
 retries: 1
-status: done
+status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 85c5cfcea0f05642866ca5583fbc8d389934d4ba
-produced_files:
-  - src/compiler/index.ts
+review_base_sha: 7d9e329a0b12361e51e3c87746c7659da74a9b1c
+retry_context:
+  attempt: 2
+  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
+    и done-команду.
+last_failure: 'FAIL: expected files missing: ['''', '''', '''']'
