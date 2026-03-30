@@ -1,0 +1,404 @@
+epic: EPK-260329-019
+summary:
+  status: PARTIAL
+  passrate: 0.2916666666666667
+  atomsdone: 7
+  atomstotal: 24
+results:
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-001
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 5
+    totalLinesAdded: 0
+    totalLinesRemoved: 5
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''', '''']'
+    elapsed: 18
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-002
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''']'
+    elapsed: 17
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-003
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 191
+  err: null
+  review:
+    passed: true
+    reason: 'FAIL: Изменён только .osnova/report.yaml, а vitest.config.ts (pool/retry/exclude/coverage)
+      не затронут — цель не выполнена.'
+    elapsed: 17
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-004
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 131
+    totalLinesAdded: 66
+    totalLinesRemoved: 65
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''', '''']'
+    elapsed: 33
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-005
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''']'
+    elapsed: 19
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-006
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 2
+    totalLinesAdded: 1
+    totalLinesRemoved: 1
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''', '''']'
+    elapsed: 20
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-007
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''']'
+    elapsed: 19
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-008
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''', '''']'
+    elapsed: 18
+- v: 5
+  t: RPT
+  id: ATM-009
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 206
+    totalLinesAdded: 205
+    totalLinesRemoved: 1
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 20
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-009
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''']'
+    elapsed: 19
+- v: 5
+  t: RPT
+  id: ATM-010
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 123
+    totalLinesAdded: 120
+    totalLinesRemoved: 3
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-010
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 1
+    totalLinesAdded: 1
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''', '''']'
+    elapsed: 18
+- v: 5
+  t: RPT
+  id: ATM-011
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 428
+    totalLinesAdded: 424
+    totalLinesRemoved: 4
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-011
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''']'
+    elapsed: 72
+- v: 5
+  t: RPT
+  id: ATM-012
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 943
+    totalLinesAdded: 916
+    totalLinesRemoved: 27
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 19
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-012
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 0
+    zero_line_delta_done_verified: true
+    totalLinesAdded: 0
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''', '''']'
+    elapsed: 20
+- v: 5
+  t: RPT
+  id: ATM-013
+  s: OK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 133
+    totalLinesAdded: 133
+    totalLinesRemoved: 0
+  reviewer_skip_done: true
+  review:
+    passed: true
+    reason: 'PASS: multi-signal (artifact + done + scope change vs base)'
+    elapsed: 20
+    scope_lines_changed: true
+    skip_reason: null
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-013
+  s: BLK
+  changed: []
+  elapsed: 0
+  qwen_result:
+    lines_delta: 2
+    totalLinesAdded: 1
+    totalLinesRemoved: 1
+  reviewer_skip_done: true
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''']'
+    elapsed: 18
+- v: 5
+  t: RPT
+  id: ATM-014
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 801
+  err: null
+  review:
+    passed: false
+    reason: "Qwen OAuth quota exceeded: Your free daily quota has been reached.\n\n\
+      To continue using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding\
+      \ Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n\
+      \  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
+      \nAfter subscribing, run /auth to configure your Coding Plan API key.\nQwen\
+      \ OAuth quota exceeded: Your free daily quota has been reached.\n\nTo continue\
+      \ using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding Plan:\n\
+      \  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n  Global/Intl:\
+      \ https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\nAfter subscribing,\
+      \ run /auth to configure your Coding Plan API key.Qwen OAuth quota exceeded:\
+      \ Your free daily quota has been reached.\n\nTo continue using Qwen Code without\
+      \ waiting, upgrade to the Alibaba Cloud Coding Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n\
+      \  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
+      \nAfter subscribing, run /auth to configure your Coding Plan API key.\nAn unexpected\
+      \ critical error occurred:\nError: Qwen OAuth quota exceeded: Your free daily\
+      \ quota has been reached.\n\nTo continue using Qwen Code without waiting, upgrade\
+      \ to the Alibaba Cloud Coding Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n\
+      \  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
+      \nAfter subscribing, run /auth to configure your Coding Plan API key.\n    at\
+      \ file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:424831:19\n\
+      \    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n\
+      \    at async main (file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:479562:5);\
+      \ done command failed: 4294963248"
+    elapsed: 19
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-014
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 225
+  err: null
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''']'
+    elapsed: 19
+- v: 5
+  t: RPT
+  id: ATM-015
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 1080
+  err: 'agent -p failed (model token: auto)'
+  review:
+    passed: false
+    reason: 'FAIL: executor BLK — reviewer skipped'
+    elapsed: 0
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-015
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 115
+  err: null
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: ['''', '''']'
+    elapsed: 19
+- v: 5
+  t: RPT
+  id: ATM-016
+  s: OK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 267
+  err: null
+  review:
+    passed: true
+    reason: 'PASS: scope unchanged vs review_base_sha (pre_existing); done-command
+      passed'
+    elapsed: 120
+    skip_reason: pre_existing
+    scope_lines_changed: false
+- v: 5
+  t: RPT
+  id: ATM-EPK-260329-019-016
+  s: BLK
+  tests:
+    passed: 0
+    total: 0
+  changed: []
+  elapsed: 201
+  err: null
+  review:
+    passed: false
+    reason: 'FAIL: expected files missing: [''.github/issues/'']'
+    elapsed: 16
+createdat: '2026-03-30T03:10:03.540604+03:00'
