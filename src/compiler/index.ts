@@ -12,7 +12,9 @@ export type { TokenKind, Token, LexerError, LexerResult } from "./lexer";
 export { ALL_TOKEN_KINDS, KEYWORDS, tokenize } from "./lexer";
 export type { ParseErrorContext, ParseError, ParseResult } from "./parser";
 export { parse, printParseError } from "./parser";
-export * from "./semantic";
+/** Семантика: только явные экспорты из `./semantic` (без `export *`). */
+export type { SemanticError, SemanticResult } from "./semantic";
+export { analyzeProgram, checkSemantics } from "./semantic";
 export * from "./codegen";
 export * from "./compiler";
 export * from "./vm";

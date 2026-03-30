@@ -1,30 +1,30 @@
-id: ATM-EPK-260329-019-010
+id: ATM-EPK-260329-019-011
 epic: EPK-260329-019
-seq: 10
+seq: 11
 zone: compiler
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Изолировать и починить парсер/лексер регрессии, влияющие на repair (серия 015).
-scope: src/compiler/index.ts — re-export parse/lex без семантики
+goal: Зафиксировать семантический слой после стабилизации parse surface.
+scope: src/compiler/index.ts — semantic entry только если уже экспортируется
 notouch:
-- src/compiler/semantic.ts
-- docs/**
-done: npx vitest run src/compiler/parser.test.ts
+- src/pipeline/**
+- src/agents/**
+done: npx vitest run src/compiler/semantic.test.ts
 steps:
-- Локализовать сбой на уровне parse/lex vs semantic.
-- Починить только surface index↔parser/lexer.
-- Прогнать узкий парсер-тест.
+- Сверить semantic export с потребителями в runtime/pipeline.
+- Устранить несовместимости типов на границе semantic.
+- Прогнать semantic тест.
 deps:
-- ATM-EPK-260329-019-009
+- ATM-EPK-260329-019-010
 maxiter: 3
 retries: 1
 status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 7d9e329a0b12361e51e3c87746c7659da74a9b1c
+review_base_sha: 51ceccec82d501e09c31b52b977db5c51b88d581
 retry_context:
   attempt: 2
-  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+  previous_failure: 'FAIL: expected files missing: ['''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
-last_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+last_failure: 'FAIL: expected files missing: ['''', '''']'
