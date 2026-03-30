@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 6
 zone: pipeline
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Выровнять оркестрацию волнами с типами и индексом (частичные сценарии FBK016).
 scope: src/pipeline/index.ts — factory/helpers рядом с export surface
 notouch:
@@ -17,13 +17,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-005
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: 203089755fc19ac8cf0cda7758556bc640e934eb
+review_base_sha: e510c0efd711f0f264989b7364ce194837d95da2
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.

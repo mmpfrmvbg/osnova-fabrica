@@ -2,11 +2,20 @@
 // src/pipeline/index.ts — публичный API barrel
 // ============================================================
 
+import type { PipelineContext } from './types';
+
 // Основной фасад пайплайна
 export { Pipeline, runPipelineWithExecAgent } from './pipeline';
 
-// Оркестратор (линейный пайплайн)
-export { runPipeline as runPipelineOrchestrator, compileToBuildReport, hasBlockingSemanticErrors, extractLastErrorKind, executePipeline } from './orchestrator';
+// Оркестратор (линейный пайплайн) + пошаговый {@link executePipeline}
+export {
+  runPipeline,
+  runPipeline as runPipelineOrchestrator,
+  compileToBuildReport,
+  hasBlockingSemanticErrors,
+  extractLastErrorKind,
+  executePipeline,
+} from './orchestrator';
 
 // Типы
 export type {
@@ -21,6 +30,9 @@ export type {
   PipelinePhase,
   PlanStep,
   PlanAgentBuildOptions,
+  IPipelineStep,
+  PipelineContext,
+  StepResult,
   GateId,
   GateResult,
   PipelineLLMHealth,
@@ -31,6 +43,11 @@ export type {
   DiagnosticPipelineStatus,
   PipelineStatus,
 } from './types';
+
+/** Пустой контекст для волнового {@link executePipeline} (015/FBK016 — без предзаполненного state). */
+export function createEmptyPipelineContext(): PipelineContext {
+  return { repairAttempts: 0 };
+}
 
 export {
   toPipelineTracePersistedStatus,
