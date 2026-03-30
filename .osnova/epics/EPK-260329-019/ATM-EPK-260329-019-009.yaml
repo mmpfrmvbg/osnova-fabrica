@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 9
 zone: compiler
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Стабилизировать компиляторный фасад (lexer/parser/codegen wiring) для self-fix
   цикла.
 scope: src/compiler/index.ts — публичный API и wiring только
@@ -18,13 +18,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-003
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: 4420e7e297574de8d01b137f9d1fe0964e45b139
+review_base_sha: 85c5cfcea0f05642866ca5583fbc8d389934d4ba
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
