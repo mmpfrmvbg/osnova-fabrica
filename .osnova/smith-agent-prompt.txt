@@ -11,5 +11,35 @@ Make concrete file edits; be minimal. When finished, the atom's `done` command s
 
 --- Retry after BLK ---
 attempt: 2
-previous_failure: FAIL: expected files missing: ['', '']
+previous_failure: Qwen OAuth quota exceeded: Your free daily quota has been reached.
+
+To continue using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding Plan:
+  China:       https://help.aliyun.com/zh/model-studio/coding-plan
+  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan
+
+After subscribing, run /auth to configure your Coding Plan API key.
+Qwen OAuth quota exceeded: Your free daily quota has been reached.
+
+To continue using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding Plan:
+  China:       https://help.aliyun.com/zh/model-studio/coding-plan
+  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan
+
+After subscribing, run /auth to configure your Coding Plan API key.Qwen OAuth quota exceeded: Your free daily quota has been reached.
+
+To continue using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding Plan:
+  China:       https://help.aliyun.com/zh/model-studio/coding-plan
+  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan
+
+After subscribing, run /auth to configure your Coding Plan API key.
+An unexpected critical error occurred:
+Error: Qwen OAuth quota exceeded: Your free daily quota has been reached.
+
+To continue using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding Plan:
+  China:       https://help.aliyun.com/zh/model-studio/coding-plan
+  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan
+
+After subscribing, run /auth to configure your Coding Plan API key.
+    at file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:424831:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async main (file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:479562:5); done command failed: 4294963248
 hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope и done-команду.

@@ -22,36 +22,10 @@ deps:
 - ATM-013
 maxiter: 3
 retries: 1
-status: blk
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: 074cd206b6fa08fbff0903f4fb7710a03c8a13fa
-retry_context:
-  attempt: 2
-  previous_failure: "Qwen OAuth quota exceeded: Your free daily quota has been reached.\n\
-    \nTo continue using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding\
-    \ Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n\
-    \  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
-    \nAfter subscribing, run /auth to configure your Coding Plan API key.\nQwen OAuth\
-    \ quota exceeded: Your free daily quota has been reached.\n\nTo continue using\
-    \ Qwen Code without waiting, upgrade to the Alibaba Cloud Coding Plan:\n  China:\
-    \       https://help.aliyun.com/zh/model-studio/coding-plan\n  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
-    \nAfter subscribing, run /auth to configure your Coding Plan API key.Qwen OAuth\
-    \ quota exceeded: Your free daily quota has been reached.\n\nTo continue using\
-    \ Qwen Code without waiting, upgrade to the Alibaba Cloud Coding Plan:\n  China:\
-    \       https://help.aliyun.com/zh/model-studio/coding-plan\n  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
-    \nAfter subscribing, run /auth to configure your Coding Plan API key.\nAn unexpected\
-    \ critical error occurred:\nError: Qwen OAuth quota exceeded: Your free daily\
-    \ quota has been reached.\n\nTo continue using Qwen Code without waiting, upgrade\
-    \ to the Alibaba Cloud Coding Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n\
-    \  Global/Intl: https://www.alibabacloud.com/help/en/model-studio/coding-plan\n\
-    \nAfter subscribing, run /auth to configure your Coding Plan API key.\n    at\
-    \ file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:424831:19\n\
-    \    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n\
-    \    at async main (file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:479562:5);\
-    \ done command failed: 4294963248"
-  hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
-    и done-команду.
+review_base_sha: 7b3174ca1788cb3d07ed4502cd0e5864c941eecf
 last_failure: "Qwen OAuth quota exceeded: Your free daily quota has been reached.\n\
   \nTo continue using Qwen Code without waiting, upgrade to the Alibaba Cloud Coding\
   \ Plan:\n  China:       https://help.aliyun.com/zh/model-studio/coding-plan\n  Global/Intl:\
@@ -73,3 +47,4 @@ last_failure: "Qwen OAuth quota exceeded: Your free daily quota has been reached
   \    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n\
   \    at async main (file:///C:/Users/87572/AppData/Roaming/npm/node_modules/@qwen-code/qwen-code/cli.js:479562:5);\
   \ done command failed: 4294963248"
+produced_files: []
