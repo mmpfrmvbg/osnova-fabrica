@@ -1,34 +1,32 @@
-id: ATM-EPK-260329-019-001
+id: ATM-EPK-260329-019-002
 epic: EPK-260329-019
-seq: 1
+seq: 2
 zone: toolchain
 risk: MEDIUM
 executor: cursor
-goal: 'Стабилизировать корневые опции компиляции/резолва (блокеры 015/FBK016): tsconfig
-  без регрессий.'
-# Только compilerOptions/paths/include/exclude (self-fix).
+goal: Выровнять npm-скрипты и зависимости с CI (self-fix корневых причин падений серии
+  015).
 scope:
-  - tsconfig.json
-expected_files:
-  - tsconfig.json
+  - package.json — scripts/deps/engines; без смены major без необходимости
 notouch:
-- src/**
-- apps/**
-done: npx vitest run tsconfig.test.ts
+- package-lock.json
+- apps/osiris/package.json
+done: npx vitest run package.test.ts
 steps:
-- Сверить tsconfig с фактическими entrypoints пайплайна и тестов.
-- Устранить расхождения, из-за которых падает tsc --noEmit в CI.
-- Прогнать узкий тест и убедиться, что типовая матрица не сломана.
-deps: []
+- Сопоставить npm run ci с локальным минимальным набором команд.
+- Исправить скрипты/зависимости, блокирующие tsc или vitest в корне.
+- Проверить, что корневой тест на манифест зелёный.
+deps:
+- ATM-EPK-260329-019-001
 maxiter: 3
 retries: 1
 status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 43f98b2fa65fda16ea61cdf72f1b4c27185ff67a
+review_base_sha: a72f9409e459058bc6543d584f9cabda45c951b2
 retry_context:
   attempt: 2
-  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+  previous_failure: 'FAIL: expected files missing: ['''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
-last_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+last_failure: 'FAIL: expected files missing: ['''', '''']'

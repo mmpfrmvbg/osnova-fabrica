@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 2
 zone: toolchain
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Выровнять npm-скрипты и зависимости с CI (self-fix корневых причин падений серии
   015).
 scope: package.json — scripts/deps/engines; без смены major без необходимости
@@ -18,13 +18,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-001
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: d5b623b03690d1f87c4e65f37474b61ecedfef54
+review_base_sha: a72f9409e459058bc6543d584f9cabda45c951b2
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
