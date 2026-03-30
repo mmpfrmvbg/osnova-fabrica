@@ -1,13 +1,15 @@
 /**
  * Публичная точка входа рантайма VM / интерпретатора.
- * Из `./vm` — OsVbcVM и пайплайн; из `./interpreter` — runProgram, loadModule, Interpreter, VM; из `./runtimeRecovery` — ошибки/ recovery без цикла с `./vm`.
+ * Из `./vm` — OsVbcVM, пайплайн, OpCode и типы интерпретатора (как в фасаде vm.ts: OpCode → `./interpreter`);
+ * из `./interpreter` — только то, чего нет в vm: runProgram, loadModule, класс VM, Interpreter;
+ * из `./runtimeRecovery` — ошибки/recovery без цикла с `./vm`.
  * Импорт из `../runtime`, `./vm` или `./interpreter` даёт согласованную поверхность.
  */
 import type { OsVbcVMOptions, OsVbcExecuteOptions } from "./vm";
 import type { OsVbcModule } from "./vm/bytecode";
 
 export * from "./vm";
-export { Interpreter, InterpreterError, runProgram, loadModule, VM, OpCode } from "./interpreter";
+export { Interpreter, InterpreterError, runProgram, loadModule, VM } from "./interpreter";
 export type { RunProgramOptions, TryFrame } from "./interpreter";
 export type { ExecuteWithRecoveryOptions, PipelineVmExecuteResultWithRecovery } from "./vm";
 export { executeWithRecovery } from "./vm";

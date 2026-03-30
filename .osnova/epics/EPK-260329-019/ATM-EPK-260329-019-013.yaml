@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 13
 zone: runtime
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Выровнять interpreter path с VM после правок фасада.
 scope: src/runtime/index.ts — interpreter-related exports
 notouch:
@@ -17,13 +17,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-012
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: 8509aeab5ac7918f9faa5e0ee89c57f99838041a
+review_base_sha: e478ec4b12832f45c17b56c72186fa81765436b2
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
