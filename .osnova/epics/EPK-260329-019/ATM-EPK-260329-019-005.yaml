@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 5
 zone: pipeline
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Починить публичный API re-export пайплайна без изменения поведения оркестратора.
 scope: src/pipeline/index.ts — exports barrel только
 notouch:
@@ -17,13 +17,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-004
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: 46e0c225ce052753cf65f84fb6892b052a9fa767
+review_base_sha: 0386156498a4278f9832d768c6f067409bfe6331
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
