@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 8
 zone: pipeline
 risk: LOW
-executor: qwen
+executor: cursor
 goal: Проверить gate/health вспомогательные пути после типов пайплайна.
 scope: src/pipeline/types.ts — только поля, влияющие на gate/health scoring
 notouch:
@@ -17,13 +17,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-004
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: a72e4385f56c13ed985acfaaeff3c9047b2a9f08
+review_base_sha: 43b525792fb64a1ade050b7861f573d6af3311d6
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.

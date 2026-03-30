@@ -1,30 +1,30 @@
-id: ATM-EPK-260329-019-007
+id: ATM-EPK-260329-019-008
 epic: EPK-260329-019
-seq: 7
+seq: 8
 zone: pipeline
-risk: MEDIUM
+risk: LOW
 executor: cursor
-goal: Закрыть полный happy-path оркестратора после правок index/types.
-scope: src/pipeline/index.ts — без смены контрактов Osiris
+goal: Проверить gate/health вспомогательные пути после типов пайплайна.
+scope: src/pipeline/types.ts — только поля, влияющие на gate/health scoring
 notouch:
-- apps/osiris/**
-- src/compiler/index.ts
-done: npx vitest run src/pipeline/orchestrator.test.ts
+- src/pipeline/index.ts
+- src/steward/**
+done: npx vitest run src/pipeline/gateChecker.test.ts
 steps:
-- Прогнать полный orchestrator test и зафиксировать оставшиеся расхождения.
-- Внести минимальные правки в index для стабильного прохождения.
-- Убедиться в отсутствии регрессий gate/shadow если задействованы.
+- Сопоставить типы артефактов с gateChecker ожиданиями.
+- Добавить/уточнить поля типов без изменения бизнес-логики gate.
+- Подтвердить gateChecker тестами.
 deps:
-- ATM-EPK-260329-019-006
+- ATM-EPK-260329-019-004
 maxiter: 3
 retries: 1
 status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: 13bdc447cefd565eff5a34f180b8d24a9f6c32d3
+review_base_sha: 43b525792fb64a1ade050b7861f573d6af3311d6
 retry_context:
   attempt: 2
-  previous_failure: 'FAIL: expected files missing: ['''', '''']'
+  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
-last_failure: 'FAIL: expected files missing: ['''', '''']'
+last_failure: 'FAIL: expected files missing: ['''', '''', '''']'

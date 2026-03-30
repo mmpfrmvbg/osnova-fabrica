@@ -310,7 +310,11 @@ export interface OsnovaIntent {
   readonly intentId: string;
   readonly description: string;
   readonly features: readonly string[];
-  readonly appType: AppType;
+  /**
+   * Классификация приложения. Если нет — `checkG1` в `gateChecker.ts` подставляет `утилита`
+   * и может добавить предупреждение `g1_app_type_classified` (не блокирующее).
+   */
+  readonly appType?: AppType;
   readonly constraints: Record<string, unknown>;
   readonly confidence: number; // 0..1
 }
@@ -381,12 +385,16 @@ export interface CompilerError {
 /**
  * Отчёт фазы build. `success` задаётся в `orchestrator.compileToBuildReport`:
  * `compilerSuccess`, пустые lexer/parser, нет blocking semantic errors.
+ *
+ * **G2 (`checkG2`)** смотрит на `lexerErrors`, `parserErrors`, `compilerSuccess`, `bytecode`,
+ * `semanticErrors` (blocking по `kind`, см. `semanticKinds`), `durationMs` — не на поле `success` в изоляции.
  */
 export interface BuildReport {
   readonly success: boolean;
   readonly lexerErrors: readonly LexerError[];
   readonly parserErrors: readonly ParserError[];
   readonly compilerErrors: readonly CompilerError[];
+  /** Для G2: блокирующие виды — пересечение с `BLOCKING_SEMANTIC_KINDS` в gateChecker. */
   readonly semanticErrors?: readonly SemanticError[];
   /** Всего семантических ошибок (blocking + non-blocking), для трейсов и аналитики */
   readonly semanticErrorCount?: number;
@@ -403,6 +411,11 @@ export interface VMError {
   readonly stack?: unknown[];
 }
 
+/**
+ * Результат фазы golden. **G3 (`checkG3`)** использует `executed`, `vmErrors`, `qualityScore`, `outputDiff`;
+ * при `executed` без ошибок VM и `qualityScore === 0` допускается ранний проход (см. `gateChecker`, режим без expectVM).
+ * **Health:** `qualityScore` передаётся в `calcHealthScore` (`healthScore.ts`) как `goldenQualityScore` при наличии прогона.
+ */
 export interface GoldenReport {
   readonly executed: boolean;
   readonly passed: boolean;
