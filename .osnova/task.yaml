@@ -1,24 +1,23 @@
-id: ATM-EPK-260329-019-015
+id: ATM-016
 epic: EPK-260329-019
-seq: 15
-zone: agents
-risk: LOW
+seq: 16
+zone: ci
+risk: P0
 executor: cursor
-goal: Проверить plan-agent контракт после стабилизации agents index.
-scope: src/agents/index.ts — plan-agent export path
-notouch:
-- src/pipeline/orchestrator.ts
-- src/runtime/index.ts
-done: npx vitest run src/agents/plan-agent.test.ts
+goal: Финальное устранение блокеров ci и подтверждение прохождения
+scope:
+- src/pipeline/index.ts
+notouch: []
+done: npm run ci
 steps:
-- Убедиться, что plan-agent доступен тем же способом, что ждёт оркестратор.
-- Минимально поправить barrel без смены промптов.
-- Прогнать plan-agent тест.
+- Исправить последние ошибки ci
+- Подтвердить прохождение всех тестов
+- Задокументировать resolved блокеры
 deps:
-- ATM-EPK-260329-019-014
+- ATM-015
 maxiter: 3
 retries: 0
-status: in_progress
+status: done
 priority: P0
 max_retries: 3
-review_base_sha: 6fcd927d7866ae22928a57b0d492afad2e877221
+review_base_sha: ff2ef7c1cbbe81861a6792e7910736ca8b942bb5
