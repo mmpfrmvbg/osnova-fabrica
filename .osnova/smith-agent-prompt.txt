@@ -11,5 +11,5 @@ Make concrete file edits; be minimal. When finished, the atom's `done` command s
 
 --- Retry after BLK ---
 attempt: 2
-previous_failure: FAIL: expected files missing: ['', '']
+previous_failure: FAIL: expected files missing: ['', '', '']
 hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope и done-команду.

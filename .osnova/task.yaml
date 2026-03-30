@@ -1,32 +1,31 @@
-id: ATM-EPK-260329-019-002
+id: ATM-EPK-260329-019-004
 epic: EPK-260329-019
-seq: 2
-zone: toolchain
+seq: 4
+zone: pipeline
 risk: MEDIUM
 executor: cursor
-goal: Выровнять npm-скрипты и зависимости с CI (self-fix корневых причин падений серии
-  015).
-scope:
-  - package.json — scripts/deps/engines; без смены major без необходимости
+goal: Устранить несогласованность типов стадий/артефактов пайплайна (корень блокеров
+  FBK016).
+scope: src/pipeline/types.ts — только типы и узкие type-guards/aliases
 notouch:
-- package-lock.json
-- apps/osiris/package.json
-done: npx vitest run package.test.ts
+- src/pipeline/orchestrator*.ts
+- src/compiler/**
+done: npx vitest run src/pipeline/types.test.ts
 steps:
-- Сопоставить npm run ci с локальным минимальным набором команд.
-- Исправить скрипты/зависимости, блокирующие tsc или vitest в корне.
-- Проверить, что корневой тест на манифест зелёный.
+- Найти расхождения между runtime-фактами и декларированными типами.
+- Свести union/optional поля к одному источнику правды.
+- Проверить типовые тесты пайплайна.
 deps:
-- ATM-EPK-260329-019-001
+- ATM-EPK-260329-019-003
 maxiter: 3
 retries: 1
 status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: a72f9409e459058bc6543d584f9cabda45c951b2
+review_base_sha: 249feb2929c811fe7be60bdf329d46f393e084d0
 retry_context:
   attempt: 2
-  previous_failure: 'FAIL: expected files missing: ['''', '''']'
+  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
-last_failure: 'FAIL: expected files missing: ['''', '''']'
+last_failure: 'FAIL: expected files missing: ['''', '''', '''']'

@@ -26,8 +26,8 @@ export type DiagnosticStatus = 'blocked' | 'resolved' | 'ignored';
 export interface DiagnosticReport {
   readonly code: DiagnosticCode;
   readonly status: DiagnosticStatus;
-  readonly message: string;
-  readonly phase?: string;
+  /** Фаза пайплайна, на которой зафиксирована диагностика (см. {@link PipelinePhase}). */
+  readonly phase?: PipelinePhase;
   readonly atomId?: string;
   readonly retryCount?: number;
   readonly timestamp: string;
@@ -197,6 +197,66 @@ export const DIAGNOSTIC_CODE_FOR_PIPELINE_STATUS: Readonly<Record<DiagnosticPipe
 
 export function diagnosticCodeFromPipelineStatus(status: DiagnosticPipelineStatus): DiagnosticCode {
   return DIAGNOSTIC_CODE_FOR_PIPELINE_STATUS[status];
+}
+
+/**
+ * Подмножество {@link PipelineErrorType} для серий 015 / FBK016 — 1:1 с {@link DiagnosticCode}
+ * и {@link DiagnosticPipelineStatus}.
+ */
+export type DiagnosticPipelineErrorType =
+  | 'atom_not_found'
+  | 'atom_corrupted'
+  | 'dependency_unresolved'
+  | 'feedback_rejected'
+  | 'feedback_timeout'
+  | 'feedback_limit_exceeded';
+
+/** Код диагностики → тип ошибки пайплайна (единый слой для 015/FBK016). */
+export const PIPELINE_ERROR_TYPE_FOR_DIAGNOSTIC_CODE: Readonly<
+  Record<DiagnosticCode, DiagnosticPipelineErrorType>
+> = {
+  '015-001': 'atom_not_found',
+  '015-002': 'atom_corrupted',
+  '015-003': 'dependency_unresolved',
+  'FBK016-001': 'feedback_rejected',
+  'FBK016-002': 'feedback_timeout',
+  'FBK016-003': 'feedback_limit_exceeded',
+};
+
+export function pipelineErrorTypeFromDiagnosticCode(code: DiagnosticCode): DiagnosticPipelineErrorType {
+  return PIPELINE_ERROR_TYPE_FOR_DIAGNOSTIC_CODE[code];
+}
+
+function buildDiagnosticCodeForPipelineErrorType(): Readonly<
+  Record<DiagnosticPipelineErrorType, DiagnosticCode>
+> {
+  const m = {} as Record<DiagnosticPipelineErrorType, DiagnosticCode>;
+  for (const code of ALL_DIAGNOSTIC_CODES) {
+    m[PIPELINE_ERROR_TYPE_FOR_DIAGNOSTIC_CODE[code]] = code;
+  }
+  return m;
+}
+
+/** Обратное к {@link PIPELINE_ERROR_TYPE_FOR_DIAGNOSTIC_CODE}. */
+export const DIAGNOSTIC_CODE_FOR_PIPELINE_ERROR_TYPE: Readonly<
+  Record<DiagnosticPipelineErrorType, DiagnosticCode>
+> = buildDiagnosticCodeForPipelineErrorType();
+
+export function diagnosticCodeFromPipelineErrorType(t: DiagnosticPipelineErrorType): DiagnosticCode {
+  return DIAGNOSTIC_CODE_FOR_PIPELINE_ERROR_TYPE[t];
+}
+
+export function pipelineStatusFromPipelineErrorType(t: DiagnosticPipelineErrorType): DiagnosticPipelineStatus {
+  return pipelineStatusFromDiagnosticCode(diagnosticCodeFromPipelineErrorType(t));
+}
+
+export function pipelineErrorTypeFromPipelineStatus(status: DiagnosticPipelineStatus): DiagnosticPipelineErrorType {
+  return pipelineErrorTypeFromDiagnosticCode(diagnosticCodeFromPipelineStatus(status));
+}
+
+/** Проверка: тип ошибки относится к исходам 015/FBK016. */
+export function isDiagnosticPipelineErrorType(t: PipelineErrorType): t is DiagnosticPipelineErrorType {
+  return Object.prototype.hasOwnProperty.call(DIAGNOSTIC_CODE_FOR_PIPELINE_ERROR_TYPE, t);
 }
 
 /** Семья сценария (`015` / `FBK016`) по коду диагностики. */
