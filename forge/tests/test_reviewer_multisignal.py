@@ -19,6 +19,10 @@ class TestReviewerMultisignal(unittest.TestCase):
         s = scope_derived_expected_files(["scripts/foo.test.ts — описание"])
         self.assertEqual(s, ["scripts/foo.test.ts"])
 
+    def test_scope_string_same_as_single_element_list(self) -> None:
+        s = scope_derived_expected_files("src/pipeline/index.ts — без смены контрактов")
+        self.assertEqual(s, ["src/pipeline/index.ts"])
+
     def test_expected_files_explicit(self) -> None:
         atom = {"expected_files": ["a/b.ts"], "scope": []}
         self.assertEqual(expected_files_for_atom(atom), ["a/b.ts"])

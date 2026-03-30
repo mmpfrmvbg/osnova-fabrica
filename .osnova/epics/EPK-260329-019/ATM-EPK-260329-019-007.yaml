@@ -3,7 +3,7 @@ epic: EPK-260329-019
 seq: 7
 zone: pipeline
 risk: MEDIUM
-executor: qwen
+executor: cursor
 goal: Закрыть полный happy-path оркестратора после правок index/types.
 scope: src/pipeline/index.ts — без смены контрактов Osiris
 notouch:
@@ -17,13 +17,13 @@ steps:
 deps:
 - ATM-EPK-260329-019-006
 maxiter: 3
-retries: 1
+retries: 2
 status: blk
 priority: P0
 max_retries: 3
-review_base_sha: ef7cd6ee59772a726dc6ffc4846555940c37e709
+review_base_sha: 13bdc447cefd565eff5a34f180b8d24a9f6c32d3
 retry_context:
-  attempt: 2
+  attempt: 3
   previous_failure: 'FAIL: expected files missing: ['''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.

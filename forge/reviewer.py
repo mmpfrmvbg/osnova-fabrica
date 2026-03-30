@@ -346,7 +346,11 @@ def _qwen_lines_delta(exec_rep: dict[str, Any] | None) -> int:
         return 0
 
 
-def scope_derived_expected_files(scope: list[Any]) -> list[str]:
+def scope_derived_expected_files(scope: list[Any] | str | None) -> list[str]:
+    # YAML often has `scope: path/to/file.ts — note`; a string must be wrapped — iterating a
+    # str yields characters and turns each "/" into tok="/" → lstrip("/") → "" (false missing).
+    if isinstance(scope, str):
+        scope = [scope] if scope.strip() else []
     out: list[str] = []
     for raw in scope or []:
         s = str(raw).strip()

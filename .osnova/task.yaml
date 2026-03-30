@@ -1,30 +1,30 @@
-id: ATM-EPK-260329-019-006
+id: ATM-EPK-260329-019-007
 epic: EPK-260329-019
-seq: 6
+seq: 7
 zone: pipeline
 risk: MEDIUM
 executor: cursor
-goal: Выровнять оркестрацию волнами с типами и индексом (частичные сценарии FBK016).
-scope: src/pipeline/index.ts — factory/helpers рядом с export surface
+goal: Закрыть полный happy-path оркестратора после правок index/types.
+scope: src/pipeline/index.ts — без смены контрактов Osiris
 notouch:
-- src/pipeline/types.ts
-- src/agents/index.ts
-done: npx vitest run src/pipeline/orchestrator.partial.test.ts
+- apps/osiris/**
+- src/compiler/index.ts
+done: npx vitest run src/pipeline/orchestrator.test.ts
 steps:
-- Проверить согласованность create*/run* entrypoints с orchestrator.
-- Исправить только точки стыка index↔orchestrator.
-- Прогнать оркестраторные тесты.
+- Прогнать полный orchestrator test и зафиксировать оставшиеся расхождения.
+- Внести минимальные правки в index для стабильного прохождения.
+- Убедиться в отсутствии регрессий gate/shadow если задействованы.
 deps:
-- ATM-EPK-260329-019-005
+- ATM-EPK-260329-019-006
 maxiter: 3
 retries: 1
 status: in_progress
 priority: P0
 max_retries: 3
-review_base_sha: e510c0efd711f0f264989b7364ce194837d95da2
+review_base_sha: 13bdc447cefd565eff5a34f180b8d24a9f6c32d3
 retry_context:
   attempt: 2
-  previous_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+  previous_failure: 'FAIL: expected files missing: ['''', '''']'
   hint: Убедись что файлы реально созданы и сохранены перед завершением; проверь scope
     и done-команду.
-last_failure: 'FAIL: expected files missing: ['''', '''', '''']'
+last_failure: 'FAIL: expected files missing: ['''', '''']'
