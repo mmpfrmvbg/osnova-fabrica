@@ -166,9 +166,17 @@ function toCompileError(
   };
 }
 
-function resolveImportPath(importPath: string, baseDir: string): string {
-  if (path.isAbsolute(importPath)) return importPath;
-  return path.join(baseDir, importPath);
+function resolveImportPath(importPath: string, baseDir: string, rootDir: string): string {
+  if (path.isAbsolute(importPath)) {
+    throw new Error(`Импорт только относительный: ${importPath}`);
+  }
+  const resolved = path.resolve(baseDir, importPath);
+  const root = path.resolve(rootDir);
+  const rel = path.relative(root, resolved);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error(`Импорт вне каталога: ${importPath}`);
+  }
+  return resolved;
 }
 
 function rewriteExprCalls(expr: Expr, rewriter: (calleeName: string) => string): void {
@@ -267,19 +275,29 @@ function parseModuleOrThrow(source: string): Module {
   return getFirstModuleOrThrow(program);
 }
 
-function expandModuleImports(ast: Module, baseDir: string, importStack: string[] = []): Module {
+function expandModuleImports(
+  ast: Module,
+  baseDir: string,
+  importStack: string[] = [],
+  rootDir: string = baseDir,
+): Module {
   const aliasToExportedProcNameToPrefixed = new Map<string, Map<string, string>>();
   const mergedTypeDeclarations: TypeDeclaration[] = [...ast.typeDeclarations];
 
   const inlinedProcedures: Procedure[] = [];
   for (const imp of ast.imports) {
-    const resolved = resolveImportPath(imp.path, baseDir);
+    const resolved = resolveImportPath(imp.path, baseDir, rootDir);
     if (!fs.existsSync(resolved)) throw new Error(`Модуль не найден: ${imp.path}`);
     if (importStack.includes(resolved)) throw new Error(`Циклический импорт: ${imp.path}`);
 
     const importedSource = fs.readFileSync(resolved, "utf-8");
     const importedAst = parseModuleOrThrow(importedSource);
-    const importedExpanded = expandModuleImports(importedAst, path.dirname(resolved), [...importStack, resolved]);
+    const importedExpanded = expandModuleImports(
+      importedAst,
+      path.dirname(resolved),
+      [...importStack, resolved],
+      rootDir,
+    );
 
     // Для внешних вызовов alias.proc доступны только процедуры, помеченные `экспорт` в импортируемом модуле.
     const exportedMap = new Map<string, string>();
@@ -519,7 +537,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   let expandedAst: Module;
   try {
     const ast = getFirstModuleOrThrow(program);
-    expandedAst = expandModuleImports(ast, baseDir);
+    expandedAst = expandModuleImports(ast, baseDir, [], baseDir);
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : String(e);
     addLog(logs, 'error', 'codegen', errorMsg, start, toCompileError(e instanceof Error ? e : { message: errorMsg }, undefined, undefined, 'import_error'));
@@ -543,7 +561,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     namedTypeErrors = [];
     for (const mod of program.modules) {
       try {
-        const ex = expandModuleImports(mod, baseDir);
+        const ex = expandModuleImports(mod, baseDir, [], baseDir);
         namedTypeErrors.push(...validateNamedTypesAndRewrite(ex));
       } catch (e) {
         namedTypeErrors.push(e instanceof Error ? e.message : String(e));

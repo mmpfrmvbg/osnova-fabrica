@@ -3,7 +3,8 @@
  * Запуск: npx vitest run
  */
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { Compiler, compile, compileSource, compileProgram, optimizeIrModule, compileToBuildReport } from ".";
@@ -558,6 +559,24 @@ describe("FIXTURES_DIR: tokenize→parse→semantic→codegen→VM (ATM-004)", (
 });
 
 describe("Compiler: multi-module codegen", () => {
+  it("импорт с ../ или абсолютным путём — отказ", () => {
+    const pkg = join(tmpdir(), `osnova-import-${Date.now()}`);
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(join(pkg, "секрет.osnova"), `модуль Секрет\nпроцедура экспорт x()\n  вернуть 1\nконец\nконец`);
+    const src = `
+модуль Игра
+использовать модуль Секрет из "../секрет.osnova"
+процедура главная()
+  вернуть Секрет.x()
+конец
+конец`.trim();
+    const nested = join(pkg, "игра");
+    mkdirSync(nested);
+    const r = compileSource(src, { baseDir: nested });
+    expect(r.module).toBeNull();
+    expect(r.compilerErrors.some((e) => /Импорт вне каталога/.test(e.message))).toBe(true);
+  });
+
   it("два модуля -> compileProgram возвращает два OsVbcModule", () => {
     const src = `
 модуль A
