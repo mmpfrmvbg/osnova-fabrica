@@ -61,6 +61,37 @@ export function parse(tokens: Token[]): ParseResult {
     while (peek().kind === "новая_строка") advance();
   }
 
+  function isFieldNameToken(): boolean {
+    const t = peek();
+    return t.kind === "идентификатор" || KEYWORDS[t.lexeme] !== undefined;
+  }
+
+  function takeFieldName(): string {
+    const tok = advance();
+    return String(tok.value ?? tok.lexeme);
+  }
+
+  function peekKindSkippingNewlinesFrom(from: number): TokenKind {
+    let i = from;
+    while (tokens[i]?.kind === "новая_строка") i++;
+    return tokens[i]?.kind ?? "конец_файла";
+  }
+
+  function atElseIf(): boolean {
+    if (peek().kind === "иначе_если") return true;
+    return peek().kind === "иначе" && peekKindSkippingNewlinesFrom(pos + 1) === "если";
+  }
+
+  function consumeElseIf(): void {
+    if (peek().kind === "иначе_если") {
+      advance();
+      return;
+    }
+    advance();
+    skipNewlines();
+    advance();
+  }
+
   /** Восстановление после ошибки: до новой строки, конец/конец_файла или начала следующей инструкции. */
   function syncToStmtBoundary(): void {
     const stmtHead: TokenKind[] = [
@@ -293,7 +324,7 @@ export function parse(tokens: Token[]): ParseResult {
     const fields: TypeField[] = [];
     while (peek().kind !== "}" && peek().kind !== "конец_файла") {
       skipNewlines();
-      if (!isAt("идентификатор")) {
+      if (!isFieldNameToken()) {
         const t = peek();
         errors.push({
           message: "Ожидается имя поля типа",
@@ -306,8 +337,7 @@ export function parse(tokens: Token[]): ParseResult {
         });
         return null;
       }
-      const fieldTok = advance();
-      const fieldName = String(fieldTok.value ?? fieldTok.lexeme);
+      const fieldName = takeFieldName();
       if (!consume(":", "Ожидается ':' после имени поля")) return null;
       skipNewlines();
 
@@ -453,8 +483,8 @@ export function parse(tokens: Token[]): ParseResult {
         skipNewlines();
       }
       const elseIfClauses: Array<{ condition: Expr; body: Stmt[] }> = [];
-      while (peek().kind === "иначе_если") {
-        advance();
+      while (atElseIf()) {
+        consumeElseIf();
         skipNewlines();
         const cond = parseExpr();
         if (!cond) return null;
@@ -695,13 +725,12 @@ export function parse(tokens: Token[]): ParseResult {
           const dotPos = pos;
           advance(); // consume "."
           skipNewlines();
-          if (!isAt("идентификатор")) {
+          if (!isFieldNameToken()) {
             pos = dotPos;
             chainOk = false;
             break;
           }
-          const fTok = advance();
-          const fName = String(fTok.value ?? fTok.lexeme);
+          const fName = takeFieldName();
           const opKind = peek().kind;
           if (opKind === "=" || opKind === "+=" || opKind === "-=" || opKind === "*=" || opKind === "/=") {
             // Нашли присваивание — lhsObject уже накоплен, lastField = fName
@@ -802,15 +831,21 @@ export function parse(tokens: Token[]): ParseResult {
   function parseCompare(): Expr | null {
     let left = parseAdd();
     if (!left) return null;
-    const op = peek().kind;
-    if (op === "==" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=") {
-      advance();
+    const compareOps = new Set<TokenKind>(["==", "!=", "<", "<=", ">", ">="]);
+    if (!compareOps.has(peek().kind)) return left;
+    // a < b < c → (a < b) и (b < c) — как пишут нейросети и Python
+    let acc: Expr | null = null;
+    let prevRight: Expr = left;
+    while (compareOps.has(peek().kind)) {
+      const op = advance().kind;
       skipNewlines();
       const right = parseAdd();
       if (!right) return null;
-      left = { kind: "бинарное", op, left, right };
+      const cmp: Expr = { kind: "бинарное", op, left: prevRight, right };
+      acc = acc ? { kind: "бинарное", op: "и", left: acc, right: cmp } : cmp;
+      prevRight = right;
     }
-    return left;
+    return acc;
   }
 
   function parseAdd(): Expr | null {
@@ -890,10 +925,9 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
       const entries: Array<{ key: string; value: Expr }> = [];
       while (peek().kind !== "}" && peek().kind !== "конец_файла") {
-        const keyTok = peek();
-        if (keyTok.kind !== "идентификатор") break;
-        advance();
-        const key = String(keyTok.value ?? keyTok.lexeme);
+        skipNewlines();
+        if (!isFieldNameToken()) break;
+        const key = takeFieldName();
         if (!consume(":", "Ожидается ':' после ключа объекта")) return null;
         skipNewlines();
         const val = parseExpr();
@@ -903,7 +937,7 @@ export function parse(tokens: Token[]): ParseResult {
         if (peek().kind === ",") {
           advance();
           skipNewlines();
-        } else break;
+        }
       }
       if (!consume("}", "Ожидается '}' после тела объекта")) return null;
       return { kind: "объект", entries };
@@ -914,6 +948,7 @@ export function parse(tokens: Token[]): ParseResult {
       const elements: Expr[] = [];
       while (peek().kind !== "]" && peek().kind !== "конец_файла") {
         skipNewlines();
+        if (peek().kind === "]" || peek().kind === "конец_файла") break;
         const el = parseExpr();
         if (!el) return null;
         elements.push(el);
@@ -921,7 +956,7 @@ export function parse(tokens: Token[]): ParseResult {
         if (peek().kind === ",") {
           advance();
           skipNewlines();
-        } else break;
+        }
       }
       if (!consume("]", "Ожидается ']'")) return null;
       return { kind: "массив", elements };
@@ -937,10 +972,9 @@ export function parse(tokens: Token[]): ParseResult {
         skipNewlines();
         const entries: Array<{ key: string; value: Expr }> = [];
         while (peek().kind !== "}" && peek().kind !== "конец_файла") {
-          const keyTok = peek();
-          if (keyTok.kind !== "идентификатор") break;
-          advance();
-          const key = String(keyTok.value ?? keyTok.lexeme);
+          skipNewlines();
+          if (!isFieldNameToken()) break;
+          const key = takeFieldName();
           if (!consume(":", "Ожидается ':' после ключа записи")) return null;
           skipNewlines();
           const val = parseExpr();
@@ -950,7 +984,7 @@ export function parse(tokens: Token[]): ParseResult {
           if (peek().kind === ",") {
             advance();
             skipNewlines();
-          } else break;
+          }
         }
         if (!consume("}", "Ожидается '}' после тела записи")) return null;
         return { kind: "объект", entries };
@@ -961,9 +995,8 @@ export function parse(tokens: Token[]): ParseResult {
         while (peek().kind === ".") {
           advance();
           skipNewlines();
-          if (!isAt("идентификатор")) break;
-          const fieldTok = advance();
-          const field = String(fieldTok.value ?? fieldTok.lexeme);
+          if (!isFieldNameToken()) break;
+          const field = takeFieldName();
           if (peek().kind === "(") {
             const fullName = getExprInvokeName(expr) + (getExprInvokeName(expr) ? "." : "") + field;
             advance();

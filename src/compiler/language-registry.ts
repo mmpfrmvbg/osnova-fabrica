@@ -589,10 +589,10 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
   { id: "walrus_assign", description: "оператор := не поддерживается", bad: "пусть x := 1", good: "пусть x = 1" },
   { id: "missing_converters", description: "конверторы строка()/число()/целое32() не поддерживаются", bad: "целое32(x)" },
   {
-    id: "no_num_string_arith_concat",
-    description: "число не конкатенируется со строкой напрямую — используй объединить",
-    bad: '"итого: " + 42',
-    good: 'система.строка.объединить("итого: ", 42)',
+    id: "prefer_obiedinit_for_clarity",
+    description: "канон склейки строк — система.строка.объединить; + тоже склеивает, если есть строка",
+    bad: 'система.строка.сложить("а", "б")',
+    good: 'система.строка.объединить("а", "б")  // или "а" + "б"',
   },
   {
     id: "no_string_to_num_converter",
@@ -619,7 +619,7 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
     good: "arr[0]",
   },
   { id: "wrong_log_api", description: "система.вывести не существует", bad: "система.вывести(x)", good: "система.лог.вывести(x)" },
-  { id: "return_with_parens", description: "скобки после вернуть не поддерживаются", bad: "вернуть(сумма)", good: "вернуть сумма" },
+  { id: "return_with_parens", description: "вернуть x и вернуть(x) оба допустимы", bad: "return(сумма)", good: "вернуть сумма" },
   { id: "composite_end", description: "составные конец_* не поддерживаются", bad: "конец_пока", good: "конец" },
   {
     id: "throw_undefined_var",
@@ -627,7 +627,12 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
     bad: "процедура а(х)\n  выбросить сообщение  // сообщение не параметр а!\nконец",
     good: "процедура а(х)\n  выбросить х  // только то что объявлено в процедуре\nконец",
   },
-  { id: "english_keywords", description: "английские ключевые слова не поддерживаются", bad: "let x = 1" },
+  {
+    id: "english_keywords",
+    description: "канон — русские слова; let/if/true/&& принимаются как пусть/если/истина/и",
+    bad: "func main() {}",
+    good: "процедура главная()\n  вернуть 0\nконец",
+  },
   { id: "redeclare_with_let", description: "повторное объявление через пусть не допускается", bad: "пусть x = 1\nпусть x = 2", good: "пусть x = 1\nx = 2" },
   { id: "assign_before_let", description: "первая инициализация переменной должна быть через пусть", bad: "x = 1", good: "пусть x = 1" },
   { id: "keyword_as_identifier", description: "ключевые слова нельзя использовать как имена", bad: "пусть если = 1" },
@@ -657,6 +662,39 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
     bad: "процедура главная() ... конец\nиспользовать модуль X из \"x.osnova\"",
   },
 ];
+
+/**
+ * Английские/C-подобные написания → канонический токен Основы.
+ * Канон генерации — русские слова; алиасы, чтобы нейросеть не упиралась в лексер.
+ */
+export const LLM_KEYWORD_ALIASES: Readonly<Record<string, string>> = {
+  module: "модуль",
+  function: "процедура",
+  fn: "процедура",
+  type: "тип",
+  let: "пусть",
+  const: "пусть",
+  var: "пусть",
+  if: "если",
+  else: "иначе",
+  elif: "иначе_если",
+  elseif: "иначе_если",
+  then: "тогда",
+  return: "вернуть",
+  while: "пока",
+  for: "для_каждого",
+  in: "в",
+  break: "прервать",
+  continue: "продолжить",
+  true: "истина",
+  false: "ложь",
+  null: "пусто",
+  and: "и",
+  or: "или",
+  not: "не",
+  end: "конец",
+  export: "экспорт",
+};
 
 /** Реестр языка Основа v0.1 (текущая реализованная версия). */
 export const LANGUAGE_V01: LanguageRegistry = {

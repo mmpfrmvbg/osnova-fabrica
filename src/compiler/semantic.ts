@@ -121,12 +121,6 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
     for (const stmt of stmts) {
       switch (stmt.kind) {
         case "пусть":
-          if (stmt.name === "данные") {
-            errors.push({
-              kind: "invented_syntax",
-              message: "Идентификатор 'данные' зарезервирован. Используйте пусть имя = значение",
-            });
-          }
           checkInventedSyntaxInExpr(stmt.init);
           break;
         case "присвоить":

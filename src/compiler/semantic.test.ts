@@ -33,9 +33,10 @@ describe('RFC-003 Phase B: invented_syntax', () => {
     expect(hasKind(src, 'invented_syntax')).toBe(false);
   });
 
-  it('данные как имя переменной → invented_syntax', () => {
+  it('данные как имя переменной — обычный идентификатор', () => {
     const src = wrap('  пусть данные = 42\n  вернуть данные');
-    expect(hasKind(src, 'invented_syntax')).toBe(true);
+    expect(hasKind(src, 'invented_syntax')).toBe(false);
+    expect(compileSource(src).compilerSuccess).toBe(true);
   });
 });
 

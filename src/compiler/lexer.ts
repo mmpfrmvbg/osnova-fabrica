@@ -1,10 +1,10 @@
 /**
  * Лексер языка Основа: перевод строки — разделитель инструкций (Python-style).
  * Ключевые слова и операторы согласованы с `language-registry` и `OPERATORS_V01`.
- * Комментарии: только `//` до конца строки (см. docs/language-v2.md).
+ * Комментарии: `//` до конца строки и блочные slash-star.
  */
 
-import { getImplementedKeywords } from "./language-registry";
+import { getImplementedKeywords, LLM_KEYWORD_ALIASES } from "./language-registry";
 
 /**
  * Единый перечень видов токенов для `tokenize()` (ключевые слова из реестра + литералы, операторы, пунктуация, служебные).
@@ -174,6 +174,27 @@ export function tokenize(source: string): LexerResult {
       continue;
     }
 
+    if (c === "/" && source[i + 1] === "*") {
+      const commentLine = line;
+      const commentCol = column;
+      advance();
+      advance();
+      let closed = false;
+      while (peek()) {
+        if (peek() === "*" && source[i + 1] === "/") {
+          advance();
+          advance();
+          closed = true;
+          break;
+        }
+        advance();
+      }
+      if (!closed) {
+        errors.push({ message: "Незакрытый комментарий /*", line: commentLine, column: commentCol });
+      }
+      continue;
+    }
+
     if (c === '"') {
       const strLine = line;
       const strCol = column;
@@ -226,7 +247,7 @@ export function tokenize(source: string): LexerResult {
     if (isLetter(c) || c === "_") {
       let lex = "";
       while (isIdContinue(peek())) lex += advance();
-      const kw = KEYWORDS[lex];
+      const kw = KEYWORDS[lex] ?? (LLM_KEYWORD_ALIASES[lex] as TokenKind | undefined);
       if (kw) tokens.push(makeToken(kw, lex));
       else tokens.push(makeToken("идентификатор", lex, lex));
       continue;
@@ -235,13 +256,32 @@ export function tokenize(source: string): LexerResult {
     if (c === "=" && source[i + 1] === "=") {
       advance();
       advance();
+      if (peek() === "=") advance();
       tokens.push(makeToken("==", "=="));
       continue;
     }
     if (c === "!" && source[i + 1] === "=") {
       advance();
       advance();
+      if (peek() === "=") advance();
       tokens.push(makeToken("!=", "!="));
+      continue;
+    }
+    if (c === "&" && source[i + 1] === "&") {
+      advance();
+      advance();
+      tokens.push(makeToken("и", "&&"));
+      continue;
+    }
+    if (c === "|" && source[i + 1] === "|") {
+      advance();
+      advance();
+      tokens.push(makeToken("или", "||"));
+      continue;
+    }
+    if (c === "!") {
+      advance();
+      tokens.push(makeToken("не", "!"));
       continue;
     }
     if (c === "<" && source[i + 1] === "=") {

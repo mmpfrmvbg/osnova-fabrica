@@ -305,6 +305,20 @@ export class InterpreterError extends Error {
   }
 }
 
+function osnovaStringify(v: StackValue | undefined): string {
+  if (v === true) return "истина";
+  if (v === false) return "ложь";
+  if (v === null || v === undefined) return "пусто";
+  if (typeof v === "object") {
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return "[object]";
+    }
+  }
+  return String(v);
+}
+
 export class VM {
   private stack: StackValue[] = [];
   private frames: CallFrame[] = [];
@@ -478,9 +492,13 @@ export class VM {
         return next;
       }
       case "add": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a + b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        if (typeof a === "string" || typeof b === "string") {
+          this.stack.push(osnovaStringify(a) + osnovaStringify(b));
+          return next;
+        }
+        this.stack.push((a as number) + (b as number));
         return next;
       }
       case "sub": {
