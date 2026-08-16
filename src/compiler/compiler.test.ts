@@ -11,7 +11,7 @@ import { LANGUAGE_REGISTRY } from "./language-registry";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { analyzeProgram } from "./semantic";
-import { VM, InterpreterError } from "../runtime/vm/interpreter";
+import { VM, InterpreterError, createDefaultInvokeHandler } from "../runtime/vm/interpreter";
 import type { OsVbcModule } from "../runtime/vm/bytecode";
 
 const FIXTURES_DIR = join(__dirname, "..", "runtime", "fixtures");
@@ -854,6 +854,24 @@ describe("Compiler: массивы (array literals)", () => {
     expect(result.module).toBeTruthy();
     const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
     expect(await vm.runProcedure(0, [])).toBe(3);
+  });
+
+  it("литерал массива не съедает предыдущий аргумент вызова", async () => {
+    const source = `
+модуль t
+процедура два(а, б)
+  вернуть а
+конец
+процедура main()
+  вернуть два(3, [1, 2])
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.module).toBeTruthy();
+    const vm = new VM(result.module!, {
+      invoke: createDefaultInvokeHandler(),
+      maxSteps: 1000,
+    });
+    expect(await vm.runProcedure(vm.findProcedureIndex("main"), [])).toBe(3);
   });
 
   it("массив [10, 20, 30]: получить(1) → 20", async () => {

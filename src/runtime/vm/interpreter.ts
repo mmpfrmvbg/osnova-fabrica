@@ -32,7 +32,7 @@ export function createDefaultInvokeHandler(): InvokeHandler {
     case "система.массив.добавить": {
       const arr = args[0] as StackValue[];
       if (Array.isArray(arr)) arr.push(args[1] as StackValue);
-      return Array.isArray(arr) ? arr : null;
+      return null;
     }
     case "система.массив.установить": {
       const arr = args[0] as StackValue[];
