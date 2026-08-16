@@ -2112,3 +2112,50 @@ describe("parser: multiline array literals", () => {
   });
 });
 
+describe("Dviglo P0: вложенные типы и extraSyscalls", () => {
+  it("тип Мир { враги: [Враг] } компилируется", () => {
+    const src = `
+модуль Игра
+тип Враг { x: Число, y: Число }
+тип Мир { счет: Число, враги: [Враг] }
+процедура запуск()
+  пусть мир: Мир = { счет: 0, враги: [] }
+  вернуть мир
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.parserErrors).toHaveLength(0);
+    expect(cr.compilerSuccess).toBe(true);
+    expect(cr.module).not.toBeNull();
+  });
+
+  it("неизвестный тип поля по-прежнему ошибка", () => {
+    const src = `
+модуль T
+тип Row { x: НетТакого }
+процедура главная()
+  вернуть 0
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.compilerSuccess).toBe(false);
+    expect(cr.compilerErrors.some((e) => /НетТакого/.test(e.message))).toBe(true);
+  });
+
+  it("игра.очистить с extraSyscalls компилируется", () => {
+    const src = `
+модуль Игра
+процедура кадр()
+  игра.очистить("#112233")
+  вернуть 0
+конец
+конец`.trim();
+    const cr = compileSource(src, {
+      extraSyscalls: [{ name: "игра.очистить", argc: 1 }],
+    });
+    expect(cr.compilerSuccess).toBe(true);
+    expect(cr.semanticErrors.filter((e) => e.kind === "unknown_module")).toHaveLength(0);
+    expect(cr.module).not.toBeNull();
+  });
+});
+

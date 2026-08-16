@@ -228,6 +228,28 @@ export function parse(tokens: Token[]): ParseResult {
       nullable = true;
       skipNewlines();
     }
+    if (isAt("[")) {
+      advance();
+      skipNewlines();
+      if (!isAt("идентификатор")) {
+        const t = peek();
+        errors.push({
+          message: "Ожидается имя типа элемента массива",
+          line: t.line,
+          column: t.column,
+          context: "module",
+          expected: ["идентификатор"],
+          actualKind: t.kind,
+          actualLexeme: t.lexeme,
+        });
+        return null;
+      }
+      const tok = advance();
+      const name = String(tok.value ?? tok.lexeme);
+      skipNewlines();
+      if (!consume("]", "Ожидается ']' после типа элемента массива")) return null;
+      return { name, nullable, array: true };
+    }
     if (!isAt("идентификатор")) {
       const t = peek();
       errors.push({

@@ -194,3 +194,35 @@ describe('semantic checker: string syscalls & keyword_as_identifier', () => {
     expect(result.semanticErrors.some((e) => e.kind === 'keyword_as_identifier')).toBe(true);
   });
 });
+
+describe('host extraSyscalls', () => {
+  const gameApi = [
+    { name: 'игра.очистить', argc: 1 },
+    { name: 'игра.прямоугольник', argc: 5 },
+  ];
+
+  it('игра.очистить без extraSyscalls → unknown_module', () => {
+    const src = wrap('  игра.очистить("#000")');
+    expect(hasKind(src, 'unknown_module')).toBe(true);
+  });
+
+  it('игра.очистить с extraSyscalls — нет unknown_module и unknown_syscall', () => {
+    const src = wrap('  игра.очистить("#000")');
+    const result = compileSource(src, { extraSyscalls: gameApi });
+    expect(result.semanticErrors.some((e) => e.kind === 'unknown_module')).toBe(false);
+    expect(result.semanticErrors.some((e) => e.kind === 'unknown_syscall')).toBe(false);
+    expect(result.compilerSuccess).toBe(true);
+  });
+
+  it('неверное число аргументов хост-вызова → syscall_argc', () => {
+    const src = wrap('  игра.очистить()');
+    const result = compileSource(src, { extraSyscalls: gameApi });
+    expect(result.semanticErrors.some((e) => e.kind === 'syscall_argc')).toBe(true);
+  });
+
+  it('неизвестный игра.* при переданном namespace → unknown_syscall', () => {
+    const src = wrap('  игра.нет_такого()');
+    const result = compileSource(src, { extraSyscalls: gameApi });
+    expect(result.semanticErrors.some((e) => e.kind === 'unknown_syscall')).toBe(true);
+  });
+});

@@ -16,7 +16,7 @@ import { compile, compileProgram } from './codegen';
 import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction } from '../runtime/vm/bytecode';
 import { OsVbcVM, type OsVbcVMOptions, type StackValue } from '../runtime/vm';
 import { InterpreterError } from '../runtime/vm/interpreter';
-import { analyzeProgram, type SemanticError } from './semantic';
+import { analyzeProgram, type SemanticError, type HostSyscallSpec } from './semantic';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
 import * as fs from 'fs';
@@ -78,6 +78,11 @@ export interface CompileLog {
 export interface CompileOptions {
   /** Базовая директория для разрешения импортов `использовать ... из "путь"`. */
   baseDir?: string;
+  /**
+   * Хост-вызовы вне `система.*` (например `игра.очистить`).
+   * Проверяются как syscall (имя + argc). Не добавляются в language-registry.
+   */
+  extraSyscalls?: HostSyscallSpec[];
 }
 
 /** Опции полного цикла: компиляция + запуск через {@link OsVbcVM} (обёртка над Interpreter/VM). */
@@ -108,7 +113,7 @@ export class Compiler {
    */
   async execute(source: string, options: ExecuteOptions = {}): Promise<StackValue | undefined> {
     const { procedureIndex = 0, procedureName, args = [], vm: vmOpts, baseDir } = options;
-    const result = this.compile(source, { baseDir });
+    const result = this.compile(source, { baseDir, extraSyscalls: options.extraSyscalls });
     const msg = formatCompileFailureMessage(result);
     if (!result.module || msg) {
       throw new Error(msg || 'compilation failed');
@@ -336,7 +341,7 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
 
   for (const td of ast.typeDeclarations) {
     for (const f of td.fields) {
-      if (!PRIMITIVE_FIELD_TYPES.has(f.type.name)) {
+      if (!PRIMITIVE_FIELD_TYPES.has(f.type.name) && !typeByName.has(f.type.name)) {
         errors.push(`Неподдерживаемый тип поля: ${f.type.name}`);
       }
     }
@@ -562,7 +567,10 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     };
   }
 
-  const semanticErrors = analyzeProgram({ modules: [expandedAst] }).errors;
+  const semanticErrors = analyzeProgram(
+    { modules: [expandedAst] },
+    { extraSyscalls: options.extraSyscalls },
+  ).errors;
   const semanticAsCompiler = semanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
 
   // Логирование семантических ошибок
@@ -571,7 +579,9 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   }
 
   if (program.modules.length > 1) {
-    const programSemanticErrors = analyzeProgram(program).errors;
+    const programSemanticErrors = analyzeProgram(program, {
+      extraSyscalls: options.extraSyscalls,
+    }).errors;
     const programSemanticAsCompiler = programSemanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
     try {
       const compiledModules = compileProgram(program).map(optimizeIrModule);

@@ -26,6 +26,16 @@ export interface SemanticResult {
   errors: SemanticError[];
 }
 
+/** Хост-вызов вне `система.*` (например `игра.очистить`). Не пишется в language-registry. */
+export interface HostSyscallSpec {
+  name: string;
+  argc: number;
+}
+
+export interface SemanticOptions {
+  extraSyscalls?: HostSyscallSpec[];
+}
+
 const COMPARE_OPS = new Set(["==", "!=", "<", "<=", ">", ">="]);
 
 function isCompareExpr(expr: Expr): boolean {
@@ -36,6 +46,8 @@ interface ModuleSemanticContext {
   knownProcedures?: Set<string>;
   procedureArity?: Map<string, number>;
   namespaceProcedures?: Map<string, Map<string, number>>;
+  extraSyscallByName?: Map<string, number>;
+  hostNamespaces?: Set<string>;
 }
 
 function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}): SemanticError[] {
@@ -46,6 +58,8 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
     new Map(ast.procedures.map((p) => [p.name, p.params.length]));
   const namespaceProcedures = context.namespaceProcedures
     ?? new Map<string, Map<string, number>>();
+  const extraSyscallByName = context.extraSyscallByName ?? new Map<string, number>();
+  const hostNamespaces = context.hostNamespaces ?? new Set<string>();
   const kwSet = new Set(LANGUAGE_REGISTRY.keywords.map((k) => k.lexeme));
 
   // ─── RFC-003: invented syntax check ───
@@ -248,25 +262,42 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
             });
           }
         } else if (expr.name.includes(".")) {
-          const [namespace, procName] = expr.name.split(".", 2);
-          const exported = namespaceProcedures.get(namespace);
-          if (!exported) {
-            errors.push({
-              kind: "unknown_module",
-              message: `модуль '${namespace}' не найден`,
-            });
-          } else if (!exported.has(procName ?? "")) {
-            errors.push({
-              kind: "unknown_procedure",
-              message: `процедура '${procName}' не экспортирована модулем '${namespace}'`,
-            });
-          } else {
-            const expectedArity = exported.get(procName ?? "");
-            if (expectedArity !== undefined && expr.args.length !== expectedArity) {
+          const hostArgc = extraSyscallByName.get(expr.name);
+          if (hostArgc !== undefined) {
+            if (expr.args.length !== hostArgc) {
               errors.push({
-                kind: "arg_count_mismatch",
-                message: `процедура '${namespace}.${procName}' ожидает ${expectedArity} аргументов, получено ${expr.args.length}`,
+                kind: "syscall_argc",
+                message: `'${expr.name}' ожидает ${hostArgc} аргументов, передано ${expr.args.length}`,
               });
+            }
+          } else {
+            const [namespace, procName] = expr.name.split(".", 2);
+            if (hostNamespaces.has(namespace ?? "")) {
+              errors.push({
+                kind: "unknown_syscall",
+                message: `хост-вызов '${expr.name}' не существует`,
+              });
+            } else {
+              const exported = namespaceProcedures.get(namespace);
+              if (!exported) {
+                errors.push({
+                  kind: "unknown_module",
+                  message: `модуль '${namespace}' не найден`,
+                });
+              } else if (!exported.has(procName ?? "")) {
+                errors.push({
+                  kind: "unknown_procedure",
+                  message: `процедура '${procName}' не экспортирована модулем '${namespace}'`,
+                });
+              } else {
+                const expectedArity = exported.get(procName ?? "");
+                if (expectedArity !== undefined && expr.args.length !== expectedArity) {
+                  errors.push({
+                    kind: "arg_count_mismatch",
+                    message: `процедура '${namespace}.${procName}' ожидает ${expectedArity} аргументов, получено ${expr.args.length}`,
+                  });
+                }
+              }
             }
           }
         } else if (!knownProcedures.has(expr.name)) {
@@ -437,8 +468,15 @@ interface ModuleExports {
   types: Set<string>;
 }
 
-export function analyzeProgram(program: Program): SemanticResult {
+export function analyzeProgram(program: Program, options: SemanticOptions = {}): SemanticResult {
   const errors: SemanticError[] = [];
+  const extraSyscallByName = new Map<string, number>();
+  const hostNamespaces = new Set<string>();
+  for (const s of options.extraSyscalls ?? []) {
+    extraSyscallByName.set(s.name, s.argc);
+    const ns = s.name.split(".", 1)[0];
+    if (ns) hostNamespaces.add(ns);
+  }
   const exportsByModuleName = new Map<string, ModuleExports[]>();
 
   for (const mod of program.modules) {
@@ -498,6 +536,8 @@ export function analyzeProgram(program: Program): SemanticResult {
         knownProcedures: new Set(mod.procedures.map((p) => p.name)),
         procedureArity: new Map(mod.procedures.map((p) => [p.name, p.params.length])),
         namespaceProcedures,
+        extraSyscallByName,
+        hostNamespaces,
       }),
     );
   }

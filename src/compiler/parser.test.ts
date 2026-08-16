@@ -274,6 +274,23 @@ describe("parser: покрытие конструкций (AST из токено
     expect(td?.fields).toEqual([{ name: "x", type: { name: "Число", nullable: false } }]);
   });
 
+  it("поле типа — массив именованного типа [Враг]", () => {
+    const src = [
+      "модуль M",
+      "тип Враг { x: Число }",
+      "тип Мир { враги: [Враг] }",
+      "процедура p()",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const m = (ast as Program).modules[0] as Module;
+    expect(m.typeDeclarations[1]?.fields).toEqual([
+      { name: "враги", type: { name: "Враг", nullable: false, array: true } },
+    ]);
+  });
+
   it("экспорт процедура и nullable-тип в пусть", () => {
     const src = [
       "модуль M",

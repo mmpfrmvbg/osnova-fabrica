@@ -66,6 +66,8 @@ export interface TypeRef {
   name: string;
   /** Префикс '?' перед именем типа. */
   nullable: boolean;
+  /** Поле-массив: синтаксис `[Имя]`. */
+  array?: boolean;
 }
 
 export interface TypeField {
