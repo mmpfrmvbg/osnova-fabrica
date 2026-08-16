@@ -2157,5 +2157,48 @@ describe("Dviglo P0: вложенные типы и extraSyscalls", () => {
     expect(cr.semanticErrors.filter((e) => e.kind === "unknown_module")).toHaveLength(0);
     expect(cr.module).not.toBeNull();
   });
+
+  it("игра.очистить выполняется при extraInvokes", async () => {
+    const extra = [{ name: "игра.очистить", argc: 1 }];
+    const src = `
+модуль Игра
+процедура кадр()
+  игра.очистить("#112233")
+  вернуть 1
+конец
+конец`.trim();
+    const cr = compileSource(src, { extraSyscalls: extra });
+    expect(cr.compilerSuccess).toBe(true);
+    let color = "";
+    const vm = new VM(cr.module!, {
+      maxSteps: 1000,
+      extraInvokes: extra,
+      invoke: (name, args) => {
+        if (name === "игра.очистить") {
+          color = String(args[0]);
+          return null;
+        }
+        return null;
+      },
+    });
+    expect(await vm.runProcedure(vm.findProcedureIndex("кадр"), [])).toBe(1);
+    expect(color).toBe("#112233");
+  });
+
+  it("игра.очистить без extraInvokes → Unknown invoke", async () => {
+    const extra = [{ name: "игра.очистить", argc: 1 }];
+    const src = `
+модуль Игра
+процедура кадр()
+  игра.очистить("#112233")
+  вернуть 0
+конец
+конец`.trim();
+    const cr = compileSource(src, { extraSyscalls: extra });
+    const vm = new VM(cr.module!, { maxSteps: 1000 });
+    await expect(vm.runProcedure(vm.findProcedureIndex("кадр"), [])).rejects.toThrow(
+      /Unknown invoke/,
+    );
+  });
 });
 

@@ -270,6 +270,11 @@ export interface InterpreterOptions {
   invoke?: InvokeHandler;
   /** Максимум инструкций за один run (защита от бесконечного цикла) */
   maxSteps?: number;
+  /**
+   * Хост-вызовы вне реестра `система.*` (например `игра.очистить`).
+   * Имя + argc; не пишутся в language-registry. Без записи здесь неизвестный invoke — ошибка.
+   */
+  extraInvokes?: ReadonlyArray<{ name: string; argc: number }>;
 }
 
 export interface RunProgramOptions extends InterpreterOptions {
@@ -307,7 +312,8 @@ export class VM {
   private exceptionHandlerStack: TryFrame[] = [];
   private pc = 0;
   private module: OsVbcModule;
-  private options: Required<InterpreterOptions>;
+  private options: { invoke: InvokeHandler; maxSteps: number };
+  private extraInvokeArgc: ReadonlyMap<string, number>;
 
   constructor(module: OsVbcModule, options: InterpreterOptions = {}) {
     this.module = module;
@@ -315,6 +321,9 @@ export class VM {
       invoke: options.invoke ?? createDefaultInvokeHandler(),
       maxSteps: options.maxSteps ?? 1_000_000,
     };
+    this.extraInvokeArgc = new Map(
+      (options.extraInvokes ?? []).map((s) => [s.name, s.argc]),
+    );
   }
 
   /** Доступ к стеку для тестов (readonly). Не использовать в продакшене. */
@@ -561,10 +570,11 @@ export class VM {
       }
       case "invoke": {
         const name = (ins as { op: "invoke"; name: string }).name;
-        if (!isKnownInvoke(name)) {
+        const extraArgc = this.extraInvokeArgc.get(name);
+        if (!isKnownInvoke(name) && extraArgc === undefined) {
           throw new InterpreterError(`Unknown invoke: ${name}`, this.pc, "invoke");
         }
-        const argc = getInvokeArgCount(name);
+        const argc = extraArgc !== undefined ? extraArgc : getInvokeArgCount(name);
         const args: StackValue[] = [];
         for (let i = 0; i < argc; i++) args.unshift(this.stack.pop()!);
         const result = await this.options.invoke(name, args);
