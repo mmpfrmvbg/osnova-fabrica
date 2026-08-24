@@ -19,7 +19,9 @@ export type Expr =
   | { kind: "вызов"; name: string; args: Expr[] }
   | { kind: "массив"; elements: Expr[] }
   | { kind: "объект"; entries: Array<{ key: string; value: Expr }> }
-  | { kind: "поле"; object: Expr; field: string };
+  | { kind: "поле"; object: Expr; field: string }
+  /** Литерал перечня: `Масть.пики` → в VM строка `"Масть.пики"`. */
+  | { kind: "вариант"; typeName: string; variant: string };
 
 export type Stmt =
   | { kind: "пусть"; name: string; init: Expr; typeAnnotation?: TypeRef }
@@ -49,6 +51,8 @@ export type Stmt =
 export interface Procedure {
   name: string;
   params: string[];
+  /** Типы параметров (тот же порядок, что `params`); нет — неаннотирован. */
+  paramTypes?: Array<TypeRef | undefined>;
   body: Stmt[];
   /** Модификатор `экспорт` в объявлении процедуры. */
   exported?: boolean;
@@ -78,7 +82,10 @@ export interface TypeField {
 export interface TypeDeclaration {
   kind: "TypeDeclaration";
   name: string;
+  /** Поля записи; пусто, если это перечень вариантов. */
   fields: TypeField[];
+  /** Перечень: `тип Масть = пики | черви`. */
+  variants?: string[];
 }
 
 export interface Module {

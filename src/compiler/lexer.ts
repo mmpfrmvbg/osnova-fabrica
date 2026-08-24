@@ -67,6 +67,7 @@ const TOKEN_KINDS = [
   ":",
   ",",
   ".",
+  "|",
   "новая_строка",
   "конец_файла",
   "?",
@@ -277,6 +278,11 @@ export function tokenize(source: string): LexerResult {
       advance();
       advance();
       tokens.push(makeToken("или", "||"));
+      continue;
+    }
+    if (c === "|") {
+      advance();
+      tokens.push(makeToken("|", "|"));
       continue;
     }
     if (c === "!") {

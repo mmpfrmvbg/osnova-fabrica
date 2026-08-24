@@ -318,7 +318,48 @@ export function parse(tokens: Token[]): ParseResult {
     const name = String(tokName.value ?? tokName.lexeme);
     skipNewlines();
 
-    if (!consume("{", "Ожидается '{' после имени типа")) return null;
+    // Перечень: тип Имя = a | b | c
+    if (peek().kind === "=") {
+      advance();
+      skipNewlines();
+      const variants: string[] = [];
+      while (true) {
+        if (!isFieldNameToken()) {
+          const t = peek();
+          errors.push({
+            message: "Ожидается имя варианта перечня",
+            line: t.line,
+            column: t.column,
+            context: "module",
+            expected: ["идентификатор"],
+            actualKind: t.kind,
+            actualLexeme: t.lexeme,
+          });
+          return null;
+        }
+        variants.push(takeFieldName());
+        skipNewlines();
+        if (peek().kind === "|") {
+          advance();
+          skipNewlines();
+          continue;
+        }
+        break;
+      }
+      if (variants.length === 0) {
+        const t = peek();
+        errors.push({
+          message: "Перечень должен содержать хотя бы один вариант",
+          line: t.line,
+          column: t.column,
+          context: "module",
+        });
+        return null;
+      }
+      return { kind: "TypeDeclaration", name, fields: [], variants };
+    }
+
+    if (!consume("{", "Ожидается '{' или '=' после имени типа")) return null;
     skipNewlines();
 
     const fields: TypeField[] = [];
@@ -390,11 +431,21 @@ export function parse(tokens: Token[]): ParseResult {
     const name = String(tokProc.value ?? tokProc.lexeme);
     if (!consume("(", "Ожидается '(' после имени процедуры")) return null;
     const params: string[] = [];
+    const paramTypes: Array<TypeRef | undefined> = [];
     skipNewlines();
     while (peek().kind === "идентификатор") {
       const tokParam = advance();
       params.push(String(tokParam.value ?? tokParam.lexeme));
       skipNewlines();
+      if (peek().kind === ":") {
+        advance();
+        skipNewlines();
+        const pt = parseTypeRef();
+        paramTypes.push(pt ?? undefined);
+        skipNewlines();
+      } else {
+        paramTypes.push(undefined);
+      }
       if (peek().kind === ",") {
         advance();
         skipNewlines();
@@ -410,7 +461,14 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
     }
     if (!consume("конец", "Ожидается 'конец'")) return null;
-    return { name, params, body, exported };
+    const hasParamTypes = paramTypes.some((t) => t !== undefined);
+    return {
+      name,
+      params,
+      body,
+      exported,
+      paramTypes: hasParamTypes ? paramTypes : undefined,
+    };
   }
 
   function parseStmt(): Stmt | null {

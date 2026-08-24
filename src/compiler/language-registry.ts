@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "2.0.0";
+export const LANGUAGE_VERSION = "2.1.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -50,7 +50,11 @@ export type ConstructId =
   | "array_index_write"
   | "main_with_args"
   | "module_import"
-  | "module_export";
+  | "module_export"
+  | "variant_type"
+  | "variant_literal"
+  | "param_types"
+  | "typed_field_check";
 
 export interface AstFieldSpec {
   name: string;
@@ -466,6 +470,57 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     since: "1.5.0",
     implemented: true,
     description: "Объявление публичной процедуры модуля",
+  },
+  {
+    id: "variant_type",
+    syntax: "тип Имя = вариант1 | вариант2 | …",
+    example: "тип Масть = пики | черви | буби | трефы",
+    astNode: {
+      kind: "TypeDeclaration",
+      fields: [
+        { name: "name", type: "string" },
+        { name: "variants", type: "string[]", optional: true },
+      ],
+    },
+    since: "2.1.0",
+    implemented: true,
+    description: "Перечень вариантов без полезной нагрузки; в VM литерал — строка Имя.вариант",
+  },
+  {
+    id: "variant_literal",
+    syntax: "Имя.вариант",
+    example: "пусть м = Масть.пики",
+    astNode: {
+      kind: "вариант",
+      fields: [
+        { name: "typeName", type: "string" },
+        { name: "variant", type: "string" },
+      ],
+    },
+    since: "2.1.0",
+    implemented: true,
+    description: "Квалифицированный литерал перечня",
+  },
+  {
+    id: "param_types",
+    syntax: "процедура имя(параметр: Тип, …)",
+    example: "процедура сила(карта: Карта, козырь: Масть)",
+    astNode: {
+      kind: "Procedure",
+      fields: [{ name: "paramTypes", type: "TypeRef[]", optional: true }],
+    },
+    since: "2.1.0",
+    implemented: true,
+    description: "Опциональные аннотации типов параметров",
+  },
+  {
+    id: "typed_field_check",
+    syntax: "obj.поле при известном типе obj",
+    example: "пусть x = мир.счет  // ошибка, если у Мир нет поля счет",
+    astNode: { kind: "поле", fields: [{ name: "field", type: "string" }] },
+    since: "2.1.0",
+    implemented: true,
+    description: "Проверка неизвестных полей и несовпадения типов у аннотированных переменных",
   },
 ];
 

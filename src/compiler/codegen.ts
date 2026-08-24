@@ -72,6 +72,9 @@ export function compile(ast: Module): OsVbcModule {
         scanExpr(expr.object);
         return;
       }
+      if (expr.kind === "вариант") {
+        return;
+      }
       if (expr.kind === "массив") {
         if (!locals.has(`__arr_literal_${arrLiteralCounter}`))
           locals.set(`__arr_literal_${arrLiteralCounter}`, locals.size);
@@ -260,6 +263,12 @@ export function compile(ast: Module): OsVbcModule {
           const k = constIndex(expr.field);
           emit({ op: "const", type: "str", k } as RawInstruction);
           emit({ op: "obj.get" } as RawInstruction);
+          break;
+        }
+        case "вариант": {
+          const lit = `${expr.typeName}.${expr.variant}`;
+          const k = constIndex(lit);
+          emit({ op: "const", type: constType(lit), k } as RawInstruction);
           break;
         }
         case "вызов": {
@@ -545,6 +554,8 @@ function cloneExprWithResolver(expr: Expr, resolveCall: (name: string) => string
         object: cloneExprWithResolver(expr.object, resolveCall),
         field: expr.field,
       };
+    case "вариант":
+      return { kind: "вариант", typeName: expr.typeName, variant: expr.variant };
     default:
       return assertNever(expr, "cloneExprWithResolver");
   }

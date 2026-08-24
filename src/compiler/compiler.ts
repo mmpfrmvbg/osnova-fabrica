@@ -18,7 +18,7 @@ import { OsVbcVM, type OsVbcVMOptions, type StackValue } from '../runtime/vm';
 import { InterpreterError } from '../runtime/vm/interpreter';
 import { analyzeProgram, type SemanticError, type HostSyscallSpec } from './semantic';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
-import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration } from './ast';
+import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { BuildReport } from '../pipeline/types';
@@ -314,6 +314,7 @@ function expandModuleImports(
       const inlinedProc: Procedure = {
         name: nameMap.get(p.name)!,
         params: [...p.params],
+        paramTypes: p.paramTypes ? [...p.paramTypes] : undefined,
         body: p.body,
         exported: undefined, // импортированные процедуры не экспортируются из текущего модуля
       };
@@ -349,6 +350,25 @@ function expandModuleImports(
 /** Поля именованных типов: канон + синоним `Число` (парсер и few-shot допускают оба). */
 const PRIMITIVE_FIELD_TYPES = new Set(["Целое32", "Число", "Строка", "Логический"]);
 
+function primitiveAlias(name: string): string {
+  if (name === "Целое32") return "Число";
+  return name;
+}
+
+function typeRefKey(t: TypeRef): string {
+  const base = primitiveAlias(t.name);
+  return `${t.nullable ? "?" : ""}${t.array ? "[" : ""}${base}${t.array ? "]" : ""}`;
+}
+
+function typesCompatible(expected: TypeRef, actual: TypeRef): boolean {
+  if (expected.nullable && actual.name === "пусто" && !actual.array) return true;
+  if (actual.nullable && !expected.nullable) {
+    // gradual: nullable actual into non-null expected — reject unless same after strip
+  }
+  if (!!expected.array !== !!actual.array) return false;
+  return primitiveAlias(expected.name) === primitiveAlias(actual.name);
+}
+
 function validateNamedTypesAndRewrite(ast: Module): string[] {
   const errors: string[] = [];
 
@@ -358,6 +378,17 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
   }
 
   for (const td of ast.typeDeclarations) {
+    if (td.variants && td.variants.length > 0) {
+      if (td.fields.length > 0) {
+        errors.push(`Тип ${td.name}: перечень не может иметь поля записи`);
+      }
+      const seen = new Set<string>();
+      for (const v of td.variants) {
+        if (seen.has(v)) errors.push(`Дубликат варианта ${v} в типе ${td.name}`);
+        seen.add(v);
+      }
+      continue;
+    }
     for (const f of td.fields) {
       if (!PRIMITIVE_FIELD_TYPES.has(f.type.name) && !typeByName.has(f.type.name)) {
         errors.push(`Неподдерживаемый тип поля: ${f.type.name}`);
@@ -367,21 +398,19 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
 
   function visitExprObjectLiteralRewrite(objExpr: Expr & { kind: "объект" }, typeName: string): void {
     const typeDef = typeByName.get(typeName);
-    if (!typeDef) return;
+    if (!typeDef || (typeDef.variants && typeDef.variants.length > 0)) return;
 
     const fieldByName = new Map(typeDef.fields.map((f) => [f.name, f]));
     const entries = objExpr.entries;
     const entryIndexByKey = new Map<string, number>();
     for (let i = 0; i < entries.length; i++) entryIndexByKey.set(entries[i]!.key, i);
 
-    // Неизвестные поля в литерале.
     for (const entry of entries) {
       if (!fieldByName.has(entry.key)) {
         errors.push(`Неизвестное поле: ${entry.key} (тип ${typeName})`);
       }
     }
 
-    // Обязательные / nullable поля.
     for (const field of typeDef.fields) {
       const idx = entryIndexByKey.get(field.name);
       if (idx === undefined) {
@@ -394,50 +423,476 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
     }
   }
 
-  function visitStmts(stmts: Stmt[]): void {
+  /** `Масть.пики` (поле на имени перечня) → узел вариант. */
+  function rewriteVariantLiteralsInExpr(expr: Expr): Expr {
+    switch (expr.kind) {
+      case "поле": {
+        const obj = rewriteVariantLiteralsInExpr(expr.object);
+        if (obj.kind === "переменная") {
+          const td = typeByName.get(obj.name);
+          if (td?.variants?.includes(expr.field)) {
+            return { kind: "вариант", typeName: obj.name, variant: expr.field };
+          }
+        }
+        return { kind: "поле", object: obj, field: expr.field };
+      }
+      case "бинарное":
+        return {
+          kind: "бинарное",
+          op: expr.op,
+          left: rewriteVariantLiteralsInExpr(expr.left),
+          right: rewriteVariantLiteralsInExpr(expr.right),
+        };
+      case "унарное":
+        return { kind: "унарное", op: expr.op, arg: rewriteVariantLiteralsInExpr(expr.arg) };
+      case "вызов":
+        return {
+          kind: "вызов",
+          name: expr.name,
+          args: expr.args.map(rewriteVariantLiteralsInExpr),
+        };
+      case "массив":
+        return { kind: "массив", elements: expr.elements.map(rewriteVariantLiteralsInExpr) };
+      case "объект":
+        return {
+          kind: "объект",
+          entries: expr.entries.map((e) => ({
+            key: e.key,
+            value: rewriteVariantLiteralsInExpr(e.value),
+          })),
+        };
+      default:
+        return expr;
+    }
+  }
+
+  function rewriteVariantLiteralsInStmts(stmts: Stmt[]): void {
+    for (let i = 0; i < stmts.length; i++) {
+      const s = stmts[i]!;
+      switch (s.kind) {
+        case "пусть":
+          stmts[i] = { ...s, init: rewriteVariantLiteralsInExpr(s.init) };
+          break;
+        case "присвоить":
+          stmts[i] = { ...s, value: rewriteVariantLiteralsInExpr(s.value) };
+          break;
+        case "поле_присвоить":
+          stmts[i] = {
+            ...s,
+            object: rewriteVariantLiteralsInExpr(s.object),
+            value: rewriteVariantLiteralsInExpr(s.value),
+          };
+          break;
+        case "выражение":
+          stmts[i] = { ...s, expr: rewriteVariantLiteralsInExpr(s.expr) };
+          break;
+        case "если": {
+          const elseIfClauses = s.elseIfClauses?.map((c) => {
+            rewriteVariantLiteralsInStmts(c.body);
+            return { condition: rewriteVariantLiteralsInExpr(c.condition), body: c.body };
+          });
+          rewriteVariantLiteralsInStmts(s.body);
+          if (s.elseBody) rewriteVariantLiteralsInStmts(s.elseBody);
+          stmts[i] = {
+            ...s,
+            condition: rewriteVariantLiteralsInExpr(s.condition),
+            elseIfClauses,
+          };
+          break;
+        }
+        case "пока":
+          stmts[i] = { ...s, condition: rewriteVariantLiteralsInExpr(s.condition) };
+          rewriteVariantLiteralsInStmts(s.body);
+          break;
+        case "цикл":
+          rewriteVariantLiteralsInStmts(s.body);
+          break;
+        case "для_каждого":
+          stmts[i] = { ...s, source: rewriteVariantLiteralsInExpr(s.source) };
+          rewriteVariantLiteralsInStmts(s.body);
+          break;
+        case "попробовать":
+          rewriteVariantLiteralsInStmts(s.body);
+          rewriteVariantLiteralsInStmts(s.catchBody);
+          break;
+        case "выбросить":
+          stmts[i] = { ...s, value: rewriteVariantLiteralsInExpr(s.value) };
+          break;
+        case "вернуть":
+          if (s.value) stmts[i] = { ...s, value: rewriteVariantLiteralsInExpr(s.value) };
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  for (const proc of ast.procedures) {
+    rewriteVariantLiteralsInStmts(proc.body);
+  }
+
+  type Env = Map<string, TypeRef>;
+
+  function inferExprType(expr: Expr, env: Env): TypeRef | undefined {
+    switch (expr.kind) {
+      case "число":
+        return { name: "Число", nullable: false };
+      case "строка":
+        return { name: "Строка", nullable: false };
+      case "булево":
+        return { name: "Логический", nullable: false };
+      case "пусто":
+        return { name: "пусто", nullable: true };
+      case "вариант":
+        return { name: expr.typeName, nullable: false };
+      case "переменная":
+        return env.get(expr.name);
+      case "поле": {
+        const objT = inferExprType(expr.object, env);
+        if (!objT || objT.array) return undefined;
+        const td = typeByName.get(objT.name);
+        if (!td || td.variants) return undefined;
+        const field = td.fields.find((f) => f.name === expr.field);
+        if (!field) {
+          errors.push(`Неизвестное поле: ${expr.field} (тип ${objT.name})`);
+          return undefined;
+        }
+        return field.type;
+      }
+      case "массив": {
+        if (expr.elements.length === 0) return undefined;
+        const first = inferExprType(expr.elements[0]!, env);
+        if (!first) return undefined;
+        return { name: first.name, nullable: false, array: true };
+      }
+      case "объект":
+        return undefined;
+      case "бинарное":
+        if (expr.op === "==" || expr.op === "!=" || expr.op === "<" || expr.op === "<=" || expr.op === ">" || expr.op === ">=" || expr.op === "и" || expr.op === "или") {
+          return { name: "Логический", nullable: false };
+        }
+        if (expr.op === "+") {
+          const l = inferExprType(expr.left, env);
+          const r = inferExprType(expr.right, env);
+          if (l?.name === "Строка" || r?.name === "Строка") return { name: "Строка", nullable: false };
+          return { name: "Число", nullable: false };
+        }
+        return { name: "Число", nullable: false };
+      case "унарное":
+        return { name: "Логический", nullable: false };
+      case "вызов":
+        return undefined;
+      default:
+        return undefined;
+    }
+  }
+
+  function checkAssign(expected: TypeRef, actual: TypeRef | undefined, context: string): void {
+    if (!actual) return; // gradual: неизвестный источник
+    if (!typesCompatible(expected, actual)) {
+      errors.push(`Несовпадение типа (${context}): ожидалось ${typeRefKey(expected)}, получено ${typeRefKey(actual)}`);
+    }
+  }
+
+  function checkExprAgainst(expected: TypeRef | undefined, expr: Expr, env: Env, context: string): void {
+    if (!expected) {
+      inferExprType(expr, env); // всё равно ловим неизвестные поля
+      return;
+    }
+    if (expr.kind === "объект" && !expected.array && typeByName.has(expected.name)) {
+      const td = typeByName.get(expected.name)!;
+      if (!td.variants) {
+        visitExprObjectLiteralRewrite(expr, expected.name);
+        for (const entry of expr.entries) {
+          const field = td.fields.find((f) => f.name === entry.key);
+          if (field) checkExprAgainst(field.type, entry.value, env, `${context}.${entry.key}`);
+        }
+        return;
+      }
+    }
+    if (expr.kind === "массив" && expected.array) {
+      const elemT: TypeRef = { name: expected.name, nullable: expected.nullable };
+      for (const el of expr.elements) checkExprAgainst(elemT, el, env, `${context}[]`);
+      return;
+    }
+    const actual = inferExprType(expr, env);
+    checkAssign(expected, actual, context);
+  }
+
+  function checkStmtsTyped(stmts: Stmt[], env: Env, procByName: Map<string, Procedure>): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "пусть": {
+          if (s.typeAnnotation) {
+            const typeName = s.typeAnnotation.name;
+            if (!PRIMITIVE_FIELD_TYPES.has(typeName) && !typeByName.has(typeName) && typeName !== "пусто") {
+              errors.push(`Тип не объявлен: ${typeName}`);
+            }
+            checkExprAgainst(s.typeAnnotation, s.init, env, s.name);
+            env.set(s.name, s.typeAnnotation);
+          } else {
+            const inferred = inferExprType(s.init, env);
+            if (inferred) env.set(s.name, inferred);
+            else inferExprType(s.init, env);
+          }
+          break;
+        }
+        case "присвоить": {
+          const expected = env.get(s.name);
+          checkExprAgainst(expected, s.value, env, s.name);
+          break;
+        }
+        case "поле_присвоить": {
+          const objT = inferExprType(s.object, env);
+          if (objT && !objT.array) {
+            const td = typeByName.get(objT.name);
+            if (td && !td.variants) {
+              const field = td.fields.find((f) => f.name === s.field);
+              if (!field) {
+                errors.push(`Неизвестное поле: ${s.field} (тип ${objT.name})`);
+              } else {
+                checkExprAgainst(field.type, s.value, env, `${objT.name}.${s.field}`);
+              }
+            } else {
+              inferExprType(s.value, env);
+            }
+          } else {
+            inferExprType(s.value, env);
+          }
+          break;
+        }
+        case "выражение":
+          inferExprType(s.expr, env);
+          if (s.expr.kind === "вызов") {
+            const callee = procByName.get(s.expr.name);
+            if (callee?.paramTypes) {
+              for (let i = 0; i < s.expr.args.length; i++) {
+                const pt = callee.paramTypes[i];
+                if (pt) checkExprAgainst(pt, s.expr.args[i]!, env, `${s.expr.name}#${i}`);
+              }
+            }
+          }
+          break;
+        case "если":
+          inferExprType(s.condition, env);
+          checkStmtsTyped(s.body, new Map(env), procByName);
+          if (s.elseIfClauses) {
+            for (const c of s.elseIfClauses) {
+              inferExprType(c.condition, env);
+              checkStmtsTyped(c.body, new Map(env), procByName);
+            }
+          }
+          if (s.elseBody) checkStmtsTyped(s.elseBody, new Map(env), procByName);
+          break;
+        case "пока":
+          inferExprType(s.condition, env);
+          checkStmtsTyped(s.body, env, procByName);
+          break;
+        case "цикл":
+          checkStmtsTyped(s.body, env, procByName);
+          break;
+        case "для_каждого": {
+          inferExprType(s.source, env);
+          const srcT = inferExprType(s.source, env);
+          const bodyEnv = new Map(env);
+          if (srcT?.array) {
+            bodyEnv.set(s.item, { name: srcT.name, nullable: srcT.nullable });
+          }
+          if (s.index) bodyEnv.set(s.index, { name: "Число", nullable: false });
+          checkStmtsTyped(s.body, bodyEnv, procByName);
+          break;
+        }
+        case "попробовать":
+          checkStmtsTyped(s.body, env, procByName);
+          {
+            const catchEnv = new Map(env);
+            catchEnv.set(s.catchVar, { name: "Строка", nullable: true });
+            checkStmtsTyped(s.catchBody, catchEnv, procByName);
+          }
+          break;
+        case "выбросить":
+          inferExprType(s.value, env);
+          break;
+        case "вернуть":
+          if (s.value) {
+            if (s.value.kind === "вызов") {
+              const callee = procByName.get(s.value.name);
+              if (callee?.paramTypes) {
+                for (let i = 0; i < s.value.args.length; i++) {
+                  const pt = callee.paramTypes[i];
+                  if (pt) checkExprAgainst(pt, s.value.args[i]!, env, `${s.value.name}#${i}`);
+                }
+              }
+            }
+            inferExprType(s.value, env);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  // Первый проход: литералы пусть мир: Мир = {…} (как раньше).
+  function visitStmtsLiteralPass(stmts: Stmt[]): void {
     for (const s of stmts) {
       switch (s.kind) {
         case "пусть": {
           if (!s.typeAnnotation) break;
           const typeName = s.typeAnnotation.name;
           const typeDef = typeByName.get(typeName);
-          if (!typeDef) {
+          if (!typeDef && !PRIMITIVE_FIELD_TYPES.has(typeName)) {
             errors.push(`Тип не объявлен: ${typeName}`);
             break;
           }
-
-          if (s.init.kind === "объект") {
+          if (typeDef?.variants) {
+            if (s.init.kind === "объект") {
+              errors.push(`Тип ${typeName} — перечень, не запись`);
+            }
+            break;
+          }
+          if (s.init.kind === "объект" && typeDef) {
             visitExprObjectLiteralRewrite(s.init, typeName);
           }
           break;
         }
         case "если":
-          visitStmts(s.body);
-          if (s.elseIfClauses) for (const c of s.elseIfClauses) visitStmts(c.body);
-          if (s.elseBody) visitStmts(s.elseBody);
+          visitStmtsLiteralPass(s.body);
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) visitStmtsLiteralPass(c.body);
+          if (s.elseBody) visitStmtsLiteralPass(s.elseBody);
           break;
         case "пока":
         case "цикл":
-          visitStmts(s.body);
+          visitStmtsLiteralPass(s.body);
           break;
         case "для_каждого":
-          visitStmts(s.body);
+          visitStmtsLiteralPass(s.body);
           break;
         case "попробовать":
-          visitStmts(s.body);
-          visitStmts(s.catchBody);
+          visitStmtsLiteralPass(s.body);
+          visitStmtsLiteralPass(s.catchBody);
           break;
-        case "присвоить":
-        case "поле_присвоить":
-        case "выражение":
-        case "выбросить":
-        case "вернуть":
+        default:
           break;
       }
     }
   }
 
-  visitStmts(ast.procedures.flatMap((p) => p.body));
+  visitStmtsLiteralPass(ast.procedures.flatMap((p) => p.body));
+
+  const procByName = new Map(ast.procedures.map((p) => [p.name, p]));
+  for (const proc of ast.procedures) {
+    const env: Env = new Map();
+    for (let i = 0; i < proc.params.length; i++) {
+      const pt = proc.paramTypes?.[i];
+      if (pt) env.set(proc.params[i]!, pt);
+    }
+    checkStmtsTyped(proc.body, env, procByName);
+  }
+
+  // Также проверяем вызовы как выражения (не только в вернуть/выражение).
+  function checkCallsInExpr(expr: Expr, env: Env): void {
+    switch (expr.kind) {
+      case "вызов": {
+        const callee = procByName.get(expr.name);
+        if (callee?.paramTypes) {
+          for (let i = 0; i < expr.args.length; i++) {
+            const pt = callee.paramTypes[i];
+            if (pt) checkExprAgainst(pt, expr.args[i]!, env, `${expr.name}#${i}`);
+            else checkCallsInExpr(expr.args[i]!, env);
+          }
+        } else {
+          for (const a of expr.args) checkCallsInExpr(a, env);
+        }
+        break;
+      }
+      case "бинарное":
+        checkCallsInExpr(expr.left, env);
+        checkCallsInExpr(expr.right, env);
+        break;
+      case "унарное":
+        checkCallsInExpr(expr.arg, env);
+        break;
+      case "поле":
+        checkCallsInExpr(expr.object, env);
+        break;
+      case "массив":
+        for (const el of expr.elements) checkCallsInExpr(el, env);
+        break;
+      case "объект":
+        for (const e of expr.entries) checkCallsInExpr(e.value, env);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function checkCallsInStmts(stmts: Stmt[], env: Env): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "пусть":
+          checkCallsInExpr(s.init, env);
+          if (s.typeAnnotation) env.set(s.name, s.typeAnnotation);
+          else {
+            const inf = inferExprType(s.init, env);
+            if (inf) env.set(s.name, inf);
+          }
+          break;
+        case "присвоить":
+          checkCallsInExpr(s.value, env);
+          break;
+        case "поле_присвоить":
+          checkCallsInExpr(s.object, env);
+          checkCallsInExpr(s.value, env);
+          break;
+        case "выражение":
+          checkCallsInExpr(s.expr, env);
+          break;
+        case "если":
+          checkCallsInExpr(s.condition, env);
+          checkCallsInStmts(s.body, new Map(env));
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) {
+            checkCallsInExpr(c.condition, env);
+            checkCallsInStmts(c.body, new Map(env));
+          }
+          if (s.elseBody) checkCallsInStmts(s.elseBody, new Map(env));
+          break;
+        case "пока":
+          checkCallsInExpr(s.condition, env);
+          checkCallsInStmts(s.body, env);
+          break;
+        case "цикл":
+          checkCallsInStmts(s.body, env);
+          break;
+        case "для_каждого":
+          checkCallsInExpr(s.source, env);
+          checkCallsInStmts(s.body, env);
+          break;
+        case "попробовать":
+          checkCallsInStmts(s.body, env);
+          checkCallsInStmts(s.catchBody, env);
+          break;
+        case "выбросить":
+          checkCallsInExpr(s.value, env);
+          break;
+        case "вернуть":
+          if (s.value) checkCallsInExpr(s.value, env);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  for (const proc of ast.procedures) {
+    const env: Env = new Map();
+    for (let i = 0; i < proc.params.length; i++) {
+      const pt = proc.paramTypes?.[i];
+      if (pt) env.set(proc.params[i]!, pt);
+    }
+    checkCallsInStmts(proc.body, env);
+  }
+
   return errors;
 }
 
