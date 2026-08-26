@@ -92,6 +92,8 @@ export interface TypeDeclaration {
   fields: TypeField[];
   /** Перечень: `тип Масть = пики | черви`. */
   variants?: string[];
+  /** Файл объявления после разворачивания импортов (не в байткод). */
+  origin?: string;
 }
 
 export interface Module {

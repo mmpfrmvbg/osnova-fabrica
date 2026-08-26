@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "2.3.0";
+export const LANGUAGE_VERSION = "2.3.1";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -476,7 +476,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     },
     since: "1.5.0",
     implemented: true,
-    description: "Импорт экспортированных процедур из другого файла",
+    description: "Импорт экспортированных процедур и типов из другого файла. Два файла с одним именем типа — ошибка; один файл, импортированный дважды, — нет. Ошибка называет файл импорта.",
   },
   {
     id: "module_export",

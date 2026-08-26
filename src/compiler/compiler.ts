@@ -30,6 +30,8 @@ import type { BuildReport } from '../pipeline/types';
 export interface CompileError {
   /** Сообщение об ошибке */
   message: string;
+  /** Файл исходника (вход или импорт), если известен */
+  file?: string;
   /** Номер строки (опционально) */
   line?: number;
   /** Номер колонки (опционально) */
@@ -51,8 +53,8 @@ export interface CompileResult {
   lexerErrors: { message: string; line: number; column: number }[];
   /** Ошибки парсера */
   parserErrors: ParseError[];
-  /** Ошибки компилятора (codegen-фаза) */
-  compilerErrors: { message: string; node?: string }[];
+  /** Ошибки компилятора (codegen-фаза, импорт, дубликат типа) */
+  compilerErrors: { message: string; node?: string; file?: string; line?: number; column?: number }[];
   /** Ошибки семантического анализатора (предупреждения первого этапа) */
   semanticErrors: SemanticError[];
   /** Время компиляции в мс */
@@ -78,11 +80,42 @@ export interface CompileLog {
 export interface CompileOptions {
   /** Базовая директория для разрешения импортов `использовать ... из "путь"`. */
   baseDir?: string;
+  /** Имя входного файла для диагностики (например `игра.osnova`). */
+  filename?: string;
   /**
    * Хост-вызовы вне `система.*` (например `игра.очистить`).
    * Проверяются как syscall (имя + argc). Не добавляются в language-registry.
    */
   extraSyscalls?: HostSyscallSpec[];
+}
+
+/** Ошибка разворачивания импорта: файл и место, не только текст. */
+class ImportExpandError extends Error {
+  file?: string;
+  line?: number;
+  column?: number;
+  constructor(
+    message: string,
+    loc?: { file?: string; line?: number; column?: number },
+  ) {
+    super(message);
+    this.name = "ImportExpandError";
+    this.file = loc?.file;
+    this.line = loc?.line;
+    this.column = loc?.column;
+  }
+}
+
+function compilerErrorFromCaught(e: unknown): {
+  message: string;
+  file?: string;
+  line?: number;
+  column?: number;
+} {
+  if (e instanceof ImportExpandError) {
+    return { message: e.message, file: e.file, line: e.line, column: e.column };
+  }
+  return { message: e instanceof Error ? e.message : String(e) };
 }
 
 /** Опции полного цикла: компиляция + запуск через {@link OsVbcVM} (обёртка над Interpreter/VM). */
@@ -113,7 +146,11 @@ export class Compiler {
    */
   async execute(source: string, options: ExecuteOptions = {}): Promise<StackValue | undefined> {
     const { procedureIndex = 0, procedureName, args = [], vm: vmOpts, baseDir } = options;
-    const result = this.compile(source, { baseDir, extraSyscalls: options.extraSyscalls });
+    const result = this.compile(source, {
+      baseDir,
+      filename: options.filename,
+      extraSyscalls: options.extraSyscalls,
+    });
     const msg = formatCompileFailureMessage(result);
     if (!result.module || msg) {
       throw new Error(msg || 'compilation failed');
@@ -153,28 +190,35 @@ function addLog(
 
 /** Преобразует ошибку в интерфейс CompileError */
 function toCompileError(
-  error: Error | { message: string },
+  error: Error | { message: string; file?: string; line?: number; column?: number },
   line?: number,
   column?: number,
   kind?: string
 ): CompileError {
+  const withFile = error as { message: string; file?: string; line?: number; column?: number };
   return {
     message: error.message,
-    line,
-    column,
+    file: withFile.file,
+    line: line ?? withFile.line,
+    column: column ?? withFile.column,
     kind,
   };
 }
 
+function displayPath(absPath: string, rootDir: string): string {
+  const rel = path.relative(path.resolve(rootDir), path.resolve(absPath));
+  return rel.split(path.sep).join("/");
+}
+
 function resolveImportPath(importPath: string, baseDir: string, rootDir: string): string {
   if (path.isAbsolute(importPath)) {
-    throw new Error(`Импорт только относительный: ${importPath}`);
+    throw new ImportExpandError(`Импорт только относительный: ${importPath}`);
   }
   const resolved = path.resolve(baseDir, importPath);
   const root = path.resolve(rootDir);
   const rel = path.relative(root, resolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
-    throw new Error(`Импорт вне каталога: ${importPath}`);
+    throw new ImportExpandError(`Импорт вне каталога: ${importPath}`);
   }
   return resolved;
 }
@@ -275,11 +319,17 @@ function getFirstModuleOrThrow(program: Program | null): Module {
   return program.modules[0]!;
 }
 
-function parseModuleOrThrow(source: string): Module {
+function parseModuleOrThrow(source: string, file: string): Module {
   const { tokens, errors: lexerErrors } = tokenize(source);
   const { ast: program, errors: parserErrors } = parse(tokens);
-  if (lexerErrors.length > 0) throw new Error(lexerErrors[0]!.message);
-  if (parserErrors.length > 0) throw new Error(parserErrors[0]!.message);
+  if (lexerErrors.length > 0) {
+    const e = lexerErrors[0]!;
+    throw new ImportExpandError(e.message, { file, line: e.line, column: e.column });
+  }
+  if (parserErrors.length > 0) {
+    const e = parserErrors[0]!;
+    throw new ImportExpandError(e.message, { file, line: e.line, column: e.column });
+  }
   return getFirstModuleOrThrow(program);
 }
 
@@ -288,23 +338,49 @@ function expandModuleImports(
   baseDir: string,
   importStack: string[] = [],
   rootDir: string = baseDir,
+  currentFile: string = "вход",
 ): Module {
   const aliasToExportedProcNameToPrefixed = new Map<string, Map<string, string>>();
-  const mergedTypeDeclarations: TypeDeclaration[] = [...ast.typeDeclarations];
+  const seenTypeOrigin = new Map<string, string>();
+  const mergedTypeDeclarations: TypeDeclaration[] = [];
+
+  const ownNames = new Set<string>();
+  for (const td of ast.typeDeclarations) {
+    if (ownNames.has(td.name)) {
+      throw new ImportExpandError(`Тип ${td.name} объявлен дважды`, { file: currentFile });
+    }
+    ownNames.add(td.name);
+    seenTypeOrigin.set(td.name, currentFile);
+    mergedTypeDeclarations.push({ ...td, origin: currentFile });
+  }
 
   const inlinedProcedures: Procedure[] = [];
   for (const imp of ast.imports) {
-    const resolved = resolveImportPath(imp.path, baseDir, rootDir);
-    if (!fs.existsSync(resolved)) throw new Error(`Модуль не найден: ${imp.path}`);
-    if (importStack.includes(resolved)) throw new Error(`Циклический импорт: ${imp.path}`);
+    let resolved: string;
+    try {
+      resolved = resolveImportPath(imp.path, baseDir, rootDir);
+    } catch (e) {
+      if (e instanceof ImportExpandError) {
+        throw new ImportExpandError(e.message, { file: currentFile });
+      }
+      throw e;
+    }
+    const importDisplay = displayPath(resolved, rootDir);
+    if (!fs.existsSync(resolved)) {
+      throw new ImportExpandError(`Модуль не найден: ${imp.path}`, { file: currentFile });
+    }
+    if (importStack.includes(resolved)) {
+      throw new ImportExpandError(`Циклический импорт: ${imp.path}`, { file: currentFile });
+    }
 
     const importedSource = fs.readFileSync(resolved, "utf-8");
-    const importedAst = parseModuleOrThrow(importedSource);
+    const importedAst = parseModuleOrThrow(importedSource, importDisplay);
     const importedExpanded = expandModuleImports(
       importedAst,
       path.dirname(resolved),
       [...importStack, resolved],
       rootDir,
+      importDisplay,
     );
 
     // Для внешних вызовов alias.proc доступны только процедуры, помеченные `экспорт` в импортируемом модуле.
@@ -330,8 +406,20 @@ function expandModuleImports(
       inlinedProcedures.push(inlinedProc);
     }
 
-    // Типы из импортированного модуля доступны в текущем модуле.
-    mergedTypeDeclarations.push(...importedExpanded.typeDeclarations);
+    for (const td of importedExpanded.typeDeclarations) {
+      const origin = td.origin ?? importDisplay;
+      const prev = seenTypeOrigin.get(td.name);
+      if (prev === undefined) {
+        seenTypeOrigin.set(td.name, origin);
+        mergedTypeDeclarations.push({ ...td, origin });
+        continue;
+      }
+      if (prev !== origin) {
+        throw new ImportExpandError(`Тип ${td.name} объявлен в ${prev} и в ${origin}`, {
+          file: currentFile,
+        });
+      }
+    }
   }
 
   // Переписываем вызовы Имя.процедура(...) в текущем модуле в уже инлайненные префиксные имена.
@@ -342,7 +430,11 @@ function expandModuleImports(
       const exportedByName = aliasToExportedProcNameToPrefixed.get(alias);
       if (!exportedByName) return callee; // не импортированный namespace
       const prefixed = exportedByName.get(rest ?? "");
-      if (!prefixed) throw new Error("Процедура не экспортирована");
+      if (!prefixed) {
+        throw new ImportExpandError(`Процедура ${alias}.${rest ?? ""} не экспортирована`, {
+          file: currentFile,
+        });
+      }
       return prefixed;
     });
   }
@@ -1072,44 +1164,45 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   }
 
   const baseDir = options.baseDir ?? process.cwd();
+  const entryFile = options.filename ?? "вход";
 
   let expandedAst: Module;
   try {
     const ast = getFirstModuleOrThrow(program);
-    expandedAst = expandModuleImports(ast, baseDir, [], baseDir);
+    expandedAst = expandModuleImports(ast, baseDir, [], baseDir, entryFile);
   } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : String(e);
-    addLog(logs, 'error', 'codegen', errorMsg, start, toCompileError(e instanceof Error ? e : { message: errorMsg }, undefined, undefined, 'import_error'));
+    const err = compilerErrorFromCaught(e);
+    addLog(logs, 'error', 'codegen', err.message, start, toCompileError(err, err.line, err.column, 'import_error'));
     return {
       module: null,
       modules: [],
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
-      compilerErrors: [{ message: errorMsg }],
+      compilerErrors: [err],
       semanticErrors: [],
       durationMs: Date.now() - start,
       logs,
     };
   }
 
-  let namedTypeErrors: string[];
+  let namedTypeErrors: { message: string; file?: string; line?: number; column?: number }[];
   if (program.modules.length === 1) {
-    namedTypeErrors = validateNamedTypesAndRewrite(expandedAst);
+    namedTypeErrors = validateNamedTypesAndRewrite(expandedAst).map((message) => ({ message }));
   } else {
     namedTypeErrors = [];
     for (const mod of program.modules) {
       try {
-        const ex = expandModuleImports(mod, baseDir, [], baseDir);
-        namedTypeErrors.push(...validateNamedTypesAndRewrite(ex));
+        const ex = expandModuleImports(mod, baseDir, [], baseDir, entryFile);
+        namedTypeErrors.push(...validateNamedTypesAndRewrite(ex).map((message) => ({ message })));
       } catch (e) {
-        namedTypeErrors.push(e instanceof Error ? e.message : String(e));
+        namedTypeErrors.push(compilerErrorFromCaught(e));
       }
     }
   }
   if (namedTypeErrors.length > 0) {
-    for (const msg of namedTypeErrors) {
-      addLog(logs, 'error', 'codegen', msg, start, toCompileError({ message: msg }, undefined, undefined, 'type_error'));
+    for (const err of namedTypeErrors) {
+      addLog(logs, 'error', 'codegen', err.message, start, toCompileError(err, err.line, err.column, 'type_error'));
     }
     return {
       module: null,
@@ -1117,7 +1210,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
-      compilerErrors: namedTypeErrors.map((message) => ({ message })),
+      compilerErrors: namedTypeErrors,
       semanticErrors: [],
       durationMs: Date.now() - start,
       logs,
@@ -1240,13 +1333,22 @@ export function compileToBuildReport(r: CompileResult): BuildReport {
  * Сводка ошибок, когда сборка не считается успешной по {@link compileToBuildReport}
  * (включая блокирующие semantic). Пустая строка при `report.success`.
  */
+function formatErrorLoc(e: { message: string; file?: string; line?: number; column?: number }): string {
+  if (!e.file) return e.message;
+  const loc =
+    e.line != null
+      ? `${e.file}:${e.line}${e.column != null ? `:${e.column}` : ""}`
+      : e.file;
+  return `${loc} ${e.message}`;
+}
+
 export function formatCompileFailureMessage(result: CompileResult): string {
   const report = compileToBuildReport(result);
   if (report.success) return '';
   const parts: string[] = [
     ...result.lexerErrors.map((e) => e.message),
     ...result.parserErrors.map((e) => e.message),
-    ...result.compilerErrors.map((e) => e.message),
+    ...result.compilerErrors.map(formatErrorLoc),
     ...result.semanticErrors.map((e) => e.message),
   ];
   return parts.length > 0 ? parts.join('; ') : 'compilation failed';

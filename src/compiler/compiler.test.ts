@@ -7,7 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { Compiler, compile, compileSource, compileProgram, optimizeIrModule, compileToBuildReport } from ".";
+import { Compiler, compile, compileSource, compileProgram, optimizeIrModule, compileToBuildReport, formatCompileFailureMessage } from ".";
 import { LANGUAGE_REGISTRY } from "./language-registry";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
@@ -645,6 +645,128 @@ describe("Compiler: multi-module codegen", () => {
     const names = modB!.procedures.map((p) => p.name);
     expect(names).toContain("A__ping");
     expect(names).toContain("B__main");
+  });
+});
+
+describe("Compiler: import file diagnostics and duplicate types", () => {
+  function pkgDir(): string {
+    const dir = join(tmpdir(), `osnova-imp-diag-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  it("ошибка в импортированном файле называет этот файл и строку", () => {
+    const dir = pkgDir();
+    writeFileSync(
+      join(dir, "правила.osnova"),
+      `модуль Правила
+процедура экспорт бить()
+  пусть x = {
+конец
+конец`,
+      "utf8",
+    );
+    const src = `
+модуль Игра
+использовать модуль Правила из "правила.osnova"
+процедура главная()
+  вернуть Правила.бить()
+конец
+конец`.trim();
+    const r = compileSource(src, { baseDir: dir, filename: "игра.osnova" });
+    expect(r.module).toBeNull();
+    expect(r.compilerErrors.some((e) => e.file === "правила.osnova" && e.line != null)).toBe(true);
+    expect(formatCompileFailureMessage(r)).toMatch(/правила\.osnova:\d+/);
+  });
+
+  it("два файла с одним типом — отказ, оба файла в сообщении", () => {
+    const dir = pkgDir();
+    writeFileSync(
+      join(dir, "а.osnova"),
+      `модуль А
+тип Карта { масть: Строка }
+процедура экспорт x()
+  вернуть 1
+конец
+конец`,
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "б.osnova"),
+      `модуль Б
+тип Карта { масть: Строка }
+процедура экспорт y()
+  вернуть 2
+конец
+конец`,
+      "utf8",
+    );
+    const src = `
+модуль Игра
+использовать модуль А из "а.osnova"
+использовать модуль Б из "б.osnova"
+процедура главная()
+  вернуть А.x()
+конец
+конец`.trim();
+    const r = compileSource(src, { baseDir: dir, filename: "игра.osnova" });
+    expect(r.module).toBeNull();
+    const msg = r.compilerErrors.map((e) => e.message).join(" ");
+    expect(msg).toMatch(/Тип Карта объявлен в а\.osnova и в б\.osnova/);
+  });
+
+  it("один тип в одном файле, импорт дважды через ромб — сборка ок", async () => {
+    const dir = pkgDir();
+    writeFileSync(
+      join(dir, "типы.osnova"),
+      `модуль Типы
+тип Карта { масть: Строка }
+процедура экспорт пустая()
+  вернуть { масть: "пики" }
+конец
+конец`,
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "правила.osnova"),
+      `модуль Правила
+использовать модуль Типы из "типы.osnova"
+процедура экспорт старшая()
+  вернуть Типы.пустая()
+конец
+конец`,
+      "utf8",
+    );
+    const src = `
+модуль Игра
+использовать модуль Правила из "правила.osnova"
+использовать модуль Типы из "типы.osnova"
+процедура главная()
+  пусть к: Карта = Типы.пустая()
+  вернуть Правила.старшая()
+конец
+конец`.trim();
+    const r = compileSource(src, { baseDir: dir, filename: "игра.osnova" });
+    expect(r.compilerErrors, r.compilerErrors.map((e) => e.message).join("; ")).toEqual([]);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module).toBeTruthy();
+    const vm = new VM(r.module!, { maxSteps: 1000 });
+    const v = await vm.runProcedure(vm.findProcedureIndex("главная"), []);
+    expect(v && typeof v === "object" && (v as { масть: string }).масть).toBe("пики");
+  });
+
+  it("два тип с одним именем в одном файле — отказ", () => {
+    const src = `
+модуль Игра
+тип Карта { масть: Строка }
+тип Карта { дост: Строка }
+процедура главная()
+  вернуть 0
+конец
+конец`.trim();
+    const r = compileSource(src, { filename: "игра.osnova" });
+    expect(r.module).toBeNull();
+    expect(r.compilerErrors.some((e) => e.file === "игра.osnova" && /Тип Карта объявлен дважды/.test(e.message))).toBe(true);
   });
 });
 

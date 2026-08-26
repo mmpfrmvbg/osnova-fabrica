@@ -29,12 +29,26 @@ function main(): number {
     return 1;
   }
   const source = fs.readFileSync(inputPath, "utf-8");
-  const result = compileSource(source);
+  const result = compileSource(source, {
+    baseDir: path.dirname(inputPath),
+    filename: path.basename(inputPath),
+  });
   if (result.lexerErrors.length > 0) {
     for (const e of result.lexerErrors) console.error(`Лексер ${e.line}:${e.column}: ${e.message}`);
   }
   if (result.parserErrors.length > 0) {
     for (const e of result.parserErrors) printParseError(e, source);
+  }
+  if (result.compilerErrors.length > 0) {
+    for (const e of result.compilerErrors) {
+      const loc =
+        e.file != null
+          ? e.line != null
+            ? `${e.file}:${e.line}${e.column != null ? `:${e.column}` : ""} `
+            : `${e.file} `
+          : "";
+      console.error(`${loc}${e.message}`);
+    }
   }
   if (!result.module) {
     return 1;
