@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "2.3.1";
+export const LANGUAGE_VERSION = "2.3.2";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -175,6 +175,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     astNode: { kind: "Procedure", fields: [{ name: "name", type: "string" }, { name: "params", type: "string[]" }, { name: "body", type: "Stmt[]" }] },
     since: "0.1.0",
     implemented: true,
+    description: "Конец без вернуть даёт пусто (v2.3.2), чтобы вызов как инструкция не снимал пустой стек",
   },
   {
     id: "let",

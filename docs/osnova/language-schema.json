@@ -1,6 +1,6 @@
 {
   "languageName": "Основа",
-  "languageVersion": "2.3.1",
+  "languageVersion": "2.3.2",
   "schemaVersion": "2.0.0",
   "constructions": [
     {
@@ -616,7 +616,7 @@
       "id": "procedure",
       "kind": "statement",
       "humanName": "procedure",
-      "description": "",
+      "description": "Конец без вернуть даёт пусто (v2.3.2), чтобы вызов как инструкция не снимал пустой стек",
       "astNodeType": "Procedure",
       "fields": [
         {

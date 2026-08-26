@@ -363,8 +363,9 @@ describe("codegen compile()", () => {
       "const",
       "ret",
     ]);
-    expect(slice.length).toBe(8);
-    expect(slice[7].op).toBe("ret");
+    expect(slice.length).toBe(9);
+    expect(slice[7].op).toBe("const.null");
+    expect(slice[8].op).toBe("ret");
   });
 
   it("иначе_если: цепочка jmp_if_not и финальный jmp к концу", () => {

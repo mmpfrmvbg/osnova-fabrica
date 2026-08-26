@@ -505,6 +505,9 @@ export function compile(ast: Module): OsVbcModule {
     };
 
     for (const s of proc.body) emitStmt(s);
+    // Падение с конца без «вернуть»: исходник всё равно даёт значение (пусто),
+    // иначе вызов как инструкция снимает pop с пустого стека.
+    emit({ op: "const.null" } as RawInstruction);
     emit({ op: "ret" } as RawInstruction);
 
     procedures.push({
