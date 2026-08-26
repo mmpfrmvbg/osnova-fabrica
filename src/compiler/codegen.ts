@@ -320,6 +320,10 @@ export function compile(ast: Module): OsVbcModule {
         }
         case "выражение":
           emitExpr(s.expr, locals);
+          // Вызов процедуры как инструкция оставляет возврат на стеке и портит следующий объект.
+          if (s.expr.kind === "вызов" && !s.expr.name.includes(".")) {
+            emit({ op: "pop" } as RawInstruction);
+          }
           break;
         case "если": {
           emitExpr(s.condition, locals);
