@@ -71,15 +71,10 @@ export function parse(tokens: Token[]): ParseResult {
     return String(tok.value ?? tok.lexeme);
   }
 
-  function peekKindSkippingNewlinesFrom(from: number): TokenKind {
-    let i = from;
-    while (tokens[i]?.kind === "новая_строка") i++;
-    return tokens[i]?.kind ?? "конец_файла";
-  }
-
   function atElseIf(): boolean {
     if (peek().kind === "иначе_если") return true;
-    return peek().kind === "иначе" && peekKindSkippingNewlinesFrom(pos + 1) === "если";
+    if (peek().kind !== "иначе") return false;
+    return tokens[pos + 1]?.kind === "если";
   }
 
   function consumeElseIf(): void {
@@ -88,7 +83,6 @@ export function parse(tokens: Token[]): ParseResult {
       return;
     }
     advance();
-    skipNewlines();
     advance();
   }
 

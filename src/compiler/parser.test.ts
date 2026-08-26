@@ -332,6 +332,29 @@ describe("parser: покрытие конструкций (AST из токено
     expect(ifStmt.elseBody?.length).toBe(1);
   });
 
+  it("иначе с вложенным если — не иначе_если", () => {
+    const src = [
+      "модуль M",
+      "процедура p()",
+      "  если ложь",
+      "    вернуть 0",
+      "  иначе",
+      "    если истина",
+      "      вернуть 1",
+      "    конец",
+      "  конец",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const ifStmt = (ast as Program).modules[0]?.procedures[0]?.body.find((s: Stmt) => s.kind === "если");
+    expect(ifStmt?.kind).toBe("если");
+    if (ifStmt?.kind !== "если") return;
+    expect(ifStmt.elseIfClauses ?? []).toEqual([]);
+    expect(ifStmt.elseBody?.some((s) => s.kind === "если")).toBe(true);
+  });
+
   it("когда / есть / конец", () => {
     const src = [
       "модуль M",

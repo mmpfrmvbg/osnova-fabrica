@@ -74,6 +74,18 @@ end`.trim();
     expect(await run(src)).toBe(2);
   });
 
+  it("иначе с вложенным если не съедает конец модуля", async () => {
+    const src = wrap(`  если ложь
+    вернуть 0
+  иначе
+    если истина
+      вернуть 2
+    конец
+  конец
+  вернуть 1`);
+    expect(await run(src)).toBe(2);
+  });
+
   it("=== и !== как == и !=", async () => {
     const src = wrap("  если 1 === 1 && 2 !== 3\n    вернуть 1\n  конец\n  вернуть 0");
     expect(await run(src)).toBe(1);
