@@ -1,6 +1,6 @@
 {
   "languageName": "Основа",
-  "languageVersion": "2.2.0",
+  "languageVersion": "2.3.0",
   "schemaVersion": "2.0.0",
   "constructions": [
     {
@@ -63,7 +63,7 @@
       "id": "array_index_write",
       "kind": "expression",
       "humanName": "array index write",
-      "description": "Синтаксический сахар для записи элемента массива по индексу",
+      "description": "Синтаксический сахар для записи элемента массива по индексу, в том числе объект.поле[i] =",
       "astNodeType": "вызов",
       "fields": [
         {

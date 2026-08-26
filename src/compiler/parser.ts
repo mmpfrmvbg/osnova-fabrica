@@ -473,6 +473,95 @@ export function parse(tokens: Token[]): ParseResult {
       "*=": "*",
       "/=": "/",
     };
+    const isAssignOp = (k: TokenKind): boolean =>
+      k === "=" || k === "+=" || k === "-=" || k === "*=" || k === "/=";
+
+    function indexAssignStmt(arr: Expr, idx: Expr, opKind: TokenKind, rhs: Expr): Stmt {
+      if (opKind === "=") {
+        return {
+          kind: "выражение",
+          expr: { kind: "вызов", name: "система.массив.установить", args: [arr, idx, rhs] },
+        };
+      }
+      const binOp = compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="];
+      const current: Expr = { kind: "вызов", name: "система.массив.получить", args: [arr, idx] };
+      const value: Expr = { kind: "бинарное", op: binOp, left: current, right: rhs };
+      return {
+        kind: "выражение",
+        expr: { kind: "вызов", name: "система.массив.установить", args: [arr, idx, value] },
+      };
+    }
+
+    function fieldAssignStmt(object: Expr, field: string, opKind: TokenKind, rhs: Expr): Stmt {
+      if (opKind === "=") {
+        return { kind: "поле_присвоить", object, field, value: rhs };
+      }
+      const value: Expr = {
+        kind: "бинарное",
+        op: compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="],
+        left: { kind: "поле", object, field },
+        right: rhs,
+      };
+      return { kind: "поле_присвоить", object, field, value };
+    }
+
+    /** `x =`, `arr[i] =`, `мир.поле[i] =`, `мир.доска[i].вид =`. `"нет"` — не присваивание, откат. */
+    function tryParsePostfixAssign(baseName: string): Stmt | null | "нет" {
+      let target: Expr = { kind: "переменная", name: baseName };
+      for (;;) {
+        if (peek().kind === "[") {
+          advance();
+          skipNewlines();
+          const idx = parseExpr();
+          if (!idx) return null;
+          if (!consume("]", "Ожидается ']'")) return null;
+          if (isAssignOp(peek().kind)) {
+            const opKind = advance().kind;
+            skipNewlines();
+            const rhs = parseExpr();
+            if (!rhs) return null;
+            return indexAssignStmt(target, idx, opKind, rhs);
+          }
+          target = { kind: "вызов", name: "система.массив.получить", args: [target, idx] };
+          continue;
+        }
+        if (peek().kind === ".") {
+          const dotPos = pos;
+          advance();
+          skipNewlines();
+          if (!isFieldNameToken()) {
+            pos = dotPos;
+            return "нет";
+          }
+          const fName = takeFieldName();
+          if (peek().kind === "(") return "нет";
+          if (isAssignOp(peek().kind)) {
+            const opKind = advance().kind;
+            skipNewlines();
+            const rhs = parseExpr();
+            if (!rhs) return null;
+            return fieldAssignStmt(target, fName, opKind, rhs);
+          }
+          target = { kind: "поле", object: target, field: fName };
+          continue;
+        }
+        if (isAssignOp(peek().kind) && target.kind === "переменная") {
+          const opKind = advance().kind;
+          skipNewlines();
+          const rhs = parseExpr();
+          if (!rhs) return null;
+          if (opKind === "=") return { kind: "присвоить", name: baseName, value: rhs };
+          const value: Expr = {
+            kind: "бинарное",
+            op: compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="],
+            left: { kind: "переменная", name: baseName },
+            right: rhs,
+          };
+          return { kind: "присвоить", name: baseName, value };
+        }
+        return "нет";
+      }
+    }
 
     if (peek().kind === "пусть") {
       advance();
@@ -767,122 +856,9 @@ export function parse(tokens: Token[]): ParseResult {
       const startPos = pos;
       const tokAssign = advance();
       const name = String(tokAssign.value ?? tokAssign.lexeme);
-      const baseVarExpr: Expr = { kind: "переменная", name };
-      // Проверить: имя.поле (=|+=|-=|*=|/=) значение
-      let rewinded = false;
-      // Сахар: arr[i] = val и arr[i] op= val
-      if (peek().kind === "[") {
-        advance(); // consume "["
-        skipNewlines();
-        const idx = parseExpr();
-        if (!idx) return null;
-        if (!consume("]", "Ожидается ']'")) return null;
-        const opKind = peek().kind;
-        if (opKind === "=" || opKind === "+=" || opKind === "-=" || opKind === "*=" || opKind === "/=") {
-          advance();
-          skipNewlines();
-          const rhs = parseExpr();
-          if (!rhs) return null;
-
-          if (opKind === "=") {
-            const callExpr: Expr = {
-              kind: "вызов",
-              name: "система.массив.установить",
-              args: [baseVarExpr, idx, rhs],
-            };
-            return { kind: "выражение", expr: callExpr };
-          }
-
-          const binOp = compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="];
-          const current: Expr = {
-            kind: "вызов",
-            name: "система.массив.получить",
-            args: [baseVarExpr, idx],
-          };
-          const value: Expr = {
-            kind: "бинарное",
-            op: binOp,
-            left: current,
-            right: rhs,
-          };
-          const callExpr: Expr = {
-            kind: "вызов",
-            name: "система.массив.установить",
-            args: [baseVarExpr, idx, value],
-          };
-          return { kind: "выражение", expr: callExpr };
-        }
-        // не присваивание — откат и разбор как выражения arr[i]
-        pos = startPos;
-        rewinded = true;
-      }
-      if (peek().kind === ".") {
-        // Смотрим вперёд: есть ли в конце цепочки присваивание?
-        // Стратегия: строим цепочку полей, на каждом шаге проверяем оператор.
-        // Откат через savePos если не присваивание.
-        const savePos = pos;
-        // Строим left-hand side как цепочку expr.field.field...
-        let lhsObject: Expr = baseVarExpr;
-        let lastField: string | null = null;
-        let chainOk = true;
-
-        while (peek().kind === "." && chainOk) {
-          const dotPos = pos;
-          advance(); // consume "."
-          skipNewlines();
-          if (!isFieldNameToken()) {
-            pos = dotPos;
-            chainOk = false;
-            break;
-          }
-          const fName = takeFieldName();
-          const opKind = peek().kind;
-          if (opKind === "=" || opKind === "+=" || opKind === "-=" || opKind === "*=" || opKind === "/=") {
-            // Нашли присваивание — lhsObject уже накоплен, lastField = fName
-            lastField = fName;
-            advance(); // consume op
-            skipNewlines();
-            const rhs = parseExpr();
-            if (!rhs) return null;
-            if (opKind === "=") {
-              return { kind: "поле_присвоить", object: lhsObject, field: lastField, value: rhs };
-            }
-            const value: Expr = {
-              kind: "бинарное",
-              op: compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="],
-              left: { kind: "поле", object: lhsObject, field: lastField },
-              right: rhs,
-            };
-            return { kind: "поле_присвоить", object: lhsObject, field: lastField, value };
-          }
-          // Не присваивание — накапливаем поле как промежуточный объект
-          lhsObject = { kind: "поле", object: lhsObject, field: fName };
-        }
-
-        // Нет присваивания в цепочке — откатываемся
-        pos = savePos - 1; // rewind to identifier
-        rewinded = true;
-      }
-      if (
-        !rewinded &&
-        (peek().kind === "=" || peek().kind === "+=" || peek().kind === "-=" || peek().kind === "*=" || peek().kind === "/=")
-      ) {
-        const opKind = advance().kind;
-        skipNewlines();
-        const rhs = parseExpr();
-        if (!rhs) return null;
-        if (opKind === "=") {
-          return { kind: "присвоить", name, value: rhs };
-        }
-        const value: Expr = {
-          kind: "бинарное",
-          op: compoundToBinaryOp[opKind as "+=" | "-=" | "*=" | "/="],
-          left: { kind: "переменная", name },
-          right: rhs,
-        };
-        return { kind: "присвоить", name, value };
-      }
-      if (!rewinded) pos--; // put back identifier, parse as expression statement
+      const assigned = tryParsePostfixAssign(name);
+      if (assigned !== "нет") return assigned;
+      pos = startPos;
     }
     const expr = parseExpr();
     if (!expr) return null;

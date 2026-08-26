@@ -458,6 +458,53 @@ describe("parser: покрытие конструкций (AST из токено
     expect(assigns.length).toBe(2);
   });
 
+  it("парсит мир.поле[i] = как установить в поле-массив", () => {
+    const src = [
+      "модуль t",
+      "процедура main()",
+      "  пусть мир = { поле: [0] }",
+      "  мир.поле[0] = 9",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const body = (ast as Program).modules[0]?.procedures[0]?.body ?? [];
+    const exprStmt = body.find((s: Stmt) => s.kind === "выражение");
+    expect(exprStmt?.kind).toBe("выражение");
+    if (exprStmt?.kind !== "выражение" || exprStmt.expr.kind !== "вызов") return;
+    expect(exprStmt.expr.name).toBe("система.массив.установить");
+    expect(exprStmt.expr.args[0]).toEqual({
+      kind: "поле",
+      object: { kind: "переменная", name: "мир" },
+      field: "поле",
+    });
+    expect(exprStmt.expr.args[1]).toEqual({ kind: "число", value: 0 });
+    expect(exprStmt.expr.args[2]).toEqual({ kind: "число", value: 9 });
+  });
+
+  it("парсит мир.доска[i].вид = как поле_присвоить после индекса", () => {
+    const src = [
+      "модуль t",
+      "процедура main()",
+      "  пусть мир = { доска: [{ вид: 1 }] }",
+      "  мир.доска[0].вид = 2",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const body = (ast as Program).modules[0]?.procedures[0]?.body ?? [];
+    const assigns = body.filter((s: Stmt) => s.kind === "поле_присвоить");
+    expect(assigns.length).toBe(1);
+    const a = assigns[0];
+    if (a?.kind !== "поле_присвоить") return;
+    expect(a.field).toBe("вид");
+    expect(a.object.kind).toBe("вызов");
+    if (a.object.kind !== "вызов") return;
+    expect(a.object.name).toBe("система.массив.получить");
+  });
+
   it("синтаксическая ошибка: message, line, expected", () => {
     const src = "модуль M\nпроцедура ()\nконец\nконец\n";
     const { tokens } = tokenize(src);

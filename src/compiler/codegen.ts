@@ -245,6 +245,8 @@ export function compile(ast: Module): OsVbcModule {
             emit({ op: "local.get", i: arrSlot } as RawInstruction);
             emitExpr(element, l);
             emit({ op: "invoke", name: "система.массив.добавить" } as RawInstruction);
+            // Закон исходника: вызов без использования результата не оставляет значение.
+            emit({ op: "pop" } as RawInstruction);
           }
           emit({ op: "local.get", i: arrSlot } as RawInstruction);
           break;
@@ -320,8 +322,8 @@ export function compile(ast: Module): OsVbcModule {
         }
         case "выражение":
           emitExpr(s.expr, locals);
-          // Вызов процедуры как инструкция оставляет возврат на стеке и портит следующий объект.
-          if (s.expr.kind === "вызов" && !s.expr.name.includes(".")) {
+          // Вызов как инструкция: исходник не использует результат — компилятор снимает его.
+          if (s.expr.kind === "вызов") {
             emit({ op: "pop" } as RawInstruction);
           }
           break;

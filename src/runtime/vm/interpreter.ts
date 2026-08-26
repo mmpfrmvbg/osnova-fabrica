@@ -596,7 +596,7 @@ export class VM {
         const args: StackValue[] = [];
         for (let i = 0; i < argc; i++) args.unshift(this.stack.pop()!);
         const result = await this.options.invoke(name, args);
-        if (result !== undefined && result !== null) this.stack.push(result);
+        this.stack.push(result === undefined ? null : result);
         return next;
       }
       case "jmp":

@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "2.2.0";
+export const LANGUAGE_VERSION = "2.3.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -424,8 +424,8 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   },
   {
     id: "array_index_write",
-    syntax: "массив[индекс] = значение  // сахар: система.массив.установить(массив, индекс, значение)",
-    example: "числа[1] = 99",
+    syntax: "массив[индекс] = значение  // сахар: система.массив.установить(массив, индекс, значение); также объект.поле[i] =",
+    example: "мир.поле[i] = Камень.огонь",
     astNode: {
       kind: "вызов",
       fields: [
@@ -435,7 +435,7 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     },
     since: "1.1.0",
     implemented: true,
-    description: "Синтаксический сахар для записи элемента массива по индексу",
+    description: "Синтаксический сахар для записи элемента массива по индексу, в том числе объект.поле[i] =",
   },
   {
     id: "main_with_args",

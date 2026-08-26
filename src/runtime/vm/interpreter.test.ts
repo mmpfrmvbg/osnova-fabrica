@@ -188,9 +188,12 @@ describe("Invoke arg order (Stack Convention: push arg0, push arg1, invoke → a
     expect(result).toBe("stored_val");
   });
 
-  it("0-arg invoke: получить_события does not pop anything", async () => {
+  it("0-arg invoke не снимает уже лежащее значение", async () => {
     const { calls, handler } = spyInvokeReturning(null);
-    const m = mod([pushK(0), { op: "invoke", name: "система.окно.получить_события" } as RawInstruction], [999]);
+    const m = mod(
+      [pushK(0), { op: "invoke", name: "система.окно.получить_события" } as RawInstruction, { op: "pop" }],
+      [999],
+    );
     const { result } = await run(m, [], handler);
     expect(calls[0].args.length).toBe(0);
     expect(result).toBe(999);
@@ -206,9 +209,12 @@ describe("Invoke arg order (Stack Convention: push arg0, push arg1, invoke → a
     expect(calls[0].args).toEqual(["container1", "Click me", "btn1"]);
   });
 
-  it("invoke returning null does NOT push to stack", async () => {
+  it("invoke returning null кладёт null; pop снимает его, предыдущее значение цело", async () => {
     const { handler } = spyInvokeReturning(null);
-    const m = mod([pushK(0), pushK(1), { op: "invoke", name: "система.лог.вывести" } as RawInstruction], [42, "x"]);
+    const m = mod(
+      [pushK(0), pushK(1), { op: "invoke", name: "система.лог.вывести" } as RawInstruction, { op: "pop" }],
+      [42, "x"],
+    );
     expect((await run(m, [], handler)).result).toBe(42);
   });
 

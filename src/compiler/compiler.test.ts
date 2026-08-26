@@ -922,6 +922,22 @@ describe("Compiler: массивы (array literals)", () => {
     expect(await vm.runProcedure(0, [])).toBe(99);
   });
 
+  it("мир.поле[i] = пишет в массив-поле объекта", async () => {
+    const source = `
+модуль t
+процедура главная()
+  пусть мир = { поле: [5, 10, 15] }
+  мир.поле[1] = 99
+  вернуть мир.поле[1]
+конец
+конец`.trim();
+    const result = compileSource(source);
+    expect(result.parserErrors, result.parserErrors.map((e) => e.message).join("; ")).toEqual([]);
+    expect(result.compilerSuccess).toBe(true);
+    const vm = new VM(result.module!, { invoke: arrayInvoke, maxSteps: 1000 });
+    expect(await vm.runProcedure(0, [])).toBe(99);
+  });
+
   it("для_каждого x в [1, 2, 3]: sum → 6", async () => {
     const source = `
 модуль t
