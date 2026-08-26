@@ -232,6 +232,14 @@ function rewriteStmtCalls(stmt: Stmt, rewriter: (calleeName: string) => string):
       }
       if (stmt.elseBody) for (const s of stmt.elseBody) rewriteStmtCalls(s, rewriter);
       return;
+    case "когда":
+      rewriteExprCalls(stmt.scrutinee, rewriter);
+      for (const arm of stmt.arms) {
+        rewriteExprCalls(arm.variant, rewriter);
+        for (const s of arm.body) rewriteStmtCalls(s, rewriter);
+      }
+      if (stmt.elseBody) for (const s of stmt.elseBody) rewriteStmtCalls(s, rewriter);
+      return;
     case "пока":
       rewriteExprCalls(stmt.condition, rewriter);
       for (const s of stmt.body) rewriteStmtCalls(s, rewriter);
@@ -500,6 +508,19 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
           };
           break;
         }
+        case "когда": {
+          for (const arm of s.arms) rewriteVariantLiteralsInStmts(arm.body);
+          if (s.elseBody) rewriteVariantLiteralsInStmts(s.elseBody);
+          stmts[i] = {
+            ...s,
+            scrutinee: rewriteVariantLiteralsInExpr(s.scrutinee),
+            arms: s.arms.map((arm) => ({
+              variant: rewriteVariantLiteralsInExpr(arm.variant),
+              body: arm.body,
+            })),
+          };
+          break;
+        }
         case "пока":
           stmts[i] = { ...s, condition: rewriteVariantLiteralsInExpr(s.condition) };
           rewriteVariantLiteralsInStmts(s.body);
@@ -733,9 +754,70 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
     }
   }
 
+  function desugarKogda(stmt: Stmt & { kind: "когда" }): Stmt {
+    const first = stmt.arms[0]!;
+    const eq = (variant: Expr): Expr => ({
+      kind: "бинарное",
+      op: "==",
+      left: stmt.scrutinee,
+      right: variant,
+    });
+    const elseIfClauses = stmt.arms.slice(1).map((arm) => ({
+      condition: eq(arm.variant),
+      body: arm.body,
+    }));
+    return {
+      kind: "если",
+      condition: eq(first.variant),
+      body: first.body,
+      elseIfClauses: elseIfClauses.length > 0 ? elseIfClauses : undefined,
+      elseBody: stmt.elseBody,
+    };
+  }
+
+  function checkKogda(stmt: Stmt & { kind: "когда" }): void {
+    if (stmt.arms.length === 0) {
+      errors.push("когда: нужна хотя бы одна ветка есть");
+      return;
+    }
+    let typeName = "";
+    const seen = new Set<string>();
+    for (const arm of stmt.arms) {
+      if (arm.variant.kind !== "вариант") {
+        errors.push("когда: в есть нужен литерал перечня Имя.вариант");
+        continue;
+      }
+      if (!typeName) typeName = arm.variant.typeName;
+      if (arm.variant.typeName !== typeName) {
+        errors.push(`когда: смешаны перечни ${typeName} и ${arm.variant.typeName}`);
+      }
+      const key = `${arm.variant.typeName}.${arm.variant.variant}`;
+      if (seen.has(key)) errors.push(`когда: повтор ветки ${key}`);
+      seen.add(key);
+    }
+    if (!typeName) return;
+    const td = typeByName.get(typeName);
+    if (!td?.variants || td.variants.length === 0) return;
+    if (stmt.elseBody !== undefined) {
+      return;
+    }
+    const missing = td.variants.filter((v) => !seen.has(`${typeName}.${v}`));
+    if (missing.length > 0) {
+      errors.push(`когда: не разобраны варианты ${missing.map((v) => `${typeName}.${v}`).join(", ")}`);
+    }
+  }
+
   // Первый проход: литералы пусть мир: Мир = {…} (как раньше).
   function visitStmtsLiteralPass(stmts: Stmt[]): void {
-    for (const s of stmts) {
+    for (let i = 0; i < stmts.length; i++) {
+      const s = stmts[i]!;
+      if (s.kind === "когда") {
+        checkKogda(s);
+        for (const arm of s.arms) visitStmtsLiteralPass(arm.body);
+        if (s.elseBody) visitStmtsLiteralPass(s.elseBody);
+        if (s.arms.length > 0) stmts[i] = desugarKogda(s);
+        continue;
+      }
       switch (s.kind) {
         case "пусть": {
           if (!s.typeAnnotation) break;
@@ -778,7 +860,9 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
     }
   }
 
-  visitStmtsLiteralPass(ast.procedures.flatMap((p) => p.body));
+  for (const proc of ast.procedures) {
+    visitStmtsLiteralPass(proc.body);
+  }
 
   const procByName = new Map(ast.procedures.map((p) => [p.name, p]));
   for (const proc of ast.procedures) {

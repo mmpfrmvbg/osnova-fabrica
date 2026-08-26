@@ -149,6 +149,14 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           }
           if (stmt.elseBody) checkInventedSyntaxInStmts(stmt.elseBody);
           break;
+        case "когда":
+          checkInventedSyntaxInExpr(stmt.scrutinee);
+          for (const arm of stmt.arms) {
+            checkInventedSyntaxInExpr(arm.variant);
+            checkInventedSyntaxInStmts(arm.body);
+          }
+          if (stmt.elseBody) checkInventedSyntaxInStmts(stmt.elseBody);
+          break;
         case "пока":
           checkInventedSyntaxInExpr(stmt.condition);
           checkInventedSyntaxInStmts(stmt.body);
@@ -193,6 +201,12 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
             for (const c of stmt.elseIfClauses) checkSentinelInStmts(c.body, insideTry);
           }
           if (stmt.elseBody) checkSentinelInStmts(stmt.elseBody, insideTry);
+          break;
+        case "когда":
+          checkSentinelInStmts(
+            stmt.arms.flatMap((a) => a.body).concat(stmt.elseBody ?? []),
+            insideTry,
+          );
           break;
         case "пока":
           checkSentinelInStmts(stmt.body, insideTry);
@@ -382,6 +396,14 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
               checkExpr(clause.condition, declared);
               checkStmts(clause.body, new Set(declared), inLoop);
             }
+          }
+          if (stmt.elseBody) checkStmts(stmt.elseBody, new Set(declared), inLoop);
+          break;
+        case "когда":
+          checkExpr(stmt.scrutinee, declared);
+          for (const arm of stmt.arms) {
+            checkExpr(arm.variant, declared);
+            checkStmts(arm.body, new Set(declared), inLoop);
           }
           if (stmt.elseBody) checkStmts(stmt.elseBody, new Set(declared), inLoop);
           break;

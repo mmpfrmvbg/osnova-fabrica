@@ -109,6 +109,14 @@ export function compile(ast: Module): OsVbcModule {
           }
           if (s.elseBody) scan(s.elseBody);
         }
+        if (s.kind === "когда") {
+          scanExpr(s.scrutinee);
+          for (const arm of s.arms) {
+            scanExpr(arm.variant);
+            scan(arm.body);
+          }
+          if (s.elseBody) scan(s.elseBody);
+        }
         if (s.kind === "пока") {
           scanExpr(s.condition);
           scan(s.body);
@@ -483,6 +491,8 @@ export function compile(ast: Module): OsVbcModule {
           else emit({ op: "const.null" } as RawInstruction);
           emit({ op: "ret" } as RawInstruction);
           break;
+        case "когда":
+          throw new Error("когда должен быть развёрнут в если до codegen");
         default:
           assertNever(s, "Stmt.emitStmt");
       }
@@ -593,6 +603,16 @@ function cloneStmtWithResolver(stmt: Stmt, resolveCall: (name: string) => string
         elseIfClauses: stmt.elseIfClauses?.map((cl) => ({
           condition: cloneExprWithResolver(cl.condition, resolveCall),
           body: cl.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
+        })),
+        elseBody: stmt.elseBody?.map((s) => cloneStmtWithResolver(s, resolveCall)),
+      };
+    case "когда":
+      return {
+        kind: "когда",
+        scrutinee: cloneExprWithResolver(stmt.scrutinee, resolveCall),
+        arms: stmt.arms.map((arm) => ({
+          variant: cloneExprWithResolver(arm.variant, resolveCall),
+          body: arm.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
         })),
         elseBody: stmt.elseBody?.map((s) => cloneStmtWithResolver(s, resolveCall)),
       };

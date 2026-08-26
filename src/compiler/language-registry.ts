@@ -4,7 +4,7 @@
  * Версия языка согласована с meta.osnova_version в trace-format и minOsnovaVersion в реестре приложений.
  */
 
-export const LANGUAGE_VERSION = "2.1.0";
+export const LANGUAGE_VERSION = "2.2.0";
 
 /** Категория ключевого слова. */
 export type KeywordKind = "module" | "stmt" | "expr" | "block" | "type" | "vliw";
@@ -54,7 +54,8 @@ export type ConstructId =
   | "variant_type"
   | "variant_literal"
   | "param_types"
-  | "typed_field_check";
+  | "typed_field_check"
+  | "match_when";
 
 export interface AstFieldSpec {
   name: string;
@@ -151,6 +152,8 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "или", kind: "expr", implemented: true, since: "0.1.0", description: "логическое ИЛИ, short-circuit" },
   { lexeme: "не", kind: "expr", implemented: true, since: "0.1.0", description: "логическое НЕ" },
   { lexeme: "тогда", kind: "stmt", implemented: true, since: "1.1.0", description: "опциональное слово после условия в если/иначе_если/пока" },
+  { lexeme: "когда", kind: "stmt", implemented: true, since: "2.2.0", description: "разбор перечня по вариантам, с исчерпыванием" },
+  { lexeme: "есть", kind: "stmt", implemented: true, since: "2.2.0", description: "ветка когда: есть Имя.вариант" },
   { lexeme: "прервать", kind: "stmt", implemented: true, since: "1.8.0",
     description: "выход из текущего цикла пока/цикл" },
   { lexeme: "продолжить", kind: "stmt", implemented: true, since: "1.9.0",
@@ -235,6 +238,22 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
     since: "0.1.0",
     implemented: true,
     description: "Цепочка ветвления: если / иначе_если / иначе / конец",
+  },
+  {
+    id: "match_when",
+    syntax: "когда <выражение>\n  есть Имя.вариант\n    ...\n  иначе\n    ...\nконец",
+    example: "когда карта.масть\n  есть Масть.пики\n    вернуть 1\n  есть Масть.черви\n    вернуть 2\nконец",
+    astNode: {
+      kind: "когда",
+      fields: [
+        { name: "scrutinee", type: "Expr" },
+        { name: "arms", type: "{ variant: Expr; body: Stmt[] }[]" },
+        { name: "elseBody", type: "Stmt[]", optional: true },
+      ],
+    },
+    since: "2.2.0",
+    implemented: true,
+    description: "Разбор перечня: все варианты должны быть названы, иначе — ветка иначе. Компилятор разворачивает в если.",
   },
   {
     id: "field_assign",
@@ -749,6 +768,8 @@ export const LLM_KEYWORD_ALIASES: Readonly<Record<string, string>> = {
   not: "не",
   end: "конец",
   export: "экспорт",
+  when: "когда",
+  is: "есть",
 };
 
 /** Реестр языка Основа v0.1 (текущая реализованная версия). */

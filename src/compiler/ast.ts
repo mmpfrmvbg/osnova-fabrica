@@ -29,6 +29,12 @@ export type Stmt =
   | { kind: "поле_присвоить"; object: Expr; field: string; value: Expr }
   | { kind: "выражение"; expr: Expr }
   | { kind: "если"; condition: Expr; body: Stmt[]; elseIfClauses?: Array<{ condition: Expr; body: Stmt[] }>; elseBody?: Stmt[] }
+  | {
+      kind: "когда";
+      scrutinee: Expr;
+      arms: Array<{ variant: Expr; body: Stmt[] }>;
+      elseBody?: Stmt[];
+    }
   | { kind: "попробовать"; body: Stmt[]; catchVar: string; catchBody: Stmt[] }
   | { kind: "выбросить"; value: Expr }
   | { kind: "пока"; condition: Expr; body: Stmt[] }

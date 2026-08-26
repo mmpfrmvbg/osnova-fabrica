@@ -332,6 +332,28 @@ describe("parser: покрытие конструкций (AST из токено
     expect(ifStmt.elseBody?.length).toBe(1);
   });
 
+  it("когда / есть / конец", () => {
+    const src = [
+      "модуль M",
+      "тип Масть = пики | черви",
+      "процедура p()",
+      "  когда Масть.пики",
+      "    есть Масть.пики",
+      "      вернуть 1",
+      "    есть Масть.черви",
+      "      вернуть 2",
+      "  конец",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.length).toBe(0);
+    const whenStmt = (ast as Program).modules[0]?.procedures[0]?.body.find((s: Stmt) => s.kind === "когда");
+    expect(whenStmt?.kind).toBe("когда");
+    if (whenStmt?.kind !== "когда") return;
+    expect(whenStmt.arms.length).toBe(2);
+  });
+
   it("попробовать / иначе_попытка / конец", () => {
     const src = [
       "модуль M",

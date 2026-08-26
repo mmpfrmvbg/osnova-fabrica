@@ -97,6 +97,7 @@ export function parse(tokens: Token[]): ParseResult {
     const stmtHead: TokenKind[] = [
       "пусть",
       "если",
+      "когда",
       "пока",
       "вернуть",
       "для_каждого",
@@ -571,6 +572,58 @@ export function parse(tokens: Token[]): ParseResult {
       }
       if (!consume("конец", "Ожидается 'конец' после тела если")) return null;
       return { kind: "если", condition, body, elseIfClauses: elseIfClauses.length > 0 ? elseIfClauses : undefined, elseBody };
+    }
+    if (peek().kind === "когда") {
+      advance();
+      skipNewlines();
+      const scrutinee = parseExpr();
+      if (!scrutinee) return null;
+      skipNewlines();
+      const arms: Array<{ variant: Expr; body: Stmt[] }> = [];
+      while (peek().kind === "есть") {
+        advance();
+        skipNewlines();
+        const variant = parseExpr();
+        if (!variant) return null;
+        skipNewlines();
+        const armBody: Stmt[] = [];
+        while (
+          peek().kind !== "есть" &&
+          peek().kind !== "иначе" &&
+          peek().kind !== "конец" &&
+          peek().kind !== "конец_файла"
+        ) {
+          const s = parseStmt();
+          if (s) armBody.push(s);
+          else syncToStmtBoundary();
+          skipNewlines();
+        }
+        arms.push({ variant, body: armBody });
+      }
+      if (arms.length === 0) {
+        const t = peek();
+        errors.push({
+          message: "после когда нужна хотя бы одна ветка есть Имя.вариант",
+          line: t.line,
+          column: t.column,
+          context: "stmt",
+        });
+        return null;
+      }
+      let elseBody: Stmt[] | undefined;
+      if (peek().kind === "иначе") {
+        advance();
+        skipNewlines();
+        elseBody = [];
+        while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+          const s = parseStmt();
+          if (s) elseBody.push(s);
+          else syncToStmtBoundary();
+          skipNewlines();
+        }
+      }
+      if (!consume("конец", "Ожидается 'конец' после тела когда")) return null;
+      return { kind: "когда", scrutinee, arms, elseBody };
     }
     if (peek().kind === "попробовать") {
       advance();
