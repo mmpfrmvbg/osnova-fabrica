@@ -9,6 +9,7 @@
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import { getLLMProvider } from '../llm/index';
+import { resolvePhaseRouting } from '../llm/routing';
 import { IntakeValidationError, type IAgent } from './types';
 import type { AgentReport, BaseAgent } from '../types/agents';
 import {
@@ -263,8 +264,9 @@ export class IntakeAgent implements IAgent, BaseAgent {
     const normalized = this.parse(input);
 
     const provider = getLLMProvider();
-    const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
-    log.debug('parseIntent', { model });
+    const routing = resolvePhaseRouting('intake');
+    const model = routing.model;
+    log.debug('parseIntent', { model, tier: routing.tier, level: routing.level });
 
     // Prefix routing: детерминированный override до LLM
     const prefixAppType = detectAppTypeFromPrefix(normalized.text);
@@ -305,7 +307,10 @@ export class IntakeAgent implements IAgent, BaseAgent {
             ]
           : [{ role: 'user', content: userContent }],
         responseFormat: { type: 'json_object' },
-        maxTokens: 2000,
+        maxTokens: routing.maxTokens,
+        temperature: routing.temperature,
+        thinking: routing.thinking,
+        reasoningEffort: routing.reasoningEffort,
       });
     } catch (err) {
       throw wrapLlmError(err, 'IntakeAgent.parseIntent', { model });
@@ -361,8 +366,9 @@ export class IntakeAgent implements IAgent, BaseAgent {
     }
 
     const provider = getLLMProvider();
-    const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
-    log.debug('generateSpec', { model, intentId: intent.intentId });
+    const routing = resolvePhaseRouting('spec');
+    const model = routing.model;
+    log.debug('generateSpec', { model, tier: routing.tier, level: routing.level, intentId: intent.intentId });
 
     const systemPrompt =
       loadAbPromptOverride() ??
@@ -388,7 +394,10 @@ export class IntakeAgent implements IAgent, BaseAgent {
           },
         ],
         responseFormat: { type: 'json_object' },
-        maxTokens: 4000,
+        maxTokens: routing.maxTokens,
+        temperature: routing.temperature,
+        thinking: routing.thinking,
+        reasoningEffort: routing.reasoningEffort,
       });
     } catch (err) {
       throw wrapLlmError(err, 'IntakeAgent.generateSpec', { model });

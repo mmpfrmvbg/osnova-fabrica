@@ -18,6 +18,14 @@ export interface LLMCompletionRequest {
   readonly maxTokens?: number;
   readonly stop?: readonly string[];
   readonly responseFormat?: { type: 'text' | 'json_object' };
+  /**
+   * thinking-режим DeepSeek V4. У API он включён по умолчанию (effort=high),
+   * поэтому для уровня Low его нужно выключать явно (`false`).
+   * Провайдеры без thinking-режима параметр игнорируют.
+   */
+  readonly thinking?: boolean;
+  /** Уровень рассуждений DeepSeek V4 (`reasoning_effort`). */
+  readonly reasoningEffort?: 'low' | 'high' | 'max';
 }
 
 export interface LLMCompletionResponse {
@@ -32,6 +40,12 @@ export interface LLMCompletionResponse {
   readonly truncated?: boolean;
   readonly finishReason?: string;
   readonly cacheHitTokens?: number;
+  /**
+   * Цепочка рассуждений reasoning-модели (`reasoning_content`).
+   * Приходит отдельно от `content`; для многоходовых диалогов без `tools`
+   * обратно в API её передавать не нужно.
+   */
+  readonly reasoningContent?: string;
 }
 
 export interface LLMModelInfo {

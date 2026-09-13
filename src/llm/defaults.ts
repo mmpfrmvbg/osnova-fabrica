@@ -9,7 +9,8 @@ export const DEFAULT_PROVIDER = 'qwen-cli';
 
 export const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
   ollama: 'llama3.2',
-  deepseek: 'deepseek-chat',
+  // DeepSeek V4: deepseek-chat/deepseek-reasoner выводятся из эксплуатации 24.07.2026.
+  deepseek: 'deepseek-flash',
   'qwen-cli': 'qwen-coder-plus',
 };
 

@@ -40,6 +40,46 @@ thresholds:
   repairLoops:
     max: 3
 
+# ─── Посфазная маршрутизация LLM ──────────────────────────────────────────
+# ИСТОЧНИК ПРАВДЫ: src/llm/routing.ts (спецификация: docs/llm-routing-v1.md).
+# Ниже — ТОЛЬКО декларация: оркестратор v0.1 читает routing.ts, не этот файл.
+# Управление: OSNOVA_TIER (auto|flash|pro) × OSNOVA_LEVEL (low|med|high).
+llmRouting:
+  sourceOfTruth: src/llm/routing.ts
+  spec: docs/llm-routing-v1.md
+  tiers:
+    # auto = Flash по умолчанию + эскалация repair→Pro при застревании.
+    auto:  { model: deepseek-flash, escalateRepairToPro: true }
+    flash: { model: deepseek-flash, escalateRepairToPro: false }
+    pro:   { model: deepseek-pro,   escalateRepairToPro: false }
+  # thinking меняет поведение: в thinking-режиме DeepSeek ИГНОРИРУЕТ temperature,
+  # а maxTokens удваивается под thinking-токены.
+  phases:
+    intake:
+      model: deepseek-flash
+      reasoningEffort: { low: null, med: high, high: max }
+      temperature:     { low: 0,    med: null, high: null }
+      maxTokens:       { low: 2000, med: 4000, high: 4000 }
+    spec_generation:
+      model: deepseek-flash
+      reasoningEffort: { low: null, med: null, high: high }
+      temperature:     { low: 0,    med: 0,    high: null }
+      maxTokens:       { low: 4000, med: 4000, high: 8000 }
+    codegen:
+      model: deepseek-flash
+      reasoningEffort: { low: null, med: high, high: max }
+      temperature:     { low: 0.2,  med: null, high: null }
+      maxTokens:       { low: 8000, med: 16000, high: 16000 }
+    repair:
+      model: deepseek-flash
+      reasoningEffort: { low: null, med: high, high: max }
+      temperature:     { low: 0.1,  med: null, high: null }
+      maxTokens:       { low: 8000, med: 16000, high: 16000 }
+  escalation:
+    # Только tier=auto и только фаза repair (build/golden — не LLM).
+    thresholdConsecutiveFailures: { low: never, med: 3, high: 1 }
+    target: deepseek-pro
+
 phases:
 
   # ═══ Phase 1: Intake ═══

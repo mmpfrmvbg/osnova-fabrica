@@ -60,9 +60,20 @@ export class DeepSeekProvider implements LLMProvider {
         ...(m.prefix !== undefined && { prefix: m.prefix }),
       })),
       stream,
-      temperature: request.temperature,
       max_tokens: request.maxTokens ?? 8192,
     };
+    // thinking-режим у DeepSeek V4 включён по умолчанию (effort=high), поэтому
+    // отправляем явный тумблер — иначе уровень Low не сможет его выключить.
+    if (request.thinking !== undefined) {
+      body.thinking = { type: request.thinking ? 'enabled' : 'disabled' };
+    }
+    if (request.reasoningEffort !== undefined) {
+      body.reasoning_effort = request.reasoningEffort;
+    }
+    // В thinking-режиме DeepSeek игнорирует temperature — не отправляем впустую.
+    if (request.temperature != null && !request.thinking) {
+      body.temperature = request.temperature;
+    }
     if (request.stop != null && request.stop.length > 0) body.stop = request.stop;
     if (request.responseFormat != null) body.response_format = request.responseFormat;
     return body;
@@ -82,7 +93,7 @@ export class DeepSeekProvider implements LLMProvider {
     if (!res.ok) throw new Error(`DeepSeek chat: HTTP ${res.status}`);
     const data = (await res.json()) as {
       choices: Array<{
-        message?: { content?: string };
+        message?: { content?: string; reasoning_content?: string };
         finish_reason?: string;
       }>;
       model?: string;
@@ -95,6 +106,7 @@ export class DeepSeekProvider implements LLMProvider {
     };
     const choice = data.choices?.[0];
     const content = choice?.message?.content ?? '';
+    const reasoningContent = choice?.message?.reasoning_content;
     const usage = data.usage;
     const finishReason = choice?.finish_reason ?? 'stop';
 
@@ -113,6 +125,7 @@ export class DeepSeekProvider implements LLMProvider {
       truncated: finishReason === 'length',
       finishReason,
       cacheHitTokens: usage?.prompt_cache_hit_tokens ?? 0,
+      ...(reasoningContent != null && { reasoningContent }),
     };
   }
 
@@ -138,6 +151,7 @@ export class DeepSeekProvider implements LLMProvider {
     const decoder = new TextDecoder();
     let buffer = '';
     let content = '';
+    let reasoningContent = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -151,14 +165,26 @@ export class DeepSeekProvider implements LLMProvider {
         if (data === '[DONE]') break;
         try {
           const parsed = JSON.parse(data) as {
-            choices?: Array<{ delta?: { content?: string }; finish_reason?: string }>;
+            choices?: Array<{
+              delta?: { content?: string; reasoning_content?: string };
+              finish_reason?: string;
+            }>;
           };
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) { content += delta; onToken(delta); }
+          const delta = parsed.choices?.[0]?.delta;
+          if (delta?.content) { content += delta.content; onToken(delta.content); }
+          // CoT-токены не отдаём в onToken — они не часть ответа, но нужны учёту.
+          if (delta?.reasoning_content) reasoningContent += delta.reasoning_content;
         } catch { /* skip malformed chunk */ }
       }
     }
 
-    return { content, model: request.model, done: true, truncated: false, finishReason: 'stop' };
+    return {
+      content,
+      model: request.model,
+      done: true,
+      truncated: false,
+      finishReason: 'stop',
+      ...(reasoningContent !== '' && { reasoningContent }),
+    };
   }
 }

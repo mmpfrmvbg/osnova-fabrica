@@ -16,6 +16,14 @@ import * as path from 'path';
 import { IntakeAgent } from '../agents/IntakeAgent';
 import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { RepairEngineerAgent } from '../agents/RepairEngineer';
+import {
+  resolveEscalationModel,
+  resolveLevel,
+  resolveModel,
+  resolveTier,
+  routingSummary,
+  shouldEscalateToPro,
+} from '../llm/routing';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
@@ -111,7 +119,20 @@ export async function runLoop(goal: string, opts: RunLoopOptions = {}): Promise<
   const traceFile = opts.traceFile ?? DEFAULT_TRACE_FILE;
   const runId = randomUUID();
   const startTime = Date.now();
-  const modelId = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
+  const tier = resolveTier();
+  const level = resolveLevel();
+  // modelId трейса — модель кодогенерации (основная фаза); полная политика — в логе.
+  const modelId = resolveModel('codegen', tier);
+  log.info('loop: routing', {
+    tier,
+    level,
+    phases: routingSummary(tier, level).map(
+      r => `${r.phase}=${r.model}/${r.thinking ? r.reasoningEffort : 'no-think'}`,
+    ),
+  });
+
+  /** Подряд неудачных итераций build/golden — вход для эскалации repair→Pro. */
+  let consecutiveFailures = 0;
 
   let intent: OsnovaIntent | undefined;
   let spec: OsnovaSpec | undefined;
@@ -218,8 +239,19 @@ export async function runLoop(goal: string, opts: RunLoopOptions = {}): Promise<
           durationMs: Date.now() - iterStart,
         });
         if (iteration >= maxIterations) break;
+        consecutiveFailures++;
+        const escalateBuild = shouldEscalateToPro('repair', level, consecutiveFailures, tier);
+        if (escalateBuild) {
+          log.info(`loop: repair→Pro после ${consecutiveFailures} неудач подряд`);
+        }
         const repair = new RepairEngineerAgent();
-        current = await repair.fix(current, buildReport, undefined, iteration);
+        current = await repair.fix(
+          current,
+          buildReport,
+          undefined,
+          iteration,
+          escalateBuild ? { model: resolveEscalationModel('repair') } : undefined,
+        );
         continue;
       }
 
@@ -256,8 +288,19 @@ export async function runLoop(goal: string, opts: RunLoopOptions = {}): Promise<
           durationMs: Date.now() - iterStart,
         });
         if (iteration >= maxIterations) break;
+        consecutiveFailures++;
+        const escalateGolden = shouldEscalateToPro('repair', level, consecutiveFailures, tier);
+        if (escalateGolden) {
+          log.info(`loop: repair→Pro после ${consecutiveFailures} неудач подряд`);
+        }
         const repair = new RepairEngineerAgent();
-        current = await repair.fix(current, buildReport, goldenReport, iteration);
+        current = await repair.fix(
+          current,
+          buildReport,
+          goldenReport,
+          iteration,
+          escalateGolden ? { model: resolveEscalationModel('repair') } : undefined,
+        );
         continue;
       }
 

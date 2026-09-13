@@ -19,6 +19,34 @@ export {
   PROVIDER_DEFAULT_MODEL,
   DEFAULT_PROVIDER,
 } from './defaults.js';
+export type {
+  LlmTier,
+  LlmLevel,
+  PipelinePhase,
+  ReasoningEffort,
+  PhaseRouting,
+  PhaseRoutingOptions,
+} from './routing.js';
+export {
+  DEFAULT_TIER,
+  DEFAULT_LEVEL,
+  LLM_TIERS,
+  LLM_LEVELS,
+  PIPELINE_PHASES,
+  DEEPSEEK_TIER_MODEL,
+  resolveProvider,
+  resolveTier,
+  resolveLevel,
+  resolveModel,
+  resolveEscalationModel,
+  resolveThinking,
+  resolveReasoningEffort,
+  resolveTemperature,
+  resolveMaxTokens,
+  shouldEscalateToPro,
+  resolvePhaseRouting,
+  routingSummary,
+} from './routing.js';
 
 import type { LLMProvider } from './types.js';
 import { OllamaProvider } from './OllamaProvider.js';

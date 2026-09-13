@@ -6,6 +6,7 @@
 // ============================================================
 
 import { getLLMProvider } from '../llm/index';
+import { resolvePhaseRouting } from '../llm/routing';
 import type { OsnovaSource, BuildReport, GoldenReport } from '../pipeline/types';
 import { BLOCKING_SEMANTIC_KINDS, NON_BLOCKING_SEMANTIC_KINDS } from '../pipeline/semanticKinds';
 import { wrapLlmError } from '../llm/errors';
@@ -98,16 +99,29 @@ arr[индекс] уже поддерживается парсером — не 
 Верни ТОЛЬКО исправленный .osnova код, без объяснений, без markdown.
 `.trim();
 
+/** Опции ремонта: переопределение модели при эскалации repair→Pro. */
+export interface RepairFixOptions {
+  /** Явный override модели (используется pipeline/loop при tier=auto). */
+  readonly model?: string;
+}
+
 export class RepairEngineerAgent {
   async fix(
     source: OsnovaSource,
     buildReport?: BuildReport,
     goldenReport?: GoldenReport,
     attempt?: number,
+    opts: RepairFixOptions = {},
   ): Promise<OsnovaSource> {
     const provider = getLLMProvider();
-    const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
-    log.debug('fix', { model, attempt, filename: source.filename });
+    const routing = resolvePhaseRouting('repair', { model: opts.model });
+    const model = routing.model;
+    log.debug('fix', {
+      model,
+      attempt,
+      escalated: opts.model !== undefined,
+      filename: source.filename,
+    });
 
     const errors: string[] = [];
 
@@ -146,8 +160,10 @@ export class RepairEngineerAgent {
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
         ],
-        maxTokens: 8000,
-        temperature: 0.1,
+        maxTokens: routing.maxTokens,
+        temperature: routing.temperature,
+        thinking: routing.thinking,
+        reasoningEffort: routing.reasoningEffort,
       });
     } catch (err) {
       throw wrapLlmError(err, 'RepairEngineer.fix', { model, attempt });

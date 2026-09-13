@@ -6,6 +6,7 @@
 // ============================================================
 
 import { getLLMProvider } from '../llm/index';
+import { resolvePhaseRouting } from '../llm/routing';
 import { stripMarkdownFence } from '../llm/stripMarkdownFence';
 import type { OsnovaSpec, OsnovaSource } from '../pipeline/types';
 import { buildOsnovaPrompt, assertFewShotNotEmpty } from '../pipeline-llm/buildOsnovaPrompt';
@@ -213,9 +214,15 @@ export class OsnovaCodegenAgent {
 
   async generate(spec: OsnovaSpec): Promise<OsnovaSource> {
     const provider = getLLMProvider();
-    const model = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
+    const routing = resolvePhaseRouting('codegen');
+    const model = routing.model;
     const fewShot = loadFewShot();
-    log.debug('generate', { model, mainModule: spec.mainModule });
+    log.debug('generate', {
+      model,
+      tier: routing.tier,
+      level: routing.level,
+      mainModule: spec.mainModule,
+    });
 
     assertFewShotNotEmpty(fewShot, 'OsnovaCodegen.generate');
     const specPrompt = buildOsnovaPrompt(JSON.stringify(spec, null, 2));
@@ -237,8 +244,10 @@ export class OsnovaCodegenAgent {
             content: specPrompt + '\n\n// Few-shot примеры программ на языке Основа:\n' + fewShot,
           },
         ],
-        maxTokens: 8000,
-        temperature: 0.2,
+        maxTokens: routing.maxTokens,
+        temperature: routing.temperature,
+        thinking: routing.thinking,
+        reasoningEffort: routing.reasoningEffort,
       });
     } catch (err) {
       throw wrapLlmError(err, 'OsnovaCodegen.generate', { model });

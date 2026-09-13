@@ -10,6 +10,13 @@ import * as path from 'path';
 import { IntakeAgent } from '../agents/IntakeAgent';
 import { OsnovaCodegenAgent } from '../agents/OsnovaCodegen';
 import { RepairEngineerAgent } from '../agents/RepairEngineer';
+import {
+  resolveEscalationModel,
+  resolveLevel,
+  resolveModel,
+  resolveTier,
+  shouldEscalateToPro,
+} from '../llm/routing';
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
@@ -106,8 +113,13 @@ export async function runPipeline(
   const appRegistry = loadAppRegistry();
   const registryContext = registryToContext(registry, appRegistry);
   const startTime = Date.now();
-  const modelId = process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
+  const tier = resolveTier();
+  const level = resolveLevel();
+  // modelId трейса — модель кодогенерации (основная фаза).
+  const modelId = resolveModel('codegen', tier);
   let repairAttempts = 0;
+  /** Подряд неудачных итераций build/golden — вход для эскалации repair→Pro. */
+  let consecutiveFailures = 0;
 
   let intent: OsnovaIntent | undefined;
   let spec: OsnovaSpec | undefined;
@@ -177,8 +189,19 @@ export async function runPipeline(
           }
         }
         if (loop >= MAX_REPAIR_LOOPS) break;
+        consecutiveFailures++;
+        const escalateBuild = shouldEscalateToPro('repair', level, consecutiveFailures, tier);
+        if (escalateBuild) {
+          log.info(`repair→Pro после ${consecutiveFailures} неудач подряд`);
+        }
         const repair = new RepairEngineerAgent();
-        lastSource = await repair.fix(lastSource, buildReport, undefined, loop + 1);
+        lastSource = await repair.fix(
+          lastSource,
+          buildReport,
+          undefined,
+          loop + 1,
+          escalateBuild ? { model: resolveEscalationModel('repair') } : undefined,
+        );
         repairAttempts++;
         continue;
       }
@@ -214,8 +237,19 @@ export async function runPipeline(
         }
         log.warn(`gate G3 FAIL (attempt ${loop + 1})`, g3.failedChecks);
         if (loop >= MAX_REPAIR_LOOPS) break;
+        consecutiveFailures++;
+        const escalateGolden = shouldEscalateToPro('repair', level, consecutiveFailures, tier);
+        if (escalateGolden) {
+          log.info(`repair→Pro после ${consecutiveFailures} неудач подряд`);
+        }
         const repair = new RepairEngineerAgent();
-        lastSource = await repair.fix(lastSource, buildReport, goldenReport, loop + 1);
+        lastSource = await repair.fix(
+          lastSource,
+          buildReport,
+          goldenReport,
+          loop + 1,
+          escalateGolden ? { model: resolveEscalationModel('repair') } : undefined,
+        );
         repairAttempts++;
         continue;
       }

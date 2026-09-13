@@ -32,7 +32,7 @@
 | Провайдер | Дефолт модели |
 |-----------|---------------|
 | `qwen-cli` | `qwen-coder-plus` |
-| `deepseek` | `deepseek-chat` |
+| `deepseek` | `deepseek-flash` |
 | `ollama` | `llama3.2` |
 
 ---
@@ -59,9 +59,14 @@ API DashScope, нужен API-ключ.
 OSNOVA_PROVIDER=deepseek
 DEEPSEEK_API_KEY=sk-...
 
-# Опционально — по умолчанию deepseek-chat
-# OSNOVA_MODEL=deepseek-chat
+# Опционально — по умолчанию deepseek-flash
+# OSNOVA_MODEL=deepseek-flash
 ```
+
+> **V4-тиры.** С 24.07.2026 имена `deepseek-chat` / `deepseek-reasoner` выводятся из
+> эксплуатации; актуальные тиры — `deepseek-flash` и `deepseek-pro`.
+> Посфазный выбор тира и уровня усилий (`OSNOVA_TIER`, `OSNOVA_LEVEL`) описан в
+> `docs/llm-routing-v1.md`.
 
 ### Ollama (локальный)
 
