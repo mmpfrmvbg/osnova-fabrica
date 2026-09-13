@@ -641,6 +641,10 @@ const SYSCALLS_V01: SyscallSpec[] = [
   { name: "система.пайплайн.ид_спецификации", argc: 0, status: "stable", description: "Получить ID спецификации пайплайна", since: "2.0.0" },
   { name: "система.пайплайн.главный_модуль", argc: 0, status: "stable", description: "Получить имя главного модуля пайплайна", since: "2.0.0" },
   { name: "система.пайплайн.ожидаемый_возврат", argc: 0, status: "stable", description: "Получить ожидаемое возвращаемое значение пайплайна", since: "2.0.0" },
+  { name: "система.оценить", argc: 1, status: "stable", description: "Скомпилировать и исполнить строку кода на лету (eval)", since: "2.4.0" },
+  { name: "система.оценить_в", argc: 2, status: "stable", description: "Исполнить код на лету с доступом к окружению", since: "2.4.0" },
+  { name: "система.оценить.получить", argc: 1, status: "stable", description: "Прочитать значение из окружения eval по ключу", since: "2.4.0" },
+  { name: "система.оценить.установить", argc: 2, status: "stable", description: "Записать значение в окружение eval по ключу", since: "2.4.0" },
 ];
 
 const LITERALS_V01: LiteralSpec[] = [

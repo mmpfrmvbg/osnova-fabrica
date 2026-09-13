@@ -25,7 +25,7 @@ export interface InvokeHandler {
 export function createDefaultInvokeHandler(): InvokeHandler {
   const storage = new Map<string, StackValue>();
   const pad2 = (n: number): string => String(Math.trunc(n)).padStart(2, "0");
-  return (name: string, args: StackValue[]): StackValue | null => {
+  return async (name: string, args: StackValue[]): Promise<StackValue | null> => {
     switch (name) {
     case "система.массив.создать":
       return [];
@@ -35,10 +35,17 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       return null;
     }
     case "система.массив.установить": {
-      const arr = args[0] as StackValue[];
-      const idx = Number(args[1]) | 0;
+      const target = args[0];
+      const key = args[1];
       const val = args[2];
-      if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr[idx] = val as StackValue;
+      if (Array.isArray(target)) {
+        const idx = Number(key) | 0;
+        if (idx >= 0 && idx < target.length) target[idx] = val as StackValue;
+        return null;
+      }
+      if (target !== null && typeof target === "object") {
+        (target as Record<string, unknown>)[String(key)] = val;
+      }
       return null;
     }
     case "система.массив.удалить": {
@@ -56,10 +63,17 @@ export function createDefaultInvokeHandler(): InvokeHandler {
     case "система.массив.длина":
       return Array.isArray(args[0]) ? (args[0] as StackValue[]).length : 0;
     case "система.массив.получить": {
-      const arr = args[0];
-      const idx = Number(args[1]) | 0;
-      if (!Array.isArray(arr) || idx < 0 || idx >= arr.length) return null;
-      return (arr as StackValue[])[idx] as StackValue;
+      const target = args[0];
+      const key = args[1];
+      if (Array.isArray(target)) {
+        const idx = Number(key) | 0;
+        if (idx < 0 || idx >= target.length) return null;
+        return target[idx] as StackValue;
+      }
+      if (target !== null && typeof target === "object") {
+        return (target as Record<string, unknown>)[String(key)] as StackValue ?? null;
+      }
+      return null;
     }
     case "система.строка.объединить": {
       const a = String(args[0] ?? "");
@@ -258,6 +272,48 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       const a = Number(args[0] ?? 0);
       const b = Number(args[1] ?? 1);
       return a % b;
+    }
+    case "система.оценить": {
+      const raw = String(args[0] ?? "");
+      const src = /^\s*модуль(?:\s|$)/.test(raw)
+        ? raw
+        : `модуль Внутр\nпроцедура главная()\n  вернуть ${raw}\nконец\nконец`;
+      const { compileSource } = await import("../../compiler/compiler");
+      const compiled = compileSource(src);
+      if (!compiled.module || compiled.lexerErrors.length || compiled.parserErrors.length) {
+        throw new Error("оценить: ошибка компиляции кода");
+      }
+      const subVm = new VM(compiled.module as OsVbcModule, { maxSteps: 100000 });
+      const idx = subVm.findProcedureIndex("главная");
+      return (await subVm.runProcedure(idx, [])) ?? null;
+    }
+    case "система.оценить_в": {
+      const raw = String(args[0] ?? "");
+      const env = (args[1] != null && typeof args[1] === "object" && !Array.isArray(args[1]))
+        ? args[1] as Record<string, unknown>
+        : null;
+      const src = /^\s*модуль(?:\s|$)/.test(raw)
+        ? raw
+        : `модуль Внутр\nпроцедура главная()\n  вернуть ${raw}\nконец\nконец`;
+      const { compileSource } = await import("../../compiler/compiler");
+      const compiled = compileSource(src);
+      if (!compiled.module || compiled.lexerErrors.length || compiled.parserErrors.length) {
+        throw new Error("оценить_в: ошибка компиляции кода");
+      }
+      const base = createDefaultInvokeHandler();
+      const invoke = async (name: string, a: StackValue[]): Promise<StackValue | null> => {
+        if (name === "система.оценить.получить") {
+          return env ? (env[String(a[0])] as StackValue) ?? null : null;
+        }
+        if (name === "система.оценить.установить") {
+          if (env) env[String(a[0])] = a[1];
+          return null;
+        }
+        return base(name, a);
+      };
+      const subVm = new VM(compiled.module as OsVbcModule, { maxSteps: 100000, invoke });
+      const idx = subVm.findProcedureIndex("главная");
+      return (await subVm.runProcedure(idx, [])) ?? null;
     }
     default:
       return null;
