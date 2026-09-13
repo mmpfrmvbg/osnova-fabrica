@@ -7,6 +7,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { runPipeline } from './pipeline/orchestrator';
+import { runLoop } from './pipeline/loop';
+import { selfImprove } from './self-improve/core';
+import {
+  createLlmPatchGen,
+  createFilePatchPort,
+  createCommandGate,
+  assertCleanWorkingTree,
+} from './self-improve/adapters';
+import { resident } from './resident/core';
+import { createLlmPlanner, createResidentExecutor } from './resident/adapters';
 import { validateEnv } from './env';
 import { compileSource } from './compiler/compiler';
 import { printParseError } from './compiler/parser';
@@ -17,6 +27,9 @@ const args = process.argv.slice(2);
 function printUsage(): void {
   console.error('Использование:');
   console.error('  osnova --task "описание задачи"     Генерация через LLM');
+  console.error('  osnova loop "цель"                Автономная петля до зелёного golden');
+  console.error('  osnova improve "цель" [--max N] [--scope п1,п2]   Самоулучшение ядра (патчи компилятора/VM)');
+  console.error('  osnova resident "старт" [--rounds N]  Автономный резидент (сам ставит цели)');
   console.error('  osnova new-app --task "описание"     Генерация + сохранение + регистрация');
   console.error('  osnova compile file.osnova [-o out]  Компиляция .osnova → .osvbc');
   console.error('  osnova run --manifest path           Запуск приложения по манифесту');
@@ -68,6 +81,118 @@ async function runTaskMode(task: string): Promise<void> {
     console.log('\n─── Сгенерированный .osnova ───');
     console.log(result.source.source);
   }
+  process.exit(result.status === 'error' ? 1 : 0);
+}
+
+async function runLoopMode(goal: string): Promise<void> {
+  await validateEnv();
+  console.log(`\n[osnova loop] Цель: ${goal}\n`);
+  const result = await runLoop(goal);
+
+  console.log('\n─── Результат петли ───');
+  console.log('Статус:          ', result.status);
+  console.log('Итераций:        ', result.iterations.length);
+  console.log('Время:           ', result.totalDurationMs, 'ms');
+  if (result.lastErrorKind) console.log('Последняя ошибка:', result.lastErrorKind);
+  if (result.error) console.error('Ошибка:          ', result.error);
+
+  console.log('\n─── Итерации ───');
+  for (const it of result.iterations) {
+    const q = it.goldenReport ? ` q=${it.goldenReport.qualityScore.toFixed(2)}` : '';
+    console.log(
+      `  #${it.iteration} ${it.phase.padEnd(8)} ${it.status.padEnd(8)}` +
+      (it.errorKind ? ' ' + it.errorKind : '') + q + ` (${it.durationMs}ms)`,
+    );
+  }
+
+  if (result.source) {
+    console.log('\n─── Итоговый .osnova ───');
+    console.log(result.source.source);
+  }
+  process.exit(result.status === 'error' ? 1 : 0);
+}
+
+async function runImproveMode(goal: string, args: string[]): Promise<void> {
+  const maxIdx = args.indexOf('--max');
+  const maxIterations = maxIdx >= 0 ? Number(args[maxIdx + 1]) || 4 : 4;
+
+  const scopeIdx = args.indexOf('--scope');
+  const allowedPaths = scopeIdx >= 0
+    ? args[scopeIdx + 1].split(',').map(s => s.trim()).filter(Boolean)
+    : ['src/compiler', 'src/runtime/vm'];
+  const forbiddenPaths = ['.qwen', 'forge', 'Fabrika2.0', 'apps', 'dist', 'node_modules'];
+
+  await validateEnv();
+  console.log(`\n[osnova improve] Цель: ${goal}\n`);
+
+  try {
+    await assertCleanWorkingTree(allowedPaths);
+
+    const ports = {
+      gen: createLlmPatchGen(),
+      patch: createFilePatchPort(),
+      gate: createCommandGate(['npx vitest run src/compiler src/runtime/vm']),
+    };
+
+    const result = await selfImprove(
+      goal,
+      { allowedPaths, forbiddenPaths, maxIterations },
+      ports,
+    );
+
+    console.log('\n─── Результат самоулучшения ───');
+    console.log('Статус:   ', result.status);
+    console.log('Итераций: ', result.iterations.length);
+    console.log('Время:    ', result.totalDurationMs, 'ms');
+    if (result.error) console.error('Ошибка:   ', result.error);
+
+    console.log('\n─── Итерации ───');
+    for (const it of result.iterations) {
+      console.log(
+        `  #${it.iteration} ${it.status.padEnd(8)}${it.errorKind ? ' ' + it.errorKind : ''} (${it.durationMs}ms)`,
+      );
+    }
+
+    if (result.edits) {
+      console.log('\n─── Принятые правки ───');
+      for (const [p, c] of Object.entries(result.edits)) {
+        console.log(`\n=== ${p} ===\n${c}`);
+      }
+    }
+
+    process.exit(result.status === 'error' ? 1 : 0);
+  } catch (err) {
+    console.error('Ошибка:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+}
+
+async function runResidentMode(startGoal: string, args: string[]): Promise<void> {
+  const roundsIdx = args.indexOf('--rounds');
+  const maxRounds = roundsIdx >= 0 ? Number(args[roundsIdx + 1]) || 5 : 5;
+
+  await validateEnv();
+  console.log(`\n[osnova resident] Старт: ${startGoal}\n`);
+
+  const result = await resident(
+    startGoal,
+    { maxRounds },
+    { plan: createLlmPlanner(), exec: createResidentExecutor() },
+  );
+
+  console.log('\n─── Результат резидента ───');
+  console.log('Статус:   ', result.status);
+  console.log('Раундов:  ', result.rounds.length);
+  console.log('Время:    ', result.totalDurationMs, 'ms');
+  if (result.error) console.error('Ошибка:   ', result.error);
+
+  console.log('\n─── Раунды ───');
+  for (const r of result.rounds) {
+    console.log(
+      `  #${r.round} ${r.mode.padEnd(8)} ${r.status.padEnd(10)} ${r.goal.slice(0, 60)} (${r.durationMs}ms)`,
+    );
+  }
+
   process.exit(result.status === 'error' ? 1 : 0);
 }
 
@@ -269,6 +394,36 @@ async function main(): Promise<number> {
   // --task "..." (можно без субкоманды)
   if (taskIdx >= 0 && args[taskIdx + 1]) {
     await runTaskMode(args[taskIdx + 1]!);
+    return 0;
+  }
+
+  if (sub === 'loop') {
+    const goal = args[1];
+    if (!goal) {
+      console.error('Использование: osnova loop "цель"');
+      process.exit(1);
+    }
+    await runLoopMode(goal);
+    return 0;
+  }
+
+  if (sub === 'improve') {
+    const goal = args[1];
+    if (!goal) {
+      console.error('Использование: osnova improve "цель" [--max N] [--scope п1,п2]');
+      process.exit(1);
+    }
+    await runImproveMode(goal, args.slice(2));
+    return 0;
+  }
+
+  if (sub === 'resident') {
+    const startGoal = args[1];
+    if (!startGoal) {
+      console.error('Использование: osnova resident "старт" [--rounds N]');
+      process.exit(1);
+    }
+    await runResidentMode(startGoal, args.slice(2));
     return 0;
   }
 
