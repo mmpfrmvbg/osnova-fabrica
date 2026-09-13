@@ -594,6 +594,26 @@ export function parse(tokens: Token[]): ParseResult {
         if (!t) return null;
         typeAnnotation = t;
       }
+      if (peek().kind === ",") {
+        const имена: string[] = [name];
+        while (peek().kind === ",") {
+          advance();
+          skipNewlines();
+          if (peek().kind !== "идентификатор") {
+            const et = peek();
+            errors.push({ message: "Ожидается имя переменной после ','", line: et.line, column: et.column, context: "stmt" });
+            return null;
+          }
+          имена.push(String(peek().value ?? peek().lexeme));
+          advance();
+          skipNewlines();
+        }
+        if (!consume("=", "Ожидается '='")) return null;
+        skipNewlines();
+        const init = parseExpr();
+        if (!init) return null;
+        return { kind: "распаковать", имена, значение: init };
+      }
       if (!consume("=", "Ожидается '='")) return null;
       skipNewlines();
       const init = parseExpr();
@@ -606,7 +626,20 @@ export function parse(tokens: Token[]): ParseResult {
       let value: Expr | undefined;
       if (peek().kind !== "новая_строка" && peek().kind !== "конец" && peek().kind !== "конец_файла") {
         const v = parseExpr();
-        if (v) value = v;
+        if (v) {
+          if (peek().kind === ",") {
+            const элементы: Expr[] = [v];
+            while (peek().kind === ",") {
+              advance();
+              skipNewlines();
+              const el = parseExpr();
+              if (el) элементы.push(el);
+            }
+            value = { kind: "кортеж", элементы };
+          } else {
+            value = v;
+          }
+        }
       }
       return { kind: "вернуть", value };
     }
@@ -910,7 +943,7 @@ export function parse(tokens: Token[]): ParseResult {
   }
 
   function parseCompare(): Expr | null {
-    let left = parseAdd();
+    const left = parseAdd();
     if (!left) return null;
     const compareOps = new Set<TokenKind>(["==", "!=", "<", "<=", ">", ">="]);
     if (!compareOps.has(peek().kind)) return left;
@@ -997,9 +1030,20 @@ export function parse(tokens: Token[]): ParseResult {
     if (t.kind === "(") {
       advance();
       skipNewlines();
-      const inner = parseExpr();
+      const first = parseExpr();
+      if (first && peek().kind === ",") {
+        const элементы: Expr[] = [first];
+        while (peek().kind === ",") {
+          advance();
+          skipNewlines();
+          const el = parseExpr();
+          if (el) элементы.push(el);
+        }
+        consume(")", "Ожидается ')'");
+        return { kind: "кортеж", элементы };
+      }
       consume(")", "Ожидается ')'");
-      return inner;
+      return first;
     }
     if (t.kind === "{") {
       advance();

@@ -18,6 +18,7 @@ export type Expr =
   | { kind: "унарное"; op: "не"; arg: Expr }
   | { kind: "вызов"; name: string; args: Expr[] }
   | { kind: "массив"; elements: Expr[] }
+  | { kind: "кортеж"; элементы: Expr[] }
   | { kind: "объект"; entries: Array<{ key: string; value: Expr }> }
   | { kind: "поле"; object: Expr; field: string }
   /** Литерал перечня: `Масть.пики` → в VM строка `"Масть.пики"`. */
@@ -25,6 +26,7 @@ export type Expr =
 
 export type Stmt =
   | { kind: "пусть"; name: string; init: Expr; typeAnnotation?: TypeRef }
+  | { kind: "распаковать"; имена: string[]; значение: Expr }
   | { kind: "присвоить"; name: string; value: Expr }
   | { kind: "поле_присвоить"; object: Expr; field: string; value: Expr }
   | { kind: "выражение"; expr: Expr }

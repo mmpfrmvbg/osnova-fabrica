@@ -82,6 +82,13 @@ export function compile(ast: Module): OsVbcModule {
         for (const el of expr.elements) scanExpr(el);
         return;
       }
+      if (expr.kind === "кортеж") {
+        if (!locals.has(`__arr_literal_${arrLiteralCounter}`))
+          locals.set(`__arr_literal_${arrLiteralCounter}`, locals.size);
+        arrLiteralCounter++;
+        for (const el of expr.элементы) scanExpr(el);
+        return;
+      }
       if (expr.kind === "бинарное") {
         scanExpr(expr.left);
         scanExpr(expr.right);
@@ -95,6 +102,12 @@ export function compile(ast: Module): OsVbcModule {
         if (s.kind === "пусть" && !locals.has(s.name)) {
           locals.set(s.name, locals.size);
           scanExpr(s.init);
+        }
+        if (s.kind === "распаковать") {
+          for (const имя of s.имена) {
+            if (!locals.has(имя)) locals.set(имя, locals.size);
+          }
+          scanExpr(s.значение);
         }
         if (s.kind === "присвоить") scanExpr(s.value);
         if (s.kind === "выражение") scanExpr(s.expr);
@@ -251,6 +264,21 @@ export function compile(ast: Module): OsVbcModule {
           emit({ op: "local.get", i: arrSlot } as RawInstruction);
           break;
         }
+        case "кортеж": {
+          const slotKey = `__arr_literal_${emitArrLiteralCounter++}`;
+          const slot = l.get(slotKey);
+          if (slot === undefined) throw new Error(`Нет слота для кортежа: ${slotKey}`);
+          emit({ op: "invoke", name: "система.массив.создать" } as RawInstruction);
+          emit({ op: "local.set", i: slot } as RawInstruction);
+          for (const el of expr.элементы) {
+            emit({ op: "local.get", i: slot } as RawInstruction);
+            emitExpr(el, l);
+            emit({ op: "invoke", name: "система.массив.добавить" } as RawInstruction);
+            emit({ op: "pop" } as RawInstruction);
+          }
+          emit({ op: "local.get", i: slot } as RawInstruction);
+          break;
+        }
         case "объект": {
           const slotKey = `__obj_literal_${emitObjLiteralCounter++}`;
           const objSlot = l.get(slotKey);
@@ -310,6 +338,20 @@ export function compile(ast: Module): OsVbcModule {
           }
           emitExpr(s.value, locals);
           emit({ op: "local.set", i: slot } as RawInstruction);
+          break;
+        }
+        case "распаковать": {
+          emitExpr(s.значение, locals);
+          s.имена.forEach((имя, i) => {
+            const slot = locals.get(имя);
+            if (slot === undefined) throw new Error(`Переменная "${имя}" не объявлена`);
+            emit({ op: "dup" } as RawInstruction);
+            const k = constIndex(i);
+            emit({ op: "const", type: "i32", k } as RawInstruction);
+            emit({ op: "invoke", name: "система.массив.получить" } as RawInstruction);
+            emit({ op: "local.set", i: slot } as RawInstruction);
+          });
+          emit({ op: "pop" } as RawInstruction);
           break;
         }
         case "поле_присвоить": {
@@ -559,6 +601,11 @@ function cloneExprWithResolver(expr: Expr, resolveCall: (name: string) => string
         kind: "массив",
         elements: expr.elements.map((e) => cloneExprWithResolver(e, resolveCall)),
       };
+    case "кортеж":
+      return {
+        kind: "кортеж",
+        элементы: expr.элементы.map((e) => cloneExprWithResolver(e, resolveCall)),
+      };
     case "объект":
       return {
         kind: "объект",
@@ -588,6 +635,12 @@ function cloneStmtWithResolver(stmt: Stmt, resolveCall: (name: string) => string
         name: stmt.name,
         init: cloneExprWithResolver(stmt.init, resolveCall),
         typeAnnotation: stmt.typeAnnotation ? { ...stmt.typeAnnotation } : undefined,
+      };
+    case "распаковать":
+      return {
+        kind: "распаковать",
+        имена: [...stmt.имена],
+        значение: cloneExprWithResolver(stmt.значение, resolveCall),
       };
     case "присвоить":
       return {
