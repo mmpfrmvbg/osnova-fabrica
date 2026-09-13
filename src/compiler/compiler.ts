@@ -399,6 +399,8 @@ function expandModuleImports(
         name: nameMap.get(p.name)!,
         params: [...p.params],
         paramTypes: p.paramTypes ? [...p.paramTypes] : undefined,
+        returnType: p.returnType,
+        pure: p.pure,
         body: p.body,
         exported: undefined, // импортированные процедуры не экспортируются из текущего модуля
       };
@@ -476,6 +478,10 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
   for (const td of ast.typeDeclarations) {
     if (!typeByName.has(td.name)) typeByName.set(td.name, td);
   }
+
+  // Тип возврата каждой процедуры (аннотация `: Тип` или вывод из `вернуть`).
+  // Объявляем до inferExprType, чтобы вывод `вернуть f()` мог замкнуть эту карту.
+  const returnTypeByProc = new Map<string, TypeRef>();
 
   for (const td of ast.typeDeclarations) {
     if (td.variants && td.variants.length > 0) {
@@ -694,9 +700,72 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
       case "унарное":
         return { name: "Логический", nullable: false };
       case "вызов":
-        return undefined;
+        return returnTypeByProc.get(expr.name);
       default:
         return undefined;
+    }
+  }
+
+  // ─── вывод типа возврата процедур из `вернуть` ───
+  function collectReturnTypes(stmts: Stmt[], env: Env, out: TypeRef[]): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "вернуть":
+          if (s.value) {
+            const t = inferExprType(s.value, env);
+            if (t) out.push(t);
+          }
+          break;
+        case "пусть": {
+          if (s.typeAnnotation) env.set(s.name, s.typeAnnotation);
+          else {
+            const t = inferExprType(s.init, env);
+            if (t) env.set(s.name, t);
+          }
+          break;
+        }
+        case "если":
+          collectReturnTypes(s.body, new Map(env), out);
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) collectReturnTypes(c.body, new Map(env), out);
+          if (s.elseBody) collectReturnTypes(s.elseBody, new Map(env), out);
+          break;
+        case "пока":
+        case "цикл":
+          collectReturnTypes(s.body, new Map(env), out);
+          break;
+        case "для_каждого": {
+          const srcT = inferExprType(s.source, env);
+          const bodyEnv = new Map(env);
+          if (srcT?.array) bodyEnv.set(s.item, { name: srcT.name, nullable: srcT.nullable });
+          if (s.index) bodyEnv.set(s.index, { name: "Число", nullable: false });
+          collectReturnTypes(s.body, bodyEnv, out);
+          break;
+        }
+        case "попробовать":
+          collectReturnTypes(s.body, new Map(env), out);
+          collectReturnTypes(s.catchBody, new Map(env), out);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  // Сначала аннотированные типы возврата, затем вывод из простых `вернуть`.
+  for (const proc of ast.procedures) {
+    if (proc.returnType) returnTypeByProc.set(proc.name, proc.returnType);
+  }
+  for (const proc of ast.procedures) {
+    if (returnTypeByProc.has(proc.name)) continue;
+    const env: Env = new Map();
+    for (let i = 0; i < proc.params.length; i++) {
+      const pt = proc.paramTypes?.[i];
+      if (pt) env.set(proc.params[i]!, pt);
+    }
+    const rets: TypeRef[] = [];
+    collectReturnTypes(proc.body, env, rets);
+    if (rets.length > 0 && rets.every((t) => typeRefKey(t) === typeRefKey(rets[0]!))) {
+      returnTypeByProc.set(proc.name, rets[0]!);
     }
   }
 
@@ -964,6 +1033,60 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
       if (pt) env.set(proc.params[i]!, pt);
     }
     checkStmtsTyped(proc.body, env, procByName);
+  }
+
+  // ─── проверка `вернуть` против объявленного/выведенного типа возврата ───
+  function checkReturns(stmts: Stmt[], env: Env, expected: TypeRef): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "вернуть":
+          // `вернуть` без значения — ранний выход (возврат пусто), совместим с gradual.
+          if (s.value) checkExprAgainst(expected, s.value, env, "вернуть");
+          break;
+        case "пусть": {
+          if (s.typeAnnotation) env.set(s.name, s.typeAnnotation);
+          else {
+            const t = inferExprType(s.init, env);
+            if (t) env.set(s.name, t);
+          }
+          break;
+        }
+        case "если":
+          checkReturns(s.body, new Map(env), expected);
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) checkReturns(c.body, new Map(env), expected);
+          if (s.elseBody) checkReturns(s.elseBody, new Map(env), expected);
+          break;
+        case "пока":
+        case "цикл":
+          checkReturns(s.body, new Map(env), expected);
+          break;
+        case "для_каждого": {
+          const srcT = inferExprType(s.source, env);
+          const bodyEnv = new Map(env);
+          if (srcT?.array) bodyEnv.set(s.item, { name: srcT.name, nullable: srcT.nullable });
+          if (s.index) bodyEnv.set(s.index, { name: "Число", nullable: false });
+          checkReturns(s.body, bodyEnv, expected);
+          break;
+        }
+        case "попробовать":
+          checkReturns(s.body, new Map(env), expected);
+          checkReturns(s.catchBody, new Map(env), expected);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  for (const proc of ast.procedures) {
+    const expected = returnTypeByProc.get(proc.name);
+    if (!expected) continue;
+    const env: Env = new Map();
+    for (let i = 0; i < proc.params.length; i++) {
+      const pt = proc.paramTypes?.[i];
+      if (pt) env.set(proc.params[i]!, pt);
+    }
+    checkReturns(proc.body, env, expected);
   }
 
   // Также проверяем вызовы как выражения (не только в вернуть/выражение).

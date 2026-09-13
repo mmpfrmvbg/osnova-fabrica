@@ -61,6 +61,8 @@ export interface Procedure {
   params: string[];
   /** Типы параметров (тот же порядок, что `params`); нет — неаннотирован. */
   paramTypes?: Array<TypeRef | undefined>;
+  /** Аннотация типа возврата: `процедура f(...): Тип`. Нет — выводится или процедура без значения. */
+  returnType?: TypeRef;
   body: Stmt[];
   /** Модификатор `экспорт` в объявлении процедуры. */
   exported?: boolean;

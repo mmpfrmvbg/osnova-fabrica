@@ -2377,3 +2377,102 @@ describe("Dviglo P0: вложенные типы и extraSyscalls", () => {
   });
 });
 
+describe("Compiler: статические типы (аннотация и вывод возврата)", () => {
+  it("аннотация возврата `: Число` компилируется, несовпадений нет", () => {
+    const src = `
+модуль Т
+процедура удвоить(x: Число): Число
+  вернуть x * 2
+конец
+процедура главная()
+  вернуть удвоить(21)
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.parserErrors).toHaveLength(0);
+    expect(cr.compilerErrors).toHaveLength(0);
+    expect(cr.compilerSuccess).toBe(true);
+  });
+
+  it("вернуть строку из процедуры с возвратом Число → несовпадение типа", () => {
+    const src = `
+модуль Т
+процедура f(): Число
+  вернуть "строка"
+конец
+процедура главная()
+  вернуть 0
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.compilerErrors.some((e) => /Несовпадение типа/.test(e.message))).toBe(true);
+  });
+
+  it("пусть x: Число = f(), где f(): Строка → несовпадение типа", () => {
+    const src = `
+модуль Т
+процедура f(): Строка
+  вернуть "а"
+конец
+процедура главная()
+  пусть x: Число = f()
+  вернуть x
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.compilerErrors.some((e) => /Несовпадение типа/.test(e.message))).toBe(true);
+  });
+
+  it("вывод возврата: g() → Число, затем x = строка → несовпадение типа", () => {
+    const src = `
+модуль Т
+процедура g()
+  вернуть 42
+конец
+процедура главная()
+  пусть x = g()
+  x = "строка"
+  вернуть x
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.compilerErrors.some((e) => /Несовпадение типа/.test(e.message))).toBe(true);
+  });
+
+  it("вывод возврата совместим: g() → Число, присвоение числа — без ошибок", () => {
+    const src = `
+модуль Т
+процедура g()
+  вернуть 1 + 2
+конец
+процедура главная()
+  пусть x = g()
+  x = 10
+  вернуть x
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.compilerErrors).toHaveLength(0);
+    expect(cr.compilerSuccess).toBe(true);
+  });
+
+  it("вернуть без значения (ранний выход) из процедуры с выводом типа — не ошибка", () => {
+    const src = `
+модуль Т
+процедура главная()
+  пусть i = 0
+  пока i < 10
+    i = i + 1
+    если i == 5
+      вернуть
+    конец
+  конец
+  вернуть i
+конец
+конец`.trim();
+    const cr = compileSource(src);
+    expect(cr.compilerErrors).toHaveLength(0);
+    expect(cr.compilerSuccess).toBe(true);
+  });
+});
+

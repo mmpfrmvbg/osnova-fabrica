@@ -777,6 +777,9 @@ export function compileProgram(program: Program): OsVbcModule[] {
       compileProcedures.push({
         name: prefixedName,
         params: [...proc.params],
+        paramTypes: proc.paramTypes ? [...proc.paramTypes] : undefined,
+        returnType: proc.returnType,
+        pure: proc.pure,
         body: proc.body.map((s) => cloneStmtWithResolver(s, resolveCall)),
         exported: proc.exported,
       });

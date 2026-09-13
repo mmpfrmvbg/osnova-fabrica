@@ -459,6 +459,13 @@ export function parse(tokens: Token[]): ParseResult {
     }
     if (!consume(")", "Ожидается ')'")) return null;
     skipNewlines();
+    let returnType: TypeRef | undefined;
+    if (peek().kind === ":") {
+      advance();
+      skipNewlines();
+      returnType = parseTypeRef() ?? undefined;
+      skipNewlines();
+    }
     const body: Stmt[] = [];
     while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
       const s = parseStmt();
@@ -475,6 +482,7 @@ export function parse(tokens: Token[]): ParseResult {
       exported,
       pure,
       paramTypes: hasParamTypes ? paramTypes : undefined,
+      returnType,
     };
   }
 
