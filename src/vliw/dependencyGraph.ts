@@ -18,6 +18,8 @@ export interface DependencyGraphOptions {
   invokeArgc?: (name: string) => number;
   /** Число аргументов процедуры (локали 0..argc-1 считаются «входными», для local.get по ним не добавляется ребро store→load). */
   argc?: number;
+  /** Чистая ли процедура по индексу (нет побочных эффектов → call не упорядочивается с эффектами). */
+  callPure?: (fi: number) => boolean;
 }
 
 function getOp(ins: RawInstruction): string {
@@ -32,8 +34,10 @@ export function buildDependencyGraph(
   const stack: number[] = [];
   const callArgc = options.callArgc ?? (() => 0);
   const invokeArgc = options.invokeArgc ?? (() => 0);
+  const callPure = options.callPure ?? (() => false);
   const argc = options.argc ?? 0;
   const lastStore = new Map<number, number>();
+  let lastEffect: number | undefined;
 
   for (let i = 0; i < instructions.length; i++) {
     const ins = instructions[i];
@@ -120,6 +124,10 @@ export function buildDependencyGraph(
           const a = stack.pop();
           if (a !== undefined) edges.push([a, i]);
         }
+        if (!callPure(fi)) {
+          if (lastEffect !== undefined) edges.push([lastEffect, i]);
+          lastEffect = i;
+        }
         stack.push(i);
         break;
       }
@@ -131,6 +139,8 @@ export function buildDependencyGraph(
           const a = stack.pop();
           if (a !== undefined) edges.push([a, i]);
         }
+        if (lastEffect !== undefined) edges.push([lastEffect, i]);
+        lastEffect = i;
         stack.push(i);
         break;
       }

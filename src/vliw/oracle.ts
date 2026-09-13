@@ -39,7 +39,9 @@ export async function runOracle(mod: OsVbcModule, vliwSlots = 4): Promise<Oracle
   const linearResult = await runModule(mod);
 
   const flat = mod.code as RawInstruction[];
-  const graph = buildDependencyGraph(flat);
+  const graph = buildDependencyGraph(flat, {
+    callPure: (fi) => mod.procedures[fi]?.pure === true,
+  });
   const packets = scheduleLinearBlock(flat, graph);
   const elements: CodeElement[] = packetsToCodeElements(packets);
   const scheduledMod: OsVbcModule = { ...mod, version: 2, code: elements, vliwSlots };
