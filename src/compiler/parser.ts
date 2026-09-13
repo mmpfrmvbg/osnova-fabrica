@@ -168,7 +168,7 @@ export function parse(tokens: Token[]): ParseResult {
     }
 
     const procedures: Procedure[] = [];
-    while (peek().kind === "процедура" || peek().kind === "экспорт" || peek().kind === "использовать" || peek().kind === "тип") {
+    while (peek().kind === "процедура" || peek().kind === "экспорт" || peek().kind === "чистый" || peek().kind === "использовать" || peek().kind === "тип") {
       if (peek().kind === "использовать") {
         const t = peek();
         errors.push({
@@ -394,9 +394,15 @@ export function parse(tokens: Token[]): ParseResult {
 
   function parseProcedure(): Procedure | null {
     let exported = false;
+    let pure = false;
     if (peek().kind === "экспорт") {
       advance();
       exported = true;
+      skipNewlines();
+    }
+    if (peek().kind === "чистый") {
+      advance();
+      pure = true;
       skipNewlines();
     }
 
@@ -406,6 +412,11 @@ export function parse(tokens: Token[]): ParseResult {
     if (peek().kind === "экспорт") {
       advance();
       exported = true;
+      skipNewlines();
+    }
+    if (peek().kind === "чистый") {
+      advance();
+      pure = true;
       skipNewlines();
     }
 
@@ -462,6 +473,7 @@ export function parse(tokens: Token[]): ParseResult {
       params,
       body,
       exported,
+      pure,
       paramTypes: hasParamTypes ? paramTypes : undefined,
     };
   }

@@ -131,6 +131,8 @@ export interface ProcedureDef {
   argc: number;
   localsCount: number;
   returnsValue?: boolean;
+  /** Процедура объявлена как `чистый` (без побочных эффектов). */
+  pure?: boolean;
   /** @hint VLIW-планировщик (src/vliw/). VM игнорирует. */
   deps?: ProcedureDeps;
 }

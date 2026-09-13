@@ -64,6 +64,8 @@ export interface Procedure {
   body: Stmt[];
   /** Модификатор `экспорт` в объявлении процедуры. */
   exported?: boolean;
+  /** Модификатор `чистый`: процедура без побочных эффектов. */
+  pure?: boolean;
 }
 
 export interface ImportDeclaration {

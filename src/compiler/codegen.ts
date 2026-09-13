@@ -557,6 +557,7 @@ export function compile(ast: Module): OsVbcModule {
       codeOffset,
       argc: proc.params.length,
       localsCount,
+      pure: proc.pure,
     });
   }
 

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "moduleName": "Т",
+  "constants": [
+    2,
+    21
+  ],
+  "procedures": [
+    {
+      "name": "удвоить",
+      "codeOffset": 0,
+      "argc": 1,
+      "localsCount": 1,
+      "pure": true
+    },
+    {
+      "name": "главная",
+      "codeOffset": 6,
+      "argc": 0,
+      "localsCount": 0,
+      "pure": false
+    }
+  ],
+  "code": [
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 0
+    },
+    {
+      "op": "mul"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    }
+  ]
+}

@@ -131,6 +131,7 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "тип", kind: "type", implemented: true, since: "1.6.0", description: "объявление именованного типа" },
   { lexeme: "использовать", kind: "stmt", implemented: true, since: "1.5.0", description: "импорт процедур из другого модуля" },
   { lexeme: "экспорт", kind: "stmt", implemented: true, since: "1.5.0", description: "экспорт процедур для импорта" },
+  { lexeme: "чистый", kind: "stmt", implemented: true, since: "2.5.0", description: "модификатор процедуры: без побочных эффектов" },
   { lexeme: "из", kind: "stmt", implemented: true, since: "1.5.0", description: "служебное слово для синтаксиса импорта" },
   { lexeme: "пусть", kind: "stmt", implemented: true, since: "0.1.0" },
   { lexeme: "если", kind: "stmt", implemented: true, since: "0.1.0" },
