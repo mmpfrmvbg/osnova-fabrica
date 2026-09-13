@@ -32,3 +32,14 @@ export const NON_BLOCKING_SEMANTIC_KINDS = [
 ] as const;
 
 export type NonBlockingSemanticKind = typeof NON_BLOCKING_SEMANTIC_KINDS[number];
+
+/**
+ * Полный список всех семантических kinds компилятора:
+ * blocking + non-blocking, без дублей.
+ */
+export const ALL_SEMANTIC_KINDS = [
+  ...BLOCKING_SEMANTIC_KINDS,
+  ...NON_BLOCKING_SEMANTIC_KINDS,
+] as const;
+
+export type SemanticKind = typeof ALL_SEMANTIC_KINDS[number];
