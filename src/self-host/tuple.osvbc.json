@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "moduleName": "Т",
+  "constants": [
+    10,
+    20,
+    0,
+    1
+  ],
+  "procedures": [
+    {
+      "name": "пара",
+      "codeOffset": 0,
+      "argc": 0,
+      "localsCount": 1
+    },
+    {
+      "name": "главная",
+      "codeOffset": 14,
+      "argc": 0,
+      "localsCount": 2
+    }
+  ],
+  "code": [
+    {
+      "op": "invoke",
+      "name": "система.массив.создать"
+    },
+    {
+      "op": "local.set",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 0
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 1
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "dup"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 2
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 0
+    },
+    {
+      "op": "dup"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    }
+  ]
+}

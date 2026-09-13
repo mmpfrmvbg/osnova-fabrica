@@ -1,0 +1,3460 @@
+{
+  "version": 1,
+  "moduleName": "Парсер",
+  "constants": [
+    "позиция",
+    "конец",
+    "вид",
+    "текст",
+    "число",
+    1,
+    "значение",
+    "идентификатор",
+    "переменная",
+    "имя",
+    "(",
+    "0",
+    "*",
+    "/",
+    "бинарное",
+    "оп",
+    "левое",
+    "правое",
+    "+",
+    "-",
+    "пусть",
+    "вернуть",
+    "присвоить",
+    "новая_строка",
+    "конец_файла",
+    " ",
+    ")",
+    "?",
+    "(пусть ",
+    "(вернуть ",
+    "(присвоить ",
+    "",
+    0,
+    "x",
+    "=",
+    "1",
+    "2",
+    "3"
+  ],
+  "procedures": [
+    {
+      "name": "вид_токена",
+      "codeOffset": 0,
+      "argc": 2,
+      "localsCount": 2
+    },
+    {
+      "name": "текст_токена",
+      "codeOffset": 19,
+      "argc": 2,
+      "localsCount": 2
+    },
+    {
+      "name": "разобрать_множитель",
+      "codeOffset": 29,
+      "argc": 2,
+      "localsCount": 8
+    },
+    {
+      "name": "разобрать_слагаемое",
+      "codeOffset": 137,
+      "argc": 2,
+      "localsCount": 6
+    },
+    {
+      "name": "разобрать_выражение",
+      "codeOffset": 200,
+      "argc": 2,
+      "localsCount": 6
+    },
+    {
+      "name": "разобрать_инструкцию",
+      "codeOffset": 263,
+      "argc": 2,
+      "localsCount": 9
+    },
+    {
+      "name": "разобрать_программу",
+      "codeOffset": 429,
+      "argc": 2,
+      "localsCount": 5
+    },
+    {
+      "name": "печать_выражения",
+      "codeOffset": 470,
+      "argc": 1,
+      "localsCount": 1
+    },
+    {
+      "name": "печать_инструкции",
+      "codeOffset": 522,
+      "argc": 1,
+      "localsCount": 1
+    },
+    {
+      "name": "печать_программы",
+      "codeOffset": 583,
+      "argc": 1,
+      "localsCount": 3
+    },
+    {
+      "name": "главная",
+      "codeOffset": 616,
+      "argc": 0,
+      "localsCount": 18
+    }
+  ],
+  "code": [
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.длина"
+    },
+    {
+      "op": "ge"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 9
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 1
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 61
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 1
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 7
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 93
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 1
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 8
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 9
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 10
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 121
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 4
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 11
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 2
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 12
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if",
+      "off": 153
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 13
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp",
+      "off": 154
+    },
+    {
+      "op": "const.true"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 196
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 1
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 2
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 14
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 15
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 16
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 17
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "jmp",
+      "off": 141
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 3
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 18
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if",
+      "off": 216
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 19
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp",
+      "off": 217
+    },
+    {
+      "op": "const.true"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 259
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 1
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 3
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 14
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 15
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 16
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 17
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "jmp",
+      "off": 204
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 20
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 320
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 1
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 4
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 20
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 9
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 21
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 352
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 4
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 21
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 7
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 401
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 1
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 4
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 22
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 9
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 21
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 8
+    },
+    {
+      "op": "local.get",
+      "i": 8
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 8
+    },
+    {
+      "op": "local.get",
+      "i": 8
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 11
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 8
+    },
+    {
+      "op": "local.get",
+      "i": 8
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.создать"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "const.true"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 466
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 23
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 450
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "jmp",
+      "off": 435
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 24
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 457
+    },
+    {
+      "op": "jmp",
+      "off": 466
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "call",
+      "fi": 5
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "jmp",
+      "off": 433
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 480
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 8
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 490
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 9
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 14
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 518
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 10
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 15
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 25
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 16
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "call",
+      "fi": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 25
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 17
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "call",
+      "fi": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 26
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 27
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 20
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 543
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 28
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 9
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 25
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "call",
+      "fi": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 26
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 21
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 558
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 29
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "call",
+      "fi": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 26
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 22
+    },
+    {
+      "op": "eq"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 579
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 30
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 9
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 25
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 6
+    },
+    {
+      "op": "obj.get"
+    },
+    {
+      "op": "call",
+      "fi": 7
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 26
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 27
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 31
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 32
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.длина"
+    },
+    {
+      "op": "lt"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 612
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 32
+    },
+    {
+      "op": "gt"
+    },
+    {
+      "op": "jmp_if_not",
+      "off": 600
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 25
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.получить"
+    },
+    {
+      "op": "call",
+      "fi": 8
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 5
+    },
+    {
+      "op": "add"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "jmp",
+      "off": 587
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.создать"
+    },
+    {
+      "op": "local.set",
+      "i": 1
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 20
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 20
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 2
+    },
+    {
+      "op": "local.get",
+      "i": 2
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 7
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 33
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 3
+    },
+    {
+      "op": "local.get",
+      "i": 3
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 34
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 34
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 35
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 18
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 18
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 6
+    },
+    {
+      "op": "local.get",
+      "i": 6
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 36
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 7
+    },
+    {
+      "op": "local.get",
+      "i": 7
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 8
+    },
+    {
+      "op": "local.get",
+      "i": 8
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 23
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 8
+    },
+    {
+      "op": "local.get",
+      "i": 8
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 31
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 8
+    },
+    {
+      "op": "local.get",
+      "i": 8
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 9
+    },
+    {
+      "op": "local.get",
+      "i": 9
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 21
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 9
+    },
+    {
+      "op": "local.get",
+      "i": 9
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 21
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 9
+    },
+    {
+      "op": "local.get",
+      "i": 9
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 10
+    },
+    {
+      "op": "local.get",
+      "i": 10
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 7
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 10
+    },
+    {
+      "op": "local.get",
+      "i": 10
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 33
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 10
+    },
+    {
+      "op": "local.get",
+      "i": 10
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 11
+    },
+    {
+      "op": "local.get",
+      "i": 11
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 12
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 11
+    },
+    {
+      "op": "local.get",
+      "i": 11
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 12
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 11
+    },
+    {
+      "op": "local.get",
+      "i": 11
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 12
+    },
+    {
+      "op": "local.get",
+      "i": 12
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 4
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 12
+    },
+    {
+      "op": "local.get",
+      "i": 12
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 37
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 12
+    },
+    {
+      "op": "local.get",
+      "i": 12
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 13
+    },
+    {
+      "op": "local.get",
+      "i": 13
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 23
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 13
+    },
+    {
+      "op": "local.get",
+      "i": 13
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 31
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 13
+    },
+    {
+      "op": "local.get",
+      "i": 13
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 14
+    },
+    {
+      "op": "local.get",
+      "i": 14
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 2
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 24
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 14
+    },
+    {
+      "op": "local.get",
+      "i": 14
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 3
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 31
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 14
+    },
+    {
+      "op": "local.get",
+      "i": 14
+    },
+    {
+      "op": "invoke",
+      "name": "система.массив.добавить"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "local.get",
+      "i": 1
+    },
+    {
+      "op": "local.set",
+      "i": 0
+    },
+    {
+      "op": "obj.new"
+    },
+    {
+      "op": "local.set",
+      "i": 16
+    },
+    {
+      "op": "local.get",
+      "i": 16
+    },
+    {
+      "op": "const",
+      "type": "str",
+      "k": 0
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 32
+    },
+    {
+      "op": "obj.set"
+    },
+    {
+      "op": "local.set",
+      "i": 16
+    },
+    {
+      "op": "local.get",
+      "i": 16
+    },
+    {
+      "op": "local.set",
+      "i": 15
+    },
+    {
+      "op": "local.get",
+      "i": 0
+    },
+    {
+      "op": "local.get",
+      "i": 15
+    },
+    {
+      "op": "call",
+      "fi": 6
+    },
+    {
+      "op": "local.set",
+      "i": 17
+    },
+    {
+      "op": "local.get",
+      "i": 17
+    },
+    {
+      "op": "call",
+      "fi": 9
+    },
+    {
+      "op": "invoke",
+      "name": "система.лог.вывести"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 32
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
+    },
+    {
+      "op": "ret"
+    }
+  ]
+}
