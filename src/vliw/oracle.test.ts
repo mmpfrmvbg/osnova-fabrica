@@ -17,8 +17,8 @@ describe('VLIW oracle', () => {
     expect(report.equal).toBe(true);
     expect(report.linearResult).toBe(2);
     expect(report.scheduledResult).toBe(2);
-    // const(0) и const(1) — оба I1 → разные пакеты; add; ret → 4 пакета по 1 слоту
-    expect(report.packetCount).toBe(4);
-    expect(report.avgSlots).toBe(1);
+    // const(0)→I0, const(1)→I1 в один пакет; add; ret → 3 пакета, 4 слота
+    expect(report.packetCount).toBe(3);
+    expect(report.avgSlots).toBeCloseTo(4 / 3, 2);
   });
 });

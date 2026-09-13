@@ -43,3 +43,14 @@ export function classifyOpcode(op: string): SlotType {
   if (op === "result.unwrap" || op === "result.tag") return "I0";
   return "I0";
 }
+
+/**
+ * Слоты, в которые инструкция может лечь. Ветвление — только B, память — только M,
+ * всё целочисленное/стековое/локальное — в любой из двух ALU-слотов I0/I1.
+ * Это даёт реальный параллелизм: две независимые const/add лягут в I0 и I1.
+ */
+export function possibleSlots(op: string): SlotType[] {
+  if (BRANCH_OPS.has(op)) return ["B"];
+  if (MEM_OPS.has(op)) return ["M"];
+  return ["I0", "I1"];
+}

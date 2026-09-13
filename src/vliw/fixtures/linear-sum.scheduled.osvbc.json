@@ -15,14 +15,19 @@
   ],
   "code": [
     {
-      "op": "const",
-      "type": "i32",
-      "k": 0
-    },
-    {
-      "op": "const",
-      "type": "i32",
-      "k": 1
+      "packet": true,
+      "slots": [
+        {
+          "op": "const",
+          "type": "i32",
+          "k": 0
+        },
+        {
+          "op": "const",
+          "type": "i32",
+          "k": 1
+        }
+      ]
     },
     {
       "op": "add"

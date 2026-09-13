@@ -4,7 +4,7 @@
 
 import type { RawInstruction } from "../runtime/vm/bytecode";
 import type { VliwPacket } from "../runtime/vm/bytecode";
-import { VLIW_SLOTS, classifyOpcode, type SlotType } from "./e2kModel";
+import { VLIW_SLOTS, possibleSlots, type SlotType } from "./e2kModel";
 import type { DependencyGraph } from "./dependencyGraph";
 
 const SLOT_ORDER: SlotType[] = ["I0", "I1", "M", "B"];
@@ -43,11 +43,13 @@ export function scheduleLinearBlock(
       if (scheduled.has(node)) continue;
       const ins = instructions[node];
       const op = (ins as { op: string }).op;
-      const slotType = classifyOpcode(op);
-      const slotIdx = slotTypeToIndex(slotType);
-      if (packet[slotIdx] == null) {
-        packet[slotIdx] = ins;
-        used.add(node);
+      for (const slotType of possibleSlots(op)) {
+        const slotIdx = slotTypeToIndex(slotType);
+        if (packet[slotIdx] == null) {
+          packet[slotIdx] = ins;
+          used.add(node);
+          break;
+        }
       }
     }
     for (const u of used) {
