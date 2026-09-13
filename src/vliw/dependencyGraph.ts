@@ -156,6 +156,19 @@ export function buildDependencyGraph(
         break;
       }
 
+      case "dup": {
+        const v = stack[stack.length - 1];
+        if (v !== undefined) edges.push([v, i]);
+        stack.push(i);
+        break;
+      }
+
+      case "pop": {
+        const v = stack.pop();
+        if (v !== undefined) edges.push([v, i]);
+        break;
+      }
+
       default:
         stack.push(i);
         break;

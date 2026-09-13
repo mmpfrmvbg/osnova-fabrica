@@ -7,3 +7,4 @@
 export { VLIW_SLOTS, classifyOpcode, type SlotType } from "./e2kModel";
 export { buildDependencyGraph, type DependencyGraph, type DependencyGraphOptions } from "./dependencyGraph";
 export { scheduleLinearBlock, packetsToCodeElements } from "./scheduler";
+export { unrollForEach, type UnrollOptions, type UnrollResult } from "./unroll";

@@ -7,8 +7,10 @@
 
 import { VM } from '../runtime/vm/interpreter';
 import type { OsVbcModule, RawInstruction, CodeElement } from '../runtime/vm/bytecode';
+import { getInvokeArgCount } from '../runtime/vm/invokeRegistry';
 import { buildDependencyGraph } from './dependencyGraph';
 import { scheduleLinearBlock, packetsToCodeElements } from './scheduler';
+import { unrollForEach } from './unroll';
 
 export interface OracleReport {
   /** Результат линейного исполнения. */
@@ -27,7 +29,8 @@ export interface OracleReport {
 
 async function runModule(mod: OsVbcModule): Promise<unknown> {
   const vm = new VM(mod, { maxSteps: 1_000_000 });
-  const idx = vm.findProcedureIndex('main');
+  const entry = mod.procedures[0]?.name ?? 'main';
+  const idx = vm.findProcedureIndex(entry);
   return vm.runProcedure(idx, []);
 }
 
@@ -40,6 +43,8 @@ export async function runOracle(mod: OsVbcModule, vliwSlots = 4): Promise<Oracle
 
   const flat = mod.code as RawInstruction[];
   const graph = buildDependencyGraph(flat, {
+    callArgc: (fi) => mod.procedures[fi]?.argc ?? 0,
+    invokeArgc: (name) => getInvokeArgCount(name),
     callPure: (fi) => mod.procedures[fi]?.pure === true,
   });
   const packets = scheduleLinearBlock(flat, graph);
@@ -59,4 +64,26 @@ export async function runOracle(mod: OsVbcModule, vliwSlots = 4): Promise<Oracle
     avgSlots,
     utilization: packetCount > 0 ? totalSlots / (packetCount * vliwSlots) : 0,
   };
+}
+
+export interface UnrollOracleReport extends OracleReport {
+  /** Фактическое число развёрнутых итераций. */
+  tripCount: number;
+  /** Остался ли управляющий поток (jmp/jmp_if*) после unroll. */
+  hasControlFlow: boolean;
+}
+
+/**
+ * Оракул loop unrolling: `для_каждого` → линейный код (unroll) → пакеты → сверка.
+ * `linearResult` — результат развёрнутого линейного кода, `scheduledResult` — пакетного.
+ */
+export async function runUnrollOracle(
+  mod: OsVbcModule,
+  options: { tripCount?: number; vliwSlots?: number } = {},
+): Promise<UnrollOracleReport> {
+  const { module: unrolled, tripCount, hasControlFlow } = unrollForEach(mod, {
+    tripCount: options.tripCount,
+  });
+  const report = await runOracle(unrolled, options.vliwSlots);
+  return { ...report, tripCount, hasControlFlow };
 }

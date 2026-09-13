@@ -30,50 +30,53 @@ export function scheduleLinearBlock(
 ): RawInstruction[][] {
   const n = instructions.length;
   if (n === 0) return [];
-  const { preds, succs } = buildPredSucc(graph);
-  const scheduled = new Set<number>();
-  const ready = new Set<number>(graph.nodes.filter((i) => preds[i].length === 0));
+  const { preds } = buildPredSucc(graph);
   const packets: RawInstruction[][] = [];
+  let cur: (RawInstruction | null)[] = Array(VLIW_SLOTS).fill(null);
+  let curNodes = new Set<number>();
 
-  while (scheduled.size < n) {
-    const packet: (RawInstruction | null)[] = Array(VLIW_SLOTS).fill(null);
-    const used = new Set<number>();
-
-    for (const node of ready) {
-      if (scheduled.has(node)) continue;
-      const ins = instructions[node];
-      const op = (ins as { op: string }).op;
-      for (const slotType of possibleSlots(op)) {
-        const slotIdx = slotTypeToIndex(slotType);
-        if (packet[slotIdx] == null) {
-          packet[slotIdx] = ins;
-          used.add(node);
-          break;
-        }
-      }
-    }
-    for (const u of used) {
-      scheduled.add(u);
-      ready.delete(u);
-      for (const s of succs[u]) {
-        if (preds[s].every((p) => scheduled.has(p))) ready.add(s);
-      }
-    }
+  const flush = (): void => {
     const packed: RawInstruction[] = [];
     for (let i = 0; i < VLIW_SLOTS; i++) {
-      if (packet[i] != null) packed.push(packet[i]!);
+      if (cur[i] != null) packed.push(cur[i]!);
     }
     if (packed.length > 0) packets.push(packed);
-    if (used.size === 0) {
-      const stuck = graph.nodes.find((i) => !scheduled.has(i));
-      if (stuck != null) {
-        throw new Error(
-          `Scheduler stuck: node ${stuck} has unscheduled predecessors ${preds[stuck].join(",")}`,
-        );
+    cur = Array(VLIW_SLOTS).fill(null);
+    curNodes = new Set<number>();
+  };
+
+  // In-order упаковка: инструкции кладутся в пакеты строго в исходном порядке.
+  // Это сохраняет порядок стековых операций (producer всегда раньше consumer в
+  // потоке исполнения), в отличие от готового list scheduling, который переставляет
+  // push/pop и ломает стек. Продюсер и потребитель никогда не попадают в один пакет:
+  // если продюсер ещё лежит в текущем (открытом) пакете, пакет закрывается раньше.
+  let i = 0;
+  while (i < n) {
+    const predInCur = preds[i].some((p) => curNodes.has(p));
+    if (predInCur) {
+      flush();
+      continue;
+    }
+
+    const ins = instructions[i]!;
+    const op = (ins as { op: string }).op;
+    let placed = false;
+    for (const slotType of possibleSlots(op)) {
+      const slotIdx = slotTypeToIndex(slotType);
+      if (cur[slotIdx] == null) {
+        cur[slotIdx] = ins;
+        curNodes.add(i);
+        placed = true;
+        break;
       }
-      break;
+    }
+    if (placed) {
+      i++;
+    } else {
+      flush();
     }
   }
+  flush();
 
   return packets;
 }
