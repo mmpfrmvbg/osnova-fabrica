@@ -44,25 +44,29 @@
       "name": "опкод",
       "codeOffset": 0,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "добавить_константу",
       "codeOffset": 28,
       "argc": 2,
-      "localsCount": 3
+      "localsCount": 3,
+      "pure": false
     },
     {
       "name": "код_выражения",
       "codeOffset": 59,
       "argc": 3,
-      "localsCount": 7
+      "localsCount": 7,
+      "pure": false
     },
     {
       "name": "главная",
       "codeOffset": 134,
       "argc": 0,
-      "localsCount": 16
+      "localsCount": 16,
+      "pure": false
     }
   ],
   "code": [

@@ -77,6 +77,13 @@ export function formatVmRuntimeError(err: unknown): string {
 
 /** Системный invoke по умолчанию; используйте для цепочки с пользовательским `invoke`. */
 export { createDefaultInvokeHandler } from "./vm/interpreter";
+/**
+ * Регистровый бэкенд (срез 1, рядом со стековым): формат `regcode` и
+ * интерпретатор `reginterpreter`. Стековый байткод и его VM не заменяются —
+ * сверка двух бэкендов живёт в `src/oracle/parity.ts`.
+ */
+export * from "./vm/regcode";
+export * from "./vm/reginterpreter";
 /** Имена опкодов в поле `op` байткода; совпадают с emit в {@link import("../compiler/codegen")} и списком opcodes в language-schema. */
 export { OpCode } from "./interpreter";
 export type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";

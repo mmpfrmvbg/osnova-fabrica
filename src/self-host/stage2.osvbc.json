@@ -74,31 +74,36 @@
       "name": "является_буквой",
       "codeOffset": 0,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "является_цифрой",
       "codeOffset": 70,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "вид_имени",
       "codeOffset": 92,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "лексер",
       "codeOffset": 156,
       "argc": 1,
-      "localsCount": 8
+      "localsCount": 8,
+      "pure": false
     },
     {
       "name": "главная",
       "codeOffset": 563,
       "argc": 0,
-      "localsCount": 2
+      "localsCount": 2,
+      "pure": false
     }
   ],
   "code": [

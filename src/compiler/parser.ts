@@ -30,9 +30,19 @@ export function parse(tokens: Token[]): ParseResult {
     return tokens[pos] ?? tokens[tokens.length - 1];
   }
 
+  /**
+   * Следующий токен.
+   *
+   * ВАЖНО: `pos` обязан двигаться и на `конец_файла` — иначе на нём можно
+   * застрять. Раньше здесь стоял запрет двигаться с `конец_файла`, и любой цикл
+   * восстановления после ошибки (`while (peek() !== "конец_файла")`) навсегда
+   * зацикливался на последнем токене: `peek()` возвращал тот же `конец_файла`,
+   * `pos` не менялся. Это и был вечный цикл/OOM на `попробовать` + неизвестное
+   * слово. Циклы проверяют `pos < tokens.length`, поэтому выход есть.
+   */
   function advance(): Token {
     const t = peek();
-    if (pos < tokens.length && tokens[pos].kind !== "конец_файла") pos++;
+    if (pos < tokens.length) pos++;
     return t;
   }
 
@@ -101,12 +111,17 @@ export function parse(tokens: Token[]): ParseResult {
       "продолжить",
       "цикл",
     ];
+    const start = pos;
     while (pos < tokens.length) {
       const k = peek().kind;
-      if (k === "новая_строка" || k === "конец" || k === "конец_файла") return;
-      if (stmtHead.includes(k)) return;
+      if (k === "новая_строка" || k === "конец" || k === "конец_файла") break;
+      if (stmtHead.includes(k)) break;
       advance();
     }
+    // Гарантия прогресса: восстановление обязано сдвинуть разбор хотя бы на
+    // токен. Иначе «текущий токен — начало инструкции, которую не удалось
+    // разобрать» превращается в вечный цикл у вызывающего.
+    if (pos === start) advance();
   }
 
   /** Восстановление на уровне модуля: до следующей процедура или конец_файла. */
@@ -313,8 +328,11 @@ export function parse(tokens: Token[]): ParseResult {
     const name = String(tokName.value ?? tokName.lexeme);
     skipNewlines();
 
-    // Перечень: тип Имя = a | b | c
-    if (peek().kind === "=") {
+    // Перечень: `тип Имя = a | b | c`.
+    // Запись: `тип Имя = { поле: Тип, … }` — знак `=` допустим и в этой форме
+    // (модель пишет запись через `=`, это частая LLM-ошибка; принимаем оба
+    // написания вместо отказа).
+    if (peek().kind === "=" && tokens[pos + 1]?.kind !== "{") {
       advance();
       skipNewlines();
       const variants: string[] = [];
@@ -354,6 +372,9 @@ export function parse(tokens: Token[]): ParseResult {
       return { kind: "TypeDeclaration", name, fields: [], variants };
     }
 
+    // Форма записи со знаком равенства: `тип Имя = { … }` — `=` пропускаем,
+    // дальше разбор тела общий.
+    if (peek().kind === "=") advance();
     if (!consume("{", "Ожидается '{' или '=' после имени типа")) return null;
     skipNewlines();
 

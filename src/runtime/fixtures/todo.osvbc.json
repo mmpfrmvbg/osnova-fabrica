@@ -28,19 +28,22 @@
       "name": "запуск",
       "codeOffset": 0,
       "argc": 0,
-      "localsCount": 3
+      "localsCount": 3,
+      "pure": false
     },
     {
       "name": "handle_event",
-      "codeOffset": 54,
+      "codeOffset": 62,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "handle_add",
-      "codeOffset": 76,
+      "codeOffset": 87,
       "argc": 0,
-      "localsCount": 2
+      "localsCount": 2,
+      "pure": false
     }
   ],
   "code": [
@@ -76,6 +79,9 @@
       "name": "система.окно.показать"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "const",
       "type": "str",
       "k": 3
@@ -93,6 +99,9 @@
     {
       "op": "invoke",
       "name": "система.интерфейс.поле_ввода"
+    },
+    {
+      "op": "pop"
     },
     {
       "op": "const",
@@ -114,6 +123,9 @@
       "name": "система.интерфейс.кнопка"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "const",
       "type": "str",
       "k": 3
@@ -131,6 +143,9 @@
     {
       "op": "invoke",
       "name": "система.интерфейс.текст"
+    },
+    {
+      "op": "pop"
     },
     {
       "op": "const",
@@ -152,6 +167,9 @@
       "name": "система.интерфейс.область_текста"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "const",
       "type": "str",
       "k": 11
@@ -168,6 +186,9 @@
     {
       "op": "invoke",
       "name": "система.интерфейс.установить_значение"
+    },
+    {
+      "op": "pop"
     },
     {
       "op": "invoke",
@@ -203,7 +224,7 @@
     },
     {
       "op": "jmp_if_not",
-      "off": 50
+      "off": 56
     },
     {
       "op": "local.get",
@@ -231,7 +252,7 @@
     },
     {
       "op": "jmp_if_not",
-      "off": 45
+      "off": 51
     },
     {
       "op": "const.null"
@@ -257,7 +278,7 @@
     },
     {
       "op": "jmp",
-      "off": 31
+      "off": 37
     },
     {
       "op": "const",
@@ -269,8 +290,14 @@
       "name": "система.время.спать"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "jmp",
-      "off": 27
+      "off": 33
+    },
+    {
+      "op": "const.null"
     },
     {
       "op": "ret"
@@ -298,7 +325,7 @@
     },
     {
       "op": "jmp_if_not",
-      "off": 64
+      "off": 73
     },
     {
       "op": "const",
@@ -308,6 +335,9 @@
     {
       "op": "invoke",
       "name": "система.окно.закрыть"
+    },
+    {
+      "op": "pop"
     },
     {
       "op": "const",
@@ -340,19 +370,14 @@
     },
     {
       "op": "jmp_if_not",
-      "off": 73
+      "off": 83
     },
     {
       "op": "call",
       "fi": 2
     },
     {
-      "op": "const",
-      "type": "i32",
-      "k": 13
-    },
-    {
-      "op": "ret"
+      "op": "pop"
     },
     {
       "op": "const",
@@ -361,6 +386,17 @@
     },
     {
       "op": "ret"
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 13
+    },
+    {
+      "op": "ret"
+    },
+    {
+      "op": "const.null"
     },
     {
       "op": "ret"
@@ -422,6 +458,9 @@
       "name": "система.хранилище.записать"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "const",
       "type": "str",
       "k": 11
@@ -433,6 +472,9 @@
     {
       "op": "invoke",
       "name": "система.интерфейс.установить_значение"
+    },
+    {
+      "op": "pop"
     },
     {
       "op": "const",
@@ -447,6 +489,12 @@
     {
       "op": "invoke",
       "name": "система.интерфейс.установить_значение"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "const.null"
     },
     {
       "op": "ret"

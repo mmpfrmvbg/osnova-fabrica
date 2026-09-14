@@ -34,7 +34,7 @@ export const PIPELINE_PHASES: readonly PipelinePhase[] = ['intake', 'spec', 'cod
 /** Имена моделей DeepSeek V4 по тиру (deepseek-chat/reasoner уходят 24.07.2026). */
 export const DEEPSEEK_TIER_MODEL: Record<'flash' | 'pro', string> = {
   flash: 'deepseek-flash',
-  pro: 'deepseek-pro',
+  pro: 'deepseek-v4-pro',
 };
 
 /** Пер-фазные env-override (по прецеденту OSNOVA_INTELLIGENCE_MODEL). */

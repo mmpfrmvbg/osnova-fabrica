@@ -21,8 +21,29 @@ import { validateEnv } from './env';
 import { compileSource } from './compiler/compiler';
 import { printParseError } from './compiler/parser';
 import { run as runRuntime } from './runtime/run';
+import { runParity } from './oracle/parity';
 
 const args = process.argv.slice(2);
+
+/**
+ * Загружает корневой `.env` в process.env (если переменная ещё не задана).
+ * Без зависимости dotenv: простой разбор KEY=VALUE с учётом '#'-комментариев.
+ */
+function loadDotEnv(): void {
+  const envPath = path.resolve('.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const rawLine of fs.readFileSync(envPath, 'utf-8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    const commentIdx = value.indexOf(' #');
+    if (commentIdx >= 0) value = value.slice(0, commentIdx).trim();
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
 
 function printUsage(): void {
   console.error('Использование:');
@@ -34,6 +55,7 @@ function printUsage(): void {
   console.error('  osnova compile file.osnova [-o out]  Компиляция .osnova → .osvbc');
   console.error('  osnova run --manifest path           Запуск приложения по манифесту');
   console.error('  osnova schedule file.osvbc.json      VLIW-планирование (линейный код)');
+  console.error('  osnova parity file.osnova            Оракул: стековая VM vs регистровая (сверка трасс)');
   console.error('  osnova list [--dir <path>]       Список приложений из реестра');
 }
 
@@ -238,6 +260,52 @@ async function runScheduleMode(cliArgs: string[]): Promise<number> {
   return runScheduleCli(cliArgs);
 }
 
+/**
+ * `osnova parity file.osnova` — дифференциальный оракул бэкендов.
+ *
+ * Компилирует один исходник дважды (стековый и регистровый байткод), исполняет
+ * обе VM с одинаковым хостом и сверяет трассы вызовов и итоговое значение.
+ * Код возврата: 0 — совпало, 1 — расхождение, 2 — программа вне среза
+ * регистрового бэкенда (ещё не поддержано, это не расхождение), 3 — обе VM не
+ * завершились за лимит шагов: сравнивать нечего, и это не «совпало».
+ */
+async function runParityMode(cliArgs: string[]): Promise<number> {
+  const input = cliArgs.find((a) => !a.startsWith('-'));
+  if (!input) {
+    console.error('Использование: osnova parity input.osnova [--entry имя]');
+    return 1;
+  }
+  const inputPath = path.resolve(input);
+  if (!fs.existsSync(inputPath)) {
+    console.error('Файл не найден:', inputPath);
+    return 1;
+  }
+  const entryIdx = cliArgs.indexOf('--entry');
+  const entryProcedure = entryIdx >= 0 ? cliArgs[entryIdx + 1] : undefined;
+
+  const source = fs.readFileSync(inputPath, 'utf-8');
+  const result = await runParity(source, { entryProcedure });
+  if ('skipped' in result) {
+    console.log(`[skip] ${path.basename(inputPath)}: ${result.reason}`);
+    return 2;
+  }
+  console.log(`[${result.ok ? 'OK' : 'FAIL'}] ${path.basename(inputPath)}`);
+  console.log('  статус:         ', result.status);
+  console.log('  стековая VM:    ', JSON.stringify(result.stackValue));
+  console.log('  регистровая VM: ', JSON.stringify(result.regValue));
+  console.log('  шагов трассы:   ', result.stackTrace.length);
+  console.log('  сверка:         ', result.message);
+  if (result.status === 'both_hit_step_limit') {
+    console.error('  обе VM не завершились за лимит шагов — сравнивать нечего');
+    return 3;
+  }
+  if (!result.ok) {
+    console.error(`  первое расхождение на шаге ${result.divergenceIndex}`);
+    return 1;
+  }
+  return 0;
+}
+
 async function listApps(cliArgs: string[]): Promise<number> {
   let dir = path.resolve('src/runtime');
   for (let i = 0; i < cliArgs.length; i++) {
@@ -388,6 +456,7 @@ async function runNewApp(cliArgs: string[]): Promise<void> {
 }
 
 async function main(): Promise<number> {
+  loadDotEnv();
   const sub = args[0];
   const taskIdx = args.indexOf('--task');
 
@@ -437,6 +506,10 @@ async function main(): Promise<number> {
 
   if (sub === 'schedule') {
     return await runScheduleMode(args.slice(1));
+  }
+
+  if (sub === 'parity') {
+    return await runParityMode(args.slice(1));
   }
 
   if (sub === 'list') {

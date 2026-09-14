@@ -86,61 +86,71 @@
       "name": "опкод",
       "codeOffset": 0,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "добавить_константу",
       "codeOffset": 58,
       "argc": 2,
-      "localsCount": 3
+      "localsCount": 3,
+      "pure": false
     },
     {
       "name": "индекс_переменной",
       "codeOffset": 89,
       "argc": 3,
-      "localsCount": 4
+      "localsCount": 4,
+      "pure": false
     },
     {
       "name": "код_выражения",
       "codeOffset": 120,
       "argc": 7,
-      "localsCount": 25
+      "localsCount": 25,
+      "pure": false
     },
     {
       "name": "код_блока",
       "codeOffset": 462,
       "argc": 7,
-      "localsCount": 8
+      "localsCount": 8,
+      "pure": false
     },
     {
       "name": "код_инструкции",
       "codeOffset": 487,
       "argc": 7,
-      "localsCount": 24
+      "localsCount": 24,
+      "pure": false
     },
     {
       "name": "собрать_таблицу",
       "codeOffset": 810,
       "argc": 2,
-      "localsCount": 3
+      "localsCount": 3,
+      "pure": false
     },
     {
       "name": "код_процедуры",
       "codeOffset": 833,
       "argc": 5,
-      "localsCount": 14
+      "localsCount": 14,
+      "pure": false
     },
     {
       "name": "код_программы",
       "codeOffset": 937,
       "argc": 5,
-      "localsCount": 6
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "главная",
       "codeOffset": 964,
       "argc": 0,
-      "localsCount": 25
+      "localsCount": 25,
+      "pure": false
     }
   ],
   "code": [

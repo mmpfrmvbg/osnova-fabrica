@@ -29,13 +29,15 @@
       "name": "вычислить",
       "codeOffset": 0,
       "argc": 2,
-      "localsCount": 4
+      "localsCount": 4,
+      "pure": false
     },
     {
       "name": "главная",
       "codeOffset": 181,
       "argc": 0,
-      "localsCount": 24
+      "localsCount": 24,
+      "pure": false
     }
   ],
   "code": [

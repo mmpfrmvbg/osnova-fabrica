@@ -9,7 +9,8 @@
       "name": "запуск",
       "codeOffset": 0,
       "argc": 0,
-      "localsCount": 0
+      "localsCount": 0,
+      "pure": false
     }
   ],
   "code": [
@@ -21,6 +22,12 @@
     {
       "op": "invoke",
       "name": "система.лог.вывести"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "const.null"
     },
     {
       "op": "ret"

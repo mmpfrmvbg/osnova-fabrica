@@ -52,43 +52,50 @@
       "name": "опкод",
       "codeOffset": 0,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "добавить_константу",
       "codeOffset": 28,
       "argc": 2,
-      "localsCount": 3
+      "localsCount": 3,
+      "pure": false
     },
     {
       "name": "индекс_переменной",
       "codeOffset": 59,
       "argc": 3,
-      "localsCount": 4
+      "localsCount": 4,
+      "pure": false
     },
     {
       "name": "код_выражения",
       "codeOffset": 90,
       "argc": 5,
-      "localsCount": 11
+      "localsCount": 11,
+      "pure": false
     },
     {
       "name": "код_инструкции",
       "codeOffset": 200,
       "argc": 5,
-      "localsCount": 8
+      "localsCount": 8,
+      "pure": false
     },
     {
       "name": "код_программы",
       "codeOffset": 270,
       "argc": 5,
-      "localsCount": 6
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "главная",
       "codeOffset": 293,
       "argc": 0,
-      "localsCount": 23
+      "localsCount": 23,
+      "pure": false
     }
   ],
   "code": [

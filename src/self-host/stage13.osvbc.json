@@ -87,109 +87,127 @@
       "name": "является_буквой",
       "codeOffset": 0,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "является_цифрой",
       "codeOffset": 70,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "вид_имени",
       "codeOffset": 92,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "лексер",
       "codeOffset": 156,
       "argc": 1,
-      "localsCount": 33
+      "localsCount": 33,
+      "pure": false
     },
     {
       "name": "вид_токена",
       "codeOffset": 919,
       "argc": 2,
-      "localsCount": 2
+      "localsCount": 2,
+      "pure": false
     },
     {
       "name": "текст_токена",
       "codeOffset": 938,
       "argc": 2,
-      "localsCount": 2
+      "localsCount": 2,
+      "pure": false
     },
     {
       "name": "разобрать_множитель",
       "codeOffset": 948,
       "argc": 2,
-      "localsCount": 17
+      "localsCount": 17,
+      "pure": false
     },
     {
       "name": "разобрать_слагаемое",
       "codeOffset": 1262,
       "argc": 2,
-      "localsCount": 6
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "разобрать_сложение",
       "codeOffset": 1325,
       "argc": 2,
-      "localsCount": 6
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "разобрать_сравнение",
       "codeOffset": 1388,
       "argc": 2,
-      "localsCount": 6
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "разобрать_выражение",
       "codeOffset": 1475,
       "argc": 2,
-      "localsCount": 2
+      "localsCount": 2,
+      "pure": false
     },
     {
       "name": "разобрать_блок",
       "codeOffset": 1481,
       "argc": 2,
-      "localsCount": 5
+      "localsCount": 5,
+      "pure": false
     },
     {
       "name": "разобрать_инструкцию",
       "codeOffset": 1538,
       "argc": 2,
-      "localsCount": 16
+      "localsCount": 16,
+      "pure": false
     },
     {
       "name": "разобрать_программу",
       "codeOffset": 1841,
       "argc": 2,
-      "localsCount": 5
+      "localsCount": 5,
+      "pure": false
     },
     {
       "name": "печать_выражения",
       "codeOffset": 1882,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "печать_блока",
       "codeOffset": 1956,
       "argc": 1,
-      "localsCount": 3
+      "localsCount": 3,
+      "pure": false
     },
     {
       "name": "печать_инструкции",
       "codeOffset": 1989,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "главная",
       "codeOffset": 2037,
       "argc": 0,
-      "localsCount": 5
+      "localsCount": 5,
+      "pure": false
     }
   ],
   "code": [

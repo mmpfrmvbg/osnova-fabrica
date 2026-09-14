@@ -12,13 +12,15 @@
       "name": "пара",
       "codeOffset": 0,
       "argc": 0,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "главная",
       "codeOffset": 14,
       "argc": 0,
-      "localsCount": 2
+      "localsCount": 2,
+      "pure": false
     }
   ],
   "code": [

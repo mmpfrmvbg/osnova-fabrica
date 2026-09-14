@@ -47,6 +47,14 @@ export interface CompileResult {
   module: OsVbcModule | null;
   /** Скомпилированные модули Program (multi-module path) */
   modules?: OsVbcModule[];
+  /**
+   * Расширенный AST главного модуля — точно тот, что ушёл в стековый кодоген
+   * (импорты развёрнуты, `когда` снят, типы развёрнуты и дописаны литералы).
+   * Нужен альтернативным бэкендам (регистровый, `src/oracle/parity.ts`): они
+   * обязаны компилировать **тот же** AST, что эталон, иначе сверка бессмысленна.
+   * Не заполняется, если ошибка случилась до кодогена (лексер/парсер).
+   */
+  moduleAst?: Module;
   /** true если компилятор отработал без ошибок */
   compilerSuccess: boolean;
   /** Ошибки лексера */
@@ -1330,6 +1338,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     return {
       module: null,
       modules: [],
+      moduleAst: expandedAst,
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
@@ -1361,6 +1370,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       return {
         module: compiledModules[0] ?? null,
         modules: compiledModules,
+        moduleAst: getFirstModuleOrThrow(program),
         compilerSuccess: true,
         lexerErrors: [],
         parserErrors: [],
@@ -1394,6 +1404,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     return {
       module,
       modules: [module],
+      moduleAst: expandedAst,
       compilerSuccess: true,
       lexerErrors: [],
       parserErrors: [],

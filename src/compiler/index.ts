@@ -16,6 +16,8 @@ export { parse, printParseError } from "./parser";
 export type { SemanticError, SemanticResult, HostSyscallSpec, SemanticOptions } from "./semantic";
 export { analyzeProgram, checkSemantics } from "./semantic";
 export * from "./codegen";
+/** Регистровый кодоген (срез 1, рядом со стековым): `compileToReg` / `compileProgramToReg`. */
+export * from "./regcodegen";
 export * from "./compiler";
 export * from "./vm";
 

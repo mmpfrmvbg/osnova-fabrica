@@ -10,7 +10,8 @@
       "name": "запуск",
       "codeOffset": 0,
       "argc": 0,
-      "localsCount": 0
+      "localsCount": 0,
+      "pure": false
     }
   ],
   "code": [
@@ -29,6 +30,9 @@
       "name": "система.хранилище.записать"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "const",
       "type": "str",
       "k": 0
@@ -40,6 +44,12 @@
     {
       "op": "invoke",
       "name": "система.лог.вывести"
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "const.null"
     },
     {
       "op": "ret"
