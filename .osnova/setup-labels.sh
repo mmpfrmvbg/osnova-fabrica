@@ -10,6 +10,20 @@ set -euo pipefail
 REPO="mmpfrmvbg/osnova-fabrica"
 TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 
+# python3 в Git Bash на Windows часто отсутствует — пробуем python
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON=(python3)
+elif command -v python >/dev/null 2>&1; then
+  PYTHON=(python)
+else
+  echo "❌ Нужен python3 или python (для urllib в URL меток)"
+  exit 1
+fi
+
+urlquote_label() {
+  "${PYTHON[@]}" -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+}
+
 if [ -z "$TOKEN" ]; then
   echo "❌ Укажи GH_TOKEN или GITHUB_TOKEN"
   exit 1
@@ -21,23 +35,31 @@ create_label() {
   local description="$3"
 
   # Проверяем существует ли label
+  enc_name="$(urlquote_label "$name")"
   status=$(curl -s -o /dev/null -w "%{http_code}" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/$REPO/labels/$(python3 -c "import urllib.parse; print(urllib.parse.quote('$name'))")"
+    "https://api.github.com/repos/$REPO/labels/${enc_name}"
   )
 
   if [ "$status" = "200" ]; then
     echo "✅ Label '$name' уже существует"
   else
-    curl -s -X POST \
+    payload="$("${PYTHON[@]}" -c "import json,sys; print(json.dumps({'name':sys.argv[1],'color':sys.argv[2],'description':sys.argv[3]}, ensure_ascii=False))" "$name" "$color" "$description")"
+    if ! response="$(curl -sS -X POST \
       -H "Authorization: Bearer $TOKEN" \
       -H "Accept: application/vnd.github+json" \
       -H "Content-Type: application/json" \
       "https://api.github.com/repos/$REPO/labels" \
-      -d "{\"name\":\"$name\",\"color\":\"$color\",\"description\":\"$description\"}" \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"✅ Created: {d.get('name','?')} #{d.get('color','?')}\")" \
-      2>/dev/null || echo "⚠️  Label '$name' — проверь вручную"
+      -d "$payload")"; then
+      echo "⚠️  Label '$name' — сбой curl"
+      return
+    fi
+    if printf '%s\n' "$response" | PYTHONIOENCODING=utf-8 "${PYTHON[@]}" -c "import sys,json; d=json.load(sys.stdin); n=d.get('name'); assert n; print('Created:', n, '#'+str(d.get('color','?')))" 2>/dev/null; then
+      echo "✅ Label '$name' создан"
+    else
+      echo "⚠️  Label '$name' — проверь вручную (ответ API: ${response:0:200})"
+    fi
   fi
 }
 

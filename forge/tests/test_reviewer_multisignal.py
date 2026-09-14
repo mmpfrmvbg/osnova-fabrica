@@ -27,6 +27,10 @@ class TestReviewerMultisignal(unittest.TestCase):
         atom = {"expected_files": ["a/b.ts"], "scope": []}
         self.assertEqual(expected_files_for_atom(atom), ["a/b.ts"])
 
+    def test_expected_files_skips_empty_and_slash_only(self) -> None:
+        atom = {"expected_files": ["", "  ", "///", "a/b.ts"], "scope": []}
+        self.assertEqual(expected_files_for_atom(atom), ["a/b.ts"])
+
     def test_check_files_in_diff(self) -> None:
         diff = "diff --git a/scripts/foo.ts b/scripts/foo.ts\n+ok"
         self.assertTrue(check_files_in_diff(diff, ["scripts/foo.ts"]))

@@ -1,54 +1,48 @@
 ---
 name: sync-osnova-specs
-description: Синхронизирует изменения языка Основа между всеми связанными файлами: language-v1.md, language-registry.md, промпты в pipeline-llm-osnova.md, golden-tests, LANGUAGE-CHANGELOG.md. Используй когда добавляешь или запрещаешь конструкцию языка, меняешь синтаксис, добавляешь системный вызов.
+description: >-
+  Syncs Osnova language changes across registry-backed docs, prompts, and golden
+  tests after a real compiler/VM patch. Use when adding or banning a construct,
+  changing syntax, or adding a система.* syscall.
 ---
 
 # sync-osnova-specs
 
-## Что делает
-Синхронизирует изменение языка Основа по всем точкам проекта за одну операцию.
+Синхронизирует изменение языка после патча **кода**. Не обновлять docs «вперёд» кода.
+
+## Источник истины
+
+1. `src/compiler/language-registry.ts` + `src/compiler/**` + `src/runtime/vm/**`
+2. `docs/language-v2.md` — только подтверждённое кодом
+3. Канон агентов: `.cursor/skills/osnova-lang/`
+
+`docs/language-v1.md` — не истина; не восстанавливать как канон при расхождении с кодом.
+
+Host API (`игра.*`) в LANGUAGE_REGISTRY **не** добавлять — это extraSyscalls хоста (Dviglo).
 
 ## Когда активировать
-- Добавлена новая конструкция языка
-- Конструкция запрещена (ban)
-- Изменён синтаксис существующей конструкции
-- Добавлен или изменён системный вызов `система.*`
-- Обновлены правила модуль/файл/процедура
 
-## Authoritative sources
-- `docs/language-v1.md` — главная спецификация, источник истины
-- `docs/language-registry.md` — реестр всех конструкций
-- `docs/pipeline-llm-osnova.md` — промпты LLM-пайплайна
-- `docs/golden-tests.md` + `docs/golden-tests.json` — golden-тесты
-- `docs/LANGUAGE-CHANGELOG.md` — история изменений
+- Новая/запрещённая конструкция или синтаксис
+- Новый/изменённый `система.*`
+- Правила модуль/процедура/импорт
 
-## Обязательный чеклист (выполнить все 5 пунктов)
+## Чеклист
 
-- [ ] 1. `docs/language-v1.md` — добавлена/обновлена/удалена конструкция
-- [ ] 2. `docs/language-registry.md` — реестр обновлён (статус, версия, описание)
-- [ ] 3. `docs/pipeline-llm-osnova.md` — промпт содержит новый запрет или правило
-- [ ] 4. `docs/golden-tests.md` + `docs/golden-tests.json` — добавлен golden-тест на новую конструкцию
-- [ ] 5. `docs/LANGUAGE-CHANGELOG.md` — запись о изменении добавлена
-
-Не заканчивай работу пока все 5 пунктов не отмечены.
-
-## Формат записи в CHANGELOG
-
-```
-## [дата] — [тип: добавлено/запрещено/изменено]
-- Конструкция: `название`
-- Причина: [одна фраза]
-- Затронутые файлы: language-v1.md, registry, prompts, golden
-```
+- [ ] 1. Код компилятора/VM уже содержит изменение
+- [ ] 2. `language-registry.ts` обновлён (keywords/constructs/syscalls/forbidden)
+- [ ] 3. Тесты compiler/semantic/vm зелёные
+- [ ] 4. `docs/language-v2.md` отражает факт из кода (без фантазий)
+- [ ] 5. При наличии в контуре: `docs/pipeline-llm-osnova.md`, golden-тесты, `LANGUAGE-CHANGELOG.md`
+- [ ] 6. При нужде: кратко `osnova-lang` reference/idioms (не раздувать)
+- [ ] 7. Коммит патча сразу (только файлы патча; см. fabrika-commit в Dviglo)
 
 ## Anti-patterns
-- ❌ Обновить только docs без промптов
-- ❌ Обновить промпты без golden-теста
-- ❌ Добавить запрет в language-v1.md но не в pipeline-llm-osnova.md
-- ❌ Написать "готово" до завершения всего чеклиста
+
+- ❌ Править только docs без кода
+- ❌ Объявлять конструкцию в v2 до реализации
+- ❌ Класть `игра.*` в registry
+- ❌ Считать v1 источником истины
 
 ## Definition of done
-Все 5 файлов обновлены. Изменения оформлены одним PR с коммитами вида:
-`docs(language-v1): <описание>`
-`fix(prompts): <описание>`
-`test(golden): <описание>`
+
+Код + registry + тесты согласованы; v2 не врёт; агентский скилл не противоречит registry.
