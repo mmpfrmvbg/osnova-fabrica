@@ -163,7 +163,7 @@ const createMockProvider = () => ({
 
 vi.mock('../llm/index', () => ({
   getLLMProvider: () => createMockProvider(),
-  DEFAULT_PROVIDER: 'qwen-cli',
+  DEFAULT_PROVIDER: 'deepseek',
   getDefaultModel: () => 'mock',
   PROVIDER_DEFAULT_MODEL: {},
 }));

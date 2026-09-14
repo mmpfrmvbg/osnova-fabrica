@@ -184,8 +184,6 @@ export function scheduleRegCode(
   const packets: RegPacket[] = [];
   /** Ключи инструкций по элементам: keys[элемент][слот] = исходный индекс. */
   const keys: number[][] = [];
-  const placeDefs = graph.defs;
-  const placeUses = graph.uses;
 
   const startElementIndex = new Set<number>([0, n]);
   for (const t of branchTargets(code)) startElementIndex.add(t);

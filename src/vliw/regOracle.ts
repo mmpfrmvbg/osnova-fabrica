@@ -16,7 +16,7 @@ import { compileSource, type CompileResult } from "../compiler/compiler";
 import { compileToReg } from "../compiler/regcodegen";
 import { createDefaultInvokeHandler, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import { RegVM } from "../runtime/vm/reginterpreter";
-import type { RegCodeElement, RegInstruction, RegModule, RegPacket } from "../runtime/vm/regcode";
+import type { RegCodeElement, RegModule, RegPacket } from "../runtime/vm/regcode";
 import { isRegPacket } from "../runtime/vm/regcode";
 import {
   regPackMetrics,

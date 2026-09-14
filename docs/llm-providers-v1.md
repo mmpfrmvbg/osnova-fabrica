@@ -8,9 +8,9 @@
 
 | Провайдер | Переменные окружения | Статус |
 |-----------|---------------------|--------|
-| `qwen-cli` | `OSNOVA_PROVIDER`, `OSNOVA_MODEL`, `QWEN_TIMEOUT_MS` | основной, по умолчанию |
-| `deepseek` | `OSNOVA_PROVIDER`, `DEEPSEEK_API_KEY` (обязателен), `OSNOVA_MODEL` | API DashScope |
+| `deepseek` | `OSNOVA_PROVIDER`, `DEEPSEEK_API_KEY` (обязателен), `OSNOVA_MODEL` | основной, по умолчанию |
 | `ollama` | `OSNOVA_PROVIDER`, `OLLAMA_URL`, `OSNOVA_MODEL` | локальный |
+| `qwen-cli` | `OSNOVA_PROVIDER`, `OSNOVA_MODEL`, `QWEN_TIMEOUT_MS` | legacy: Qwen CLI выведен из эксплуатации, ключи отозваны |
 
 **Общие переменные (для всех):** `OSNOVA_MODEL` — модель для всех фаз пайплайна (intake, spec, codegen, repair). Если не задана — берётся дефолт по провайдеру.
 

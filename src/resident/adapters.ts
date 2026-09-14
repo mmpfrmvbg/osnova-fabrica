@@ -6,6 +6,8 @@
 // ============================================================
 
 import { getLLMProvider } from '../llm/index';
+import { getDefaultModel } from '../llm/defaults';
+import { resolveProvider } from '../llm/routing';
 import { createDefaultInvokeHandler } from '../runtime/vm/interpreter';
 import { selfImprove } from '../self-improve/core';
 import { runLoop } from '../pipeline/loop';
@@ -25,7 +27,8 @@ export function createLlmPlanner(opts?: { model?: string }): PlannerPort {
   return {
     async plan(history) {
       const provider = getLLMProvider();
-      const model = opts?.model ?? process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
+      // Дефолт — модель текущего провайдера (deepseek), а не имя модели Qwen.
+      const model = opts?.model ?? process.env.OSNOVA_MODEL ?? getDefaultModel(resolveProvider());
 
       const historyBlock = history.map((h, i) => `#${i + 1} ${h}`).join('\n');
       const userPrompt =

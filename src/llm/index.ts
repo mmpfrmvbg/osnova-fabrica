@@ -52,7 +52,7 @@ import type { LLMProvider } from './types.js';
 import { OllamaProvider } from './OllamaProvider.js';
 import { DeepSeekProvider } from './DeepSeekProvider.js';
 import { QwenCliProvider } from './QwenCliProvider.js';
-import { DEFAULT_PROVIDER } from './defaults.js';
+import { DEFAULT_PROVIDER, PROVIDER_DEFAULT_MODEL } from './defaults.js';
 
 let _provider: LLMProvider | null = null;
 
@@ -71,14 +71,20 @@ function createProvider(): LLMProvider {
     case 'ollama':
       return new OllamaProvider();
     case 'qwen-cli':
-    default:
+      // Legacy: Qwen CLI выведен из эксплуатации. Оставлен явным opt-in —
+      // молчаливого отката на него больше нет (см. `default` ниже).
       return new QwenCliProvider();
+    default:
+      throw new Error(
+        `Неизвестный OSNOVA_PROVIDER="${name}". Допустимые: ` +
+          `${Object.keys(PROVIDER_DEFAULT_MODEL).join(', ')}`,
+      );
   }
 }
 
 /**
  * Фабрика провайдера по переменной окружения OSNOVA_PROVIDER.
- * Значения: 'qwen-cli' (default) | 'deepseek' | 'ollama'
+ * Значения: 'deepseek' (default) | 'ollama' | 'qwen-cli' (legacy)
  * Singleton — один экземпляр на процесс.
  */
 export function getLLMProvider(): LLMProvider {

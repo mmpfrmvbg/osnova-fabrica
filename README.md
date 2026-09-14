@@ -96,12 +96,12 @@ gh workflow run release.yml --ref main -f bump=patch
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
-| `OSNOVA_PROVIDER` | `qwen-cli` | LLM провайдер (`qwen-cli`, `deepseek`, `ollama`) |
+| `OSNOVA_PROVIDER` | `deepseek` | LLM провайдер (`deepseek`, `ollama`, `qwen-cli` — legacy) |
 | `DEEPSEEK_API_KEY` | — | Обязателен при `provider=deepseek` |
-| `OSNOVA_MODEL` | `qwen-coder-plus` | Модель LLM |
+| `OSNOVA_MODEL` | `deepseek-flash` | Модель LLM |
 | `OLLAMA_URL` | `http://localhost:11434` | URL Ollama |
 | `OSNOVA_TRACE_DB` | `./runs/traces.jsonl` | Путь к JSONL-файлу трейсов прогонов (диагностика и дообучение LLM) |
-| `QWEN_TIMEOUT_MS` | `300000` | Таймаут QwenCliProvider (мс) |
+| `QWEN_TIMEOUT_MS` | `300000` | legacy: таймаут QwenCliProvider (Qwen CLI выведен из эксплуатации) |
 | `LOG_LEVEL` | `info` | Уровень логирования (`debug`, `info`, `warn`, `error`) |
 
 ## Статус
