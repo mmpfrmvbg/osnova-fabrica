@@ -29,4 +29,15 @@ describe('dependencyGraph: побочные эффекты и pure', () => {
     const g = buildDependencyGraph(ins, { callPure: () => false });
     expect(g.edges).toContainEqual([0, 1]);
   });
+
+  it('read-only invoke (получить) не создаёт порядок эффектов', () => {
+    const ins: RawInstruction[] = [
+      { op: 'invoke', name: 'система.массив.получить' },
+      { op: 'invoke', name: 'система.массив.получить' },
+    ];
+    const g = buildDependencyGraph(ins, {
+      invokePure: (n) => n === 'система.массив.получить',
+    });
+    expect(g.edges).not.toContainEqual([0, 1]);
+  });
 });

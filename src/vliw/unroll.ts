@@ -41,6 +41,12 @@ const CONTROL_FLOW_OPS = new Set<string>(["jmp", "jmp_if", "jmp_if_not"]);
 export interface UnrollOptions {
   /** Число итераций (trip count). Если не задано — авто-детект из литерала массива. */
   tripCount?: number;
+  /**
+   * Переименовывать `item`/`index` по итерациям (software pipelining): каждая итерация
+   * получает свой слот, устраняя ложную store→load зависимость через общий слот.
+   * По умолчанию true. Отключить (`false`) — прежнее поведение с общим слотом.
+   */
+  rename?: boolean;
 }
 
 export interface UnrollResult {
@@ -114,6 +120,23 @@ function assertInvoke(ins: RawInstruction, name: string, what: string): void {
 
 function assertLocalOp(ins: RawInstruction, op: string, what: string): void {
   if (!isLocalOp(ins, op)) fail(`ожидался ${op} (${what}), получено: ${opOf(ins)}`);
+}
+
+/** Переписывает ссылки на `itemSlot`/`indexSlot` в инструкции на новые слоты. */
+function remapSlot(
+  ins: RawInstruction,
+  itemSlot: number,
+  newItem: number,
+  indexSlot: number | undefined,
+  newIndex: number | undefined,
+): RawInstruction {
+  const op = opOf(ins);
+  if (op === "local.get" || op === "local.set") {
+    const idx = asLocalIndex(ins);
+    if (idx === itemSlot) return { ...ins, i: newItem } as RawInstruction;
+    if (indexSlot !== undefined && idx === indexSlot) return { ...ins, i: newIndex } as RawInstruction;
+  }
+  return { ...ins } as RawInstruction;
 }
 
 /**
@@ -209,20 +232,30 @@ export function unrollForEach(module: OsVbcModule, options: UnrollOptions = {}):
     return constants.length - 1;
   };
 
+  const rename = options.rename ?? true;
+  const hasIndexRename = hasIndex && indexSlot !== undefined;
+  const perIter = rename ? (hasIndexRename ? 2 : 1) : 0;
+  const baseSlot = proc.localsCount;
+  const newLocalsCount = baseSlot + tripCount * perIter;
+
   const out: RawInstruction[] = [];
   // Префикс: source expr + итератор.из + local.set src (длина/счётчик больше не нужны).
   out.push(...code.slice(0, iterIdx + 2));
 
   for (let i = 0; i < tripCount; i++) {
+    const newItem = rename ? baseSlot + i * perIter : itemSlot;
+    const newIndex = rename && hasIndexRename ? baseSlot + i * perIter + 1 : indexSlot;
     out.push({ op: "local.get", i: srcSlot } as RawInstruction);
     out.push({ op: "const", type: "i32", k: constIndex(i) } as RawInstruction);
     out.push({ op: "invoke", name: INVOKE_GET } as RawInstruction);
-    out.push({ op: "local.set", i: itemSlot } as RawInstruction);
-    if (hasIndex && indexSlot !== undefined) {
+    out.push({ op: "local.set", i: newItem } as RawInstruction);
+    if (hasIndexRename) {
       out.push({ op: "const", type: "i32", k: constIndex(i) } as RawInstruction);
-      out.push({ op: "local.set", i: indexSlot } as RawInstruction);
+      out.push({ op: "local.set", i: newIndex! } as RawInstruction);
     }
-    for (const ins of body) out.push({ ...ins } as RawInstruction);
+    for (const ins of body) {
+      out.push(remapSlot(ins, itemSlot, newItem, indexSlot, newIndex));
+    }
   }
 
   // Код после цикла (включая ret).
@@ -241,7 +274,7 @@ export function unrollForEach(module: OsVbcModule, options: UnrollOptions = {}):
       version: 1,
       moduleName: module.moduleName,
       constants,
-      procedures: module.procedures.map((p) => ({ ...p })),
+      procedures: module.procedures.map((p) => ({ ...p, localsCount: newLocalsCount })),
       code: out,
     },
     tripCount,

@@ -12,6 +12,15 @@ import { buildDependencyGraph } from './dependencyGraph';
 import { scheduleLinearBlock, packetsToCodeElements } from './scheduler';
 import { unrollForEach } from './unroll';
 
+/** Read-only системные вызовы: не имеют побочных эффектов → не сериализуются в графе. */
+const PURE_INVOKES = new Set<string>([
+  'система.массив.получить',
+  'система.массив.длина',
+  'система.итератор.из',
+  'система.объект.получить',
+  'система.объект.ключи',
+]);
+
 export interface OracleReport {
   /** Результат линейного исполнения. */
   linearResult: unknown;
@@ -46,6 +55,7 @@ export async function runOracle(mod: OsVbcModule, vliwSlots = 4): Promise<Oracle
     callArgc: (fi) => mod.procedures[fi]?.argc ?? 0,
     invokeArgc: (name) => getInvokeArgCount(name),
     callPure: (fi) => mod.procedures[fi]?.pure === true,
+    invokePure: (name) => PURE_INVOKES.has(name),
   });
   const packets = scheduleLinearBlock(flat, graph);
   const elements: CodeElement[] = packetsToCodeElements(packets);
@@ -79,10 +89,11 @@ export interface UnrollOracleReport extends OracleReport {
  */
 export async function runUnrollOracle(
   mod: OsVbcModule,
-  options: { tripCount?: number; vliwSlots?: number } = {},
+  options: { tripCount?: number; vliwSlots?: number; rename?: boolean } = {},
 ): Promise<UnrollOracleReport> {
   const { module: unrolled, tripCount, hasControlFlow } = unrollForEach(mod, {
     tripCount: options.tripCount,
+    rename: options.rename,
   });
   const report = await runOracle(unrolled, options.vliwSlots);
   return { ...report, tripCount, hasControlFlow };

@@ -20,6 +20,11 @@ export interface DependencyGraphOptions {
   argc?: number;
   /** Чистая ли процедура по индексу (нет побочных эффектов → call не упорядочивается с эффектами). */
   callPure?: (fi: number) => boolean;
+  /**
+   * Чистый ли invoke по имени (read-only системный вызов → не упорядочивается с эффектами).
+   * По умолчанию любой invoke считается эффектом.
+   */
+  invokePure?: (name: string) => boolean;
 }
 
 function getOp(ins: RawInstruction): string {
@@ -35,6 +40,7 @@ export function buildDependencyGraph(
   const callArgc = options.callArgc ?? (() => 0);
   const invokeArgc = options.invokeArgc ?? (() => 0);
   const callPure = options.callPure ?? (() => false);
+  const invokePure = options.invokePure ?? (() => false);
   const argc = options.argc ?? 0;
   const lastStore = new Map<number, number>();
   let lastEffect: number | undefined;
@@ -139,8 +145,10 @@ export function buildDependencyGraph(
           const a = stack.pop();
           if (a !== undefined) edges.push([a, i]);
         }
-        if (lastEffect !== undefined) edges.push([lastEffect, i]);
-        lastEffect = i;
+        if (!invokePure(name)) {
+          if (lastEffect !== undefined) edges.push([lastEffect, i]);
+          lastEffect = i;
+        }
         stack.push(i);
         break;
       }

@@ -142,3 +142,55 @@ describe("vliw.runUnrollOracle", () => {
     expect(report.avgSlots).toBeGreaterThan(1);
   });
 });
+
+describe("vliw software pipelining: renaming item/index", () => {
+  it("renaming сохраняет результат (сумма → 6)", async () => {
+    const mod = compileModule(SUM_SRC);
+    const { module } = unrollForEach(mod, { rename: true });
+    expect(await runEntry(module)).toBe(6);
+  });
+
+  it("независимые итерации распараллеливаются после renaming (ILP > 1)", async () => {
+    const src = `
+модуль Тест
+процедура главная()
+  пусть а = 0
+  пусть б = 0
+  для_каждого x в [1, 2]
+    а = x * 2
+    б = x * 3
+  конец
+  вернуть а + б
+конец
+конец`.trim();
+    const mod = compileModule(src);
+    const report = await runUnrollOracle(mod, { rename: true });
+
+    expect(report.equal).toBe(true);
+    expect(report.linearResult).toBe(10);
+    expect(report.scheduledResult).toBe(10);
+    expect(report.avgSlots).toBeGreaterThan(1);
+  });
+
+  it("renaming повышает параллелизм против общего слота", async () => {
+    const src = `
+модуль Тест
+процедура главная()
+  пусть а = 0
+  пусть б = 0
+  для_каждого x в [1, 2]
+    а = x * 2
+    б = x * 3
+  конец
+  вернуть а + б
+конец
+конец`.trim();
+    const mod = compileModule(src);
+    const renamed = await runUnrollOracle(mod, { rename: true });
+    const shared = await runUnrollOracle(mod, { rename: false });
+
+    expect(renamed.equal).toBe(true);
+    expect(shared.equal).toBe(true);
+    expect(renamed.packetCount).toBeLessThanOrEqual(shared.packetCount);
+  });
+});
