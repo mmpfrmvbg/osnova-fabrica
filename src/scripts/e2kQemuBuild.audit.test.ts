@@ -32,8 +32,41 @@ const SOURCES = path.join(ROOT, ".tmp", "e2k-sources");
 const TREE = path.join(SOURCES, "qemu-e2k", "qemu");
 const ARCHIVE = path.join(SOURCES, "qemu-e2k.tar.gz");
 
-/** Ожидаемый путь собранного бинаря — он же назван в документе. */
+/** Ожидаемый путь собранного бинаря на Windows-стороне (там его нет — сборка идёт в WSL). */
 export const BINARY = path.join(SOURCES, "qemu-e2k", "build", "qemu-e2k");
+
+/** Собранный в WSL бинарь: путь внутри дистрибутива и то, чем его запускать. */
+const WSL = "C:\\Program Files\\WSL\\wsl.exe";
+const WSL_BINARY = "/root/qemu-build/qemu-e2k";
+
+/** Запустить команду, вернуть вывод или `undefined` (вывод wsl.exe приходит в UTF-16LE). */
+function run(command: string, args: readonly string[]): string | undefined {
+  try {
+    const buffer = execFileSync(command, [...args], { timeout: 120_000, stdio: ["ignore", "pipe", "ignore"] });
+    if (buffer.length >= 2 && buffer[1] === 0 && buffer[0] !== 0) return buffer.toString("utf16le");
+    return buffer.toString("utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Найти собранный QEMU-e2k: сначала на Windows-стороне, затем в WSL-дистрибутиве.
+ *
+ * Оба пути законны: на Windows-хосте сборка невозможна (`docs/e2k-qemu-build.md` §2), поэтому
+ * рабочий путь один — сборка в WSL (§2.5), и документ обязан называть именно тот бинарь,
+ * который существует.
+ */
+export function findBuiltQemu(): { ok: boolean; version?: string; where?: "windows" | "wsl"; problem?: string } {
+  const windows = checkBuiltBinary(BINARY);
+  if (windows.ok) return { ...windows, where: "windows" };
+  const wslVersion = run(WSL, ["-d", "e2k", "--", WSL_BINARY, "--version"]);
+  if (wslVersion !== undefined && wslVersion.trim() !== "") {
+    const first = wslVersion.split(/\r?\n/).map((line) => line.replace(/\u0000/g, "").trim()).filter(Boolean)[0] ?? "";
+    if (first !== "") return { ok: true, version: first, where: "wsl" };
+  }
+  return { ok: false, problem: windows.problem ?? `не запускается ${WSL_BINARY} в WSL` };
+}
 
 /** Есть ли в PATH исполняемая программа (без падения, если её нет). */
 function toolPresent(name: string): boolean {
@@ -64,14 +97,16 @@ describe("сборка QEMU-e2k", () => {
 
   it("документ существует и называет путь бинаря", () => {
     expect(fs.existsSync(DOC), "нет docs/e2k-qemu-build.md").toBe(true);
-    expect(doc).toContain(".tmp/e2k-sources/qemu-e2k/build/qemu-e2k");
+    // Путь назван либо для Windows-сборки, либо для сборки в WSL — смотря какая состоялась.
+    expect(doc).toMatch(/\.tmp\/e2k-sources\/qemu-e2k\/build\/qemu-e2k|\/root\/qemu-build\/qemu-e2k/);
   });
 
   it("развилка «собран / не собран» разрешена: путь, версия или точная причина", () => {
-    const built = checkBuiltBinary(BINARY);
+    const built = findBuiltQemu();
     if (built.ok) {
-      expect(doc, "бинарь собран, а путь не записан").toContain(BINARY.replace(/\\/g, "/"));
-      expect(doc, "бинарь собран, а версия не записана").toContain("qemu-e2k version");
+      expect(doc, "бинарь собран, а путь не записан").toMatch(/\/root\/qemu-build\/qemu-e2k|qemu-e2k\/build/);
+      expect(doc, "бинарь собран, а версия не записана").toContain("11.0.1");
+      expect(doc, "не сказано, где именно собрано").toMatch(/WSL/);
       return;
     }
     // Не собран: причина обязана быть записана шагом и командой.
@@ -82,8 +117,15 @@ describe("сборка QEMU-e2k", () => {
     expect(doc, "нет ссылки на требование meson.build к sh").toMatch(/meson\.build:78/);
   });
 
-  it("причина не устарела: инструментов сборки в окружении по-прежнему нет", () => {
-    if (checkBuiltBinary(BINARY).ok) return;
+  it("причина не устарела: инструментов сборки в PATH Windows по-прежнему нет", () => {
+    if (findBuiltQemu().ok && process.platform === "win32") {
+      // Сборка идёт в WSL; проверяем, что Windows-PATH по-прежнему без цепочки, и что это
+      // записано как причина «на Windows невозможно».
+      const tools = ["sh", "gcc", "cc", "clang", "make", "meson"].filter(toolPresent);
+      expect(tools).toEqual([]);
+      expect(doc).toMatch(/На Windows-хосте/);
+      return;
+    }
     const tools = ["sh", "gcc", "cc", "clang", "make", "meson"].filter(toolPresent);
     expect(
       tools,
