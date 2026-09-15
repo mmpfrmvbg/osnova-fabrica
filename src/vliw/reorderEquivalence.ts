@@ -35,7 +35,11 @@ import {
   type InvokeHandler,
   type StackValue,
 } from "../runtime/vm/interpreter";
-import { scheduleRegWithReorder, scheduleRegInOrder, type ReorderOptions } from "./reorderScheduler";
+import {
+  scheduleRegWithReorder,
+  scheduleRegInOrder,
+  type ReorderOptions,
+} from "./reorderScheduler";
 import { countPipeline, type MemoryLevel, type PipelineCounters } from "./pipelineCounters";
 import { resolveEntryIndex } from "../oracle/parity";
 
@@ -171,12 +175,30 @@ export function applyReorderToWholeModule(
     });
     if (result.order.some((v, i) => v !== i)) orderChanged = true;
 
-    const newBody: RegCodeElement[] = result.order.map((origIdx, pos) => {
-      indexMap.set(bodyToModule[origIdx]!, newLength + pos);
+    // ВНИМАНИЕ: упаковка в пакеты НЕ включена.
+    //
+    // Найдено 2026-09-15: этот код выдавал каждую инструкцию отдельным
+    // однослотовым элементом, поэтому переставленный модуль содержал НОЛЬ
+    // пакетов — ровно как линейный. VM считает шагом один элемент, значит
+    // ускорения исполнения не было вовсе: модель показывала сокращение
+    // СТАТИЧЕСКИХ тактов, а динамика (число исполненных элементов) не менялась.
+    //
+    // Попытка упаковать (группировка по `issueAt`, функция `packByIssueTime`)
+    // ломает эквивалентность на программах с циклами: `while.osnova` и
+    // `foreach.osnova` расходятся. Упаковка не доведена до корректности, поэтому
+    // выключена, а не оставлена в полурабочем виде.
+    //
+    // Следствие: ВСЕ числа «выигрыша тактов» в этом проекте — статическая длина
+    // расписания по модели главы 6, а НЕ ускорение исполнения. См.
+    // `docs/vliw-ilp-calibration.md`.
+    const newBody: RegCodeElement[] = result.order.map((origIdx) => {
       // ГЛУБОКАЯ копия: иначе `off`/`args` остаются общими с исходным модулем,
       // и пересчёт адресов ниже портит оригинал (см. `cloneInstruction`).
       return cloneInstruction(body[origIdx]!);
     });
+    for (const [pos, origIdx] of result.order.entries()) {
+      indexMap.set(bodyToModule[origIdx]!, newLength + pos);
+    }
     newBodies.push(newBody);
     newLength += newBody.length;
   }

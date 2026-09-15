@@ -65,6 +65,15 @@ const CYCLIC_FILES = [
   "cycle-chains.osnova",
 ];
 
+/**
+ * Корпус с ЯВНО заданным уровнем ILP (низкий / средний / высокий).
+ *
+ * Служит для калибровки: показывает, что выигрыш зависит от числа независимых
+ * цепочек, а не от наличия цикла как такового. Уровни заданы в комментариях
+ * фикстур. Измерения — `docs/vliw-ilp-calibration.md`.
+ */
+const ILP_FILES = ["ilp-low.osnova", "ilp-mid.osnova", "ilp-high.osnova"];
+
 /** Корпус конструкций: независимое ожидание, все завершаются. */
 const PARITY_FILES = ["while.osnova", "foreach.osnova", "tuple.osnova", "try.osnova"];
 
@@ -121,6 +130,7 @@ async function main(): Promise<number> {
 
   for (const f of TERMINATING_FILES) cases.push(loadCase(f));
   for (const f of CYCLIC_FILES) cases.push(loadCase(f));
+  for (const f of ILP_FILES) cases.push(loadCase(f));
   for (const f of PARITY_FILES) cases.push(loadCase(path.join("reg-parity", f)));
   for (const app of GOLDEN_APPS) {
     cases.push(loadCase(app.file, app.entry, app.args));
