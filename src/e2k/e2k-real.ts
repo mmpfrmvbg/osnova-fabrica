@@ -134,6 +134,12 @@ export type RealForm = "ALF1" | "ALF2" | "ALF11";
 /** Слот операнда в слоге. Порядок в `operands` — порядок операндов интерфейса (результат последним). */
 export type RealSlot = "src1" | "src2" | "dst";
 
+/**
+ * Формат регистра: `S` — одиночный (`%b[N]`), `D` — двойной (`%db[N]`).
+ * В таблице МЦСТ этому соответствуют `SINGLE`/`DOUBLE` в `ARGS_*` (`include/opcode/e2k.h:109-169`).
+ */
+export type RealRegFormat = "S" | "D";
+
 /** Запись таблицы: операция e2k, её код и форма. */
 export interface RealOpcodeEntry {
   /** Мнемоника — копия из `opcodes/e2k-opc.h` посимвольно. */
@@ -146,6 +152,14 @@ export interface RealOpcodeEntry {
   readonly operands: readonly RealSlot[];
   /** Допустимые индексы слога ALS (из `allowed_channels` таблицы МЦСТ). */
   readonly channels: readonly number[];
+  /**
+   * Формат регистра по каждому операнду: `S` — одиночный (`%b[N]`), `D` — двойной (`%db[N]`).
+   * Источник — поле `ARGS_*` записи таблицы МЦСТ (`argsSource`). Нужен для записи образца
+   * в ассемблерной форме МЦСТ: `as` различает `%b[N]` и `%db[N]` и кодирует их по-разному.
+   */
+  readonly argFormats: readonly RealRegFormat[];
+  /** Источник форматов аргументов (`ARGS_*`). */
+  readonly argsSource: string;
   /** Источник: файл:строка таблицы опкодов. */
   readonly source: string;
   /** Источник раскладки полей формы. */
@@ -170,32 +184,34 @@ const LONG_CHANNELS: readonly number[] = [0, 1, 3, 4];
  */
 export const REAL_OPCODES: readonly RealOpcodeEntry[] = [
   // ALF1 — слог ALS, операнды src1, src2, dst
-  { mnemonic: "ands", opc: 0x00, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:79", formSource: ALF1_SOURCE },
-  { mnemonic: "andd", opc: 0x01, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:84", formSource: ALF1_SOURCE },
-  { mnemonic: "ors", opc: 0x04, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:99", formSource: ALF1_SOURCE },
-  { mnemonic: "ord", opc: 0x05, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:104", formSource: ALF1_SOURCE },
-  { mnemonic: "xors", opc: 0x08, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:119", formSource: ALF1_SOURCE },
-  { mnemonic: "xord", opc: 0x09, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:124", formSource: ALF1_SOURCE },
-  { mnemonic: "sxt", opc: 0x0c, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:199", formSource: ALF1_SOURCE },
-  { mnemonic: "adds", opc: 0x10, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:19", formSource: ALF1_SOURCE },
-  { mnemonic: "addd", opc: 0x11, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:24", formSource: ALF1_SOURCE },
-  { mnemonic: "subs", opc: 0x12, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:29", formSource: ALF1_SOURCE },
-  { mnemonic: "subd", opc: 0x13, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:34", formSource: ALF1_SOURCE },
-  { mnemonic: "scls", opc: 0x14, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:159", formSource: ALF1_SOURCE },
-  { mnemonic: "scld", opc: 0x15, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:164", formSource: ALF1_SOURCE },
-  { mnemonic: "shls", opc: 0x18, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:139", formSource: ALF1_SOURCE },
-  { mnemonic: "shrs", opc: 0x1a, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:149", formSource: ALF1_SOURCE },
-  { mnemonic: "sars", opc: 0x1c, form: "ALF1", operands: ["src1", "src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:179", formSource: ALF1_SOURCE },
-  // ALF2 — слог ALS, расширение в битах 23:16, операнды src2, dst
-  { mnemonic: "movts", opc: 0x60, form: "ALF2", operands: ["src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:644", formSource: ALF2_SOURCE },
-  { mnemonic: "movtd", opc: 0x61, form: "ALF2", operands: ["src2", "dst"], channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:664", formSource: ALF2_SOURCE },
+  { mnemonic: "ands", opc: 0x00, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:79 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:79", formSource: ALF1_SOURCE },
+  { mnemonic: "andd", opc: 0x01, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:84 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:84", formSource: ALF1_SOURCE },
+  { mnemonic: "ors", opc: 0x04, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:99 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:99", formSource: ALF1_SOURCE },
+  { mnemonic: "ord", opc: 0x05, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:104 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:104", formSource: ALF1_SOURCE },
+  { mnemonic: "xors", opc: 0x08, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:119 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:119", formSource: ALF1_SOURCE },
+  { mnemonic: "xord", opc: 0x09, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:124 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:124", formSource: ALF1_SOURCE },
+  { mnemonic: "sxt", opc: 0x0c, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "D"], argsSource: "opcodes/e2k-opc.h:199 (ARGS_SSD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:199", formSource: ALF1_SOURCE },
+  { mnemonic: "adds", opc: 0x10, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:19 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:19", formSource: ALF1_SOURCE },
+  { mnemonic: "addd", opc: 0x11, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:24 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:24", formSource: ALF1_SOURCE },
+  { mnemonic: "subs", opc: 0x12, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:29 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:29", formSource: ALF1_SOURCE },
+  { mnemonic: "subd", opc: 0x13, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:34 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:34", formSource: ALF1_SOURCE },
+  { mnemonic: "scls", opc: 0x14, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:159 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:159", formSource: ALF1_SOURCE },
+  { mnemonic: "scld", opc: 0x15, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:164 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:164", formSource: ALF1_SOURCE },
+  { mnemonic: "shls", opc: 0x18, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:139 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:139", formSource: ALF1_SOURCE },
+  { mnemonic: "shrs", opc: 0x1a, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:149 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:149", formSource: ALF1_SOURCE },
+  { mnemonic: "sars", opc: 0x1c, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:179 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:179", formSource: ALF1_SOURCE },
+  // ALF2 — слог ALS, расширение в битах 23:16, операнды src2, dst.
+  // Каналы — `{1, 1, 0, 1, 1, 0}` в таблице МЦСТ (без 2 и 5), как у длинной формы:
+  // исправлено при сверке с ассемблером (`docs/e2k-external-as.md`).
+  { mnemonic: "movts", opc: 0x60, form: "ALF2", operands: ["src2", "dst"], argFormats: ["S", "S"], argsSource: "opcodes/e2k-opc.h:644 (ARGS_SS)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:644", formSource: ALF2_SOURCE },
+  { mnemonic: "movtd", opc: 0x61, form: "ALF2", operands: ["src2", "dst"], argFormats: ["D", "D"], argsSource: "opcodes/e2k-opc.h:664 (ARGS_DD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:664", formSource: ALF2_SOURCE },
   // ALOPF11 — слог ALS + полуслог ALES
-  { mnemonic: "muls", opc: 0x20, form: "ALF11", operands: ["src1", "src2", "dst"], channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1434", formSource: ALF11_SOURCE },
-  { mnemonic: "muld", opc: 0x21, form: "ALF11", operands: ["src1", "src2", "dst"], channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1439", formSource: ALF11_SOURCE },
-  { mnemonic: "umulx", opc: 0x22, form: "ALF11", operands: ["src1", "src2", "dst"], channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1444", formSource: ALF11_SOURCE },
-  { mnemonic: "smulx", opc: 0x23, form: "ALF11", operands: ["src1", "src2", "dst"], channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1449", formSource: ALF11_SOURCE },
-  { mnemonic: "umulhd", opc: 0x70, form: "ALF11", operands: ["src1", "src2", "dst"], channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:3169", formSource: ALF11_SOURCE },
-  { mnemonic: "smulhd", opc: 0x71, form: "ALF11", operands: ["src1", "src2", "dst"], channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:3174", formSource: ALF11_SOURCE },
+  { mnemonic: "muls", opc: 0x20, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:1434 (ARGS_SSS)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1434", formSource: ALF11_SOURCE },
+  { mnemonic: "muld", opc: 0x21, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:1439 (ARGS_DDD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1439", formSource: ALF11_SOURCE },
+  { mnemonic: "umulx", opc: 0x22, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "D"], argsSource: "opcodes/e2k-opc.h:1444 (ARGS_SSD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1444", formSource: ALF11_SOURCE },
+  { mnemonic: "smulx", opc: 0x23, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "D"], argsSource: "opcodes/e2k-opc.h:1449 (ARGS_SSD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1449", formSource: ALF11_SOURCE },
+  { mnemonic: "umulhd", opc: 0x70, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:3169 (ARGS_DDD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:3169", formSource: ALF11_SOURCE },
+  { mnemonic: "smulhd", opc: 0x71, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:3174 (ARGS_DDD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:3174", formSource: ALF11_SOURCE },
 ];
 
 /** Таблица по мнемонике. */
