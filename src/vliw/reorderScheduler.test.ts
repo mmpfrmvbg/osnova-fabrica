@@ -22,6 +22,7 @@ import {
   regOpClass,
 } from "./reorderScheduler";
 import { buildRegDependencyGraph } from "./regGraph";
+import { clusterOf, type ChannelId } from "./e2kDevices";
 import type { RegInstruction } from "../runtime/vm/regcode";
 import { compileSource } from "../compiler/compiler";
 import { compileToReg } from "../compiler/regcodegen";
@@ -294,6 +295,106 @@ describe("reorderScheduler: реальный код компилируется �
       }
     });
   }
+});
+
+describe("reorderScheduler: кластеры АЛУ (стр. 194)", () => {
+  /**
+   * Стр. 194, дословно: «Микропроцессор «Эльбрус» имеет 6 каналов для выполнения
+   * арифметико-логических операций, при этом каналы 0,1,2 относятся к одному
+   * кластеру, а каналы 3,4,5 относятся к другому кластеру. Байпас не может
+   * работать между кластерами, работая в каждом отдельно.»
+   *
+   * Байпас — это механизм, отдающий результат потребителю ДО записи в
+   * регистровый файл. Если производитель и потребитель в разных кластерах, он
+   * невозможен, и результат идёт через rf — дольше. Поэтому планировщик обязан
+   * держать зависимые операции в одном кластере.
+   */
+  const PROGRAM = `модуль Т
+процедура главная()
+  пусть a = 1 + 2
+  пусть b = 3 + 4
+  пусть c = 5 + 6
+  пусть d = 7 + 8
+  вернуть a + b + c + d
+конец
+конец
+`;
+
+  /** Программы, на которых проверяем, что предпочтение кластера ничего не ломает. */
+  const CLUSTER_PROGRAMS: Array<[string, string]> = [
+    ["арифметика", PROGRAM],
+    [
+      "цикл",
+      `модуль Т
+процедура главная()
+  пусть i = 0
+  пусть s = 0
+  пока i < 4
+    s = s + i * 2
+    i = i + 1
+  конец
+  вернуть s
+конец
+конец
+`,
+    ],
+  ];
+
+  it("зависимые операции садятся в один кластер", () => {
+    const code = regCodeOf(PROGRAM);
+    const graph = buildRegDependencyGraph(code, {});
+    const r = scheduleGraphWithReorder(code, graph);
+
+    const channelOf = new Map<number, ChannelId>();
+    for (const p of r.packets) {
+      for (const s of p.slots) channelOf.set(s.index, s.channel);
+    }
+
+    let crossCluster = 0;
+    let sameCluster = 0;
+    for (const [from, to] of graph.edges) {
+      const cf = clusterOf(channelOf.get(from)!);
+      const ct = clusterOf(channelOf.get(to)!);
+      if (cf === undefined || ct === undefined) continue; // канал без кластера (СТ)
+      if (cf === ct) sameCluster++;
+      else crossCluster++;
+    }
+    expect(sameCluster).toBeGreaterThan(0);
+    // Ни одна зависимость не должна пересекать границу кластера: 3 канала на
+    // кластер достаточно, чтобы разместить зависимости внутри.
+    expect(crossCluster).toBe(0);
+  });
+
+  it("кластеры АЛУ разложены как в документе: 0,1,2 → 0; 3,4,5 → 1", () => {
+    expect(clusterOf("alu0")).toBe(0);
+    expect(clusterOf("alu1")).toBe(0);
+    expect(clusterOf("alu2")).toBe(0);
+    expect(clusterOf("alu3")).toBe(1);
+    expect(clusterOf("alu4")).toBe(1);
+    expect(clusterOf("alu5")).toBe(1);
+    // Канал передачи управления кластера не имеет.
+    expect(clusterOf("ct")).toBeUndefined();
+  });
+
+  it("предпочтение кластера не ломает эквивалентность расписания", () => {
+    for (const [name, source] of CLUSTER_PROGRAMS) {
+      const code = regCodeOf(source);
+      for (const region of splitLinearRegions(code)) {
+        const slice = code.slice(region.start, region.end);
+        const graph = buildRegDependencyGraph(slice, {});
+        const r = scheduleGraphWithReorder(slice, graph);
+        const v = validateRegSchedule(slice, graph, r);
+        expect(v.problems, `${name}: ${v.problems.join("; ")}`).toEqual([]);
+      }
+    }
+  });
+
+  it("предпочтение кластера не ухудшает такты против in-order", () => {
+    const code = regCodeOf(PROGRAM);
+    const graph = buildRegDependencyGraph(code, {});
+    const r = scheduleGraphWithReorder(code, graph);
+    expect(r.metrics.cycles).toBeLessThanOrEqual(r.metrics.inOrderCycles);
+  });
 });
 
 describe("reorderScheduler: классы операций", () => {

@@ -37,7 +37,9 @@
 import type { RegInstruction } from "../runtime/vm/regcode";
 import {
   DOMAIN_PENALTY,
-  channelsFor,
+  channelsForClass,
+  clusterOf,
+  type AluCluster,
   type ChannelId,
   type OpClass,
 } from "./e2kDevices";
@@ -249,6 +251,37 @@ function regDomainPenalty(producer: OpClass, consumer: OpClass): number {
   return 0;
 }
 
+/**
+ * Штраф за то, что потребитель окажется в другом кластере, чем производитель.
+ *
+ * Стр. 194: «Байпас не может работать между кластерами, работая в каждом
+ * отдельно». Байпас позволяет потребителю получить результат **до** записи в
+ * регистровый файл; без него результат идёт через rf, то есть дольше.
+ *
+ * ## Почему функция возвращает 0, а не число
+ *
+ * Документ не даёт величины «на сколько тактов дороже через rf»: он даёт
+ * таблицы `relative_latency` по фазам конвейера (стр. 193 и далее), которые мы
+ * не реализовали. Придумывать число — ровно та ошибка, из-за которой в проекте
+ * когда-то стояло «все операции 1 такт».
+ *
+ * Поэтому вместо штрафа планировщик **избегает** другого кластера: каналы
+ * сортируются так, что каналы кластера производителя идут первыми
+ * (`channelsForClass(..., preferCluster)`), и потребитель садится туда, где
+ * байпас работает. Эта функция оставлена как точка расширения: когда таблицы
+ * главы 12 будут реализованы, штраф появится здесь и станет числом.
+ */
+function crossClusterPenalty(
+  producerCluster: AluCluster | undefined,
+  consumerIndex: number,
+  consumerClass: readonly OpClass[],
+): number {
+  void producerCluster;
+  void consumerIndex;
+  void consumerClass;
+  return 0;
+}
+
 export interface ReorderOptions extends RegGraphOptions {
   /**
    * Как моделировать обращения к памяти (чтения `obj.get`).
@@ -424,7 +457,7 @@ export function scheduleGraphInOrder(
   for (let i = 0; i < n; i++) {
     cls[i] = regOpClass(code[i]!);
     lat[i] = latencyForClass(cls[i]!, memoryLevel);
-    const ch = channelsFor(regOpToStackName(code[i]!));
+    const ch = channelsForClass(cls[i]!);
     if (ch.length === 0) {
       throw new ReorderError(`нет исполнительного устройства для «${code[i]!.op}» (#${i})`);
     }
@@ -578,15 +611,12 @@ export function scheduleGraphWithReorder(
 
   const cls = new Array<OpClass>(n);
   const lat = new Array<number>(n);
-  const channels = new Array<ChannelId[]>(n);
   for (let i = 0; i < n; i++) {
     cls[i] = regOpClass(code[i]!);
     lat[i] = latencyForClass(cls[i]!, memoryLevel);
-    const ch = channelsFor(regOpToStackName(code[i]!));
-    if (ch.length === 0) {
+    if (channelsForClass(cls[i]!).length === 0) {
       throw new ReorderError(`нет исполнительного устройства для «${code[i]!.op}» (#${i})`);
     }
-    channels[i] = ch;
   }
 
   const issueAt = new Array<number>(n).fill(-1);
@@ -598,6 +628,34 @@ export function scheduleGraphWithReorder(
   /** Оценка: не раньше какого такта узел может быть выдан. */
   const est = new Array<number>(n).fill(0);
   const placed = new Array<boolean>(n).fill(false);
+
+  /**
+   * Кластер, в котором выдан каждый узел. Нужен, чтобы держать зависимые
+   * операции в одном кластере: байпас между кластерами не работает (стр. 194),
+   * и результат пошёл бы через регистровый файл — то есть дольше.
+   */
+  const issuedCluster = new Array<AluCluster | undefined>(n).fill(undefined);
+
+  /**
+   * Предпочтительный кластер для узла: кластер производителя самого позднего
+   * операнда. Если ни у одного предшественника кластера нет (например, это
+   * `invoke` на канале СТ), предпочтения нет.
+   */
+  const preferClusterFor = (i: number): AluCluster | undefined => {
+    let best: AluCluster | undefined;
+    let bestReady = -1;
+    for (const p of graph.preds[i]!) {
+      const c = issuedCluster[p];
+      if (c === undefined) continue;
+      const r = readyAt[p]!;
+      if (r > bestReady) {
+        bestReady = r;
+        best = c;
+      }
+    }
+    return best;
+  };
+
   const ready: number[] = [];
   for (let i = 0; i < n; i++) {
     if (remainingPreds[i]! === 0) ready.push(i);
@@ -608,6 +666,10 @@ export function scheduleGraphWithReorder(
   let nopCycles = 0;
   let t = 0;
 
+  /** Все каналы, которые узел мог бы занять в этом такте. */
+  const candidatesFor = (i: number): ChannelId[] =>
+    channelsForClass(cls[i]!, preferClusterFor(i));
+
   while (ready.length > 0) {
     const usedChannels = new Set<ChannelId>();
     const packetSlots: ReorderedSlot[] = [];
@@ -615,13 +677,14 @@ export function scheduleGraphWithReorder(
 
     while (progressed) {
       progressed = false;
-      // Кандидаты, готовые к этому такту: оценка достигнута и есть свободный
-      // канал. Выбираем по (оценка, индекс) — детерминированно.
       let best = -1;
       let bestKey: [number, number] = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
       for (const c of ready) {
         if (est[c]! > t) continue;
-        if (channels[c]!.every((ch) => usedChannels.has(ch))) continue;
+        const cand = candidatesFor(c);
+        if (cand.every((ch) => usedChannels.has(ch))) continue;
+        // Приоритет: (оценка, индекс). Оценка уже включает штраф за другой
+        // кластер, поэтому узел, которому нужен занятый кластер, «подождёт».
         const key: [number, number] = [est[c]!, c];
         if (key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) {
           best = c;
@@ -630,8 +693,10 @@ export function scheduleGraphWithReorder(
       }
       if (best < 0) break;
 
-      const ch = channels[best]!.find((x) => !usedChannels.has(x))!;
+      const cand = candidatesFor(best);
+      const ch = cand.find((x) => !usedChannels.has(x))!;
       usedChannels.add(ch);
+      issuedCluster[best] = clusterOf(ch);
       packetSlots.push({
         index: best,
         op: code[best]!.op,
@@ -645,11 +710,13 @@ export function scheduleGraphWithReorder(
       order.push(best);
       progressed = true;
 
-      // Убираем из готовых; уточняем оценки потомков.
       ready.splice(ready.indexOf(best), 1);
       for (const s of succs[best]!) {
         remainingPreds[s]!--;
-        const need = readyAt[best]! + regDomainPenalty(cls[best]!, cls[s]!);
+        const need =
+          readyAt[best]! +
+          regDomainPenalty(cls[best]!, cls[s]!) +
+          crossClusterPenalty(issuedCluster[best], s, cls);
         if (need > est[s]!) est[s] = need;
         if (remainingPreds[s]! === 0) ready.push(s);
       }
@@ -665,7 +732,6 @@ export function scheduleGraphWithReorder(
       nopCycles += Math.max(0, t - prevEnd);
       t += 1;
     } else {
-      // Никто не готов в этом такте: сдвигаем время к ближайшей оценке.
       let next = Number.POSITIVE_INFINITY;
       for (const c of ready) next = Math.min(next, est[c]!);
       if (!Number.isFinite(next) || next <= t) {
@@ -744,47 +810,6 @@ function latencyOf(cls: OpClass): number {
       return 6;
     case "movtd_to_ct":
       return 9;
-  }
-}
-
-/**
- * Имя стекового опкода для `channelsFor`, чтобы не дублировать таблицу
- * устройств. `channelsFor` работает по классу операции, а класс у нас уже есть;
- * поэтому маппинг тривиален и намеренно явный.
- */
-function regOpToStackName(ins: RegInstruction): string {
-  switch (ins.op) {
-    case "obj.set":
-      return "obj.set";
-    case "obj.get":
-      return "obj.get";
-    case "div":
-      return "div";
-    case "rem":
-      return "rem";
-    case "mul":
-      return "mul";
-    case "call":
-      return "call";
-    case "invoke":
-      return "invoke";
-    case "ret":
-      return "ret";
-    case "jmp":
-      return "jmp";
-    case "jmp_if":
-      return "jmp_if";
-    case "jmp_if_not":
-      return "jmp_if_not";
-    case "eq":
-    case "ne":
-    case "lt":
-    case "le":
-    case "gt":
-    case "ge":
-      return "eq";
-    default:
-      return "add";
   }
 }
 

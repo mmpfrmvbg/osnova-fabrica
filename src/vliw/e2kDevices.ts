@@ -68,6 +68,41 @@ export type ChannelId =
   | (typeof CHANNELS.APB)[number]
   | (typeof CHANNELS.LIT)[number];
 
+/**
+ * Кластер АЛУ.
+ *
+ * Стр. 194, дословно: «Микропроцессор «Эльбрус» имеет 6 каналов для выполнения
+ * арифметико-логических операций, при этом **каналы 0,1,2 относятся к одному
+ * кластеру, а каналы 3,4,5 относятся к другому кластеру**. Байпас не может
+ * работать между кластерами, работая в каждом отдельно.»
+ *
+ * Почему это важно для планирования: байпас — это «аппаратный механизм,
+ * позволяющий операции потребителю получить результат до его записи в
+ * регистровый файл (напрямую от операции источника)» (стр. 194). Если
+ * производитель и потребитель оказались в РАЗНЫХ кластерах, байпас невозможен, и
+ * результат идёт через регистровый файл — то есть дольше. Значит, размещая
+ * зависимые операции, планировщик обязан по возможности держать их в одном
+ * кластере.
+ */
+export type AluCluster = 0 | 1;
+
+/** Кластер каждого АЛУ: 0,1,2 → 0; 3,4,5 → 1 (стр. 194). */
+export const ALU_CLUSTER: Readonly<Record<AluId, AluCluster>> = {
+  alu0: 0,
+  alu1: 0,
+  alu2: 0,
+  alu3: 1,
+  alu4: 1,
+  alu5: 1,
+};
+
+/** Кластер канала; `undefined` — канал не АЛУ (у него кластера нет). */
+export function clusterOf(ch: ChannelId): AluCluster | undefined {
+  return (CHANNELS.ALU as readonly string[]).includes(ch)
+    ? ALU_CLUSTER[ch as AluId]
+    : undefined;
+}
+
 /** Все 24 канала в порядке, удобном для индексации в пакете. */
 export const ALL_CHANNELS: readonly ChannelId[] = [
   ...CHANNELS.ALU,
@@ -422,7 +457,23 @@ export function channelCanRun(ch: ChannelId, cls: OpClass): boolean {
 
 /** Каналы, способные исполнить операцию, в детерминированном порядке. */
 export function channelsFor(op: string): ChannelId[] {
-  const cls = opClassOf(op);
+  return channelsForClass(opClassOf(op));
+}
+
+/**
+ * Каналы для **класса** операции.
+ *
+ * Нужен там, где класс уже известен напрямую (регистровый кодоген,
+ * `reorderScheduler`), — чтобы не проходить через имя стекового опкода.
+ *
+ * @param preferCluster желаемый кластер: каналы этого кластера идут первыми.
+ *   Так планировщик держит зависимые операции в одном кластере, где байпас
+ *   работает (стр. 194). Если `undefined` — порядок естественный.
+ */
+export function channelsForClass(
+  cls: OpClass,
+  preferCluster?: AluCluster,
+): ChannelId[] {
   const out: ChannelId[] = [];
   if (
     cls === "to_ct" ||
@@ -437,7 +488,12 @@ export function channelsFor(op: string): ChannelId[] {
   for (const ch of ALL_CHANNELS) {
     if (channelCanRun(ch, cls)) out.push(ch);
   }
-  return out;
+  if (preferCluster === undefined) return out;
+  // Стабильная сортировка: предпочитаемый кластер вперёд, порядок внутри групп
+  // сохраняется (детерминизм расписания).
+  const preferred = out.filter((ch) => clusterOf(ch) === preferCluster);
+  const other = out.filter((ch) => clusterOf(ch) !== preferCluster);
+  return [...preferred, ...other];
 }
 
 // ---------------------------------------------------------------------------
