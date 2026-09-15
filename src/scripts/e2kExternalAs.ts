@@ -197,9 +197,25 @@ export function assembleAll(samples: readonly AsSample[]): AsResult[] {
   return parseAssemblyOutput(output, samples.length);
 }
 
+/** Номер запуска сборки в этом процессе: каталог обязан быть своим у каждого вызова. */
+let assemblyRun = 0;
+
+/**
+ * Каталог для `.s`/`.o`/`.bin` внутри WSL.
+ *
+ * Каталог **уникален на каждый вызов**: `/tmp` в WSL один на все процессы, и общий каталог
+ * (`/tmp/e2k-as`) давал гонку — параллельные тесты затирали файлы друг друга, а ассемблер
+ * отвечал «can't open /tmp/e2k-as/s5.s» или читал чужие байты. Это наблюдалось на полном
+ * прогоне, поэтому в имя входят pid и номер вызова.
+ */
+export function scriptDirectory(): string {
+  assemblyRun += 1;
+  return `/tmp/e2k-as-${process.pid}-${assemblyRun}`;
+}
+
 /** Текст сборочного скрипта: по одному файлу на образец и разметка результатов. */
 export function buildAssemblyScript(samples: readonly AsSample[], tool: ExternalAs): string {
-  const dir = '/tmp/e2k-as';
+  const dir = scriptDirectory();
   const as = tool.inWsl ? WSL_AS : tool.path;
   const objcopy = tool.inWsl ? WSL_OBJCOPY : 'e2k-linux-objcopy';
   const lines: string[] = ['set -u', `D=${dir}`, 'rm -rf "$D"', 'mkdir -p "$D"'];
