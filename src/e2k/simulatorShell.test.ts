@@ -359,6 +359,8 @@ describe('симулятор на оболочке: порядок инстру�
     const between = await runProbe('gap-between', 'A1');
     // Один и тот же смысл, разный порядок: без зазора потребитель ждёт умножение.
     expect(Number(after.value), 'смысл программ разошёлся').toBe(Number(between.value));
+    expect(after.report.ticks, 'зазор после потребителя').toBe(14);
+    expect(between.report.ticks, 'зазор заполнен').toBe(13);
     expect(
       between.report.ticks,
       `порядок не повлиял на такты: после=${after.report.ticks}, в зазоре=${between.report.ticks}`,
@@ -386,6 +388,8 @@ describe('симулятор на оболочке: порядок инстру�
     const emitted = await runProbe('gap-between', 'A5', { order: 'emitted' });
     const linear = await runProbe('gap-between', 'A5', { order: 'linear' });
     expect(Number(emitted.value), 'смысл разошёлся').toBe(Number(linear.value));
+    expect(emitted.report.ticks, 'порядок слотов: независимая инструкция впереди').toBe(14);
+    expect(linear.report.ticks, 'исходный порядок: независимая инструкция в зазоре').toBe(13);
     expect(
       emitted.report.ticks,
       'перестановка перестала менять порядок — утверждение устарело',
@@ -400,6 +404,7 @@ describe('симулятор на оболочке: четыре дефекта 
   it('4.1 снятие учёта зависимостей уменьшает такты, числа ядер остаются', async () => {
     const honest = await runKernel('fir', 'A5');
     const loose = await runKernel('fir', 'A5', { defects: { ignoreDependencies: true } });
+    expect(loose.report.ticks, 'дефект 4.1: такты без учёта зависимостей').toBe(727);
     expect(loose.report.ticks).toBeLessThan(honest.report.ticks);
     expect(Number(loose.value)).toBe(Number(honest.value));
     expect(loose.report.instructions).toBe(honest.report.instructions);
@@ -409,6 +414,7 @@ describe('симулятор на оболочке: четыре дефекта 
   it('4.2 подмена класса задержки (ALU → MEM) меняет такты', async () => {
     const honest = await runKernel('fir', 'A5');
     const broken = await runKernel('fir', 'A5', { defects: { latencyClassOverride: 'MEM' } });
+    expect(broken.report.ticks, 'дефект 4.2: такты с подменённым классом').toBe(1337);
     expect(broken.report.ticks, 'подмена класса не повлияла на такты').not.toBe(honest.report.ticks);
     expect(Number(broken.value), 'подмена класса изменила числа ядра').toBe(Number(honest.value));
   });
