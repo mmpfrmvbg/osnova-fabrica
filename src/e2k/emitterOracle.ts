@@ -24,6 +24,7 @@
  */
 
 import { OPCODES } from "./encoding";
+import { IR_CARRIER_PREFIX } from "./shell";
 import {
   auditEncoder,
   sameInstruction,
@@ -33,15 +34,16 @@ import {
 } from "./backend";
 import type { RegAtomRegion, RegInstruction, RegModule } from "../runtime/vm/regcode";
 
+export { IR_CARRIER_PREFIX };
+
 /**
- * Префикс имён носителей IR.
+ * Префикс имён носителей IR (объявлен в `src/e2k/shell.ts` — там живёт пространство имён).
  *
  * Носитель — это **наше** имя для передачи IR-инструкции через оболочку (`IR.add`, `IR.invoke`).
  * Оно не является мнемоникой e2k и не присутствует в извлечении руководства: правило проекта
  * «мнемоника либо скопирована посимвольно, либо её нет» соблюдается тем, что носители живут
  * в **отдельном** пространстве имён с этим префиксом, а не в таблице документированных операций.
  */
-export const IR_CARRIER_PREFIX = "IR.";
 
 /** Маркер формата артефакта эмиттера (наше имя формата, не стандарт). */
 export const SHELL_IMAGE_FORMAT = "osnova-shell-image";
