@@ -126,20 +126,48 @@ function isControlReg(ins: RegInstruction): boolean {
  * метку перехода или через терминатор нельзя. Границы те же, что у in-order
  * планировщика (`regScheduler.ts`): цели переходов, `try_begin` и позиция сразу
  * после терминатора.
+ *
+ * @param offsetBase абсолютный индекс, которому соответствует `code[0]`.
+ *
+ * ## Зачем `offsetBase` (найденный дефект)
+ *
+ * `off` у `jmp*`/`try_begin` в регистровом модуле — **абсолютный индекс по всему
+ * `module.code`**, а не по переданному массиву. Когда планируется одна процедура
+ * (срез модуля), её переходы указывают на абсолютные позиции.
+ *
+ * Первая версия трактовала `off` как индекс внутри среза. На модуле из четырёх
+ * процедур это давало неверные границы: у процедуры `#2`, начинающейся с 34,
+ * `jmp off=36` — это индекс 70 в модуле, то есть вообще вне её тела. Участки
+ * строились неправильно, планировщик переставлял инструкции через реальные
+ * границы, и программа считала `1041` вместо `1049`.
+ *
+ * Поэтому база передаётся явно: цель перехода переводится в индекс внутри
+ * массива как `off - offsetBase`. По умолчанию база `0` — планирование целого
+ * модуля, где `off` и так совпадает с индексом.
  */
-export function linearRegionStarts(code: readonly RegInstruction[]): Set<number> {
+export function linearRegionStarts(
+  code: readonly RegInstruction[],
+  offsetBase = 0,
+): Set<number> {
   const starts = new Set<number>([0, code.length]);
+  /** Абсолютная цель → индекс внутри `code`, если она внутри массива. */
+  const localize = (abs: number): number | undefined => {
+    const local = abs - offsetBase;
+    return local >= 0 && local <= code.length ? local : undefined;
+  };
   for (let i = 0; i < code.length; i++) {
     const ins = code[i]!;
     if (ins.op === "jmp" || ins.op === "jmp_if" || ins.op === "jmp_if_not") {
-      starts.add(ins.off);
+      const local = localize(ins.off);
+      if (local !== undefined) starts.add(local);
     }
     if (ins.op === "try_begin") {
       // Интерпретатор, войдя в пакет с `try_begin`, продолжит исполнять
       // остальные слоты уже в другом состоянии обработчиков — см.
       // `regScheduler.ts`. Поэтому участок начинается и в теле, и в обработчике.
       starts.add(i);
-      starts.add(ins.off);
+      const local = localize(ins.off);
+      if (local !== undefined) starts.add(local);
     }
     if (isControlReg(ins)) {
       // Терминатор (`jmp*`, `ret`) закрывает участок: переставлять через него
@@ -157,8 +185,9 @@ export function linearRegionStarts(code: readonly RegInstruction[]): Set<number>
 /** Разбить код на линейные участки (индексы начала включительно, конца — нет). */
 export function splitLinearRegions(
   code: readonly RegInstruction[],
+  offsetBase = 0,
 ): Array<{ start: number; end: number }> {
-  const starts = [...linearRegionStarts(code)]
+  const starts = [...linearRegionStarts(code, offsetBase)]
     .filter((p) => p >= 0 && p <= code.length)
     .sort((a, b) => a - b);
   const regions: Array<{ start: number; end: number }> = [];
@@ -302,6 +331,16 @@ export interface ReorderOptions extends RegGraphOptions {
    * кластера» можно было измерить, а не заявить.
    */
   respectClusters?: boolean;
+  /**
+   * Абсолютный индекс, которому соответствует `code[0]`.
+   *
+   * Нужен, когда планируется **срез модуля** (одна процедура): переходы внутри
+   * него несут абсолютные адреса по всему `module.code`. Без этой базы границы
+   * линейных участков строятся неверно — см. {@link linearRegionStarts}.
+   *
+   * `0` (по умолчанию) — планируется целый модуль, адреса совпадают с индексами.
+   */
+  offsetBase?: number;
 }
 
 /** Длительность чтения по уровню памяти (стр. 71). */
@@ -363,6 +402,7 @@ function scheduleRegByRegions(
     graph: RegGraph,
     memoryLevel: ReorderOptions["memoryLevel"],
     respectClusters: boolean,
+    offsetBase: number,
   ) => ReorderResult,
 ): ReorderResult {
   const n = code.length;
@@ -370,7 +410,15 @@ function scheduleRegByRegions(
     return emptyResult();
   }
 
-  const regions = splitLinearRegions(code);
+  /**
+   * База адресов: если планируется срез модуля, переходы внутри него несут
+   * АБСОЛЮТНЫЕ адреса по всему `module.code`, а не индексы среза. Передаём базу
+   * в разбиение на участки, иначе границы строятся неверно и планировщик
+   * переставляет инструкции через реальные границы циклов (дефект, найденный на
+   * `while.osnova`: 1041 вместо 1049).
+   */
+  const offsetBase = opts.offsetBase ?? 0;
+  const regions = splitLinearRegions(code, offsetBase);
   const order: number[] = [];
   const issueAt = new Array<number>(n).fill(0);
   const readyAt = new Array<number>(n).fill(0);
@@ -393,6 +441,7 @@ function scheduleRegByRegions(
       graph,
       opts.memoryLevel ?? "l1",
       opts.respectClusters !== false,
+      offsetBase + region.start,
     );
 
     for (const [pi, p] of local.packets.entries()) {
@@ -462,7 +511,14 @@ export function scheduleGraphInOrder(
   code: readonly RegInstruction[],
   graph: RegGraph,
   memoryLevel: ReorderOptions["memoryLevel"] = "l1",
+  // Принимается ради единой сигнатуры с `scheduleGraphWithReorder` (её требует
+  // общая обвязка `scheduleRegByRegions`), но в in-order планировании не
+  // используется: порядок задан программой, выбирать кластер не из чего.
+  respectClusters: boolean = true,
+  /** Не используется: см. `scheduleGraphWithReorder`. */
+  _offsetBase: number = 0,
 ): ReorderResult {
+  void respectClusters;
   const n = code.length;
   if (n === 0) return emptyResult();
 
@@ -621,6 +677,13 @@ export function scheduleGraphWithReorder(
   graph: RegGraph,
   memoryLevel: ReorderOptions["memoryLevel"] = "l1",
   respectClusters: boolean = true,
+  /**
+   * Не используется: планировщик получает уже готовый **линейный участок**, а
+   * переходы (`jmp*`) внутри участка не встречаются — они и есть его границы.
+   * Параметр оставлен для единой сигнатуры с in-order вариантом (её требует
+   * общая обвязка `scheduleRegByRegions`).
+   */
+  _offsetBase: number = 0,
 ): ReorderResult {
   const n = code.length;
   if (n === 0) return emptyResult();
