@@ -13,7 +13,9 @@ import * as fs from "fs";
 import * as path from "path";
 import { runReorderEquivalence, applyReorderToModule } from "./reorderEquivalence";
 import { regModuleOf } from "./regOracle";
-import type { RegModule } from "../runtime/vm/regcode";
+import { isEffectInstruction, buildRegDependencyGraph } from "./regGraph";
+import { scheduleGraphWithReorder, validateRegSchedule } from "./reorderScheduler";
+import type { RegInstruction, RegModule } from "../runtime/vm/regcode";
 
 const FIXTURES = path.join(__dirname, "..", "runtime", "fixtures");
 const PARITY = path.join(FIXTURES, "reg-parity");
@@ -94,6 +96,112 @@ describe("reorderEquivalence: перестановка действительн�
     expect(report.reorderedValue).toBe(7);
     expect(report.ok, report.message).toBe(true);
   });
+});
+
+describe("reorderEquivalence: регрессия на барьер возврата", () => {
+  /**
+   * Дефект, найденный этим оракулом на `storage_demo.osnova`:
+   *
+   * `ret` не имеет предшественников по данным — возвращаемое значение не связано
+   * с эффектами, которые идут раньше. Планировщик считал его независимым, выдавал
+   * ПЕРВЫМ, и процедура завершалась до того, как срабатывали
+   * `система.лог.вывести` и запись в хранилище. Статическая проверка расписания
+   * (`validateRegSchedule`) этого не ловила: рёбер в графе как раз и не было.
+   *
+   * Исправлено двумя способами:
+   * 1. `isEffectInstruction("ret") === true` — возврат замыкается на цепочку
+   *    эффектов и наблюдает всё, что было до него;
+   * 2. `ret`/`jmp*` закрывают линейный участок, а `validateRegSchedule` теперь
+   *    проверяет, что терминатор стоит последним в своём участке.
+   */
+  it("ret объявлен эффектом — он наблюдает всё, что было до него", () => {
+    expect(isEffectInstruction({ op: "ret" } as RegInstruction)).toBe(true);
+  });
+
+  it("в графе у ret есть предшественники, если до него были эффекты", () => {
+    const code = [
+      { op: "const", d: 1, type: "str", k: 0 },
+      { op: "invoke", name: "система.лог.вывести", args: [1], argc: 1 } as RegInstruction,
+      { op: "ret" } as RegInstruction,
+    ];
+    const graph = buildRegDependencyGraph(code, {});
+    expect(graph.preds[2]!.length).toBeGreaterThan(0);
+  });
+
+  it("терминатор всегда последний в участке", () => {
+    const code = [
+      { op: "const", d: 1, type: "i32", k: 0 },
+      { op: "ret", v: 1 } as RegInstruction,
+    ];
+    const graph = buildRegDependencyGraph(code, {});
+    const r = scheduleGraphWithReorder(code, graph);
+    const v = validateRegSchedule(code, graph, r);
+    expect(v.problems).toEqual([]);
+    // ret — последняя в порядке выдачи.
+    expect(r.order[r.order.length - 1]).toBe(1);
+  });
+
+  it("storage_demo: вывод в лог происходит, а не теряется", async () => {
+    // Именно здесь дефект и проявлялся: ret убегал вперёд, и хост-вызов
+    // «система.лог.вывести» не исполнялся вовсе.
+    const { module } = moduleOfFile(path.join(FIXTURES, "storage_demo.osnova"));
+    const report = await runReorderEquivalence(module, {});
+    const reorderedInvokes = report.reorderedTrace.filter((s) => s.kind === "invoke");
+    const linearInvokes = report.linearTrace.filter((s) => s.kind === "invoke");
+    expect(reorderedInvokes.length).toBe(linearInvokes.length);
+    expect(reorderedInvokes.length).toBeGreaterThan(0);
+    expect(report.ok, report.message).toBe(true);
+  });
+
+  it("многоproцедурный модуль: task_stats эквивалентен", async () => {
+    // Второй аспект того же дефекта: адреса процедур после перестановки нужно
+    // пересчитывать для ВСЕГО модуля, иначе вызов уходит не туда.
+    const { module } = moduleOfFile(path.join(FIXTURES, "task_stats.osnova"));
+    expect(module.procedures.length).toBeGreaterThan(1);
+    const report = await runReorderEquivalence(module, {});
+    expect(report.ok, report.message).toBe(true);
+    expect(report.tracesEqual).toBe(true);
+  });
+});
+
+describe("reorderEquivalence: корпус проекта", () => {
+  /**
+   * Все фикстуры проекта, кроме оконных приложений с бесконечным `цикл`.
+   *
+   * Три оконных (`todo`, `micro_crm`, `game_rounds`) не завершаются ни на одной
+   * из сторон, поэтому эквивалентность на них НЕ доказывается — оракул обязан
+   * возвращать `ok: false` с текстом «эквивалентность не доказана», а не
+   * рапортовать успех на взаимном падении.
+   */
+  const TERMINATING = [
+    "hello.osnova",
+    "func_params.osnova",
+    "task_stats.osnova",
+    "storage_demo.osnova",
+    "блокнот.osnova",
+  ];
+
+  for (const file of TERMINATING) {
+    it(`${file}: эквивалентность доказана`, async () => {
+      const { module } = moduleOfFile(path.join(FIXTURES, file));
+      const report = await runReorderEquivalence(module, {});
+      expect(report.ok, report.message).toBe(true);
+      expect(report.valuesEqual).toBe(true);
+      expect(report.tracesEqual).toBe(true);
+      expect(report.instructionsEqual).toBe(true);
+    });
+  }
+
+  const NON_TERMINATING = ["todo.osnova", "micro_crm.osnova", "game_rounds.osnova"];
+
+  for (const file of NON_TERMINATING) {
+    it(`${file}: эквивалентность НЕ объявляется на взаимном падении`, async () => {
+      const { module } = moduleOfFile(path.join(FIXTURES, file));
+      const report = await runReorderEquivalence(module, { maxSteps: 2000 });
+      expect(report.ok).toBe(false);
+      expect(report.message).toContain("эквивалентность не доказана");
+    });
+  }
 });
 
 describe("reorderEquivalence: сломанное расписание ловится", () => {

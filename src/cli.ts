@@ -22,6 +22,8 @@ import { compileSource } from './compiler/compiler';
 import { printParseError } from './compiler/parser';
 import { run as runRuntime } from './runtime/run';
 import { runParity } from './oracle/parity';
+import { regModuleOf } from './vliw/regOracle';
+import { compareReorders, formatComparison } from './vliw/reorderEquivalence';
 
 const args = process.argv.slice(2);
 
@@ -56,6 +58,9 @@ function printUsage(): void {
   console.error('  osnova run --manifest path           Запуск приложения по манифесту');
   console.error('  osnova schedule file.osvbc.json      VLIW-планирование (линейный код)');
   console.error('  osnova parity file.osnova            Оракул: стековая VM vs регистровая (сверка трасс)');
+  console.error('  osnova reorder file.osnova [--memory l1|l2|l3|mem] [--entry имя] [--steps N]');
+  console.error('                                       Оракул перестановки: линейный регистровый код vs');
+  console.error('                                       переставленный на одной RegVM + счётчики e2k');
   console.error('  osnova list [--dir <path>]       Список приложений из реестра');
 }
 
@@ -306,6 +311,68 @@ async function runParityMode(cliArgs: string[]): Promise<number> {
   return 0;
 }
 
+/**
+ * `osnova reorder file.osnova` — оракул перестановки независимых операций.
+ *
+ * Собирает регистровый код, планирует его двумя способами (в порядке программы и
+ * с перестановкой) на одном графе с одними длительностями, исполняет обе версии
+ * на одной `RegVM` и печатает:
+ * - эквивалентность исполнения (значение, трасса, набор инструкций);
+ * - аппаратные счётчики e2k (TICKS, EXEC, BUB_E2) до и после.
+ *
+ * Код возврата: 0 — эквивалентно, 1 — расхождение, 2 — не компилируется.
+ */
+async function runReorderMode(cliArgs: string[]): Promise<number> {
+  const input = cliArgs.find((a) => !a.startsWith('-'));
+  if (!input) {
+    console.error('Использование: osnova reorder input.osnova [--memory l1|l2|l3|mem] [--entry имя] [--steps N]');
+    return 1;
+  }
+  const inputPath = path.resolve(input);
+  if (!fs.existsSync(inputPath)) {
+    console.error('Файл не найден:', inputPath);
+    return 1;
+  }
+
+  const argOf = (flag: string): string | undefined => {
+    const i = cliArgs.indexOf(flag);
+    return i >= 0 ? cliArgs[i + 1] : undefined;
+  };
+  const memoryRaw = argOf('--memory') ?? 'l1';
+  const allowed = ['l1', 'l2', 'l3', 'mem'] as const;
+  if (!(allowed as readonly string[]).includes(memoryRaw)) {
+    console.error(`Неизвестный уровень памяти: ${memoryRaw}. Допустимо: ${allowed.join(', ')}`);
+    return 1;
+  }
+  const memoryLevel = memoryRaw as (typeof allowed)[number];
+  const entryProcedure = argOf('--entry');
+  const stepsRaw = argOf('--steps');
+  const maxSteps = stepsRaw !== undefined ? Number(stepsRaw) : undefined;
+  if (maxSteps !== undefined && (!Number.isFinite(maxSteps) || maxSteps <= 0)) {
+    console.error('--steps должен быть положительным числом');
+    return 1;
+  }
+
+  const source = fs.readFileSync(inputPath, 'utf-8');
+  const built = regModuleOf(source);
+  if (!built) {
+    console.error(`[FAIL] ${path.basename(inputPath)}: исходник не компилируется`);
+    return 2;
+  }
+
+  const cmp = await compareReorders(built.module, {
+    memoryLevel,
+    ...(entryProcedure !== undefined ? { entryProcedure } : {}),
+    ...(maxSteps !== undefined ? { maxSteps } : {}),
+  });
+  console.log(formatComparison(path.basename(inputPath), cmp, memoryLevel));
+  if (!cmp.equivalence.ok) {
+    console.error(`  расхождение: ${cmp.equivalence.message}`);
+    return 1;
+  }
+  return 0;
+}
+
 async function listApps(cliArgs: string[]): Promise<number> {
   let dir = path.resolve('src/runtime');
   for (let i = 0; i < cliArgs.length; i++) {
@@ -510,6 +577,10 @@ async function main(): Promise<number> {
 
   if (sub === 'parity') {
     return await runParityMode(args.slice(1));
+  }
+
+  if (sub === 'reorder') {
+    return await runReorderMode(args.slice(1));
   }
 
   if (sub === 'list') {

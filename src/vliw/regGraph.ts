@@ -53,7 +53,20 @@ export const PURE_REG_INVOKES: ReadonlySet<string> = new Set<string>([
   "система.математика.корень",
 ]);
 
-/** Всё, что меняет наблюдаемое состояние: такие инструкции идут по порядку. */
+/**
+ * Всё, что меняет наблюдаемое состояние: такие инструкции идут по порядку.
+ *
+ * ВАЖНО про `ret`. Возврат из процедуры **обязан** ждать завершения всех
+ * предшествующих эффектов: если он выдаётся раньше `invoke`/`obj.set`, процедура
+ * закончится до того, как они сработают. Формально у `ret` нет операндов от этих
+ * эффектов (возвращаемое значение может быть не связано с ними), поэтому одного
+ * построения рёбер по данным недостаточно — см. {@link buildRegDependencyGraph},
+ * где `ret` дополнительно замыкается на цепочку эффектов.
+ *
+ * Дефект был найден оракулом эквивалентности на `storage_demo.osnova`: `ret`
+ * получал `preds=[]`, планировщик выдавал его первым, и `система.лог.вывести`
+ * не исполнялся.
+ */
 export function isEffectInstruction(ins: RegInstruction): boolean {
   switch (ins.op) {
     case "obj.set":
@@ -65,6 +78,9 @@ export function isEffectInstruction(ins: RegInstruction): boolean {
       return !PURE_REG_INVOKES.has(ins.name);
     case "call":
       // Чистоту процедуры знает вызывающий (см. options.callPure).
+      return true;
+    case "ret":
+      // Возврат наблюдает всё, что произошло до него.
       return true;
     default:
       return false;

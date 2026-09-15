@@ -35,7 +35,8 @@ import {
   type InvokeHandler,
   type StackValue,
 } from "../runtime/vm/interpreter";
-import { scheduleRegWithReorder, type ReorderOptions } from "./reorderScheduler";
+import { scheduleRegWithReorder, scheduleRegInOrder, type ReorderOptions } from "./reorderScheduler";
+import { countPipeline, type MemoryLevel, type PipelineCounters } from "./pipelineCounters";
 import { resolveEntryIndex } from "../oracle/parity";
 
 /** Одно наблюдение прогона. */
@@ -84,13 +85,38 @@ function cloneModule(module: RegModule): RegModule {
 }
 
 /**
- * Применить расписание перестановки к модулю: разложить инструкции по пакетам в
- * новом порядке и пересчитать абсолютные адреса переходов.
+ * Границы тела каждой процедуры в модуле.
  *
- * Адреса в регистровом коде абсолютные (индексы элементов `code`), поэтому после
- * перестановки их обязательно нужно пересчитать — иначе `jmp` уедет не туда.
- * Карта «старый индекс инструкции → новый индекс элемента» строится из
- * `result.order`: `order[k]` — исходный индекс инструкции на позиции `k`.
+ * Регистровый код — один плоский массив `code`; процедура начинается со своего
+ * `codeOffset` и заканчивается там, где начинается следующая (или конец кода).
+ */
+function procedureRanges(module: RegModule): Array<{ start: number; end: number }> {
+  const offsets = module.procedures.map((p) => p.codeOffset);
+  return offsets.map((start) => {
+    const next = offsets
+      .filter((c) => c > start)
+      .sort((a, b) => a - b)[0];
+    return { start, end: next ?? module.code.length };
+  });
+}
+
+/**
+ * Применить расписание перестановки к модулю: разложить инструкции процедуры по
+ * пакетам в новом порядке и пересчитать **все** абсолютные адреса.
+ *
+ * ## Почему пересчитывать нужно весь модуль, а не одну процедуру
+ *
+ * Первая версия обновляла только адреса внутри планируемой процедуры. Это
+ * ломало многоproцедурные модули: `codeOffset` остальных процедур оставался
+ * старым и начинал указывать внутрь переставленного тела — вызов уходил не туда.
+ * Дефект нашёл оракул эквивалентности на `task_stats.osnova` (расхождение трасс
+ * на шаге 3), статическая проверка расписания его не видит.
+ *
+ * Поэтому строится полная карта «старый индекс инструкции → новый индекс
+ * элемента» и по ней пересчитываются и переходы, и `codeOffset` всех процедур.
+ *
+ * @param module исходный модуль (не мутируется)
+ * @param procedureIndex какую процедуру планировать
  */
 export function applyReorderToModule(
   module: RegModule,
@@ -100,50 +126,78 @@ export function applyReorderToModule(
   const proc = module.procedures[procedureIndex];
   if (!proc) throw new Error(`vliw(reorder): нет процедуры #${procedureIndex}`);
 
-  // Границы процедуры: от её codeOffset до следующего codeOffset (или конца).
-  const starts = module.procedures
-    .map((p) => p.codeOffset)
-    .filter((c) => c >= 0)
-    .sort((a, b) => a - b);
-  const next = starts.find((c) => c > proc.codeOffset);
-  const start = proc.codeOffset;
-  const end = next ?? module.code.length;
+  const ranges = procedureRanges(module);
+  const range = ranges[procedureIndex]!;
+  const start = range.start;
+  const end = range.end;
 
-  const body = module.code.slice(start, end).filter((el) => !isRegPacket(el)) as RegInstruction[];
+  // Тело планируемой процедуры — только её собственные инструкции. Чужие не
+  // трогаем, но их позиции всё равно должны попасть в карту адресов.
+  const body: RegInstruction[] = [];
+  /** Индекс инструкции в body → индекс в module.code. */
+  const bodyToModule: number[] = [];
+  for (let i = start; i < end; i++) {
+    const el = module.code[i]!;
+    if (isRegPacket(el)) continue;
+    bodyToModule.push(i);
+    body.push(el as RegInstruction);
+  }
+
   const result = scheduleRegWithReorder(body, options);
 
-  // Карта «исходный индекс внутри body → новый индекс элемента».
-  const newPosition = new Map<number, number>();
-  result.order.forEach((origIdx, pos) => newPosition.set(origIdx, pos));
+  // Карта «индекс инструкции в body → новый индекс элемента внутри процедуры».
+  const newPosInBody = new Map<number, number>();
+  result.order.forEach((origIdx, pos) => newPosInBody.set(origIdx, pos));
 
-  // Копируем инструкции и пересчитываем адреса переходов.
-  const newElements: RegCodeElement[] = result.order.map((origIdx, pos) => {
-    const ins = body[origIdx]!;
-    const copy: RegInstruction = { ...ins };
-    if (
-      copy.op === "jmp" ||
-      copy.op === "jmp_if" ||
-      copy.op === "jmp_if_not" ||
-      copy.op === "try_begin"
-    ) {
-      // Цель перехода — абсолютный индекс в исходном `module.code`. Переводим
-      // его в индекс внутри body, затем в новую позицию.
-      const targetInBody = copy.off - start;
-      const mapped = newPosition.get(targetInBody);
-      if (mapped !== undefined) {
-        copy.off = start + mapped;
-      }
-    }
-    void pos;
+  /** Карта «старый индекс в module.code → новый индекс в module.code». */
+  const moduleIndexMap = new Map<number, number>();
+
+  // 1. Переставленные инструкции процедуры.
+  const newBody: RegCodeElement[] = result.order.map((origIdx) => {
+    const oldIndex = bodyToModule[origIdx]!;
+    const copy: RegInstruction = { ...body[origIdx]! };
+    moduleIndexMap.set(oldIndex, start + newPosInBody.get(origIdx)!);
     return copy;
   });
+
+  // 2. Инструкции всех остальных процедур — порядок не меняется, но позиции
+  //    сдвигаются на разницу длин. Считаем новые позиции по смещению.
+  const delta = newBody.length - body.length;
+  for (const r of ranges) {
+    if (r.start === start) continue;
+    for (let i = r.start; i < r.end; i++) {
+      if (isRegPacket(module.code[i]!)) continue;
+      moduleIndexMap.set(i, i + delta);
+    }
+  }
+
+  // 3. Пересчёт переходов внутри планируемой процедуры.
+  for (let k = 0; k < newBody.length; k++) {
+    const ins = newBody[k] as RegInstruction;
+    if (
+      ins.op === "jmp" ||
+      ins.op === "jmp_if" ||
+      ins.op === "jmp_if_not" ||
+      ins.op === "try_begin"
+    ) {
+      const mapped = moduleIndexMap.get(ins.off);
+      if (mapped !== undefined) ins.off = mapped;
+    }
+  }
 
   const scheduled = cloneModule(module);
   scheduled.code = [
     ...module.code.slice(0, start),
-    ...newElements,
+    ...newBody,
     ...module.code.slice(end),
   ];
+
+  // 4. Пересчёт codeOffset ВСЕХ процедур — иначе вызов уйдёт в переставленное
+  //    тело планируемой процедуры (см. заголовок).
+  for (const p of scheduled.procedures) {
+    const mapped = moduleIndexMap.get(p.codeOffset);
+    if (mapped !== undefined) p.codeOffset = mapped;
+  }
 
   return { scheduled, orderChanged: result.order.some((v, i) => v !== i) };
 }
@@ -216,6 +270,127 @@ function sameValue(a: StackValue | undefined, b: StackValue | undefined): boolea
   } catch {
     return false;
   }
+}
+
+/** Сравнение двух способов планирования: эквивалентность + метрики. */
+export interface ReorderComparison {
+  equivalence: ReorderEquivalenceReport;
+  /** Планирование в порядке программы. */
+  inOrder: {
+    packets: number;
+    cycles: number;
+    nopCycles: number;
+    ilp: number;
+    counters: PipelineCounters;
+  };
+  /** Планирование с перестановкой. */
+  reordered: {
+    packets: number;
+    cycles: number;
+    nopCycles: number;
+    ilp: number;
+    counters: PipelineCounters;
+  };
+  /** Выигрыш по тактам: `(inOrder - reordered) / inOrder`. */
+  cycleGain: number;
+  /** Выигрыш по блокировкам конвейера. */
+  bubGain: number;
+}
+
+/**
+ * Собрать сравнение: эквивалентность исполнения плюс метрики обоих способов.
+ *
+ * Метрики считаются на **том же** графе и с теми же длительностями — разница
+ * только в порядке, иначе сравнение было бы нечестным.
+ */
+export async function compareReorders(
+  module: RegModule,
+  options: ReorderEquivalenceOptions = {},
+): Promise<ReorderComparison> {
+  const entryIndex = resolveEntryIndex(module.procedures, options.entryProcedure);
+  const memoryLevel: MemoryLevel = options.memoryLevel ?? "l1";
+  const reorderOpts: ReorderOptions = {
+    memoryLevel,
+    ...(options.callPure !== undefined ? { callPure: options.callPure } : {}),
+  };
+
+  const eqOptions: ReorderEquivalenceOptions = {
+    ...options,
+    memoryLevel,
+  };
+  const equivalence = await runReorderEquivalence(module, eqOptions);
+
+  const proc = module.procedures[entryIndex]!;
+  const starts = module.procedures
+    .map((p) => p.codeOffset)
+    .filter((c) => c >= 0)
+    .sort((a, b) => a - b);
+  const next = starts.find((c) => c > proc.codeOffset);
+  const body = module.code
+    .slice(proc.codeOffset, next ?? module.code.length)
+    .filter((el) => !isRegPacket(el)) as RegInstruction[];
+
+  const io = scheduleRegInOrder(body, reorderOpts);
+  const ro = scheduleRegWithReorder(body, reorderOpts);
+  const ioCounters = countPipeline(io, memoryLevel);
+  const roCounters = countPipeline(ro, memoryLevel);
+
+  return {
+    equivalence,
+    inOrder: {
+      packets: io.metrics.packetCount,
+      cycles: io.metrics.cycles,
+      nopCycles: io.metrics.nopCycles,
+      ilp: io.metrics.ilp,
+      counters: ioCounters,
+    },
+    reordered: {
+      packets: ro.metrics.packetCount,
+      cycles: ro.metrics.cycles,
+      nopCycles: ro.metrics.nopCycles,
+      ilp: ro.metrics.ilp,
+      counters: roCounters,
+    },
+    cycleGain:
+      io.metrics.cycles > 0
+        ? (io.metrics.cycles - ro.metrics.cycles) / io.metrics.cycles
+        : 0,
+    bubGain:
+      ioCounters.BUB_E2 > 0
+        ? (ioCounters.BUB_E2 - roCounters.BUB_E2) / ioCounters.BUB_E2
+        : 0,
+  };
+}
+
+/** Текстовый отчёт сравнения — для CLI и логов. */
+export function formatComparison(
+  name: string,
+  cmp: ReorderComparison,
+  memoryLevel: MemoryLevel = "l1",
+): string {
+  const eq = cmp.equivalence;
+  const pct = (v: number): string => `${(v * 100).toFixed(1)}%`;
+  const lines: string[] = [];
+  lines.push(`[${eq.ok ? "OK" : "FAIL"}] ${name}`);
+  lines.push(`  эквивалентность: ${eq.message}`);
+  lines.push(`  порядок изменён: ${eq.orderChanged ? "да" : "нет"}`);
+  lines.push(`  память:          ${memoryLevel}`);
+  lines.push(
+    `  такты:           ${cmp.inOrder.cycles} -> ${cmp.reordered.cycles}  (выигрыш ${pct(cmp.cycleGain)})`,
+  );
+  lines.push(
+    `  BUB_E2:          ${cmp.inOrder.counters.BUB_E2} -> ${cmp.reordered.counters.BUB_E2}  (выигрыш ${pct(cmp.bubGain)})`,
+  );
+  lines.push(
+    `  пакетов:         ${cmp.inOrder.packets} -> ${cmp.reordered.packets}`,
+  );
+  lines.push(
+    `  ILP:             ${cmp.inOrder.ilp.toFixed(2)} -> ${cmp.reordered.ilp.toFixed(2)}`,
+  );
+  lines.push(
+    `  IPC:             ${cmp.inOrder.counters.IPC.toFixed(3)} -> ${cmp.reordered.counters.IPC.toFixed(3)}`,
+  );
+  return lines.join("\n");
 }
 
 function sameStep(a: EquivalenceStep | undefined, b: EquivalenceStep | undefined): boolean {
