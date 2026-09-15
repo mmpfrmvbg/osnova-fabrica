@@ -58,6 +58,14 @@ interface RunOutcome {
   error: string | null;
   /** Ключи исполненных инструкций — индекс в исходном линейном коде. */
   executed: number[];
+  /**
+   * Сколько РАЗ VM сдвинула указатель на новый элемент кода.
+   *
+   * Это и есть «шаг VM»: один элемент — один шаг, независимо от того, инструкция
+   * это или пакет. Число исполненных инструкций при упаковке не меняется, а это
+   * число — уменьшается: в этом и состоит статический эффект пакета.
+   */
+  elementSteps: number;
   /** Имена и аргументы хост-вызовов. */
   invokes: string[];
 }
@@ -65,11 +73,16 @@ interface RunOutcome {
 /** Результат одной программы. */
 export interface PackGateCaseResult {
   name: string;
+  /** Программа заведомо не завершается: в итоги не входит (лимит шагов искажает суммы). */
+  nonTerminating: boolean;
   verify: VerifyResult;
   equivalent: boolean;
   divergenceIndex: number;
   linearSteps: number;
   packedSteps: number;
+  /** Шагов VM (элементов кода): линейно и упаковано. */
+  linearElementSteps: number;
+  packedElementSteps: number;
   linearValue: string;
   packedValue: string;
   stats: PackStats;
@@ -92,6 +105,11 @@ export interface PackGateReport {
     packedInstructions: number;
     densityBefore: number;
     densityAfter: number;
+    /** Исполнено инструкций: суммарно линейно и упаковано (не меняется). */
+    executedInstructions: number;
+    /** Шагов VM (элементов): суммарно линейно и упаковано. */
+    linearElementSteps: number;
+    packedElementSteps: number;
   };
   green: number;
   red: number;
@@ -120,6 +138,8 @@ async function execute(
 ): Promise<RunOutcome> {
   const executed: number[] = [];
   const invokes: string[] = [];
+  let elementSteps = 0;
+  let lastPc = -1;
   const host = createDefaultInvokeHandler();
   const vm = new RegVM(module, {
     maxSteps,
@@ -127,7 +147,13 @@ async function execute(
       invokes.push(`${name}(${callArgs.map((a) => formatValue(a)).join(",")})`);
       return host(name, callArgs);
     },
-    onExecute: (info) => executed.push(keyOf(info.pc, info.slotIndex)),
+    onExecute: (info) => {
+      if (info.pc !== lastPc) {
+        elementSteps++;
+        lastPc = info.pc;
+      }
+      executed.push(keyOf(info.pc, info.slotIndex));
+    },
   });
   let value: StackValue | undefined;
   let error: string | null = null;
@@ -136,7 +162,7 @@ async function execute(
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  return { value, error, executed, invokes };
+  return { value, error, executed, elementSteps, invokes };
 }
 
 interface Comparison {
@@ -220,11 +246,14 @@ async function runCase(testCase: PackGateCase, options: PackGateOptions): Promis
 
   return {
     name: testCase.name,
+    nonTerminating: prefixOnly,
     verify,
     equivalent: comparison.equivalent,
     divergenceIndex: comparison.divergenceIndex,
     linearSteps: linearOutcome.executed.length,
     packedSteps: packedOutcome.executed.length,
+    linearElementSteps: linearOutcome.elementSteps,
+    packedElementSteps: packedOutcome.elementSteps,
     linearValue: formatValue(linearOutcome.value),
     packedValue: formatValue(packedOutcome.value),
     stats: packed.stats,
@@ -241,7 +270,11 @@ export async function runPackGate(
   const results: PackGateCaseResult[] = [];
   for (const testCase of cases) results.push(await runCase(testCase, options));
 
-  const totals = results.reduce(
+  // Итоги — по завершающимся программам: у незавершающейся стороны упираются в
+  // лимит шагов, и её числа зависят от лимита, а не от упаковки.
+  const totals = results
+    .filter((r) => !r.nonTerminating)
+    .reduce(
     (acc, r) => ({
       instructions: acc.instructions + r.stats.instructions,
       elementsBefore: acc.elementsBefore + r.stats.elementsBefore,
@@ -250,6 +283,9 @@ export async function runPackGate(
       packedInstructions: acc.packedInstructions + r.stats.packedInstructions,
       densityBefore: 0,
       densityAfter: 0,
+      executedInstructions: acc.executedInstructions + r.linearSteps,
+      linearElementSteps: acc.linearElementSteps + r.linearElementSteps,
+      packedElementSteps: acc.packedElementSteps + r.packedElementSteps,
     }),
     {
       instructions: 0,
@@ -259,6 +295,9 @@ export async function runPackGate(
       packedInstructions: 0,
       densityBefore: 0,
       densityAfter: 0,
+      executedInstructions: 0,
+      linearElementSteps: 0,
+      packedElementSteps: 0,
     },
   );
   totals.densityBefore = totals.elementsBefore > 0 ? totals.instructions / totals.elementsBefore : 0;
@@ -288,7 +327,9 @@ export function formatPackGateReport(report: PackGateReport): string {
   );
   lines.push(`программ: ${report.cases.length}, зелёных: ${report.green}, красных: ${report.red}`);
   lines.push("");
-  lines.push("программа | инструкций | элементов | плотность | широких | шагов | верификатор | эквивалентность");
+  lines.push(
+    "программа | инструкций | элементов | плотность | широких | инструкций исполнено | шагов VM | верификатор | эквивалентность",
+  );
   for (const c of report.cases) {
     const density = `${c.stats.densityBefore.toFixed(2)} → ${c.stats.densityAfter.toFixed(2)}`;
     const elements = `${c.stats.elementsBefore} → ${c.stats.elementsAfter}`;
@@ -296,16 +337,25 @@ export function formatPackGateReport(report: PackGateReport): string {
     const equivalence = c.equivalent ? "совпадает" : `расхождение@${c.divergenceIndex}`;
     lines.push(
       `${c.name} | ${c.stats.instructions} | ${elements} | ${density} | ${c.stats.widePackets} | ` +
-        `${c.linearSteps} → ${c.packedSteps} | ${verify} | ${equivalence}`,
+        `${c.linearSteps} → ${c.packedSteps} | ${c.linearElementSteps} → ${c.packedElementSteps} | ` +
+        `${verify} | ${equivalence}`,
     );
     for (const p of c.problems) lines.push(`    ! ${p}`);
   }
   lines.push("");
   lines.push(
-    `итого: инструкций ${report.totals.instructions}, элементов ${report.totals.elementsBefore} → ` +
-      `${report.totals.elementsAfter}, плотность упаковки ${report.totals.densityBefore.toFixed(2)} → ` +
-      `${report.totals.densityAfter.toFixed(2)}, широких пакетов ${report.totals.widePackets}, ` +
-      `инструкций внутри пакетов ${report.totals.packedInstructions}`,
+    `итого по завершающимся программам: инструкций ${report.totals.instructions}, элементов ` +
+      `${report.totals.elementsBefore} → ${report.totals.elementsAfter}, плотность упаковки ` +
+      `${report.totals.densityBefore.toFixed(2)} → ${report.totals.densityAfter.toFixed(2)}, ` +
+      `широких пакетов ${report.totals.widePackets}, инструкций внутри пакетов ${report.totals.packedInstructions}`,
+  );
+  lines.push(
+    `исполнено инструкций ${report.totals.executedInstructions} (не зависит от упаковки); ` +
+      `шагов VM (элементов) ${report.totals.linearElementSteps} → ${report.totals.packedElementSteps}`,
+  );
+  lines.push(
+    "шаг VM — это свойство этой VM (один элемент = один шаг), а не такт e2k: " +
+      "замеров на железе нет, и ускорение этими числами не доказано",
   );
   lines.push(report.passed ? "gate зелёный" : `gate красный (${report.red} программ)`);
   return lines.join("\n");
