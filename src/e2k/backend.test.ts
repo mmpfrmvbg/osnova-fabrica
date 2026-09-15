@@ -33,6 +33,7 @@ import { OPCODES, mnemonicEntry, type OpcodeEntry } from "./encoding";
 
 const shell = getEncoder("internal-shell");
 const e2k = getEncoder("e2k");
+const e2kStub = getEncoder("e2k-stub");
 
 const reg = (index: number): Operand => ({ kind: "reg", index });
 const imm = (value: number): Operand => ({ kind: "imm", value });
@@ -166,21 +167,37 @@ describe("шлюз: три исхода", () => {
     expect(report.checks.every((check) => check.ok)).toBe(true);
   });
 
-  it("заглушка e2k отказывает: это законный исход, а не нарушение", () => {
-    const report = auditEncoder(e2k, ALL_SAMPLES);
+  it("заглушка e2k-stub отказывает: это законный исход, а не нарушение", () => {
+    const report = auditEncoder(e2kStub, ALL_SAMPLES);
     expect(report.id).toBe("e2k");
     expect(report.status).toBe("НЕТ В ДОКУМЕНТЕ");
     expect(report.outcome).toBe("отказывает");
     expect(report.notes).toEqual([]);
-    expect(e2k.description.instructionSize).toBeNull();
-    expect(() => e2k.encode(ALL_SAMPLES[0]!)).toThrow(EncodingRefusedError);
-    expect(() => e2k.decode(new Uint8Array(10))).toThrow(/НЕТ В ДОКУМЕНТЕ/);
+    expect(e2kStub.description.instructionSize).toBeNull();
+    expect(() => e2kStub.encode(ALL_SAMPLES[0]!)).toThrow(EncodingRefusedError);
+    expect(() => e2kStub.decode(new Uint8Array(10))).toThrow(/НЕТ В ДОКУМЕНТЕ/);
   });
 
-  it("реестр знает обе реализации и не даёт умолчания", () => {
-    expect([...ENCODER_IDS]).toEqual(["internal-shell", "e2k"]);
+  it("реестр знает три реализации: оболочка, реальная кодировка, заглушка", () => {
+    // Изменение против прежней редакции: ключ «e2k» отдан РЕАЛЬНОЙ кодировке, извлечённой из
+    // открытых источников (src/e2k/e2k-real.ts), а прежняя заглушка (src/e2k/e2k.ts) не удалена
+    // и не переписана — она переехала под ключ «e2k-stub». Её статус «НЕТ В ДОКУМЕНТЕ» остаётся
+    // верным: он про руководство МЦСТ, где кодировки действительно нет.
+    expect([...ENCODER_IDS]).toEqual(["internal-shell", "e2k", "e2k-stub"]);
     expect(getEncoder("internal-shell").description.status).toBe("ДОПУЩЕНИЕ");
-    expect(getEncoder("e2k").description.status).toBe("НЕТ В ДОКУМЕНТЕ");
+    expect(getEncoder("e2k").description.status).toBe("ФАКТ");
+    expect(getEncoder("e2k-stub").description.status).toBe("НЕТ В ДОКУМЕНТЕ");
+  });
+
+  it("пространства имён разделены: реальная кодировка не знает мнемоник оболочки", () => {
+    // Мнемоники оболочки скопированы из руководства (ADDs/d, PADD*, IR.*) — это ДРУГОЕ
+    // пространство имён, чем таблица опкодов МЦСТ (adds, padds, ...). Реальная кодировка обязана
+    // отвергать первые, иначе потребитель не отличил бы e2k от оболочки по мнемонике.
+    for (const mnemonic of ["ADDs/d", "MULs/d", "IR.add"]) {
+      expect(() => e2k.encode(instruction(mnemonic, 1, [reg(1), reg(2), reg(3)])), mnemonic).toThrow(
+        EncodingRefusedError,
+      );
+    }
   });
 });
 

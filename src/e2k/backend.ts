@@ -13,8 +13,10 @@
  * (`docs/e2k-backend.md` §4.1).
  *
  * Отсюда требование: оболочка должна быть **swap-ready** — не «приделаем потом», а явный
- * интерфейс, за которым стоит либо оболочка (`src/e2k/shell.ts`), либо реальная кодировка
- * (`src/e2k/e2k.ts`). Потребитель (эмиттер) видит **только этот файл**.
+ * интерфейс, за которым стоит либо оболочка (`src/e2k/shell.ts`), либо реальная кодировка.
+ * Реальная кодировка e2k **появилась** 2026-09-15: она извлечена из открытых источников
+ * (`src/e2k/e2k-real.ts`, ключ `e2k`), а прежняя заглушка `src/e2k/e2k.ts` сохранена под
+ * ключом `e2k-stub`. Потребитель (эмиттер) по-прежнему видит **только этот файл**.
  *
  * # Тип обмена — документированная ассемблерная форма
  *
@@ -44,6 +46,7 @@
 
 import { createShellEncoder } from "./shell";
 import { createE2kEncoder } from "./e2k";
+import { createRealE2kEncoder } from "./e2k-real";
 
 /** Операнд в документированной ассемблерной форме. */
 export type Operand =
@@ -105,14 +108,22 @@ export class EncodingRefusedError extends Error {
   }
 }
 
-/** Идентификаторы реализаций, которые знает реестр. */
-export const ENCODER_IDS = ["internal-shell", "e2k"] as const;
+/**
+ * Идентификаторы реализаций, которые знает реестр.
+ *
+ * `e2k` — **реальная кодировка**, извлечённая из открытых источников (`src/e2k/e2k-real.ts`).
+ * `e2k-stub` — прежняя заглушка (`src/e2k/e2k.ts`), оставленная **без изменений**: её статус
+ * `НЕТ В ДОКУМЕНТЕ` описывает руководство МЦСТ, в котором кодировки нет, и это утверждение
+ * остаётся верным. Заглушка не удалена и не переписана — она переехала под свой ключ.
+ */
+export const ENCODER_IDS = ["internal-shell", "e2k", "e2k-stub"] as const;
 
 /** Идентификатор реализации из реестра. */
 export type EncoderId = (typeof ENCODER_IDS)[number];
 
 let shellSingleton: Encoder | undefined;
 let e2kSingleton: Encoder | undefined;
+let e2kStubSingleton: Encoder | undefined;
 
 /**
  * Получить реализацию по идентификатору.
@@ -123,7 +134,8 @@ let e2kSingleton: Encoder | undefined;
  */
 export function getEncoder(id: EncoderId): Encoder {
   if (id === "internal-shell") return (shellSingleton ??= createShellEncoder());
-  return (e2kSingleton ??= createE2kEncoder());
+  if (id === "e2k-stub") return (e2kStubSingleton ??= createE2kEncoder());
+  return (e2kSingleton ??= createRealE2kEncoder());
 }
 
 /** Сравнение инструкций: совпадение мнемоники, канала и всех операндов. */
