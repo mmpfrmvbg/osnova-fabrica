@@ -1083,6 +1083,12 @@
       "status": "stable"
     },
     {
+      "spelling": "чистый",
+      "tokenKind": "чистый",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
       "spelling": "экспорт",
       "tokenKind": "экспорт",
       "relatedConstructions": [
@@ -2140,6 +2146,70 @@
       },
       "description": "Изменить заголовок окна",
       "status": "experimental"
+    },
+    {
+      "id": "система.оценить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Скомпилировать и исполнить строку кода на лету (eval)",
+      "status": "stable"
+    },
+    {
+      "id": "система.оценить_в",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Исполнить код на лету с доступом к окружению",
+      "status": "stable"
+    },
+    {
+      "id": "система.оценить.получить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Прочитать значение из окружения eval по ключу",
+      "status": "stable"
+    },
+    {
+      "id": "система.оценить.установить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Записать значение в окружение eval по ключу",
+      "status": "stable"
     },
     {
       "id": "система.пайплайн.главный_модуль",
