@@ -166,12 +166,16 @@ describe("reorderEquivalence: регрессия на барьер возвра�
 
 describe("reorderEquivalence: корпус проекта", () => {
   /**
-   * Все фикстуры проекта, кроме оконных приложений с бесконечным `цикл`.
+   * Все фикстуры проекта, у которых есть **завершающаяся** точка входа.
    *
-   * Три оконных (`todo`, `micro_crm`, `game_rounds`) не завершаются ни на одной
-   * из сторон, поэтому эквивалентность на них НЕ доказывается — оракул обязан
-   * возвращать `ok: false` с текстом «эквивалентность не доказана», а не
-   * рапортовать успех на взаимном падении.
+   * Раньше здесь стоял вывод «три оконных приложения не входят в корпус, потому
+   * что не завершаются». Это было неверно для двух из трёх: у них есть чистая
+   * процедура `run_golden(аргументы)` — та самая, что указана в манифесте
+   * `.osapp.yaml` как `entry.procedure`. Оконный цикл живёт в `запуск()`, а
+   * oracle-вход отдельный.
+   *
+   * Мы вызывали `запуск` (первую процедуру), потому что не пробрасывали
+   * `entryProcedure` из манифеста, — и получали бесконечный цикл.
    */
   const TERMINATING = [
     "hello.osnova",
@@ -192,16 +196,76 @@ describe("reorderEquivalence: корпус проекта", () => {
     });
   }
 
-  const NON_TERMINATING = ["todo.osnova", "micro_crm.osnova", "game_rounds.osnova"];
+  /**
+   * Приложения с `run_golden`: вызываем чистый вход из манифеста с его
+   * аргументами. Эти приложения ВХОДЯТ в корпус — раньше их ошибочно считали
+   * невходящими.
+   */
+  const GOLDEN_APPS: Array<{
+    file: string;
+    entry: string;
+    args: unknown[];
+    what: string;
+  }> = [
+    {
+      file: "game_rounds.osnova",
+      entry: "run_golden",
+      // Три раунда из game_rounds.osapp.yaml: победа 15, поражение 5, победа 10.
+      args: [
+        [
+          { результат: "победа", очки: 15 },
+          { результат: "поражение", очки: 5 },
+          { результат: "победа", очки: 10 },
+        ],
+      ],
+      what: "golden-логика игры: сумма очков, победы, бонусные победы",
+    },
+    {
+      file: "micro_crm.osnova",
+      entry: "run_golden",
+      args: [[{ имя: "А" }]],
+      what: "golden-логика CRM: балансы и счётчики",
+    },
+  ];
 
-  for (const file of NON_TERMINATING) {
-    it(`${file}: эквивалентность НЕ объявляется на взаимном падении`, async () => {
+  for (const { file, entry, args, what } of GOLDEN_APPS) {
+    it(`${file} (${what}): эквивалентность доказана`, async () => {
       const { module } = moduleOfFile(path.join(FIXTURES, file));
-      const report = await runReorderEquivalence(module, { maxSteps: 2000 });
-      expect(report.ok).toBe(false);
-      expect(report.message).toContain("эквивалентность не доказана");
+      const report = await runReorderEquivalence(module, {
+        entryProcedure: entry,
+        args: args as never[],
+        maxSteps: 200_000,
+      });
+      expect(report.linearError, `линейный: ${report.linearError}`).toBeNull();
+      expect(report.reorderedError, `переставленный: ${report.reorderedError}`).toBeNull();
+      // Обе стороны обязаны записать одно и то же в хранилище — это и есть
+      // наблюдаемый результат этих процедур.
+      expect(report.tracesEqual, report.message).toBe(true);
+      expect(report.instructionsEqual, report.message).toBe(true);
+      expect(report.ok, report.message).toBe(true);
+      // И трасса не пуста: если бы процедура не делала ничего, тест был бы
+      // зелёным на пустоте.
+      expect(report.linearTrace.filter((s) => s.kind === "invoke").length)
+        .toBeGreaterThan(0);
     });
   }
+
+  /**
+   * Единственное приложение, которое в корпус не входит, — `todo.osnova`.
+   *
+   * У него нет чистой процедуры-оракула: `запуск()` — оконный цикл, а
+   * `handle_event`/`handle_add` требуют внешнего события. Манифест
+   * (`entry.procedure: "запуск"`) тоже указывает на цикл. Исключено ЯВНО, с
+   * причиной, а не оставлено подвешенным.
+   */
+  it("todo.osnova: в корпус не входит — нет завершающегося входа", async () => {
+    const { module } = moduleOfFile(path.join(FIXTURES, "todo.osnova"));
+    const report = await runReorderEquivalence(module, { maxSteps: 2000 });
+    // Оракул обязан отказаться объявлять эквивалентность на взаимном падении,
+    // а не рапортовать успех.
+    expect(report.ok).toBe(false);
+    expect(report.message).toContain("эквивалентность не доказана");
+  });
 });
 
 describe("reorderEquivalence: сломанное расписание ловится", () => {
