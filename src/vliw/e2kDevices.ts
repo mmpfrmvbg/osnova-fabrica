@@ -103,6 +103,65 @@ export function clusterOf(ch: ChannelId): AluCluster | undefined {
     : undefined;
 }
 
+/**
+ * Считает, сколько рёбер зависимости пересекает границу кластера.
+ *
+ * ## Зачем отдельная функция, а не «предпочтение кластера» в планировщике
+ *
+ * Изначально предполагалось, что планировщик должен активно держать зависимые
+ * операции в одном кластере (ради байпаса, стр. 194). Это было реализовано как
+ * предпочтение канала (`respectClusters` в `reorderScheduler.ts`) — и **замер
+ * показал, что оно ничего не даёт**: без него получается ровно то же расписание
+ * и те же 0 пересечений на тестовой программе, а на корпусе из 9 файлов
+ * пересечений стало 24 → 25, такты не изменились (1130 → 1130).
+ *
+ * Причина: узлы выдаются почти в порядке программы, поэтому зависимые цепочки и
+ * без всякой логики остаются на первых трёх АЛУ — то есть в одном кластере.
+ * Предпочтение срабатывает только когда кластер производителя занят, а это
+ * редкость при таком порядке.
+ *
+ * Поэтому предпочтение оставлено как baseline-переключатель, а честная роль
+ * знания о кластерах — **измерение**: эта функция. Она позволяет утверждать
+ * «пересечений столько-то» и заметить, если их станет больше.
+ *
+ * Ценность факта не в оптимизации, а в корректности: пересечение кластера
+ * означает, что байпас не работает и передача идёт через rf — то есть дольше.
+ * Наша модель задержек этого не учитывает (нет величины штрафа), и пока не
+ * учитывает, пересечения нужно хотя бы считать.
+ *
+ * @param code линейный участок
+ * @param channelOf канал, назначенный каждой инструкции
+ * @param edges рёбра графа зависимостей
+ */
+export function crossClusterEdges(
+  code: readonly { op: string }[],
+  channelOf: ReadonlyMap<number, ChannelId>,
+  edges: ReadonlyArray<readonly [number, number]>,
+): { same: number; cross: number; noCluster: number; crossList: string[] } {
+  let same = 0;
+  let cross = 0;
+  let noCluster = 0;
+  const crossList: string[] = [];
+  for (const [from, to] of edges) {
+    const cf = clusterOf(channelOf.get(from)!);
+    const ct = clusterOf(channelOf.get(to)!);
+    if (cf === undefined || ct === undefined) {
+      noCluster++;
+      continue;
+    }
+    if (cf === ct) {
+      same++;
+    } else {
+      cross++;
+      crossList.push(
+        `#${from}(${channelOf.get(from)}, кластер ${cf}) → #${to}(${channelOf.get(to)}, кластер ${ct})`,
+      );
+    }
+  }
+  void code;
+  return { same, cross, noCluster, crossList };
+}
+
 /** Все 24 канала в порядке, удобном для индексации в пакете. */
 export const ALL_CHANNELS: readonly ChannelId[] = [
   ...CHANNELS.ALU,

@@ -293,6 +293,15 @@ export interface ReorderOptions extends RegGraphOptions {
    * промахнётся мимо L1 (`l2` 11, `l3` 40, `mem` 100 тактов, стр. 71).
    */
   memoryLevel?: "l1" | "l2" | "l3" | "mem";
+  /**
+   * Учитывать ли кластеры АЛУ при выборе канала.
+   *
+   * `true` (по умолчанию) — каналы кластера производителя идут первыми, чтобы
+   * байпас работал (стр. 194). `false` — каналы в естественном порядке; это
+   * **baseline для сравнения**, а не рабочая настройка. Нужен, чтобы «предпочтение
+   * кластера» можно было измерить, а не заявить.
+   */
+  respectClusters?: boolean;
 }
 
 /** Длительность чтения по уровню памяти (стр. 71). */
@@ -353,6 +362,7 @@ function scheduleRegByRegions(
     slice: readonly RegInstruction[],
     graph: RegGraph,
     memoryLevel: ReorderOptions["memoryLevel"],
+    respectClusters: boolean,
   ) => ReorderResult,
 ): ReorderResult {
   const n = code.length;
@@ -378,7 +388,12 @@ function scheduleRegByRegions(
   for (const region of regions) {
     const slice = code.slice(region.start, region.end);
     const graph = buildRegDependencyGraph(slice, opts);
-    const local = planner(slice, graph, opts.memoryLevel ?? "l1");
+    const local = planner(
+      slice,
+      graph,
+      opts.memoryLevel ?? "l1",
+      opts.respectClusters !== false,
+    );
 
     for (const [pi, p] of local.packets.entries()) {
       packets.push({
@@ -605,6 +620,7 @@ export function scheduleGraphWithReorder(
   code: readonly RegInstruction[],
   graph: RegGraph,
   memoryLevel: ReorderOptions["memoryLevel"] = "l1",
+  respectClusters: boolean = true,
 ): ReorderResult {
   const n = code.length;
   if (n === 0) return emptyResult();
@@ -640,8 +656,24 @@ export function scheduleGraphWithReorder(
    * Предпочтительный кластер для узла: кластер производителя самого позднего
    * операнда. Если ни у одного предшественника кластера нет (например, это
    * `invoke` на канале СТ), предпочтения нет.
+   *
+   * ## Замер показал: это почти всегда no-op
+   *
+   * Без предпочтения (`respectClusters: false`) на тестовой программе получается
+   * РОВНО то же расписание и те же 0 пересечений кластера, а на корпусе из 9
+   * файлов пересечений стало 24 → 25 при неизменных тактах (1130 → 1130).
+   *
+   * Причина: узлы выдаются почти в порядке программы, поэтому зависимые цепочки
+   * и так остаются на первых трёх АЛУ. Предпочтение срабатывает только когда
+   * кластер производителя занят — редкость при таком порядке.
+   *
+   * Оставлено как baseline-переключатель (нужен, чтобы это можно было
+   * перепроверить) и на случай, если планировщик станет агрессивнее в
+   * перестановке. Честная роль знания о кластерах сейчас — ИЗМЕРЕНИЕ, см.
+   * {@link ./e2kDevices.crossClusterEdges}.
    */
   const preferClusterFor = (i: number): AluCluster | undefined => {
+    if (respectClusters === false) return undefined;
     let best: AluCluster | undefined;
     let bestReady = -1;
     for (const p of graph.preds[i]!) {

@@ -22,7 +22,7 @@ import {
   regOpClass,
 } from "./reorderScheduler";
 import { buildRegDependencyGraph } from "./regGraph";
-import { clusterOf, type ChannelId } from "./e2kDevices";
+import { clusterOf, crossClusterEdges, type ChannelId } from "./e2kDevices";
 import type { RegInstruction } from "../runtime/vm/regcode";
 import { compileSource } from "../compiler/compiler";
 import { compileToReg } from "../compiler/regcodegen";
@@ -363,6 +363,64 @@ describe("reorderScheduler: кластеры АЛУ (стр. 194)", () => {
     // Ни одна зависимость не должна пересекать границу кластера: 3 канала на
     // кластер достаточно, чтобы разместить зависимости внутри.
     expect(crossCluster).toBe(0);
+  });
+
+  /**
+   * ВАЖНО, и это результат честного замера, а не предположения.
+   *
+   * Изначально я утверждал, что «предпочтение кластера» улучшает картину
+   * (наблюдалось 50 из 52 рёбер в одном кластере). Baseline показал, что это
+   * артефакт: **без** предпочтения (`respectClusters: false`) получается то же
+   * самое расписание и те же 0 пересечений. Причина — узлы выдаются почти в
+   * порядке программы, поэтому зависимые цепочки и так остаются на первых трёх
+   * АЛУ, то есть в одном кластере.
+   *
+   * Эти тесты фиксируют измеренное положение дел, чтобы его нельзя было
+   * незаметно изменить и снова выдать за улучшение.
+   */
+  it("baseline: на тестовой программе предпочтение кластера ничего не меняет", () => {
+    const code = regCodeOf(PROGRAM);
+    const graph = buildRegDependencyGraph(code, {});
+    const withPref = scheduleGraphWithReorder(code, graph, "l1", true);
+    const withoutPref = scheduleGraphWithReorder(code, graph, "l1", false);
+    // Расписания совпадают: ни такты, ни порядок выдачи.
+    expect(withPref.metrics.cycles).toBe(withoutPref.metrics.cycles);
+    expect(withPref.order).toEqual(withoutPref.order);
+  });
+
+  it("пересечения кластера считаются, и на тестовой программе их ноль", () => {
+    const code = regCodeOf(PROGRAM);
+    const graph = buildRegDependencyGraph(code, {});
+    const r = scheduleGraphWithReorder(code, graph);
+    const channelOf = new Map<number, ChannelId>();
+    for (const p of r.packets) {
+      for (const s of p.slots) channelOf.set(s.index, s.channel);
+    }
+    const stat = crossClusterEdges(code, channelOf, graph.edges);
+    expect(stat.same).toBeGreaterThan(0);
+    expect(stat.cross).toBe(0);
+  });
+
+  it("счётчик пересечений не мёртв: он видит настоящее пересечение", () => {
+    // Синтетика: производитель в кластере 0, потребитель в кластере 1.
+    const ch = new Map<number, ChannelId>([
+      [0, "alu0"],
+      [1, "alu3"],
+    ]);
+    const stat = crossClusterEdges([], ch, [[0, 1]]);
+    expect(stat.cross).toBe(1);
+    expect(stat.crossList[0]).toContain("кластер 0");
+    expect(stat.crossList[0]).toContain("кластер 1");
+  });
+
+  it("канал без кластера (СТ) не считается пересечением", () => {
+    const ch = new Map<number, ChannelId>([
+      [0, "alu0"],
+      [1, "ct"],
+    ]);
+    const stat = crossClusterEdges([], ch, [[0, 1]]);
+    expect(stat.cross).toBe(0);
+    expect(stat.noCluster).toBe(1);
   });
 
   it("кластеры АЛУ разложены как в документе: 0,1,2 → 0; 3,4,5 → 1", () => {
