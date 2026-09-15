@@ -48,8 +48,7 @@ export interface SampleRecord {
 }
 
 /** Разобрать строки образцов из документа (`| # | `мнемоника,канал` | форма | байт | байты | статус | основание |`). */
-export function parseSampleRecords(doc: string): SampleRecord[] {
-  const records: SampleRecord[] = [];
+export function parseSampleRecords(doc: string): SampleRecord[] {  const records: SampleRecord[] = [];
   for (const line of doc.split(/\r?\n/)) {
     const cells = line.split('|').map((cell) => cell.trim());
     if (cells.length < 8) continue;
@@ -91,23 +90,46 @@ export function checkSampleRecords(
   return problems;
 }
 
+/**
+ * Вырезать раздел документа: от заголовка до следующего заголовка того же уровня.
+ *
+ * Нужно потому, что в документе теперь **две** таблицы состояния образцов: §2.3 — маршрут через
+ * онлайн-компилятор (там всё «НЕ ПРОВЕРЕНО»), §4.3 — внешняя проверка через MCST-objdump (там
+ * «совпал»). Смешивать их нельзя: проверяются разные утверждения.
+ */
+export function sectionOf(doc: string, heading: string): string {
+  const start = doc.indexOf(heading);
+  if (start < 0) return '';
+  const rest = doc.slice(start + heading.length);
+  const next = /\n## /.exec(rest);
+  return next === null ? rest : rest.slice(0, next.index);
+}
+
 describe('внешняя проверка образцов e2k: состояние записано про каждый', () => {
   const doc = fs.existsSync(DOC) ? fs.readFileSync(DOC, 'utf-8') : '';
+  const ceSection = sectionOf(doc, '### 2.3. Состояние каждого образца');
   const samples = buildSamples();
-  const records = parseSampleRecords(doc);
+  const records = parseSampleRecords(ceSection);
+  const markers = sectionOf(doc, '## 4. Внешняя проверка ПОЛУЧЕНА');
 
-  it('про каждый из десяти образцов записан статус', () => {
+  it('про каждый из десяти образцов записан статус маршрута через онлайн-компилятор', () => {
     const keys = samples.map((sample) => `${sample.mnemonic},${sample.channel}`);
     expect(keys.length).toBeGreaterThanOrEqual(5);
+    expect(ceSection, 'нет раздела §2.3').not.toBe('');
     expect(checkSampleRecords(keys, records), `записей разобрано ${records.length}`).toEqual([]);
   });
 
-  it('ни один образец не объявлен проверенным: внешнего инструмента не было', () => {
+  it('через Compiler Explorer ни один образец не объявлен проверенным', () => {
     const claimed = records.filter((record) => record.status !== 'НЕ ПРОВЕРЕНО');
-    // Если однажды появится внешний инструмент и сверка состоится, эта проверка станет
-    // красной — и это правильно: тогда документ обязан переписаться вместе с результатом.
+    // Если однажды компилятор e2k появится и сверка через сервис состоится, эта проверка станет
+    // красной — и это правильно: тогда §2.3 обязан переписаться вместе с результатом.
     expect(claimed.map((record) => record.key)).toEqual([]);
     expect(doc).toContain(CE_NO_E2K);
+    // И маршрут через онлайн-компилятор обязан ссылаться на полученную внешнюю проверку,
+    // иначе документ читается как «внешней проверки нет вообще».
+    if (markers !== '') {
+      expect(ceSection, '§2.3 не ссылается на §4 с полученной внешней проверкой').toMatch(/§4/);
+    }
   });
 
   it('конвейер запроса к Compiler Explorer проверен на доступном компиляторе', async () => {
