@@ -343,9 +343,13 @@ function writeHalf(target: Uint8Array, offset: number, half: number): void {
 }
 
 function encodeReal(instruction: AsmInstruction): Uint8Array {
+  const control = REAL_CONTROL_OPCODES.find((candidate) => candidate.mnemonic === instruction.mnemonic);
+  if (control !== undefined) return encodeControl(control, instruction);
   const entry = BY_MNEMONIC.get(instruction.mnemonic);
   if (entry === undefined) throw new EncodingRefusedError(realRefusalReason(instruction.mnemonic));
   const channel = channelOf(entry, instruction.channel);
+  const literal = literalOperand(entry, instruction.operands);
+  if (literal !== undefined) return encodeWithLiteral(entry, channel, instruction.operands, literal);
   const fields = fieldsOf(entry, instruction.operands);
   const long = entry.form === "ALF11";
   const size = long ? REAL_LONG_FORM_SIZE : REAL_SHORT_FORM_SIZE;
@@ -359,6 +363,268 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
     writeHalf(bytes, 10, ALES_WORD);
     // Слово 3 — выравнивание команды на границу 8 байт (gas/config/tc-e2k.c:9488-9492): нули.
   }
+  return bytes;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// СЛОГИ УПРАВЛЕНИЯ (SS, CS0, CS1) — извлечены в docs/e2k-syllables-real.md
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Поле инструкции управления: `ctpr` — номер регистра подготовки, `cond` — код условия `ct`,
+ * `disp` — смещение перехода в восьмибайтовых словах, `wbs` — параметр `call`. */
+export type RealControlSlot = "ctpr" | "cond" | "disp" | "wbs";
+
+/**
+ * Инструкция, которая кодируется **слогами управления**, а не слогом ALS.
+ *
+ * Такие инструкции в таблице опкодов МЦСТ **не лежат** — их разбирает сам ассемблер
+ * (`gas/config/tc-e2k.c`, функции `parse_ct_args`, `parse_hicall_args`, `parse_pref_args`), и
+ * кодируются они прямо в поля слогов. Поэтому они вынесены в отдельную таблицу, а не
+ * подмешаны к `REAL_OPCODES`.
+ */
+export interface RealControlEntry {
+  /** Мнемоника — копия из ассемблера МЦСТ посимвольно (`as` принимает именно эти имена). */
+  readonly mnemonic: string;
+  readonly form: "SS" | "CS0_DISP" | "CS0_RETURN" | "CS1_CALL";
+  readonly operands: readonly RealControlSlot[];
+  readonly size: number;
+  /** Источник полей слога. */
+  readonly formSource: string;
+  /** Источник мнемоники и набора операндов. */
+  readonly source: string;
+}
+
+/** Источник полей SS — служебного слога. */
+const SS_SOURCE =
+  "qemu/target/e2k/syllab-format.h:16-29 (HS) и opcodes/e2k-dis.c:1584-1640 (print_ctcond: cond_type = ctcond>>5, psrc = ctcond&0x1f)";
+/** Источник полей CS0 — управляющего слога 0. */
+const CS0_SOURCE =
+  "qemu/target/e2k/syllab-format.h:94-101 (C0F: opc[31:28], C0F2: disp[27:0]); opcodes/e2k-dis.c:1906-1911 (ctpr[31:30], ctp_opc[29:28])";
+/** Источник полей CS1 — управляющего слога 1. */
+const CS1_SOURCE = "qemu/target/e2k/syllab-format.h:102-119 (C1F1: opc[31:28], param[27:0])";
+
+/** Код условия «всегда» (`CTC bastOND_ALWAYS = 32`, `gas/config/tc-e2k.c:4589`). */
+export const CT_COND_ALWAYS = 0x20;
+
+/**
+ * Инструкции управления. Байты сверены с ассемблером МЦСТ (`docs/e2k-syllables-real.md` §4):
+ * `ct %ctpr1` → `01 10 00 00 20 04 00 c0`, `disp %ctpr1, …` → `01 40 00 00 01 00 00 40`,
+ * `return %ctpr3` → `01 40 00 00 00 00 00 f0`, `call %ctpr1, wbs=16` →
+ * `12 90 00 00 20 04 00 c0 10 00 00 50 00 00 00 00`.
+ */
+export const REAL_CONTROL_OPCODES: readonly RealControlEntry[] = [
+  {
+    mnemonic: "ct",
+    form: "SS",
+    operands: ["ctpr", "cond"],
+    size: 8,
+    formSource: SS_SOURCE,
+    source: "gas/config/tc-e2k.c:6796-6861 (parse_ct_args), :6658-6760 (parse_ctcond)",
+  },
+  {
+    mnemonic: "disp",
+    form: "CS0_DISP",
+    operands: ["ctpr", "disp"],
+    size: 8,
+    formSource: CS0_SOURCE,
+    source: "gas/config/tc-e2k.c:6000-6070 (разбор disp), opcodes/e2k-dis.c:1896-1902 (таблица cs0_ops)",
+  },
+  {
+    mnemonic: "return",
+    form: "CS0_RETURN",
+    operands: ["ctpr"],
+    size: 8,
+    formSource: CS0_SOURCE,
+    source: "gas/config/tc-e2k.c:7004 (CS0.ctp_opc = 0 для RETURN), opcodes/e2k-dis.c:1901 (cs0_ops[3][3] = RETURN)",
+  },
+  {
+    mnemonic: "call",
+    form: "CS1_CALL",
+    operands: ["ctpr", "wbs"],
+    size: 16,
+    formSource: CS1_SOURCE,
+    source: "gas/config/tc-e2k.c:6832-6841 (CS1: call.opc = 5, call.param = wbs)",
+  },
+];
+
+/** Инструкция управления по мнемонике. */
+export function realControlOpcode(mnemonic: string): RealControlEntry | undefined {
+  return REAL_CONTROL_OPCODES.find((entry) => entry.mnemonic === mnemonic);
+}
+
+/** Числовой операнд по индексу; отказ, если его нет или он не число. */
+function immediateOf(instruction: AsmInstruction, index: number, slot: RealControlSlot): number {
+  const operand = instruction.operands[index];
+  if (operand === undefined || operand.kind !== "imm") {
+    throw new EncodingError(`«${instruction.mnemonic}»: операнд ${slot} обязан быть числом`);
+  }
+  if (!Number.isInteger(operand.value)) {
+    throw new EncodingError(`«${instruction.mnemonic}»: ${slot} = ${operand.value} — не целое`);
+  }
+  return operand.value;
+}
+
+/** Слог SS: `ipd=3` (значение ассемблера МЦСТ), `ctpr[11:10]`, `ctcond[8:0]`. */
+function ssWord(ctpr: number, ctcond: number): number {
+  if (ctpr < 1 || ctpr > 3) throw new EncodingError(`ctpr вне 1..3: ${ctpr}`);
+  if (ctcond < 0 || ctcond > 0x1ff) throw new EncodingError(`код условия вне 9 бит: ${ctcond}`);
+  return (0xc0000000 | ((ctpr & 0x3) << 10) | (ctcond & 0x1ff)) >>> 0;
+}
+
+/** Слог CS0 формата C0F2 (`disp`): `ctpr[31:30]`, `ctp_opc=0`, `disp[27:0]`. */
+function cs0DispWord(ctpr: number, disp: number): number {
+  if (ctpr < 1 || ctpr > 3) throw new EncodingError(`ctpr вне 1..3: ${ctpr}`);
+  return (((ctpr & 0x3) << 30) | (disp & 0x0fffffff)) >>> 0;
+}
+
+/** Слог CS0 формата C0F1 (`return`): `ctpr=3`, `ctp_opc=3`. */
+function cs0ReturnWord(ctpr: number): number {
+  if (ctpr !== 3) throw new EncodingError(`return поддерживает только %ctpr3 (получено ${ctpr})`);
+  return 0xf0000000 >>> 0;
+}
+
+/** Слог CS1 формата C1F1 (`call`): `opc=5`, `param=wbs`. */
+function cs1CallWord(wbs: number): number {
+  if (wbs < 0 || wbs > 0x0fffffff) throw new EncodingError(`wbs вне 28 бит: ${wbs}`);
+  return ((5 << 28) | (wbs & 0x0fffffff)) >>> 0;
+}
+
+function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Uint8Array {
+  if (instruction.operands.length !== entry.operands.length) {
+    throw new EncodingError(
+      `«${entry.mnemonic}»: операндов ${instruction.operands.length}, форма ${entry.form} несёт ${entry.operands.length}`,
+    );
+  }
+  if (instruction.channel !== 0) {
+    throw new EncodingError(`«${entry.mnemonic}»: инструкция управления не несёт номер канала ALS`);
+  }
+  const values = new Map<RealControlSlot, number>();
+  entry.operands.forEach((slot, index) => {
+    values.set(slot, immediateOf(instruction, index, slot));
+  });
+  const bytes = new Uint8Array(entry.size);
+  switch (entry.form) {
+    case "SS": {
+      // HS: SS присутствует (бит 12), mdl = 1, lng = 0 → 8 байт.
+      writeWord(bytes, 0, 0x00001001);
+      writeWord(bytes, 4, ssWord(values.get("ctpr")!, values.get("cond")!));
+      return bytes;
+    }
+    case "CS0_DISP": {
+      // HS: CS0 присутствует (бит 14), mdl = 1, lng = 0.
+      writeWord(bytes, 0, 0x00004001);
+      writeWord(bytes, 4, cs0DispWord(values.get("ctpr")!, values.get("disp")!));
+      return bytes;
+    }
+    case "CS0_RETURN": {
+      writeWord(bytes, 0, 0x00004001);
+      writeWord(bytes, 4, cs0ReturnWord(values.get("ctpr")!));
+      return bytes;
+    }
+    case "CS1_CALL": {
+      // HS: SS (12) + CS1 (15), mdl = 2 (три слога до средней точки), lng = 1 → 16 байт.
+      writeWord(bytes, 0, 0x00009012);
+      writeWord(bytes, 4, ssWord(values.get("ctpr")!, CT_COND_ALWAYS));
+      writeWord(bytes, 8, cs1CallWord(values.get("wbs")!));
+      return bytes;
+    }
+    default: {
+      const unknown = entry as { form?: string };
+      throw new EncodingError(`форма управления «${unknown.form}» не реализована`);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ЛИТЕРАЛЫ (LTS) — извлечены в docs/e2k-syllables-real.md
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Литеральный операнд: индекс слота и значение. */
+interface LiteralOperand {
+  readonly index: number;
+  readonly value: number;
+}
+
+/**
+ * Найти литеральный операнд (`imm`) в инструкции.
+ *
+ * Литералы поддержаны только для коротких форм ALF1/ALF2: у длинной формы (ALS + ALES) слог
+ * литерала конкурирует за место с полуслогом ALES, и такая раскладка **не проверена**
+ * ассемблером — а непроверенное в кодировщик не добавляется.
+ */
+function literalOperand(entry: RealOpcodeEntry, operands: readonly Operand[]): LiteralOperand | undefined {
+  const index = operands.findIndex((operand) => operand.kind === "imm");
+  if (index < 0) return undefined;
+  if (entry.form === "ALF11") {
+    throw new EncodingRefusedError(
+      `«${entry.mnemonic}»: литерал в длинной форме (ALS + ALES) не реализован — раскладка ` +
+        "слога литерала вместе с полуслогом ALES ассемблером не проверена",
+    );
+  }
+  const operand = operands[index]!;
+  if (operand.kind !== "imm") throw new EncodingError(`«${entry.mnemonic}»: операнд ${index} не литерал`);
+  return { index, value: operand.value };
+}
+
+/**
+ * Поле ссылки на литерал — `opcodes/e2k-dis.c:445-479`:
+ * `(v & 0xf8) == 0xd0` — 16-битный литерал (`lit_num = v & 3`, бит 2 = старшая половина слова),
+ * `(v & 0xfc) == 0xd8` — 32-битный литерал, `(v & 0xfc) == 0xdc` — 64-битный.
+ *
+ * Наш кодировщик берёт **старшую половину** слова для 16-битного литерала (`0xd4`): именно так
+ * поступает ассемблер МЦСТ (проверено: `movts,0 42, %b[1]` → поле `0xd4`, литерал в старшей
+ * половине последнего слова).
+ */
+export const LITERAL_FIELD_F16 = 0xd4;
+export const LITERAL_FIELD_F32 = 0xd8;
+
+/** Собрать инструкцию с литеральным операндом: 16 байт, литерал — в последнем слове. */
+function encodeWithLiteral(
+  entry: RealOpcodeEntry,
+  channel: number,
+  operands: readonly Operand[],
+  literal: LiteralOperand,
+): Uint8Array {
+  if (!Number.isInteger(literal.value)) {
+    throw new EncodingError(`«${entry.mnemonic}»: литерал ${literal.value} — не целое`);
+  }
+  const fits16 = literal.value >= -32768 && literal.value <= 32767;
+  const fits32 = literal.value >= -2147483648 && literal.value <= 2147483647;
+  if (!fits16 && !fits32) {
+    throw new EncodingRefusedError(
+      `«${entry.mnemonic}»: литерал ${literal.value} не влезает в 32 бита; 64-битная форма (0xdc, ` +
+        "два слова литералов) не реализована",
+    );
+  }
+  const field = fits16 ? LITERAL_FIELD_F16 : LITERAL_FIELD_F32;
+  // Поля регистров: литеральный операнд занимает поле своего слота, остальные — как обычно.
+  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0 };
+  entry.operands.forEach((slot, index) => {
+    if (index === literal.index) return;
+    const operand = operands[index]!;
+    if (operand.kind !== "reg") throw new EncodingError(`«${entry.mnemonic}»: операнд ${index} не регистр`);
+    values[slot] = operand.index;
+  });
+  const literalSlot = entry.operands[literal.index]!;
+  values[literalSlot] = field;
+  // У ALF2 на месте src1 лежит расширение opce = NONE, а не регистр
+  // (include/opcode/e2k.h:93); без этого байт 6 отличается от байтов ассемблера.
+  if (entry.form === "ALF2") values.src1 = ALES_OPCE_NONE;
+  // Проверяются только регистровые слоты: в слоте литерала лежит поле ссылки (0xd4/0xd8).
+  for (const slot of entry.operands) {
+    if (slot === literalSlot || (entry.form === "ALF2" && slot === "src1")) continue;
+    const value = values[slot]!;
+    if (value > REAL_MAX_REGISTER) {
+      throw new EncodingError(`«${entry.mnemonic}»: регистр ${value} вне 0..${REAL_MAX_REGISTER}`);
+    }
+  }
+  const bytes = new Uint8Array(REAL_LONG_FORM_SIZE);
+  // HS: mdl = 1, lng = 1 (16 байт), присутствует слог ALS.
+  writeWord(bytes, 0, ((1 << 4) | 1 | ((1 << channel) << HS.al.shift)) >>> 0);
+  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, dst: values.dst! }));
+  // Слово 2 — пустое; слово 3 — литерал (LTS читаются с конца: qemu/target/e2k/instr-bits.h:211-221).
+  if (fits16) writeHalf(bytes, 14, literal.value & 0xffff);
+  else writeWord(bytes, 12, literal.value >>> 0);
   return bytes;
 }
 
@@ -407,14 +673,14 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
   if (size !== bytes.length) {
     throw new EncodingError(`длина по HS: ${size} байт, в потоке ${bytes.length}`);
   }
+  // Слоги управления разбираются отдельно: у них нет слога ALS, зато есть SS и/или CS0/CS1.
+  if (fieldOf(hs, HS.ss) !== 0 || fieldOf(hs, HS.cs) !== 0) return decodeControl(bytes, hs);
   // Поля, которых интерфейс не выражает, обязаны быть нулевыми.
   for (const [name, field] of [
     ["nop", HS.nop],
     ["lm", HS.lm],
     ["x (бит 11)", HS.x],
-    ["SS", HS.ss],
     ["sw", HS.sw],
-    ["CS0/CS1", HS.cs],
     ["CDS", HS.cd],
     ["PLS", HS.pl],
   ] as const) {
@@ -449,10 +715,18 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
   }
   const long = aleMask === alsBit;
   const words = bytes.length / 4;
-  if (long !== (words === 4)) {
+  // Четыре слова бывает и без полуслога ALES: тогда в последнем слове лежит литерал (LTS).
+  const hasLiteralField = [readWord(bytes, 4) >>> 16, (readWord(bytes, 4) >>> 8) & 0xff, readWord(bytes, 4) & 0xff].some(
+    (value) => value >= 0xd0 && value <= 0xdf,
+  );
+  if (long ? words !== 4 : !(words === 2 || (words === 4 && hasLiteralField))) {
     throw new EncodingError(
-      `форма не сходится с длиной: полуслог ALES ${long ? "есть" : "нет"}, слов ${words}`,
+      `форма не сходится с длиной: полуслог ALES ${long ? "есть" : "нет"}, слов ${words}` +
+        (hasLiteralField ? ", в слове литерал" : ""),
     );
+  }
+  if (!long && words === 4 && aleMask !== 0) {
+    throw new EncodingRefusedError("НЕТ В ИСТОЧНИКЕ: полуслог ALES вместе с литералом не реализован");
   }
 
   const als = readWord(bytes, 4);
@@ -502,18 +776,152 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     );
   }
   // Проверяются только те поля, которые форма действительно несёт: у ALF2 на месте src1 лежит
-  // расширение opce, а не регистр.
+  // расширение opce, а не регистр; поле 0xd0..0xdf — литеральная ссылка, а не регистр
+  // (opcodes/e2k-dis.c:445-504).
   for (const slot of entry.operands) {
+    if (entry.form === "ALF2" && slot === "src1") continue;
     const value = slot === "src1" ? src1 : slot === "src2" ? src2 : dst;
+    if (value >= 0xd0 && value <= 0xdf) continue;
     if (value > REAL_MAX_REGISTER) {
       throw new EncodingError(`регистр ${value} не выражается полем слога (0..${REAL_MAX_REGISTER})`);
     }
   }
-  const operands: Operand[] = entry.operands.map((slot) => ({
-    kind: "reg" as const,
-    index: slot === "src1" ? src1 : slot === "src2" ? src2 : dst,
-  }));
+  const operands: Operand[] = entry.operands.map((slot) => {
+    const value = slot === "src1" ? src1 : slot === "src2" ? src2 : dst;
+    // Литеральная ссылка: поле 0xd0..0xdf — это не регистр, а литерал
+    // (opcodes/e2k-dis.c:445-504). Значение берётся из последнего слова.
+    if (value >= 0xd0 && value <= 0xdf) {
+      const litNum = value & 0x3;
+      if (litNum !== 0) {
+        throw new EncodingRefusedError(
+          `НЕТ В ИСТОЧНИКЕ: литерал ссылается на слово LTS${litNum} (поле 0x${value.toString(16)}); ` +
+            "реализовано одно слово литералов (LTS0)",
+        );
+      }
+      if ((value & 0xf8) === 0xd0) {
+        const shift = (value & 0x4) === 0 ? 0 : 16;
+        const raw = (readHalf(bytes, 12 + shift / 8) << 0) & 0xffff;
+        const signed = raw >= 0x8000 ? raw - 0x10000 : raw;
+        return { kind: "imm" as const, value: signed };
+      }
+      if ((value & 0xfc) === 0xd8) return { kind: "imm" as const, value: readWord(bytes, 12) | 0 };
+      throw new EncodingRefusedError(
+        `НЕТ В ИСТОЧНИКЕ: 64-битный литерал (поле 0x${value.toString(16)}) не реализован`,
+      );
+    }
+    return { kind: "reg" as const, index: value };
+  });
   return { mnemonic: entry.mnemonic, channel, operands };
+}
+
+/**
+ * Разбор инструкции управления: слоги SS, CS0 и CS1.
+ *
+ * Поля — из `qemu/target/e2k/syllab-format.h` (HS: `s[12]`, `c[15:14]`; SS: `ipd[31:30]`,
+ * `ctop[11:10]`, `ctcond[8:0]`; CS0: `ctpr[31:30]`, `ctp_opc[29:28]`, `param/disp[27:0]`;
+ * CS1: `opc[31:28]`, `param[27:0]`) и `opcodes/e2k-dis.c:1896-1911`, `:1584-1640`.
+ */
+function decodeControl(bytes: Uint8Array, hs: number): AsmInstruction {
+  const ssPresent = fieldOf(hs, HS.ss) !== 0;
+  const c0Present = (fieldOf(hs, HS.cs) & 0x1) !== 0;
+  const c1Present = (fieldOf(hs, HS.cs) & 0x2) !== 0;
+  // Команда с слогом ALS и слогом управления одновременно в этой реализации не разбирается:
+  // смешанные команды не проверены ассемблером, а угадывать раскладку запрещено.
+  if (fieldOf(hs, HS.al) !== 0 || fieldOf(hs, HS.ale) !== 0) {
+    throw new EncodingRefusedError(
+      "НЕТ В ИСТОЧНИКЕ: слог управления (SS/CS) вместе со слогом ALS в одной команде — " +
+        "такая раскладка ассемблером не проверена",
+    );
+  }
+  for (const [name, field] of [
+    ["nop", HS.nop],
+    ["lm", HS.lm],
+    ["x (бит 11)", HS.x],
+    ["sw", HS.sw],
+    ["CDS", HS.cd],
+    ["PLS", HS.pl],
+  ] as const) {
+    if (fieldOf(hs, field) !== 0) {
+      throw new EncodingError(`поле ${name} = ${fieldOf(hs, field)} — разбор инструкции управления отвергнут`);
+    }
+  }
+  // Раскладка: HS, затем SS (если есть), затем CS0 (если есть) и CS1 (если есть).
+  let offset = 4;
+  const ss = ssPresent ? readWord(bytes, offset) : 0;
+  if (ssPresent) offset += 4;
+  const cs0 = c0Present && !c1Present ? readWord(bytes, offset) : 0;
+  if (c0Present && !c1Present) offset += 4;
+  const cs1 = c1Present ? readWord(bytes, offset) : 0;
+
+  if (c1Present) {
+    if (!ssPresent || c0Present) throw new EncodingError("call: ожидались слоги SS и CS1");
+    if (bytes.length !== REAL_LONG_FORM_SIZE) throw new EncodingError("call: ожидалась длина 16 байт");
+    const opc = (cs1 >>> 28) & 0xf;
+    if (opc !== 5) {
+      throw new EncodingRefusedError(`НЕТ В ИСТОЧНИКЕ: CS1.opc = ${opc}; реализован только CALL (5)`);
+    }
+    const ctpr = ssCtrp(ss);
+    const cond = ss & 0x1ff;
+    if (cond !== CT_COND_ALWAYS) {
+      throw new EncodingError(
+        `call: код условия 0x${cond.toString(16)}, реализовано только «всегда» (0x${CT_COND_ALWAYS.toString(16)})`,
+      );
+    }
+    if (readWord(bytes, 12) !== 0) throw new EncodingError("call: ненулевое слово выравнивания");
+    return {
+      mnemonic: "call",
+      channel: 0,
+      operands: [
+        { kind: "imm", value: ctpr },
+        { kind: "imm", value: cs1 & 0x0fffffff },
+      ],
+    };
+  }
+
+  if (c0Present) {
+    const ctpr = (cs0 >>> 30) & 0x3;
+    const ctpOpc = (cs0 >>> 28) & 0x3;
+    if (ctpOpc === 3) {
+      // RETURN: cs0_ops[3][3]
+      if (ctpr !== 3) throw new EncodingError(`return: ctpr ${ctpr}, ожидался 3`);
+      return { mnemonic: "return", channel: 0, operands: [{ kind: "imm", value: ctpr }] };
+    }
+    if (ctpOpc === 0) {
+      // DISP (C0F2): disp[27:0]
+      return {
+        mnemonic: "disp",
+        channel: 0,
+        operands: [
+          { kind: "imm", value: ctpr },
+          { kind: "imm", value: cs0 & 0x0fffffff },
+        ],
+      };
+    }
+    throw new EncodingRefusedError(
+      `НЕТ В ИСТОЧНИКЕ: CS0.ctp_opc = ${ctpOpc} (sdisp/ldisp/gettsd/ibranch) не реализован`,
+    );
+  }
+
+  if (!ssPresent) throw new EncodingRefusedError("НЕТ В ИСТОЧНИКЕ: ни SS, ни CS0, ни CS1");
+  const ctpr = ssCtrp(ss);
+  const cond = ss & 0x1ff;
+  return {
+    mnemonic: "ct",
+    channel: 0,
+    operands: [
+      { kind: "imm", value: ctpr },
+      { kind: "imm", value: cond },
+    ],
+  };
+}
+
+/** Номер `%ctpr` из слога SS (`ctop[11:10]`). */
+function ssCtrp(ss: number): number {
+  const ctop = (ss >>> 10) & 0x3;
+  if (ctop < 1 || ctop > 3) {
+    throw new EncodingRefusedError(`НЕТ В ИСТОЧНИКЕ: SS.ctop = ${ctop}; реализованы %ctpr1..%ctpr3`);
+  }
+  return ctop;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

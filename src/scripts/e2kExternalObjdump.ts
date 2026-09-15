@@ -490,6 +490,21 @@ export function runExternalCheck(): ExternalReport {
   };
 }
 
+/** Разобрать произвольный ELF внешним дизассемблером: текст вывода и найденный инструмент. */
+export function disassembleElf(
+  elf: E2kElf,
+  file = path.join(ROOT, '.tmp', 'e2k-disasm.elf'),
+): { text: string; tool: ExternalTool } | undefined {
+  const { tool } = findExternalTool();
+  if (tool === undefined) return undefined;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, elf.bytes);
+  const target = tool.runner.command.toLowerCase().includes('wsl') ? toWslPath(file) : file;
+  const output = tryRun(tool.runner.command, [...tool.runner.args, '-d', target]);
+  if (output === undefined) return undefined;
+  return { text: output, tool };
+}
+
 function main(): void {
   const report = runExternalCheck();
   fs.writeFileSync(REPORT_FILE, `${JSON.stringify(report, null, 2)}\n`, 'utf-8');
