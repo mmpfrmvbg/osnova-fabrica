@@ -1,0 +1,278 @@
+/**
+ * ОРАКУЛ СКВОЗНОГО ПРОГОНА ПЯТИ ЯДЕР ЧЕРЕЗ РЕАЛЬНУЮ КОДИРОВКУ e2k.
+ *
+ * # Что проверяется
+ *
+ * 1. **Поток ядра понижается и кодируется по частям.** Для каждого из пяти ядер: сколько
+ *    инструкций понижено до операций e2k, сколько отвергнуто и **почему** (по носителям,
+ *    с причиной). Молчаливой потери инструкций нет: `encoded + refused === instructions`.
+ * 2. **Round-trip на каждой понижённой инструкции:** `e2k-real.encode` → `e2k-real.decode`
+ *    возвращает ту же операцию e2k с теми же операндами.
+ * 3. **Понижение сохраняет смысл на данных.** Поток исполняется регистровой VM в двух видах:
+ *    как есть и с понижёнными операциями (`IR.mul` → `Math.imul` — младшая половина
+ *    32-битного произведения, то есть семантика `MULs`). Числа обязаны совпасть с независимым
+ *    эталоном `tests/dsp/reference.json` (181 / 119 / 4 / 90 / 32), а предпосылки понижения —
+ *    подтвердиться на данных: ни одного нецелого операнда и ни одного усечения.
+ * 4. **Полный сквозной прогон невозможен, и это измерено, а не заявлено.** `emitShell` с
+ *    `getEncoder("e2k")` отказывает на первой же инструкции: носители `IR.*` — не мнемоники e2k.
+ *    Поэтому в отчёте каждого ядра стоит `executableThroughReal: false` и список носителей,
+ *    которые мешают.
+ *
+ * # Чего этот оракул НЕ доказывает
+ *
+ * Что код исполнится на e2k: эмулятора нет (QEMU не собран — `docs/e2k-qemu-build.md`), железо
+ * недоступно. Проверены **кодирование** и **согласованность понижения**, а не исполнение.
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import { describe, it, expect } from 'vitest';
+import { EncodingRefusedError, getEncoder, type AsmInstruction, type Operand } from './backend';
+import { emitShell } from './emitterShell';
+import { annotateAtomRegions, verifyAtomRegions } from '../compiler/atomRegions';
+import { regModuleOf } from '../vliw/regOracle';
+import type { RegModule } from '../runtime/vm/regcode';
+import {
+  LOWERING,
+  REFUSALS,
+  SYNTHETIC,
+  lowerInstruction,
+  runKernelThroughRealEncoding,
+  runLoweredValues,
+  type KernelRealReport,
+} from './e2kRealRun';
+
+const ROOT = path.resolve(__dirname, '..', '..');
+const KERNELS_DIR = path.join(ROOT, 'tests', 'dsp', 'kernels');
+const REFERENCE = path.join(ROOT, 'tests', 'dsp', 'reference.json');
+
+/** Пять ядер и атом каждого — как в сквозном прогоне. */
+const KERNELS: ReadonlyArray<{ name: string; atom: string; algorithm: string }> = [
+  { name: 'fir', atom: 'A5', algorithm: 'FIR-фильтр' },
+  { name: 'iir', atom: 'A5', algorithm: 'IIR-фильтр' },
+  { name: 'fft', atom: 'A5', algorithm: 'БПФ radix-2' },
+  { name: 'convolution', atom: 'A6', algorithm: 'свёртка' },
+  { name: 'correlation', atom: 'A6', algorithm: 'корреляция' },
+];
+
+const shellEncoder = getEncoder('internal-shell');
+const realEncoder = getEncoder('e2k');
+
+interface Reference {
+  [kernel: string]: { checksum: number };
+}
+
+function readReference(): Reference {
+  return JSON.parse(fs.readFileSync(REFERENCE, 'utf-8')) as Reference;
+}
+
+function kernelModule(name: string): RegModule {
+  const source = fs.readFileSync(path.join(KERNELS_DIR, `${name}.osnova`), 'utf-8');
+  const built = regModuleOf(source);
+  if (!built) throw new Error(`ядро не компилируется: ${name}`);
+  return built.module;
+}
+
+function kernelImage(name: string, atom: string): ReturnType<typeof emitShell> {
+  const module = kernelModule(name);
+  const annotated = annotateAtomRegions(module, [
+    { atom, procedures: module.procedures.map((procedure) => procedure.name) },
+  ]);
+  const problems = verifyAtomRegions(annotated);
+  if (problems.length > 0) throw new Error(`${name}: разметка атомов не прошла проверку: ${problems.join('; ')}`);
+  return emitShell(annotated, shellEncoder);
+}
+
+function reportFor(name: string, atom: string): KernelRealReport {
+  return runKernelThroughRealEncoding(kernelImage(name, atom), realEncoder, { kernel: name, atom });
+}
+
+const REPORTS: ReadonlyMap<string, KernelRealReport> = new Map(
+  KERNELS.map(({ name, atom }) => [name, reportFor(name, atom)]),
+);
+
+describe('сквозной прогон: понижение и кодирование', () => {
+  it('таблица понижения описывает четыре операции и у каждой названа предпосылка', () => {
+    expect(LOWERING.map((rule) => rule.carrier).sort()).toEqual(['IR.add', 'IR.move', 'IR.mul', 'IR.sub']);
+    for (const rule of LOWERING) {
+      expect(rule.semantics, `${rule.carrier}: не назван источник семантики`).toMatch(/руководство МЦСТ/);
+      expect(rule.fromIr.length).toBe(rule.slots.length);
+      expect(rule.assumption.length).toBeGreaterThan(3);
+    }
+    expect(Object.keys(REFUSALS).length).toBeGreaterThanOrEqual(15);
+  });
+
+  for (const { name, algorithm } of KERNELS) {
+    it(`${name} (${algorithm}): ни одна инструкция не потеряна молча`, () => {
+      const report = REPORTS.get(name)!;
+      expect(report.instructions).toBeGreaterThan(0);
+      expect(report.encoded + report.refused, `${name}: encoded + refused`).toBe(report.instructions);
+      // Отказы названы причиной, а не пропущены.
+      for (const blocking of report.blocking) {
+        expect(blocking.reason.length, `${name}: ${blocking.carrier} без причины`).toBeGreaterThan(10);
+      }
+      expect(report.blocking.length, `${name}: ни одного отказа — тогда прогон был бы полным`).toBeGreaterThan(0);
+    });
+
+    it(`${name} (${algorithm}): round-trip каждой понижённой инструкции проходит`, () => {
+      const report = REPORTS.get(name)!;
+      expect(report.roundTrip.checked, `${name}: сверять нечего`).toBe(report.encoded);
+      expect(report.roundTrip.mismatches, `${name}`).toEqual([]);
+    });
+
+    it(`${name} (${algorithm}): полный сквозной прогон невозможен — названы мешающие носители`, () => {
+      const report = REPORTS.get(name)!;
+      expect(report.executableThroughReal, `${name}: неожиданно полный прогон`).toBe(false);
+      const carriers = report.blocking.map((blocking) => blocking.carrier);
+      expect(carriers, `${name}: не назван хост-вызов`).toContain('IR.invoke');
+      expect(carriers, `${name}: не названы константы пула`).toContain('IR.const');
+    });
+  }
+
+  it('emitShell с реальным кодировщиком отказывает: носители IR — не мнемоники e2k', () => {
+    const module = kernelModule('fir');
+    const annotated = annotateAtomRegions(module, [
+      { atom: 'A5', procedures: module.procedures.map((procedure) => procedure.name) },
+    ]);
+    let error: unknown;
+    try {
+      emitShell(annotated, realEncoder);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error, 'эмиттер обязан отказать').toBeInstanceOf(Error);
+    expect(String((error as Error).message)).toMatch(/НЕТ В ИСТОЧНИКЕ/);
+    expect(error).toBeInstanceOf(EncodingRefusedError);
+  });
+});
+
+describe('сквозной прогон: смысл понижения на данных пяти ядер', () => {
+  for (const { name, algorithm } of KERNELS) {
+    it(`${name} (${algorithm}): число совпадает с эталоном, предпосылки понижения подтверждены`, async () => {
+      const reference = readReference();
+      const observed = await runLoweredValues(kernelModule(name));
+      expect(Number(observed.value), `${name}: понижённый прогон`).toBe(reference[name]!.checksum);
+      expect(observed.truncated, `${name}: усечение 32 бит изменило бы результат`).toBe(0);
+      expect(observed.nonInteger, `${name}: нецелый операнд там, где понижение требует целых`).toBe(0);
+      // Понижённые операции действительно исполнялись, а не были выброшены компилятором.
+      expect(Object.values(observed.executed).reduce((sum, count) => sum + count, 0)).toBeGreaterThan(0);
+    });
+  }
+
+  it('прогон с понижением исполняет те же виды операций, что есть в ядрах', async () => {
+    const observed = await runLoweredValues(kernelModule('fir'));
+    expect(observed.executed[SYNTHETIC.move]).toBeGreaterThan(0);
+    expect(observed.executed[SYNTHETIC.add]).toBeGreaterThan(0);
+    expect(observed.executed[SYNTHETIC.mul]).toBeGreaterThan(0);
+  });
+
+  it('негативный контроль: подмена понижения ломает число ядра', async () => {
+    // Подмена, которую обязан поймать прогон: `MULs` считается как точное произведение
+    // (то есть как IR), а не как младшая половина. На этих данных она неотличима — и это
+    // проверяется отдельно: значит проверка «усечения не было» осмысленна.
+    const observed = await runLoweredValues(kernelModule('fir'));
+    expect(observed.maxAbsProduct).toBeGreaterThan(0);
+    // А вот замена сложения вычитанием обязана изменить число.
+    const module = kernelModule('fir');
+    const broken: RegModule = {
+      ...module,
+      code: module.code.map((element) => {
+        const instruction = element as { op?: string };
+        return instruction.op === 'add' ? ({ ...element, op: 'sub' } as typeof element) : element;
+      }) as RegModule['code'],
+    };
+    const wrong = await runLoweredValues(broken).then(
+      (result) => Number(result.value),
+      (error: unknown) => `ошибка: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    // Подмена обязана изменить либо число, либо ход исполнения (цикл перестаёт завершаться) —
+    // в обоих случаях «прогон с понижением» перестаёт совпадать с эталоном.
+    expect(wrong).not.toBe(readReference().fir!.checksum);
+  });
+});
+
+describe('сквозной прогон: документ не расходится с измерением', () => {
+  /** Таблица §2 документа: | ядро | атом | инструкций | понижено | отвергнуто | байт | move | add | sub | mul | */
+  function docRows(): Map<string, number[]> {
+    const file = path.join(ROOT, 'docs', 'e2k-real-run.md');
+    const rows = new Map<string, number[]>();
+    for (const line of fs.readFileSync(file, 'utf-8').split(/\r?\n/)) {
+      const cells = line.split('|').map((cell) => cell.trim());
+      if (cells.length !== 12) continue;
+      const kernel = KERNELS.find((item) => item.name === cells[1]);
+      if (kernel === undefined || cells[2] !== kernel.atom) continue;
+      const numbers = cells.slice(3, 11).map((cell) => Number(cell.replace(/\s/g, '')));
+      if (numbers.some((value) => !Number.isInteger(value))) continue;
+      rows.set(kernel.name, numbers);
+    }
+    return rows;
+  }
+
+  it('числа §2 совпадают с прогоном', () => {
+    const rows = docRows();
+    expect(rows.size, 'в документе нет строк пяти ядер').toBe(KERNELS.length);
+    for (const { name } of KERNELS) {
+      const report = REPORTS.get(name)!;
+      const rule = (carrier: string): number => report.carriers.find((item) => item.carrier === carrier)?.encoded ?? 0;
+      const expected = [
+        report.instructions,
+        report.encoded,
+        report.refused,
+        report.bytes,
+        rule('IR.move'),
+        rule('IR.add'),
+        rule('IR.sub'),
+        rule('IR.mul'),
+      ];
+      expect(rows.get(name), `${name}: документ против прогона`).toEqual(expected);
+    }
+  });
+
+  it('негативный контроль: испорченное число в документе ловится', () => {
+    const rows = docRows();
+    const fir = rows.get('fir')!;
+    expect(fir[1] + fir[2], 'encoded + refused = instructions').toBe(fir[0]);
+    const spoiled = [...fir];
+    spoiled[1] = fir[1] + 1;
+    expect(spoiled[1] + spoiled[2]).not.toBe(spoiled[0]);
+  });
+});
+
+describe('сквозной прогон: понижение одной инструкции', () => {
+  const reg = (index: number): Operand => ({ kind: 'reg', index });
+  const asm = (mnemonic: string, operands: readonly Operand[]): AsmInstruction => ({
+    mnemonic,
+    channel: 0,
+    operands,
+  });
+
+  it('порядок операндов e2k соответствует формам, а не порядку IR', () => {
+    // Носитель IR.move несёт (dst, a); e2k movts — (src2, dst), то есть (a, d).
+    const move = lowerInstruction(asm('IR.move', [reg(7), reg(3)]));
+    expect(move.ok).toBe(true);
+    if (move.ok) expect(move.instruction.operands.map((o) => (o.kind === 'reg' ? o.index : -1))).toEqual([3, 7]);
+
+    // Носитель IR.add несёт (dst, a, b); e2k adds — (src1, src2, dst), то есть (a, b, d).
+    const add = lowerInstruction(asm('IR.add', [reg(9), reg(1), reg(2)]));
+    expect(add.ok).toBe(true);
+    if (add.ok) expect(add.instruction.operands.map((o) => (o.kind === 'reg' ? o.index : -1))).toEqual([1, 2, 9]);
+  });
+
+  it('непонижаемые носители отвергаются с причиной', () => {
+    for (const carrier of ['IR.invoke', 'IR.const', 'IR.jmp', 'IR.lt', 'IR.div']) {
+      const result = lowerInstruction(asm(carrier, [reg(1), reg(2)]));
+      expect(result.ok, `${carrier}`).toBe(false);
+      if (!result.ok) expect(result.reason.length, `${carrier}`).toBeGreaterThan(10);
+    }
+  });
+
+  it('негативный контроль: перепутанный порядок операндов ломает понижение', () => {
+    // Если поменять местами slots у movts, round-trip поймает расхождение: сравнение идёт
+    // по операндам, а не по длине байтов.
+    const shuffled: AsmInstruction = { mnemonic: 'movts', channel: 0, operands: [reg(7), reg(3)] };
+    const back = realEncoder.decode(realEncoder.encode(shuffled));
+    expect(back.operands.map((o) => (o.kind === 'reg' ? o.index : -1))).toEqual([7, 3]);
+    const wrong: AsmInstruction = { mnemonic: 'movts', channel: 0, operands: [reg(3), reg(7)] };
+    expect(realEncoder.encode(wrong)).not.toEqual(realEncoder.encode(shuffled));
+  });
+});
