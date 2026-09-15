@@ -59,6 +59,9 @@ const DIV = (d: number, a: number, b: number): RegInstruction =>
 const RET = (v?: number): RegInstruction =>
   (v === undefined ? { op: "ret" } : { op: "ret", v }) as RegInstruction;
 const JMP = (off: number): RegInstruction => ({ op: "jmp", off }) as RegInstruction;
+const CALL = (d: number, fi = 0, args: number[] = []): RegInstruction =>
+  ({ op: "call", d, fi, args, argc: args.length }) as RegInstruction;
+const MOVE = (d: number, a: number): RegInstruction => ({ op: "move", d, a }) as RegInstruction;
 
 /** Собрать модуль из одного пакета. */
 function moduleWithPacket(slots: RegInstruction[]): RegModule {
@@ -130,6 +133,26 @@ describe("verifyPackets: легальные пакеты принимаются"
 
   it("5. модуль без пакетов (только одиночные инструкции) легален", () => {
     const m = linearModule([K(1, 0), ADD(2, 1, 1), RET(2)]);
+    expect(verifyPackets(m, MODEL)).toEqual({ ok: true });
+  });
+
+  it("6. `call` один в пакете — легален", () => {
+    // Вызов процедуры передаёт управление, но если он единственный слот, то
+    // терять нечего: пакет и должен на нём закончиться.
+    const m = moduleWithPacket([CALL(3, 0, [4])]);
+    expect(verifyPackets(m, MODEL)).toEqual({ ok: true });
+  });
+
+  it("7. `call` последним в пакете — легален", () => {
+    // Аргумент вызова уже лежит в регистре 4 из ПРЕДЫДУЩЕГО пакета, а `const`
+    // пишет регистр 9, которого вызов не касается.
+    //
+    // Первая версия теста ставила `K(4, 7); CALL(3, 0, [4])` и «ждала» успеха —
+    // это RAW: вызов читает регистр 4, который `const` пишет в том же пакете.
+    // Верификатор отказал справедливо: значение станет видно только со
+    // следующего пакета. Это третий случай, когда оракул поймал ошибку в моих
+    // тестовых данных (до него — `ret v=1` и `K(1);K(2);ADD(5,2,3)`).
+    const m = moduleWithPacket([K(9, 7), CALL(3, 0, [4])]);
     expect(verifyPackets(m, MODEL)).toEqual({ ok: true });
   });
 });
@@ -217,6 +240,35 @@ describe("verifyPackets: нелегальные пакеты отвергают�
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toMatch(/терминатор|BRANCH/i);
+  });
+
+  it("8. `call` не последний в пакете: слот после него не исполнится", () => {
+    // РЕГРЕССИЯ НА РЕАЛЬНЫЙ ДЕФЕКТ. Упаковка по `issueAt` положила `move` в один
+    // пакет с `call` (слот 0 — call, слот 1 — move). VM на `call` возвращает
+    // `callee.codeOffset` (`reginterpreter.ts`), а `executeElement` покидает
+    // пакет при `next !== packetPc + 1`. Поэтому `move` не исполнился ни в этом
+    // пакете, ни позже: `returnPc = packetPc + 1` перепрыгивает остаток пакета.
+    //
+    // Измерено на `while.osnova`: потеряна ровно одна инструкция
+    // (`move d=6 a=0`), 249 → 248 шагов, результат 1049 → 49.
+    //
+    // Первая версия верификатора этот пакет ПРОПУСКАЛА: `call` не входил в
+    // набор передающих управление. Дефект нашла диагностика, а не тесты.
+    const m = moduleWithPacket([CALL(3, 0, [4]), MOVE(6, 0)]);
+    const r = verifyPackets(m, MODEL);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toContain("BRANCH");
+    expect(r.reason).toContain("call");
+    expect(r.at).toBe(0);
+  });
+
+  it("9. `ret` не последний в пакете тоже BRANCH, а не терминатор", () => {
+    const m = moduleWithPacket([RET(), K(2, 0)]);
+    const r = verifyPackets(m, MODEL);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toContain("BRANCH");
   });
 });
 
