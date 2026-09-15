@@ -69,6 +69,15 @@ export const PURE_REG_INVOKES: ReadonlySet<string> = new Set<string>([
  */
 export function isEffectInstruction(ins: RegInstruction): boolean {
   switch (ins.op) {
+    case "obj.new":
+      // Создание объекта — наблюдаемое событие (аллокация), и порядок
+      // создания относительно записей полей должен сохраняться.
+      //
+      // Найдено аудитом опкодов (`src/vliw/opcodeAudit.test.ts`), который
+      // перебирает ВСЕ опкоды и требует, чтобы каждый меняющий состояние был
+      // либо эффектом, либо барьером участка. Это тот же класс дефекта, что был
+      // с `ret`: проверялось то, что есть в графе, и не замечалось отсутствие.
+      return true;
     case "obj.set":
     case "throw":
     case "try_begin":
