@@ -53,6 +53,11 @@ coverage/
 # vitest
 .vitest-cache/
 
+# Сырые внешние источники кодировки e2k (binutils/LLVM/QEMU/elbrus-docs):
+# сотни мегабайт, в репозиторий не попадают. Опись — docs/e2k-sources-raw.md,
+# сверка описи с копией — src/scripts/e2kSources.audit.test.ts.
+.tmp/e2k-sources/
+
 # Batch run results
 runs/*
 # decisions.jsonl tracked intentionally
