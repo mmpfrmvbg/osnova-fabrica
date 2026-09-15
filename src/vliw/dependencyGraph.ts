@@ -25,6 +25,13 @@ export interface DependencyGraphOptions {
    * По умолчанию любой invoke считается эффектом.
    */
   invokePure?: (name: string) => boolean;
+  /**
+   * Вид потребителя результата инструкции: от него зависят задержки `Cmp` и
+   * логических операций (стр. 71–72 руководства МЦСТ): `logic` → 1 такт,
+   * `qualified` → 2, `ct` → 3. Используется планировщиком с учётом задержек
+   * ({@link ./latencyScheduler}); сам граф зависимостей поле не читает.
+   */
+  consumerKind?: (index: number) => "logic" | "qualified" | "ct" | "arith";
 }
 
 function getOp(ins: RawInstruction): string {
@@ -54,7 +61,6 @@ export function buildDependencyGraph(
       case "const.true":
       case "const.false":
       case "const.null":
-      case "global.get":
         stack.push(i);
         break;
 
@@ -104,11 +110,12 @@ export function buildDependencyGraph(
         break;
       }
 
-      case "global.set": {
-        const v = stack.pop();
-        if (v !== undefined) edges.push([v, i]);
-        break;
-      }
+      // ВНИМАНИЕ. Здесь были ветки `global.set` и `global.get`, а также
+      // `result.unwrap`/`result.tag` (ниже). Таких опкодов в языке НЕТ —
+      // канонический список это `Op` в `src/runtime/vm/bytecode.ts`. Ветки
+      // удалены 2026-09-15: они создавали ложное впечатление, что язык умеет
+      // глобальные переменные и Result-типы, и мешали увидеть, что `switch`
+      // не покрывает реальный набор опкодов.
 
       case "ret": {
         const v = stack.pop();
@@ -155,14 +162,6 @@ export function buildDependencyGraph(
 
       case "jmp":
         break;
-
-      case "result.unwrap":
-      case "result.tag": {
-        const v = stack.pop();
-        if (v !== undefined) edges.push([v, i]);
-        stack.push(i);
-        break;
-      }
 
       case "dup": {
         const v = stack[stack.length - 1];

@@ -62,6 +62,57 @@ export type Op =
   | "dup"
   | "pop";
 
+/**
+ * Тот же набор опкодов, что {@link Op}, но доступный во время исполнения.
+ *
+ * Зачем: `Op` — только тип, во время работы его не существует. Из-за этого
+ * инструменты (модель VLIW, отчёты, валидаторы) не могут проверить, что они не
+ * разошлись с языком. Именно так `src/vliw/e2kModel.ts` и
+ * `src/vliw/dependencyGraph.ts` обзавелись ветками на `global.get`,
+ * `global.set`, `field.get`, `field.set`, `result.unwrap`, `result.tag` —
+ * опкоды, которых в языке нет и никогда не было.
+ *
+ * ПРАВИЛО: при добавлении опкода в {@link Op} добавить его и сюда. Тесты
+ * `src/vliw/e2kDevices.test.ts` и `src/runtime/vm/bytecode.test.ts` сверяют,
+ * что наборы совпадают.
+ */
+export const ALL_OPS = [
+  "const",
+  "const.true",
+  "const.false",
+  "const.null",
+  "local.get",
+  "local.set",
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "rem",
+  "eq",
+  "ne",
+  "lt",
+  "le",
+  "gt",
+  "ge",
+  "and",
+  "or",
+  "not",
+  "call",
+  "invoke",
+  "jmp",
+  "jmp_if",
+  "jmp_if_not",
+  "try_begin",
+  "try_end",
+  "throw",
+  "ret",
+  "obj.new",
+  "obj.get",
+  "obj.set",
+  "dup",
+  "pop",
+] as const satisfies readonly Op[];
+
 export interface InstructionConst {
   op: "const";
   type: ConstType;

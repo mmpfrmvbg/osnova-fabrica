@@ -25,16 +25,26 @@ describe("e2kModel.classifyOpcode", () => {
     expect(classifyOpcode("lt")).toBe("I0");
   });
 
-  it("push ops → I1", () => {
+  it("загрузка константы → I1", () => {
     expect(classifyOpcode("const")).toBe("I1");
     expect(classifyOpcode("const.true")).toBe("I1");
-    expect(classifyOpcode("local.get")).toBe("I1");
-    expect(classifyOpcode("global.get")).toBe("I1");
+    expect(classifyOpcode("const.null")).toBe("I1");
   });
 
-  it("local.set / global.set → I1", () => {
-    expect(classifyOpcode("local.set")).toBe("I1");
-    expect(classifyOpcode("global.set")).toBe("I1");
+  // ИСПРАВЛЕНО 2026-09-15. Прежний тест проверял `global.get`/`global.set`
+  // (ожидалось I1) и `field.get`/`field.set` (ожидалось M). Таких опкодов в
+  // языке НЕТ: канонический список — `Op` в `src/runtime/vm/bytecode.ts`, там
+  // 34 опкода и ни одного из этих четырёх. Тест был зелёным, потому что
+  // `classifyOpcode` возвращал константу по умолчанию для любого входа.
+  // Теперь проверяется реальный набор.
+  it("чтение памяти → I0 (АЛУ с устройством чтения)", () => {
+    expect(classifyOpcode("local.get")).toBe("I0");
+    expect(classifyOpcode("obj.get")).toBe("I0");
+  });
+
+  it("запись в память → M (только АЛУ2/АЛУ5)", () => {
+    expect(classifyOpcode("local.set")).toBe("M");
+    expect(classifyOpcode("obj.set")).toBe("M");
   });
 
   it("branch/control → B", () => {
@@ -44,11 +54,6 @@ describe("e2kModel.classifyOpcode", () => {
     expect(classifyOpcode("call")).toBe("B");
     expect(classifyOpcode("ret")).toBe("B");
     expect(classifyOpcode("invoke")).toBe("B");
-  });
-
-  it("memory ops → M", () => {
-    expect(classifyOpcode("field.get")).toBe("M");
-    expect(classifyOpcode("field.set")).toBe("M");
   });
 });
 
