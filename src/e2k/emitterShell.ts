@@ -68,8 +68,14 @@ export interface EmitOptions {
   defects?: EmitterDefects;
 }
 
-/** Соответствие операции IR её носителю. */
-const CARRIER_OF_OP: Readonly<Record<string, string>> = {
+/**
+ * Соответствие операции IR её носителю.
+ *
+ * Экспортируется, потому что обратный разбор (`src/e2k/emitterRoundtrip.ts`) обязан
+ * пользоваться **той же** таблицей: две таблицы разошлись бы, и круг «байты → IR» перестал бы
+ * проверять что-либо.
+ */
+export const CARRIER_OF_OP: Readonly<Record<string, string>> = {
   const: "IR.const",
   move: "IR.move",
   add: "IR.add",
@@ -82,6 +88,7 @@ const CARRIER_OF_OP: Readonly<Record<string, string>> = {
   lt: "IR.lt",
   le: "IR.le",
   gt: "IR.gt",
+  ge: "IR.ge",
   and: "IR.and",
   or: "IR.or",
   not: "IR.not",
@@ -174,19 +181,26 @@ function lowerInstruction(
   defects: EmitterDefects,
 ): AsmInstruction {
   const fields = fieldsOf(instruction);
-  let carrier = CARRIER_OF_OP[instruction.op];
-  if (carrier === undefined) {
-    if (defects.allowUnsupported !== true) {
-      throw new EmitterRefusalError(
-        `операция «${instruction.op}» не выражается оболочкой: ` +
-          `${NO_CARRIER[instruction.op] ?? "носителя нет"} — останов, а не подстановка`,
-      );
-    }
-    carrier = "IR.move";
-  }
   // Канал выдачи не назначается: модель устройства этим эмиттером не используется.
   const channel = 0;
   const op = instruction.op;
+  const known = CARRIER_OF_OP[op];
+  if (known === undefined) {
+    if (defects.allowUnsupported !== true) {
+      throw new EmitterRefusalError(
+        `операция «${op}» не выражается оболочкой: ` +
+          `${NO_CARRIER[op] ?? "носителя нет"} — останов, а не подстановка`,
+      );
+    }
+    // 4.3: подстановка вместо отказа. Правдоподобный, но неверный носитель — потеря
+    // обнаруживается только на уровне IR (шлюз кодировки байты считает согласованными).
+    return {
+      mnemonic: "IR.move",
+      channel,
+      operands: [reg(requireRegister(fields.d ?? 0, "подстановка")), reg(requireRegister(fields.a ?? 0, "подстановка"))],
+    };
+  }
+  const carrier = known;
 
   if (op === "const" && carrier === "IR.const") {
     const type = CONST_TYPES.indexOf(fields.type ?? "");

@@ -111,7 +111,11 @@ export function toRegInstruction(
 
   // 4.4: подстановка вместо разбора — декодер «не смотрит» на носитель и всегда отдаёт `move`.
   if (defects.identityDecode === true && carrier !== "IR.move") {
-    return { op: "move", d: registerOperand(asm, 0, carrier), a: registerOperand(asm, 1, carrier) };
+    const registerAt = (index: number): number => {
+      const operand = asm.operands[index];
+      return operand !== undefined && operand.kind === "reg" ? operand.index : 0;
+    };
+    return { op: "move", d: registerAt(0), a: registerAt(1) };
   }
 
   switch (op) {

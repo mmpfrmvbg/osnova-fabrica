@@ -157,4 +157,50 @@ describe("сквозной прогон: RegModule → эмиттер на об�
     expect(emitted.report.regions.every((region) => region.optimizable)).toBe(true);
     expect(emitted.report.limitations.join(" ")).toMatch(/упаковки нет/);
   });
+
+  it("4.3 инструкция без носителя: без дефекта отказ, с дефектом потерю ловит круг", () => {
+    // `obj.new` — операция рантайма: в документированном подмножестве её нет.
+    const module: RegModule = {
+      ir: "osnova-reg",
+      version: 1,
+      moduleName: "с-неподдержанной-операцией",
+      constants: [],
+      procedures: [{ name: "главная", codeOffset: 0, argc: 0, vregs: 4, localToVreg: {} }],
+      code: [
+        { op: "obj.new", d: 1 },
+        { op: "ret", v: 1 },
+      ] as RegModule["code"],
+      atoms: [{ atom: "A5", optimizable: true, procedure: 0, start: 0, end: 2 }],
+    };
+    expect(() => emitShell(module, encoder), "без дефекта обязан быть отказ").toThrow(/не выражается/);
+
+    const emitted = emitShell(module, encoder, { defects: { allowUnsupported: true } });
+    const decoded = decodeShellImage(emitted.image, encoder);
+    // Потеря видна ТОЛЬКО на уровне IR: шлюз кодировки её не видит (байты согласованы).
+    expect(
+      sameRegInstruction(decoded.code[0]!, emitted.scheduled.code[0]!),
+      "подстановка носителя вместо отказа не замечена",
+    ).toBe(false);
+    expect(emitted.scheduled.code[0]!.op).toBe("obj.new");
+    expect(decoded.code[0]!.op).toBe("move");
+  });
+
+  it("4.4 подстановка вместо разбора ломает круг", () => {
+    const module = annotatedKernel("fir", "A5");
+    const emitted = emitShell(module, encoder);
+    const decoded = decodeShellImage(emitted.image, encoder, { defects: { identityDecode: true } });
+    const same =
+      decoded.code.length === emitted.scheduled.code.length &&
+      decoded.code.every((instruction, index) =>
+        sameRegInstruction(instruction, emitted.scheduled.code[index]!),
+      );
+    expect(same, "подстановка вместо разбора не замечена").toBe(false);
+    // И нормальный разбор круг не ломает.
+    const honest = decodeShellImage(emitted.image, encoder);
+    expect(
+      honest.code.every((instruction, index) =>
+        sameRegInstruction(instruction, emitted.scheduled.code[index]!),
+      ),
+    ).toBe(true);
+  });
 });

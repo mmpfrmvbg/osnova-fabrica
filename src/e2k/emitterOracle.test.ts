@@ -194,6 +194,27 @@ describe("эмиттер на оболочке: оракул (написан д�
     expect(result.image.invokeNames).toContain("система.массив.длина");
   });
 
+  it("2.1 optimizable берётся из module.atoms, а не из разметки вызывающего", () => {
+    const module = syntheticModule();
+    // Вызывающий подаёт разметку с ПЕРЕВЁРНУТЫМИ флагами: эмиттер обязан её игнорировать.
+    const flipped = module.atoms!.map((region) => ({ ...region, optimizable: !region.optimizable }));
+    const result = emitShell(module, encoder, { callerAtoms: flipped });
+    expect(result.report.regions.map((region) => region.optimizable)).toEqual(
+      module.atoms!.map((region) => region.optimizable),
+    );
+    for (const entry of result.image.placement) {
+      const region = module.atoms!.find(
+        (item) => entry.codeIndex >= item.start && entry.codeIndex < item.end,
+      )!;
+      expect(entry.optimizable, `инструкция ${entry.codeIndex}`).toBe(region.optimizable);
+    }
+    // Дефект 4.2: с включённым доверием к вызывающему флаги берутся у него — и проверка
+    // (самопроверка эмиттера) обязана это заметить.
+    expect(() => emitShell(module, encoder, { callerAtoms: flipped, defects: { trustCallerFlags: true } })).toThrow(
+      /optimizable|разметк/i,
+    );
+  });
+
   it("ОРАКУЛ НЕ ДЕКОРАТИВЕН: подмена карты, байтов и списка инструкций ловится", () => {
     const { module, result } = emit();
 
