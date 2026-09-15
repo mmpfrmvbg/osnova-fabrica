@@ -25,6 +25,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import { describe, it, expect } from "vitest";
+import { regModuleOf } from "../vliw/regOracle";
+import { RegVM } from "../runtime/vm/reginterpreter";
+import { createDefaultInvokeHandler } from "../runtime/vm/interpreter";
+import { resolveEntryIndex } from "../oracle/parity";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const SPEC = path.join("docs", "e2k-subset-dsp.md");
@@ -196,6 +200,64 @@ describe("спецификация DSP: структура, источники, 
     const problems = checkSpecSources(broken);
     expect(problems.length, "запись без источника не поймана").toBeGreaterThan(0);
     expect(problems[0]).toMatch(/нет источника/);
+  });
+
+  it("план эмиттера содержит все семь разделов 3.1–3.7", () => {
+    const plan = read(path.join("docs", "e2k-emitter-plan.md"));
+    for (const section of ["3.1.", "3.2.", "3.3.", "3.4.", "3.5.", "3.6.", "3.7."]) {
+      expect(plan, `раздел ${section}`).toContain(`## ${section}`);
+    }
+    // План обязан называть вход (модуль + разметка атомов) и выход (пакеты или машинный код).
+    expect(plan).toContain("module.atoms");
+    expect(plan.toLowerCase()).toContain("машинный код");
+    expect(plan.toLowerCase()).toContain("пакет");
+    // И честно говорить, что это не эмиттер.
+    expect(plan).toMatch(/это не эмиттер/i);
+    // И называть долги, а не умалчивать о них.
+    for (const debt of ["насыщение", "фиксированная точка", "кольцевые буферы", "таблица 12.2"]) {
+      expect(plan.toLowerCase(), `долг не назван: ${debt}`).toContain(debt.toLowerCase());
+    }
+  });
+
+  it("семантика `%` измерена прогоном и совпадает с записанной в документации языка", async () => {
+    /**
+     * Измерение, а не чтение: собираем крошечный модуль на Основе и исполняем его на
+     * регистровой VM. Записанное в документации обязано совпасть с измеренным — иначе
+     * документация описывает не тот язык, который есть.
+     */
+    const cases: Array<{ expr: string; expected: number }> = [
+      { expr: "7 % 3", expected: 1 },
+      { expr: "(0 - 7) % 3", expected: -1 },
+      { expr: "7 % (0 - 3)", expected: 1 },
+      { expr: "(0 - 7) % (0 - 3)", expected: -1 },
+    ];
+    for (const testCase of cases) {
+      const source = `модуль Проба\n\nпроцедура главная()\n  вернуть ${testCase.expr}\nконец\n`;
+      const built = regModuleOf(source);
+      expect(built, `${testCase.expr}: не компилируется`).not.toBeNull();
+      const entry = resolveEntryIndex(built!.module.procedures, undefined) ?? 0;
+      const host = createDefaultInvokeHandler();
+      const vm = new RegVM(built!.module, { maxSteps: 10_000, invoke: (n, a) => host(n, a) });
+      const value = await vm.runProcedure(entry, []);
+      expect(Number(value), `${testCase.expr}: измерено ${String(value)}`).toBe(testCase.expected);
+    }
+    // Документация обязана фиксировать ту же семантику и её отличие от Python.
+    const language = read(path.join("docs", "language-v2.md"));
+    expect(language, "семантика `%` не записана").toMatch(/усечением к нулю/);
+    expect(language, "не сказано, чем это отличается от Python").toMatch(/Python/);
+  });
+
+  it("долги по таблицам закрыты или явно ограничены", () => {
+    const extraction = read(path.join("docs", "e2k-dsp-instructions.md"));
+    // 4.1: соответствие столбцов таблицы 12.2 восстановлено и записано.
+    expect(extraction, "не записано соответствие столбцов 12.2").toMatch(/Соответствие столбцов — восстановлено/);
+    expect(extraction, "не сказано, что осталось допущением").toMatch(/осталось допущением/i);
+    // Таблицы 12.3a/b/c — восстановлены с тем же допущением.
+    expect(extraction, "не описаны таблицы 12.3a/b/c").toMatch(/12\.3a/);
+    // 4.2: варианты семейств проверены измерением и это свойство документа.
+    const spec = read(SPEC);
+    expect(spec, "не записано измерение по вариантам семейств").toMatch(/проверено измерением \(2026-09-15\)/i);
+    expect(spec, "не сказано, что варианты не раскрыты документом").toMatch(/свойство документа/);
   });
 
   it("правила, добытые на этой работе, записаны — а не только выучены", () => {
