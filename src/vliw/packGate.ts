@@ -1,31 +1,42 @@
 /**
- * Gate упаковки: линейный прогон против упакованного, плюс проверка структуры.
+ * Gate конвейера VLIW: четыре конфигурации на одной программе.
  *
- * ## Что такое зелёный gate упаковки
+ * ## Что проверяется
  *
- * Четыре условия, каждое проверяется на каждой программе корпуса:
+ * Каждая программа корпуса прогоняется **четыре раза** — по одной на конфигурацию
+ * конвейера (`docs/vliw-packing.md`):
  *
- * 1. **структура** — `verifyPackets(packed, model)` не находит нарушений;
- * 2. **эквивалентность** — исполненные инструкции, значение, трасса хост-вызовов
- *    и текст ошибки совпадают с линейным прогоном;
- * 3. **адреса** — все `off` и `codeOffset` пересчитаны (нет непересчитанных);
- * 4. **упаковка не раздувает код** — элементов после не больше, чем до.
+ * | конфигурация | что должно совпасть с эталоном |
+ * | --- | --- |
+ * | `linear` | эталон |
+ * | `reorder` | НАБОР исполненных инструкций, трасса вызовов, значение, ошибка |
+ * | `packets` | ПОСЛЕДОВАТЕЛЬНОСТЬ исполненных инструкций (упаковка порядка не меняет) |
+ * | `reorder+packets` | набор — с эталоном, а последовательность — с `reorder` |
  *
- * ## Чего gate НЕ измеряет
+ * Последняя строка — главное: упаковка обязана сохранить порядок, заданный
+ * перестановкой. Именно этот стык не проверялся ни разу, пока конвейер не был
+ * объединён. Плюс два требования к метрике:
  *
- * Он не измеряет скорость. Число элементов кода — статическая величина; сколько
- * тактов программа займёт на настоящем e2k, из неё не следует. Метрика здесь
- * называется **плотностью упаковки** и определена как инструкций на элемент кода.
+ * 5. `verifyPackets` не находит нарушений в обеих упакованных конфигурациях;
+ * 6. **плотность упаковки после объединения не ниже**, чем от одной упаковки.
+ *
+ * ## Чего gate не измеряет
+ *
+ * Скорость. Плотность упаковки и шаги VM — статические величины. **Шаги VM — не
+ * метрика скорости и не должны попадать в отчёты как ускорение**: VM считает шагом
+ * элемент кода, а не такт e2k (`docs/vliw-packing.md`, §0).
  */
 
 import { createDefaultInvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import { RegVM } from "../runtime/vm/reginterpreter";
 import { isRegPacket, type RegModule } from "../runtime/vm/regcode";
 import { resolveEntryIndex } from "../oracle/parity";
-import { packInstructions, type PackDefects, type PackStats } from "./packetPacker";
+import type { ReorderOptions } from "./reorderScheduler";
+import type { PackDefects } from "./packetPacker";
 import { verifyPackets, type MachineModel, type VerifyResult } from "./packetVerifier";
+import { buildVliwConfigs, type PipelineDefects, type VliwConfig, type VliwConfigId } from "./vliwPipeline";
 
-/** Программа корпуса для gate упаковки. */
+/** Программа корпуса для gate конвейера. */
 export interface PackGateCase {
   /** Имя для отчёта. */
   name: string;
@@ -37,9 +48,9 @@ export interface PackGateCase {
   args?: StackValue[];
   /**
    * Программа заведомо не завершается (оконный цикл). Для таких случаев
-   * сравнивается общее начало трасс: обе стороны упираются в лимит шагов,
-   * причём на разном числе инструкций (шаг VM — элемент кода, а в пакете
-   * инструкций больше).
+   * сравнивается общее начало трасс: распакованные конфигурации упираются в
+   * лимит шагов на одном числе инструкций, упакованные за тот же лимит успевают
+   * исполнить больше (шаг VM — элемент кода, а в пакете инструкций несколько).
    */
   expectNonTerminating?: boolean;
 }
@@ -48,50 +59,65 @@ export interface PackGateCase {
 export interface PackGateOptions {
   model: MachineModel;
   maxSteps?: number;
-  /** Инъекция дефектов: используется только негативным контролем. */
+  /** Инъекция дефектов упаковщика: только для негативного контроля. */
   defects?: PackDefects;
+  /** Инъекция дефектов сборки конвейера: только для негативного контроля. */
+  pipelineDefects?: PipelineDefects;
+  /** Опции перестановки. */
+  reorder?: ReorderOptions;
 }
 
-/** Результат прогона одной стороны. */
+/** Прогон одной конфигурации. */
 interface RunOutcome {
   value: StackValue | undefined;
   error: string | null;
-  /** Ключи исполненных инструкций — индекс в исходном линейном коде. */
+  /** Ключи исполненных инструкций — индекс в ИСХОДНОМ линейном коде. */
   executed: number[];
-  /**
-   * Сколько РАЗ VM сдвинула указатель на новый элемент кода.
-   *
-   * Это и есть «шаг VM»: один элемент — один шаг, независимо от того, инструкция
-   * это или пакет. Число исполненных инструкций при упаковке не меняется, а это
-   * число — уменьшается: в этом и состоит статический эффект пакета.
-   */
+  /** Сколько раз VM сменила элемент кода (шаг VM, не такт). */
   elementSteps: number;
   /** Имена и аргументы хост-вызовов. */
   invokes: string[];
 }
 
-/** Результат одной программы. */
-export interface PackGateCaseResult {
-  name: string;
-  /** Программа заведомо не завершается: в итоги не входит (лимит шагов искажает суммы). */
-  nonTerminating: boolean;
+/** Как сравнивается конфигурация с эталоном. */
+type ComparisonMode =
+  | "эталон"
+  | "последовательность"
+  | "набор"
+  | "набор + порядок перестановки"
+  | "порядок перестановки";
+
+/** Результат одной конфигурации на одной программе. */
+export interface VliwConfigCaseResult {
+  id: VliwConfigId;
+  title: string;
   verify: VerifyResult;
   equivalent: boolean;
+  comparison: ComparisonMode;
+  /** `-1` — расхождений нет. Для режима «набор» — позиция в отсортированном наборе. */
   divergenceIndex: number;
-  linearSteps: number;
-  packedSteps: number;
-  /** Шагов VM (элементов кода): линейно и упаковано. */
-  linearElementSteps: number;
-  packedElementSteps: number;
-  linearValue: string;
-  packedValue: string;
-  stats: PackStats;
+  executedInstructions: number;
+  elementSteps: number;
+  elements: number;
+  density: number;
+  widePackets: number;
   unmappedAddresses: number[];
-  /** Пусто — программа зелёная. */
   problems: string[];
 }
 
-/** Отчёт gate упаковки. */
+/** Результат одной программы. */
+export interface PackGateCaseResult {
+  name: string;
+  /** Программа заведомо не завершается: в итоги не входит. */
+  nonTerminating: boolean;
+  configs: VliwConfigCaseResult[];
+  /** Плотность упаковки: от одной упаковки и после объединения. */
+  densityPackets: number;
+  densityCombined: number;
+  problems: string[];
+}
+
+/** Отчёт gate. */
 export interface PackGateReport {
   passed: boolean;
   modelSlots: number;
@@ -99,21 +125,19 @@ export interface PackGateReport {
   cases: PackGateCaseResult[];
   totals: {
     instructions: number;
-    elementsBefore: number;
-    elementsAfter: number;
-    widePackets: number;
-    packedInstructions: number;
-    densityBefore: number;
-    densityAfter: number;
-    /** Исполнено инструкций: суммарно линейно и упаковано (не меняется). */
+    /** Элементов кода по конфигурациям. */
+    elements: Record<VliwConfigId, number>;
+    /** Плотность упаковки по конфигурациям. */
+    density: Record<VliwConfigId, number>;
+    /** Шагов VM (элементов) по конфигурациям. */
+    elementSteps: Record<VliwConfigId, number>;
     executedInstructions: number;
-    /** Шагов VM (элементов): суммарно линейно и упаковано. */
-    linearElementSteps: number;
-    packedElementSteps: number;
   };
   green: number;
   red: number;
 }
+
+const CONFIG_ORDER: VliwConfigId[] = ["linear", "reorder", "packets", "reorder+packets"];
 
 function formatValue(value: StackValue | undefined): string {
   if (value === undefined) return "undefined";
@@ -124,24 +148,22 @@ function formatValue(value: StackValue | undefined): string {
   }
 }
 
-/** Есть ли в модуле готовые пакеты (для линейной стороны это недопустимо). */
 function hasPackets(module: RegModule): boolean {
   return module.code.some((el) => isRegPacket(el));
 }
 
 async function execute(
-  module: RegModule,
+  config: VliwConfig,
   entryIndex: number,
   args: StackValue[],
   maxSteps: number,
-  keyOf: (pc: number, slotIndex: number) => number,
 ): Promise<RunOutcome> {
   const executed: number[] = [];
   const invokes: string[] = [];
   let elementSteps = 0;
   let lastPc = -1;
   const host = createDefaultInvokeHandler();
-  const vm = new RegVM(module, {
+  const vm = new RegVM(config.module, {
     maxSteps,
     invoke: (name, callArgs) => {
       invokes.push(`${name}(${callArgs.map((a) => formatValue(a)).join(",")})`);
@@ -152,7 +174,8 @@ async function execute(
         elementSteps++;
         lastPc = info.pc;
       }
-      executed.push(keyOf(info.pc, info.slotIndex));
+      const key = config.keys[info.pc]?.[info.slotIndex];
+      executed.push(key === undefined ? -1 : key);
     },
   });
   let value: StackValue | undefined;
@@ -166,103 +189,184 @@ async function execute(
 }
 
 interface Comparison {
-  equivalent: boolean;
-  divergenceIndex: number;
+  ok: boolean;
+  at: number;
 }
 
-/**
- * Сравнить два прогона.
- *
- * @param prefixOnly сравнивать только общее начало (программа не завершается,
- *   стороны упираются в лимит шагов на разном числе инструкций: шаг VM — элемент
- *   кода, а в пакете инструкций больше, поэтому упакованный прогон успевает
- *   исполнить больше и его трасса длиннее)
- */
-function compareOutcomes(a: RunOutcome, b: RunOutcome, prefixOnly: boolean): Comparison {
-  const limit = prefixOnly ? Math.min(a.executed.length, b.executed.length) : Math.max(a.executed.length, b.executed.length);
+/** Совпадают ли последовательности (общее начало, если `prefixOnly`). */
+function sameSequence(a: readonly number[], b: readonly number[], prefixOnly: boolean): Comparison {
+  const limit = prefixOnly ? Math.min(a.length, b.length) : Math.max(a.length, b.length);
   for (let i = 0; i < limit; i++) {
-    if (a.executed[i] !== b.executed[i]) return { equivalent: false, divergenceIndex: i };
+    if (a[i] !== b[i]) return { ok: false, at: i };
   }
-  if (!prefixOnly && a.executed.length !== b.executed.length) {
-    return { equivalent: false, divergenceIndex: Math.min(a.executed.length, b.executed.length) };
+  if (!prefixOnly && a.length !== b.length) return { ok: false, at: Math.min(a.length, b.length) };
+  return { ok: true, at: -1 };
+}
+
+/** Совпадают ли наборы исполненных инструкций (порядок при перестановке законно другой). */
+function sameMultiset(a: readonly number[], b: readonly number[]): Comparison {
+  if (a.length !== b.length) return { ok: false, at: Math.min(a.length, b.length) };
+  const x = [...a].sort((p, q) => p - q);
+  const y = [...b].sort((p, q) => p - q);
+  for (let i = 0; i < x.length; i++) {
+    if (x[i] !== y[i]) return { ok: false, at: i };
   }
-  // Ошибка сравнивается и в режиме префикса: если одна сторона упёрлась в лимит
-  // шагов, а другая завершилась, это расхождение, а не свойство лимита.
-  if ((a.error ?? null) !== (b.error ?? null)) return { equivalent: false, divergenceIndex: limit };
-  if (!prefixOnly && formatValue(a.value) !== formatValue(b.value)) {
-    return { equivalent: false, divergenceIndex: limit };
+  return { ok: true, at: -1 };
+}
+
+/** Совпадают ли значение, трасса хост-вызовов и текст ошибки. */
+function sameRuntime(a: RunOutcome, b: RunOutcome, prefixOnly: boolean): Comparison {
+  if ((a.error ?? null) !== (b.error ?? null)) return { ok: false, at: -1 };
+  if (!prefixOnly && formatValue(a.value) !== formatValue(b.value)) return { ok: false, at: -1 };
+  if (!prefixOnly && a.invokes.length !== b.invokes.length) return { ok: false, at: -1 };
+  const limit = prefixOnly ? Math.min(a.invokes.length, b.invokes.length) : a.invokes.length;
+  for (let i = 0; i < limit; i++) {
+    if (a.invokes[i] !== b.invokes[i]) return { ok: false, at: -1 };
   }
-  if (!prefixOnly && a.invokes.length !== b.invokes.length) {
-    return { equivalent: false, divergenceIndex: limit };
-  }
-  const invokeLimit = prefixOnly ? Math.min(a.invokes.length, b.invokes.length) : a.invokes.length;
-  for (let i = 0; i < invokeLimit; i++) {
-    if (a.invokes[i] !== b.invokes[i]) return { equivalent: false, divergenceIndex: limit };
-  }
-  return { equivalent: true, divergenceIndex: -1 };
+  return { ok: true, at: -1 };
 }
 
 async function runCase(testCase: PackGateCase, options: PackGateOptions): Promise<PackGateCaseResult> {
   const model = options.model;
   const maxSteps = options.maxSteps ?? 200_000;
-  const problems: string[] = [];
+  const prefixOnly = testCase.expectNonTerminating === true;
   const linear = testCase.module;
 
   if (hasPackets(linear)) {
-    throw new Error(`gate упаковки: ${testCase.name} — вход не линейный (в модуле уже есть пакеты)`);
+    throw new Error(`gate конвейера: ${testCase.name} — вход не линейный (в модуле уже есть пакеты)`);
   }
 
   const entryIndex = resolveEntryIndex(linear.procedures, testCase.entryProcedure);
   const args = testCase.args ?? [];
-  const prefixOnly = testCase.expectNonTerminating === true;
+  // Дефекты упаковщика применяются к ОБЕИМ упакованным конфигурациям: gate должен
+  // ловить их и в одиночной упаковке, и в объединённой.
+  const configs = buildVliwConfigs(
+    linear,
+    model,
+    options.reorder ?? {},
+    options.defects,
+    options.pipelineDefects,
+  );
 
-  const packed = packInstructions(linear, model, options.defects);
-
-  const linearOutcome = await execute(linear, entryIndex, args.slice(), maxSteps, (pc) => pc);
-  const packedOutcome = await execute(packed.module, entryIndex, args.slice(), maxSteps, (pc, slot) => {
-    const elementKeys = packed.keys[pc];
-    const key = elementKeys?.[slot];
-    return key === undefined ? -1 : key;
-  });
-
-  const verify = verifyPackets(packed.module, model);
-  const comparison = compareOutcomes(linearOutcome, packedOutcome, prefixOnly);
-
-  if (!verify.ok) problems.push(`верификатор: ${verify.reason} (элемент ${verify.at})`);
-  if (!comparison.equivalent) {
-    problems.push(`эквивалентность: расхождение на шаге ${comparison.divergenceIndex}`);
+  const outcomes: Record<VliwConfigId, RunOutcome> = {} as Record<VliwConfigId, RunOutcome>;
+  for (const id of CONFIG_ORDER) {
+    outcomes[id] = await execute(configs[id], entryIndex, args.slice(), maxSteps);
   }
-  if (packed.unmappedAddresses.length > 0) {
-    problems.push(`адреса: не пересчитано ${packed.unmappedAddresses.length} (${packed.unmappedAddresses.slice(0, 5).join(", ")})`);
+
+  const baseline = outcomes.linear;
+  const reorderOutcome = outcomes.reorder;
+  const caseProblems: string[] = [];
+  const results: VliwConfigCaseResult[] = [];
+
+  for (const id of CONFIG_ORDER) {
+    const config = configs[id];
+    const outcome = outcomes[id];
+    const problems: string[] = [...config.problems];
+    const packed = id === "packets" || id === "reorder+packets";
+    const verify: VerifyResult = packed ? verifyPackets(config.module, model) : { ok: true };
+    if (!verify.ok) problems.push(`верификатор: ${verify.reason} (элемент ${verify.at})`);
+
+    let equivalent = true;
+    let mode: ComparisonMode = "эталон";
+    let at = -1;
+
+    if (id === "packets") {
+      mode = "последовательность";
+      const seq = sameSequence(outcome.executed, baseline.executed, prefixOnly);
+      const runtime = sameRuntime(outcome, baseline, prefixOnly);
+      equivalent = seq.ok && runtime.ok;
+      at = seq.ok ? runtime.at : seq.at;
+    } else if (id === "reorder") {
+      mode = "набор";
+      const set = sameMultiset(outcome.executed, baseline.executed);
+      const runtime = sameRuntime(outcome, baseline, prefixOnly);
+      equivalent = set.ok && runtime.ok;
+      at = set.ok ? runtime.at : set.at;
+    } else if (id === "reorder+packets") {
+      const order = sameSequence(outcome.executed, reorderOutcome.executed, true);
+      const runtime = sameRuntime(outcome, baseline, prefixOnly);
+      if (prefixOnly) {
+        /**
+         * Незавершающаяся программа: набор с эталоном сравнить НЕЛЬЗЯ.
+         *
+         * За один и тот же лимит шагов упакованная сторона исполняет больше
+         * инструкций (шаг VM — элемент кода, а в пакете их несколько), поэтому
+         * длины трасс разные по построению, и равные наборы невозможны. Что
+         * проверяется вместо этого: порядок относительно конфигурации
+         * перестановки — он обязан совпасть посимвольно на общем начале; сама
+         * перестановка сверена с эталоном по набору отдельной строкой.
+         */
+        mode = "порядок перестановки";
+        equivalent = order.ok && runtime.ok;
+        at = order.ok ? runtime.at : order.at;
+      } else {
+        mode = "набор + порядок перестановки";
+        const set = sameMultiset(outcome.executed, baseline.executed);
+        equivalent = set.ok && order.ok && runtime.ok;
+        at = !set.ok ? set.at : !order.ok ? order.at : runtime.at;
+      }
+      if (!order.ok) {
+        problems.push(
+          `упаковка изменила порядок, заданный перестановкой: первое расхождение на шаге ${order.at}`,
+        );
+      }
+    }
+
+    if (!equivalent) {
+      problems.push(`эквивалентность (${mode}): расхождение${at >= 0 ? ` на шаге ${at}` : ""}`);
+    }
+    if (config.unmappedAddresses.length > 0) {
+      problems.push(
+        `адреса: не пересчитано ${config.unmappedAddresses.length} ` +
+          `(${config.unmappedAddresses.slice(0, 5).join(", ")})`,
+      );
+    }
+    if (config.elements > config.instructions) {
+      problems.push(`код раздут: элементов ${config.elements} при ${config.instructions} инструкциях`);
+    }
+
+    results.push({
+      id,
+      title: config.title,
+      verify,
+      equivalent,
+      comparison: mode,
+      divergenceIndex: at,
+      executedInstructions: outcome.executed.length,
+      elementSteps: outcome.elementSteps,
+      elements: config.elements,
+      density: config.density,
+      widePackets: config.widePackets,
+      unmappedAddresses: config.unmappedAddresses,
+      problems,
+    });
+    for (const p of problems) caseProblems.push(`${config.title}: ${p}`);
   }
-  if (packed.stats.elementsAfter > packed.stats.elementsBefore) {
-    problems.push(
-      `упаковка раздула код: элементов ${packed.stats.elementsBefore} → ${packed.stats.elementsAfter}`,
+
+  if (prefixOnly && baseline.error === null) {
+    caseProblems.push("ожидалось незавершение, но линейный прогон завершился");
+  }
+
+  const densityPackets = results.find((r) => r.id === "packets")!.density;
+  const densityCombined = results.find((r) => r.id === "reorder+packets")!.density;
+  if (densityCombined + 1e-9 < densityPackets) {
+    caseProblems.push(
+      `плотность после объединения ниже, чем от одной упаковки: ` +
+        `${densityCombined.toFixed(4)} против ${densityPackets.toFixed(4)}`,
     );
-  }
-  if (prefixOnly && linearOutcome.error === null) {
-    problems.push("ожидалось незавершение, но линейный прогон завершился");
   }
 
   return {
     name: testCase.name,
     nonTerminating: prefixOnly,
-    verify,
-    equivalent: comparison.equivalent,
-    divergenceIndex: comparison.divergenceIndex,
-    linearSteps: linearOutcome.executed.length,
-    packedSteps: packedOutcome.executed.length,
-    linearElementSteps: linearOutcome.elementSteps,
-    packedElementSteps: packedOutcome.elementSteps,
-    linearValue: formatValue(linearOutcome.value),
-    packedValue: formatValue(packedOutcome.value),
-    stats: packed.stats,
-    unmappedAddresses: packed.unmappedAddresses,
-    problems,
+    configs: results,
+    densityPackets,
+    densityCombined,
+    problems: caseProblems,
   };
 }
 
-/** Прогнать gate упаковки по корпусу. */
+/** Прогнать gate конвейера по корпусу. */
 export async function runPackGate(
   cases: readonly PackGateCase[],
   options: PackGateOptions,
@@ -271,37 +375,34 @@ export async function runPackGate(
   for (const testCase of cases) results.push(await runCase(testCase, options));
 
   // Итоги — по завершающимся программам: у незавершающейся стороны упираются в
-  // лимит шагов, и её числа зависят от лимита, а не от упаковки.
-  const totals = results
-    .filter((r) => !r.nonTerminating)
-    .reduce(
-    (acc, r) => ({
-      instructions: acc.instructions + r.stats.instructions,
-      elementsBefore: acc.elementsBefore + r.stats.elementsBefore,
-      elementsAfter: acc.elementsAfter + r.stats.elementsAfter,
-      widePackets: acc.widePackets + r.stats.widePackets,
-      packedInstructions: acc.packedInstructions + r.stats.packedInstructions,
-      densityBefore: 0,
-      densityAfter: 0,
-      executedInstructions: acc.executedInstructions + r.linearSteps,
-      linearElementSteps: acc.linearElementSteps + r.linearElementSteps,
-      packedElementSteps: acc.packedElementSteps + r.packedElementSteps,
-    }),
-    {
-      instructions: 0,
-      elementsBefore: 0,
-      elementsAfter: 0,
-      widePackets: 0,
-      packedInstructions: 0,
-      densityBefore: 0,
-      densityAfter: 0,
-      executedInstructions: 0,
-      linearElementSteps: 0,
-      packedElementSteps: 0,
-    },
+  // лимит шагов, и её числа зависят от лимита, а не от конфигурации.
+  const counted = results.filter((r) => !r.nonTerminating);
+  const instructions = counted.reduce(
+    (sum, r) => sum + (r.configs.find((c) => c.id === "linear")?.executedInstructions ?? 0),
+    0,
   );
-  totals.densityBefore = totals.elementsBefore > 0 ? totals.instructions / totals.elementsBefore : 0;
-  totals.densityAfter = totals.elementsAfter > 0 ? totals.instructions / totals.elementsAfter : 0;
+  const empty = (): Record<VliwConfigId, number> => ({
+    linear: 0,
+    reorder: 0,
+    packets: 0,
+    "reorder+packets": 0,
+  });
+  const elements = empty();
+  const elementSteps = empty();
+  for (const r of counted) {
+    for (const c of r.configs) {
+      elements[c.id] += c.elements;
+      elementSteps[c.id] += c.elementSteps;
+    }
+  }
+  const elementsTotal = counted.reduce(
+    (sum, r) => sum + (r.configs.find((c) => c.id === "linear")?.elements ?? 0),
+    0,
+  );
+  const density = empty();
+  for (const id of CONFIG_ORDER) {
+    density[id] = elements[id] > 0 ? elementsTotal / elements[id] : 0;
+  }
 
   const red = results.filter((r) => r.problems.length > 0).length;
 
@@ -310,7 +411,7 @@ export async function runPackGate(
     modelSlots: options.model.slots,
     defects: options.defects ?? {},
     cases: results,
-    totals,
+    totals: { instructions: elementsTotal, elements, density, elementSteps, executedInstructions: instructions },
     green: results.length - red,
     red,
   };
@@ -320,7 +421,7 @@ export async function runPackGate(
 export function formatPackGateReport(report: PackGateReport): string {
   const lines: string[] = [];
   const defects = Object.entries(report.defects).filter(([, v]) => v === true);
-  lines.push("gate упаковки: плотность упаковки (не скорость)");
+  lines.push("gate конвейера VLIW: четыре конфигурации (плотность упаковки, не скорость)");
   lines.push(
     `модель: ${report.modelSlots} слотов` +
       (defects.length > 0 ? `; ВНЕСЁННЫЕ ДЕФЕКТЫ: ${defects.map(([k]) => k).join(", ")}` : ""),
@@ -328,34 +429,37 @@ export function formatPackGateReport(report: PackGateReport): string {
   lines.push(`программ: ${report.cases.length}, зелёных: ${report.green}, красных: ${report.red}`);
   lines.push("");
   lines.push(
-    "программа | инструкций | элементов | плотность | широких | инструкций исполнено | шагов VM | верификатор | эквивалентность",
+    "программа | элементов л/п/у/о | плотность у → о | эквивалентность 4 конфигураций | верификатор | шагов VM л → о",
   );
   for (const c of report.cases) {
-    const density = `${c.stats.densityBefore.toFixed(2)} → ${c.stats.densityAfter.toFixed(2)}`;
-    const elements = `${c.stats.elementsBefore} → ${c.stats.elementsAfter}`;
-    const verify = c.verify.ok ? "ok" : `КРАСНЫЙ (элемент ${c.verify.at})`;
-    const equivalence = c.equivalent ? "совпадает" : `расхождение@${c.divergenceIndex}`;
-    lines.push(
-      `${c.name} | ${c.stats.instructions} | ${elements} | ${density} | ${c.stats.widePackets} | ` +
-        `${c.linearSteps} → ${c.packedSteps} | ${c.linearElementSteps} → ${c.packedElementSteps} | ` +
-        `${verify} | ${equivalence}`,
-    );
+    const byId = (id: VliwConfigId) => c.configs.find((x) => x.id === id)!;
+    const elements = CONFIG_ORDER.map((id) => byId(id).elements).join("/");
+    const density = `${c.densityPackets.toFixed(2)} → ${c.densityCombined.toFixed(2)}`;
+    const eq = CONFIG_ORDER.map((id) => (byId(id).equivalent ? "✓" : "✗")).join("");
+    const verified = c.configs.filter((x) => x.id === "packets" || x.id === "reorder+packets");
+    const verify = verified.every((x) => x.verify.ok) ? "ok" : "КРАСНЫЙ";
+    const steps = `${byId("linear").elementSteps} → ${byId("reorder+packets").elementSteps}`;
+    lines.push(`${c.name} | ${elements} | ${density} | ${eq} | ${verify} | ${steps}`);
     for (const p of c.problems) lines.push(`    ! ${p}`);
   }
   lines.push("");
+  lines.push("конфигурации: л = линейно, п = перестановка, у = упаковка, о = перестановка+упаковка");
   lines.push(
-    `итого по завершающимся программам: инструкций ${report.totals.instructions}, элементов ` +
-      `${report.totals.elementsBefore} → ${report.totals.elementsAfter}, плотность упаковки ` +
-      `${report.totals.densityBefore.toFixed(2)} → ${report.totals.densityAfter.toFixed(2)}, ` +
-      `широких пакетов ${report.totals.widePackets}, инструкций внутри пакетов ${report.totals.packedInstructions}`,
+    `итого по завершающимся: элементов ` +
+      CONFIG_ORDER.map((id) => `${report.totals.elements[id]} (${id})`).join(", "),
   );
   lines.push(
-    `исполнено инструкций ${report.totals.executedInstructions} (не зависит от упаковки); ` +
-      `шагов VM (элементов) ${report.totals.linearElementSteps} → ${report.totals.packedElementSteps}`,
+    `плотность упаковки ${report.totals.density.packets.toFixed(2)} (упаковка) → ` +
+      `${report.totals.density["reorder+packets"].toFixed(2)} (перестановка+упаковка)`,
   );
   lines.push(
-    "шаг VM — это свойство этой VM (один элемент = один шаг), а не такт e2k: " +
-      "замеров на железе нет, и ускорение этими числами не доказано",
+    `шагов VM ${report.totals.elementSteps.linear} (линейно) → ` +
+      `${report.totals.elementSteps["reorder+packets"]} (перестановка+упаковка); ` +
+      `исполнено инструкций ${report.totals.executedInstructions} — одинаково во всех конфигурациях`,
+  );
+  lines.push(
+    "**шаги VM — не метрика скорости и не ускорение**: VM считает шагом элемент кода, а не такт e2k; " +
+      "замеров на железе нет",
   );
   lines.push(report.passed ? "gate зелёный" : `gate красный (${report.red} программ)`);
   return lines.join("\n");

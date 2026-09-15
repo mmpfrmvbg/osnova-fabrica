@@ -145,12 +145,27 @@ function moduleProcedures(module: RegModule): Array<{ start: number; end: number
 export function applyReorderToWholeModule(
   module: RegModule,
   options: ReorderOptions = {},
-): { scheduled: RegModule; orderChanged: boolean; proceduresScheduled: number } {
+): {
+  scheduled: RegModule;
+  orderChanged: boolean;
+  proceduresScheduled: number;
+  /**
+   * `originalIndex[новыйИндекс] = индекс инструкции в исходном модуле`.
+   *
+   * Нужна оракулу совместной работы перестановки и упаковки: переставленные
+   * инструкции — глубокие КОПИИ, поэтому по объекту их с исходными не связать, а
+   * сравнивать конфигурации нужно именно по исходным инструкциям. Без этой карты
+   * «тот же набор исполненных инструкций» пришлось бы проверять по содержимому,
+   * а содержимое `jmp*` меняется вместе с адресом.
+   */
+  originalIndex: number[];
+} {
   const ranges = procedureRanges(module);
 
   /** Новые элементы по каждой процедуре + карта индексов. */
   const newBodies: RegCodeElement[][] = [];
   const indexMap = new Map<number, number>();
+  const originalIndex: number[] = [];
   let orderChanged = false;
   let newLength = 0;
 
@@ -198,6 +213,7 @@ export function applyReorderToWholeModule(
     });
     for (const [pos, origIdx] of result.order.entries()) {
       indexMap.set(bodyToModule[origIdx]!, newLength + pos);
+      originalIndex[newLength + pos] = bodyToModule[origIdx]!;
     }
     newBodies.push(newBody);
     newLength += newBody.length;
@@ -231,6 +247,7 @@ export function applyReorderToWholeModule(
     scheduled,
     orderChanged,
     proceduresScheduled: ranges.length,
+    originalIndex,
   };
 }
 
