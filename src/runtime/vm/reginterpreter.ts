@@ -148,6 +148,11 @@ export class RegVM {
   constructor(module: RegModule, options: RegInterpreterOptions = {}) {
     this.module = module;
     this.invoke = options.invoke ?? (() => null);
+    // ЛИМИТ ШАГОВ — НАШЕ РЕШЕНИЕ (политика, не документ). То же значение и тот
+    // же смысл, что в стековой VM: защита от бесконечного `цикл`. Счётчик
+    // инкрементируется на ЭЛЕМЕНТ кода (пакет — один шаг), а не на инструкцию —
+    // поэтому при равном лимите упакованный код исполняет больше инструкций.
+    // Это учтено в оракулах (`both_hit_step_limit`, `not_comparable`).
     this.maxSteps = options.maxSteps ?? 1_000_000;
     this.extraInvokeArgc = new Map(
       (options.extraInvokes ?? []).map((s) => [s.name, s.argc]),

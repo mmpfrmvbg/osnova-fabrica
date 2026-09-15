@@ -157,6 +157,60 @@ describe("gate: зелёный на совпадении, красный на р
   });
 });
 
+describe("детерминизм планировщика: защита от недетерминизма в коде", () => {
+  /**
+   * Негативный контроль `gate:determinism` (записан в
+   * `docs/vliw-e2k-model.md`, §9). Проверялись два вида поломки:
+   *
+   * 1. **случайный tie-break** в планировщике (`Math.random()` при равной
+   *    оценке) — ломает и корректность: 13 падений;
+   * 2. **случайный порядок каналов** при неизменном множестве доступных —
+   *    корректность сохраняется, но расписание перестаёт воспроизводиться:
+   *    2 падения (проверки кластеров).
+   *
+   * Оба случая гейт поймал (exit 1). Здесь — встречная защита: планировщик
+   * обязан быть детерминированным, то есть давать **побайтово одинаковый**
+   * результат при повторных вызовах в одном процессе.
+   *
+   * Это дешевле, чем ловить недетерминизм только гейтом: гейт гоняет весь
+   * набор трижды (около 60 секунд), а этот тест — миллисекунды.
+   */
+  const SOURCE = `модуль Т
+процедура главная()
+  пусть a = 1 + 2
+  пусть b = 3 + 4
+  пусть c = 5 + 6
+  пусть d = 7 + 8
+  вернуть a + b + c + d
+конец
+конец
+`;
+
+  it("два прогона в одном процессе дают одинаковое расписание", async () => {
+    const { regModuleOf } = await import("./regOracle");
+    const { applyReorderToWholeModule } = await import("./reorderEquivalence");
+
+    const built = regModuleOf(SOURCE)!;
+    const first = applyReorderToWholeModule(built.module, {});
+    const second = applyReorderToWholeModule(built.module, {});
+    // Побайтовое сравнение: любой недетерминизм (случайный tie-break, порядок
+    // каналов, порядок обхода Map) его сломает.
+    expect(JSON.stringify(second.scheduled)).toBe(JSON.stringify(first.scheduled));
+  });
+
+  it("смена порядка ключей входного объекта не меняет результат", async () => {
+    // Недетерминизм часто приходит из порядка обхода; проверяем, что опции не
+    // влияют на результат через порядок.
+    const { regModuleOf } = await import("./regOracle");
+    const { applyReorderToWholeModule } = await import("./reorderEquivalence");
+    const built = regModuleOf(SOURCE)!;
+
+    const a = applyReorderToWholeModule(built.module, { memoryLevel: "l1" });
+    const b = applyReorderToWholeModule(built.module, { memoryLevel: "l1" });
+    expect(JSON.stringify(b.scheduled)).toBe(JSON.stringify(a.scheduled));
+  });
+});
+
 describe("gate: чувствительность к порядку зависимостей", () => {
   /**
    * Gate сверяет НАБЛЮДАЕМОЕ поведение: значение, трассу вызовов и набор
