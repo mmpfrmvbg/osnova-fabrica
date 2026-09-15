@@ -28,8 +28,7 @@ import {
   LATENCY_CORPUS,
   scheduleWithLatency,
   formatSchedule,
-} from "./latencyScheduler";
-import { ALL_OPS, type RawInstruction } from "../runtime/vm/bytecode";
+} from "./latencyScheduler";import { ALL_OPS, type RawInstruction } from "../runtime/vm/bytecode";
 
 /** Канонический набор опкодов языка — единственный источник, не копия. */
 const REAL_OPS: readonly string[] = ALL_OPS;
@@ -98,6 +97,33 @@ describe("e2kDevices: длительности операций (стр. 71–72
 
   it("штраф домена fp→int = +2 (стр. 72)", () => {
     expect(DOMAIN_PENALTY.fp_to_int).toBe(2);
+  });
+
+  it("штраф домена int→fp = +1: противоречие стр. 72 разрешено главой 12", () => {
+    // Таблица стр. 72 говорит «int->fp +0», а абзац на той же странице — «+1 такт
+    // в симметричном случае». Глава 12 (стр. 194) разрешает противоречие:
+    // «результаты операций группы ibps передаются в операции группы fbps с
+    // задержкой в 1 такт». ibps — целочисленные, fbps — вещественные, то есть
+    // это ровно int->fp. Берём +1.
+    expect(DOMAIN_PENALTY.int_to_fp).toBe(1);
+  });
+
+  it("int→fp действительно задерживает потребителя на 1 такт", () => {
+    // Проверяем не константу, а следствие: потребитель из другого домена
+    // выдаётся на такт позже, чем потребитель из того же.
+    const K = (k: number) => ({ op: "const", type: "i32", k }) as RawInstruction;
+    // add (int) → mul (fp): переход int→fp, штраф +1.
+    const cross: RawInstruction[] = [
+      K(0), K(1),
+      { op: "add" } as RawInstruction,
+      { op: "mul" } as RawInstruction,
+    ];
+    const r = scheduleWithLatency(cross);
+    const addAt = r.packets.find((p) => p.slots.some((s) => s.op === "add"))!.issueAt;
+    const mulAt = r.packets.find((p) => p.slots.some((s) => s.op === "mul"))!.issueAt;
+    const addLat = latencyFor(opClassOf("add")); // 1
+    // Разрыв = длительность add (1) + штраф int→fp (1) = 2.
+    expect(mulAt - addAt).toBe(addLat + DOMAIN_PENALTY.int_to_fp);
   });
 
   it("задержка Cmp/логических зависит от потребителя (стр. 71)", () => {
