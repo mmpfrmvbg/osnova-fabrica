@@ -137,71 +137,65 @@ export function verifyPackets(module: RegModule, model: MachineModel): VerifyRes
   return { ok: true };
 }
 
-/**
- * Проверить один пакет.
- *
- * Вынесено отдельно, чтобы упаковщик мог спрашивать «можно ли добавить вот эту
- * инструкцию к уже набранному пакету» без сборки целого модуля.
- */
-export function verifyOnePacket(
-  slots: readonly RegInstruction[],
-  model: MachineModel,
-  at = 0,
-): VerifyResult | null {
-  // 5. Ширина пакета.
-  if (slots.length > model.slots) {
-    return {
-      ok: false,
-      reason: `пакет шире машины: слотов ${slots.length}, а машина допускает ${model.slots}`,
-      at,
-    };
-  }
+/** Нарушение пакета: причина без позиции (позицию добавляет {@link verifyOnePacket}). */
+export type PacketProblem = { reason: string } | null;
 
-  /**
-   * 4. Передача управления: проверяется ДО совместимости слотов.
-   *
-   * Почему раньше: пакет из двух передач управления нелегален сразу, независимо
-   * от раскладки по слотам. Если проверять слоты первыми, точная причина
-   * («больше одной передачи управления») подменяется менее точной («слот занят»).
-   * Точность причины важна: по ней ищут дефект.
-   */
+/** 5. Ширина пакета. */
+export function verifyWidth(slots: readonly RegInstruction[], model: MachineModel): PacketProblem {
+  if (slots.length > model.slots) {
+    return { reason: `пакет шире машины: слотов ${slots.length}, а машина допускает ${model.slots}` };
+  }
+  return null;
+}
+
+/**
+ * 4. Передача управления.
+ *
+ * Проверяется ДО совместимости слотов. Почему раньше: пакет из двух передач
+ * управления нелегален сразу, независимо от раскладки по слотам. Если проверять
+ * слоты первыми, точная причина («больше одной передачи управления») подменяется
+ * менее точной («слот занят»). Точность причины важна: по ней ищут дефект.
+ */
+export function verifyControlTransfer(slots: readonly RegInstruction[]): PacketProblem {
   const branchPositions: number[] = [];
   for (let i = 0; i < slots.length; i++) {
     if (isBranchInstruction(slots[i]!)) branchPositions.push(i);
   }
   if (branchPositions.length > 1) {
     return {
-      ok: false,
       reason:
         `BRANCH: в пакете ${branchPositions.length} передачи управления ` +
         `(слоты ${branchPositions.join(", ")}) — VM покинет пакет после первой`,
-      at,
     };
   }
   if (branchPositions.length === 1 && branchPositions[0] !== slots.length - 1) {
     return {
-      ok: false,
       reason:
         `BRANCH: передача управления «${slots[branchPositions[0]!]!.op}» в слоте ` +
         `${branchPositions[0]} не последняя — VM покинет пакет и слоты после неё ` +
         `не исполнятся`,
-      at,
     };
   }
+  return null;
+}
 
-  /**
-   * 6. Совместимость со слотами: существует ли раскладка инструкций по слотам,
-   * при которой каждая занимает допустимый слот.
-   *
-   * Пакет НЕ несёт номеров слотов — в формате `.osvreg` это только массив
-   * `slots`. Поэтому проверяется не «инструкция i стоит в слоте i», а
-   * существование корректного назначения. Раскладка — жадная, от самой узкой
-   * допустимой множества к самой широкой: так пары вроде «const (слот 0) и
-   * div (только слот 0)» обнаруживаются как конфликт.
-   *
-   * Жадность здесь достаточна: у нас не задача о паросочетаниях общего вида, а
-   * множества слотов из небольшого числа групп (АЛУ / ветвление / память).
-   */
+/**
+ * 6. Совместимость со слотами: существует ли раскладка инструкций по слотам,
+ * при которой каждая занимает допустимый слот.
+ *
+ * Пакет НЕ несёт номеров слотов — в формате `.osvreg` это только массив
+ * `slots`. Поэтому проверяется не «инструкция i стоит в слоте i», а
+ * существование корректного назначения. Раскладка — жадная, от самой узкой
+ * допустимой множества к самой широкой: так пары вроде «const (слот 0) и
+ * div (только слот 0)» обнаруживаются как конфликт.
+ *
+ * Жадность здесь достаточна: у нас не задача о паросочетаниях общего вида, а
+ * множества слотов из небольшого числа групп (АЛУ / ветвление / память).
+ */
+export function verifySlotAssignment(
+  slots: readonly RegInstruction[],
+  model: MachineModel,
+): PacketProblem {
   const order = slots
     .map((ins, i) => ({ ins, i }))
     .sort((a, b) => {
@@ -215,26 +209,29 @@ export function verifyOnePacket(
   for (const { ins, i } of order) {
     const allowed = model.possibleSlots(ins.op);
     if (allowed.length === 0) {
-      return {
-        ok: false,
-        reason: `операция «${ins.op}» (слот ${i}) не поддержана машиной: possibleSlots пуст`,
-        at,
-      };
+      return { reason: `операция «${ins.op}» (слот ${i}) не поддержана машиной: possibleSlots пуст` };
     }
     const free = allowed.find((s) => s >= 0 && s < model.slots && !occupied.has(s));
     if (free === undefined) {
       return {
-        ok: false,
         reason:
           `операция «${ins.op}» (слот ${i}) не помещается: ` +
           `машина допускает слоты [${allowed.join(", ")}], но все они заняты ` +
           `другими инструкциями пакета`,
-        at,
       };
     }
     occupied.add(free);
   }
+  return null;
+}
 
+/**
+ * 1–3. Регистры внутри пакета: RAW, WAR, WAW.
+ *
+ * Значения видны со следующего пакета, поэтому внутри пакета инструкции обязаны
+ * быть независимы по регистрам.
+ */
+export function verifyRegisters(slots: readonly RegInstruction[]): PacketProblem {
   /** Регистры, которые уже прочитаны в этом пакете. */
   const read = new Set<number>();
   /** Регистры, которые уже записаны в этом пакете. */
@@ -250,40 +247,61 @@ export function verifyOnePacket(
     for (const r of uses) {
       if (written.has(r)) {
         return {
-          ok: false,
           reason:
             `RAW внутри пакета: слот ${i} («${op}») читает регистр ${r}, ` +
             `который в этом же пакете записан раньше — значение станет видно ` +
             `только со следующего пакета`,
-          at,
         };
       }
     }
     // 2. WAR: пишем то, что в этом пакете кто-то читает.
     if (def !== undefined && read.has(def)) {
       return {
-        ok: false,
         reason:
           `WAR внутри пакета: слот ${i} («${op}») пишет регистр ${def}, ` +
           `который в этом же пакете уже прочитан раньше`,
-        at,
       };
     }
     // 3. WAW: две записи в один регистр.
     if (def !== undefined && written.has(def)) {
       return {
-        ok: false,
         reason:
           `WAW внутри пакета: слот ${i} («${op}») пишет регистр ${def}, ` +
           `который в этом же пакете уже записан — какое значение победит, не определено`,
-        at,
       };
     }
 
     for (const r of uses) read.add(r);
     if (def !== undefined) written.add(def);
   }
+  return null;
+}
 
+/** Проверки пакета в порядке применения. Единственный источник истины. */
+export const PACKET_CHECKS: ReadonlyArray<
+  (slots: readonly RegInstruction[], model: MachineModel) => PacketProblem
+> = [
+  (slots, model) => verifyWidth(slots, model),
+  (slots) => verifyControlTransfer(slots),
+  (slots, model) => verifySlotAssignment(slots, model),
+  (slots) => verifyRegisters(slots),
+];
+
+/**
+ * Проверить один пакет.
+ *
+ * Вынесено отдельно, чтобы упаковщик мог спрашивать «можно ли добавить вот эту
+ * инструкцию к уже набранному пакету» без сборки целого модуля.
+ */
+export function verifyOnePacket(
+  slots: readonly RegInstruction[],
+  model: MachineModel,
+  at = 0,
+): VerifyResult | null {
+  for (const check of PACKET_CHECKS) {
+    const problem = check(slots, model);
+    if (problem !== null) return { ok: false, reason: problem.reason, at };
+  }
   return null;
 }
 

@@ -21,124 +21,16 @@
  *
  * Флаг `OSNOVA_VLIW_REORDER` при этом не требуется: gate проверяет саму
  * возможность включения, независимо от того, включена ли она сейчас.
+ *
+ * Корпус живёт в `src/scripts/corpus.ts` — им же пользуется `gate:pack`, чтобы
+ * оба gate'а мерили на одном и том же наборе программ.
  */
 
-import * as fs from "fs";
-import * as path from "path";
-import { regModuleOf } from "../vliw/regOracle";
-import {
-  formatGateReport,
-  runReorderGate,
-  type GateCase,
-} from "../vliw/reorderGate";
-import type { StackValue } from "../runtime/vm/interpreter";
-
-const ROOT = path.resolve(__dirname, "..", "..");
-const FIXTURES = path.join(ROOT, "src", "runtime", "fixtures");
-
-/** Программы, которые завершаются сами. */
-const TERMINATING_FILES = [
-  "hello.osnova",
-  "func_params.osnova",
-  "task_stats.osnova",
-  "storage_demo.osnova",
-  "блокнот.osnova",
-];
-
-/**
- * Корпус **циклических мультипроцедурных** программ.
- *
- * Он отвечает на вопрос, которого не задаёт ни одна другая фикстура: даёт ли
- * перестановка выигрыш НА ПРОГРАММЕ, а не на отдельной процедуре. Планирование
- * всех процедур сделано (см. `applyReorderToWholeModule`), но до появления этого
- * корпуса измерять его было не на чем: вызываемые процедуры прежних приложений —
- * линейный код без циклов.
- *
- * Измеренный выигрыш (0.0%–2.4%) — честный: выигрыш VLIW растёт с числом
- * НЕЗАВИСИМЫХ цепочек в цикле, и в программе такие цепочки составляют лишь часть
- * модуля, поэтому эффект разбавляется.
- */
-const CYCLIC_FILES = [
-  "cycle-multi.osnova",
-  "cycle-nested.osnova",
-  "cycle-array.osnova",
-  "cycle-chains.osnova",
-];
-
-/**
- * Корпус с ЯВНО заданным уровнем ILP (низкий / средний / высокий).
- *
- * Служит для калибровки: показывает, что выигрыш зависит от числа независимых
- * цепочек, а не от наличия цикла как такового. Уровни заданы в комментариях
- * фикстур. Измерения — `docs/vliw-ilp-calibration.md`.
- */
-const ILP_FILES = ["ilp-low.osnova", "ilp-mid.osnova", "ilp-high.osnova"];
-
-/** Корпус конструкций: независимое ожидание, все завершаются. */
-const PARITY_FILES = ["while.osnova", "foreach.osnova", "tuple.osnova", "try.osnova"];
-
-/**
- * Приложения с чистым входом `run_golden` (указан в их `.osapp.yaml`).
- *
- * Оконный цикл живёт в отдельной процедуре `запуск()`; `run_golden` — чистая
- * завершающаяся процедура, поэтому приложение МОЖЕТ участвовать в gate.
- */
-const GOLDEN_APPS: Array<{ file: string; entry: string; args: StackValue[] }> = [
-  {
-    file: "game_rounds.osnova",
-    entry: "run_golden",
-    // Три раунда из game_rounds.osapp.yaml.
-    args: [
-      [
-        { результат: "победа", очки: 15 },
-        { результат: "поражение", очки: 5 },
-        { результат: "победа", очки: 10 },
-      ],
-    ] as StackValue[],
-  },
-  {
-    file: "micro_crm.osnova",
-    entry: "run_golden",
-    args: [[{ имя: "А" }]] as StackValue[],
-  },
-];
-
-/**
- * Программы с известным незавершением — исключены ЯВНО, с причиной.
- *
- * `todo.osnova`: `запуск()` — оконный цикл, `handle_event`/`handle_add` требуют
- * внешнего события; чистой процедуры-оракула нет, и манифест указывает на цикл.
- */
-const NON_TERMINATING = ["todo.osnova"];
-
-function loadCase(file: string, entry?: string, args?: StackValue[]): GateCase {
-  const full = path.join(FIXTURES, file);
-  const built = regModuleOf(fs.readFileSync(full, "utf-8"));
-  if (!built) {
-    throw new Error(`gate: ${file} не компилируется`);
-  }
-  return {
-    name: file,
-    module: built.module,
-    ...(entry !== undefined ? { entryProcedure: entry } : {}),
-    ...(args !== undefined ? { args } : {}),
-  };
-}
+import { formatGateReport, runReorderGate } from "../vliw/reorderGate";
+import { collectCases, NON_TERMINATING } from "./corpus";
 
 async function main(): Promise<number> {
-  const cases: GateCase[] = [];
-
-  for (const f of TERMINATING_FILES) cases.push(loadCase(f));
-  for (const f of CYCLIC_FILES) cases.push(loadCase(f));
-  for (const f of ILP_FILES) cases.push(loadCase(f));
-  for (const f of PARITY_FILES) cases.push(loadCase(path.join("reg-parity", f)));
-  for (const app of GOLDEN_APPS) {
-    cases.push(loadCase(app.file, app.entry, app.args));
-  }
-  for (const f of NON_TERMINATING) {
-    cases.push({ ...loadCase(f), expectNonTerminating: true });
-  }
-
+  const cases = collectCases();
   const report = await runReorderGate(cases, { maxSteps: 200_000 });
   console.log(formatGateReport(report));
 
