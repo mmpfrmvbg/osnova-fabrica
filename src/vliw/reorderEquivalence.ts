@@ -71,6 +71,21 @@ export interface ReorderEquivalenceReport {
   /** Итоговое суждение: всё совпало и ошибок нет. */
   ok: boolean;
   message: string;
+  /**
+   * Модуль после планирования всех процедур. `undefined` — планирование не
+   * удалось (тогда `error` в `message`). Нужен gate'у для проверки адресов.
+   */
+  scheduledModule?: RegModule;
+  /** Такты по всему модулю при планировании в порядке программы. */
+  moduleCyclesInOrder: number;
+  /** Такты по всему модулю после перестановки. */
+  moduleCyclesReordered: number;
+  /** Выигрыш по тактам на модуле: `(inOrder - reordered) / inOrder`. */
+  moduleCycleGain: number;
+  /** Сколько процедур модуля спланировано. */
+  moduleProcedures: number;
+  /** Всего инструкций во всех процедурах. */
+  moduleInstructions: number;
 }
 
 export interface ReorderEquivalenceOptions extends ReorderOptions {
@@ -702,6 +717,9 @@ export async function runReorderEquivalence(
               ? `переставленный прогон упал: «${reordered.error}»`
               : `совпало: ${JSON.stringify(linear.value)} (трасса ${linear.trace.length} шагов, инструкций ${linear.instructions.length})`;
 
+  // Метрики по ВСЕМУ модулю: сколько процедур, сколько инструкций, такты.
+  const moduleMetrics = measureModuleCycles(module, options);
+
   return {
     valuesEqual,
     tracesEqual,
@@ -718,5 +736,49 @@ export async function runReorderEquivalence(
     orderChanged,
     ok,
     message,
+    scheduledModule: scheduled,
+    moduleCyclesInOrder: moduleMetrics.inOrder,
+    moduleCyclesReordered: moduleMetrics.reordered,
+    moduleCycleGain: moduleMetrics.gain,
+    moduleProcedures: moduleMetrics.procedures,
+    moduleInstructions: moduleMetrics.instructions,
+  };
+}
+
+/**
+ * Такты по всему модулю: сумма по процедурам, планированным двумя способами.
+ *
+ * Нужна, чтобы gate мог утверждать «такты по модулю изменились», а не только
+ * «результат совпал». Без этого замер описывал бы одну точку входа.
+ */
+function measureModuleCycles(
+  module: RegModule,
+  options: ReorderEquivalenceOptions,
+): { inOrder: number; reordered: number; gain: number; procedures: number; instructions: number } {
+  const opts: ReorderOptions = {
+    ...(options.memoryLevel !== undefined ? { memoryLevel: options.memoryLevel } : {}),
+    ...(options.callPure !== undefined ? { callPure: options.callPure } : {}),
+  };
+  const ranges = procedureRanges(module);
+  let inOrder = 0;
+  let reordered = 0;
+  let instructions = 0;
+
+  for (const range of ranges) {
+    const body = module.code
+      .slice(range.start, range.end)
+      .filter((el) => !isRegPacket(el)) as RegInstruction[];
+    if (body.length === 0) continue;
+    instructions += body.length;
+    inOrder += scheduleRegInOrder(body, { ...opts, offsetBase: range.start }).metrics.cycles;
+    reordered += scheduleRegWithReorder(body, { ...opts, offsetBase: range.start }).metrics.cycles;
+  }
+
+  return {
+    inOrder,
+    reordered,
+    gain: inOrder > 0 ? (inOrder - reordered) / inOrder : 0,
+    procedures: ranges.length,
+    instructions,
   };
 }

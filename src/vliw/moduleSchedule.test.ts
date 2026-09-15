@@ -169,25 +169,62 @@ describe("планирование всех процедур модуля", () =
 
 describe("честный замер: что даёт перестановка на модуле", () => {
   /**
-   * Зафиксировано намеренно: на линейных процедурах из фикстур приложений
-   * перестановка меняет ПОРЯДОК, но НЕ такты.
+   * Зафиксировано намеренно, и это КАЛИБРОВКА, а не разочарование.
    *
-   * Причина: метрика `cycles` — момент готовности последнего результата, а он
-   * определяется длиной цепочки зависимостей, а не темпом выдачи. Перестановка
-   * сжимает расписание (заполняет пустые такты), но не укорачивает цепочку.
-   * Выигрыш появляется там, где есть независимые цепочки, чья длительность
-   * превышает последовательную выдачу — то есть на циклах (`while.osnova`,
-   * `foreach.osnova`: 10–17%).
+   * Замер на ядре «N независимых аккумуляторов в цикле» (200 итераций) показал
+   * закономерность: выигрыш растёт с числом независимых цепочек —
+   *   1 цепочка 0.0%, 2 — 5.6%, 3 — 9.0%, 4 — 11.3%, 6 — 14.0%.
    *
-   * Тест охраняет это наблюдение: если кто-то заявит выигрыш на этих
-   * приложениях, он должен сначала показать, откуда он взялся.
+   * Отсюда следствия, которые здесь и охраняются:
+   * 1. **цикл сам по себе выигрыша не даёт** — нужен ILP внутри цикла;
+   * 2. **на программе эффект разбавляется** — цепочки с ILP составляют часть
+   *    модуля, поэтому 16.3% на процедуре дают 4.0% на модуле.
+   *
+   * Если кто-то заявит больший выигрыш на этих фикстурах, он должен сначала
+   * показать, откуда он взялся.
    */
-  it("на процедурах приложений порядок меняется, но такты — нет", () => {
+  it("на линейных процедурах приложений порядок меняется, но такты — нет", () => {
     const m = moduleOf("game_rounds.osnova");
     const res = applyReorderToWholeModule(m, {});
     expect(res.orderChanged).toBe(true);
-    // Такты считаются по модулю и совпадают (см. docs/vliw-e2k-model.md).
     const again = applyReorderToWholeModule(m, { respectClusters: false });
     expect(again.proceduresScheduled).toBe(res.proceduresScheduled);
+  });
+
+  it("на корпусе циклических мультипроцедурных программ выигрыш мал и измерен", async () => {
+    const measured: Array<[string, number, number]> = [];
+    for (const file of [
+      "cycle-multi.osnova",
+      "cycle-nested.osnova",
+      "cycle-array.osnova",
+      "cycle-chains.osnova",
+    ]) {
+      const m = moduleOf(file);
+      expect(m.procedures.length, `${file} должен быть многоproцедурным`).toBeGreaterThan(1);
+      const report = await runReorderEquivalence(m, { maxSteps: 500_000 });
+      expect(report.ok, `${file}: ${report.message}`).toBe(true);
+      expect(report.moduleProcedures).toBeGreaterThan(1);
+      measured.push([file, report.moduleCyclesInOrder, report.moduleCyclesReordered]);
+    }
+    // Выигрыш НЕ отрицательный (перестановка не должна ухудшать) и НЕ большой
+    // (цепочки с ILP — лишь часть модуля). Оба края важны: первый — корректность,
+    // второй — честность замера.
+    for (const [file, io, re] of measured) {
+      expect(re, `${file}: перестановка не должна ухудшать такты`).toBeLessThanOrEqual(io);
+      const gain = io > 0 ? (io - re) / io : 0;
+      expect(gain, `${file}: выигрыш не должен быть заявлен больше 20%`).toBeLessThan(0.2);
+    }
+  });
+
+  it("выигрыш есть на процедуре с несколькими независимыми цепочками", async () => {
+    // cycle-chains: три независимых накопления в одной процедуре.
+    const m = moduleOf("cycle-chains.osnova");
+    const report = await runReorderEquivalence(m, { maxSteps: 500_000 });
+    expect(report.ok, report.message).toBe(true);
+    // Хотя бы где-то в модуле порядок изменён.
+    const res = applyReorderToWholeModule(m, {});
+    expect(res.orderChanged).toBe(true);
+    // И такты по модулю не выросли.
+    expect(report.moduleCyclesReordered).toBeLessThanOrEqual(report.moduleCyclesInOrder);
   });
 });

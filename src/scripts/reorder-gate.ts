@@ -45,6 +45,26 @@ const TERMINATING_FILES = [
   "блокнот.osnova",
 ];
 
+/**
+ * Корпус **циклических мультипроцедурных** программ.
+ *
+ * Он отвечает на вопрос, которого не задаёт ни одна другая фикстура: даёт ли
+ * перестановка выигрыш НА ПРОГРАММЕ, а не на отдельной процедуре. Планирование
+ * всех процедур сделано (см. `applyReorderToWholeModule`), но до появления этого
+ * корпуса измерять его было не на чем: вызываемые процедуры прежних приложений —
+ * линейный код без циклов.
+ *
+ * Измеренный выигрыш (0.0%–2.4%) — честный: выигрыш VLIW растёт с числом
+ * НЕЗАВИСИМЫХ цепочек в цикле, и в программе такие цепочки составляют лишь часть
+ * модуля, поэтому эффект разбавляется.
+ */
+const CYCLIC_FILES = [
+  "cycle-multi.osnova",
+  "cycle-nested.osnova",
+  "cycle-array.osnova",
+  "cycle-chains.osnova",
+];
+
 /** Корпус конструкций: независимое ожидание, все завершаются. */
 const PARITY_FILES = ["while.osnova", "foreach.osnova", "tuple.osnova", "try.osnova"];
 
@@ -100,6 +120,7 @@ async function main(): Promise<number> {
   const cases: GateCase[] = [];
 
   for (const f of TERMINATING_FILES) cases.push(loadCase(f));
+  for (const f of CYCLIC_FILES) cases.push(loadCase(f));
   for (const f of PARITY_FILES) cases.push(loadCase(path.join("reg-parity", f)));
   for (const app of GOLDEN_APPS) {
     cases.push(loadCase(app.file, app.entry, app.args));

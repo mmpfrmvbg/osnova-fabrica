@@ -29,7 +29,8 @@
  */
 
 import { runReorderEquivalence, type ReorderEquivalenceReport } from "./reorderEquivalence";
-import type { RegModule } from "../runtime/vm/regcode";
+import { scheduleRegWithReorder } from "./reorderScheduler";
+import { isRegPacket, type RegInstruction, type RegModule } from "../runtime/vm/regcode";
 import type { StackValue } from "../runtime/vm/interpreter";
 import type { MemoryLevel } from "./pipelineCounters";
 
@@ -86,6 +87,28 @@ export interface GateCaseResult {
   ok: boolean;
   message: string;
   expectedFailure: boolean;
+  /**
+   * Четыре условия, которые владелец назвал обязательными для замеров на
+   * программе (а не на отдельной процедуре):
+   *
+   * 1. сколько процедур **переставлено** (порядок выдачи изменён) — видно, что
+   *    модульность действительно задействована;
+   * 2. `addressesValid` — адреса корректны глобально (длина кода не изменилась,
+   *    все `codeOffset` внутри кода);
+   * 3. `cyclesChanged` — такты по модулю изменились. Если нет — это тоже
+   *    результат («на этом классе программ выигрыша нет»), но его надо видеть, а
+   *    не предполагать;
+   * 4. `resultMatches` — значение и трасса совпали с линейным прогоном.
+   */
+  conditions?: {
+    proceduresReordered: boolean;
+    /** Сколько процедур переставлено (порядок выдачи изменён). */
+    reorderedCount: number;
+    addressesValid: boolean;
+    cyclesChanged: boolean;
+    cycleGain: number;
+    resultMatches: boolean;
+  };
 }
 
 /** Итог gate. */
@@ -150,6 +173,7 @@ export async function runReorderGate(
       ok: report.ok,
       message: report.message,
       expectedFailure: false,
+      conditions: moduleConditions(c.module, report),
     });
   }
 
@@ -158,6 +182,57 @@ export async function runReorderGate(
     cases: results,
     proven,
     excluded,
+  };
+}
+
+/**
+ * Проверка четырёх условий на уровне МОДУЛЯ.
+ *
+ * Отвечает на вопрос, который нельзя задать одной процедуре: задействована ли
+ * модульность, корректны ли адреса глобально, изменились ли такты и совпал ли
+ * результат. Первое условие особенно важно: без него «перестановка работает» на
+ * деле означает «переставлена одна процедура из N».
+ */
+/** Границы тел процедур в модуле (дублирует логику `reorderEquivalence`). */
+function moduleRanges(module: RegModule): Array<{ start: number; end: number }> {
+  const offsets = module.procedures.map((p) => p.codeOffset);
+  return offsets.map((start) => {
+    const next = offsets.filter((c) => c > start).sort((a, b) => a - b)[0];
+    return { start, end: next ?? module.code.length };
+  });
+}
+
+function moduleConditions(
+  module: RegModule,
+  report: ReorderEquivalenceReport,
+): NonNullable<GateCaseResult["conditions"]> {
+  const ranges = moduleRanges(module);
+  let reorderedCount = 0;
+  for (const range of ranges) {
+    const body = module.code
+      .slice(range.start, range.end)
+      .filter((el) => !isRegPacket(el)) as RegInstruction[];
+    if (body.length < 2) continue;
+    const r = scheduleRegWithReorder(body, { offsetBase: range.start });
+    const localChanged = r.order.some((v, i) => v !== i);
+    if (localChanged) reorderedCount++;
+  }
+
+  const scheduled = report.scheduledModule;
+  const addressesValid =
+    scheduled !== undefined &&
+    scheduled.code.length === module.code.length &&
+    scheduled.procedures.every(
+      (p) => p.codeOffset >= 0 && p.codeOffset < scheduled.code.length,
+    );
+
+  return {
+    proceduresReordered: reorderedCount > 0,
+    reorderedCount,
+    addressesValid,
+    cyclesChanged: report.moduleCyclesReordered !== report.moduleCyclesInOrder,
+    cycleGain: report.moduleCycleGain,
+    resultMatches: report.tracesEqual && report.valuesEqual,
   };
 }
 
@@ -170,6 +245,16 @@ export function formatGateReport(report: GateReport): string {
     const kind = r.expectedFailure ? " (ожидаемо исключён)" : "";
     lines.push(`  [${mark}] ${r.name}${kind}`);
     lines.push(`         ${r.message}`);
+    if (r.conditions !== undefined) {
+      const c = r.conditions;
+      const pct = (v: number): string => `${(v * 100).toFixed(1)}%`;
+      lines.push(
+        `         условия: переставлено процедур ${c.reorderedCount}` +
+          ` | адреса ${c.addressesValid ? "ok" : "ПЛОХИ"}` +
+          ` | такты изменились: ${c.cyclesChanged ? "да" : "нет"} (${pct(c.cycleGain)})` +
+          ` | результат совпал: ${c.resultMatches ? "да" : "НЕТ"}`,
+      );
+    }
   }
   lines.push("");
   lines.push(`доказано эквивалентности: ${report.proven}`);
