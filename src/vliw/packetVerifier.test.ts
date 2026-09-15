@@ -232,7 +232,7 @@ describe("verifyPackets: нелегальные пакеты отвергают�
     expect(r.reason).toContain("не поддержана");
   });
 
-  it("7. терминатор не последний в пакете", () => {
+  it("8. терминатор не последний в пакете", () => {
     // ret идёт первым, после него ещё инструкция — VM покинет пакет и не
     // исполнит её.
     const m = moduleWithPacket([RET(1), K(2, 0)]);
@@ -242,7 +242,7 @@ describe("verifyPackets: нелегальные пакеты отвергают�
     expect(r.reason).toMatch(/терминатор|BRANCH/i);
   });
 
-  it("8. `call` не последний в пакете: слот после него не исполнится", () => {
+  it("9. `call` не последний в пакете: слот после него не исполнится", () => {
     // РЕГРЕССИЯ НА РЕАЛЬНЫЙ ДЕФЕКТ. Упаковка по `issueAt` положила `move` в один
     // пакет с `call` (слот 0 — call, слот 1 — move). VM на `call` возвращает
     // `callee.codeOffset` (`reginterpreter.ts`), а `executeElement` покидает
@@ -263,7 +263,7 @@ describe("verifyPackets: нелегальные пакеты отвергают�
     expect(r.at).toBe(0);
   });
 
-  it("9. `ret` не последний в пакете тоже BRANCH, а не терминатор", () => {
+  it("10. `ret` не последний в пакете тоже BRANCH, а не терминатор", () => {
     const m = moduleWithPacket([RET(), K(2, 0)]);
     const r = verifyPackets(m, MODEL);
     expect(r.ok).toBe(false);
