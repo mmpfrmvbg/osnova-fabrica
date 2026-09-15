@@ -67,7 +67,9 @@ export {
 
 export {
   scheduleRegWithReorder,
+  scheduleRegInOrder,
   scheduleGraphWithReorder,
+  scheduleGraphInOrder,
   validateRegSchedule,
   splitLinearRegions,
   linearRegionStarts,
@@ -79,3 +81,14 @@ export {
   type ReorderedSlot,
   type ReorderMetrics,
 } from "./reorderScheduler";
+
+export {
+  countPipeline,
+  formatCounters,
+  adjustedLatency,
+  packetsFill,
+  MEMORY_LATENCY,
+  ISSUE_WIDTH,
+  type MemoryLevel,
+  type PipelineCounters,
+} from "./pipelineCounters";

@@ -241,6 +241,36 @@ function regDomainPenalty(producer: OpClass, consumer: OpClass): number {
   return 0;
 }
 
+export interface ReorderOptions extends RegGraphOptions {
+  /**
+   * Как моделировать обращения к памяти (чтения `obj.get`).
+   *
+   * `"l1"` (по умолчанию) — документ, стр. 71: «Планировщик всегда будет
+   * планировать чтение из L1, если только от программиста не было подсказки не
+   * обращаться по чтению в L1». Остальные уровни — это **подсказка**, которой в
+   * байткоде Основа пока нет: они нужны, чтобы оценить, что будет, если чтение
+   * промахнётся мимо L1 (`l2` 11, `l3` 40, `mem` 100 тактов, стр. 71).
+   */
+  memoryLevel?: "l1" | "l2" | "l3" | "mem";
+}
+
+/** Длительность чтения по уровню памяти (стр. 71). */
+const MEMORY_LEVEL_LATENCY: Readonly<Record<NonNullable<ReorderOptions["memoryLevel"]>, number>> = {
+  l1: 3,
+  l2: 11,
+  l3: 40,
+  mem: 100,
+};
+
+/** Длительность класса операции с учётом выбранного уровня памяти. */
+function latencyForClass(cls: OpClass, memoryLevel: ReorderOptions["memoryLevel"]): number {
+  if (cls === "ld_l1") {
+    const lvl = memoryLevel ?? "l1";
+    return MEMORY_LEVEL_LATENCY[lvl];
+  }
+  return latencyOf(cls);
+}
+
 /**
  * Планирование регистрового кода с перестановкой — **по линейным участкам**.
  *
@@ -249,12 +279,40 @@ function regDomainPenalty(producer: OpClass, consumer: OpClass): number {
  * последовательно, время сквозное (такт продолжается), как в in-order
  * планировщике.
  *
- * @param code линейный участок
- * @param opts опции графа зависимостей (чистота процедур)
+ * @param code регистровый код
+ * @param opts опции графа зависимостей и модели памяти
  */
 export function scheduleRegWithReorder(
   code: readonly RegInstruction[],
-  opts: RegGraphOptions = {},
+  opts: ReorderOptions = {},
+): ReorderResult {
+  return scheduleRegByRegions(code, opts, scheduleGraphWithReorder);
+}
+
+/**
+ * Планирование регистрового кода **в порядке программы** — по тем же участкам,
+ * что и {@link scheduleRegWithReorder}, в той же форме результата.
+ *
+ * Нужно, чтобы счётчики и метрики двух способов планирования были сопоставимы:
+ * один и тот же граф, одни и те же длительности, одна и та же форма. Разница
+ * только в порядке — здесь он строго программный.
+ */
+export function scheduleRegInOrder(
+  code: readonly RegInstruction[],
+  opts: ReorderOptions = {},
+): ReorderResult {
+  return scheduleRegByRegions(code, opts, scheduleGraphInOrder);
+}
+
+/** Общая обвязка: разбить на участки, спланировать каждый, сшить результат. */
+function scheduleRegByRegions(
+  code: readonly RegInstruction[],
+  opts: ReorderOptions,
+  planner: (
+    slice: readonly RegInstruction[],
+    graph: RegGraph,
+    memoryLevel: ReorderOptions["memoryLevel"],
+  ) => ReorderResult,
 ): ReorderResult {
   const n = code.length;
   if (n === 0) {
@@ -269,8 +327,7 @@ export function scheduleRegWithReorder(
 
   /**
    * Смещение по такту для участка: участки идут один за другим, поэтому
-   * следующий начинается не раньше, чем закончился предыдущий. Это то же
-   * допущение, что у in-order планировщика.
+   * следующий начинается не раньше, чем закончился предыдущий.
    */
   let baseAt = 0;
   let totalNops = 0;
@@ -280,7 +337,7 @@ export function scheduleRegWithReorder(
   for (const region of regions) {
     const slice = code.slice(region.start, region.end);
     const graph = buildRegDependencyGraph(slice, opts);
-    const local = scheduleGraphWithReorder(slice, graph);
+    const local = planner(slice, graph, opts.memoryLevel ?? "l1");
 
     for (const [pi, p] of local.packets.entries()) {
       packets.push({
@@ -335,6 +392,134 @@ export function scheduleRegWithReorder(
   };
 }
 
+/**
+ * In-order планирование по готовому графу, в той же форме, что
+ * {@link scheduleGraphWithReorder}.
+ *
+ * Модель времени та же: инструкция выдаётся не раньше готовности операндов и не
+ * раньше предыдущей. Если операнды не готовы, такт пропускается — в реальном
+ * e2k это выражается `nop` (стр. 193: «Задержка между источником и потребителем
+ * может быть реализована размещением между ними реальных или фиктивных команд
+ * (операция nop N, где N > 0)»).
+ */
+export function scheduleGraphInOrder(
+  code: readonly RegInstruction[],
+  graph: RegGraph,
+  memoryLevel: ReorderOptions["memoryLevel"] = "l1",
+): ReorderResult {
+  const n = code.length;
+  if (n === 0) return emptyResult();
+
+  const cls = new Array<OpClass>(n);
+  const lat = new Array<number>(n);
+  const channels = new Array<ChannelId[]>(n);
+  for (let i = 0; i < n; i++) {
+    cls[i] = regOpClass(code[i]!);
+    lat[i] = latencyForClass(cls[i]!, memoryLevel);
+    const ch = channelsFor(regOpToStackName(code[i]!));
+    if (ch.length === 0) {
+      throw new ReorderError(`нет исполнительного устройства для «${code[i]!.op}» (#${i})`);
+    }
+    channels[i] = ch;
+  }
+
+  const issueAt = new Array<number>(n).fill(0);
+  const readyAt = new Array<number>(n).fill(0);
+  const packets: ReorderedPacket[] = [];
+  const order: number[] = [];
+  let nopCycles = 0;
+
+  let openAt: number | undefined;
+  let openChannels = new Set<ChannelId>();
+  let openSlots: ReorderedSlot[] = [];
+  let nextFreeAt = 0;
+
+  const close = (): void => {
+    if (openAt === undefined || openSlots.length === 0) return;
+    const prevEnd = packets.length === 0 ? 0 : packets[packets.length - 1]!.issueAt + 1;
+    packets.push({
+      issueAt: openAt,
+      nopsBefore: Math.max(0, openAt - prevEnd),
+      slots: openSlots,
+    });
+    nextFreeAt = openAt + 1;
+    openAt = undefined;
+    openChannels = new Set<ChannelId>();
+    openSlots = [];
+  };
+
+  for (let i = 0; i < n; i++) {
+    // Не раньше готовности всех предшественников (по их фактическим тактам).
+    let wanted = 0;
+    for (const p of graph.preds[i]!) {
+      wanted = Math.max(wanted, readyAt[p]! + regDomainPenalty(cls[p]!, cls[i]!));
+    }
+    let at = Math.max(wanted, nextFreeAt);
+
+    if (openAt === undefined) {
+      nopCycles += Math.max(0, at - nextFreeAt);
+      openAt = at;
+    } else if (at > openAt || channels[i]!.every((c) => openChannels.has(c))) {
+      close();
+      at = Math.max(wanted, nextFreeAt);
+      nopCycles += Math.max(0, at - nextFreeAt);
+      openAt = at;
+    }
+
+    const ch = channels[i]!.find((c) => !openChannels.has(c));
+    if (ch === undefined) {
+      close();
+      const retryAt = Math.max(wanted, nextFreeAt);
+      nopCycles += Math.max(0, retryAt - nextFreeAt);
+      openAt = retryAt;
+      const retry = channels[i]!.find((c) => !openChannels.has(c))!;
+      openChannels.add(retry);
+      openSlots.push({
+        index: i,
+        op: code[i]!.op,
+        opClass: cls[i]!,
+        latency: lat[i]!,
+        channel: retry,
+      });
+    } else {
+      openChannels.add(ch);
+      openSlots.push({
+        index: i,
+        op: code[i]!.op,
+        opClass: cls[i]!,
+        latency: lat[i]!,
+        channel: ch,
+      });
+    }
+    issueAt[i] = openAt!;
+    readyAt[i] = openAt! + lat[i]!;
+    order.push(i);
+  }
+  close();
+
+  const cycles = readyAt.reduce((m, v) => Math.max(m, v), 0);
+  const placed = packets.reduce((acc, p) => acc + p.slots.length, 0);
+  const baseline = inOrderBaselineCycles(code, graph);
+
+  return {
+    packets,
+    order,
+    issueAt,
+    readyAt,
+    metrics: {
+      instructionCount: n,
+      packetCount: packets.length,
+      cycles,
+      nopCycles,
+      cpi: cycles > 0 ? cycles / n : 0,
+      ilp: packets.length > 0 ? placed / packets.length : 0,
+      utilization: packets.length > 0 ? placed / (packets.length * 24) : 0,
+      gain: baseline > 0 ? (baseline - cycles) / baseline : 0,
+      inOrderCycles: baseline,
+    },
+  };
+}
+
 function emptyResult(): ReorderResult {
   return {
     packets: [],
@@ -378,6 +563,7 @@ function emptyResult(): ReorderResult {
 export function scheduleGraphWithReorder(
   code: readonly RegInstruction[],
   graph: RegGraph,
+  memoryLevel: ReorderOptions["memoryLevel"] = "l1",
 ): ReorderResult {
   const n = code.length;
   if (n === 0) return emptyResult();
@@ -387,7 +573,7 @@ export function scheduleGraphWithReorder(
   const channels = new Array<ChannelId[]>(n);
   for (let i = 0; i < n; i++) {
     cls[i] = regOpClass(code[i]!);
-    lat[i] = latencyOf(cls[i]!);
+    lat[i] = latencyForClass(cls[i]!, memoryLevel);
     const ch = channelsFor(regOpToStackName(code[i]!));
     if (ch.length === 0) {
       throw new ReorderError(`нет исполнительного устройства для «${code[i]!.op}» (#${i})`);
