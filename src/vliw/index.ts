@@ -92,3 +92,11 @@ export {
   type MemoryLevel,
   type PipelineCounters,
 } from "./pipelineCounters";
+
+export {
+  runReorderEquivalence,
+  applyReorderToModule,
+  type ReorderEquivalenceReport,
+  type ReorderEquivalenceOptions,
+  type EquivalenceStep,
+} from "./reorderEquivalence";
