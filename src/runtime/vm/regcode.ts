@@ -308,6 +308,32 @@ export interface RegModule {
   code: RegCodeElement[];
   /** Максимум слотов в пакете (если код упакован). */
   vliwSlots?: number;
+  /**
+   * Разметка границ атомов (Фаза 4, шаг 1): какой участок кода какому атому принадлежит.
+   *
+   * Флаги `optimizable` живут в каталоге атомов (`src/compiler/atomRegions.ts`), а здесь
+   * лежит их **разрешение на конкретный код**: без этого планировщику не с чем сопоставить
+   * флаг — он планирует программу как единый код.
+   *
+   * Поле **необязательное и аддитивное**: компилятор по умолчанию его не пишет, читатель,
+   * не знающий поля, его игнорирует. Поэтому `REGCODE_VERSION` не поднимается и
+   * закоммиченные артефакты не меняются (`npm run artifacts:check`).
+   */
+  atoms?: RegAtomRegion[];
+}
+
+/** Участок кода, отнесённый к атому. Границы — абсолютные индексы `code`, `[start, end)`. */
+export interface RegAtomRegion {
+  /** Идентификатор атома из каталога 27 атомов (`A1`…`E4`). */
+  atom: string;
+  /** Признак вычислительного ядра — разрешение флага из каталога, а не из вызывающего кода. */
+  optimizable: boolean;
+  /** Индекс процедуры в {@link RegModule.procedures}. */
+  procedure: number;
+  /** Первый элемент участка (включительно). */
+  start: number;
+  /** Индекс за последним элементом участка (исключительно). */
+  end: number;
 }
 
 /** Зеркало `isOsVbcModule()` из `bytecode.ts` — валидатор формы регистрового артефакта. */
@@ -320,7 +346,9 @@ export function isRegModule(m: unknown): m is RegModule {
     typeof o.moduleName === "string" &&
     Array.isArray(o.constants) &&
     Array.isArray(o.procedures) &&
-    Array.isArray(o.code)
+    Array.isArray(o.code) &&
+    // Разметка атомов необязательна; если она есть — это массив.
+    (o.atoms === undefined || Array.isArray(o.atoms))
   );
 }
 
