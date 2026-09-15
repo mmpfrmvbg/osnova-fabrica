@@ -29,75 +29,20 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  CE_NO_E2K,
+  findE2kCompilers,
+  probeAssemblers,
+  probeCompilerExplorer,
+  requiredStatement,
+  type CeCompiler,
+  type CeProbe,
+} from './compilerExplorer';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const DOC = path.join(ROOT, 'docs', 'e2k-external-validation.md');
 
-/** Записанный факт: компилятора e2k на Compiler Explorer нет. */
-export const CE_NO_E2K = 'НЕТ КОМПИЛЯТОРА e2k НА COMPILER EXPLORER';
-
-/** Одна запись из `/api/compilers`. */
-export interface CeCompiler {
-  readonly id: string;
-  readonly name: string;
-  readonly lang?: string;
-  readonly compilerType?: string;
-  readonly instructionSet?: string;
-}
-
-/**
- * Поиск компиляторов e2k по всем формам, которыми предмет может быть назван
- * (метаправило проекта). Чистая функция — её же проверяет негативный контроль.
- *
- * Ловушка, ради которой функция вынесена: подстрока `isp` встречается в `ispc`
- * (Intel SPMD, архитектура `amd64`) — широкий шаблон дал бы ложное совпадение.
- */
-export function findE2kCompilers(compilers: readonly CeCompiler[]): CeCompiler[] {
-  const pattern = /(^|[^a-z0-9])(e2k|elbrus|mcst|vliw)([^a-z0-9]|$)/i;
-  return compilers.filter((compiler) => {
-    const haystack = [compiler.id, compiler.name, compiler.compilerType ?? '', compiler.instructionSet ?? ''].join(' ');
-    return pattern.test(haystack);
-  });
-}
-
-/** Результат опроса сервиса. */
-export type CeProbe =
-  | { readonly status: 'reachable'; readonly total: number; readonly found: readonly CeCompiler[] }
-  | { readonly status: 'unreachable'; readonly reason: string };
-
-/** Опрос Compiler Explorer: полный список компиляторов. */
-export async function probeCompilerExplorer(timeoutMs = 30_000): Promise<CeProbe> {
-  try {
-    const root = await fetch('https://godbolt.org', {
-      method: 'HEAD',
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (root.status !== 200) return { status: 'unreachable', reason: `godbolt.org ответил ${root.status}` };
-    const response = await fetch('https://godbolt.org/api/compilers', {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (response.status !== 200) {
-      return { status: 'unreachable', reason: `/api/compilers ответил ${response.status}` };
-    }
-    const compilers = (await response.json()) as CeCompiler[];
-    if (!Array.isArray(compilers) || compilers.length === 0) {
-      return { status: 'unreachable', reason: 'список компиляторов пуст — по нему нельзя судить' };
-    }
-    return { status: 'reachable', total: compilers.length, found: findE2kCompilers(compilers) };
-  } catch (error) {
-    return {
-      status: 'unreachable',
-      reason: `нет доступа: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-}
-
-/** Решение по записанному факту: что документ обязан утверждать при данном результате. */
-export function requiredStatement(probe: CeProbe): string {
-  if (probe.status === 'unreachable') return '';
-  return probe.found.length > 0 ? probe.found[0]!.id : CE_NO_E2K;
-}
+export { CE_NO_E2K, findE2kCompilers, requiredStatement };
 
 describe('Compiler Explorer: есть ли компилятор e2k', () => {
   const doc = fs.existsSync(DOC) ? fs.readFileSync(DOC, 'utf-8') : '';
@@ -135,6 +80,22 @@ describe('Compiler Explorer: есть ли компилятор e2k', () => {
     // названа, иначе следующий исполнитель наступит на неё снова.
     expect(doc).toContain('/api/compilers/e2k');
     expect(doc).toMatch(/200[^\n]*пуст|пустой массив/);
+  });
+
+  it('отдельный список ассемблеров тоже без e2k', async () => {
+    // Вторая форма поиска: если компилятора e2k нет, ассемблер e2k всё равно дал бы внешнюю
+    // проверку — он собирал бы инструкцию в байты.
+    const assemblers = await probeAssemblers();
+    if (assemblers.status === 'unreachable') {
+      expect(assemblers.reason.length).toBeGreaterThan(5);
+      return;
+    }
+    expect(assemblers.total).toBeGreaterThan(10);
+    if (assemblers.found.length === 0) {
+      expect(doc, 'ассемблеров e2k нет, а документ это не фиксирует').toMatch(/ассемблер/i);
+    } else {
+      for (const assembler of assemblers.found) expect(doc).toContain(assembler.id);
+    }
   });
 
   it('негативный контроль: поиск ловит e2k и не ловится на подстроке isp', () => {
