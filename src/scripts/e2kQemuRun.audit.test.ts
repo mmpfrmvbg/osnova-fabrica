@@ -21,9 +21,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SHELL_IMAGE_FORMAT } from '../e2k/emitterOracle';
+import { toWslPath } from './e2kExternalObjdump';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const DOC = path.join(ROOT, 'docs', 'e2k-qemu-run.md');
@@ -36,16 +38,33 @@ const WSL = 'C:\\Program Files\\WSL\\wsl.exe';
 const WSL_QEMU = '/root/qemu-build/qemu-e2k';
 const WSL_QEMU_X86 = '/root/qemu-build-x86/qemu-x86_64';
 const WSL_CONTROL = '/root/control';
+/**
+ * Компилятор C в дистрибутиве. Путь **абсолютный**: без оболочки PATH у `wsl.exe` урезан, и
+ * `cc` по имени не находится — тогда зонд молча не запустился бы, а проверка стала бы пустой.
+ */
+const WSL_CC = '/usr/bin/cc';
 
-/** Запустить команду, вернуть вывод или `undefined` (вывод wsl.exe приходит в UTF-16LE). */
-function run(command: string, args: readonly string[]): string | undefined {
-  try {
-    const buffer = execFileSync(command, [...args], { timeout: 120_000, stdio: ['ignore', 'pipe', 'ignore'] });
-    const text = buffer.toString('utf-8');
-    return buffer.length >= 2 && buffer[1] === 0 && buffer[0] !== 0 ? buffer.toString('utf16le') : text;
-  } catch {
-    return undefined;
-  }
+/** Итог запуска: код возврата и объединённый вывод. */
+export interface RunResult {
+  readonly status: number | null;
+  readonly text: string;
+}
+
+/**
+ * Запустить команду и вернуть **и stdout, и stderr**; `undefined` — команда не запустилась.
+ *
+ * `spawnSync`, а не `execFileSync`, по измеренной причине: `qemu-e2k` пишет причину отказа
+ * загрузки в **stderr** и при этом завершается кодом 0, поэтому перехват одного stdout давал
+ * пустую строку вместо причины. Вывод `wsl.exe` приходит в UTF-16LE.
+ */
+export function run(command: string, args: readonly string[]): RunResult | undefined {
+  const result = spawnSync(command, [...args], { timeout: 120_000, encoding: 'buffer' });
+  if (result.error !== undefined || result.status === null) return undefined;
+  const decode = (buffer: Buffer | undefined): string => {
+    if (buffer === undefined || buffer.length === 0) return '';
+    return buffer.length >= 2 && buffer[1] === 0 && buffer[0] !== 0 ? buffer.toString('utf16le') : buffer.toString('utf-8');
+  };
+  return { status: result.status, text: `${decode(result.stdout)}${decode(result.stderr)}` };
 }
 
 /** Живая проверка: что происходит с прогоном прямо сейчас. */
@@ -63,16 +82,83 @@ export function probeLiveRun(): LiveRunProbe {
   const windowsBinary = fs.existsSync(BINARY);
   const version = run(WSL, ['-d', 'e2k', '--', WSL_QEMU, '--version']);
   const binaryExists = windowsBinary || version !== undefined;
-  const elf = path.join(ROOT, '.tmp', 'e2k-samples.elf');
-  const guestBaseOutput = run(WSL, ['-d', 'e2k', '--', WSL_QEMU, elf.replace(/^([A-Za-z]):\\/, '/mnt/$1/').replace(/\\/g, '/')]);
-  const guestBaseError = /Unable to find a guest_base/.test(guestBaseOutput ?? '') ? 'Unable to find a guest_base' : undefined;
+  const elf = toWslPath(path.join(ROOT, '.tmp', 'e2k-samples.elf'));
+  const guestBaseOutput = run(WSL, ['-d', 'e2k', '--', WSL_QEMU, elf]);
+  const guestBaseError = /Unable to find a guest_base/.test(guestBaseOutput?.text ?? '') ? 'Unable to find a guest_base' : undefined;
   const control = run(WSL, ['-d', 'e2k', '--', WSL_QEMU_X86, WSL_CONTROL]);
   return {
     binaryExists,
-    ...(version === undefined ? {} : { version: version.split('\n')[0]!.trim() }),
+    ...(version === undefined ? {} : { version: version.text.split('\n')[0]!.trim() }),
     guestBaseWorks: binaryExists && guestBaseError === undefined && guestBaseOutput !== undefined,
     ...(guestBaseError === undefined ? {} : { guestBaseError }),
-    userModeWorks: control !== undefined,
+    userModeWorks: control !== undefined && control.status === 0,
+    ...(control === undefined ? {} : { controlExit: control.status ?? undefined }),
+  };
+}
+
+/**
+ * Исходник зонда уровня системных вызовов.
+ *
+ * Проверяются ровно те возможности, на которых стоит `probe_guest_base`
+ * (`linux-user/elfload.c:786-850`): `MAP_FIXED_NOREPLACE` (им QEMU проверяет, свободен ли
+ * диапазон) и `MAP_FIXED` (для сравнения). Вывод — только ASCII, чтобы не зависеть от кодировки.
+ */
+export const MMAP_PROBE_SOURCE = `#define _GNU_SOURCE
+#include <stdio.h>
+#include <errno.h>
+#include <sys/mman.h>
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+int main(void) {
+  size_t size = 1UL << 30;
+  void *addr = (void *)0x400000000UL;
+  int flags = MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE;
+  errno = 0;
+  void *a = mmap(addr, size, PROT_NONE, flags | MAP_FIXED_NOREPLACE, -1, 0);
+  printf("NOREPLACE errno=%d\\n", a == MAP_FAILED ? errno : 0);
+  if (a != MAP_FAILED) munmap(a, size);
+  errno = 0;
+  void *b = mmap(addr, size, PROT_NONE, flags | MAP_FIXED, -1, 0);
+  printf("FIXED %s\\n", b == MAP_FAILED ? "fail" : "ok");
+  if (b != MAP_FAILED) munmap(b, size);
+  return 0;
+}
+`;
+
+/** Что ответил зонд про `MAP_FIXED_NOREPLACE` в этом окружении. */
+export interface SyscallProbe {
+  /** Есть ли в дистрибутиве компилятор C (иначе зонд не запускается). */
+  readonly toolExists: boolean;
+  /** `errno`, с которым отказал `mmap` с `MAP_FIXED_NOREPLACE` (0 — не отказал). */
+  readonly noReplaceErrno?: number;
+  /** Выдал ли адрес `mmap` с обычным `MAP_FIXED`. */
+  readonly fixedWorks: boolean;
+}
+
+/**
+ * Собрать и запустить зонд в WSL-дистрибутиве `e2k`.
+ *
+ * Именно этот замер отделяет «WSL1 — не ядро и не знает флага Linux 4.17» от догадки
+ * «e2k требует слишком много адресного пространства».
+ */
+export function probeSyscallCause(): SyscallProbe {
+  const source = path.join(ROOT, '.tmp', 'e2k-mmap-probe.c');
+  if (run(WSL, ['-d', 'e2k', '--', WSL_CC, '--version']) === undefined) return { toolExists: false, fixedWorks: false };
+  fs.mkdirSync(path.dirname(source), { recursive: true });
+  fs.writeFileSync(source, MMAP_PROBE_SOURCE, 'utf-8');
+  const wslSource = toWslPath(source);
+  const wslBinary = wslSource.replace(/\.c$/, '');
+  if (run(WSL, ['-d', 'e2k', '--', WSL_CC, '-O0', '-o', wslBinary, wslSource]) === undefined) {
+    return { toolExists: false, fixedWorks: false };
+  }
+  const output = run(WSL, ['-d', 'e2k', '--', wslBinary]);
+  if (output === undefined) return { toolExists: true, fixedWorks: false };
+  const noReplace = /NOREPLACE errno=(\d+)/.exec(output.text);
+  return {
+    toolExists: true,
+    ...(noReplace === null ? {} : { noReplaceErrno: Number.parseInt(noReplace[1]!, 10) }),
+    fixedWorks: /FIXED ok/.test(output.text),
   };
 }
 
@@ -169,6 +255,23 @@ describe('QEMU-прогон: причина записана и подтверж
     expect(doc).toContain('446');
     expect(doc).toContain('EM_E2K');
     expect(doc).toContain('EM_MCST_ELBRUS');
+  });
+
+  it('причина уровня syscall подтверждена замером: MAP_FIXED_NOREPLACE в WSL1 не поддерживается', () => {
+    const probe = probeSyscallCause();
+    // Пропуск обязан быть громким: если инструменты в дистрибутиве есть (а это видно по
+    // собранному qemu-e2k), то и компилятор обязан найтись — иначе проверка снова станет пустой.
+    if (live().binaryExists) expect(probe.toolExists, 'в дистрибутиве не найден компилятор C').toBe(true);
+    if (!probe.toolExists) return;
+    // Живой замер: ровно тот флаг, которым linux-user проверяет свободен ли диапазон
+    // (linux-user/elfload.c:792), отказывает с ENOTSUP. Флаг добавлен в Linux 4.17.
+    expect(probe.noReplaceErrno, 'MAP_FIXED_NOREPLACE неожиданно сработал').toBe(95);
+    expect(probe.fixedWorks, 'обычный MAP_FIXED тоже не работает — причина была бы другой').toBe(true);
+    // Документ обязан называть и флаг, и источник, и следствие для выбора окружения.
+    expect(doc).toContain('MAP_FIXED_NOREPLACE');
+    expect(doc).toMatch(/errno=95|ENOTSUP/);
+    expect(doc, 'не назван источник флага').toMatch(/elfload\.c:79[0-9]/);
+    expect(doc, 'не сказано, чего зонд не доказывает').toMatch(/НЕ доказывает/);
   });
 
   it('негативный контроль: развилка ловит и «прогон объявлен без гостя», и «бирарь без прогона»', () => {
