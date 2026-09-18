@@ -298,3 +298,85 @@ describe('двусторонняя проверка: живой прогон а�
     expect(withoutCpu).not.toContain('-mcpu=');
   });
 });
+
+describe('внешняя сверка: форма 0xdc (64-битный литерал)', () => {
+  const encoder = getEncoder('e2k');
+  const { tool } = findExternalAs();
+
+  /** Значения подобраны по границам формы: ноль, 32-битное, 64-битное, старший бит, максимум. */
+  const VALUES: readonly bigint[] = [
+    0x100000n,
+    0xdeadbeefcafebaben,
+    0x0n,
+    0xffffffffn,
+    1n << 63n,
+    (1n << 64n) - 1n,
+  ];
+
+  const samples: readonly AsSample[] = VALUES.map((value, index) => ({
+    key: `xdc-${index}`,
+    mnemonic: 'movtd',
+    channel: 0,
+    form: 'ALF2 + LTS64',
+    // Ассемблерная форма МЦСТ: спецификатор `_f64` выбирает 64-битный литерал
+    // (gas/config/tc-e2k.c:1819), приёмник — оконный регистр.
+    asText: `movtd,0 _f64 0x${value.toString(16)}, %r8`,
+    instruction: {
+      mnemonic: 'movtd',
+      channel: 0,
+      operands: [
+        { kind: 'imm64', value } as unknown as Operand,
+        { kind: 'reg', index: 8, file: 'window' },
+      ],
+    },
+    source: 'docs/e2k-address-loading.md; opcodes/e2k-dis.c:485; gas/config/tc-e2k.c:1819',
+  }));
+
+  it('состав: 5–10 образцов, у каждого назван источник', () => {
+    expect(samples.length).toBeGreaterThanOrEqual(5);
+    expect(samples.length).toBeLessThanOrEqual(10);
+    for (const sample of samples) {
+      expect(sample.source.length, `${sample.key}: источник не назван`).toBeGreaterThan(20);
+      expect(sample.asText, `${sample.key}: нет спецификатора _f64`).toContain('_f64 0x');
+    }
+  });
+
+  it('образцы совпали с ассемблером МЦСТ побайтово', () => {
+    if (tool === undefined) return; // причина ненайденности названа в отдельном оракуле этого файла
+    const results = assembleAll(samples as AsSample[]);
+    const problems: string[] = [];
+    samples.forEach((sample, index) => {
+      const result = results[index]!;
+      if (!result.ok) {
+        problems.push(`${sample.key} (${sample.asText}): ассемблер отверг — ${result.error}`);
+        return;
+      }
+      const ours = encoder.encode(sample.instruction);
+      if (toHex(ours) !== toHex(result.bytes)) {
+        problems.push(`${sample.key} (${sample.asText}): у нас ${toHex(ours)}, у as ${toHex(result.bytes)}`);
+      }
+      expect(result.bytes.length, `${sample.key}: длина`).toBe(16);
+      // Круг нашего кодировщика: значение обязано вернуться тем же bigint.
+      const back = encoder.decode(ours);
+      expect(back.operands[0], `${sample.key}: круг`).toEqual({ kind: 'imm64', value: VALUES[index]! });
+    });
+    expect(problems, `образцов ${samples.length}`).toEqual([]);
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: перестановка слов литерала расходится с ассемблером', () => {
+    if (tool === undefined) return;
+    const index = 1; // 0xdeadbeefcafebabe
+    const result = assembleAll([samples[index]!] as AsSample[])[0]!;
+    if (!result.ok) return;
+    const swapped = Uint8Array.from(encoder.encode(samples[index]!.instruction));
+    for (let at = 0; at < 4; at++) {
+      const high = swapped[8 + at]!;
+      swapped[8 + at] = swapped[12 + at]!;
+      swapped[12 + at] = high;
+    }
+    // Байты ассемблера против ПЕРЕСТАВЛЕННЫХ: расхождение обязано быть найдено.
+    const diff = firstDifference(swapped, result.bytes);
+    expect(diff, 'перестановка слов не замечена').toBeDefined();
+    expect(diff!.index, 'расхождение не в области литерала').toBeGreaterThanOrEqual(8);
+  });
+});
