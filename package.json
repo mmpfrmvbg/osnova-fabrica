@@ -32,6 +32,7 @@
     "gate:reorder:stderr": "tsx src/scripts/reorder-gate.ts 2>&1",
     "gate:pack": "tsx src/scripts/pack-gate.ts",
     "gate:pack:negative": "tsx src/scripts/pack-gate-negative.ts",
+    "gate:qemu": "vitest run --config vitest.qemu.config.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",

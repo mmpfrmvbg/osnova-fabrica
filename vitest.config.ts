@@ -15,7 +15,12 @@ export default defineConfig({
     retry: 0,
     globals: true,
     failOnZeroTests: true,
-    testTimeout: 30000,
+    // Таймаут 30 с был тесен: замер 2026-09-19 при полном прогоне (singleFork, файлы по
+    // очереди, часть оракулов ходит в WSL за `as`/`objdump`) дал `src/e2k/twoPassLayout.test.ts`
+    // 31 с и `src/vliw/scheduler.test.ts` 47 с — файлы падали **по времени**, а не по проверке,
+    // то есть занятость машины снова примешивалась к выводу о коде (случай 12 реестра
+    // проверяемости). Таймаут поднят: он не скрывает дефекты, он отделяет их от нехватки времени.
+    testTimeout: 120000,
     sequence: {
       shuffle: false,
     },
@@ -38,7 +43,15 @@ export default defineConfig({
       '**/vitest.config.ts',
       '**/vitest.config.test.ts',
       '**/vitest.e2e.config.ts',
+      '**/vitest.qemu.config.ts',
       '**/*.d.ts',
+      // Оракулы, которым нужен ЖИВОЙ QEMU-e2k: они зависят не только от кода, но и от
+      // внешнего ресурса (`qemu-e2k` в WSL) и от занятости машины. Замер 2026-09-19:
+      // `e2kQemuExec.test.ts` в полном прогоне занял 62 с и упал, а отдельно прошёл
+      // 5 из 5 за 12 с — то есть гейт врал о состоянии проекта. Вынесены в отдельный
+      // шлюз `npm run gate:qemu` (docs/verification-debt.md, случай 12).
+      '**/e2kQemuExec.test.ts',
+      '**/e2kQemuRun.audit.test.ts',
     ],
   },
 });
