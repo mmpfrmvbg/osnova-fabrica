@@ -257,23 +257,24 @@ describe('двухпроходная раскладка: 1.3 второй про
   });
 
   it('вперёд и назад считаются одним правилом', () => {
+    // Размеры: add 8, jmp 16 (пара), mul 16, move 8, move 8, jmp 16.
     const stream: readonly AsmInstruction[] = [
       carrier('IR.add', [reg(1), reg(2), reg(3)]), // 0
-      carrier('IR.jmp', [imm(4)]), // 8 → цель 32, смещение +3
-      carrier('IR.mul', [reg(1), reg(2), reg(3)]), // 16
-      carrier('IR.move', [reg(1), reg(2)]), // 32
+      carrier('IR.jmp', [imm(4)]), // 8 → цель 48, смещение +5
+      carrier('IR.mul', [reg(1), reg(2), reg(3)]), // 24
       carrier('IR.move', [reg(1), reg(2)]), // 40
-      carrier('IR.jmp', [imm(0)]), // 48 → цель 0, смещение −6
+      carrier('IR.move', [reg(1), reg(2)]), // 48
+      carrier('IR.jmp', [imm(0)]), // 56 → цель 0, смещение −7
     ];
     const resolved = secondPass(stream, firstPass(stream));
     expect(resolved.refusals).toEqual([]);
     expect(resolved.displacements.map((item) => [item.index, item.targetIndex, item.disp])).toEqual([
-      [1, 4, 3],
-      [5, 0, -6],
+      [1, 4, 5],
+      [5, 0, -7],
     ]);
     for (const item of resolved.displacements) {
       expect(item.commandAddress + item.disp * DISP_UNITS, `#${item.index}`).toBe(item.targetAddress);
-      expect(item.disp % 1, `#${item.index}: смещение не целое`).toBe(0);
+      expect(Number.isInteger(item.disp), `#${item.index}: смещение не целое`).toBe(true);
     }
   });
 

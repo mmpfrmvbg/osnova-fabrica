@@ -513,10 +513,37 @@ function ssWord(ctpr: number, ctcond: number): number {
   return (0xc0000000 | ((ctpr & 0x3) << 10) | (ctcond & 0x1ff)) >>> 0;
 }
 
-/** Слог CS0 формата C0F2 (`disp`): `ctpr[31:30]`, `ctp_opc=0`, `disp[27:0]`. */
+/**
+ * Границы поля `disp`: 28 бит со знаком (`syllab-format.h:100` — `C0F2.disp[27:0]`;
+ * `translate-ctp.c:74` читает его `FIELD_SEX32`, то есть знаковым). Границы — из разрядности поля,
+ * а не из удобства: −2²⁷ … 2²⁷−1 в восьмибайтовых единицах.
+ */
+export const DISP_BITS = 28;
+export const DISP_MIN = -(2 ** (DISP_BITS - 1));
+export const DISP_MAX = 2 ** (DISP_BITS - 1) - 1;
+
+/**
+ * Слог CS0 формата C0F2 (`disp`): `ctpr[31:30]`, `ctp_opc=0`, `disp[27:0]`.
+ *
+ * Смещение **знаковое**: отрицательное значение (переход назад) пишется в поле как
+ * дополнительный код — измерено ассемблером (`disp %ctpr1, .L1` при цели на слово позади команды →
+ * `ff ff ff 4f`). Значение вне поля — отказ, а не молчаливое усечение.
+ */
 function cs0DispWord(ctpr: number, disp: number): number {
   if (ctpr < 1 || ctpr > 3) throw new EncodingError(`ctpr вне 1..3: ${ctpr}`);
+  if (!Number.isInteger(disp) || disp < DISP_MIN || disp > DISP_MAX) {
+    throw new EncodingError(
+      `disp = ${disp} не влезает в ${DISP_BITS}-битное знаковое поле C0F2.disp[27:0] ` +
+        `(${DISP_MIN}..${DISP_MAX}): qemu/target/e2k/syllab-format.h:100, binutils-gdb/gas/config/tc-e2k.c:1191`,
+    );
+  }
   return (((ctpr & 0x3) << 30) | (disp & 0x0fffffff)) >>> 0;
+}
+
+/** Значение поля `disp` из слога CS0 — **знаковое** 28-битное (`FIELD_SEX32`, `translate-ctp.c:74`). */
+function dispOf(cs0: number): number {
+  const raw = cs0 & 0x0fffffff;
+  return raw >= 2 ** (DISP_BITS - 1) ? raw - 2 ** DISP_BITS : raw;
 }
 
 /** Слог CS0 формата C0F1 (`return`): `ctpr=3`, `ctp_opc=3`. */
@@ -1007,13 +1034,13 @@ function decodeControl(bytes: Uint8Array, hs: number): AsmInstruction {
       return { mnemonic: "return", channel: 0, operands: [{ kind: "imm", value: ctpr }] };
     }
     if (ctpOpc === 0) {
-      // DISP (C0F2): disp[27:0]
+      // DISP (C0F2): disp[27:0] — знаковое поле (FIELD_SEX32, translate-ctp.c:74)
       return {
         mnemonic: "disp",
         channel: 0,
         operands: [
           { kind: "imm", value: ctpr },
-          { kind: "imm", value: cs0 & 0x0fffffff },
+          { kind: "imm", value: dispOf(cs0) },
         ],
       };
     }
