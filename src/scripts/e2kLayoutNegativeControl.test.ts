@@ -49,8 +49,10 @@ describe('протокол негативного контроля: годен �
     expect(verdictOf(good())).toEqual([]);
   });
 
-  it('таблица дефектов описывает четыре случая с названными оракулами', () => {
-    expect(DEFECTS.map((defect) => defect.id)).toEqual(['4.1', '4.2', '4.3', '4.4']);
+  it('таблица дефектов описывает восемь случаев с названными оракулами', () => {
+    // Четыре дефекта раскладки (шаг 2) и четыре — сопоставления пар (шаг 3). Рост таблицы
+    // обязан быть виден здесь: иначе новый дефект мог бы не проверяться вовсе.
+    expect(DEFECTS.map((defect) => defect.id)).toEqual(['4.1', '4.2', '4.3', '4.4', '5.1', '5.2', '5.3', '5.4']);
     for (const defect of DEFECTS) {
       expect(defect.tests.length, `${defect.id}: не названы оракулы`).toBeGreaterThan(0);
       expect(defect.from, `${defect.id}: пустая замена`).not.toBe(defect.to);
