@@ -130,16 +130,23 @@ export const ALES_WORD_SOURCE =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Формы, которые эта реализация кодирует. */
-export type RealForm = "ALF1" | "ALF2" | "ALF11";
-
-/** Слот операнда в слоге. Порядок в `operands` — порядок операндов интерфейса (результат последним). */
-export type RealSlot = "src1" | "src2" | "dst";
+export type RealForm = "ALF1" | "ALF2" | "ALF11" | "ALF7";
 
 /**
- * Формат регистра: `S` — одиночный (`%b[N]`), `D` — двойной (`%db[N]`).
- * В таблице МЦСТ этому соответствуют `SINGLE`/`DOUBLE` в `ARGS_*` (`include/opcode/e2k.h:109-169`).
+ * Слот операнда в слоге. Порядок в `operands` — порядок операндов интерфейса (результат последним).
+ *
+ * `pdst` — **предикат**-приёмник сравнения (поле `pdst[4:0]` формы ALF7), а не регистр: в
+ * `ARGS_*` записи таблицы его нет, он принадлежит форме.
  */
-export type RealRegFormat = "S" | "D";
+export type RealSlot = "src1" | "src2" | "dst" | "pdst";
+
+/**
+ * Формат аргумента: `S` — одиночный регистр (`%b[N]`), `D` — двойной (`%db[N]`),
+ * `P` — **предикат** (`%predN`, поле `pdst`).
+ * В таблице МЦСТ первым двум соответствуют `SINGLE`/`DOUBLE` в `ARGS_*`
+ * (`include/opcode/e2k.h:109-169`); `P` в `ARGS_*` отсутствует — предикат-приёмник задан формой.
+ */
+export type RealRegFormat = "S" | "D" | "P";
 
 /** Запись таблицы: операция e2k, её код и форма. */
 export interface RealOpcodeEntry {
@@ -161,6 +168,21 @@ export interface RealOpcodeEntry {
   readonly argFormats: readonly RealRegFormat[];
   /** Источник форматов аргументов (`ARGS_*`). */
   readonly argsSource: string;
+  /**
+   * Код условия сравнения (`cmpopce[7:5]`) — только у формы ALF7.
+   * Значения — из таблицы МЦСТ (`opcodes/e2k-opc.h:989-1064`): 6 «меньше», 7 «меньше или равно»,
+   * 2 «равно» и так далее по набору `o,b,e,be,s,p,l,le`.
+   */
+  readonly cmpOpce?: number;
+  /**
+   * Обязательное поле `nop` заголовочного слога — только у формы ALF7.
+   *
+   * Не наша выдумка: `gas/config/tc-e2k.c:5923` берёт это число из шаблона записи
+   * (`((e2k_alf7_opcode_templ *) alf)->implicit_nops`), а в таблице у каждой записи `cmp*` стоит
+   * `2`; дизассемблер МЦСТ печатает поле открытым текстом (`nop 2`). Измерено: байты HS у
+   * сравнения — `01 01 00 04`, у `adds` — `01 00 00 04`.
+   */
+  readonly implicitNops?: number;
   /** Источник: файл:строка таблицы опкодов. */
   readonly source: string;
   /** Источник раскладки полей формы. */
@@ -170,6 +192,9 @@ export interface RealOpcodeEntry {
 const ALF1_SOURCE = "qemu/target/e2k/syllab-format.h:39-41 (ALF1: dst[7:0], src2[15:8], src1[23:16])";
 const ALF2_SOURCE = "qemu/target/e2k/syllab-format.h:43-45 (ALF2: dst[7:0], src2[15:8], opce[23:16])";
 const ALF11_SOURCE = "qemu/target/e2k/syllab-format.h:85-91 (ALEF: opc2[15:8], opce[7:0])";
+const ALF7_SOURCE =
+  "qemu/target/e2k/syllab-format.h:59-63 (ALF7: src1[23:16], src2[15:8], cmpopce[7:5], pdst[4:0]); " +
+  "opcodes/e2k-dis.c:846-1010 (ALOPF7 различается по битам 7:5 слова ALF)";
 
 /** Все каналы: `{1, 1, 1, 1, 1, 1}` в таблице МЦСТ. */
 const ALL_CHANNELS: readonly number[] = [0, 1, 2, 3, 4, 5];
@@ -213,6 +238,12 @@ export const REAL_OPCODES: readonly RealOpcodeEntry[] = [
   { mnemonic: "smulx", opc: 0x23, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "D"], argsSource: "opcodes/e2k-opc.h:1449 (ARGS_SSD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1449", formSource: ALF11_SOURCE },
   { mnemonic: "umulhd", opc: 0x70, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:3169 (ARGS_DDD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:3169", formSource: ALF11_SOURCE },
   { mnemonic: "smulhd", opc: 0x71, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:3174 (ARGS_DDD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:3174", formSource: ALF11_SOURCE },
+  // ALOPF7 — слог ALS, приёмник — ПРЕДИКАТ (`pdst`), условие — `cmpopce`.
+  // В наборе условий таблицы (`o,b,e,be,s,p,l,le`) условий «больше»/«больше или равно» НЕТ;
+  // они выражаются отрицанием предиката в `ct` (`? ~%predN`, `gas/config/tc-e2k.c:4588-4594`).
+  { mnemonic: "cmplsb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1019 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x6, implicitNops: 2, source: "opcodes/e2k-opc.h:1019", formSource: ALF7_SOURCE },
+  { mnemonic: "cmplesb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1024 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x7, implicitNops: 2, source: "opcodes/e2k-opc.h:1024", formSource: ALF7_SOURCE },
+  { mnemonic: "cmpesb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:999 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x2, implicitNops: 2, source: "opcodes/e2k-opc.h:999", formSource: ALF7_SOURCE },
 ];
 
 /** Таблица по мнемонике. */
@@ -229,7 +260,7 @@ export function realOpcode(mnemonic: string): RealOpcodeEntry | undefined {
 export function realRefusalReason(mnemonic: string): string {
   return (
     `НЕТ В ИСТОЧНИКЕ: мнемоники «${mnemonic}» нет в таблице опкодов МЦСТ ` +
-    "(opcodes/e2k-opc.h) и нет в реализованных формах (ALF1, ALF2, ALES/ALOPF11); " +
+    "(opcodes/e2k-opc.h) и нет в реализованных формах (ALF1, ALF2, ALF7, ALES/ALOPF11); " +
     "см. docs/e2k-opcodes-real.md — там перечислено, что в источнике есть"
   );
 }
@@ -249,11 +280,14 @@ export const REAL_E2K_DESCRIPTION: EncoderDescription = {
     "(раскладка полей), gas/config/tc-e2k.c:8921-8934,9366,9392-9399 + qemu/target/e2k/instr-bits.h:41-45,127-148 " +
     "(заголовочный слог и длина); сырые данные — docs/e2k-sources-raw.md, извлечение — docs/e2k-opcodes-real.md",
   limitation:
-    "реализованы две формы: короткая (слог ALS, 8 байт) и длинная (слог ALS + полуслог ALES, 16 байт), " +
-    "по одной операции на команду; операции без слога ALS (AAS-адресация MOVAB…MOVAQ, управление ct/call/return, " +
+    "реализованы формы: короткая (слог ALS, 8 байт) — ALF1, ALF2 и ALF7 (сравнения с предикатом-приёмником `pdst`), " +
+    "и длинная (слог ALS + полуслог ALES, 16 байт) — ALF11; по одной операции на команду; " +
+    "операции без слога ALS (AAS-адресация MOVAB…MOVAQ, управление ct/call/return, " +
     "SS/CS/CDS/PLS/LTS-слоги) НЕ реализованы и отвергаются; поле instructionSize заявляет короткую форму — " +
     "длинная форма занимает 16 байт (REAL_LONG_FORM_SIZE), шлюз auditEncoder рассчитан на одну длину; " +
-    "байты не сверены с MCST-objdump или QEMU: в окружении нет компилятора C (docs/e2k-qemu-build.md §2)",
+    "у сравнений ALF7 поле `nop` заголовочного слога равно 2 (implicit_nops шаблона, gas/config/tc-e2k.c:5923), " +
+    "и это воспроизводится, а не игнорируется; байты не сверены с MCST-objdump или QEMU: " +
+    "в окружении нет компилятора C (docs/e2k-qemu-build.md §2)",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -306,8 +340,36 @@ function channelOf(entry: RealOpcodeEntry, channel: number): number {
   return channel;
 }
 
+/** Число предикатов: поле `pdst[4:0]` — пять бит (`qemu/target/e2k/syllab-format.h:61`). */
+export const PREDICATE_COUNT = 32;
+
+/**
+ * Поле предиката-приёмника.
+ *
+ * Предикат — **не** регистр: `%predN` лежит в отдельном файле, и подставить вместо него `%b[N]`
+ * (или наоборот) значило бы подменить поле. Поэтому вид операнда проверяется, а не приводится.
+ */
+function predicateField(operand: Operand | undefined, mnemonic: string): number {
+  if (operand === undefined || operand.kind !== "pred") {
+    throw new EncodingError(
+      `«${mnemonic}»: приёмник сравнения обязан быть предикатом (%predN), а не регистром — ` +
+        "pdst[4:0] и поле регистра это разные файлы (qemu/target/e2k/syllab-format.h:61)",
+    );
+  }
+  if (!Number.isInteger(operand.index) || operand.index < 0 || operand.index >= PREDICATE_COUNT) {
+    throw new EncodingError(
+      `«${mnemonic}»: предикат ${String(operand.index)} не выражается полем pdst (0..${PREDICATE_COUNT - 1}; ` +
+        "qemu/target/e2k/syllab-format.h:61)",
+    );
+  }
+  return operand.index;
+}
+
 /** Разложить операнды интерфейса по полям слога ALS. */
-function fieldsOf(entry: RealOpcodeEntry, operands: readonly Operand[]): { src1: number; src2: number; dst: number } {
+function fieldsOf(
+  entry: RealOpcodeEntry,
+  operands: readonly Operand[],
+): { src1: number; src2: number; dst: number; pdst: number } {
   if (operands.length !== entry.operands.length) {
     throw new EncodingError(
       `«${entry.mnemonic}»: операндов ${operands.length}, форма ${entry.form} несёт ${entry.operands.length} ` +
@@ -317,7 +379,12 @@ function fieldsOf(entry: RealOpcodeEntry, operands: readonly Operand[]): { src1:
   let src1 = 0;
   let src2 = 0;
   let dst = 0;
+  let pdst = 0;
   entry.operands.forEach((slot, index) => {
+    if (slot === "pdst") {
+      pdst = predicateField(operands[index], entry.mnemonic);
+      return;
+    }
     const value = registerField(operands[index], slot, entry.mnemonic);
     if (slot === "src1") src1 = value;
     else if (slot === "src2") src2 = value;
@@ -327,22 +394,51 @@ function fieldsOf(entry: RealOpcodeEntry, operands: readonly Operand[]): { src1:
     // У ALF2 на месте src1 лежит расширение opce: операнда src1 у операции нет.
     src1 = ALES_OPCE_NONE;
   }
-  return { src1, src2, dst };
+  return { src1, src2, dst, pdst };
 }
 
-/** Слово слога ALS (4 байта, little-endian) — раскладка ALF1/ALF2. */
-function alsWord(entry: RealOpcodeEntry, fields: { src1: number; src2: number; dst: number }): number {
+/**
+ * Слово слога ALS (4 байта, little-endian).
+ *
+ * Раскладка ALF1/ALF2: `opc[31:24] | src1[23:16] | src2[15:8] | dst[7:0]`.
+ * Раскладка ALF7 (сравнение): на месте младшего байта — `cmpopce[7:5] | pdst[4:0]`
+ * (`qemu/target/e2k/syllab-format.h:59-63`); измерено ассемблером: `cmplsb … %pred0` → `c0`,
+ * `cmplesb … %pred0` → `e0`, `cmpesb … %pred0` → `40`.
+ */
+function alsWord(
+  entry: RealOpcodeEntry,
+  fields: { src1: number; src2: number; dst: number; pdst: number },
+): number {
+  if (entry.form === "ALF7") {
+    if (entry.cmpOpce === undefined) {
+      throw new EncodingError(`«${entry.mnemonic}»: у формы ALF7 не назван код условия (cmpopce)`);
+    }
+    return (
+      ((entry.opc & 0x7f) << 24) |
+      ((fields.src1 & 0xff) << 16) |
+      ((fields.src2 & 0xff) << 8) |
+      ((entry.cmpOpce & 0x7) << 5) |
+      (fields.pdst & 0x1f)
+    );
+  }
   return (
     ((entry.opc & 0x7f) << 24) | ((fields.src1 & 0xff) << 16) | ((fields.src2 & 0xff) << 8) | (fields.dst & 0xff)
   );
 }
 
-/** Заголовочный слог (HS). */
+/**
+ * Заголовочный слог (HS).
+ *
+ * Поле `nop` (биты 9:7) берётся из записи формы: у сравнений ALF7 оно равно 2
+ * (`gas/config/tc-e2k.c:5923` — `implicit_nops` шаблона; измерено: HS сравнения `01 01 00 04`
+ * против `01 00 00 04` у `adds`).
+ */
 function headerWord(entry: RealOpcodeEntry, channel: number, long: boolean): number {
   const mdl = 1; // HS + ALS = два 4-байтовых слога до «средней точки» (gas/config/tc-e2k.c:9366)
   const words = long ? REAL_LONG_FORM_SIZE / 4 : REAL_SHORT_FORM_SIZE / 4;
   const lng = words / 2 - 1; // gas/config/tc-e2k.c:9577
   let hs = ((lng & HS.lng.mask) << HS.lng.shift) | ((mdl & HS.mdl.mask) << HS.mdl.shift);
+  hs |= ((entry.implicitNops ?? 0) & HS.nop.mask) << HS.nop.shift;
   hs |= (1 << channel) << HS.al.shift;
   if (long) hs |= (1 << channel) << HS.ale.shift;
   return hs >>> 0;
@@ -737,7 +833,7 @@ function encodeWithLiteral(
   const bytes = new Uint8Array(REAL_LONG_FORM_SIZE);
   // HS: mdl = 1, lng = 1 (16 байт), присутствует слог ALS.
   writeWord(bytes, 0, ((1 << 4) | 1 | ((1 << channel) << HS.al.shift)) >>> 0);
-  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, dst: values.dst! }));
+  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, dst: values.dst!, pdst: 0 }));
   // Слово 2 — пустое; слово 3 — литерал (LTS читаются с конца: qemu/target/e2k/instr-bits.h:211-221).
   if (fits16) writeHalf(bytes, 14, literal.value & 0xffff);
   else writeWord(bytes, 12, literal.value >>> 0);
@@ -791,9 +887,9 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
   }
   // Слоги управления разбираются отдельно: у них нет слога ALS, зато есть SS и/или CS0/CS1.
   if (fieldOf(hs, HS.ss) !== 0 || fieldOf(hs, HS.cs) !== 0) return decodeControl(bytes, hs);
-  // Поля, которых интерфейс не выражает, обязаны быть нулевыми.
+  // Поля, которых интерфейс не выражает, обязаны быть нулевыми. Поля `nop` здесь нет: у формы
+  // ALF7 оно равно 2 (implicit_nops, gas/config/tc-e2k.c:5923) и сверяется с записью ниже.
   for (const [name, field] of [
-    ["nop", HS.nop],
     ["lm", HS.lm],
     ["x (бит 11)", HS.x],
     ["sw", HS.sw],
@@ -853,6 +949,9 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
   const src1 = (als >>> 16) & 0xff;
   const src2 = (als >>> 8) & 0xff;
   const dst = als & 0xff;
+  // ALF7: младший байт слова ALF — это `cmpopce[7:5] | pdst[4:0]`, а не регистр-приёмник.
+  const cmpOpce = (als >>> 5) & 0x7;
+  const pdst = als & 0x1f;
 
   if (long) {
     const ales = readHalf(bytes, 10);
@@ -869,7 +968,11 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
 
   const candidates = REAL_OPCODES.filter(
     (candidate) =>
-      candidate.opc === opc && (candidate.form === "ALF11") === long && candidate.channels.includes(channel),
+      candidate.opc === opc &&
+      (candidate.form === "ALF11") === long &&
+      candidate.channels.includes(channel) &&
+      // У трёх сравнений код операции один (0x20), различает их код условия `cmpopce[7:5]`.
+      (candidate.form !== "ALF7" || candidate.cmpOpce === cmpOpce),
   );
   if (candidates.length === 0) {
     throw new EncodingRefusedError(
@@ -885,6 +988,17 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     );
   }
   const entry = candidates[0]!;
+  // Поле nop берётся из формы: у сравнений ALF7 оно равно 2 (implicit_nops шаблона,
+  // gas/config/tc-e2k.c:5923). Иначе это поле, которого интерфейс не выражает, — и подмена его
+  // бита вернула бы ту же инструкцию.
+  const nop = fieldOf(hs, HS.nop);
+  const expectedNops = entry.implicitNops ?? 0;
+  if (nop !== expectedNops) {
+    throw new EncodingError(
+      `поле nop = ${nop}, а форма ${entry.form} требует ${expectedNops} ` +
+        `(implicit_nops записи — gas/config/tc-e2k.c:5923, ${entry.source})`,
+    );
+  }
   if (entry.form === "ALF2" && src1 !== ALES_OPCE_NONE) {
     throw new EncodingError(
       `«${entry.mnemonic}»: расширение opce = 0x${src1.toString(16)}, ожидалось 0x${ALES_OPCE_NONE.toString(16)} ` +
@@ -893,9 +1007,10 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
   }
   // Проверяются только те поля, которые форма действительно несёт: у ALF2 на месте src1 лежит
   // расширение opce, а не регистр; поле 0xd0..0xdf — литеральная ссылка, а не регистр
-  // (opcodes/e2k-dis.c:445-504).
+  // (opcodes/e2k-dis.c:445-504); у ALF7 приёмник — предикат, а не регистр (поле pdst[4:0]).
   for (const slot of entry.operands) {
     if (entry.form === "ALF2" && slot === "src1") continue;
+    if (slot === "pdst") continue;
     const value = slot === "src1" ? src1 : slot === "src2" ? src2 : dst;
     if (value >= 0xd0 && value <= 0xdf) continue;
     // Верхняя граница — 0x80 | 63: старший бит поля означает оконный файл регистров
@@ -905,6 +1020,8 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     }
   }
   const operands: Operand[] = entry.operands.map((slot) => {
+    // Предикат-приёмник сравнения: номер — поле pdst[4:0], отдельный файл, а не регистр.
+    if (slot === "pdst") return { kind: "pred" as const, index: pdst };
     const value = slot === "src1" ? src1 : slot === "src2" ? src2 : dst;
     // Литеральная ссылка: поле 0xd0..0xdf — это не регистр, а литерал
     // (opcodes/e2k-dis.c:445-504). Значение берётся из последнего слова.

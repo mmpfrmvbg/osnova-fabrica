@@ -88,7 +88,12 @@ const hexByte = (value: number): string => value.toString(16).padStart(2, '0');
 /** Ассемблерная форма: `мнемоника,канал` затем операнды через запятую (стр. 19 руководства). */
 function assemblyOf(mnemonic: string, channel: number, operands: readonly Operand[]): string {
   const rendered = operands
-    .map((operand) => (operand.kind === 'reg' ? `%r${operand.index}` : `#${operand.value}`))
+    .map((operand) => {
+      if (operand.kind === 'reg') return `%r${operand.index}`;
+      // Приёмник сравнения — предикат (`pdst[4:0]` формы ALF7), отдельный файл, не регистр.
+      if (operand.kind === 'pred') return `%pred${operand.index}`;
+      return `#${operand.value}`;
+    })
     .join(', ');
   return `${mnemonic},${channel} ${rendered}`;
 }

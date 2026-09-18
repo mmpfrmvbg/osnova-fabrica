@@ -59,10 +59,20 @@ import { createRealE2kEncoder } from "./e2k-real";
  */
 export type RegisterFile = "base" | "window";
 
-/** Операнд в документированной ассемблерной форме. */
+/**
+ * Операнд в документированной ассемблерной форме.
+ *
+ * Три вида: регистр (`%b[N]`/`%rN` — файл различает поле `file`), непосредственное значение
+ * (`#N`) и **предикат** (`%predN`). Предикат — отдельный вид намеренно, а не регистр с пометкой
+ * файла: `%pred0` и `%b[0]` лежат в **разных** файлах, и молчаливая подстановка одного вместо
+ * другого была бы подменой поля. Пробел «предикат нечем выразить» записан долгом
+ * (`docs/hardware-debt.md` §3.7); поля предикатов — `pdst[4:0]` формы ALF7 и `psrc[4:0]`
+ * слога SS (`qemu/target/e2k/syllab-format.h:61,196`).
+ */
 export type Operand =
   | { readonly kind: "reg"; readonly index: number; readonly file?: RegisterFile }
-  | { readonly kind: "imm"; readonly value: number };
+  | { readonly kind: "imm"; readonly value: number }
+  | { readonly kind: "pred"; readonly index: number };
 
 /** Файл регистров операнда; явно не названный — базовый (так поле читалось до этой правки). */
 export function registerFileOf(operand: Extract<Operand, { kind: "reg" }>): RegisterFile {
@@ -168,6 +178,8 @@ function sameOperand(a: Operand, b: Operand): boolean {
     return a.index === b.index && registerFileOf(a) === registerFileOf(b);
   }
   if (a.kind === "imm" && b.kind === "imm") return a.value === b.value;
+  // Предикат сравнивается по номеру; смешать его с регистром не даёт уже проверка вида.
+  if (a.kind === "pred" && b.kind === "pred") return a.index === b.index;
   return false;
 }
 
@@ -201,7 +213,11 @@ export interface EncoderAudit {
 
 function label(instruction: AsmInstruction): string {
   const operands = instruction.operands
-    .map((o) => (o.kind === "reg" ? `r${o.index}` : `#${o.value}`))
+    .map((o) => {
+      if (o.kind === "reg") return `r${o.index}`;
+      if (o.kind === "pred") return `pred${o.index}`;
+      return `#${o.value}`;
+    })
     .join(", ");
   return `${instruction.mnemonic},${instruction.channel} ${operands}`;
 }

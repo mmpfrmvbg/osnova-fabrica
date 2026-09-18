@@ -48,12 +48,13 @@ import {
 } from "./e2k-real";
 
 const reg = (index: number): Operand => ({ kind: "reg", index });
+const pred = (index: number): Operand => ({ kind: "pred", index });
 const real = getEncoder("e2k");
 
-/** Образец инструкции: операнды — регистры 1, 2, 3 в порядке формы. */
+/** Образец инструкции: операнды — регистры 1, 2, 3 в порядке формы; приёмник-предикат — `%pred3`. */
 function sample(mnemonic: string, channel: number): AsmInstruction {
   const entry = realOpcode(mnemonic)!;
-  const operands = entry.operands.map((_, index) => reg(index + 1));
+  const operands = entry.operands.map((slot, index) => (slot === "pdst" ? pred(index + 1) : reg(index + 1)));
   return { mnemonic, channel, operands };
 }
 
@@ -76,20 +77,36 @@ const ALES_OPC2_EXT = 0x01;
 
 function expectedWords(instruction: AsmInstruction): number[] {
   const entry = realOpcode(instruction.mnemonic)!;
-  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0 };
+  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0, pdst: 0 };
   entry.operands.forEach((slot, index) => {
     const operand = instruction.operands[index]!;
+    if (slot === "pdst") {
+      // Приёмник сравнения — предикат: поле pdst[4:0], а не поле регистра.
+      if (operand.kind !== "pred") throw new Error("приёмник сравнения обязан быть предикатом");
+      values.pdst = operand.index;
+      return;
+    }
     if (operand.kind !== "reg") throw new Error("образец обязан быть регистровым");
     values[slot] = operand.index;
   });
   const long = entry.form === "ALF11";
   const src1 = entry.form === "ALF2" ? ALES_OPCE_NONE : values.src1!;
   const als =
-    (entry.opc << 24) | ((src1 & 0xff) << 16) | ((values.src2! & 0xff) << 8) | (values.dst! & 0xff);
+    entry.form === "ALF7"
+      ? (entry.opc << 24) |
+        ((src1 & 0xff) << 16) |
+        ((values.src2! & 0xff) << 8) |
+        (((entry.cmpOpce ?? 0) & 0x7) << 5) |
+        (values.pdst! & 0x1f)
+      : (entry.opc << 24) | ((src1 & 0xff) << 16) | ((values.src2! & 0xff) << 8) | (values.dst! & 0xff);
   const words = long ? REAL_LONG_FORM_SIZE / 4 : REAL_SHORT_FORM_SIZE / 4;
   const lng = words / 2 - 1;
   const hs =
-    ((lng & 0x7) << 4) | 1 | ((1 << instruction.channel) << 26) | (long ? (1 << instruction.channel) << 20 : 0);
+    ((lng & 0x7) << 4) |
+    1 |
+    (((entry.implicitNops ?? 0) & 0x7) << 7) |
+    ((1 << instruction.channel) << 26) |
+    (long ? (1 << instruction.channel) << 20 : 0);
   if (!long) return [hs >>> 0, als >>> 0];
   // Полуслог ALES0/1/3/4 занимает СТАРШУЮ половину слова 2
   // (gas/config/tc-e2k.c:9392-9399; qemu/target/e2k/instr-bits.h:137-146),

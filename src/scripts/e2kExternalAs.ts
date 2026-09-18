@@ -63,12 +63,17 @@ export interface AsSample {
 }
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
+const pred = (index: number): Operand => ({ kind: 'pred', index });
 
-/** Префикс регистра по формату операнда: `S` → `%b`, `D` → `%db` (см. `opcodes/e2k-dis.c:417,454`). */
+/**
+ * Текст операнда по формату записи: `S` → `%b`, `D` → `%db` (`opcodes/e2k-dis.c:417,454`),
+ * `P` → `%pred` (приёмник сравнения, поле `pdst[4:0]` формы ALF7).
+ */
 export function registerText(format: string, index: number): string {
   if (format === 'S') return `%b[${index}]`;
   if (format === 'D') return `%db[${index}]`;
-  throw new Error(`неизвестный формат регистра «${format}» — в таблице только S и D`);
+  if (format === 'P') return `%pred${index}`;
+  throw new Error(`неизвестный формат операнда «${format}» — в таблице только S, D и P`);
 }
 
 /**
@@ -86,7 +91,8 @@ export function instructionOf(entry: RealOpcodeEntry, channel: number): AsmInstr
   return {
     mnemonic: entry.mnemonic,
     channel,
-    operands: entry.operands.map((_, index) => reg(index + 1)),
+    // Приёмник сравнения — предикат, а не регистр: вид операнда берётся из формы.
+    operands: entry.operands.map((slot, index) => (slot === 'pdst' ? pred(index + 1) : reg(index + 1))),
   };
 }
 
@@ -522,9 +528,11 @@ export function commandText(command: AsmInstruction): string {
   if (entry.operands.length !== command.operands.length) {
     throw new Error(`«${command.mnemonic}»: операндов ${command.operands.length}, форма несёт ${entry.operands.length}`);
   }
-  const operands = command.operands.map((operand, index) =>
-    operand.kind === 'reg' ? registerText(entry.argFormats[index]!, operand.index) : String(operand.value),
-  );
+  const operands = command.operands.map((operand, index) => {
+    if (operand.kind === 'pred') return `%pred${operand.index}`;
+    if (operand.kind === 'imm') return String(operand.value);
+    return registerText(entry.argFormats[index]!, operand.index);
+  });
   return `${command.mnemonic},${command.channel} ${operands.join(', ')}`;
 }
 
