@@ -151,12 +151,16 @@ describe('минимальный ELF: внешняя проверка', () => {
 
   it('препятствия к exit(42) названы, а не спрятаны', () => {
     const program = buildMinimalProgram(42);
-    expect(program.blockers.length).toBe(2);
+    expect(program.blockers.length).toBe(3);
     const text = program.blockers.join(' ');
     expect(text, 'не названо препятствие с файлом регистров').toContain(ABI_NUMBER_REGISTER);
     expect(text).toMatch(/%b\[N\]/);
     expect(text).toMatch(/CTPSL/);
-    expect(text).toMatch(/НЕТ В ИСТОЧНИКЕ/);
+    // Препятствие «переход не подготовлен» — измеренное прогоном, а не предположение.
+    expect(text).toMatch(/0x100020|CTPEW/);
+    // Препятствие «тег CTPSL ставит SDISP» названо с источником и с упором в кодировщик.
+    expect(text).toMatch(/translate-ctp\.c:174/);
+    expect(text).toMatch(/ОТВЕРГАЕТ/);
   });
 
   it('QEMU: либо код возврата 42, либо точная причина', () => {

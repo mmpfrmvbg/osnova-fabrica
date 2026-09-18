@@ -19,22 +19,22 @@
  * Номер системного вызова — **1** (`exit`), не 60: числа берутся из порта QEMU
  * (`qemu/linux-user/e2k/syscall_nr.h:9` — `TARGET_NR_exit 1`; `:293` — `TARGET_NR_exit_group 300`).
  *
- * # Что мешает этому быть настоящим `exit(42)` — два препятствия, оба названы
+ * # Что мешает этому быть настоящим `exit(42)` — три препятствия, все названы
  *
- * 1. **Файл регистров.** ABI системных вызовов e2k берёт номер вызова из **оконного** регистра
- *    `r0`, а аргументы — из `r1`…`r8` (`qemu/linux-user/e2k/cpu_loop.c:160-182`). Это **рабочий**
- *    файл регистров: в поле слога ему соответствует `0x80 | N` (`opcodes/e2k-dis.c:418-419`,
- *    `%rN`), тогда как интерфейс `Operand` несёт только номер, то есть **базовый** файл
- *    (`0x00 | N`, `%b[N]`). Значит этим ELF'ом номер вызова кладётся не в тот регистр.
- * 2. **Сам системный вызов.** QEMU выполняет вызов, когда передача управления идёт на `%ctpr`
- *    с тегом `CTPSL` (`qemu/target/e2k/tcg/translate-ct.c:1143-1145`), а тег ставит подготовка
- *    перехода (`translate-ctp.c:174`). **Как записать эту подготовку ассемблером МЦСТ, в
- *    источниках не найдено:** мнемоник `syscall`/`ctpsl` в таблице опкодов нет, `ipush`
- *    ассемблер отвергает («unknown instruction»), а `ct` тег не ставит. Поэтому вместо вызова
- *    здесь стоит обычная передача управления — программа **не завершится кодом 42**.
+ * 1. **Переход не подготовлен.** `%ctpr` на входе равен нулю (`cpu-sregs.h:149`), ноль — это тег
+ *    `CTPEW`, а `ct` по такому ctpr вызывает исключение (`translate-ct.c:840-844`). Прогон
+ *    подтверждает: эмулятор исполняет обе `movts` и останавливается на `ct` (`0x100020`).
+ * 2. **Системный вызов.** QEMU выполняет вызов при `CALL` с тегом `CTPSL`
+ *    (`translate-ct.c:1143-1145`), а тег `CTPSL` ставит только `SDISP` (`translate-ctp.c:174`).
+ *    `disp` всегда пишет `CTPLL` (`translate-ctp.c:81`), а `sdisp` наш кодировщик отвергает.
+ * 3. **Файл регистров.** ABI читает номер вызова из **оконного** `r0`
+ *    (`qemu/linux-user/e2k/cpu_loop.c:160-182`) — при `WD.base_d = 0` это `rf.window[0]`
+ *    (`reg-index.h:79`), тогда как интерфейс `Operand` несёт только базовый файл: `%b[0]` — это
+ *    `rf.global[0]` (`reg-index.h:117`, `cpu.h:562-570`).
  *
- * Отсюда честный статус: **ELF валиден по заголовку и разбирается дизассемблером МЦСТ, но
- * `exit(42)` им не выполняется**, и причина названа выше, а не спрятана.
+ * Отсюда честный статус: **ELF валиден по заголовку, разбирается дизассемблером МЦСТ и
+ * ИСПОЛНЯЕТСЯ эмулятором (с шимом для `mmap`), но `exit(42)` им не выполняется**, и причина
+ * названа выше, а не спрятана.
  */
 
 import * as fs from 'fs';
@@ -98,13 +98,20 @@ export function buildMinimalProgram(exitCode = 42): MinimalProgram {
     code,
     expectDisasm: ['movts,0 _f16s 0x1', `movts,0 _f16s 0x${exitCode.toString(16)}`, 'ct %ctpr1'],
     blockers: [
-      `ABI: номер вызова e2k читается из оконного регистра ${ABI_NUMBER_REGISTER} ` +
-        '(qemu/linux-user/e2k/cpu_loop.c:160-182), а интерфейс Operand несёт только базовый файл ' +
-        '(поле 0x00|N = %b[N], opcodes/e2k-dis.c:416-417); рабочий файл (0x80|N = %rN, :418-419) ' +
-        'интерфейсом не выражается — номер вызова ложится не в тот регистр',
-      'вызов: QEMU выполняет системный вызов только при передаче управления на %ctpr с тегом CTPSL ' +
-        '(qemu/target/e2k/tcg/translate-ct.c:1143-1145), а как эту подготовку записать ассемблером МЦСТ — ' +
-        'НЕТ В ИСТОЧНИКЕ (мнемоник syscall/ctpsl в таблице опкодов нет, ipush ассемблер отвергает)',
+      `переход: ct %ctpr1 по НЕподготовленному ctpr — исключение. %ctpr на входе равен нулю ` +
+        '(E2K_SREG_INIT_CTPR = 0, qemu/target/e2k/cpu-sregs.h:149), ноль — это тег CTPEW ' +
+        '(cpu-sregs.h:165-173), а ct по ctpr с тегом CTPEW вызывает исключение ' +
+        '(translate-ct.c:840-844). Прогон это подтверждает: остановка на 0x100020, ' +
+        'docs/e2k-minimal-elf.md §4.1. Перед ct нужен disp (CS0) — им кодировщик владеет',
+      `вызов: системный вызов запускает CALL с тегом CTPSL (translate-ct.c:1143-1145), а тег CTPSL ` +
+        'ставит только SDISP (translate-ctp.c:174); disp всегда пишет CTPLL (translate-ctp.c:81). ' +
+        'sdisp наш кодировщик ОТВЕРГАЕТ (раскладка ассемблером не проверена) — упор в кодировщике, ' +
+        'а не в отсутствии сведений',
+      `ABI: номер вызова e2k читается из ОКОННОГО ${ABI_NUMBER_REGISTER} ` +
+        '(qemu/linux-user/e2k/cpu_loop.c:160-182) — при WD.base_d = 0 это rf.window[0] ' +
+        '(reg-index.h:79, cpu-sregs.h:74), тогда как интерфейс Operand несёт только базовый файл ' +
+        '(поле 0x00|N = %b[N], opcodes/e2k-dis.c:416-417): это rf.global[0] (reg-index.h:117, ' +
+        'cpu.h:562-570). Номер вызова ложится не в тот регистр',
     ],
   };
 }
@@ -130,11 +137,21 @@ function align(value: number, to: number): number {
  */
 export function buildMinimalElf(exitCode = 42, base = MINIMAL_BASE): MinimalElf {
   const program = buildMinimalProgram(exitCode);
+  return { ...buildElfFromCode(program.code, base), program };
+}
+
+/**
+ * Собрать ELF64 вокруг **произвольного** кода — тем же заголовком и теми же секциями.
+ *
+ * Нужен для опытов с передачей управления: точка входа — начало кода, поэтому опыт знает адрес
+ * каждой инструкции. Обычный путь (`buildMinimalElf`) — частный случай с тремя инструкциями.
+ */
+export function buildElfFromCode(code: Uint8Array, base = MINIMAL_BASE): Omit<MinimalElf, 'program'> {
   const textOffset = 0x1000;
   const sections: { name: string; offset: number; size: number }[] = [];
 
   // .text
-  const text = program.code;
+  const text = code;
   sections.push({ name: '.text', offset: textOffset, size: text.length });
 
   // .symtab: одна запись — `_start` в начале .text
@@ -230,7 +247,7 @@ export function buildMinimalElf(exitCode = 42, base = MINIMAL_BASE): MinimalElf 
   sh(shoff + 192, 15, 3, 0n, 0n, strtabOffset, strtab.length, 0, 0, 0n);
   sh(shoff + 256, 23, 3, 0n, 0n, shstrOffset, shstr.length, 0, 0, 0n);
 
-  return { bytes: new Uint8Array(file), entry: base, program, sections };
+  return { bytes: new Uint8Array(file), entry: base, sections };
 }
 
 /** Записать минимальный ELF в `.tmp` и вернуть путь. */
