@@ -5,7 +5,8 @@
  *
  * ```
  * исходник ядра → RegModule → разметка атомов → emitShell(оболочка) → носители IR
- *      → ПОНИЖЕНИЕ в операции e2k (таблица ниже) → e2k-real.encode → байты
+ *      → РАСКЛАДКА (firstPass: адреса, secondPass: смещения переходов — src/e2k/twoPassLayout.ts)
+ *      → ПОНИЖЕНИЕ в операции e2k (таблица ниже; переход — серия disp+ct) → e2k-real.encode → байты
  *      → e2k-real.decode → сверка с исходной инструкцией
  * ```
  *
@@ -26,6 +27,21 @@
  * «d = a − b», `MULs/d` — «младшая половина произведения», `MOVTs/d` — «пересылка между
  * регистрами». Кодировка этих операций — из источников (`docs/e2k-opcodes-real.md`).
  *
+ * # Серия: `IR.jmp` понижается в ДВЕ команды, а не в одну
+ *
+ * Переход в e2k — не одна команда: `disp %ctpr1, <смещение>` (слог CS0) **подготавливает** адрес,
+ * `ct %ctpr1` (слог SS) **передаёт** управление. Ассемблер МЦСТ собирает их в две команды по
+ * 8 байт даже рядом стоящими — широкой команды он не порождает (`docs/e2k-real-run.md` §2.3,
+ * замер закреплён оракулом `e2kSyllables.test.ts`). Поэтому у понижения две формы результата:
+ * одна команда и **серия** команд ({@link lowerCarrier}).
+ *
+ * Второе следствие той же природы: смещение `disp` отсчитывается **от адреса команды до адреса
+ * цели** (`translate-ctp.c:74-75`), а адрес цели зависит от размеров всех команд. Значит
+ * понижение перехода невозможно без раскладки — её делают `firstPass`/`secondPass` из
+ * `src/e2k/twoPassLayout.ts`, а `lowerCarrier` получает готовое смещение через контекст.
+ * Третье: следом за разбором `disp` нашлось, что поле **знаковое** — см. `dispOf` в
+ * `src/e2k/e2k-real.ts`.
+ *
  * **Предпосылки понижения названы и проверяются на данных, а не предполагаются молча:**
  *
  * | понижение | предпосылка | чем проверяется |
@@ -34,6 +50,7 @@
  * | `IR.add` → `adds` | операнды — целые числа (у `IR.add` есть строковая ветвь: склейка строк) | типы операндов в прогоне |
  * | `IR.sub` → `subs` | операнды — целые числа | типы операндов в прогоне |
  * | `IR.mul` → `muls` | `MULs` даёт **младшую половину** 32-битного произведения; совпадает, пока результат укладывается в 32 бита | `Math.imul(a,b) !== a*b` в прогоне |
+ * | `IR.jmp` → `disp` + `ct` | цель перехода лежит **внутри** раскладываемого потока и её адрес известен | отказ с причиной, если цель не размещена; круг через `objdump` |
  *
  * # Чего этот модуль НЕ делает
  *
@@ -45,6 +62,7 @@
 import type { AsmInstruction, Encoder, Operand } from "./backend";
 import { sameInstruction } from "./backend";
 import { realOpcode, type RealSlot } from "./e2k-real";
+import { JUMP_CARRIER, carrierForm, jumpCommands, layoutOf, secondPass } from "./twoPassLayout";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
 import { createDefaultInvokeHandler, type StackValue } from "../runtime/vm/interpreter";
@@ -95,7 +113,9 @@ export interface LoweringRule {
 }
 
 /**
- * Понижение четырёх операций. Остальные носители IR **не понижаются** — см. {@link REFUSALS}.
+ * Понижение в **одну** команду — пять операций. Носители, которым одной команды мало
+ * (`IR.jmp` — серия «подготовка + передача управления»), описаны не здесь, а в
+ * {@link lowerCarrier}: их форма — серия, и размер у неё другой.
  */
 export const LOWERING: readonly LoweringRule[] = [
   {
@@ -145,14 +165,27 @@ export const LOWERING: readonly LoweringRule[] = [
   },
 ];
 
-/** Причины, по которым остальные носители IR не понижаются. */
+/** Почему `IR.jmp` не понижается в одну команду и что для него нужно. */
+export const JUMP_NEEDS_LAYOUT =
+  "«IR.jmp»: понижение — СЕРИЯ из двух команд (`disp %ctpr1, <смещение>` — CS0, затем `ct %ctpr1` — SS), " +
+  "а смещение считает двухпроходная раскладка: адрес цели зависит от размеров всех команд, поэтому " +
+  "одной командой переход не выражается и взять смещение из самой инструкции неоткуда " +
+  "(src/e2k/twoPassLayout.ts; замер пары — docs/e2k-real-run.md §2.3)";
+
+/**
+ * Почему носитель не понижается **в одну команду**.
+ *
+ * Таблица отвечает на вопрос «можно ли это понижение выразить одной командой e2k», а не «понижается ли
+ * носитель вообще»: `IR.jmp` **понижается**, но **серией** из двух команд ({@link lowerCarrier}),
+ * поэтому здесь у него стоит причина, по которой одиночная команда не годится.
+ */
 export const REFUSALS: Readonly<Record<string, string>> = {
   "IR.invoke":
     "НЕТ В ИСТОЧНИКЕ: хост-вызов — операция рантайма; в таблице опкодов МЦСТ (opcodes/e2k-opc.h) " +
     "операции с такой семантикой нет",
   "IR.call": "не реализовано в e2k-real: вызов — управляющий слог CS (opcodes/e2k-dis.c:1895)",
   "IR.ret": "не реализовано в e2k-real: возврат — управляющий слог CS (opcodes/e2k-dis.c:1895)",
-  "IR.jmp": "не реализовано в e2k-real: переход — управляющий слог CS/SS",
+  "IR.jmp": JUMP_NEEDS_LAYOUT,
   "IR.jmp_if": "не реализовано в e2k-real: условный переход — управляющий слог с предикатом",
   "IR.jmp_if_not": "не реализовано в e2k-real: условный переход — управляющий слог с предикатом",
   "IR.eq": "семантика не совпадает: сравнение e2k (cmp*, ALOPF7) даёт предикат, а IR-сравнение — значение в регистре",
@@ -180,10 +213,26 @@ export type LoweringResult =
   | { readonly ok: true; readonly instruction: AsmInstruction }
   | { readonly ok: false; readonly reason: string };
 
-/** Что нужно понижению, кроме самой инструкции: пул констант модуля. */
+/**
+ * Результат понижения носителя: одна команда или **серия** команд.
+ *
+ * Серия нужна там, где операции e2k не хватает одной команды: `IR.jmp` — это
+ * `disp %ctpr1, <смещение>` **и** `ct %ctpr1` (см. {@link lowerCarrier}).
+ */
+export type CarrierLoweringResult =
+  | { readonly ok: true; readonly instructions: readonly AsmInstruction[] }
+  | { readonly ok: false; readonly reason: string };
+
+/** Что нужно понижению, кроме самой инструкции: пул констант модуля и смещение перехода. */
 export interface LoweringContext {
   /** Пул констант модуля (`RegModule.constants`) — нужен носителю `IR.const`. */
   readonly constants?: readonly unknown[];
+  /**
+   * Вычисленное смещение перехода в 8-байтных единицах — результат **второго прохода** раскладки
+   * (`secondPass`). Без него `IR.jmp` не понижается: смещение — не поле инструкции, а свойство
+   * раскладки.
+   */
+  readonly displacement?: number;
 }
 
 /**
@@ -247,6 +296,26 @@ export function lowerInstruction(instruction: AsmInstruction, context: LoweringC
 }
 
 /**
+ * Понизить носитель IR в команды e2k — одну или серию.
+ *
+ * `IR.jmp` понижается **серией**: `disp %ctpr1, <смещение>` (CS0 несёт смещение) и `ct %ctpr1`
+ * (SS выполняет передачу). Само смещение берётся из контекста — его посчитал `secondPass`
+ * раскладки; без него понижение отказывает, потому что вычислить смещение из одной инструкции
+ * нельзя (адрес цели зависит от размеров всех команд).
+ *
+ * Остальные носители понижаются одной командой — {@link lowerInstruction}.
+ */
+export function lowerCarrier(instruction: AsmInstruction, context: LoweringContext = {}): CarrierLoweringResult {
+  if (instruction.mnemonic === JUMP_CARRIER) {
+    const displacement = context.displacement;
+    if (displacement === undefined) return { ok: false, reason: JUMP_NEEDS_LAYOUT };
+    return { ok: true, instructions: jumpCommands(displacement) };
+  }
+  const single = lowerInstruction(instruction, context);
+  return single.ok ? { ok: true, instructions: [single.instruction] } : single;
+}
+
+/**
  * Значение литерала для слота правила — либо число, либо причина отказа строкой.
  *
  * У `IR.const` операнд — индекс пула, поэтому значение берётся из `context.constants`; у прочих
@@ -287,8 +356,10 @@ export interface CarrierReport {
   readonly total: number;
   readonly encoded: number;
   readonly refused: number;
-  /** Мнемоника e2k, если понижение есть. */
+  /** Мнемоника e2k, если понижение — одна команда. */
   readonly mnemonic?: string;
+  /** Команды понижения по порядку выдачи: у перехода их две (`disp`, `ct`). */
+  readonly commands?: readonly string[];
   /** Причина отказа, если хоть одна инструкция отвергнута. */
   readonly reason?: string;
   /** Формат и код операции e2k (для отчёта). */
@@ -306,7 +377,19 @@ export interface KernelRealReport {
   readonly bytes: number;
   readonly carriers: readonly CarrierReport[];
   /** Сколько разобранных обратно инструкций сверено и сколько расхождений. */
-  readonly roundTrip: { readonly checked: number; readonly mismatches: readonly string[] };
+  readonly roundTrip: { readonly checked: number; readonly commands: number; readonly mismatches: readonly string[] };
+  /**
+   * Что дала раскладка: сколько инструкций размещено (адрес присвоен) и сколько байт занял образ.
+   *
+   * Сверка с `encoded`/`bytes` — не украшение: она ловит расхождение раскладки и кодирования
+   * (адреса считались по таблице форм, байты — кодировщиком; если таблица врёт, числа разойдутся).
+   */
+  readonly layout: {
+    readonly placed: number;
+    readonly unplaced: number;
+    readonly displacements: number;
+    readonly totalBytes: number;
+  };
   /** Все ли инструкции потока понижены (иначе сквозной прогон через реальную кодировку невозможен). */
   readonly executableThroughReal: boolean;
   /** Носители, мешающие полному прогону, с причинами. */
@@ -327,9 +410,13 @@ function sameLowered(a: AsmInstruction, b: AsmInstruction): boolean {
 /**
  * Прогнать поток одного ядра через реальную кодировку.
  *
- * Каждая инструкция потока понижается (если правило есть), кодируется `e2k-real`, разбирается
- * обратно и сверяется с понижённой. Отказы собираются по носителям с причинами — молчаливой
- * потери инструкций нет.
+ * Порядок: **раскладка** (первый проход — адреса, второй — смещения переходов), затем понижение
+ * каждой инструкции (в одну команду или в серию — `lowerCarrier`), кодирование, разбор обратно и
+ * сверка. Отказы собираются по носителям с причинами: и отказ раскладки, и отказ понижения, и
+ * отказ кодировщика называют причину — молчаливой потери инструкций нет.
+ *
+ * `encoded` считает **инструкции IR**, а `roundTrip.commands` — команды e2k: у перехода их две,
+ * и сверяются обе.
  */
 export function runKernelThroughRealEncoding(
   emitted: ShellEmitResult,
@@ -339,44 +426,77 @@ export function runKernelThroughRealEncoding(
   const stats = new Map<string, { total: number; encoded: number; refused: number; reason?: string }>();
   let bytes = 0;
   let checked = 0;
+  let commands = 0;
   const mismatches: string[] = [];
   // Пул констант нужен носителю IR.const: его операнд — индекс пула, а литералу нужно значение.
-  const context: LoweringContext = { constants: emitted.scheduled.constants };
+  const baseContext: LoweringContext = { constants: emitted.scheduled.constants };
 
-  for (const instruction of emitted.instructions) {
+  // ── Раскладка: адрес каждой инструкции, затем смещение каждого перехода ──────
+  const layout = layoutOf(emitted.instructions);
+  const resolved = secondPass(emitted.instructions, layout.addresses);
+  const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
+  const refusalAt = new Map<number, string>();
+  for (const unplaced of layout.unplaced) refusalAt.set(unplaced.index, unplaced.reason);
+  for (const refusal of resolved.refusals) refusalAt.set(refusal.index, refusal.reason);
+
+  for (let index = 0; index < emitted.instructions.length; index++) {
+    const instruction = emitted.instructions[index]!;
     const stat = stats.get(instruction.mnemonic) ?? { total: 0, encoded: 0, refused: 0 };
     stat.total++;
-    const lowered = lowerInstruction(instruction, context);
+    const layoutRefusal = refusalAt.get(index);
+    if (layoutRefusal !== undefined) {
+      stat.refused++;
+      stat.reason ??= layoutRefusal;
+      stats.set(instruction.mnemonic, stat);
+      continue;
+    }
+    const displacement = displacementAt.get(index);
+    const lowered = lowerCarrier(resolved.instructions[index]!, {
+      ...baseContext,
+      ...(displacement === undefined ? {} : { displacement }),
+    });
     if (!lowered.ok) {
       stat.refused++;
       stat.reason ??= lowered.reason;
       stats.set(instruction.mnemonic, stat);
       continue;
     }
-    let encodedBytes: Uint8Array;
-    try {
-      encodedBytes = encoder.encode(lowered.instruction);
-    } catch (error) {
+    // Серия кодируется и сверяется **целиком**: иначе вторая команда пары проходила бы мимо круга.
+    const encodedChunks: { command: AsmInstruction; bytes: Uint8Array }[] = [];
+    let failure: string | undefined;
+    for (const command of lowered.instructions) {
+      try {
+        encodedChunks.push({ command, bytes: encoder.encode(command) });
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+        break;
+      }
+    }
+    if (failure !== undefined) {
       stat.refused++;
-      stat.reason ??= error instanceof Error ? error.message : String(error);
+      stat.reason ??= failure;
       stats.set(instruction.mnemonic, stat);
       continue;
     }
     stat.encoded++;
-    bytes += encodedBytes.length;
     stats.set(instruction.mnemonic, stat);
-    const back = encoder.decode(encodedBytes);
     checked++;
-    if (!sameLowered(back, lowered.instruction)) {
-      mismatches.push(
-        `${instruction.mnemonic}: «${lowered.instruction.mnemonic}» → ${back.mnemonic} (операндов ${back.operands.length})`,
-      );
+    for (const chunk of encodedChunks) {
+      commands++;
+      bytes += chunk.bytes.length;
+      const back = encoder.decode(chunk.bytes);
+      if (!sameLowered(back, chunk.command)) {
+        mismatches.push(
+          `${instruction.mnemonic}: «${chunk.command.mnemonic}» → ${back.mnemonic} (операндов ${back.operands.length})`,
+        );
+      }
     }
   }
 
   const carriers: CarrierReport[] = [...stats.entries()]
     .map(([carrier, stat]) => {
       const rule = loweringOf(carrier);
+      const form = carrierForm(carrier);
       const entry = rule === undefined ? undefined : realOpcode(rule.mnemonic);
       return {
         carrier,
@@ -384,6 +504,7 @@ export function runKernelThroughRealEncoding(
         encoded: stat.encoded,
         refused: stat.refused,
         ...(rule === undefined ? {} : { mnemonic: rule.mnemonic }),
+        ...(form === undefined ? {} : { commands: form.commands.map((command) => command.mnemonic) }),
         ...(entry === undefined ? {} : { format: entry.form, opc: `0x${entry.opc.toString(16)}` }),
         ...(stat.reason === undefined ? {} : { reason: stat.reason }),
       };
@@ -403,7 +524,13 @@ export function runKernelThroughRealEncoding(
     refused,
     bytes,
     carriers,
-    roundTrip: { checked, mismatches },
+    roundTrip: { checked, commands, mismatches },
+    layout: {
+      placed: layout.entries.length,
+      unplaced: layout.unplaced.length,
+      displacements: resolved.displacements.length,
+      totalBytes: layout.totalBytes,
+    },
     executableThroughReal: refused === 0,
     blocking,
   };

@@ -7,7 +7,10 @@
  *    инструкций понижено до операций e2k, сколько отвергнуто и **почему** (по носителям,
  *    с причиной). Молчаливой потери инструкций нет: `encoded + refused === instructions`.
  * 2. **Round-trip на каждой понижённой инструкции:** `e2k-real.encode` → `e2k-real.decode`
- *    возвращает ту же операцию e2k с теми же операндами.
+ *    возвращает ту же операцию e2k с теми же операндами. У перехода команд две, и сверяются обе.
+ * 2а. **Раскладка и кодирование не расходятся.** `firstPass` считает адреса по таблице форм,
+ *    кодировщик выдаёт байты; сверяются размещённые инструкции, число переходов со смещением,
+ *    сумма размеров против суммы байтов.
  * 3. **Понижение сохраняет смысл на данных.** Поток исполняется регистровой VM в двух видах:
  *    как есть и с понижёнными операциями (`IR.mul` → `Math.imul` — младшая половина
  *    32-битного произведения, то есть семантика `MULs`). Числа обязаны совпасть с независимым
@@ -17,6 +20,9 @@
  *    `getEncoder("e2k")` отказывает на первой же инструкции: носители `IR.*` — не мнемоники e2k.
  *    Поэтому в отчёте каждого ядра стоит `executableThroughReal: false` и список носителей,
  *    которые мешают.
+ * 5. **`IR.jmp` понижен серией `disp` + `ct`.** Смещение — из второго прохода раскладки, ведёт
+ *    ровно в адрес цели; пара собирается ассемблером МЦСТ побайтово так же, а MCST-`objdump`
+ *    читает образ ядра `fir` и печатает у `disp` тот же адрес цели.
  *
  * # Чего этот оракул НЕ доказывает
  *
@@ -27,15 +33,22 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { describe, it, expect } from 'vitest';
-import { EncodingRefusedError, getEncoder, type AsmInstruction, type Operand } from './backend';
+import { EncodingRefusedError, getEncoder, sameInstruction, toHex, type AsmInstruction, type Operand } from './backend';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions, verifyAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
 import type { RegModule } from '../runtime/vm/regcode';
+import { CT_COND_ALWAYS } from './e2k-real';
+import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
+import { disassembleElf, findExternalTool, parseObjdumpOutput } from '../scripts/e2kExternalObjdump';
+import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
+import { layoutOf, secondPass, type Displacement } from './twoPassLayout';
 import {
+  JUMP_NEEDS_LAYOUT,
   LOWERING,
   REFUSALS,
   SYNTHETIC,
+  lowerCarrier,
   lowerInstruction,
   runKernelThroughRealEncoding,
   runLoweredValues,
@@ -126,14 +139,30 @@ describe('сквозной прогон: понижение и кодирова�
       expect(report.roundTrip.mismatches, `${name}`).toEqual([]);
     });
 
+    it(`${name} (${algorithm}): раскладка и кодирование не расходятся`, () => {
+      const report = REPORTS.get(name)!;
+      // Раскладка считает адреса по таблице форм, кодировщик выдаёт байты: числа обязаны сойтись.
+      expect(report.layout.placed, `${name}: размещено не столько, сколько понижено`).toBe(report.encoded);
+      expect(report.layout.unplaced, `${name}: не размещено не столько, сколько отвергнуто`).toBe(report.refused);
+      expect(report.layout.totalBytes, `${name}: сумма размеров раскладки против суммы байтов`).toBe(report.bytes);
+      const jumps = report.carriers.find((carrier) => carrier.carrier === 'IR.jmp')?.encoded ?? 0;
+      expect(report.layout.displacements, `${name}: смещений не столько, сколько понижённых переходов`).toBe(jumps);
+      // У перехода команд две: команд не меньше, чем инструкций.
+      expect(report.roundTrip.commands, `${name}: команд меньше, чем инструкций`).toBeGreaterThanOrEqual(report.encoded);
+      expect(report.roundTrip.mismatches, `${name}`).toEqual([]);
+    });
+
     it(`${name} (${algorithm}): полный сквозной прогон невозможен — названы мешающие носители`, () => {
       const report = REPORTS.get(name)!;
       expect(report.executableThroughReal, `${name}: неожиданно полный прогон`).toBe(false);
       const carriers = report.blocking.map((blocking) => blocking.carrier);
       expect(carriers, `${name}: не назван хост-вызов`).toContain('IR.invoke');
-      // Константы подключены к понижению, упор сместился на пары «подготовка + переход».
-      expect(carriers, `${name}: не названы переходы/возвраты`).toContain('IR.ret');
+      // Константы подключены к понижению, упор сместился на пары «подготовка + возврат».
+      expect(carriers, `${name}: не названы возвраты`).toContain('IR.ret');
       expect(carriers, `${name}: константы обязаны быть понижены`).not.toContain('IR.const');
+      // Переход понижён — он больше не мешает прогону и в списке мешающих не значится.
+      expect(carriers, `${name}: переход понижён, мешать он не может`).not.toContain('IR.jmp');
+      expect(carriers, `${name}: условные переходы ещё не понижены`).toContain('IR.jmp_if_not');
       for (const blocking of report.blocking) {
         expect(blocking.reason.length, `${name}: ${blocking.carrier} без причины`).toBeGreaterThan(10);
       }
@@ -249,6 +278,199 @@ describe('сквозной прогон: документ не расходит�
   });
 });
 
+describe('сквозной прогон: IR.jmp понижен — покрытие 358, отказов 159', () => {
+  const imm = (value: number): Operand => ({ kind: 'imm', value });
+  const reg = (index: number): Operand => ({ kind: 'reg', index });
+  const carrier = (mnemonic: string, operands: readonly Operand[]): AsmInstruction => ({
+    mnemonic,
+    channel: 0,
+    operands,
+  });
+
+  /**
+   * Образ из носителей: адреса — из раскладки, переходы — серией по вычисленному смещению.
+   *
+   * Носители без формы пропускаются: в образ они и не попадают, а раскладка считает адреса ровно
+   * по размещённым (см. `src/e2k/twoPassLayout.ts`). Пропуск проверяется сдвигом: адрес каждой
+   * размещённой инструкции обязан совпасть с текущим смещением в байтах.
+   */
+  function laidOutImage(
+    carriers: readonly AsmInstruction[],
+    constants?: readonly unknown[],
+  ): {
+    bytes: Uint8Array;
+    addresses: Map<number, number>;
+    displacements: readonly Displacement[];
+  } {
+    const layout = layoutOf(carriers);
+    const resolved = secondPass(carriers, layout.addresses);
+    expect(resolved.refusals.map((item) => `#${item.index}: ${item.reason}`), 'переход не разрешён').toEqual([]);
+    const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
+    const chunks: number[] = [];
+    let offset = 0;
+    carriers.forEach((instruction, index) => {
+      const address = layout.addresses.get(index);
+      if (address === undefined) return;
+      expect(address, `#${index}: раскладка разошлась с порядком байтов`).toBe(offset);
+      const displacement = displacementAt.get(index);
+      const lowered = lowerCarrier(instruction, {
+        ...(constants === undefined ? {} : { constants }),
+        ...(displacement === undefined ? {} : { displacement }),
+      });
+      expect(lowered.ok, `#${index} ${instruction.mnemonic}: ${lowered.ok ? '' : lowered.reason}`).toBe(true);
+      if (!lowered.ok) return;
+      for (const command of lowered.instructions) {
+        const encoded = realEncoder.encode(command);
+        chunks.push(...encoded);
+        offset += encoded.length;
+      }
+    });
+    return { bytes: Uint8Array.from(chunks), addresses: layout.addresses, displacements: resolved.displacements };
+  }
+
+  it('покрытие 358 из 517, отказов 159 — и отказы разложены по носителям', () => {
+    let instructions = 0;
+    let encoded = 0;
+    let refused = 0;
+    const byCarrier = new Map<string, number>();
+    for (const report of REPORTS.values()) {
+      instructions += report.instructions;
+      encoded += report.encoded;
+      refused += report.refused;
+      for (const carrier of report.carriers) {
+        if (carrier.refused > 0) byCarrier.set(carrier.carrier, (byCarrier.get(carrier.carrier) ?? 0) + carrier.refused);
+      }
+    }
+    expect(instructions).toBe(517);
+    expect(encoded, 'покрытие пяти ядер').toBe(358);
+    expect(refused, 'отказов').toBe(159);
+    expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([
+      ['IR.invoke', 87],
+      ['IR.ret', 32],
+      ['IR.jmp_if_not', 14],
+      ['IR.lt', 12],
+      ['IR.call', 11],
+      ['IR.div', 1],
+      ['IR.ge', 1],
+      ['IR.le', 1],
+    ]);
+    // Переход понижён целиком: 12 из 12.
+    const jumps = [...REPORTS.values()].flatMap((report) =>
+      report.carriers.filter((carrier) => carrier.carrier === 'IR.jmp'),
+    );
+    expect(jumps.reduce((sum, item) => sum + item.total, 0)).toBe(12);
+    expect(jumps.reduce((sum, item) => sum + item.encoded, 0)).toBe(12);
+    expect(jumps.reduce((sum, item) => sum + item.refused, 0)).toBe(0);
+    for (const jump of jumps) {
+      expect(jump.commands, 'у понижения перехода не названы команды').toEqual(['disp', 'ct']);
+    }
+  });
+
+  it('lowerCarrier без смещения отказывает, со смещением даёт пару disp + ct', () => {
+    const jump = carrier('IR.jmp', [imm(-3)]);
+    const withoutDisplacement = lowerCarrier(jump);
+    expect(withoutDisplacement.ok, 'без раскладки переход понижаться не должен').toBe(false);
+    if (!withoutDisplacement.ok) expect(withoutDisplacement.reason).toBe(JUMP_NEEDS_LAYOUT);
+    // Одиночная команда перехода не выражает — и это тоже названо причиной.
+    const single = lowerInstruction(jump);
+    expect(single.ok).toBe(false);
+
+    const lowered = lowerCarrier(jump, { displacement: -3 });
+    expect(lowered.ok).toBe(true);
+    if (!lowered.ok) return;
+    expect(lowered.instructions.map((command) => command.mnemonic)).toEqual(['disp', 'ct']);
+    expect(lowered.instructions[0]!.operands).toEqual([imm(1), imm(-3)]);
+    expect(lowered.instructions[1]!.operands).toEqual([imm(1), imm(CT_COND_ALWAYS)]);
+    // Обе команды пары проходят круг: переход назад кодируется отрицательным смещением.
+    for (const command of lowered.instructions) {
+      const back = realEncoder.decode(realEncoder.encode(command));
+      expect(sameInstruction(back, command), `${command.mnemonic}: круг не сошёлся`).toBe(true);
+    }
+  });
+
+  it('образ ядра fir читается MCST-objdump: у disp тот же адрес цели, что в раскладке', () => {
+    const image0 = kernelImage('fir', 'A5');
+    const carriers = image0.instructions;
+    const image = laidOutImage(carriers, image0.scheduled.constants);
+    expect(image.displacements.length, 'в fir три перехода').toBe(3);
+    // Смещения ведут в адрес цели — проверяется арифметикой до внешнего инструмента.
+    for (const item of image.displacements) {
+      expect(image.addresses.get(item.index)).toBe(item.commandAddress);
+      expect(image.addresses.get(item.targetIndex)).toBe(item.targetAddress);
+      expect(item.commandAddress + item.disp * 8).toBe(item.targetAddress);
+    }
+    const { tool } = findExternalTool();
+    if (tool === undefined) {
+      const probe = findExternalTool();
+      expect(probe.reason, 'причина ненайденности дизассемблера не названа').toBeDefined();
+      return;
+    }
+    const elf = buildElfFromCode(image.bytes, MINIMAL_BASE);
+    const result = disassembleElf(
+      { bytes: Buffer.from(elf.bytes), layout: [] },
+      path.join(ROOT, '.tmp', 'e2k-fir-layout.elf'),
+    );
+    expect(result, 'дизассемблер не ответил').toBeDefined();
+    if (result === undefined) return;
+    const lines = parseObjdumpOutput(result.text);
+    const problems: string[] = [];
+    for (const item of image.displacements) {
+      const at = MINIMAL_BASE + item.commandAddress;
+      const line = lines.find((candidate) => candidate.address === at);
+      if (line === undefined) {
+        problems.push(`нет строки по адресу 0x${at.toString(16)}`);
+        continue;
+      }
+      const printed = /disp %ctpr(\d+), (0x[0-9a-f]+)/.exec(line.text);
+      if (printed === null) {
+        problems.push(`строка «${line.text}» не похожа на disp`);
+        continue;
+      }
+      const expected = MINIMAL_BASE + item.targetAddress;
+      if (Number.parseInt(printed[2]!, 16) !== expected) {
+        problems.push(
+          `#${item.index}: disp ведёт на ${printed[2]}, а цель раскладки — 0x${expected.toString(16)} (смещение ${item.disp})`,
+        );
+      }
+    }
+    expect(problems, `переходов проверено ${image.displacements.length}`).toEqual([]);
+  });
+
+  it('ассемблер МЦСТ собирает программу с переходом теми же байтами', () => {
+    const { tool } = findExternalAs();
+    if (tool === undefined) return; // причина ненайденности названа в e2kExternalAs.test.ts
+    const carriers: readonly AsmInstruction[] = [
+      carrier('IR.add', [reg(1), reg(2), reg(3)]), // 0
+      carrier('IR.jmp', [imm(3)]), // 8, цель — 32
+      carrier('IR.move', [reg(1), reg(2)]), // 24
+      carrier('IR.move', [reg(3), reg(4)]), // 32 — цель
+    ];
+    const image = laidOutImage(carriers);
+    expect(image.displacements[0]!.disp, 'смещение программы').toBe(3);
+    const sample: AsSample = {
+      key: 'jmp-program',
+      mnemonic: 'disp',
+      channel: 0,
+      form: 'серия disp + ct',
+      asText: [
+        // Носитель IR.add несёт (dst, a, b) = (1, 2, 3), а `adds` — (src1, src2, dst): (2, 3, 1).
+        'adds,0 %b[2], %b[3], %b[1]',
+        'disp %ctpr1, osnova_target',
+        'ct %ctpr1',
+        'movts,0 %b[2], %b[1]',
+        'osnova_target:',
+        'movts,0 %b[4], %b[3]',
+      ].join('\n'),
+      instruction: carrier('disp', [imm(1), imm(3)]),
+      source: 'docs/e2k-real-run.md §2.3',
+    };
+    const result = assembleAll([sample])[0]!;
+    expect(result.ok, `ассемблер отверг программу: ${result.ok ? '' : result.error}`).toBe(true);
+    if (!result.ok) return;
+    expect(toHex(result.bytes), 'байты программы у ассемблера против наших').toBe(toHex(image.bytes));
+  });
+});
+
 describe('сквозной прогон: понижение одной инструкции', () => {
   const reg = (index: number): Operand => ({ kind: 'reg', index });
   const asm = (mnemonic: string, operands: readonly Operand[]): AsmInstruction => ({
@@ -270,6 +492,9 @@ describe('сквозной прогон: понижение одной инст�
   });
 
   it('непонижаемые носители отвергаются с причиной', () => {
+    // У `IR.jmp` одиночной команды нет: понижение — серия `disp` + `ct`, и смещение считает
+    // раскладка. Поэтому одиночный путь отказывает, а `lowerCarrier` со смещением — понижает
+    // (проверено отдельным оракулом ниже).
     for (const carrier of ['IR.invoke', 'IR.jmp', 'IR.lt', 'IR.div', 'IR.ret']) {
       const result = lowerInstruction(asm(carrier, [reg(1), reg(2)]));
       expect(result.ok, `${carrier}`).toBe(false);
