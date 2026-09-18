@@ -100,6 +100,14 @@ export function sha256(file: string): string {
 
 /** Прогон оракулов: сколько прошло и какие проверки покраснели. */
 export interface OracleRun {
+  /**
+   * Сколько проверок **собрано** прогоном.
+   *
+   * Ноль означает, что прогон не состоялся (например, мутация сломала разбор файла). Это нельзя
+   * читать как «оракул не поймал»: выводы противоположны — «контроль недействителен» против
+   * «оракул слеп». Различать их обязан сам инструмент (случай 10 реестра проверяемости).
+   */
+  readonly collected: number;
   readonly passed: number;
   readonly failed: readonly string[];
   /** Код возврата vitest: 0 — зелено. */
@@ -123,12 +131,13 @@ export function runOracles(tests: readonly string[], jsonFile: string): OracleRu
   } catch (error) {
     exitCode = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status: unknown }).status) : 1;
   }
-  if (!fs.existsSync(jsonFile)) return { passed: 0, failed: ['<нет отчёта оракулов>'], exitCode };
+  if (!fs.existsSync(jsonFile)) return { collected: 0, passed: 0, failed: ['<нет отчёта оракулов>'], exitCode };
   const report = JSON.parse(fs.readFileSync(jsonFile, 'utf-8')) as {
     testResults: { assertionResults: { status: string; fullName: string }[] }[];
   };
   const all = report.testResults.flatMap((file) => file.assertionResults);
   return {
+    collected: all.length,
     passed: all.filter((item) => item.status === 'passed').length,
     failed: all.filter((item) => item.status === 'failed').map((item) => item.fullName),
     exitCode,
@@ -143,8 +152,13 @@ export interface DefectReport {
   readonly shaBefore: string;
   readonly shaAfter: string;
   readonly shaMatch: boolean;
+  /** Изменила ли мутация файл: неизменившая — не контроль. */
+  readonly mutatedChanged: boolean;
   readonly caughtBy: readonly string[];
   readonly caught: number;
+  /** Сколько проверок собрал прогон с дефектом: ноль — контроль недействителен, а не «оракул слеп». */
+  readonly mutatedCollected: number;
+  readonly restoredCollected: number;
   readonly restoredFailed: number;
   readonly restoredPassed: number;
 }
@@ -163,11 +177,15 @@ export function checkDefect(defect: Defect, work = WORK): DefectReport {
     throw new Error(`дефект ${defect.id}: в ${defect.file} не найдено «${defect.from}»`);
   }
   fs.writeFileSync(file, source.replace(defect.from, defect.to), 'utf-8');
+  // Мутация обязана изменить файл: правка-пустышка («from» равно «to») выглядела бы как контроль.
+  const mutatedChanged = sha256(file) !== shaBefore;
 
   let caughtBy: readonly string[] = [];
+  let mutatedCollected = 0;
   try {
     const mutated = runOracles(defect.tests, path.join(work, `run-${defect.id}.json`));
     caughtBy = mutated.failed;
+    mutatedCollected = mutated.collected;
   } finally {
     fs.copyFileSync(backup, file); // восстановление из копии
   }
@@ -181,11 +199,51 @@ export function checkDefect(defect: Defect, work = WORK): DefectReport {
     shaBefore,
     shaAfter,
     shaMatch: shaBefore === shaAfter,
+    mutatedChanged,
     caughtBy,
     caught: caughtBy.length,
+    mutatedCollected,
+    restoredCollected: restored.collected,
     restoredFailed: restored.failed.length,
     restoredPassed: restored.passed,
   };
+}
+
+/**
+ * Годен ли негативный контроль. Чистая функция — у неё **свой** негативный контроль
+ * (`src/scripts/e2kLayoutNegativeControl.test.ts`), иначе она не проверка, а украшение.
+ *
+ * Проверяются три числа, а не одно: сколько проверок **собрано**, сколько прошло, сколько
+ * покраснело. Ноль собранных — это «контроль недействителен», а не «оракул слеп»: выводы
+ * противоположны (случай 10 реестра проверяемости).
+ */
+export function verdictOf(report: DefectReport): string[] {
+  const problems: string[] = [];
+  if (!report.mutatedChanged) {
+    problems.push('мутация не изменила файл — контроль пустой');
+  }
+  if (report.mutatedCollected === 0) {
+    problems.push('прогон с дефектом собрал 0 проверок: мутация сломала файл, а не оракул — контроль недействителен');
+  }
+  if (report.restoredCollected === 0) {
+    problems.push('прогон после восстановления собрал 0 проверок: восстановление не вернуло рабочий файл');
+  }
+  if (report.mutatedCollected !== report.restoredCollected) {
+    problems.push(
+      `собрано проверок: с дефектом ${report.mutatedCollected}, после восстановления ` +
+        `${report.restoredCollected} — это разные объекты, контроль недействителен`,
+    );
+  }
+  if (report.caught === 0) {
+    problems.push('ни один оракул не покраснел — контроль ничего не проверяет');
+  }
+  if (!report.shaMatch) {
+    problems.push(`sha256 разошёлся: ${report.shaBefore} → ${report.shaAfter}`);
+  }
+  if (report.restoredFailed > 0) {
+    problems.push(`после восстановления осталось красным: ${report.restoredFailed}`);
+  }
+  return problems;
 }
 
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
@@ -196,14 +254,11 @@ export function runAll(defects: readonly Defect[] = DEFECTS, work = WORK): Defec
   for (const defect of defects) {
     const report = checkDefect(defect, work);
     reports.push(report);
-    const problems: string[] = [];
-    // Дефект считается пойманным, только если оракул покраснел, файл восстановлен и оракул ожил.
-    if (report.caught === 0) problems.push('ни один оракул не покраснел — контроль ничего не проверяет');
-    if (!report.shaMatch) problems.push(`sha256 разошёлся: ${report.shaBefore} → ${report.shaAfter}`);
-    if (report.restoredFailed > 0) problems.push(`после восстановления осталось красным: ${report.restoredFailed}`);
+    const problems = verdictOf(report);
     console.log(
       `${problems.length === 0 ? 'ПОЙМАН  ' : 'ПРОБЛЕМА'} ${report.id} ${report.title}\n` +
         `         файл ${report.file}\n` +
+        `         собрано проверок: с дефектом ${report.mutatedCollected}, после восстановления ${report.restoredCollected}\n` +
         `         покраснело ${report.caught}: ${report.caughtBy.slice(0, 3).join(' | ')}${report.caught > 3 ? ' | …' : ''}\n` +
         `         sha256 до ${report.shaBefore} после ${report.shaAfter} совпал: ${report.shaMatch}\n` +
         `         после восстановления: прошло ${report.restoredPassed}, покраснело ${report.restoredFailed}`,
