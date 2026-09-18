@@ -20,6 +20,7 @@ import {
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
+import { classifyFailure } from './failureKind';
 import { saveTrace } from '../trace/traceStore';
 import { logger } from '../logger';
 import { compileSource, compileToBuildReport } from '../compiler/compiler';
@@ -83,26 +84,21 @@ export function hasBlockingSemanticErrors(report: BuildReport | undefined): bool
 }
 
 /**
- * A-2: Извлекает kind последней ошибки из buildReport.
- * Приоритет: semantic (blocking) → compiler → parser → lexer → semantic (non-blocking).
- * Если ничего нет → 'unknown'.
+ * A-2: kind последней ошибки прогона.
+ *
+ * С 2026-09-19 делегирует в {@link classifyFailure}: добавлен `goldenReport`,
+ * без которого отказы на исполнении (сборка прошла, golden нет) давали
+ * `unknown` — по замеру это 42 % реальных отказов, и именно они составляли
+ * 683 записи `unknown` из 693 в `runs/repair-failures.jsonl`.
+ *
+ * @param report BuildReport; при `undefined` причину ищут в golden
+ * @param golden GoldenReport — нужен, когда сборка прошла, а прогон упал
  */
-export function extractLastErrorKind(report: BuildReport | undefined): string {
-  if (!report) return 'unknown';
-  const blocking = (report.semanticErrors ?? []).filter(e =>
-    (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
-  );
-  if (blocking.length > 0) return blocking[blocking.length - 1]!.kind;
-  if ((report.compilerErrors ?? []).length > 0) {
-    const last = report.compilerErrors![report.compilerErrors!.length - 1]!;
-    return (last as { kind?: string }).kind ?? 'compiler_error';
-  }
-  if ((report.parserErrors ?? []).length > 0) return 'parser_error';
-  if ((report.lexerErrors ?? []).length > 0) return 'lexer_error';
-  if ((report.semanticErrors ?? []).length > 0) {
-    return report.semanticErrors![report.semanticErrors!.length - 1]!.kind ?? 'semantic_warning';
-  }
-  return 'unknown';
+export function extractLastErrorKind(
+  report: BuildReport | undefined,
+  golden?: GoldenReport,
+): string {
+  return classifyFailure(report, golden);
 }
 
 export async function runPipeline(
@@ -289,9 +285,9 @@ export async function runPipeline(
     }
 
     // repair exhausted — A-2: сохраняем kind последней ошибки
-    const lastErrorKind = extractLastErrorKind(buildReport);
+    const lastErrorKind = extractLastErrorKind(buildReport, goldenReport);
     if (lastErrorKind === 'unknown') {
-      log.warn('A-2: repair_exhausted без определённого error.kind — buildReport пустой или нет ошибок');
+      log.warn('A-2: repair_exhausted без определённого error.kind — ни сборка, ни golden не дали причины');
     } else {
       log.error('repair loop exhausted', { repairAttempts, lastErrorKind });
     }

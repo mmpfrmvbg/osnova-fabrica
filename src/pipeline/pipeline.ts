@@ -300,7 +300,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
           totalDurationMs,
           shadow_hits: shadowHits,
           error: 'max repair loops reached',
-          lastErrorKind: extractLastErrorKind(br),
+          lastErrorKind: extractLastErrorKind(br, state.goldenReport ?? lastGoldenForRepair),
         };
       }
 
@@ -353,7 +353,10 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             totalDurationMs,
             shadow_hits: shadowHits,
             error: `repair failed: ${msg}`,
-            lastErrorKind: extractLastErrorKind(state.buildReport ?? lastBuildForRepair),
+            lastErrorKind: extractLastErrorKind(
+              state.buildReport ?? lastBuildForRepair,
+              state.goldenReport ?? lastGoldenForRepair,
+            ),
           };
         }
         repairAttempts++;
