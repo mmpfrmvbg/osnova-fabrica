@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.typecheck.json",
-    "test": "vitest run --reporter=default --reporter=json --outputFile=.tmp/vitest-report.json && npm run check:language-schema",
+    "test": "vitest run --reporter=default --reporter=json --outputFile=.tmp/vitest-report.json && npm run check:test-files && npm run check:language-schema",
     "check:test-files": "tsx src/scripts/testFiles.audit.ts",
     "test:e2e-osiris": "vitest run --config vitest.e2e.config.ts",
     "coverage": "vitest run --coverage --coverage.exclude=src/agents/RepairEngineer.ts --coverage.exclude=src/pipeline-llm/buildOsnovaPrompt.ts --exclude src/agents/RepairEngineer.test.ts",
