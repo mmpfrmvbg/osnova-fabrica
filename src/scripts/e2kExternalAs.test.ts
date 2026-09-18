@@ -36,11 +36,18 @@ import {
   assembleAll,
   buildAsSamples,
   buildAssemblyScript,
+  buildJumpPrograms,
+  buildProgramScript,
+  commandText,
   findExternalAs,
   firstDifference,
   parseAssemblyOutput,
+  parseProgramOutput,
+  programAsText,
+  programImage,
   registerText,
   runExternalAs,
+  runExternalAsPrograms,
   type AsSample,
 } from './e2kExternalAs';
 
@@ -124,6 +131,109 @@ describe('двусторонняя проверка: разбор и сравн�
     expect(diff!.index).toBe(7); // младший байт слова: код операции
     expect(toHex(ours)).toContain('10');
     expect(toHex(theirs)).toContain('12');
+  });
+});
+
+describe('двусторонняя проверка: программы с переходом (5–10 образцов)', () => {
+  const encoder = getEncoder('e2k');
+  const programs = buildJumpPrograms();
+  const { tool } = findExternalAs();
+
+  it('состав: 5–10 программ, у каждой метка, один переход и названный источник', () => {
+    expect(programs.length).toBeGreaterThanOrEqual(5);
+    expect(programs.length).toBeLessThanOrEqual(10);
+    expect(new Set(programs.map((program) => program.key)).size).toBe(programs.length);
+    expect(new Set(programs.map((program) => program.label)).size).toBe(programs.length);
+    for (const program of programs) {
+      expect(program.source, `${program.key}: источник не назван`).toMatch(/docs\/e2k-/);
+      expect(program.instructions.filter((item) => item.mnemonic === 'IR.jmp').length, program.key).toBe(1);
+      expect(program.targetIndex, program.key).toBeGreaterThanOrEqual(0);
+      expect(program.targetIndex, program.key).toBeLessThan(program.instructions.length);
+      // Метка стоит там, где начинается цель, — иначе адрес метки у ассемблера не с чем сверять.
+      const image = programImage(program.instructions, encoder);
+      expect(image.refusals, `${program.key}: отказы раскладки`).toEqual([]);
+      expect(program.asText, `${program.key}: метки нет в тексте`).toContain(`${program.label}:`);
+      expect(image.targetAddress, `${program.key}`).toBe(image.addresses.get(program.targetIndex));
+    }
+    // Обе стороны: цель и впереди, и позади команды перехода.
+    expect(programs.some((program) => programImage(program.instructions, encoder).disp > 0)).toBe(true);
+    expect(programs.some((program) => programImage(program.instructions, encoder).disp < 0)).toBe(true);
+  });
+
+  it('ассемблерный текст строится из наших понижённых команд, а не пишется руками', () => {
+    // Расхождение нашего текста с нашими байтами ассемблер поймал бы; проверяем и здесь.
+    const sample = programs[0]!;
+    expect(sample.asText).toBe(programAsText(sample.instructions, sample.label));
+    expect(commandText({ mnemonic: 'adds', channel: 0, operands: [
+      { kind: 'reg', index: 1 },
+      { kind: 'reg', index: 2 },
+      { kind: 'reg', index: 3 },
+    ] })).toBe('adds,0 %b[1], %b[2], %b[3]');
+    // Переход в тексте записан МЕТКОЙ: смещение обязан посчитать ассемблер, а не мы.
+    expect(sample.asText).toMatch(new RegExp(`disp %ctpr\\d+, ${sample.label}`));
+    expect(sample.asText).toMatch(/^ct %ctpr\d+/m);
+  });
+
+  it('разбор вывода: байты и адрес метки; «*» от od не пропускается молча', () => {
+    const ok = parseProgramOutput('== 0\n 01 02\n@@ 0 0000000000000020 l .text 0 osnova_target_x\n', 1);
+    expect(ok[0]).toEqual({ ok: true, bytes: Uint8Array.from([1, 2]), label: 0x20 });
+    const noLabel = parseProgramOutput('== 0\n 01 02\n', 1);
+    expect(noLabel[0]).toEqual({ ok: true, bytes: Uint8Array.from([1, 2]) });
+    // `od` без `-v` печатает «*» вместо повторяющейся строки: байты теряются, и это отказ, а не «совпало».
+    const collapsed = parseProgramOutput('== 0\n 01 02 03 04\n*\n', 1);
+    expect(collapsed[0]!.ok).toBe(false);
+    if (!collapsed[0]!.ok) expect(collapsed[0]!.error).toMatch(/\*/);
+    // Сборочный скрипт обязан звать `od` с `-v` — иначе повтор байтов исчезает.
+    if (tool !== undefined) {
+      const script = buildProgramScript(programs, tool);
+      expect(script).toContain('od -An -tx1 -v');
+      // Второй свидетель — адрес метки из таблицы символов: дизассемблер ищется, а не берётся на веру.
+      expect(script, 'в скрипте нет чтения таблицы символов').toMatch(/\$OBJDUMP -t/);
+      expect(script, 'дизассемблер не ищется').toContain('e2k-linux-objdump');
+      expect(script.split('osnova_target_').length - 1, 'метки нет в скрипте').toBeGreaterThanOrEqual(programs.length);
+    }
+    expect(parseAssemblyOutput('== 0\n 01 02\n', 1)[0]).toEqual({ ok: true, bytes: Uint8Array.from([1, 2]) });
+  });
+
+  it('все программы совпали с ассемблером побайтово, и адрес метки совпал с адресом цели', () => {
+    if (tool === undefined) return;
+    const report = runExternalAsPrograms();
+    expect(report.tool).not.toBeNull();
+    const mismatched = report.comparisons.filter((item) => item.status !== 'совпал');
+    expect(mismatched.map((item) => `${item.key}: ${item.reason}`)).toEqual([]);
+    expect(report.summary.matched).toBe(report.summary.total);
+    expect(report.summary.total).toBeGreaterThanOrEqual(5);
+    // Второй свидетель: адрес метки, который ассемблер посчитал сам.
+    expect(report.summary.labelsMatched, 'адреса меток не сверены').toBe(report.summary.total);
+    for (const item of report.comparisons) {
+      expect(item.labelAddress, `${item.key}: адрес метки не прочитан`).toBeDefined();
+      expect(item.labelAddress, `${item.key}`).toBe(item.targetAddress);
+      expect(item.disp, `${item.key}: смещение не ведёт в цель`).toBeGreaterThan(-1000);
+    }
+  });
+
+  it('негативный контроль: сдвиг цели меняет наши байты, и сравнение это поймает', () => {
+    if (tool === undefined) return;
+    const sample = programs[0]!;
+    // Сдвиг цели на одну инструкцию НАЗАД: цель остаётся внутри потока, а адрес меняется.
+    const other = sample.targetIndex - 1;
+    const shifted = {
+      ...sample,
+      instructions: sample.instructions.map((instruction) =>
+        instruction.mnemonic === 'IR.jmp'
+          ? { ...instruction, operands: [{ kind: 'imm' as const, value: other }] }
+          : instruction,
+      ),
+    };
+    const ours = programImage(sample.instructions, encoder).bytes;
+    const moved = programImage(shifted.instructions, encoder);
+    expect(moved.refusals).toEqual([]);
+    expect(toHex(moved.bytes), 'сдвиг цели не изменил байты').not.toBe(toHex(ours));
+    expect(moved.targetAddress, 'цель не сдвинулась').not.toBe(programImage(sample.instructions, encoder).targetAddress);
+    // Сравнение «наши байты против байтов ассемблера» обязано найти расхождение, а не пропустить.
+    const diff = firstDifference(moved.bytes, ours);
+    expect(diff, 'расхождение не найдено').toBeDefined();
+    if (diff !== undefined) expect(diff.index, 'расхождение не в поле смещения').toBeGreaterThanOrEqual(4);
   });
 });
 
