@@ -91,6 +91,39 @@ export const DEFECTS: readonly Defect[] = [
     to: '  return raw; // ДЕФЕКТ 4.4: поле прочитано беззнаково',
     tests: ['src/e2k/twoPassLayout.test.ts'],
   },
+  // ── Дефекты СОПОСТАВЛЕНИЯ ПАРЫ «сравнение → условный переход» (шаг 3) ───────
+  {
+    id: '5.1',
+    title: 'сопоставление снято — пар нет вовсе',
+    file: 'src/e2k/predicatePairing.ts',
+    from: '  return { pairs, refusals };',
+    to: '  return { pairs: [], refusals }; // ДЕФЕКТ 5.1: сопоставление снято',
+    tests: ['src/e2k/e2kPredicatePairs.test.ts'],
+  },
+  {
+    id: '5.2',
+    title: 'полярность перепутана (переход проверяет предикат вместо инверсного)',
+    file: 'src/e2k/predicatePairing.ts',
+    from: 'const inverted = (jump.mnemonic === "IR.jmp_if_not") !== comparison.flipped;',
+    to: 'const inverted = (jump.mnemonic === "IR.jmp_if_not") === comparison.flipped; // ДЕФЕКТ 5.2',
+    tests: ['src/e2k/e2kPredicatePairs.test.ts'],
+  },
+  {
+    id: '5.3',
+    title: 'сравнение пишет %pred1, а переход читает %pred0',
+    file: 'src/e2k/predicatePairing.ts',
+    from: '      predicate: PREDICATE_FOR_PAIRS,',
+    to: '      predicate: PREDICATE_FOR_PAIRS + 1, // ДЕФЕКТ 5.3: предикат пары разошёлся с условием',
+    tests: ['src/e2k/e2kPredicatePairs.test.ts'],
+  },
+  {
+    id: '5.4',
+    title: 'предпосылка ослаблена: пара разрешена при лишнем читателе',
+    file: 'src/e2k/predicatePairing.ts',
+    from: '    if (readers.length > 1) {',
+    to: '    if (readers.length > 2) { // ДЕФЕКТ 5.4: лишний читатель пропущен',
+    tests: ['src/e2k/e2kPredicatePairs.test.ts'],
+  },
 ];
 
 /** sha256 файла — им сверяется «до» и «после». */

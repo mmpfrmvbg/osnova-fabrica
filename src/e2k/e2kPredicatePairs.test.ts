@@ -289,14 +289,25 @@ describe('сопоставление пары: 5. внешняя сверка ц
 
     const comparison = ir('IR.lt', [reg(5), reg(3), reg(4)]);
     const jump = ir('IR.jmp_if_not', [reg(5), imm(0)]);
-    const cmpLowered = lowerCarrier(comparison, { predicate: { mnemonic: 'cmplsb', index: 0 } });
-    const jumpLowered = lowerCarrier(jump, { condition: 0x60, displacement: displacement.disp });
+    // Условие и предикат берутся ИЗ СОПОСТАВЛЕНИЯ, а не подставляются литералами: иначе
+    // перепутанная полярность (или разошедшийся номер предиката) внешней сверкой не ловилась бы.
+    const pairing = pairPredicates(carriers);
+    expect(pairing.refusals.map((item) => `#${item.index}: ${item.reason}`)).toEqual([]);
+    expect(pairing.pairs.length, 'пара не составлена').toBe(1);
+    const pair = pairing.pairs[0]!;
+    expect(pair.comparisonIndex, 'пара не та').toBe(1);
+    expect(pair.jumpIndex, 'переход пары не тот').toBe(2);
+    const cmpLowered = lowerCarrier(comparison, { predicate: { mnemonic: pair.cmpMnemonic, index: pair.predicate } });
+    const jumpLowered = lowerCarrier(jump, { condition: pair.condition, displacement: displacement.disp });
     expect(cmpLowered.ok && jumpLowered.ok).toBe(true);
     if (!cmpLowered.ok || !jumpLowered.ok) return;
     const ours = Uint8Array.from(
       [...cmpLowered.instructions, ...jumpLowered.instructions].flatMap((command) => [...realEncoder.encode(command)]),
     );
     expect(ours.length, 'наша тройка — 24 байта').toBe(24);
+    // Полярность в байтах: `~%pred0` — код условия 0x60, а не 0x40.
+    expect(jumpLowered.instructions[1]!.operands[1], 'полярность в команде ct').toEqual(imm(pair.condition));
+    expect(pair.condition, 'полярность пары').toBe(0x60);
 
     const samples: AsSample[] = [
       {
