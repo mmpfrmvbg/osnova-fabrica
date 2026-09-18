@@ -530,6 +530,9 @@ export function commandText(command: AsmInstruction): string {
   }
   const operands = command.operands.map((operand, index) => {
     if (operand.kind === 'pred') return `%pred${operand.index}`;
+    // 64-битный литерал печатается формой `_f64` — так его собирает ассемблер МЦСТ
+    // (`movtd,0 _f64 0x100000, %r8`), и именно эта форма сверяется в оракуле формы 0xdc.
+    if (operand.kind === 'imm64') return `_f64 0x${operand.value.toString(16)}`;
     if (operand.kind === 'imm') return String(operand.value);
     return registerText(entry.argFormats[index]!, operand.index);
   });

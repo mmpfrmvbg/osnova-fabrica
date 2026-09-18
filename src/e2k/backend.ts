@@ -72,6 +72,7 @@ export type RegisterFile = "base" | "window";
 export type Operand =
   | { readonly kind: "reg"; readonly index: number; readonly file?: RegisterFile }
   | { readonly kind: "imm"; readonly value: number }
+  | { readonly kind: "imm64"; readonly value: bigint }
   | { readonly kind: "pred"; readonly index: number };
 
 /** Файл регистров операнда; явно не названный — базовый (так поле читалось до этой правки). */
@@ -178,6 +179,8 @@ function sameOperand(a: Operand, b: Operand): boolean {
     return a.index === b.index && registerFileOf(a) === registerFileOf(b);
   }
   if (a.kind === "imm" && b.kind === "imm") return a.value === b.value;
+  // 64-битный литерал сравнивается как bigint: в number он не представим.
+  if (a.kind === "imm64" && b.kind === "imm64") return a.value === b.value;
   // Предикат сравнивается по номеру; смешать его с регистром не даёт уже проверка вида.
   if (a.kind === "pred" && b.kind === "pred") return a.index === b.index;
   return false;
@@ -216,6 +219,7 @@ function label(instruction: AsmInstruction): string {
     .map((o) => {
       if (o.kind === "reg") return `r${o.index}`;
       if (o.kind === "pred") return `pred${o.index}`;
+      if (o.kind === "imm64") return `f64:${o.value}`;
       return `#${o.value}`;
     })
     .join(", ");

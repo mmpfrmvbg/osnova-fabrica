@@ -462,6 +462,14 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
   const entry = BY_MNEMONIC.get(instruction.mnemonic);
   if (entry === undefined) throw new EncodingRefusedError(realRefusalReason(instruction.mnemonic));
   const channel = channelOf(entry, instruction.channel);
+  // 64-битный литерал (`imm64`) кодируется формой 0xdc: два LTS-слова. Отдельная ветвь, потому
+  // что значение — bigint, а короткие формы работают с number.
+  const wide = instruction.operands.findIndex((operand) => operand.kind === "imm64");
+  if (wide >= 0) {
+    const literal = instruction.operands[wide];
+    if (literal === undefined || literal.kind !== "imm64") throw new EncodingError("ожидался 64-битный литерал");
+    return encodeImm64(entry, channel, instruction.operands, wide, literal.value);
+  }
   const literal = literalOperand(entry, instruction.operands);
   if (literal !== undefined) return encodeWithLiteral(entry, channel, instruction.operands, literal);
   const fields = fieldsOf(entry, instruction.operands);
@@ -790,8 +798,55 @@ function literalOperand(entry: RealOpcodeEntry, operands: readonly Operand[]): L
  */
 export const LITERAL_FIELD_F16 = 0xd4;
 export const LITERAL_FIELD_F32 = 0xd8;
+export const LITERAL_FIELD_F64 = 0xdc;
 
 /** Собрать инструкцию с литеральным операндом: 16 байт, литерал — в последнем слове. */
+/**
+ * Собрать инструкцию с **64-битным** литералом: поле ссылки `0xdc`, два слова литерала.
+ *
+ * Порядок слов — **старшее первым** (`bytes[8..11]` — старшие 32 бита, `bytes[12..15]` — младшие):
+ * так измерено ассемблером МЦСТ — `movtd,0 _f64 0x100000, %r8` даёт `00 00 00 00 00 00 10 00`, а
+ * `0xdeadbeefcafebabe` — `ef be ad de be ba fe ca`. Форма выбирается **видом операнда** (`imm64`),
+ * а не величиной значения: `0x100000` влезает в 32 бита, но как адрес требует 64.
+ */
+function encodeImm64(
+  entry: RealOpcodeEntry,
+  channel: number,
+  operands: readonly Operand[],
+  literalIndex: number,
+  value: bigint,
+): Uint8Array {
+  if (value < -(1n << 63n) || value >= 1n << 64n) {
+    throw new EncodingRefusedError(
+      `«${entry.mnemonic}»: литерал ${value} не влезает в 64 бита (форма 0xdc несёт два LTS-слова; ` +
+        "opcodes/e2k-dis.c:485, gas/config/tc-e2k.c:2006)",
+    );
+  }
+  const bits = BigInt.asUintN(64, value);
+  if (entry.form === "ALF11") {
+    throw new EncodingRefusedError(
+      `«${entry.mnemonic}»: 64-битный литерал в длинной форме (ALS + ALES) не реализован — ` +
+        "слог литерала конкурирует за место с полуслогом ALES",
+    );
+  }
+  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0, pdst: 0 };
+  entry.operands.forEach((slot, index) => {
+    if (index === literalIndex) return;
+    if (slot === "pdst") return;
+    values[slot] = registerField(operands[index], slot, entry.mnemonic);
+  });
+  const literalSlot = entry.operands[literalIndex]!;
+  values[literalSlot] = LITERAL_FIELD_F64;
+  if (entry.form === "ALF2") values.src1 = ALES_OPCE_NONE;
+  const bytes = new Uint8Array(REAL_LONG_FORM_SIZE);
+  // HS: mdl = 1, lng = 1 (16 байт), присутствует слог ALS.
+  writeWord(bytes, 0, ((1 << 4) | 1 | ((1 << channel) << HS.al.shift)) >>> 0);
+  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, dst: values.dst!, pdst: 0 }));
+  writeWord(bytes, 8, Number(bits >> 32n) >>> 0);
+  writeWord(bytes, 12, Number(bits & 0xffffffffn) >>> 0);
+  return bytes;
+}
+
 function encodeWithLiteral(
   entry: RealOpcodeEntry,
   channel: number,
@@ -1040,6 +1095,13 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
         return { kind: "imm" as const, value: signed };
       }
       if ((value & 0xfc) === 0xd8) return { kind: "imm" as const, value: readWord(bytes, 12) | 0 };
+      if ((value & 0xfc) === 0xdc) {
+        // 0xdc — 64-битный литерал: два LTS-слова, старшее первым (opcodes/e2k-dis.c:485,
+        // gas/config/tc-e2k.c:2006). Порядок слов задан измеренной последовательностью.
+        const high = readWord(bytes, 8) >>> 0;
+        const low = readWord(bytes, 12) >>> 0;
+        return { kind: "imm64" as const, value: (BigInt(high) << 32n) | BigInt(low) };
+      }
       throw new EncodingRefusedError(
         `НЕТ В ИСТОЧНИКЕ: 64-битный литерал (поле 0x${value.toString(16)}) не реализован`,
       );
