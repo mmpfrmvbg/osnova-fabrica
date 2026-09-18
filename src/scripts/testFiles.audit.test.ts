@@ -18,7 +18,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { EXPECTED_EXCLUSIONS, auditTestFiles } from './testFiles.audit';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { EXPECTED_EXCLUSIONS, auditTestFiles, evidenceLines, rootProblem } from './testFiles.audit';
 
 const A = 'src/e2k/one.test.ts';
 const B = 'src/e2k/two.test.ts';
@@ -93,5 +95,33 @@ describe('сторож счёта файлов оракулов', () => {
       expect(exclusion.match.length, 'пустая подстрока исключения').toBeGreaterThan(2);
       expect(exclusion.reason.length, `«${exclusion.match}»: причина не названа`).toBeGreaterThan(10);
     }
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: неверный ROOT ловится, а не даёт «ноль расхождений»', () => {
+    // Наблюдённое 2026-09-19: сторож печатал «на диске 145», а прямая проверка говорила «нет на
+    // диске», и по выводу нельзя было понять, какое измерение врёт. Теперь корень проверяется
+    // отдельно: каталог без package.json/src — красное, а не «всё сошлось».
+    const notRepo = path.join(os.tmpdir(), 'osnova-нет-такого-корня');
+    const problem = rootProblem(notRepo);
+    expect(problem, 'неверный корень обязан быть назван').toBeDefined();
+    expect(problem).toContain(notRepo);
+    expect(problem, 'не сказано, чего нет в корне').toMatch(/package\.json|src\//);
+    expect(problem, 'выводы при неверном корне не объявлены недействительными').toMatch(/недействительн/);
+    // А настоящий корень (от этого файла — два уровня вверх) проблемой не считается.
+    const here = path.resolve(__dirname, '..', '..');
+    expect(rootProblem(here), `корень ${here} должен выглядеть как репозиторий`).toBeUndefined();
+  });
+
+  it('по КАЖДОМУ расхождению печатается доказательство с обоими ответами', () => {
+    const audit = auditTestFiles([A, B, 'src/e2k/absent.test.ts'], [A, B, 'src/e2k/extra.test.ts'], []);
+    const lines = evidenceLines(audit, path.resolve(__dirname, '..', '..'));
+    const joined = lines.join('\n');
+    // Файл, которого нет на диске: tracked=да onDisk=нет — это утверждение о дереве, не о прогоне.
+    expect(joined, 'нет доказательства по отсутствующему на диске').toContain('src/e2k/absent.test.ts');
+    expect(joined).toMatch(/tracked=да onDisk=нет|tracked=да onDisk=да/);
+    // Файл, исполнявшийся, но не отслеживаемый: tracked=нет.
+    expect(joined, 'нет доказательства по неотслеживаемому').toContain('src/e2k/extra.test.ts');
+    expect(joined).toContain('tracked=нет');
+    expect(lines.length, 'доказательств должно быть по одному на расхождение').toBe(2);
   });
 });

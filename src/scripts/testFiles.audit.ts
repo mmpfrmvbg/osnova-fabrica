@@ -190,8 +190,62 @@ export function collectedTestFiles(reportFile = REPORT): string[] | undefined {
   return (report.testResults ?? []).map((item) => item.name ?? '').filter((name) => name !== '');
 }
 
-/** Собрать расхождения и напечатать их с именами файлов. */
+/**
+ * Проблема с корнем проверки. `undefined` — корень выглядит как корень репозитория.
+ *
+ * Зачем это отдельная функция: **уверенный вывод проверки, которая не показывает, что именно она
+ * проверяла, перепроверить нельзя**. Наблюдённое 2026-09-19: сторож печатал «на диске 145», тогда
+ * как прямая проверка тех же файлов давала «на диске нет» — два измерения противоречили, и по
+ * выводу нельзя было понять, какое из них врёт. Поэтому корень, cwd и счётчики печатаются всегда,
+ * а несуществующий корень — красное, а не «ноль расхождений».
+ */
+export function rootProblem(root: string): string | undefined {
+  const missing: string[] = [];
+  if (!fs.existsSync(path.join(root, 'package.json'))) missing.push('package.json');
+  if (!fs.existsSync(path.join(root, 'src'))) missing.push('src/');
+  if (missing.length === 0) return undefined;
+  return (
+    `корень проверки не похож на корень репозитория: ${root} — нет ${missing.join(', ')}; ` +
+    'выводы сторожа при таком корне недействительны'
+  );
+}
+
+/**
+ * Строки доказательства по каждому расхождению: путь и **оба** ответа про него.
+ *
+ * `tracked=true onDisk=false` читается однозначно: файл числится в git и на диске его нет — это
+ * утверждение о дереве, а не о прогоне.
+ */
+export function evidenceLines(
+  audit: TestFileAudit,
+  root: string,
+): readonly string[] {
+  const lines: string[] = [];
+  for (const file of audit.absentFromDisk) {
+    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=да onDisk=нет (существует: ${fs.existsSync(path.join(root, file))})`);
+  }
+  for (const file of audit.dropped) {
+    // Оба ответа ИЗМЕРЯЮТСЯ, а не подставляются: подставленное «onDisk=да» было бы утверждением
+    // без проверки — ровно тем дефектом, ради которого этот сторож и написан.
+    const present = fs.existsSync(path.join(root, file));
+    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=да onDisk=${present ? 'да' : 'нет'} collected=нет`);
+  }
+  for (const file of audit.untracked) {
+    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=нет onDisk=${fs.existsSync(path.join(root, file)) ? 'да' : 'нет'} collected=да`);
+  }
+  return lines;
+}
+
+/** Собрать расхождения и напечатать их с именами файлов и доказательствами. */
 export function runAudit(): number {
+  console.log(`сторож счёта файлов: ROOT=${ROOT}`);
+  console.log(`сторож счёта файлов: cwd=${process.cwd()}`);
+  console.log(`сторож счёта файлов: отчёт=${REPORT} (есть: ${fs.existsSync(REPORT) ? 'да' : 'нет'})`);
+  const problem = rootProblem(ROOT);
+  if (problem !== undefined) {
+    console.error(`  КРАСНО: ${problem}`);
+    return 1;
+  }
   const tracked = trackedTestFiles();
   if (tracked === undefined) {
     console.error('сторож счёта файлов: git недоступен — проверка не выполнена (это не «пройдено»)');
@@ -208,13 +262,9 @@ export function runAudit(): number {
   }
   const audit = auditTestFiles(tracked, collected, EXPECTED_EXCLUSIONS, onDisk);
   console.log(
-    `сторож счёта файлов: в репозитории ${audit.expected}, на диске ${onDisk.length}, в прогоне ${audit.collected}`,
+    `сторож счёта файлов: tracked=${audit.expected}, onDisk=${onDisk.length}, collected=${audit.collected}`,
   );
-  for (const file of audit.absentFromDisk) {
-    console.log(
-      `  ВНИМАНИЕ: ${file} — числится в git, но на диске нет (sparse-checkout или удаление): прогон тут ни при чём`,
-    );
-  }
+  for (const line of evidenceLines(audit, ROOT)) console.log(line);
   const problems: string[] = [];
   for (const file of audit.dropped) {
     problems.push(
