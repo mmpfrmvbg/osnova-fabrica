@@ -52,6 +52,8 @@ export default defineConfig({
       // шлюз `npm run gate:qemu` (docs/verification-debt.md, случай 12).
       '**/e2kQemuExec.test.ts',
       '**/e2kQemuRun.audit.test.ts',
+      // Исполняет QEMU так же, как два предыдущих: ресурсозависимый (случай 12).
+      '**/e2kSyscallRuntime.test.ts',
     ],
   },
 });

@@ -49,6 +49,10 @@ export default defineConfig({
     },
     singleFork: true,
     isolate: true,
-    include: ['src/e2k/e2kQemuExec.test.ts', 'src/scripts/e2kQemuRun.audit.test.ts'],
+    include: [
+      'src/e2k/e2kQemuExec.test.ts',
+      'src/scripts/e2kQemuRun.audit.test.ts',
+      'src/e2k/e2kSyscallRuntime.test.ts',
+    ],
   },
 });
