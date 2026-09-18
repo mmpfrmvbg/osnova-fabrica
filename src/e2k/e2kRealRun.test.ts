@@ -92,8 +92,14 @@ const REPORTS: ReadonlyMap<string, KernelRealReport> = new Map(
 );
 
 describe('сквозной прогон: понижение и кодирование', () => {
-  it('таблица понижения описывает четыре операции и у каждой названа предпосылка', () => {
-    expect(LOWERING.map((rule) => rule.carrier).sort()).toEqual(['IR.add', 'IR.move', 'IR.mul', 'IR.sub']);
+  it('таблица понижения описывает пять операций и у каждой названа предпосылка', () => {
+    expect(LOWERING.map((rule) => rule.carrier).sort()).toEqual([
+      'IR.add',
+      'IR.const',
+      'IR.move',
+      'IR.mul',
+      'IR.sub',
+    ]);
     for (const rule of LOWERING) {
       expect(rule.semantics, `${rule.carrier}: не назван источник семантики`).toMatch(/руководство МЦСТ/);
       expect(rule.fromIr.length).toBe(rule.slots.length);
@@ -125,7 +131,12 @@ describe('сквозной прогон: понижение и кодирова�
       expect(report.executableThroughReal, `${name}: неожиданно полный прогон`).toBe(false);
       const carriers = report.blocking.map((blocking) => blocking.carrier);
       expect(carriers, `${name}: не назван хост-вызов`).toContain('IR.invoke');
-      expect(carriers, `${name}: не названы константы пула`).toContain('IR.const');
+      // Константы подключены к понижению, упор сместился на пары «подготовка + переход».
+      expect(carriers, `${name}: не названы переходы/возвраты`).toContain('IR.ret');
+      expect(carriers, `${name}: константы обязаны быть понижены`).not.toContain('IR.const');
+      for (const blocking of report.blocking) {
+        expect(blocking.reason.length, `${name}: ${blocking.carrier} без причины`).toBeGreaterThan(10);
+      }
     });
   }
 
@@ -259,11 +270,36 @@ describe('сквозной прогон: понижение одной инст�
   });
 
   it('непонижаемые носители отвергаются с причиной', () => {
-    for (const carrier of ['IR.invoke', 'IR.const', 'IR.jmp', 'IR.lt', 'IR.div']) {
+    for (const carrier of ['IR.invoke', 'IR.jmp', 'IR.lt', 'IR.div', 'IR.ret']) {
       const result = lowerInstruction(asm(carrier, [reg(1), reg(2)]));
       expect(result.ok, `${carrier}`).toBe(false);
       if (!result.ok) expect(result.reason.length, `${carrier}`).toBeGreaterThan(10);
     }
+  });
+
+  it('IR.const: значение берётся из пула и становится литералом, а не регистром', () => {
+    const num = (value: number): Operand => ({ kind: 'imm', value });
+    // Носитель несёт (d, k, type): d = 7, индекс пула = 1, тип = 0 (i32).
+    const instruction = asm('IR.const', [reg(7), num(1), num(0)]);
+    const ok = lowerInstruction(instruction, { constants: [0, 42, 0] });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.instruction.mnemonic).toBe('movts');
+      expect(ok.instruction.operands).toEqual([
+        { kind: 'imm', value: 42 },
+        { kind: 'reg', index: 7 },
+      ]);
+      // Кодируется и разбирается обратно тем же значением — литерал не подменяется.
+      expect(realEncoder.decode(realEncoder.encode(ok.instruction)).operands[0]).toEqual({ kind: 'imm', value: 42 });
+    }
+    // Нецелая константа пула — названный отказ, а не молчаливое усечение.
+    const nonInteger = lowerInstruction(instruction, { constants: [0, 0.5, 0] });
+    expect(nonInteger.ok).toBe(false);
+    if (!nonInteger.ok) expect(nonInteger.reason).toMatch(/только целые/);
+    // Пул не передан — тоже отказ с причиной, а не выдуманное значение.
+    const noPool = lowerInstruction(instruction);
+    expect(noPool.ok).toBe(false);
+    if (!noPool.ok) expect(noPool.reason).toMatch(/пул констант не передан/);
   });
 
   it('негативный контроль: перепутанный порядок операндов ломает понижение', () => {

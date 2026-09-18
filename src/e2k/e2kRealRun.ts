@@ -52,13 +52,18 @@ import { resolveEntryIndex } from "../oracle/parity";
 import { isRegPacket, type RegInstruction, type RegModule } from "../runtime/vm/regcode";
 
 const reg = (index: number): Operand => ({ kind: "reg", index });
+const imm = (value: number): Operand => ({ kind: "imm", value });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ТАБЛИЦА ПОНИЖЕНИЯ
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Предпосылка понижения, проверяемая на данных прогона. */
-export type LoweringAssumption = "тип-значения" | "целые-операнды" | "32-битное-произведение";
+export type LoweringAssumption =
+  | "тип-значения"
+  | "целые-операнды"
+  | "32-битное-произведение"
+  | "литерал-в-32-битах";
 
 /** Правило понижения операции IR в операцию e2k. */
 export interface LoweringRule {
@@ -78,12 +83,33 @@ export interface LoweringRule {
   readonly semantics: string;
   /** Предпосылка, без которой соответствие неверно. */
   readonly assumption: LoweringAssumption;
+  /**
+   * Индекс операнда IR, который становится **литералом** e2k, а не регистром.
+   *
+   * У `IR.const` в этом операнде лежит **индекс пула констант** (`emitterShell.ts`: носитель несёт
+   * `[d, k, type]`), поэтому значение берётся из пула — см. {@link literalFromPool}.
+   */
+  readonly literalFromIr?: number;
+  /** Значение литерала берётся из пула констант модуля по операнду `literalFromIr`. */
+  readonly literalFromPool?: boolean;
 }
 
 /**
  * Понижение четырёх операций. Остальные носители IR **не понижаются** — см. {@link REFUSALS}.
  */
 export const LOWERING: readonly LoweringRule[] = [
+  {
+    carrier: "IR.const",
+    mnemonic: "movts",
+    slots: ["src2", "dst"],
+    fromIr: [1, 0], // носитель несёт (d, k, type): литерал — из пула по k, приёмник — d
+    semantics:
+      "MOVTs/d с литералом — загрузка константы (руководство МЦСТ, стр. 196; литеральная форма — " +
+      "opcodes/e2k-dis.c:445-479)",
+    assumption: "литерал-в-32-битах",
+    literalFromIr: 1,
+    literalFromPool: true,
+  },
   {
     carrier: "IR.move",
     mnemonic: "movts",
@@ -121,9 +147,6 @@ export const LOWERING: readonly LoweringRule[] = [
 
 /** Причины, по которым остальные носители IR не понижаются. */
 export const REFUSALS: Readonly<Record<string, string>> = {
-  "IR.const":
-    "не реализовано в e2k-real: пул констант требует слога литералов (LTS) и литерального размещения " +
-    "(gas/config/tc-e2k.c:9500-9508); в реализованных формах e2k-real его нет",
   "IR.invoke":
     "НЕТ В ИСТОЧНИКЕ: хост-вызов — операция рантайма; в таблице опкодов МЦСТ (opcodes/e2k-opc.h) " +
     "операции с такой семантикой нет",
@@ -157,13 +180,24 @@ export type LoweringResult =
   | { readonly ok: true; readonly instruction: AsmInstruction }
   | { readonly ok: false; readonly reason: string };
 
+/** Что нужно понижению, кроме самой инструкции: пул констант модуля. */
+export interface LoweringContext {
+  /** Пул констант модуля (`RegModule.constants`) — нужен носителю `IR.const`. */
+  readonly constants?: readonly unknown[];
+}
+
 /**
  * Понизить инструкцию-носитель IR в инструкцию e2k.
  *
  * Инструкция e2k собирается из тех же полей IR: у `move` — источник и приёмник, у остальных —
  * два источника и приёмник. Канал берётся из инструкции IR (эмиттер оболочки ставит 0).
+ *
+ * У `IR.const` один операнд — **индекс пула констант**, а не значение: он превращается в
+ * литерал e2k, и значение берётся из `context.constants`. Литералом кодируются только целые
+ * (16- и 32-битные), поэтому нецелое или слишком большое значение — названный отказ, а не
+ * молчаливая подстановка.
  */
-export function lowerInstruction(instruction: AsmInstruction): LoweringResult {
+export function lowerInstruction(instruction: AsmInstruction, context: LoweringContext = {}): LoweringResult {
   const rule = loweringOf(instruction.mnemonic);
   if (rule === undefined) {
     return {
@@ -186,6 +220,12 @@ export function lowerInstruction(instruction: AsmInstruction): LoweringResult {
   const operands: Operand[] = [];
   for (const index of rule.fromIr) {
     const operand = instruction.operands[index];
+    if (index === rule.literalFromIr) {
+      const literal = literalOf(instruction, index, operand, rule, context);
+      if (typeof literal === "string") return { ok: false, reason: literal };
+      operands.push(imm(literal));
+      continue;
+    }
     if (operand === undefined || operand.kind !== "reg") {
       return {
         ok: false,
@@ -204,6 +244,37 @@ export function lowerInstruction(instruction: AsmInstruction): LoweringResult {
     ok: true,
     instruction: { mnemonic: rule.mnemonic, channel: instruction.channel, operands },
   };
+}
+
+/**
+ * Значение литерала для слота правила — либо число, либо причина отказа строкой.
+ *
+ * У `IR.const` операнд — индекс пула, поэтому значение берётся из `context.constants`; у прочих
+ * правил с литералом (их пока нет) операнд нёс бы само число.
+ */
+function literalOf(
+  instruction: AsmInstruction,
+  index: number,
+  operand: Operand | undefined,
+  rule: LoweringRule,
+  context: LoweringContext,
+): number | string {
+  if (operand === undefined || operand.kind !== "imm") {
+    return `«${instruction.mnemonic}»: операнд ${index} — не число, а литерал e2k требует числа`;
+  }
+  if (rule.literalFromPool !== true) return operand.value;
+  const poolIndex = operand.value;
+  const value = context.constants?.[poolIndex];
+  if (context.constants === undefined) {
+    return `«${instruction.mnemonic}»: пул констант не передан, значение #${poolIndex} взять негде`;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return (
+      `«${instruction.mnemonic}»: константа пула #${poolIndex} = ${String(value)} ` +
+      `(тип ${typeof value}) — литералом e2k кодируются только целые 16- и 32-битные значения`
+    );
+  }
+  return value;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,11 +340,13 @@ export function runKernelThroughRealEncoding(
   let bytes = 0;
   let checked = 0;
   const mismatches: string[] = [];
+  // Пул констант нужен носителю IR.const: его операнд — индекс пула, а литералу нужно значение.
+  const context: LoweringContext = { constants: emitted.scheduled.constants };
 
   for (const instruction of emitted.instructions) {
     const stat = stats.get(instruction.mnemonic) ?? { total: 0, encoded: 0, refused: 0 };
     stat.total++;
-    const lowered = lowerInstruction(instruction);
+    const lowered = lowerInstruction(instruction, context);
     if (!lowered.ok) {
       stat.refused++;
       stat.reason ??= lowered.reason;
@@ -383,6 +456,10 @@ export async function runLoweredValues(
     const instruction = element as RegInstruction;
     const rule = loweringOf(carrierOfOp(instruction.op));
     if (rule === undefined) return instruction;
+    // `IR.const` остаётся IR-инструкцией: VM грузит константу из пула, и это ровно то, что делает
+    // понижённый `movts` с литералом. Сам литерал проверяется на уровне байтов — кодированием и
+    // разбором обратно (см. `runKernelThroughRealEncoding`, сверка `sameInstruction`).
+    if (rule.literalFromPool === true) return instruction;
     const fields = instruction as unknown as { d?: number; a?: number; b?: number };
     const name = SYNTHETIC[rule.carrier.replace("IR.", "") as keyof typeof SYNTHETIC];
     const args = rule.assumption === "тип-значения" ? [fields.a ?? 0] : [fields.a ?? 0, fields.b ?? 0];
