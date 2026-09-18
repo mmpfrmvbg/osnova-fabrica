@@ -40,6 +40,11 @@ const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 const wreg = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
 
+/** Слово по смещению — чтобы проверить поле `lng` (биты 6:4) прямо в байтах. */
+function readWordOf(bytes: Uint8Array, offset: number): number {
+  return (bytes[offset]! | (bytes[offset + 1]! << 8) | (bytes[offset + 2]! << 16) | (bytes[offset + 3]! << 24)) >>> 0;
+}
+
 /** Образец расширения: ассемблерный текст МЦСТ и наша инструкция. */
 interface ExtensionSample {
   readonly key: string;
@@ -226,6 +231,27 @@ describe('литералы и слоги управления: внешняя п
       }
     });
     expect(problems, `проверено ${ALL.length} образцов`).toEqual([]);
+  });
+
+  it('пара «подготовка + передача управления» у ассемблера — те же две команды по 8 байт', () => {
+    if (asTool === undefined) return;
+    // Решение про пары опирается на этот замер: ассемблер МЦСТ собирает `disp` и `ct`,
+    // записанные подряд, в ДВЕ команды по 8 байт (а не в одну широкую на 16), и его байты
+    // совпадают с нашей парой. Значит «одна инструкция на элемент конвейера» — ограничение
+    // нашего понижения, а не свойство кодировки e2k.
+    const pair = [
+      { key: 'pair-disp', asText: 'disp %ctpr1, .L1\n.L1:\nct %ctpr1', instruction: { mnemonic: 'disp', channel: 0, operands: [imm(1), imm(1)] } },
+      { key: 'pair-ct', asText: '', instruction: { mnemonic: 'ct', channel: 0, operands: [imm(1), imm(CT_COND_ALWAYS)] } },
+    ];
+    const results = assembleAll([asSamplesOf([pair[0]!])[0]!]);
+    expect(results[0]!.ok, 'ассемблер отверг пару').toBe(true);
+    if (!results[0]!.ok) return;
+    const ours = new Uint8Array([...encoder.encode(pair[0]!.instruction), ...encoder.encode(pair[1]!.instruction)]);
+    expect(Array.from(results[0]!.bytes), 'байты пары у ассемблера против наших').toEqual(Array.from(ours));
+    // Шестнадцать байт — это ровно две команды по восемь, а не одна широкая.
+    expect(results[0]!.bytes.length).toBe(16);
+    expect(readWordOf(results[0]!.bytes, 0) & 0x70).toBe(0); // lng = 0 → 8 байт
+    expect(readWordOf(results[0]!.bytes, 8) & 0x70).toBe(0);
   });
 
   it('дизассемблер МЦСТ разбирает новые формы', () => {
