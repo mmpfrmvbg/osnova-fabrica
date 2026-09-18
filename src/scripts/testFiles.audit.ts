@@ -112,12 +112,11 @@ export interface TestFileAudit {
  * 17 файлов, которых прогон как раз собирал. Правило простое: если в пути есть `src/` — ключ от
  * `src/`; иначе (корневые `package.test.ts`, `tsconfig.test.ts`) — имя файла.
  */
-function relative(file: string): string {
+export function relative(file: string): string {
   const normalized = file.replace(/\\/g, '/');
-  const marker = normalized.lastIndexOf('/src/');
-  if (marker >= 0) return normalized.slice(marker + 1);
-  if (normalized.startsWith('src/')) return normalized;
-  return normalized.slice(normalized.lastIndexOf('/') + 1);
+  const marker = normalized.toLowerCase().lastIndexOf('/osnova-fabrika/');
+  const withoutRoot = marker >= 0 ? normalized.slice(marker + '/osnova-fabrika/'.length) : normalized;
+  return withoutRoot.startsWith('./') ? withoutRoot.slice(2) : withoutRoot;
 }
 
 /** Объясняет ли хоть одно исключение этот путь. */
@@ -168,14 +167,70 @@ export function auditTestFiles(
   };
 }
 
-/** Файлы оракулов, отслеживаемые git. `undefined` — git недоступен (причина называется). */
-export function trackedTestFiles(): string[] | undefined {
+/**
+ * Сырой вывод `git ls-files` — **без** декодирования, чтобы увидеть кодировку.
+ *
+ * Зачем: 2026-09-19 сторож печатал `tracked=145, onDisk=145`, тогда как прямые проверки тех же имён
+ * давали «нет ни на диске, ни в индексе». Оба входа сторожа врали одновременно — значит смотреть
+ * надо не на разбор, а на **сырые байты**: если вывод не UTF-8 (в этом окружении `wsl.exe` уже
+ * отдаёт UTF-16LE, `src/scripts/e2kExternalAs.ts` разбирает это явно), то `split('\n')` режет
+ * байты пополам и даёт мусорные записи.
+ */
+export function rawGitOutput(nullSeparated: boolean): { bytes: Buffer; lines: readonly string[] } {
+  const args = nullSeparated ? ['ls-files', '-z', '*.test.ts'] : ['ls-files', '*.test.ts'];
+  const bytes = execFileSync('git', args, { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }) as Buffer;
+  return { bytes, lines: decodeGitOutput(bytes, nullSeparated) };
+}
+
+/** Разобрать вывод git: `-z` — по `\0`, иначе по переводам строк; без обрезки пробелов. */
+export function decodeGitOutput(bytes: Buffer, nullSeparated: boolean): string[] {
+  const text = bytes.toString('utf-8');
+  return text
+    .split(nullSeparated ? '\u0000' : /\r?\n/)
+    .filter((line) => line !== '' && line.endsWith('.test.ts'));
+}
+
+/** Отчёт о кодировке: байты против символов. */
+export interface EncodingProbe {
+  readonly line: string;
+  readonly hex: string;
+  readonly bytes: number;
+  readonly characters: number;
+  /** Байт вдвое больше символов — признак двухбайтовой кодировки (UTF-16). */
+  readonly twoBytesPerCharacter: boolean;
+}
+
+/** Побайтовый разбор первых строк вывода: hex, длина в байтах и в символах. */
+export function encodingProbe(bytes: Buffer, limit = 5, nullSeparated = false): readonly EncodingProbe[] {
+  const parts = bytes
+    .toString('latin1')
+    .split(nullSeparated ? '\u0000' : /\r?\n/)
+    .filter((line) => line !== '');
+  return parts.slice(0, limit).map((line) => {
+    const raw = Buffer.from(line, 'latin1');
+    return {
+      line,
+      hex: raw.subarray(0, 32).toString('hex').replace(/(..)/g, '$1 ').trim(),
+      bytes: raw.length,
+      characters: line.length,
+      twoBytesPerCharacter: raw.length === line.length * 2 && line.length > 0,
+    };
+  });
+}
+
+/**
+ * Файлы оракулов, отслеживаемые git.
+ *
+ * `-z` (null-terminated) — разделитель `\0`, поэтому **кодировка не важна**: узкие и широкие
+ * строки разделяются одинаково. Обычный режим оставлен для сравнения замеров.
+ *
+ * `undefined` — git недоступен (причина называется).
+ */
+export function trackedTestFiles(nullSeparated = true): string[] | undefined {
   try {
-    const output = execFileSync('git', ['ls-files', '*.test.ts'], { cwd: ROOT, encoding: 'utf-8' });
-    return output
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line !== '' && line.endsWith('.test.ts'));
+    const args = nullSeparated ? ['ls-files', '-z', '*.test.ts'] : ['ls-files', '*.test.ts'];
+    const bytes = execFileSync('git', args, { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }) as Buffer;
+    return decodeGitOutput(bytes, nullSeparated);
   } catch {
     return undefined;
   }
@@ -211,29 +266,55 @@ export function rootProblem(root: string): string | undefined {
 }
 
 /**
- * Строки доказательства по каждому расхождению: путь и **оба** ответа про него.
+ * Строки доказательства по каждому расхождению: **точный** путь, переданный в `existsSync`, и ответ.
  *
- * `tracked=true onDisk=false` читается однозначно: файл числится в git и на диске его нет — это
- * утверждение о дереве, а не о прогоне.
+ * Путь печатается сырым (абсолютным), а не нормализованным ключом: нормализация уже один раз
+ * скрыла, что именно проверялось, и из-за этого спор о «145» нельзя было решить по выводу.
  */
 export function evidenceLines(
   audit: TestFileAudit,
   root: string,
 ): readonly string[] {
   const lines: string[] = [];
+  const exact = (file: string): string => path.resolve(root, file);
   for (const file of audit.absentFromDisk) {
-    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=да onDisk=нет (существует: ${fs.existsSync(path.join(root, file))})`);
+    const target = exact(file);
+    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=да onDisk=${fs.existsSync(target) ? 'да' : 'нет'} путь=${target}`);
   }
   for (const file of audit.dropped) {
     // Оба ответа ИЗМЕРЯЮТСЯ, а не подставляются: подставленное «onDisk=да» было бы утверждением
     // без проверки — ровно тем дефектом, ради которого этот сторож и написан.
-    const present = fs.existsSync(path.join(root, file));
-    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=да onDisk=${present ? 'да' : 'нет'} collected=нет`);
+    const target = exact(file);
+    const present = fs.existsSync(target);
+    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=да onDisk=${present ? 'да' : 'нет'} collected=нет путь=${target}`);
   }
   for (const file of audit.untracked) {
-    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=нет onDisk=${fs.existsSync(path.join(root, file)) ? 'да' : 'нет'} collected=да`);
+    const target = exact(file);
+    lines.push(`  ДОКАЗАТЕЛЬСТВО: ${file} — tracked=нет onDisk=${fs.existsSync(target) ? 'да' : 'нет'} collected=да путь=${target}`);
   }
   return lines;
+}
+
+/** Отчёт о кодировке вывода git: сырые строки, hex, длины, вердикт. */
+export function rawReport(nullSeparated = false): readonly string[] {
+  const { bytes, lines } = rawGitOutput(nullSeparated);
+  const probes = encodingProbe(bytes, 5, nullSeparated);
+  const out: string[] = [];
+  out.push(`сырые данные git ls-files${nullSeparated ? ' -z' : ''}: байт всего ${bytes.length}, строк после разбора ${lines.length}`);
+  out.push(`первые байты буфера: ${bytes.subarray(0, 16).toString('hex').replace(/(..)/g, '$1 ').trim()}`);
+  for (const probe of probes) {
+    out.push(
+      `  строка «${probe.line}»: hex=${probe.hex} | байт=${probe.bytes} символов=${probe.characters} ` +
+        `| вдвое=${probe.twoBytesPerCharacter ? 'да' : 'нет'}`,
+    );
+  }
+  const twoByte = probes.filter((probe) => probe.twoBytesPerCharacter).length;
+  out.push(
+    twoByte === probes.length && probes.length > 0
+      ? 'вердикт: байт вдвое больше символов — вывод ДВУХБАЙТОВЫЙ (UTF-16-подобный), split по \\n режет байты пополам'
+      : `вердикт: двухбайтовых строк ${twoByte} из ${probes.length} — вывод похож на UTF-8`,
+  );
+  return out;
 }
 
 /** Собрать расхождения и напечатать их с именами файлов и доказательствами. */
@@ -246,7 +327,13 @@ export function runAudit(): number {
     console.error(`  КРАСНО: ${problem}`);
     return 1;
   }
-  const tracked = trackedTestFiles();
+  // Оба режима разбора рядом: если счёт разойдётся, дело в разделителе (то есть в кодировке).
+  const trackedNull = trackedTestFiles(true);
+  const trackedLines = trackedTestFiles(false);
+  console.log(
+    `сторож счёта файлов: tracked(-z)=${trackedNull?.length ?? 'нет'} tracked(перевод строки)=${trackedLines?.length ?? 'нет'}`,
+  );
+  const tracked = trackedNull;
   if (tracked === undefined) {
     console.error('сторож счёта файлов: git недоступен — проверка не выполнена (это не «пройдено»)');
     return 1;
@@ -294,5 +381,9 @@ export function runAudit(): number {
 }
 
 if (require.main === module) {
-  process.exitCode = runAudit();
+  if (process.argv.includes('--raw')) {
+    for (const line of rawReport(process.argv.includes('-z'))) console.log(line);
+  } else {
+    process.exitCode = runAudit();
+  }
 }

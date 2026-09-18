@@ -20,7 +20,15 @@
 import { describe, it, expect } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EXPECTED_EXCLUSIONS, auditTestFiles, evidenceLines, rootProblem } from './testFiles.audit';
+import {
+  EXPECTED_EXCLUSIONS,
+  auditTestFiles,
+  decodeGitOutput,
+  encodingProbe,
+  evidenceLines,
+  relative,
+  rootProblem,
+} from './testFiles.audit';
 
 const A = 'src/e2k/one.test.ts';
 const B = 'src/e2k/two.test.ts';
@@ -70,7 +78,7 @@ describe('сторож счёта файлов оракулов', () => {
   });
 
   it('пути из отчёта приводятся к виду репозитория (абсолютные против относительных)', () => {
-    const audit = auditTestFiles([A, B], ['D:/PROJECTS/OSNOVA-FABRIKA/src/e2k/one.test.ts', 'D:/x/src/e2k/two.test.ts']);
+    const audit = auditTestFiles([A, B], ['D:/PROJECTS/OSNOVA-FABRIKA/src/e2k/one.test.ts', 'D:/PROJECTS/OSNOVA-FABRIKA/src/e2k/two.test.ts']);
     expect(audit.dropped).toEqual([]);
     expect(audit.untracked).toEqual([]);
   });
@@ -123,5 +131,32 @@ describe('сторож счёта файлов оракулов', () => {
     expect(joined, 'нет доказательства по неотслеживаемому').toContain('src/e2k/extra.test.ts');
     expect(joined).toContain('tracked=нет');
     expect(lines.length, 'доказательств должно быть по одному на расхождение').toBe(2);
+  });
+it('НЕГАТИВНЫЙ КОНТРОЛЬ: файл приложения Osiris объясняется исключением, а не объявляется выпавшим', () => {
+    // Здесь сторож оклеветал 14 файлов: правило срезало всё до /src/, путь
+    // apps/osiris/src/core/x.test.ts превращался в src/core/x.test.ts, префикс apps/osiris/
+    // исчезал вместе с совпадением с исключением apps/osiris из vitest.config.ts, а existsSync по
+    // срезанному пути отвечал «нет» — такого файла и нет. Отсюда мнимое противоречие измерений:
+    // сторож был прав в ДАННЫХ и неправ в ИМЕНИ.
+    const osiris = 'apps/osiris/src/core/memory-engine.test.ts';
+    const exclusions = [{ match: 'apps/osiris', reason: 'приложение Osiris: свой пакет и свой прогон' }];
+    const audit = auditTestFiles([osiris], [], exclusions);
+    expect(audit.dropped, 'приложение Osiris объявлено выпавшим оракулом').toEqual([]);
+    expect(audit.staleExclusions, 'исключение apps/osiris обязано быть использовано').toEqual([]);
+    expect(relative(osiris)).toBe(osiris);
+    expect(relative('D:/PROJECTS/OSNOVA-FABRIKA/apps/osiris/src/core/x.test.ts')).toBe('apps/osiris/src/core/x.test.ts');
+    expect(relative('D:/PROJECTS/OSNOVA-FABRIKA/src/e2k/one.test.ts')).toBe('src/e2k/one.test.ts');
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: вывод git разбирается и по нулю, и по переводам строк', () => {
+    // Замер 2026-09-19: git отдаёт UTF-8 (байт = символов), поэтому счёт не зависит от разделителя
+    // — tracked(-z) и tracked(перевод строки) дают одно число. Гипотеза «UTF-16» опровергнута.
+    const lines = Buffer.from('a.test.ts\nb.test.ts\n', 'utf-8');
+    const nul = Buffer.from('a.test.ts\u0000b.test.ts\u0000', 'utf-8');
+    expect(decodeGitOutput(lines, false)).toEqual(['a.test.ts', 'b.test.ts']);
+    expect(decodeGitOutput(nul, true)).toEqual(['a.test.ts', 'b.test.ts']);
+    const probe = encodingProbe(lines, 2, false);
+    expect(probe[0]!.bytes, 'в UTF-8 байт равно символам').toBe(probe[0]!.characters);
+    expect(probe[0]!.twoBytesPerCharacter).toBe(false);
   });
 });
