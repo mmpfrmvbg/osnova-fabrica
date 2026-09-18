@@ -124,17 +124,19 @@ export function parseQemuRun(output: string, status: number | null): QemuRun {
 }
 
 /**
- * Запустить ELF в `qemu-e2k` **с шимом**.
+ * Запустить ELF в `qemu-e2k`.
  *
- * Без шима этот вызов на WSL1 отвечает `Unable to find a guest_base` и до исполнения не доходит —
- * см. `docs/e2k-qemu-run.md` §2.
+ * @param options.shim `false` — запуск **без** шима: нужен, чтобы показать, что преграда WSL1
+ *   (`guest_base`) снимается именно шимом, а не чем-то ещё.
  */
-export function runInQemu(elfFile: string): QemuRun | undefined {
-  const shim = buildShim();
-  if (shim === undefined) return undefined;
+export function runInQemu(elfFile: string, options: { shim?: boolean } = {}): QemuRun | undefined {
+  const withShim = options.shim !== false;
+  const shim = withShim ? buildShim() : undefined;
+  if (withShim && shim === undefined) return undefined;
+  const env = shim === undefined ? [] : [`LD_PRELOAD=${toWslPath(shim)}`];
   const result = spawnSync(
     WSL,
-    ['-d', WSL_DISTRO, '--', 'env', `LD_PRELOAD=${toWslPath(shim)}`, WSL_QEMU, toWslPath(elfFile)],
+    ['-d', WSL_DISTRO, '--', ...(env.length === 0 ? [] : ['env', ...env]), WSL_QEMU, toWslPath(elfFile)],
     { timeout: 120_000, encoding: 'utf-8' },
   );
   if (result.error !== undefined && result.status === null) return undefined;

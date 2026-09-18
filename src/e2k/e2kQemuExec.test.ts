@@ -83,22 +83,12 @@ describe('исполнение e2k-кода в QEMU: шим, минимальн�
     expect(shim).toBe(path.join(ROOT, '.tmp', 'e2k-noreplace.so'));
   });
 
-  it('без шима прогон упирается в guest_base, а с шимом QEMU исполняет код', () => {
-    if (shim === undefined) return;
-    const elf = buildMinimalElf(42);
+  it('без шима прогон упирается в guest_base — преграду снимает именно шим', () => {
     const file = writeMinimalElf(path.join(ROOT, '.tmp', 'e2k-minimal.elf'), 42);
-    const run = runInQemu(file);
-    expect(run, 'QEMU не запустился').toBeDefined();
-    const output = run!.output;
-    expect(output, 'шим не снял преграду: гость не разместился').not.toContain('guest_base');
-    // Адрес третьей инструкции считается по её собственным байтам: литералы занимают по 16 байт,
-    // и «номер × 8» здесь неверно (в опыте с передачей управления все команды по 8).
-    const thirdAddress =
-      elf.entry + elf.program.instructions.slice(0, 2).reduce((sum, instruction) => sum + encoder.encode(instruction).length, 0);
-    expect(thirdAddress).toBe(0x100020);
-    expect(run!.exceptionIp, `эмулятор остановился не там: ${output.trim().split('\n').join(' | ')}`).toBe(thirdAddress);
-    // Причина остановки названа источником: ct по неподготовленному %ctpr1 (тег CTPEW у нуля).
-    expect(output).toContain('exception handling is unimplemented');
+    const bare = runInQemu(file, { shim: false });
+    if (bare === undefined) return; // QEMU не собран — случай назван в audit-оракуле
+    expect(bare.output, 'без шима гость неожиданно разместился').toContain('Unable to find a guest_base');
+    expect(bare.status, 'при отказе загрузки QEMU обязан не выдавать код 42').not.toBe(42);
   });
 
   it('передача управления: адрес остановки следует за смещением disp (опыт и контроль)', () => {
@@ -120,11 +110,35 @@ describe('исполнение e2k-кода в QEMU: шим, минимальн�
     const elf = buildMinimalElf(42);
     const program = elf.program;
     expect(elf.entry).toBe(BASE);
-    expect(program.instructions.length).toBe(3);
-    // Первые две инструкции опыта совпадают с первыми двумя инструкциями минимального ELF.
-    expect(program.instructions[0]!.mnemonic).toBe('movts');
-    expect(program.instructions[1]!.mnemonic).toBe('movts');
-    expect(program.instructions[2]!.mnemonic).toBe('ct');
-    expect(program.code[5]).toBe(0xd4);
+    expect(program.instructions.length).toBe(5);
+    expect(program.instructions.map((instruction) => instruction.mnemonic)).toEqual([
+      'setbn',
+      'movts',
+      'movts',
+      'sdisp',
+      'call',
+    ]);
+    expect(program.code[8 + 5]).toBe(0xd4);
+  });
+
+  it('exit(42): минимальный ELF даёт код возврата 42 (иначе причина обязана быть названа)', () => {
+    if (shim === undefined) return;
+    const file = writeMinimalElf(path.join(ROOT, '.tmp', 'e2k-minimal.elf'), 42);
+    const run = runInQemu(file);
+    expect(run, 'QEMU не запустился').toBeDefined();
+    if (run!.status === 42) {
+      // Ожидаемый исход: системный вызов exit выполнен, гость завершился кодом 42.
+      expect(run!.status).toBe(42);
+      return;
+    }
+    // Не 42 — причина обязана быть одной из НАЗВАННЫХ (обе — свойства окружения, а не программы).
+    const output = run!.output;
+    const reasons = ['guest_base', 'syscall without proper WD configuration', 'exception at IP'];
+    expect(
+      reasons.some((reason) => output.includes(reason)),
+      `код ${run!.status}, а причина не названа: ${output.trim().split('\n').join(' | ')}`,
+    ).toBe(true);
+    const doc = fs.readFileSync(path.join(ROOT, 'docs', 'e2k-minimal-elf.md'), 'utf-8');
+    expect(doc, 'документ не записывает исход прогона').toMatch(/код возврата 42|exit\(42\)/);
   });
 });

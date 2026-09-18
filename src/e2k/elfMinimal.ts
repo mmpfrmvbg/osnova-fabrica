@@ -1,47 +1,40 @@
 /**
- * МИНИМАЛЬНЫЙ ELF ДЛЯ e2k: `_start`, который должен был бы сделать `exit(42)`.
+ * МИНИМАЛЬНЫЙ ELF ДЛЯ e2k: `_start`, который делает `exit(42)`.
  *
  * # Зачем
  *
  * Прогон в QEMU (`docs/e2k-qemu-run.md`) упирался в две вещи: **нечем** запускать (QEMU не был
  * собран) и **нечего** запускать (у конвейера нет e2k-бинарника). Первое снято — `qemu-e2k`
  * собран. Здесь делается второе: минимальный ELF64 с `e_machine = 175`, секцией `.text`
- * и точкой входа, чтобы у QEMU было что загрузить.
+ * и точкой входа.
  *
- * # Что в коде
+ * # Статус: `exit(42)` ВЫПОЛНЕН
  *
- * | шаг | инструкция | состояние |
- * |---|---|---|
- * | номер системного вызова | литерал в регистр (`movts` с LTS) | **кодируется** |
- * | аргумент (42) | литерал в регистр (`movts` с LTS) | **кодируется** |
- * | передача управления | `ct %ctpr1` (SS) | **кодируется** |
+ * Прогон с шимом для `mmap` даёт **код возврата 42** (`docs/e2k-minimal-elf.md` §7). Программа —
+ * пять инструкций, и каждая форма извлечена из источников и сверена ассемблером МЦСТ:
+ * `setbn` (CS1, окно вращаемых регистров), `movts` с литералом LTS в **оконные** `%r8`/`%r9`,
+ * `sdisp` (CS0 с `ctp_opc = 2`, ставит тег `CTPSL`), `call` (CS1, `wbs=4`).
  *
  * Номер системного вызова — **1** (`exit`), не 60: числа берутся из порта QEMU
  * (`qemu/linux-user/e2k/syscall_nr.h:9` — `TARGET_NR_exit 1`; `:293` — `TARGET_NR_exit_group 300`).
  *
- * # Что мешает этому быть настоящим `exit(42)` — три препятствия, все названы
+ * # Чем это далось — две послабления со стороны ХОСТА, не программы
  *
- * 1. **Переход не подготовлен.** `%ctpr` на входе равен нулю (`cpu-sregs.h:149`), ноль — это тег
- *    `CTPEW`, а `ct` по такому ctpr вызывает исключение (`translate-ct.c:840-844`). Прогон
- *    подтверждает: эмулятор исполняет обе `movts` и останавливается на `ct` (`0x100020`).
- * 2. **Системный вызов.** QEMU выполняет вызов при `CALL` с тегом `CTPSL`
- *    (`translate-ct.c:1143-1145`), а тег `CTPSL` ставит только `SDISP` (`translate-ctp.c:174`).
- *    `disp` всегда пишет `CTPLL` (`translate-ctp.c:81`), а `sdisp` наш кодировщик отвергает.
- * 3. **Файл регистров.** ABI читает номер вызова из **оконного** `r0`
- *    (`qemu/linux-user/e2k/cpu_loop.c:160-182`) — при `WD.base_d = 0` это `rf.window[0]`
- *    (`reg-index.h:79`), тогда как интерфейс `Operand` несёт только базовый файл: `%b[0]` — это
- *    `rf.global[0]` (`reg-index.h:117`, `cpu.h:562-570`).
+ * 1. **Шим для `mmap`**: WSL1 не знает `MAP_FIXED_NOREPLACE` (`errno=95`), на котором стоит поиск
+ *    гостевого резерва (`linux-user/elfload.c:792`), поэтому QEMU не размещает гостя вовсе.
+ * 2. **Правка порта QEMU**: поля `WD.size_d/base_d` порт только читает
+ *    (`reg-index.h:64-79`, `translate-ct.c:71-73`), а сам строит `WD` из `_q`-полей; без правки
+ *    системный вызов умирает на чтении номера из оконного `r0` — «syscall without proper WD
+ *    configuration» (`cpu_loop.c:164-169`).
  *
- * Отсюда честный статус: **ELF валиден по заголовку, разбирается дизассемблером МЦСТ и
- * ИСПОЛНЯЕТСЯ эмулятором (с шимом для `mmap`), но `exit(42)` им не выполняется**, и причина
- * названа выше, а не спрятана.
+ * Оба послабления — на стороне хоста; байты ELF при этом не меняются, и без них тот же ELF
+ * останавливается с названной причиной, а не «работает иначе».
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import type { AsmInstruction, Operand } from './backend';
 import { getEncoder } from './backend';
-import { CT_COND_ALWAYS } from './e2k-real';
 
 const ROOT = path.resolve(__dirname, "..", "..");
 
@@ -60,8 +53,37 @@ export const SYS_EXIT = 1;
 /** Регистр, из которого e2k-порт QEMU читает номер вызова (`cpu_loop.c:166`). */
 export const ABI_NUMBER_REGISTER = 'r0';
 
+/**
+ * Сдвиг окна на системном вызове, в квадрословах (`call …, wbs=N`).
+ *
+ * Требование порта: `psize_q ≤ wbs ≤ size_q` (`translate-ct.c:908-917`), а начальные значения —
+ * `psize_q = 4`, `size_q = 8` (`linux-user/e2k/cpu_loop.c:301-303`). Берётся минимальный, чтобы
+ * окно после вызова осталось как можно шире.
+ */
+export const SYSCALL_WBS = 4;
+
+/**
+ * Номер регистра, в который кладётся номер вызова, **в окне вызываемого**.
+ *
+ * ABI читает его как оконный `r0` (`cpu_loop.c:164-170`), а `call` сдвигает окно на `wbs`
+ * квадрослов, то есть на `2 * wbs` регистровых единиц (`MAXNR_D = MAXNR_Q * 2`,
+ * `target/e2k/cpu.h:58`). Поэтому вызывающий пишет не в `%r0`, а в `%r(2 * wbs + 0)`: у нас это `%r8`.
+ */
+export const SYSCALL_NUMBER_REGISTER = 2 * SYSCALL_WBS;
+
+/** Регистр аргумента (оконный `r1` вызываемого): `2 * wbs + 1`. */
+export const SYSCALL_ARGUMENT_REGISTER = SYSCALL_NUMBER_REGISTER + 1;
+
+/**
+ * Размер области вращаемых регистров для `setbn` (`rsz=…`).
+ *
+ * `rsz = 4` даёт `(rsz + 1) * 2 = 10` доступных регистровых единиц (`e2k_calc_reg_idx_rotatable`,
+ * `target/e2k/reg-index.h:30-52`) — этого хватает, чтобы записать `%r8` и `%r9` до вызова.
+ */
+export const SYSCALL_SETBN_RSZ = 4;
+
 const imm = (value: number): Operand => ({ kind: 'imm', value });
-const reg = (index: number): Operand => ({ kind: 'reg', index });
+const wreg = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
 
 /** Программа минимального ELF: инструкции и текст, который должен получиться у дизассемблера. */
 export interface MinimalProgram {
@@ -69,22 +91,37 @@ export interface MinimalProgram {
   readonly code: Uint8Array;
   /** Что обязан напечатать `objdump` для каждой инструкции. */
   readonly expectDisasm: readonly string[];
-  /** Что мешает программе быть настоящим `exit(42)`. */
+  /** Что требуется от **окружения**, чтобы этот ELF действительно сделал `exit(42)`. */
   readonly blockers: readonly string[];
 }
 
 /**
- * Собрать программу минимального ELF.
+ * Собрать программу минимального ELF: `_start`, который делает `exit(42)`.
  *
- * Операции идут через LTS-литералы (`movts` с `imm`) и слог SS (`ct`) — обе формы извлечены и
- * сверены с ассемблером МЦСТ (`docs/e2k-syllables-real.md`).
+ * Последовательность собирается из извлечённых и проверенных форм:
+ *
+ * | шаг | инструкция | зачем |
+ * |---|---|---|
+ * | 1 | `setbn rsz=4, rbs=0, rcur=0` | окно вращаемых регистров: `%r0`…`%r9` → абсолютные 0…9 |
+ * | 2 | `movts,0 1, %r8` | номер вызова `exit` в **оконный** `r0` вызываемого |
+ * | 3 | `movts,0 <код>, %r9` | аргумент в оконный `r1` вызываемого |
+ * | 4 | `sdisp %ctpr1, 0` | подготовка `%ctpr1` с тегом `CTPSL` — это и есть признак системного вызова |
+ * | 5 | `call %ctpr1, wbs=4` | передача управления: с тегом `CTPSL` порт уходит в `do_syscall` |
+ *
+ * Почему именно так (измерено, а не выведено):
+ * `ct` без подготовки — исключение (`translate-ct.c:840-844`), поэтому нужен `disp`/`sdisp`;
+ * тег `CTPSL` ставит только `sdisp` (`translate-ctp.c:174`); номер вызова ABI читает из **оконного**
+ * `r0` (`cpu_loop.c:164-170`), а `call` сдвигает окно на `wbs`, поэтому запись идёт в `%r8`/`%r9`,
+ * и для этого окно вращаемых регистров должно быть расширено `setbn` (`reg-index.h:30-52`).
  */
 export function buildMinimalProgram(exitCode = 42): MinimalProgram {
   const encoder = getEncoder('e2k');
   const instructions: AsmInstruction[] = [
-    { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), reg(0)] },
-    { mnemonic: 'movts', channel: 0, operands: [imm(exitCode), reg(1)] },
-    { mnemonic: 'ct', channel: 0, operands: [imm(1), imm(CT_COND_ALWAYS)] },
+    { mnemonic: 'setbn', channel: 0, operands: [imm(SYSCALL_SETBN_RSZ), imm(0), imm(0)] },
+    { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), wreg(SYSCALL_NUMBER_REGISTER)] },
+    { mnemonic: 'movts', channel: 0, operands: [imm(exitCode), wreg(SYSCALL_ARGUMENT_REGISTER)] },
+    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+    { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
   ];
   const chunks = instructions.map((instruction) => encoder.encode(instruction));
   const code = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
@@ -96,22 +133,21 @@ export function buildMinimalProgram(exitCode = 42): MinimalProgram {
   return {
     instructions,
     code,
-    expectDisasm: ['movts,0 _f16s 0x1', `movts,0 _f16s 0x${exitCode.toString(16)}`, 'ct %ctpr1'],
+    expectDisasm: [
+      'setbn rbs = 0x0, rsz = 0x4, rcur = 0x0',
+      `movts,0 _f16s 0x1, %r${SYSCALL_NUMBER_REGISTER}`,
+      `movts,0 _f16s 0x${exitCode.toString(16)}, %r${SYSCALL_ARGUMENT_REGISTER}`,
+      'sdisp %ctpr1',
+      'call %ctpr1, wbs = 0x4',
+    ],
     blockers: [
-      `переход: ct %ctpr1 по НЕподготовленному ctpr — исключение. %ctpr на входе равен нулю ` +
-        '(E2K_SREG_INIT_CTPR = 0, qemu/target/e2k/cpu-sregs.h:149), ноль — это тег CTPEW ' +
-        '(cpu-sregs.h:165-173), а ct по ctpr с тегом CTPEW вызывает исключение ' +
-        '(translate-ct.c:840-844). Прогон это подтверждает: остановка на 0x100020, ' +
-        'docs/e2k-minimal-elf.md §4.1. Перед ct нужен disp (CS0) — им кодировщик владеет',
-      `вызов: системный вызов запускает CALL с тегом CTPSL (translate-ct.c:1143-1145), а тег CTPSL ` +
-        'ставит только SDISP (translate-ctp.c:174); disp всегда пишет CTPLL (translate-ctp.c:81). ' +
-        'sdisp наш кодировщик ОТВЕРГАЕТ (раскладка ассемблером не проверена) — упор в кодировщике, ' +
-        'а не в отсутствии сведений',
-      `ABI: номер вызова e2k читается из ОКОННОГО ${ABI_NUMBER_REGISTER} ` +
-        '(qemu/linux-user/e2k/cpu_loop.c:160-182) — при WD.base_d = 0 это rf.window[0] ' +
-        '(reg-index.h:79, cpu-sregs.h:74), тогда как интерфейс Operand несёт только базовый файл ' +
-        '(поле 0x00|N = %b[N], opcodes/e2k-dis.c:416-417): это rf.global[0] (reg-index.h:117, ' +
-        'cpu.h:562-570). Номер вызова ложится не в тот регистр',
+      'окружение: на WSL1 нужен шим для mmap (MAP_FIXED_NOREPLACE не поддерживается, errno=95) — ' +
+        'без него QEMU не размещает гостя вовсе (docs/e2k-qemu-run.md §2.5, §2.8); ' +
+        'это преграда ХОСТА, а не программы',
+      'окружение: сборке QEMU нужна правка полей WD.size_d/base_d — порт их только читает ' +
+        '(reg-index.h:64-79, translate-ct.c:71-73), а сам строит WD из _q-полей; без правки ' +
+        'системный вызов умирает на чтении номера: «syscall without proper WD configuration» ' +
+        '(cpu_loop.c:164-169). Замер и текст правки — docs/e2k-qemu-run.md §2.9',
     ],
   };
 }

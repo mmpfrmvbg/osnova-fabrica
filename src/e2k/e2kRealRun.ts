@@ -43,6 +43,7 @@
  */
 
 import type { AsmInstruction, Encoder, Operand } from "./backend";
+import { sameInstruction } from "./backend";
 import { realOpcode, type RealSlot } from "./e2k-real";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
@@ -241,15 +242,15 @@ export interface KernelRealReport {
   readonly blocking: readonly { readonly carrier: string; readonly count: number; readonly reason: string }[];
 }
 
+/**
+ * Совпадают ли понижённая инструкция и разобранная обратно.
+ *
+ * Делегировано общему {@link sameInstruction}: он сравнивает и **файл регистров**, а `%b[0]` и
+ * `%r0` — разные ячейки (`binutils-gdb/opcodes/e2k-dis.c:416-419`). Прежняя местная сверка
+ * смотрела только номер и подмену файла пропустила бы молча.
+ */
 function sameLowered(a: AsmInstruction, b: AsmInstruction): boolean {
-  if (a.mnemonic !== b.mnemonic || a.channel !== b.channel) return false;
-  if (a.operands.length !== b.operands.length) return false;
-  return a.operands.every((operand, index) => {
-    const other = b.operands[index]!;
-    return operand.kind === other.kind && operand.kind === "reg" && other.kind === "reg"
-      ? operand.index === other.index
-      : false;
-  });
+  return sameInstruction(a, b);
 }
 
 /**

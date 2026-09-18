@@ -51,6 +51,7 @@
 
 import {
   EncodingRefusedError,
+  registerFileOf,
   type AsmInstruction,
   type Encoder,
   type EncoderDescription,
@@ -259,8 +260,18 @@ export const REAL_E2K_DESCRIPTION: EncoderDescription = {
 // КОДИРОВАНИЕ
 // ─────────────────────────────────────────────────────────────────────────────
 
-function registerField(operand: Operand | undefined, slot: RealSlot, mnemonic: string): number {
-  if (operand === undefined || operand.kind !== "reg") {
+/**
+ * Старший бит поля регистра: оконный файл (`%r[N]`) против базового (`%b[N]`).
+ *
+ * Раскладка — `binutils-gdb/opcodes/e2k-dis.c:416-419`: `0x00-0x7f` — `%b[N]`, `0x80-0xbf` — `%rN`.
+ * Измерено ассемблером МЦСТ: `movts,0 1, %b[0]` → поле `0x00`, `movts,0 1, %r0` → поле `0x80`
+ * (`docs/e2k-minimal-elf.md` §6).
+ */
+export const REGISTER_FILE_WINDOW = 0x80;
+
+/** Значение поля регистра: номер вместе со старшим битом файла. */
+function registerFieldValue(operand: Operand, slot: RealSlot, mnemonic: string): number {
+  if (operand.kind !== "reg") {
     throw new EncodingError(`«${mnemonic}»: операнд ${slot} обязан быть регистром`);
   }
   if (!Number.isInteger(operand.index) || operand.index < 0 || operand.index > REAL_MAX_REGISTER) {
@@ -268,7 +279,14 @@ function registerField(operand: Operand | undefined, slot: RealSlot, mnemonic: s
       `«${mnemonic}»: регистр ${String(operand.index)} не выражается полем слога (0..${REAL_MAX_REGISTER})`,
     );
   }
-  return operand.index;
+  return (registerFileOf(operand) === "window" ? REGISTER_FILE_WINDOW : 0) | operand.index;
+}
+
+function registerField(operand: Operand | undefined, slot: RealSlot, mnemonic: string): number {
+  if (operand === undefined) {
+    throw new EncodingError(`«${mnemonic}»: операнд ${slot} обязан быть регистром`);
+  }
+  return registerFieldValue(operand, slot, mnemonic);
 }
 
 /** Проверить канал и вернуть индекс слога ALS. */
@@ -372,7 +390,7 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
 
 /** Поле инструкции управления: `ctpr` — номер регистра подготовки, `cond` — код условия `ct`,
  * `disp` — смещение перехода в восьмибайтовых словах, `wbs` — параметр `call`. */
-export type RealControlSlot = "ctpr" | "cond" | "disp" | "wbs";
+export type RealControlSlot = "ctpr" | "cond" | "disp" | "sdisp" | "wbs" | "rsz" | "rbs" | "rcur";
 
 /**
  * Инструкция, которая кодируется **слогами управления**, а не слогом ALS.
@@ -385,7 +403,7 @@ export type RealControlSlot = "ctpr" | "cond" | "disp" | "wbs";
 export interface RealControlEntry {
   /** Мнемоника — копия из ассемблера МЦСТ посимвольно (`as` принимает именно эти имена). */
   readonly mnemonic: string;
-  readonly form: "SS" | "CS0_DISP" | "CS0_RETURN" | "CS1_CALL";
+  readonly form: "SS" | "CS0_DISP" | "CS0_SDISP" | "CS0_RETURN" | "CS1_SETBN" | "CS1_CALL";
   readonly operands: readonly RealControlSlot[];
   readonly size: number;
   /** Источник полей слога. */
@@ -430,12 +448,36 @@ export const REAL_CONTROL_OPCODES: readonly RealControlEntry[] = [
     source: "gas/config/tc-e2k.c:6000-6070 (разбор disp), opcodes/e2k-dis.c:1896-1902 (таблица cs0_ops)",
   },
   {
+    mnemonic: "sdisp",
+    form: "CS0_SDISP",
+    operands: ["ctpr", "sdisp"],
+    size: 8,
+    formSource: CS0_SOURCE,
+    source:
+      "opcodes/e2k-dis.c:1899-1901 (cs0_ops[1..3][2] = SDISP; печать `cs0 & 0x1f` — :2006-2007); " +
+      "gas/config/tc-e2k.c:6054-6073 (значение 0..31, символ запрещён); " +
+      "qemu/target/e2k/tcg/translate-ctp.c:142-184 (E2K_OP_SDISP: цель = OSCUD.base + sdisp*2048, " +
+      "тег CTPSL/CTPEW выбирается по psr.pm и osem — :174)",
+  },
+  {
     mnemonic: "return",
     form: "CS0_RETURN",
     operands: ["ctpr"],
     size: 8,
     formSource: CS0_SOURCE,
     source: "gas/config/tc-e2k.c:7004 (CS0.ctp_opc = 0 для RETURN), opcodes/e2k-dis.c:1901 (cs0_ops[3][3] = RETURN)",
+  },
+  {
+    mnemonic: "setbn",
+    form: "CS1_SETBN",
+    operands: ["rsz", "rbs", "rcur"],
+    size: 8,
+    formSource: CS1_SOURCE,
+    source:
+      "qemu/target/e2k/syllab-format.h:107-117 (setbn — бит 26, rcur[17:12], rsz[11:6], rbs[5:0]); " +
+      "opcodes/e2k-dis.c:2046-2056 (CS1.opc: SETBR = 4), :2121-2127 (печать setbn rcur/rsz/rbs); " +
+      "gas/config/tc-e2k.c:6257-6301 (имена параметров setbn rsz=, rbs=, rcur=); " +
+      "измерено ассемблером: `setbn rsz=4, rbs=0, rcur=0` → `01 80 00 00 00 01 00 44`",
   },
   {
     mnemonic: "call",
@@ -483,6 +525,42 @@ function cs0ReturnWord(ctpr: number): number {
   return 0xf0000000 >>> 0;
 }
 
+/**
+ * Слог CS0 формата C0F2 (`sdisp`): `ctpr[31:30]`, `ctp_opc=2`, смещение — младшие 5 бит.
+ *
+ * Измерено ассемблером МЦСТ: `sdisp %ctpr1, 3` → `01 40 00 00 03 00 00 60`,
+ * `sdisp %ctpr2, 5` → `01 40 00 00 05 00 00 a0`, `sdisp %ctpr3, 1` → `01 40 00 00 01 00 00 e0`.
+ * Отличие от `disp` — только `ctp_opc` (2 против 0): `disp %ctpr1, 3` → `01 40 00 00 03 00 00 40`.
+ */
+function cs0SdispWord(ctpr: number, sdisp: number): number {
+  if (ctpr < 1 || ctpr > 3) throw new EncodingError(`sdisp: ctpr вне 1..3: ${ctpr}`);
+  if (!Number.isInteger(sdisp) || sdisp < 0 || sdisp >= 32) {
+    throw new EncodingError(
+      `sdisp: смещение ${sdisp} вне 0..31 — так отвергает и ассемблер МЦСТ ` +
+        "(`invalid value for CS0.disp in SDISP specified`, gas/config/tc-e2k.c:6054-6059)",
+    );
+  }
+  return (((ctpr & 0x3) << 30) | (2 << 28) | (sdisp & 0x1f)) >>> 0;
+}
+
+/**
+ * Слог CS1 формата `SETR`/`SETBR` (`setbn`, `setbp`): `opc=4`, бит 26 — setbn, бит 27 — setbp,
+ * `rcur[17:12]`, `rsz[11:6]`, `rbs[5:0]`.
+ *
+ * Измерено ассемблером МЦСТ: `setbn rsz=4, rbs=0, rcur=0` → `01 80 00 00 00 01 00 44`;
+ * `setbn rsz=1, rbs=2, rcur=3` → `01 80 00 00 42 30 00 44`; `setbp psz=5` → `01 80 00 00 00 00 14 48`.
+ * Поля — `qemu/target/e2k/syllab-format.h:107-117` (`psz[22:18]`, `rcur[17:12]`, `rsz[11:6]`, `rbs[5:0]`,
+ * `setbp` — бит 27, `setbn` — бит 26), значения opc — `opcodes/e2k-dis.c:2046-2056` (SETBR = 4).
+ */
+function cs1SetbnWord(rsz: number, rbs: number, rcur: number): number {
+  for (const [name, value] of [["rsz", rsz], ["rbs", rbs], ["rcur", rcur]] as const) {
+    if (!Number.isInteger(value) || value < 0 || value > 0x3f) {
+      throw new EncodingError(`setbn: ${name} = ${value} вне 0..63 (поле 6 бит)`);
+    }
+  }
+  return (((4 << 28) | (1 << 26) | ((rcur & 0x3f) << 12) | ((rsz & 0x3f) << 6) | (rbs & 0x3f)) >>> 0);
+}
+
 /** Слог CS1 формата C1F1 (`call`): `opc=5`, `param=wbs`. */
 function cs1CallWord(wbs: number): number {
   if (wbs < 0 || wbs > 0x0fffffff) throw new EncodingError(`wbs вне 28 бит: ${wbs}`);
@@ -519,6 +597,18 @@ function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Ui
     case "CS0_RETURN": {
       writeWord(bytes, 0, 0x00004001);
       writeWord(bytes, 4, cs0ReturnWord(values.get("ctpr")!));
+      return bytes;
+    }
+    case "CS0_SDISP": {
+      // HS тот же, что у CS0_DISP: CS0 присутствует (бит 14), mdl = 1, lng = 0.
+      writeWord(bytes, 0, 0x00004001);
+      writeWord(bytes, 4, cs0SdispWord(values.get("ctpr")!, values.get("sdisp")!));
+      return bytes;
+    }
+    case "CS1_SETBN": {
+      // HS: CS1 присутствует (бит 15), mdl = 1, lng = 0 → 8 байт (измерено: `01 80 00 00 …`).
+      writeWord(bytes, 0, 0x00008001);
+      writeWord(bytes, 4, cs1SetbnWord(values.get("rsz")!, values.get("rbs")!, values.get("rcur")!));
       return bytes;
     }
     case "CS1_CALL": {
@@ -601,9 +691,7 @@ function encodeWithLiteral(
   const values: Record<string, number> = { src1: 0, src2: 0, dst: 0 };
   entry.operands.forEach((slot, index) => {
     if (index === literal.index) return;
-    const operand = operands[index]!;
-    if (operand.kind !== "reg") throw new EncodingError(`«${entry.mnemonic}»: операнд ${index} не регистр`);
-    values[slot] = operand.index;
+    values[slot] = registerField(operands[index], slot, entry.mnemonic);
   });
   const literalSlot = entry.operands[literal.index]!;
   values[literalSlot] = field;
@@ -611,10 +699,11 @@ function encodeWithLiteral(
   // (include/opcode/e2k.h:93); без этого байт 6 отличается от байтов ассемблера.
   if (entry.form === "ALF2") values.src1 = ALES_OPCE_NONE;
   // Проверяются только регистровые слоты: в слоте литерала лежит поле ссылки (0xd4/0xd8).
+  // Верхняя граница — 0x80 | 63 (оконный файл): поле слота восьмибитное, 0xc0+ занято литералами.
   for (const slot of entry.operands) {
     if (slot === literalSlot || (entry.form === "ALF2" && slot === "src1")) continue;
     const value = values[slot]!;
-    if (value > REAL_MAX_REGISTER) {
+    if (value > (REGISTER_FILE_WINDOW | REAL_MAX_REGISTER)) {
       throw new EncodingError(`«${entry.mnemonic}»: регистр ${value} вне 0..${REAL_MAX_REGISTER}`);
     }
   }
@@ -782,7 +871,9 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     if (entry.form === "ALF2" && slot === "src1") continue;
     const value = slot === "src1" ? src1 : slot === "src2" ? src2 : dst;
     if (value >= 0xd0 && value <= 0xdf) continue;
-    if (value > REAL_MAX_REGISTER) {
+    // Верхняя граница — 0x80 | 63: старший бит поля означает оконный файл регистров
+    // (opcodes/e2k-dis.c:416-419), 0xc0+ занято литералами и непосредственными значениями.
+    if (value > (REGISTER_FILE_WINDOW | REAL_MAX_REGISTER)) {
       throw new EncodingError(`регистр ${value} не выражается полем слога (0..${REAL_MAX_REGISTER})`);
     }
   }
@@ -808,6 +899,11 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
       throw new EncodingRefusedError(
         `НЕТ В ИСТОЧНИКЕ: 64-битный литерал (поле 0x${value.toString(16)}) не реализован`,
       );
+    }
+    // Оконный файл регистров: поле 0x80..0xbf — это %r[N] (opcodes/e2k-dis.c:418-419).
+    // Различие существенно: %b[0] и %r0 — разные ячейки (qemu/target/e2k/reg-index.h:79,117).
+    if (value >= REGISTER_FILE_WINDOW && value <= 0xbf) {
+      return { kind: "reg" as const, index: value & 0x3f, file: "window" as const };
     }
     return { kind: "reg" as const, index: value };
   });
@@ -853,6 +949,30 @@ function decodeControl(bytes: Uint8Array, hs: number): AsmInstruction {
   if (c0Present && !c1Present) offset += 4;
   const cs1 = c1Present ? readWord(bytes, offset) : 0;
 
+  if (c1Present && !ssPresent && !c0Present) {
+    // setbn/setbp: одиночный слог CS1 (HS = `01 80 00 00`), opc = SETBR (4).
+    if (bytes.length !== REAL_SHORT_FORM_SIZE) throw new EncodingError("setbn: ожидалась длина 8 байт");
+    const opc = (cs1 >>> 28) & 0xf;
+    if (opc !== 4) {
+      throw new EncodingRefusedError(`НЕТ В ИСТОЧНИКЕ: CS1.opc = ${opc} без SS и CS0; реализован SETBN (4)`);
+    }
+    const setbn = ((cs1 >>> 26) & 0x1) === 1;
+    const setbp = ((cs1 >>> 27) & 0x1) === 1;
+    if (setbp) throw new EncodingRefusedError("НЕТ В ИСТОЧНИКЕ: setbp (бит 27) не реализован");
+    if (!setbn) {
+      throw new EncodingRefusedError("НЕТ В ИСТОЧНИКЕ: CS1.opc = 4 без бита setbn/setbp — не setbn");
+    }
+    return {
+      mnemonic: "setbn",
+      channel: 0,
+      operands: [
+        { kind: "imm", value: (cs1 >>> 6) & 0x3f },
+        { kind: "imm", value: cs1 & 0x3f },
+        { kind: "imm", value: (cs1 >>> 12) & 0x3f },
+      ],
+    };
+  }
+
   if (c1Present) {
     if (!ssPresent || c0Present) throw new EncodingError("call: ожидались слоги SS и CS1");
     if (bytes.length !== REAL_LONG_FORM_SIZE) throw new EncodingError("call: ожидалась длина 16 байт");
@@ -897,8 +1017,21 @@ function decodeControl(bytes: Uint8Array, hs: number): AsmInstruction {
         ],
       };
     }
+    if (ctpOpc === 2) {
+      // SDISP: cs0_ops[1..3][2] (`opcodes/e2k-dis.c:1899-1901`), смещение — младшие 5 бит
+      // (`opcodes/e2k-dis.c:2006-2007`: печатается `cs0 & 0x1f`; `gas/config/tc-e2k.c:6054-6064`:
+      // значение обязано быть 0..31, символ запрещён).
+      return {
+        mnemonic: "sdisp",
+        channel: 0,
+        operands: [
+          { kind: "imm", value: ctpr },
+          { kind: "imm", value: cs0 & 0x1f },
+        ],
+      };
+    }
     throw new EncodingRefusedError(
-      `НЕТ В ИСТОЧНИКЕ: CS0.ctp_opc = ${ctpOpc} (sdisp/ldisp/gettsd/ibranch) не реализован`,
+      `НЕТ В ИСТОЧНИКЕ: CS0.ctp_opc = ${ctpOpc} при %ctpr${ctpr} (ibranch/ldisp/gettsd) не реализован`,
     );
   }
 

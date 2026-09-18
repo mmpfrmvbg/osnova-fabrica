@@ -48,10 +48,26 @@ import { createShellEncoder } from "./shell";
 import { createE2kEncoder } from "./e2k";
 import { createRealE2kEncoder } from "./e2k-real";
 
+/**
+ * Файл регистров операнда-регистра.
+ *
+ * `base` — базовый файл, `%b[N]` (поле слота `0x00 | N`); `window` — оконный, `%r[N]`
+ * (поле `0x80 | N`). Различие принципиальное, а не косметическое: при начальном `WD.base_d = 0`
+ * оконный `r0` — это `rf.window[0]`, а `%b[0]` — `rf.global[0]`, то есть **разные регистры**
+ * (`binutils-gdb/opcodes/e2k-dis.c:416-419` — раскладка поля; `qemu/target/e2k/reg-index.h:79,117` —
+ * какие ячейки за ними стоят).
+ */
+export type RegisterFile = "base" | "window";
+
 /** Операнд в документированной ассемблерной форме. */
 export type Operand =
-  | { readonly kind: "reg"; readonly index: number }
+  | { readonly kind: "reg"; readonly index: number; readonly file?: RegisterFile }
   | { readonly kind: "imm"; readonly value: number };
+
+/** Файл регистров операнда; явно не названный — базовый (так поле читалось до этой правки). */
+export function registerFileOf(operand: Extract<Operand, { kind: "reg" }>): RegisterFile {
+  return operand.file ?? "base";
+}
 
 /**
  * Инструкция в терминах документа (стр. 19):
@@ -147,7 +163,10 @@ export function sameInstruction(a: AsmInstruction, b: AsmInstruction): boolean {
 
 function sameOperand(a: Operand, b: Operand): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === "reg" && b.kind === "reg") return a.index === b.index;
+  if (a.kind === "reg" && b.kind === "reg") {
+    // Файл регистров сравнивается наравне с номером: `%b[0]` и `%r0` — разные регистры.
+    return a.index === b.index && registerFileOf(a) === registerFileOf(b);
+  }
   if (a.kind === "imm" && b.kind === "imm") return a.value === b.value;
   return false;
 }

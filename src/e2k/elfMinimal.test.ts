@@ -24,10 +24,12 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { getEncoder } from './backend';
 import {
-  ABI_NUMBER_REGISTER,
   EM_E2K,
   MACH_8C,
   MINIMAL_BASE,
+  SYSCALL_ARGUMENT_REGISTER,
+  SYSCALL_NUMBER_REGISTER,
+  SYSCALL_WBS,
   SYS_EXIT,
   buildMinimalElf,
   buildMinimalProgram,
@@ -67,16 +69,29 @@ describe('минимальный ELF: заголовок и код', () => {
     expect(elf.bytes[0x44]).toBe(5);
   });
 
-  it('код состоит из извлечённых форм: два литерала и передача управления', () => {
+  it('код состоит из извлечённых форм: setbn, два окна-литерала, sdisp и call', () => {
     const program = buildMinimalProgram(42);
-    expect(program.instructions.map((instruction) => instruction.mnemonic)).toEqual(['movts', 'movts', 'ct']);
-    expect(program.code.length).toBe(16 + 16 + 8);
+    expect(program.instructions.map((instruction) => instruction.mnemonic)).toEqual([
+      'setbn',
+      'movts',
+      'movts',
+      'sdisp',
+      'call',
+    ]);
+    // setbn 8 + movts 16 + movts 16 + sdisp 8 + call 16
+    expect(program.code.length).toBe(8 + 16 + 16 + 8 + 16);
     // Номер вызова — 1 (exit), а не 60: взято из syscall_nr.h порта QEMU.
     expect(SYS_EXIT).toBe(1);
-    // Литеральные поля видны в байтах: 0xd4 (16 бит) и управляющий слог SS с ALWAYS.
-    expect(program.code[5]).toBe(0xd4);
-    expect(program.code[21]).toBe(0xd4);
-    expect(program.code[program.code.length - 4]).toBe(0x20);
+    // Литеральные поля (0xd4, 16 бит) — в слотах второго и третьего movts.
+    expect(program.code[8 + 5]).toBe(0xd4);
+    expect(program.code[24 + 5]).toBe(0xd4);
+    // Оконный файл регистров: поля слога несут старший бит 0x80 (номер вызова — %r8, довод — %r9).
+    expect(program.code[8 + 4]).toBe(SYSCALL_NUMBER_REGISTER | 0x80);
+    expect(program.code[24 + 4]).toBe(SYSCALL_ARGUMENT_REGISTER | 0x80);
+    // sdisp: ctp_opc = 2 (0x60 в старшем байте) — им ставится тег CTPSL.
+    expect(program.code[40 + 7]).toBe(0x60);
+    // call: сдвиг окна wbs = 4 (SYSCALL_WBS здесь же названа константой).
+    expect(typeof SYSCALL_WBS).toBe('number');
   });
 
   it('байты кода совпадают с кодировщиком', () => {
@@ -115,10 +130,16 @@ describe('минимальный ELF: внешняя проверка', () => {
     }
   });
 
-  it('ассемблер МЦСТ: инструкции совпадают байтами, для 0..15 — измеренная разница форм', () => {
+  it('ассемблер МЦСТ: формы совпадают байтами, для 0..15 — измеренная разница форм', () => {
     if (asTool === undefined) return;
     const program = buildMinimalProgram(42);
-    const texts = ['movts,0 1, %b[0]', 'movts,0 42, %b[1]', 'ct %ctpr1'];
+    const texts = [
+      'setbn rsz=4, rbs=0, rcur=0',
+      'movts,0 1, %r8',
+      'movts,0 42, %r9',
+      'sdisp %ctpr1, 0',
+      'call %ctpr1, wbs=4',
+    ];
     const samples: AsSample[] = texts.map((asText, index) => ({
       key: `minimal-${index}`,
       mnemonic: program.instructions[index]!.mnemonic,
@@ -135,32 +156,29 @@ describe('минимальный ELF: внешняя проверка', () => {
       expect(result.ok, `ассемблер отверг «${text}»`).toBe(true);
       if (!result.ok) continue;
       const ours = Array.from(encoder.encode(program.instructions[index]!));
-      if (index === 0) {
-        // ИЗМЕРЕННАЯ РАЗНИЦА ФОРМ. Значение 0..15 ассемблер кладёт 4-битной непосредственной
-        // формой (поле `0xc0 | N`, 8 байт), наш кодировщик — литералом LTS (`0xd4`, 16 байт).
-        // Обе формы разбираются дизассемблером (проверка выше); расхождение записано, а не скрыто.
-        expect(Array.from(result.bytes), `байты ассемблера для «${text}»`).toEqual([1, 0, 0, 4, 0, 0xc1, 0xc0, 0x60]);
-        expect(ours).toEqual([0x11, 0, 0, 4, 0, 0xd4, 0xc0, 0x60, 0, 0, 0, 0, 0, 0, 1, 0]);
+      // Значение 1 влезает в 4 бита, поэтому здесь ассемблер берёт непосредственную форму (0xc1,
+      // 8 байт), а наш кодировщик — литерал LTS (0xd4, 16 байт): разница форм, а не ошибка.
+      if (text === 'movts,0 1, %r8') {
+        expect(Array.from(result.bytes)).toEqual([0x01, 0, 0, 4, 0x88, 0xc1, 0xc0, 0x60]);
+        expect(ours[4]).toBe(0x88);
+        expect(ours[5]).toBe(0xd4);
         expect(ours.length).toBeGreaterThan(result.bytes.length);
         continue;
       }
-      // Литерал 42 (не влезает в 4 бита) и управляющий слог SS — совпадают побайтово.
       expect(Array.from(result.bytes), `байты ассемблера для «${text}»`).toEqual(ours);
     }
   });
 
-  it('препятствия к exit(42) названы, а не спрятаны', () => {
+  it('требования окружения к exit(42) названы, а не спрятаны', () => {
     const program = buildMinimalProgram(42);
-    expect(program.blockers.length).toBe(3);
+    expect(program.blockers.length).toBe(2);
     const text = program.blockers.join(' ');
-    expect(text, 'не названо препятствие с файлом регистров').toContain(ABI_NUMBER_REGISTER);
-    expect(text).toMatch(/%b\[N\]/);
-    expect(text).toMatch(/CTPSL/);
-    // Препятствие «переход не подготовлен» — измеренное прогоном, а не предположение.
-    expect(text).toMatch(/0x100020|CTPEW/);
-    // Препятствие «тег CTPSL ставит SDISP» названо с источником и с упором в кодировщик.
-    expect(text).toMatch(/translate-ctp\.c:174/);
-    expect(text).toMatch(/ОТВЕРГАЕТ/);
+    // Оба требования — к ХОСТУ: шим для mmap и правка полей WD в порте QEMU.
+    expect(text).toMatch(/шим/i);
+    expect(text).toMatch(/MAP_FIXED_NOREPLACE/);
+    expect(text).toMatch(/WD\.size_d|_d/);
+    expect(text, 'не названа точная причина отказа без правки').toMatch(/syscall without proper WD configuration/);
+    expect(text).toMatch(/docs\/e2k-qemu-run\.md/);
   });
 
   it('QEMU: либо код возврата 42, либо точная причина', () => {

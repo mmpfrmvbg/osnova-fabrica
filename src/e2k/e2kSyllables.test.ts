@@ -38,6 +38,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
+const wreg = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
 
 /** Образец расширения: ассемблерный текст МЦСТ и наша инструкция. */
 interface ExtensionSample {
@@ -66,6 +67,12 @@ const CONTROL: readonly ExtensionSample[] = [
   { key: 'disp', asText: 'disp %ctpr1, .L1\n.L1:', instruction: { mnemonic: 'disp', channel: 0, operands: [imm(1), imm(1)] }, expectObjdump: 'disp %ctpr1' },
   { key: 'return', asText: 'return %ctpr3', instruction: { mnemonic: 'return', channel: 0, operands: [imm(3)] }, expectObjdump: 'return %ctpr3' },
   { key: 'call', asText: 'call %ctpr1, wbs=16', instruction: { mnemonic: 'call', channel: 0, operands: [imm(1), imm(16)] }, expectObjdump: 'call %ctpr1' },
+  // Добавлены после прогона: без sdisp (тег CTPSL) и setbn (окно вращаемых) exit(42) недостижим.
+  { key: 'sdisp', asText: 'sdisp %ctpr1, 3', instruction: { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(3)] }, expectObjdump: 'sdisp %ctpr1' },
+  { key: 'sdisp-ctpr3', asText: 'sdisp %ctpr3, 1', instruction: { mnemonic: 'sdisp', channel: 0, operands: [imm(3), imm(1)] }, expectObjdump: 'sdisp %ctpr3' },
+  { key: 'setbn', asText: 'setbn rsz=4, rbs=0, rcur=0', instruction: { mnemonic: 'setbn', channel: 0, operands: [imm(4), imm(0), imm(0)] }, expectObjdump: 'setbn' },
+  // Оконный файл регистров: та же позиция поля со старшим битом (0x80 | N).
+  { key: 'adds-window', asText: 'adds,0 %r1, %r2, %r8', instruction: { mnemonic: 'adds', channel: 0, operands: [wreg(1), wreg(2), wreg(8)] }, expectObjdump: 'adds' },
 ];
 
 const ALL: readonly ExtensionSample[] = [...LITERALS, ...CONTROL];
@@ -157,9 +164,12 @@ describe('литералы и слоги управления: отказы на
     expect(() => encoder.encode({ mnemonic: 'ct', channel: 0, operands: [imm(0), imm(0x20)] })).toThrow(EncodingError);
     expect(() => encoder.encode({ mnemonic: 'return', channel: 0, operands: [imm(1)] })).toThrow(/%ctpr3/);
     expect(() => encoder.encode({ mnemonic: 'ct', channel: 1, operands: [imm(1), imm(0x20)] })).toThrow(/канала ALS/);
-    expect(() => encoder.encode({ mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(1)] })).toThrow(
-      EncodingRefusedError,
-    );
+    // sdisp реализован, но границы его поля те же, что у ассемблера: смещение 0..31.
+    expect(() => encoder.encode({ mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(32)] })).toThrow(/0\.\.31/);
+    expect(() => encoder.encode({ mnemonic: 'sdisp', channel: 0, operands: [imm(0), imm(1)] })).toThrow(/ctpr/);
+    // По-прежнему отвергаются формы, которых в кодировщике нет.
+    expect(() => encoder.encode({ mnemonic: 'setbp', channel: 0, operands: [imm(5)] })).toThrow(EncodingRefusedError);
+    expect(() => encoder.encode({ mnemonic: 'ldisp', channel: 0, operands: [imm(2), imm(1)] })).toThrow(EncodingRefusedError);
   });
 
   it('разбор отвергает чужие слоги управления', () => {
@@ -176,7 +186,17 @@ describe('литералы и слоги управления: отказы на
   });
 
   it('у каждой формы управления назван источник', () => {
-    expect(REAL_CONTROL_OPCODES.length).toBe(4);
+    // Четыре прежние формы (ct/disp/return/call) плюс sdisp и setbn — добавлены после того,
+    // как прогон показал, что без них exit(42) недостижим.
+    expect(REAL_CONTROL_OPCODES.length).toBe(6);
+    expect(REAL_CONTROL_OPCODES.map((entry) => entry.mnemonic).sort()).toEqual([
+      'call',
+      'ct',
+      'disp',
+      'return',
+      'sdisp',
+      'setbn',
+    ]);
     for (const entry of REAL_CONTROL_OPCODES) {
       expect(entry.source, `${entry.mnemonic}: нет источника`).toMatch(/tc-e2k\.c:\d+/);
       expect(entry.formSource, `${entry.mnemonic}: нет источника полей`).toMatch(/syllab-format\.h:\d+|e2k-dis\.c:\d+/);
