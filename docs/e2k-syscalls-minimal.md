@@ -66,10 +66,13 @@
 | ошибка приходит как `-errno` в оконный `r0` | `linux-user/user-internals.h:113-116`; `linux-user/e2k/cpu_loop.c:209-215` |
 | при `-QEMU_ERESTARTSYS` вызов повторяется портом | `linux-user/e2k/cpu_loop.c:187-197` |
 
-**Не проверено исполнением:** загрузка 64-битного **адреса** (строки, буфера, адреса
-отображения) в оконный регистр. `exit(42)` обошёлся 16-битными литералами (`1` и `42`); чем
-загружать адрес — **НЕТ В ИСТОЧНИКЕ** (`docs/e2k-syscall-abi.md` §5). Пока это не найдено,
-`read`/`write`/`open`/`mmap`/`brk` исполнить нельзя, хотя номер и порядок аргументов известны.
+**Проверено исполнением:** `exit` (номер 1) и `write` (номер 4) — оба доведены до конца в модели
+(`docs/e2k-minimal-elf.md` §7, `docs/e2k-syscall-abi.md` §5, `docs/e2k-qemu-run.md` §2.10).
+Вместе с `write` решена и **загрузка 64-битного адреса** в оконный регистр: `movtd,0 _f64` формой
+`0xdc` (16 байт), выбранной замером ассемблера (`docs/e2k-address-loading.md` §4.4).
+
+**Не проверено исполнением:** остальные вызовы — `read`, `open`, `mmap`, `brk`, `ioctl`:
+номер и порядок аргументов известны, прогона нет.
 
 ---
 
@@ -107,7 +110,7 @@
         setbn   rsz = 4, rbs = 0, rcur = 0
         movts,0 3, %r8            ; read (syscall_nr.h:11)
         movts,0 <fd>,    %r9      ; arg1
-        ; <адрес buf> -> %r10     ; arg2 — загрузка адреса НЕ НАЙДЕНА (§2)
+        movtd,0 _f64 <адрес buf>, %r10 ; arg2 — 64-битный литерал формы 0xdc
         movts,0 <count>, %r11     ; arg3
         sdisp   %ctpr1, 0
         call    %ctpr1, wbs = 4
@@ -121,13 +124,13 @@
 | аргументы | `arg1 = fd`, `arg2 = buf` (адрес), `arg3 = count` |
 | возврат | число записанных байт; при ошибке `-errno` (в частности `-TARGET_EFAULT`, если `buf` недоступен для чтения) |
 | источник | `linux-user/syscall.c:10581-10599` (`case TARGET_NR_write`, `safe_write(arg1, p, arg3)`); порядок `write(fd, buf, count)` — `syscall_64.tbl:13` |
-| статус | **НЕ ПРОВЕРЕНО ИСПОЛНЕНИЕМ** (`docs/e2k-syscall-abi.md` §5) |
+| статус | **ИСПОЛНЕНО В МОДЕЛИ**: write(1,"hello",5) — в stdout уходит hello, exit того же образа возвращает 42 (`docs/e2k-syscall-abi.md` §5, `docs/e2k-qemu-run.md` §2.10) |
 
 ```asm
-        setbn   rsz = 4, rbs = 0, rcur = 0
+        setbn   rsz = 5, rbs = 0, rcur = 0 ; 12 единиц: %r8…%r11 (rsz = 4 дал бы 10)
         movts,0 4, %r8            ; write (syscall_nr.h:12)
         movts,0 1, %r9            ; arg1: fd = 1 (stdout)
-        ; <адрес "hello"> -> %r10  ; arg2 — загрузка адреса НЕ НАЙДЕНА (§2)
+        movtd,0 _f64 <адрес "hello">, %r10 ; arg2: адрес строки — литерал 0xdc
         movts,0 5, %r11           ; arg3: count = 5
         sdisp   %ctpr1, 0
         call    %ctpr1, wbs = 4
@@ -211,7 +214,7 @@
         movts,0 <length>, %r10    ; arg2
         movts,0 <prot>,   %r11    ; arg3
         ; arg4..arg6 (flags, fd, offset) — требуют оконных r4..r6,
-        ; загрузка адресов и старших аргументов НЕ НАЙДЕНА (docs/e2k-syscall-abi.md §5, §7)
+        ; адреса и старшие аргументы — литералом 0xdc (docs/e2k-address-loading.md §4.4); прогона этих вызовов нет
         sdisp   %ctpr1, 0
         call    %ctpr1, wbs = 4
 ```

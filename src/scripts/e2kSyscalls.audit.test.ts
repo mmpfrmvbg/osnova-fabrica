@@ -457,7 +457,16 @@ describe("документы о системных вызовах e2k", () => {
     const refs = collectSourceRefs(abiDoc);
     expect(refs.length, "ссылок «файл:строка» в ABI-документе").toBeGreaterThanOrEqual(80);
     expect(abiDoc).toContain("НЕТ В ИСТОЧНИКЕ");
-    expect(abiDoc).toContain("НЕ ПРОВЕРЕНО ИСПОЛНЕНИЕМ");
+    // §5 перешёл из «шаблон, исполнением не проверен» в «проверено прогоном»: сторож требует
+    // ровно этого и требует назвать, чего прогон НЕ доказывает (иначе «проверено» — обещание).
+    const section5 = abiDoc.slice(abiDoc.indexOf("## 5."), abiDoc.indexOf("## 6."));
+    expect(section5, "§5 не называет исполнение проверенным").toContain("ПРОВЕРЕНО ИСПОЛНЕНИЕМ");
+    expect(section5, "§5 одновременно помечен как непроверенный").not.toContain("НЕ ПРОВЕРЕНО ИСПОЛНЕНИЕМ");
+    expect(section5, "§5 не называет оракул прогона").toContain("src/e2k/e2kSyscallRuntime.test.ts");
+    expect(section5, "§5 не называет, чего прогон не доказывает").toMatch(/НЕ ЗАМЕРЕНО|НЕТ В ИСТОЧНИКЕ/);
+    // Заявленное «проверено» обязано иметь инструмент: файл оракула существует и утверждает hello.
+    const runOracle = fs.readFileSync(path.join(ROOT, "src", "e2k", "e2kSyscallRuntime.test.ts"), "utf-8");
+    expect(runOracle, "оракул прогона не утверждает hello").toContain("hello");
     expect(abiDoc).not.toContain("работает");
     // Факты, оставшиеся без источника, обязаны быть перечислены в §7 таблицей отсутствующего.
     const notFound = abiDoc.slice(abiDoc.indexOf("## 7."), abiDoc.indexOf("## 8."));
@@ -573,7 +582,9 @@ describe("документы о системных вызовах e2k", () => {
   });
 
   it("ABI-документ не обещает больше, чем проверено", () => {
-    expect(abiDoc).toContain("НЕ ПРОВЕРЕНО ИСПОЛНЕНИЕМ");
+    const section5 = abiDoc.slice(abiDoc.indexOf("## 5."), abiDoc.indexOf("## 6."));
+    expect(section5).toContain("ПРОВЕРЕНО ИСПОЛНЕНИЕМ");
+    expect(section5).not.toContain("НЕ ПРОВЕРЕНО ИСПОЛНЕНИЕМ");
     expect(minimalDoc).toContain("НЕ ПРОВЕРЕНО ИСПОЛНЕНИЕМ");
     expect(abiDoc).not.toMatch(/\b(работает|готово)\b/);
     expect(minimalDoc).not.toMatch(/\b(работает|готово)\b/);
