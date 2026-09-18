@@ -19,16 +19,30 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
 import * as path from 'path';
 import { getEncoder } from './backend';
-import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
-import { buildHelloProgram, textBytes, SYS_WRITE } from './syscallRuntime';
+import { buildElfFromCode, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
+import {
+  buildHelloProgram,
+  textBytes,
+  SYS_WRITE,
+  HELLO_SETBN_RSZ,
+  WINDOW_BUFFER_REGISTER,
+} from './syscallRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
-import { buildE2kElf, disassembleElf, findExternalTool, parseObjdumpOutput } from '../scripts/e2kExternalObjdump';
-import type { E2kSample } from '../scripts/extractE2kSamples';
+import {
+  disassembleElf,
+  disasmFacts,
+  findExternalTool,
+  parseObjdumpOutput,
+} from '../scripts/e2kExternalObjdump';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
+
+/** Образ «hello», каким его видит чужой дизассемблер: строки текста или названная причина. */
+type DisasmView = { readonly lines: readonly string[] } | { readonly missing: string };
 
 describe('hello без libc: сборка', () => {
   const program = buildHelloProgram('hello');
@@ -63,42 +77,70 @@ describe('hello без libc: сборка', () => {
 });
 
 describe('hello без libc: образ читается дизассемблером МЦСТ', () => {
-  it('objdump печатает ожидаемые строки, включая 64-битный литерал', () => {
-    const { tool } = findExternalTool();
+  // Дизассемблер запускается один раз: две проверки ниже читают один и тот же вывод — форма
+  // строки и **значения** в ней.
+  let view: DisasmView | undefined;
+  const disasm = (): DisasmView => {
+    if (view !== undefined) return view;
+    const { tool, reason } = findExternalTool();
     if (tool === undefined) {
-      const probe = findExternalTool();
-      expect(probe.reason, 'причина ненайденности дизассемблера не названа').toBeDefined();
-      return;
+      view = { missing: reason ?? 'причина ненайденности дизассемблера не названа' };
+      return view;
     }
     const program = buildHelloProgram('hello');
     const elf = buildElfFromCode(program.code, MINIMAL_BASE);
-    const hex = Array.from(program.code, (byte) => byte.toString(16).padStart(2, '0')).join(' ');
-    const samples: E2kSample[] = [
-      {
-        mnemonic: 'hello',
-        form: 'программа',
-        opc: '0x0',
-        channel: 0,
-        operands: [],
-        bytes: '',
-        hex,
-        size: program.code.length,
-        assembly: 'hello',
-        source: 'src/e2k/syscallRuntime.ts',
-      },
-    ];
-    void samples;
     const result = disassembleElf(
       { bytes: Buffer.from(elf.bytes), layout: [] },
       path.join(ROOT, '.tmp', 'e2k-hello.elf'),
     );
-    expect(result, 'дизассемблер не ответил').toBeDefined();
-    if (result === undefined) return;
-    const lines = parseObjdumpOutput(result.text).map((line) => line.text);
+    if (result === undefined) {
+      view = { missing: 'дизассемблер не ответил на наш образ (причина — в оракуле внешней проверки)' };
+      return view;
+    }
+    view = { lines: parseObjdumpOutput(result.text).map((line) => line.text) };
+    return view;
+  };
+
+  it('objdump печатает ожидаемые строки, включая 64-битный литерал', () => {
+    const seen = disasm();
+    if ('missing' in seen) {
+      expect(seen.missing.length, 'причина ненайденности дизассемблера не названа').toBeGreaterThan(20);
+      return;
+    }
+    const program = buildHelloProgram('hello');
+    const lines = seen.lines;
     const missing = program.expectDisasm.filter(
       (expected) => !lines.some((line) => line.includes(expected.split(' ').slice(0, 3).join(' '))),
     );
     expect(missing, `не найдено в выводе objdump: ${missing.join('; ')}`).toEqual([]);
+  });
+
+  /**
+   * Значение, а не форма. Первая проверка сравнивает **префикс** строки и потому смотрит на
+   * наше же вычисление: подмена значения в вычислении уехала бы вместе с ожиданием. Здесь
+   * значение читается из чужого вывода и **пришпилено** к измеренному адресу 0x100098 — то есть
+   * расхождение в самом вычислении тоже видно.
+   */
+  it('значения из образа: литерал 0x100098 в %dr10, rsz = 5, wbs = 4, sdisp = 0', () => {
+    const seen = disasm();
+    if ('missing' in seen) {
+      expect(seen.missing.length).toBeGreaterThan(20);
+      return;
+    }
+    const program = buildHelloProgram('hello');
+    const facts = disasmFacts(seen.lines);
+    expect(facts.literalValue, 'литерал адреса строки не прочитан из образа').toBeDefined();
+    // Главная проверка: значение в байтах против измеренной константы (код 152 байта, база 0x100000).
+    expect(facts.literalValue, 'адрес строки в образе').toBe(0x100098n);
+    expect(facts.literalValue, 'адрес строки равен вычисленному сборщиком').toBe(BigInt(program.textAddress));
+    // Приёмник: дизассемблер печатает двойной регистр как `%drN` (`opcodes/e2k-dis.c:407,575`).
+    expect(facts.literalRegister, 'приёмник литерала').toBe(`%dr${WINDOW_BUFFER_REGISTER}`);
+    // Значения остальных полей: round-trip через чужой разбор (пригодность rsz=5 для ABI это не доказывает).
+    expect(facts.rsz, 'rsz в образе').toBe(HELLO_SETBN_RSZ);
+    expect(facts.wbs, 'wbs обоих вызовов').toEqual([SYSCALL_WBS, SYSCALL_WBS]);
+    expect(facts.sdisp, 'иммедиаты sdisp').toEqual([0, 0]);
+    // Литерал указывает на строку: смещение строки в образе — те самые 0x98, а не совпадение.
+    expect(program.textAddress - MINIMAL_BASE, 'смещение строки в образе').toBe(0x98);
   });
 });
 
@@ -112,10 +154,10 @@ describe('hello без libc: исполнение в QEMU', () => {
     }
     const program = buildHelloProgram('hello');
     const file = path.join(ROOT, '.tmp', 'e2k-hello.elf');
-    require('fs').writeFileSync(file, buildElfFromCode(program.code, MINIMAL_BASE).bytes);
+    fs.writeFileSync(file, buildElfFromCode(program.code, MINIMAL_BASE).bytes);
     const result = runInQemu(file, { shim: true });
     if (result === undefined) {
-      expect(result, 'QEMU не запустился — причина названа в oракуле прогона (e2kQemuExec.test.ts)').toBeUndefined();
+      expect(result, 'QEMU не запустился — причина названа в оракуле прогона (e2kQemuExec.test.ts)').toBeUndefined();
       return;
     }
     // Требуемое: stdout содержит «hello». Вывод печатается целиком, чтобы причина отказа была видна.
@@ -125,5 +167,35 @@ describe('hello без libc: исполнение в QEMU', () => {
         'Проверено: write=4 в оконном r0 (movts → %r8), fd=1 в %r9, buf — 64-битным литералом в %r10, ' +
         'count=5 в %r11, sdisp %ctpr1, call %ctpr1 wbs=4; при провале звено названо этим сообщением.',
     ).toBe(true);
+  });
+
+  /**
+   * Различающий опыт на второй вызов. Код возврата `0` не различает «`exit` дошёл» и «программа
+   * кончилась сама»: ноль вышел бы в обоих случаях. Поэтому тот же образ собирается с `exit(42)` —
+   * и тогда код возврата QEMU называет, дошёл ли второй вызов **после** `write` (то есть
+   * восстановилось ли окно регистров между вызовами — названная граница `src/e2k/syscallRuntime.ts`).
+   */
+  it('exit(42) после write: код возврата различает «дошёл» и «не дошёл»', () => {
+    const shim = buildShim();
+    if (shim === undefined) {
+      expect(shim, 'шим не собран: в WSL-дистрибутиве нет компилятора C').toBeUndefined();
+      return;
+    }
+    const program = buildHelloProgram('hello', 42);
+    // Адрес строки от кода возврата не зависит: `exit(42)` — та же длина команды `movts`.
+    expect(program.textAddress - MINIMAL_BASE, 'смещение строки не изменилось').toBe(0x98);
+    const file = path.join(ROOT, '.tmp', 'e2k-hello-42.elf');
+    fs.writeFileSync(file, buildElfFromCode(program.code, MINIMAL_BASE).bytes);
+    const result = runInQemu(file, { shim: true });
+    if (result === undefined) {
+      expect(result, 'QEMU не запустился — причина названа в оракуле прогона').toBeUndefined();
+      return;
+    }
+    expect(
+      result.status,
+      `QEMU не вернул 42 (вернул ${String(result.status)}) — второй syscall после write не дошёл. ` +
+        `Вывод: «${result.output.slice(0, 200)}». Это и есть проверка восстановления окна между вызовами.`,
+    ).toBe(42);
+    expect(result.output.includes('hello'), 'вывод первого вызова потерялся').toBe(true);
   });
 });

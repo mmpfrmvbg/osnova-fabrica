@@ -17,6 +17,11 @@
  * | 6 | `sdisp %ctpr1, 0` | подготовка `%ctpr1` с тегом `CTPSL` — признак системного вызова (`translate-ctp.c:174`) |
  * | 7 | `call %ctpr1, wbs=4` | передача управления; с тегом `CTPSL` порт уходит в `do_syscall` |
  *
+ * В таблице записано то, что пишем **мы**. Дизассемблер МЦСТ печатает приёмник 64-битного
+ * литерала иначе — `%dr10` (`reg_prefix = {"", "d", "q", "qp"}` — `opcodes/e2k-dis.c:407`, печать
+ * `"%%%sr%d"` — `:575`). Это обозначение чужого инструмента, и оно **измерено**: значение
+ * литерала и приёмник сверяются отдельно (`disasmFacts`, `src/scripts/e2kExternalObjdump.ts`).
+ *
  * # Почему именно `sdisp %ctpr1, 0`, а не 3
  *
  * Ноль — **измеренное** значение: именно с ним `exit(42)` доведён до конца (`src/e2k/elfMinimal.ts`,
@@ -125,7 +130,10 @@ export function buildHelloProgram(text = 'hello', exitCode = 0): SyscallProgram 
       'setbn rbs = 0x0, rsz = 0x5, rcur = 0x0',
       `movts,0 _f16s 0x${SYS_WRITE.toString(16)}, %r${WINDOW_NUMBER_REGISTER}`,
       `movts,0 _f16s 0x${STDOUT_FD.toString(16)}, %r${WINDOW_FD_REGISTER}`,
-      `movtd,0 _f64 0x${textAddress.toString(16)}, %r${WINDOW_BUFFER_REGISTER}`,
+      // Приёмник 64-битного литерала дизассемблер печатает `%dr10`: `reg_prefix = {"", "d", …}`
+      // (`opcodes/e2k-dis.c:407`), печать `"%%%sr%d"` (`:575`). Здесь стояло `%r10` — вывод из
+      // наших обозначений, а не замер; исправлено по замеру (`.tmp/hello-dis.ts`).
+      `movtd,0 _f64 0x${textAddress.toString(16)}, %dr${WINDOW_BUFFER_REGISTER}`,
       `movts,0 _f16s 0x${text.length.toString(16)}, %r${WINDOW_COUNT_REGISTER}`,
       'sdisp %ctpr1',
       'call %ctpr1, wbs = 0x4',

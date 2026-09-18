@@ -12,6 +12,9 @@
  * 2. **Разбор вывода.** Вывод дизассемблера необычен: адрес печатается **без** байтов, текст
  *    инструкции — следующей строкой. Разбор проверяется негативным контролем на подложенном
  *    тексте (в том числе на пустом и на чужом формате).
+ * 2.1. **Разбор чисел** (`disasmFacts`): значение литерала, приёмник, `rsz`, `wbs`, `sdisp`
+ *    читаются из вывода, и чужое значение читается как чужое — негативный контроль на
+ *    измеренном выводе образа «hello» (иначе сверка значений доказывала бы сама себя).
  * 3. **Сверка.** Если внешний дизассемблер доступен, **все десять** образцов обязаны совпасть
  *    по мнемонике, каналу и номерам операндов. Если недоступен — каждый образец обязан быть
  *    «НЕ ПРОВЕРЕНО» с названной причиной, и документ обязан это фиксировать.
@@ -32,6 +35,7 @@ import {
   buildE2kElf,
   compareSamples,
   decodeConsoleOutput,
+  disasmFacts,
   findExternalTool,
   parseInstructionText,
   parseObjdumpOutput,
@@ -167,6 +171,55 @@ describe('внешняя проверка: разбор вывода дизас�
 
     const unparsable: DisasmLine[] = [{ address: 0x100000, bytes: '', text: 'что-то непонятное' }];
     expect(compareSamples(layout, unparsable)[0]!.reason).toMatch(/не удалось разобрать/);
+  });
+});
+
+/**
+ * Вывод дизассемблера по образу «hello» — **измеренный** текст (прогон
+ * `.tmp/hello-dis.ts`, 2026-09-19): значения литерала, `rsz` и `wbs` напечатаны дизассемблером
+ * именно так. Служит подложенным текстом для негативного контроля разбора чисел.
+ */
+const HELLO_OUTPUT = [
+  'setbn rbs = 0x0, rsz = 0x5, rcur = 0x0',
+  'movts,0 _f16s 0x4, %r8',
+  'movts,0 _f16s 0x1, %r9',
+  'movtd,0 _f64 0x100098, %dr10',
+  'movts,0 _f16s 0x5, %r11',
+  'sdisp %ctpr1, 0x0',
+  'ipd 3 call %ctpr1, wbs = 0x4',
+  'movts,0 _f16s 0x1, %r8',
+  'movts,0 _f16s 0x0, %r9',
+  'sdisp %ctpr1, 0x0',
+  'ipd 3 call %ctpr1, wbs = 0x4',
+];
+
+describe('внешняя проверка: разбор чисел из вывода дизассемблера', () => {
+  it('литерал, приёмник, rsz, wbs и sdisp читаются из измеренного вывода', () => {
+    const facts = disasmFacts(HELLO_OUTPUT);
+    expect(facts.literalValue).toBe(0x100098n);
+    // 64-битный приёмник: `reg_prefix[1] = "d"` (`opcodes/e2k-dis.c:407,575`) — `%dr10`, не `%r10`.
+    expect(facts.literalRegister).toBe('%dr10');
+    expect(facts.rsz).toBe(5);
+    expect(facts.wbs).toEqual([4, 4]);
+    expect(facts.sdisp).toEqual([0, 0]);
+  });
+
+  it('негативный контроль: чужое значение литерала читается как чужое, а не подменяется ожиданием', () => {
+    const wrong = HELLO_OUTPUT.map((line) => line.replace('0x100098', '0x1000a0'));
+    expect(disasmFacts(wrong).literalValue).toBe(0x1000a0n);
+    expect(disasmFacts(wrong).literalValue).not.toBe(0x100098n);
+  });
+
+  it('негативный контроль: без строки литерала значения нет — «нет данных» не выглядит как факт', () => {
+    const withoutLiteral = HELLO_OUTPUT.filter((line) => !line.includes('_f64'));
+    expect(disasmFacts(withoutLiteral).literalValue).toBeUndefined();
+    expect(disasmFacts(withoutLiteral).literalRegister).toBeUndefined();
+    // И на пустом выводе, и на чужом формате.
+    expect(disasmFacts([]).literalValue).toBeUndefined();
+    expect(disasmFacts(['100000:  movtd,0 _f64 0x100098']).literalValue).toBeUndefined();
+    // Без `setbn` и без `call` — тоже ничего не выдумывается.
+    expect(disasmFacts(['nop']).rsz).toBeUndefined();
+    expect(disasmFacts(['nop']).wbs).toEqual([]);
   });
 });
 

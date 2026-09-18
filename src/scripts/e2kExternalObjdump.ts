@@ -346,6 +346,57 @@ export function parseObjdumpOutput(output: string): DisasmLine[] {
   return lines;
 }
 
+/**
+ * Числа, которые дизассемблер МЦСТ печатает по **нашему** образу.
+ *
+ * Зачем отдельно от `parseObjdumpOutput`: тот даёт текст строки, а сверять надо **значения**.
+ * Ожидание, выведенное из наших же вычислений (`0x${textAddress.toString(16)}`), уезжает вместе
+ * с ошибкой в этих вычислениях и потому ничего не доказывает; значение, прочитанное из вывода
+ * дизассемблера, доказывает round-trip «наши байты → чужая расшифровка».
+ *
+ * Имена регистров — **измеренный факт**: `reg_prefix[] = {"", "d", "q", "qp"}` (`opcodes/e2k-dis.c:407`),
+ * печать `"%%%sr%d"` (`:575`), поэтому 64-битный приёмник литерала печатается `%dr10`, а не `%r10`.
+ */
+export interface DisasmFacts {
+  /** Значение литерала из `movtd,0 _f64 0x…` — то, что действительно лежит в байтах. */
+  readonly literalValue?: bigint;
+  /** Приёмник литерала так, как его печатает дизассемблер (измерено: `%dr10`). */
+  readonly literalRegister?: string;
+  /** `rsz` из `setbn rbs = …, rsz = …`. */
+  readonly rsz?: number;
+  /** Иммедиаты `wbs` из `call …, wbs = …` — в порядке появления. */
+  readonly wbs: readonly number[];
+  /** Иммедиаты `sdisp %ctprN, …` — в порядке появления. */
+  readonly sdisp: readonly number[];
+}
+
+/** Разобрать числа из строк дизассемблера. Чистая функция: у неё свой негативный контроль. */
+export function disasmFacts(lines: readonly string[]): DisasmFacts {
+  let literalValue: bigint | undefined;
+  let literalRegister: string | undefined;
+  let rsz: number | undefined;
+  const wbs: number[] = [];
+  const sdisp: number[] = [];
+  for (const line of lines) {
+    if (literalValue === undefined) {
+      const literal = /movtd,\d+\s+_f64\s+0x([0-9a-f]+)\s*,\s*(%[a-z]+\d+)/.exec(line);
+      if (literal !== null) {
+        literalValue = BigInt(`0x${literal[1]!}`);
+        literalRegister = literal[2]!;
+      }
+    }
+    if (rsz === undefined) {
+      const parsed = /\brsz\s*=\s*0x([0-9a-f]+)/.exec(line);
+      if (parsed !== null) rsz = Number.parseInt(parsed[1]!, 16);
+    }
+    const wbsValue = /\bwbs\s*=\s*0x([0-9a-f]+)/.exec(line);
+    if (wbsValue !== null) wbs.push(Number.parseInt(wbsValue[1]!, 16));
+    const sdispValue = /\bsdisp\s+%ctpr\d+\s*,\s*0x([0-9a-f]+)/.exec(line);
+    if (sdispValue !== null) sdisp.push(Number.parseInt(sdispValue[1]!, 16));
+  }
+  return { literalValue, literalRegister, rsz, wbs, sdisp };
+}
+
 /** Разобранная инструкция из текста дизассемблера. */
 export interface DisasmInstruction {
   readonly mnemonic: string;

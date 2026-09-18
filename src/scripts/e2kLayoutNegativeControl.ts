@@ -50,6 +50,12 @@ interface Defect {
   readonly to: string;
   /** Оракулы, на которых проверяется дефект. */
   readonly tests: readonly string[];
+  /**
+   * Конфиг vitest для этих оракулов. Нужен для ресурсозависимых: они вынесены из полного прогона
+   * в отдельный шлюз (случай 12), и с обычным конфигом прогон собрал бы НОЛЬ проверок — а ноль
+   * собранных это «контроль недействителен», а не «оракул слеп» (случай 10).
+   */
+  readonly config?: string;
 }
 
 /**
@@ -153,12 +159,22 @@ export interface OracleRun {
  * Отчёт берётся машинным (`--reporter=json --outputFile`), а не из текста: имена проверок —
  * русские, и разбор вывода зависел бы от кодировки консоли.
  */
-export function runOracles(tests: readonly string[], jsonFile: string): OracleRun {
+export function runOracles(tests: readonly string[], jsonFile: string, config?: string): OracleRun {
   let exitCode = 0;
   try {
     execFileSync(
       process.execPath,
-      [VITEST, 'run', ...tests, '--reporter=json', `--outputFile=${jsonFile}`],
+      [
+        VITEST,
+        'run',
+        ...tests,
+        // Конфиг обязателен для оракулов, исключённых из полного прогона: без него vitest берёт
+        // `vitest.config.ts`, чей `exclude` отбрасывает файл ещё до сбора — и дефект выглядел бы
+        // не поймёшь чем при 0 собранных проверок (случай 10 реестра проверяемости).
+        ...(config === undefined ? [] : [`--config=${config}`]),
+        '--reporter=json',
+        `--outputFile=${jsonFile}`,
+      ],
       { cwd: ROOT, stdio: ['ignore', 'ignore', 'ignore'], timeout: 900_000 },
     );
   } catch (error) {
@@ -216,14 +232,14 @@ export function checkDefect(defect: Defect, work = WORK): DefectReport {
   let caughtBy: readonly string[] = [];
   let mutatedCollected = 0;
   try {
-    const mutated = runOracles(defect.tests, path.join(work, `run-${defect.id}.json`));
+    const mutated = runOracles(defect.tests, path.join(work, `run-${defect.id}.json`), defect.config);
     caughtBy = mutated.failed;
     mutatedCollected = mutated.collected;
   } finally {
     fs.copyFileSync(backup, file); // восстановление из копии
   }
   const shaAfter = sha256(file);
-  const restored = runOracles(defect.tests, path.join(work, `restored-${defect.id}.json`));
+  const restored = runOracles(defect.tests, path.join(work, `restored-${defect.id}.json`), defect.config);
 
   return {
     id: defect.id,
@@ -280,7 +296,7 @@ export function verdictOf(report: DefectReport): string[] {
 }
 
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
-export function runAll(defects: readonly Defect[] = DEFECTS, work = WORK): DefectReport[] {
+export function runAll(defects: readonly Defect[] = [...DEFECTS, ...DEFECTS_STEP6], work = WORK): DefectReport[] {
   const reports: DefectReport[] = [];
   let passed = 0;
   let failed = 0;
@@ -310,6 +326,61 @@ export function runAll(defects: readonly Defect[] = DEFECTS, work = WORK): Defec
   console.log(`отчёт: ${path.relative(ROOT, REPORT)}`);
   return reports;
 }
+
+/**
+ * Дефекты формы 0xdc и системного вызова `write` (шаг 6).
+ *
+ * Тот же протокол, что у дефектов раскладки: внесение, прогон, восстановление из копии,
+ * sha256 до и после, повторный прогон.
+ */
+export const DEFECTS_STEP6: readonly Defect[] = [
+  {
+    id: '6.1',
+    title: 'форма 0xdc снята — 64-битный литерал не перехватывается',
+    file: 'src/e2k/e2k-real.ts',
+    from: '  const wide = instruction.operands.findIndex((operand) => operand.kind === "imm64");',
+    to: '  const wide = -1; // ДЕФЕКТ 6.1: форма 0xdc снята',
+    tests: ['src/e2k/e2kImm64.test.ts'],
+  },
+  {
+    id: '6.2',
+    title: 'отказ на усечении снят — 0x100000000 даёт 0',
+    file: 'src/e2k/e2k-real.ts',
+    from: '  const fits32 = literal.value >= -2147483648 && literal.value <= 2147483647;',
+    to: '  const fits32 = true; // ДЕФЕКТ 6.2: отказ на усечении снят',
+    tests: ['src/e2k/e2kImm64.test.ts'],
+  },
+  {
+    id: '6.3',
+    title: 'порядок слов литерала перепутан',
+    file: 'src/e2k/e2k-real.ts',
+    from: '  writeWord(bytes, 8, Number(bits >> 32n) >>> 0);\n  writeWord(bytes, 12, Number(bits & 0xffffffffn) >>> 0);',
+    to: '  writeWord(bytes, 8, Number(bits & 0xffffffffn) >>> 0); // ДЕФЕКТ 6.3\n  writeWord(bytes, 12, Number(bits >> 32n) >>> 0);',
+    tests: ['src/scripts/e2kExternalAs.test.ts'],
+  },
+  {
+    id: '6.4',
+    title: 'write снят — вывод пуст',
+    file: 'src/e2k/syscallRuntime.ts',
+    from: "    { mnemonic: 'movts', channel: 0, operands: [imm(SYS_WRITE), wreg(WINDOW_NUMBER_REGISTER)] },",
+    to: "    { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), wreg(WINDOW_NUMBER_REGISTER)] }, // ДЕФЕКТ 6.4",
+    tests: ['src/e2k/e2kSyscallRuntime.test.ts'],
+    config: 'vitest.qemu.config.ts',
+  },
+  {
+    // Дефект **не** в кодировщике, а в самом вычислении адреса: значение литерала и ожидание
+    // `expectDisasm` уезжают вместе, поэтому сверка по префиксу строки остаётся зелёной. Ловится
+    // тем, что значение пришпилено к измеренной константе 0x100098, и прогоном в QEMU — то есть
+    // проверкой значения, ради которой она и заведена.
+    id: '6.5',
+    title: 'адрес строки сдвинут на 8 — префиксная сверка слепа, сверка значения нет',
+    file: 'src/e2k/syscallRuntime.ts',
+    from: '  const textAddress = MINIMAL_BASE + code.length;',
+    to: '  const textAddress = MINIMAL_BASE + code.length + 8; // ДЕФЕКТ 6.5',
+    tests: ['src/e2k/e2kSyscallRuntime.test.ts'],
+    config: 'vitest.qemu.config.ts',
+  },
+];
 
 if (require.main === module) {
   try {
