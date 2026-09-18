@@ -78,6 +78,10 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     reason: 'вынесен в gate:qemu: живой qemu-e2k, ресурсозависимый (случай 12 реестра проверяемости)',
   },
   {
+    match: 'e2kSyscallRuntime.test.ts',
+    reason: 'исполняет QEMU (hello через syscall write), вынесен из полного прогона в gate:qemu по случаю 12',
+  },
+  {
     match: 'e2kQemuRun.audit.test.ts',
     reason: 'то же: проба живого прогона QEMU, не в полном прогоне',
   },
