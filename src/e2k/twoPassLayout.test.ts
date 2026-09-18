@@ -502,6 +502,20 @@ describe('двухпроходная раскладка: 1.5 круг через
             `а цель раскладки — 0x${expectedTarget.toString(16)} (смещение ${built.target.disp})`,
         );
       }
+      // И круг по своим же байтам: разобранное смещение обязано совпасть со смещением раскладки —
+      // иначе знак теряется на своей стороне, а чужой дизассемблер этого не покажет.
+      const commandBytes = built.bytes.slice(built.target.commandAddress, built.target.commandAddress + 8);
+      const decoded = realEncoder.decode(commandBytes);
+      const decodedDisp = decoded.operands[1];
+      if (decodedDisp === undefined || decodedDisp.kind !== 'imm' || decodedDisp.value !== built.target.disp) {
+        problems.push(
+          `${program.key}: своё разобранное смещение ${JSON.stringify(decodedDisp)} ` +
+            `не равно ${built.target.disp} (ожидалось ${built.target.disp})`,
+        );
+      }
+      if (built.target.commandAddress + built.target.disp * DISP_UNITS !== built.target.targetAddress) {
+        problems.push(`${program.key}: смещение ${built.target.disp} не ведёт в адрес цели`);
+      }
       // Передача управления — следующая команда пары, на 8 байт дальше.
       const transferLine = lines.find((line) => line.address === MINIMAL_BASE + built.target.commandAddress + 8);
       if (transferLine === undefined || !/^ct %ctpr\d+/.test(transferLine.text)) {
