@@ -62,7 +62,8 @@
 import type { AsmInstruction, Encoder, Operand } from "./backend";
 import { sameInstruction } from "./backend";
 import { realOpcode, type RealSlot } from "./e2k-real";
-import { JUMP_CARRIER, carrierForm, jumpCommands, layoutOf, secondPass } from "./twoPassLayout";
+import { JUMP_CARRIER, carrierForm, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
+import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
 import { createDefaultInvokeHandler, type StackValue } from "../runtime/vm/interpreter";
@@ -172,12 +173,25 @@ export const JUMP_NEEDS_LAYOUT =
   "одной командой переход не выражается и взять смещение из самой инструкции неоткуда " +
   "(src/e2k/twoPassLayout.ts; замер пары — docs/e2k-real-run.md §2.3)";
 
+/** Почему условный переход не понижается в одну команду и что для него нужно. */
+export const JUMP_IF_NEEDS_PAIR =
+  "«условный переход»: `ct` читает ПРЕДИКАТ (`SS.ctcond.psrc[4:0]`), а носитель несёт условие " +
+  "регистром-значением; предикат даёт только сравнение, поэтому переход понижается ПАРОЙ со " +
+  "сравнением (`cmp… → %predN` + `ct ? {~}%predN`) — сопоставление в src/e2k/predicatePairing.ts";
+
+/** Почему сравнение не понижается в одну команду и что для него нужно. */
+export const COMPARISON_NEEDS_PAIR =
+  "«сравнение»: e2k-сравнение (`cmp*`, форма ALF7) пишет ПРЕДИКАТ (`pdst[4:0]`), а носитель IR несёт " +
+  "значение в регистре; понижение возможно только ПАРОЙ с условным переходом, который этот предикат " +
+  "читает, — сопоставление в src/e2k/predicatePairing.ts";
+
 /**
  * Почему носитель не понижается **в одну команду**.
  *
- * Таблица отвечает на вопрос «можно ли это понижение выразить одной командой e2k», а не «понижается ли
- * носитель вообще»: `IR.jmp` **понижается**, но **серией** из двух команд ({@link lowerCarrier}),
- * поэтому здесь у него стоит причина, по которой одиночная команда не годится.
+ * Таблица отвечает на вопрос «можно ли это понижение выразить одной командой e2k», а не
+ * «понижается ли носитель вообще»: `IR.jmp` **понижается** серией из двух команд, а сравнения и
+ * условные переходы — **парой** (сравнение кладёт результат в предикат, переход его читает).
+ * Здесь стоит причина, по которой одиночная команда не годится.
  */
 export const REFUSALS: Readonly<Record<string, string>> = {
   "IR.invoke":
@@ -186,14 +200,14 @@ export const REFUSALS: Readonly<Record<string, string>> = {
   "IR.call": "не реализовано в e2k-real: вызов — управляющий слог CS (opcodes/e2k-dis.c:1895)",
   "IR.ret": "не реализовано в e2k-real: возврат — управляющий слог CS (opcodes/e2k-dis.c:1895)",
   "IR.jmp": JUMP_NEEDS_LAYOUT,
-  "IR.jmp_if": "не реализовано в e2k-real: условный переход — управляющий слог с предикатом",
-  "IR.jmp_if_not": "не реализовано в e2k-real: условный переход — управляющий слог с предикатом",
-  "IR.eq": "семантика не совпадает: сравнение e2k (cmp*, ALOPF7) даёт предикат, а IR-сравнение — значение в регистре",
-  "IR.ne": "семантика не совпадает: сравнение e2k даёт предикат, а IR-сравнение — значение в регистре",
-  "IR.lt": "семантика не совпадает: сравнение e2k даёт предикат, а IR-сравнение — значение в регистре",
-  "IR.le": "семантика не совпадает: сравнение e2k даёт предикат, а IR-сравнение — значение в регистре",
-  "IR.gt": "семантика не совпадает: сравнение e2k даёт предикат, а IR-сравнение — значение в регистре",
-  "IR.ge": "семантика не совпадает: сравнение e2k даёт предикат, а IR-сравнение — значение в регистре",
+  "IR.jmp_if": JUMP_IF_NEEDS_PAIR,
+  "IR.jmp_if_not": JUMP_IF_NEEDS_PAIR,
+  "IR.eq": COMPARISON_NEEDS_PAIR,
+  "IR.ne": COMPARISON_NEEDS_PAIR,
+  "IR.lt": COMPARISON_NEEDS_PAIR,
+  "IR.le": COMPARISON_NEEDS_PAIR,
+  "IR.gt": COMPARISON_NEEDS_PAIR,
+  "IR.ge": COMPARISON_NEEDS_PAIR,
   "IR.div":
     "не понижается: IR-деление вещественное, документированное деление e2k (SDIVs/x, UDIVs/x) — целочисленное",
   "IR.rem":
@@ -229,10 +243,21 @@ export interface LoweringContext {
   readonly constants?: readonly unknown[];
   /**
    * Вычисленное смещение перехода в 8-байтных единицах — результат **второго прохода** раскладки
-   * (`secondPass`). Без него `IR.jmp` не понижается: смещение — не поле инструкции, а свойство
+   * (`secondPass`). Без него переход не понижается: смещение — не поле инструкции, а свойство
    * раскладки.
    */
   readonly displacement?: number;
+  /**
+   * Сопоставление «сравнение → предикат» для носителя-сравнения: мнемоника `cmp` и номер
+   * предиката. Его даёт проход сопоставления (`src/e2k/predicatePairing.ts`) — и только он:
+   * без пары сравнение не понижается, потому что значение в регистре предикатом не является.
+   */
+  readonly predicate?: { readonly mnemonic: string; readonly index: number };
+  /**
+   * Код условия передачи управления для **условного** перехода (`SS.ctcond`): `0x40` — по
+   * предикату, `0x60` — по инверсному. Полярность выводит сопоставление, а не понижение.
+   */
+  readonly condition?: number;
 }
 
 /**
@@ -298,19 +323,79 @@ export function lowerInstruction(instruction: AsmInstruction, context: LoweringC
 /**
  * Понизить носитель IR в команды e2k — одну или серию.
  *
- * `IR.jmp` понижается **серией**: `disp %ctpr1, <смещение>` (CS0 несёт смещение) и `ct %ctpr1`
- * (SS выполняет передачу). Само смещение берётся из контекста — его посчитал `secondPass`
- * раскладки; без него понижение отказывает, потому что вычислить смещение из одной инструкции
- * нельзя (адрес цели зависит от размеров всех команд).
+ * Три случая:
+ *
+ * | носитель | понижение | что нужно из контекста |
+ * |---|---|---|
+ * | `IR.jmp` | серия `disp %ctpr1, <смещение>` + `ct %ctpr1` (передать всегда) | смещение |
+ * | `IR.jmp_if`/`IR.jmp_if_not` | та же серия, но `ct` несёт код условия `SS.ctcond` | смещение и код условия |
+ * | сравнение (`IR.lt`…`IR.ne`) | одна команда `cmp…` с предикатом-приёмником | мнемоника и номер предиката |
+ *
+ * Смещение даёт раскладка, код условия и предикат — сопоставление
+ * (`src/e2k/predicatePairing.ts`). Без них — отказ с причиной: ни вычислить смещение из одной
+ * инструкции, ни превратить значение в предикат нельзя.
  *
  * Остальные носители понижаются одной командой — {@link lowerInstruction}.
  */
 export function lowerCarrier(instruction: AsmInstruction, context: LoweringContext = {}): CarrierLoweringResult {
+  const comparison = comparisonMnemonicOf(instruction.mnemonic);
+  if (comparison !== undefined) {
+    const predicate = context.predicate;
+    if (predicate === undefined) {
+      return {
+        ok: false,
+        reason:
+          `«${instruction.mnemonic}»: сравнение понижается только ПАРОЙ с условным переходом — ` +
+          "предикат, который оно пишет, читает `ct` (`SS.ctcond.psrc`), а значение в регистре предикатом " +
+          "не является; сопоставление — src/e2k/predicatePairing.ts",
+      };
+    }
+    const left = instruction.operands[1];
+    const right = instruction.operands[2];
+    for (const [at, operand] of [
+      [1, left],
+      [2, right],
+    ] as const) {
+      if (operand === undefined || operand.kind !== "reg") {
+        return {
+          ok: false,
+          reason: `«${instruction.mnemonic}»: операнд ${at} не регистр — в e2k он попал бы в поле слога`,
+        };
+      }
+    }
+    return {
+      ok: true,
+      instructions: [
+        {
+          mnemonic: predicate.mnemonic,
+          channel: instruction.channel,
+          operands: [left!, right!, { kind: "pred", index: predicate.index }],
+        },
+      ],
+    };
+  }
+
+  if (CONDITIONAL_JUMP_CARRIERS.includes(instruction.mnemonic)) {
+    const displacement = context.displacement;
+    const condition = context.condition;
+    if (displacement === undefined || condition === undefined) {
+      return {
+        ok: false,
+        reason:
+          `«${instruction.mnemonic}»: условный переход понижается серией «disp + ct» и требует ДВУХ ` +
+          "вещей из контекста — смещения (раскладка) и кода условия `SS.ctcond` (сопоставление пары " +
+          "со сравнением); иначе ни адрес цели, ни предикат взять неоткуда",
+      };
+    }
+    return { ok: true, instructions: jumpCommands(displacement, condition) };
+  }
+
   if (instruction.mnemonic === JUMP_CARRIER) {
     const displacement = context.displacement;
     if (displacement === undefined) return { ok: false, reason: JUMP_NEEDS_LAYOUT };
     return { ok: true, instructions: jumpCommands(displacement) };
   }
+
   const single = lowerInstruction(instruction, context);
   return single.ok ? { ok: true, instructions: [single.instruction] } : single;
 }
@@ -434,10 +519,17 @@ export function runKernelThroughRealEncoding(
   // ── Раскладка: адрес каждой инструкции, затем смещение каждого перехода ──────
   const layout = layoutOf(emitted.instructions);
   const resolved = secondPass(emitted.instructions, layout.addresses);
+  // ── Сопоставление пар «сравнение → условный переход» ────────────────────────
+  const pairing = pairPredicates(emitted.instructions);
   const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
+  const predicateAt = new Map(
+    pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),
+  );
+  const conditionAt = new Map(pairing.pairs.map((pair) => [pair.jumpIndex, pair.condition]));
   const refusalAt = new Map<number, string>();
   for (const unplaced of layout.unplaced) refusalAt.set(unplaced.index, unplaced.reason);
   for (const refusal of resolved.refusals) refusalAt.set(refusal.index, refusal.reason);
+  for (const refusal of pairing.refusals) refusalAt.set(refusal.index, refusal.reason);
 
   for (let index = 0; index < emitted.instructions.length; index++) {
     const instruction = emitted.instructions[index]!;
@@ -451,9 +543,13 @@ export function runKernelThroughRealEncoding(
       continue;
     }
     const displacement = displacementAt.get(index);
+    const predicate = predicateAt.get(index);
+    const condition = conditionAt.get(index);
     const lowered = lowerCarrier(resolved.instructions[index]!, {
       ...baseContext,
       ...(displacement === undefined ? {} : { displacement }),
+      ...(predicate === undefined ? {} : { predicate }),
+      ...(condition === undefined ? {} : { condition }),
     });
     if (!lowered.ok) {
       stat.refused++;

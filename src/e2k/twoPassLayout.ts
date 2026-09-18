@@ -117,6 +117,9 @@ const DISP_COMMAND_SOURCE =
 const CT_COMMAND_SOURCE =
   `SS формата SF1, 8 байт — REAL_CONTROL_OPCODES[ct].size (src/e2k/e2k-real.ts); ` +
   `измерено: ct %ctpr1 → 01 10 00 00 20 04 00 c0 (docs/e2k-syllables-real.md §4)`;
+const CMP_COMMAND_SOURCE =
+  `ALF7, 8 байт — REAL_SHORT_FORM_SIZE; запись сравнения и её источник — src/e2k/e2k-real.ts ` +
+  `(opcodes/e2k-opc.h:999,1019,1024); обязательное поле nop = 2 — gas/config/tc-e2k.c:5923`;
 
 /**
  * Формы понижения — по одной на носитель.
@@ -156,6 +159,49 @@ export const CARRIER_FORMS: readonly CarrierForm[] = [
       { mnemonic: "ct", form: "SS (SF1)", size: REAL_SHORT_FORM_SIZE, source: CT_COMMAND_SOURCE },
     ],
   },
+  {
+    // Условный переход — та же пара, только `ct` несёт ещё и код условия (`SS.ctcond`):
+    // `? %predN` (0x40) или `? ~%predN` (0x60). Размер от условия не зависит — обе команды по 8.
+    carrier: "IR.jmp_if",
+    commands: [
+      { mnemonic: "disp", form: "CS0_DISP (C0F2)", size: REAL_SHORT_FORM_SIZE, source: DISP_COMMAND_SOURCE },
+      { mnemonic: "ct", form: "SS (SF1) с условием", size: REAL_SHORT_FORM_SIZE, source: CT_COMMAND_SOURCE },
+    ],
+  },
+  {
+    carrier: "IR.jmp_if_not",
+    commands: [
+      { mnemonic: "disp", form: "CS0_DISP (C0F2)", size: REAL_SHORT_FORM_SIZE, source: DISP_COMMAND_SOURCE },
+      { mnemonic: "ct", form: "SS (SF1) с условием", size: REAL_SHORT_FORM_SIZE, source: CT_COMMAND_SOURCE },
+    ],
+  },
+  // Сравнения: одна команда формы ALF7, 8 байт (`pdst[4:0]` — предикат-приёмник). Код условия
+  // выбирает сопоставление (`src/e2k/predicatePairing.ts`): у `ge`/`gt`/`ne` он тот же, что у
+  // `lt`/`le`/`eq`, но предикат читается с отрицанием — условий «больше» в наборе таблицы нет.
+  {
+    carrier: "IR.lt",
+    commands: [{ mnemonic: "cmplsb", form: "ALF7", size: REAL_SHORT_FORM_SIZE, source: CMP_COMMAND_SOURCE }],
+  },
+  {
+    carrier: "IR.le",
+    commands: [{ mnemonic: "cmplesb", form: "ALF7", size: REAL_SHORT_FORM_SIZE, source: CMP_COMMAND_SOURCE }],
+  },
+  {
+    carrier: "IR.eq",
+    commands: [{ mnemonic: "cmpesb", form: "ALF7", size: REAL_SHORT_FORM_SIZE, source: CMP_COMMAND_SOURCE }],
+  },
+  {
+    carrier: "IR.ge",
+    commands: [{ mnemonic: "cmplsb", form: "ALF7", size: REAL_SHORT_FORM_SIZE, source: CMP_COMMAND_SOURCE }],
+  },
+  {
+    carrier: "IR.gt",
+    commands: [{ mnemonic: "cmplesb", form: "ALF7", size: REAL_SHORT_FORM_SIZE, source: CMP_COMMAND_SOURCE }],
+  },
+  {
+    carrier: "IR.ne",
+    commands: [{ mnemonic: "cmpesb", form: "ALF7", size: REAL_SHORT_FORM_SIZE, source: CMP_COMMAND_SOURCE }],
+  },
 ];
 
 const FORMS_BY_CARRIER: ReadonlyMap<string, CarrierForm> = new Map(
@@ -181,20 +227,36 @@ export function sizeOfCarrier(carrier: string): number | undefined {
 /** `%ctpr`, которым выполняется передача управления. Наше решение: все переходы через `%ctpr1`. */
 export const JUMP_CTPR = 1;
 
-/** Носитель перехода, у которого цель заменяется смещением во втором проходе. */
+/** Носитель **безусловного** перехода: `ct` у него передаёт управление всегда. */
 export const JUMP_CARRIER = "IR.jmp";
 
+/** Носители условных переходов: их `ct` читает предикат, поставленный сравнением. */
+export const CONDITIONAL_JUMP_CARRIERS: readonly string[] = ["IR.jmp_if", "IR.jmp_if_not"];
+
+/** Все носители переходов: смещение `disp` считается для каждого из них одинаково. */
+export const JUMP_CARRIERS: readonly string[] = [JUMP_CARRIER, ...CONDITIONAL_JUMP_CARRIERS];
+
+/** Является ли носитель переходом (любым). */
+export function isJumpCarrier(mnemonic: string): boolean {
+  return JUMP_CARRIERS.includes(mnemonic);
+}
+
 /**
- * Команды пары перехода: `disp %ctpr1, <смещение>` (CS0) и `ct %ctpr1` (SS).
+ * Команды пары перехода: `disp %ctpr1, <смещение>` (CS0) и `ct %ctpr1[, ? {~}%predN]` (SS).
  *
  * Смещение передаётся уже **в 8-байтных единицах** — так его и несёт поле `disp[27:0]`.
  * Форма пары — предмет раскладки (она её измеряет), поэтому конструктор живёт здесь;
  * понижение (`src/e2k/e2kRealRun.ts`) берёт готовую пару, а не собирает её заново.
+ *
+ * У **условного** перехода в `ct` стоит код условия (`SS.ctcond`) вместо «всегда»: `0x40` — по
+ * предикату, `0x60` — по инверсному (`gas/config/tc-e2k.c:4589-4591`). Второй аргумент —
+ * именно код условия, а не флаг: полярность выводит сопоставление
+ * (`src/e2k/predicatePairing.ts`), раскладка её не пересчитывает.
  */
-export function jumpCommands(disp: number): readonly AsmInstruction[] {
+export function jumpCommands(disp: number, condition: number = CT_COND_ALWAYS): readonly AsmInstruction[] {
   return [
     { mnemonic: "disp", channel: 0, operands: [imm(JUMP_CTPR), imm(disp)] },
-    { mnemonic: "ct", channel: 0, operands: [imm(JUMP_CTPR), imm(CT_COND_ALWAYS)] },
+    { mnemonic: "ct", channel: 0, operands: [imm(JUMP_CTPR), imm(condition)] },
   ];
 }
 
@@ -343,11 +405,14 @@ export function secondPass(
   const refusals: DisplacementRefusal[] = [];
 
   instructions.forEach((instruction, index) => {
-    if (instruction.mnemonic !== JUMP_CARRIER) return;
+    if (!isJumpCarrier(instruction.mnemonic)) return;
     const refuse = (reason: string): void => {
-      refusals.push({ index, reason: `«${JUMP_CARRIER}» #${index}: ${reason}` });
+      refusals.push({ index, reason: `«${instruction.mnemonic}» #${index}: ${reason}` });
     };
-    const operand = instruction.operands[0];
+    // Позиция цели в носителе: у `IR.jmp` она первая, у условного перехода — вторая (первая
+    // занята регистром-условием: носитель несёт `(cond, off)`, src/e2k/emitterShell.ts).
+    const targetAt = instruction.mnemonic === JUMP_CARRIER ? 0 : 1;
+    const operand = instruction.operands[targetAt];
     if (operand === undefined || operand.kind !== "imm" || !Number.isInteger(operand.value)) {
       refuse(`цель перехода не выражена числом — операция несёт ${operand?.kind ?? "ничего"}`);
       return;
@@ -384,7 +449,10 @@ export function secondPass(
       refuse(problem);
       return;
     }
-    resolved[index] = { ...instruction, operands: [imm(disp), ...instruction.operands.slice(1)] };
+    // Смещение подставляется В ЦЕЛЬ, а прочие операнды не трогаются: у условного перехода
+    // регистр-условие обязан остаться на месте, иначе сопоставление потеряет связь пары.
+    const operands = instruction.operands.map((item, at) => (at === targetAt ? imm(disp) : item));
+    resolved[index] = { ...instruction, operands };
     displacements.push({ index, targetIndex, commandAddress, targetAddress, disp });
   });
 

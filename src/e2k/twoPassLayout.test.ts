@@ -147,11 +147,11 @@ describe('двухпроходная раскладка: 1.1 первый про
     }
   });
 
-  it('инструкции без формы не выдумываются: у них названная причина, и их ровно 159', () => {
+  it('инструкции без формы не выдумываются: у них названная причина, и их ровно 131', () => {
     const layout = layoutOf(ALL_CARRIERS);
     expect(ALL_CARRIERS.length).toBe(517);
-    expect(layout.entries.length, 'покрытие раскладки').toBe(358);
-    expect(layout.unplaced.length, 'отказов раскладки').toBe(159);
+    expect(layout.entries.length, 'покрытие раскладки').toBe(386);
+    expect(layout.unplaced.length, 'отказов раскладки').toBe(131);
     // Молчаливой потери нет: каждая инструкция либо размещена, либо названа.
     expect(layout.entries.length + layout.unplaced.length).toBe(ALL_CARRIERS.length);
     for (const unplaced of layout.unplaced) {
@@ -165,14 +165,12 @@ describe('двухпроходная раскладка: 1.1 первый про
     expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([
       ['IR.invoke', 87],
       ['IR.ret', 32],
-      ['IR.jmp_if_not', 14],
-      ['IR.lt', 12],
       ['IR.call', 11],
       ['IR.div', 1],
-      ['IR.ge', 1],
-      ['IR.le', 1],
     ]);
-    expect(byCarrier.has('IR.jmp'), 'IR.jmp обязан быть размещён').toBe(false);
+    for (const placed of ['IR.jmp', 'IR.jmp_if_not', 'IR.lt', 'IR.le', 'IR.ge']) {
+      expect(byCarrier.has(placed), `${placed} обязан быть размещён`).toBe(false);
+    }
   });
 });
 
@@ -278,13 +276,13 @@ describe('двухпроходная раскладка: 1.3 второй про
     }
   });
 
-  it('на пяти ядрах все 12 переходов получают смещение, и оно ведёт ровно в цель', () => {
+  it('на пяти ядрах все 26 переходов получают смещение, и оно ведёт ровно в цель', () => {
     let total = 0;
     for (const [name, carriers] of CARRIERS) {
       const addresses = firstPass(carriers);
       const resolved = secondPass(carriers, addresses);
       expect(resolved.refusals.map((item) => `#${item.index}: ${item.reason}`), name).toEqual([]);
-      const jmps = carriers.filter((instruction) => instruction.mnemonic === 'IR.jmp').length;
+      const jmps = carriers.filter((instruction) => instruction.mnemonic.startsWith('IR.jmp')).length;
       expect(resolved.displacements.length, `${name}: смещений не столько, сколько IR.jmp`).toBe(jmps);
       for (const item of resolved.displacements) {
         expect(addresses.get(item.index), `${name} #${item.index}: адрес команды`).toBe(item.commandAddress);
@@ -295,7 +293,7 @@ describe('двухпроходная раскладка: 1.3 второй про
       }
       total += resolved.displacements.length;
     }
-    expect(total, 'переходов пяти ядер').toBe(12);
+    expect(total, 'переходов пяти ядер').toBe(26);
   });
 
   it('цель вне раскладки — отказ с точной причиной, а не выдуманный адрес', () => {

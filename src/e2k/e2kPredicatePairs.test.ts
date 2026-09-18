@@ -135,9 +135,12 @@ describe('сопоставление пары: 2. предпосылка про�
     ];
     const pairing = pairPredicates(stream);
     expect(pairing.pairs, 'пара составлена, хотя результат нужен ещё кому-то').toEqual([]);
-    expect(pairing.refusals.length).toBe(1);
+    // Отказов два, и каждый назван: сравнение (лишний читатель) и осиротевший переход.
+    expect(pairing.refusals.length).toBe(2);
     expect(pairing.refusals[0]!.index).toBe(0);
     expect(pairing.refusals[0]!.reason, 'не назван лишний читатель').toMatch(/чита|значение/i);
+    expect(pairing.refusals[1]!.index).toBe(1);
+    expect(pairing.refusals[1]!.reason, 'переход без пары не назван').toMatch(/сравнени/i);
   });
 
   it('два читателя-перехода — отказ; ноль читателей — тоже отказ', () => {

@@ -43,6 +43,7 @@ import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
 import { disassembleElf, findExternalTool, parseObjdumpOutput } from '../scripts/e2kExternalObjdump';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 import { layoutOf, secondPass, type Displacement } from './twoPassLayout';
+import { pairPredicates } from './predicatePairing';
 import {
   JUMP_NEEDS_LAYOUT,
   LOWERING,
@@ -145,7 +146,11 @@ describe('сквозной прогон: понижение и кодирова�
       expect(report.layout.placed, `${name}: размещено не столько, сколько понижено`).toBe(report.encoded);
       expect(report.layout.unplaced, `${name}: не размещено не столько, сколько отвергнуто`).toBe(report.refused);
       expect(report.layout.totalBytes, `${name}: сумма размеров раскладки против суммы байтов`).toBe(report.bytes);
-      const jumps = report.carriers.find((carrier) => carrier.carrier === 'IR.jmp')?.encoded ?? 0;
+      // Смещение нужно КАЖДОМУ переходу — безусловному и условным: его считает один проход.
+      const jumps = ['IR.jmp', 'IR.jmp_if', 'IR.jmp_if_not'].reduce(
+        (sum, carrier) => sum + (report.carriers.find((item) => item.carrier === carrier)?.encoded ?? 0),
+        0,
+      );
       expect(report.layout.displacements, `${name}: смещений не столько, сколько понижённых переходов`).toBe(jumps);
       // У перехода команд две: команд не меньше, чем инструкций.
       expect(report.roundTrip.commands, `${name}: команд меньше, чем инструкций`).toBeGreaterThanOrEqual(report.encoded);
@@ -162,7 +167,10 @@ describe('сквозной прогон: понижение и кодирова�
       expect(carriers, `${name}: константы обязаны быть понижены`).not.toContain('IR.const');
       // Переход понижён — он больше не мешает прогону и в списке мешающих не значится.
       expect(carriers, `${name}: переход понижён, мешать он не может`).not.toContain('IR.jmp');
-      expect(carriers, `${name}: условные переходы ещё не понижены`).toContain('IR.jmp_if_not');
+      // Условные переходы и сравнения понижены парой — они больше не мешают.
+      expect(carriers, `${name}: условные переходы понижены`).not.toContain('IR.jmp_if_not');
+      expect(carriers, `${name}: сравнения понижены`).not.toContain('IR.lt');
+      expect(carriers, `${name}: вызов ещё не понижен`).toContain('IR.call');
       for (const blocking of report.blocking) {
         expect(blocking.reason.length, `${name}: ${blocking.carrier} без причины`).toBeGreaterThan(10);
       }
@@ -278,7 +286,7 @@ describe('сквозной прогон: документ не расходит�
   });
 });
 
-describe('сквозной прогон: IR.jmp понижен — покрытие 358, отказов 159', () => {
+describe('сквозной прогон: переходы понижены — покрытие 386, отказов 131', () => {
   const imm = (value: number): Operand => ({ kind: 'imm', value });
   const reg = (index: number): Operand => ({ kind: 'reg', index });
   const carrier = (mnemonic: string, operands: readonly Operand[]): AsmInstruction => ({
@@ -305,7 +313,14 @@ describe('сквозной прогон: IR.jmp понижен — покрыт�
     const layout = layoutOf(carriers);
     const resolved = secondPass(carriers, layout.addresses);
     expect(resolved.refusals.map((item) => `#${item.index}: ${item.reason}`), 'переход не разрешён').toEqual([]);
+    // Пары «сравнение → условный переход» нужны и здесь: без них сравнение не понижается.
+    const pairing = pairPredicates(carriers);
+    expect(pairing.refusals.map((item) => `#${item.index}: ${item.reason}`), 'пара не составлена').toEqual([]);
     const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
+    const predicateAt = new Map(
+      pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),
+    );
+    const conditionAt = new Map(pairing.pairs.map((pair) => [pair.jumpIndex, pair.condition]));
     const chunks: number[] = [];
     let offset = 0;
     carriers.forEach((instruction, index) => {
@@ -313,9 +328,13 @@ describe('сквозной прогон: IR.jmp понижен — покрыт�
       if (address === undefined) return;
       expect(address, `#${index}: раскладка разошлась с порядком байтов`).toBe(offset);
       const displacement = displacementAt.get(index);
+      const predicate = predicateAt.get(index);
+      const condition = conditionAt.get(index);
       const lowered = lowerCarrier(instruction, {
         ...(constants === undefined ? {} : { constants }),
         ...(displacement === undefined ? {} : { displacement }),
+        ...(predicate === undefined ? {} : { predicate }),
+        ...(condition === undefined ? {} : { condition }),
       });
       expect(lowered.ok, `#${index} ${instruction.mnemonic}: ${lowered.ok ? '' : lowered.reason}`).toBe(true);
       if (!lowered.ok) return;
@@ -328,7 +347,7 @@ describe('сквозной прогон: IR.jmp понижен — покрыт�
     return { bytes: Uint8Array.from(chunks), addresses: layout.addresses, displacements: resolved.displacements };
   }
 
-  it('покрытие 358 из 517, отказов 159 — и отказы разложены по носителям', () => {
+  it('покрытие 386 из 517, отказов 131 — и отказы разложены по носителям', () => {
     let instructions = 0;
     let encoded = 0;
     let refused = 0;
@@ -342,17 +361,13 @@ describe('сквозной прогон: IR.jmp понижен — покрыт�
       }
     }
     expect(instructions).toBe(517);
-    expect(encoded, 'покрытие пяти ядер').toBe(358);
-    expect(refused, 'отказов').toBe(159);
+    expect(encoded, 'покрытие пяти ядер').toBe(386);
+    expect(refused, 'отказов').toBe(131);
     expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([
       ['IR.invoke', 87],
       ['IR.ret', 32],
-      ['IR.jmp_if_not', 14],
-      ['IR.lt', 12],
       ['IR.call', 11],
       ['IR.div', 1],
-      ['IR.ge', 1],
-      ['IR.le', 1],
     ]);
     // Переход понижён целиком: 12 из 12.
     const jumps = [...REPORTS.values()].flatMap((report) =>
@@ -388,11 +403,12 @@ describe('сквозной прогон: IR.jmp понижен — покрыт�
     }
   });
 
-  it('образ ядра fir читается MCST-objdump: у disp тот же адрес цели, что в раскладке', () => {
+  it('образ ядра fir читается MCST-objdump: у каждого disp тот же адрес цели, что в раскладке', () => {
     const image0 = kernelImage('fir', 'A5');
     const carriers = image0.instructions;
     const image = laidOutImage(carriers, image0.scheduled.constants);
-    expect(image.displacements.length, 'в fir три перехода').toBe(3);
+    // В fir шесть переходов: три безусловных и три условных — смещение нужно каждому.
+    expect(image.displacements.length, 'в fir шесть переходов').toBe(6);
     // Смещения ведут в адрес цели — проверяется арифметикой до внешнего инструмента.
     for (const item of image.displacements) {
       expect(image.addresses.get(item.index)).toBe(item.commandAddress);
