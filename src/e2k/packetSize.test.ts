@@ -42,10 +42,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { packWide, MAX_SLOTS } from './widePacker';
-import { firstPass, layoutOf, sizeOfCarrier, sizeOfWideGroup } from './twoPassLayout';
+import { firstPass, layoutOf, secondPass, sizeOfCarrier, sizeOfWideGroup } from './twoPassLayout';
 import type { AsmInstruction, Operand } from './backend';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
+const imm = (value: number): Operand => ({ kind: 'imm', value });
 /** `adds` — короткая форма ALF1: слог ALS без полуслога. */
 const add = (src1: number, src2: number, dst: number): AsmInstruction => ({
   mnemonic: 'adds',
@@ -306,5 +307,33 @@ describe('раскладка: широкая команда получает р�
       [1, 8],
       [2, 32],
     ]);
+  });
+
+  it('2.7 secondPass считает смещение цели ЗА пакетом по размеру пакета', () => {
+    // Цель обязана стоять **за** широкой командой: только тогда её адрес зависит от размера пакета,
+    // и проверка способна поймать дефект размера (проверено негативным контролем, дефекты 4.1 и 4.3).
+    //
+    // Раскладка: `IR.jmp` 16 байт (пара `disp` + `ct`), широкая команда из трёх слогов 16 байт,
+    // `IR.add` 8 байт. Адрес цели (индекс 2) = 32 → смещение 32 / 8 = 4.
+    const jump: AsmInstruction = { mnemonic: 'IR.jmp', channel: 0, operands: [imm(2)] };
+    const stream = [jump, wide(3, 0), carrierAdd()];
+    const layout = layoutOf(stream);
+    expect(layout.addresses.get(2), 'адрес цели за пакетом').toBe(32);
+    const resolved = secondPass(stream, layout.addresses);
+    expect(resolved.refusals, 'отказы второго прохода').toEqual([]);
+    expect(resolved.displacements.map((item) => item.disp), 'смещение перехода').toEqual([4]);
+  });
+
+  it('2.8 цель ПЕРЕД пакетом от размера пакета не зависит — и это сказано прямо', () => {
+    // Обратный случай: цель стоит до широкой команды. Здесь смещение обязано быть одинаковым при
+    // любом размере пакета — именно поэтому проверка 2.7 построена на цели ЗА пакетом. Случай
+    // оставлен как названная граница: он не «лишний», а показывает, где оракул слеп, и почему.
+    const jump: AsmInstruction = { mnemonic: 'IR.jmp', channel: 0, operands: [imm(2)] };
+    const stream = [jump, carrierAdd(), wide(3, 0)];
+    const layout = layoutOf(stream);
+    const resolved = secondPass(stream, layout.addresses);
+    expect(resolved.displacements.map((item) => item.disp), 'цель перед пакетом').toEqual([3]);
+    // Адрес цели (индекс 2) при этом равен 24 — он от размера пакета не зависит.
+    expect(layout.addresses.get(2), 'адрес цели перед пакетом').toBe(24);
   });
 });

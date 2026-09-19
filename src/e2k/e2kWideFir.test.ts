@@ -51,6 +51,18 @@ export interface KernelStream {
   readonly carriers: number;
   readonly commands: readonly AsmInstruction[];
   readonly refusals: ReadonlyMap<string, string>;
+  /**
+   * Поток НОСИТЕЛЕЙ IR, из которого построены команды, — то, что размещает раскладка.
+   *
+   * Нужен сверке раскладки с упаковщиком (`src/e2k/layoutWideCrossCheck.test.ts`): у отвергнутых
+   * носителей адрес раскладкой уже присвоен, поэтому «раскладка против линейных байт» без этого
+   * поля не сверить.
+   */
+  readonly carrierStream: readonly AsmInstruction[];
+  /** Имена хост-вызовов образа: без них `IR.invoke` не размещается. */
+  readonly invokeNames: readonly string[];
+  /** Индексы носителей, дошедших до команд (остальные отвергнуты раскладкой или понижением). */
+  readonly commandIndices: readonly number[];
 }
 
 /**
@@ -86,6 +98,7 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
 
   const commands: AsmInstruction[] = [];
   const refusals = new Map<string, string>();
+  const commandIndices: number[] = [];
   for (let index = 0; index < stream.length; index++) {
     const carrier = resolved.instructions[index]!;
     const blocked = refusalAt.get(index);
@@ -106,9 +119,17 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
       refusals.set(carrier.mnemonic, lowered.reason);
       continue;
     }
+    commandIndices.push(index);
     commands.push(...lowered.instructions);
   }
-  return { carriers: emitted.instructions.length, commands, refusals };
+  return {
+    carriers: emitted.instructions.length,
+    commands,
+    refusals,
+    carrierStream: stream,
+    invokeNames: emitted.image.invokeNames,
+    commandIndices,
+  };
 }
 
 const FIR = kernelStreamOf('fir', 'A5');
