@@ -67,6 +67,7 @@ docs/e2k-syscall-abi.md: {status: active, source-files: [src/e2k/syscallRuntime.
 docs/e2k-syscalls-minimal.md: {status: active, source-files: [src/e2k/syscallRuntime.ts]}
 docs/e2k-array-literals.md: {status: active, source-files: [src/e2k/arrayRuntime.ts]}
 docs/e2k-regalloc-debt.md: {status: active, source-files: [src/e2k/regAlloc.ts]}
+docs/e2k-remainder-form-d.md: {status: active, source-files: [src/e2k/mathRuntime.ts]}
 docs/e2k-opcodes-real.md: {status: active, source-files: [src/e2k/encoding.ts]}
 docs/e2k-setwd-memory.md: {status: active, source-files: [src/e2k/e2kWindow.test.ts]}
 docs/e2k-syllables-real.md: {status: active, source-files: [src/e2k/e2k.ts]}
