@@ -57,6 +57,7 @@
 import type { AsmInstruction, Operand, WideGroupShape } from "./backend";
 import { CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from "./e2k-real";
 import { lowerArrayCall } from "./arrayRuntime";
+import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 
 const imm = (value: number): Operand => ({ kind: "imm", value });
 
@@ -223,6 +224,9 @@ export function carrierForm(carrier: string): CarrierForm | undefined {
  */
 const ARRAY_COMMAND_FORMS: ReadonlyMap<string, CommandForm> = new Map([
   ['adds', { mnemonic: 'adds', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  // Математика (рантайм остатка): `smodx` — ALF1, канал только пятый, 8 байт. Форма из таблицы МЦСТ
+  // (`src/e2k/e2k-real.ts`, `opcodes/e2k-opc.h:54`), длина — короткая форма REAL_SHORT_FORM_SIZE.
+  ['smodx', { mnemonic: 'smodx', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: 'opcodes/e2k-opc.h:54 (ARGS_DSS, канал 5)' }],
   [
     'ldd',
     {
@@ -365,7 +369,13 @@ function carrierFormWithReason(
   const args = [instruction.operands[1], instruction.operands[2]].slice(0, argc) as readonly Operand[];
   const lowered = ((): readonly AsmInstruction[] | string => {
     try {
-      return lowerArrayCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined);
+      // Два рантайма по имени вызова — так же, как в понижении (`src/e2k/e2kRealRun.ts`): массивы
+      // (`src/e2k/arrayRuntime.ts`) и математика (`src/e2k/mathRuntime.ts`, остаток через `SMODX`).
+      // Длина понижения берётся из формы его команд, поэтому раскладка обязана знать оба рантайма:
+      // иначе вызов математики отвергается ещё до понижения.
+      return SUPPORTED_MATH_CALLS.includes(name)
+        ? lowerMathCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined)
+        : lowerArrayCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined);
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
@@ -378,7 +388,7 @@ function carrierFormWithReason(
       return {
         reason:
           `«${name}»: у команды понижения «${command.mnemonic}» нет формы в таблице раскладки — ` +
-          'длину взять негде (в рантайме массивов таких команд быть не должно)',
+          'длину взять негде (в рантаймах массивов и математики таких команд быть не должно)',
       };
     }
     commands.push(form);

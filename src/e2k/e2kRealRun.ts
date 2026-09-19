@@ -65,6 +65,7 @@ import { REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from "./e2k-real";
 import { CALL_WBS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall } from "./arrayRuntime";
+import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
@@ -484,9 +485,13 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       return { ok: false, reason: `«${name}»: у носителя нет регистра-приёмника, а флаг обещает результат` };
     }
     try {
+      // Два рантайма по ИМЕНИ вызова: массивы (`src/e2k/arrayRuntime.ts`) и математика
+      // (`src/e2k/mathRuntime.ts` — целочисленный остаток через `SMODX`). Имя, которого нет ни там,
+      // ни там, остаётся отказом с причиной: оператора `/` это не касается (решение владельца).
+      const call = SUPPORTED_MATH_CALLS.includes(name) ? lowerMathCall : lowerArrayCall;
       return {
         ok: true,
-        instructions: lowerArrayCall(
+        instructions: call(
           name,
           args as readonly Operand[],
           hasDestination ? (destination as { index: number }).index : undefined,
