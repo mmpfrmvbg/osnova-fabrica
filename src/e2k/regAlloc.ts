@@ -28,6 +28,7 @@
 import type { AsmInstruction, Operand } from './backend';
 import { defUseOf, liveIntervalsOf, liveSegmentsOf, overlaps, type LiveInterval } from './liveness';
 import { removeCopies } from './copyElim';
+import { rematerializeConstants } from './rematerialize';
 
 /**
  * Операнды-регистры, которые носитель **действительно** читает или пишет.
@@ -177,24 +178,21 @@ const JUMP_TARGET_OPERAND: Readonly<Record<string, number>> = {
 };
 
 /**
- * Пересчитать цели переходов после укорочения потока.
+ * Пересчитать цели переходов после преобразований потока.
  *
- * Цели записаны **абсолютными индексами потока модуля** (измерено, случай 17 реестра проверяемости),
- * поэтому снятие каждой команды сдвигает все цели, которые лежат дальше неё. Сдвиг считается по
- * списку снятых индексов, а не по разнице длин: команды снимаются в разных процедурах, и «сколько
- * снято до цели» — единственная верная величина.
+ * Цели записаны **абсолютными индексами потока модуля** (измерено, случай 17 реестра проверяемости).
+ * Преобразования сдвигают индексы в ОБЕ стороны: устранение копий убирает носители (вниз),
+ * материализация констант вставляет (вверх). Поэтому пересчёт идёт по **карте** «старый индекс → новый»,
+ * а не по разнице длин.
  *
- * Цель, которая сама оказалась снятой, — отказ: вызывать его нечем (`removeCopies` такие пересылки не
+ * Цель, которая сама оказалась снятой, — отказ: вызывать её нечем (`removeCopies` такие пересылки не
  * снимает: пересылка-цель перехода входит в начала блоков). Здесь это проверяется ещё раз, потому
  * что молча сдвинуть цель на соседнюю команду значило бы поменять программу.
  */
 function remapJumpTargets(
   instructions: readonly AsmInstruction[],
-  removedAt: readonly number[],
+  movedTo: ReadonlyMap<number, number>,
 ): { instructions: readonly AsmInstruction[]; problems: readonly string[] } {
-  const removed = [...removedAt].sort((a, b) => a - b);
-  const removedSet = new Set(removed);
-  const shiftOf = (target: number): number => removed.filter((index) => index < target).length;
   const problems: string[] = [];
   const remapped = instructions.map((instruction) => {
     const targetAt = JUMP_TARGET_OPERAND[instruction.mnemonic];
@@ -204,13 +202,14 @@ function remapJumpTargets(
       problems.push(`«${instruction.mnemonic}»: цель перехода не выражена числом`);
       return instruction;
     }
-    if (removedSet.has(operand.value)) {
+    const moved = movedTo.get(operand.value);
+    if (moved === undefined) {
       problems.push(`«${instruction.mnemonic}»: цель перехода #${operand.value} снята устранением копий`);
       return instruction;
     }
     const operands = instruction.operands.map((item, at) => {
       if (at !== targetAt || item.kind !== 'imm') return item;
-      return { ...item, value: item.value - shiftOf(item.value) };
+      return { ...item, value: moved };
     });
     return { ...instruction, operands };
   });
@@ -300,12 +299,16 @@ export function allocateProgram(
   readonly procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[];
   readonly report: readonly ProcedureAllocation[];
   readonly removedCopies: number;
+  /** Сколько определений констант размножено (§7.12 docs/e2k-opcodes-real.md). */
+  readonly materializedConstants: number;
 } {
   const result: AsmInstruction[] = [];
   const rewrittenProcedures: { name: string; codeOffset: number; vregs: number }[] = [];
   const report: ProcedureAllocation[] = [];
-  const removedAbsolute: number[] = [];
+  // «Старый индекс потока модуля → новый»: по нему пересчитываются цели переходов ПОСЛЕ сборки.
+  const movedTo = new Map<number, number>();
   let removedCopies = 0;
+  let materializedConstants = 0;
   procedures.forEach((procedure, index) => {
     const from = procedure.codeOffset;
     const to = index + 1 < procedures.length ? procedures[index + 1]!.codeOffset : instructions.length;
@@ -315,10 +318,23 @@ export function allocateProgram(
     // Цели переходов в носителях — индексы потока МОДУЛЯ, поэтому устранению копий передаётся
     // смещение среза: без него границы блоков не находятся вовсе (измерено, случай 17 реестра).
     const elimination = removeCopies(carriers, { codeOffset: from });
-    for (const local of elimination.removedAt) removedAbsolute.push(from + local);
-    const liveness = liveIntervalsOf(elimination.carriers);
-    const incoming = incomingRegisters(elimination.carriers);
-    const segments = liveSegmentsOf(elimination.carriers);
+    // Материализация констант идёт ПОСЛЕ устранения копий: она вставляет определения, то есть может
+    // сдвинуть индексы ВВЕРХ — поэтому карта индексов строится здесь, а не «сдвигом на число снятых».
+    const materialization = rematerializeConstants(elimination.carriers, { codeOffset: from });
+    materializedConstants += materialization.materialized.length;
+    { // карта: исходный локальный индекс → новый локальный индекс
+      let survivor = 0;
+      for (let local = 0; local < carriers.length; local++) {
+        if (elimination.removedAt.includes(local)) continue;
+        const movedLocal = materialization.indexOf[survivor];
+        if (movedLocal !== undefined && movedLocal >= 0) movedTo.set(from + local, result.length + movedLocal);
+        survivor++;
+      }
+    }
+    const stream = materialization.instructions;
+    const liveness = liveIntervalsOf(stream);
+    const incoming = incomingRegisters(stream);
+    const segments = liveSegmentsOf(stream);
     // Закреплённые регистры не отдаются: иначе значение параметра уехало бы из своего регистра.
     const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
     const allocation = allocateSegments(
@@ -329,8 +345,9 @@ export function allocateProgram(
       procedure: procedure.name,
       vregs: procedure.vregs,
       carriers: carriers.length,
-      rewritten: elimination.carriers.length,
+      rewritten: stream.length,
       removedCopies: elimination.removed,
+      materializedConstants: materialization.materialized.length,
       peak: liveness.peak,
       peakLive: liveness.peakLive,
       segments: segments.length,
@@ -351,10 +368,10 @@ export function allocateProgram(
         fitsCalleeWindow: false,
         unmapped: [],
       });
-      result.push(...elimination.carriers);
+      result.push(...stream);
       return;
     }
-    const applied = applySegments(elimination.carriers, allocation.assigned, new Set(incoming));
+    const applied = applySegments(stream, allocation.assigned, new Set(incoming));
     // Сколько РЕГИСТРОВ ОКНА занимает процедура: закреплённые (параметры) плюс выданные раскладкой.
     // Закреплённые считаются по своим номерам: параметр приходит в регистре с этим номером.
     const pinned = incoming.filter((vreg) => vreg < WINDOW_REGISTERS_ENTRY);
@@ -372,7 +389,7 @@ export function allocateProgram(
     result.push(...applied.instructions);
   });
   // Цели переходов пересчитываются ПОСЛЕ сборки: сдвиг зависит от снятий во всех процедурах.
-  const remapped = remapJumpTargets(result, removedAbsolute);
+  const remapped = remapJumpTargets(result, movedTo);
   if (remapped.problems.length > 0) {
     for (const problem of remapped.problems) {
       report.push({
@@ -396,7 +413,7 @@ export function allocateProgram(
       });
     }
   }
-  return { instructions: remapped.instructions, procedures: rewrittenProcedures, report, removedCopies };
+  return { instructions: remapped.instructions, procedures: rewrittenProcedures, report, removedCopies, materializedConstants };
 }
 /**
  * Раскладка по ОТРЕЗКАМ жизни: одному и тому же vreg разные отрезки могут достаться разные

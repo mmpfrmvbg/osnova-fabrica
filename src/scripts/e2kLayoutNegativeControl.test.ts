@@ -33,6 +33,7 @@ import {
   DEFECTS_INVOKE,
   DEFECTS_CALLEE_WINDOW,
   DEFECTS_CALL_LOWERING,
+  DEFECTS_REMATERIALIZE,
   locateAnchor,
   replacementFor,
   verdictOf,
@@ -51,6 +52,7 @@ const ALL_DEFECTS = [
   ...DEFECTS_INVOKE,
   ...DEFECTS_CALLEE_WINDOW,
   ...DEFECTS_CALL_LOWERING,
+  ...DEFECTS_REMATERIALIZE,
 ];
 
 /** Годный отчёт: дефект пойман, файл восстановлен, прогон состоялся. */

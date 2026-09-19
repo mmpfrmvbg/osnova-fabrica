@@ -442,7 +442,7 @@ export const DEFECTS_WIRING: readonly Defect[] = [
     id: '9.2',
     title: 'цели переходов не пересчитаны после укорочения потока',
     file: 'src/e2k/regAlloc.ts',
-    from: '  const remapped = remapJumpTargets(result, removedAbsolute);',
+    from: '  const remapped = remapJumpTargets(result, movedTo);',
     to: '  const remapped = { instructions: result, problems: [] as string[] }; // ДЕФЕКТ 9.2: цели не пересчитаны',
     tests: ['src/e2k/e2kRealRun.test.ts'],
   },
@@ -565,6 +565,39 @@ export const DEFECTS_CALL_LOWERING: readonly Defect[] = [
   },
 ];
 
+/**
+ * Дефекты **повторной материализации констант** (шаг 13).
+ *
+ * Проверяются оракулом `src/e2k/rematerialize.test.ts`. Дефекты выбраны так, чтобы каждый ломал именно
+ * правило: границу блока, порог «нужны два чтения», карту переезда индексов.
+ */
+export const DEFECTS_REMATERIALIZE: readonly Defect[] = [
+  {
+    id: '13.1',
+    title: 'граница блока не проверяется — определение материализуется через цель перехода',
+    file: 'src/e2k/rematerialize.ts',
+    from: '    if (starts.some((start) => start > index && start <= last)) {',
+    to: '    if (false && starts.some((start) => start > index && start <= last)) { // ДЕФЕКТ 13.1: граница не проверяется',
+    tests: ['src/e2k/rematerialize.test.ts'],
+  },
+  {
+    id: '13.2',
+    title: 'порог чтений снят — определение убирается и при одном чтении',
+    file: 'src/e2k/rematerialize.ts',
+    from: '    if (reads.length < 2) {',
+    to: '    if (reads.length < 1) { // ДЕФЕКТ 13.2: хватит и одного чтения',
+    tests: ['src/e2k/rematerialize.test.ts'],
+  },
+  {
+    id: '13.3',
+    title: 'карта переезда индексов не заполняется — вставки не сдвигают цели переходов',
+    file: 'src/e2k/rematerialize.ts',
+    from: '    fullIndexOf[index] = result.length;',
+    to: '    fullIndexOf[index] = index; // ДЕФЕКТ 13.3: вставки не учтены',
+    tests: ['src/e2k/rematerialize.test.ts'],
+  },
+];
+
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
 export function runAll(
   defects: readonly Defect[] = [
@@ -576,6 +609,7 @@ export function runAll(
     ...DEFECTS_INVOKE,
     ...DEFECTS_CALLEE_WINDOW,
     ...DEFECTS_CALL_LOWERING,
+    ...DEFECTS_REMATERIALIZE,
   ],
   work = WORK,
 ): DefectReport[] {
