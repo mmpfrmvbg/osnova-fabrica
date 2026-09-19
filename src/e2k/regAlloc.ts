@@ -26,7 +26,21 @@
  */
 
 import type { AsmInstruction, Operand } from './backend';
-import { liveIntervalsOf, overlaps, type LiveInterval } from './liveness';
+import { defUseOf, liveIntervalsOf, overlaps, type LiveInterval } from './liveness';
+
+/**
+ * Операнды-регистры, которые носитель **действительно** читает или пишет.
+ *
+ * Нужны потому, что слот регистра в носителе бывает заполнен «на всякий случай»: у `IR.ret` без
+ * значения (`imm(0)`) второй операнд всё равно несёт `%b[0]` (измерено на всех пяти ядрах,
+ * `.tmp/ret-operands.ts`). Если считать такие слоты значениями, `unmapped` становится непустым
+ * **всегда** — и настоящий неотображённый vreg (тот, что читается, но регистра не получил) теряется
+ * в этом шуме. Источник истины один и тот же — `defUseOf`, по нему же считается живость.
+ */
+function namedRegisters(instruction: AsmInstruction): ReadonlySet<number> {
+  const { def, use } = defUseOf(instruction);
+  return new Set([...def, ...use]);
+}
 
 /** Свободные регистры раскладки: `%b[0..9]`. */
 export const ALLOCATABLE_REGISTERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -248,24 +262,30 @@ export function applySegments(
   segments: readonly (LiveInterval & { readonly register: number })[],
 ): ApplyResult {
   const unmapped = new Set<number>();
-  const mapped = instructions.map((instruction, at) => ({
-    ...instruction,
-    operands: instruction.operands.map((operand) => {
-      if (operand.kind !== 'reg') return operand;
-      const covering = segments.filter(
-        (segment) => segment.vreg === operand.index && segment.start <= at && at <= segment.end,
-      );
-      if (covering.length === 0) {
-        unmapped.add(operand.index);
-        return operand;
-      }
-      // Если отрезков несколько (не должно быть), берём самый узкий — он точнее.
-      const narrowest = covering.reduce((best, current) =>
-        current.end - current.start < best.end - best.start ? current : best,
-      );
-      return { ...operand, index: narrowest.register };
-    }),
-  }));
+  const mapped = instructions.map((instruction, at) => {
+    const named = namedRegisters(instruction);
+    return {
+      ...instruction,
+      operands: instruction.operands.map((operand) => {
+        if (operand.kind !== 'reg') return operand;
+        // Слот, которого носитель не читает и не пишет (`IR.ret imm(0), reg(N)`), — не значение:
+        // он не отображается и в `unmapped` не попадает.
+        if (!named.has(operand.index)) return operand;
+        const covering = segments.filter(
+          (segment) => segment.vreg === operand.index && segment.start <= at && at <= segment.end,
+        );
+        if (covering.length === 0) {
+          unmapped.add(operand.index);
+          return operand;
+        }
+        // Если отрезков несколько (не должно быть), берём самый узкий — он точнее.
+        const narrowest = covering.reduce((best, current) =>
+          current.end - current.start < best.end - best.start ? current : best,
+        );
+        return { ...operand, index: narrowest.register };
+      }),
+    };
+  });
   return { instructions: mapped, unmapped: [...unmapped].sort((a, b) => a - b) };
 }
 /** Итог применения раскладки к потоку носителей. */
@@ -287,8 +307,10 @@ export function applyAllocation(
 ): ApplyResult {
   const unmapped = new Set<number>();
   const mapped = instructions.map((instruction) => {
+    const named = namedRegisters(instruction);
     const operands: Operand[] = instruction.operands.map((operand) => {
       if (operand.kind !== 'reg') return operand;
+      if (!named.has(operand.index)) return operand;
       const physical = assignment.get(operand.index);
       if (physical === undefined) {
         unmapped.add(operand.index);

@@ -45,6 +45,7 @@ import {
   allocateRegisters,
   allocateSegments,
   applyAllocation,
+  applySegments,
 } from './regAlloc';
 import { defUseOf, liveIntervalsOf, liveSegmentsOf, overlaps } from './liveness';
 import { ARRAY_REGISTERS } from './arrayRuntime';
@@ -326,6 +327,91 @@ describe('устранение копий: без него 17 vreg в 10 не в
         ).toBe(false);
       }
     }
+  });
+
+  it('применение раскладки: мёртвый слот операнда — не «неотображённый vreg»', () => {
+    // `IR.ret imm(0), reg(N)` значит «значения нет», но слот регистра в носителе эмиттер всё равно
+    // заполняет (`%b[0]` — измерено на всех пяти ядрах, `.tmp/ret-operands.ts`). `defUseOf` этот
+    // операнд НЕ называет — и раскладка не обязана его отображать. Иначе `unmapped` непуст всегда
+    // (в каждом ядре есть возвраты без значения) и в этом шуме потеряется настоящий неотображённый
+    // vreg — тот, что читается, но регистра не получил.
+    const carriers: AsmInstruction[] = [
+      carrier('IR.const', [reg(0), imm(1), imm(0)]),
+      carrier('IR.add', [reg(1), reg(0), reg(0)]),
+      carrier('IR.ret', [imm(1), reg(1)]),
+      carrier('IR.ret', [imm(0), reg(0)]), // мёртвый слот: v0 здесь не читается
+    ];
+    const result = allocateSegments(liveSegmentsOf(carriers));
+    expect(result.ok, result.ok ? '' : result.reason).toBe(true);
+    if (!result.ok) return;
+    expect(applySegments(carriers, result.assigned).unmapped, 'мёртвый слот выдан за неотображённый vreg').toEqual([]);
+    expect(applyAllocation(carriers, result.allocation.assignment).unmapped).toEqual([]);
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: vreg без отрезка по-прежнему назван неотображённым', () => {
+    // Отсечение мёртвых слотов не имеет права ослепить проверку: если у ЖИВОГО vreg'а отрезка в
+    // раскладке нет, он обязан быть назван — иначе молчаливая замена регистра останется незаметной.
+    const carriers: AsmInstruction[] = [
+      carrier('IR.const', [reg(0), imm(1), imm(0)]),
+      carrier('IR.add', [reg(1), reg(0), reg(0)]),
+      carrier('IR.ret', [imm(1), reg(1)]),
+    ];
+    const result = allocateSegments(liveSegmentsOf(carriers));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const withoutV1 = result.assigned.filter((segment) => segment.vreg !== 1);
+    expect(applySegments(carriers, withoutV1).unmapped, 'живой vreg без регистра не назван').toContain(1);
+    const withoutV1Map = new Map(result.allocation.assignment);
+    withoutV1Map.delete(1);
+    expect(applyAllocation(carriers, withoutV1Map).unmapped, 'живой vreg без регистра не назван').toContain(1);
+  });
+
+  it('ЗВУКОВОСТЬ И ПОТОК УПРАВЛЕНИЯ: копия не снимается через цель перехода', () => {
+    // Правило проверяет порядок ЛИНЕЙНО: «приёмник не переопределяется, пока живы переименованные
+    // чтения» и «источник не переопределяется до последнего чтения приёмника». Внутри базового
+    // блока линейный порядок и есть порядок исполнения. Но если цель перехода попадает ВНУТРЬ
+    // промежутка, на эту команду можно прийти с другой стороны — и тогда линейная проверка ничего
+    // не доказывает: переименованное чтение исполнится там, где копии ещё не было.
+    //
+    // Измерено на пяти ядрах (`.tmp/copy-cfg-soundness.ts`): таких мест ровно одно — `iir/сумма`,
+    // копия v5←v2 на команде 5, последнее чтение на 7, цель перехода на 6.
+    const carriers: AsmInstruction[] = [
+      carrier('IR.const', [reg(2), imm(7), imm(0)]), // 0
+      carrier('IR.jmp', [imm(0)]), // 1 — цель ниже: прыжок «внутрь» промежутка
+      carrier('IR.const', [reg(5), imm(0), imm(0)]), // 2
+      carrier('IR.move', [reg(5), reg(2)]), // 3 — копия
+      carrier('IR.add', [reg(6), reg(0), reg(0)]), // 4 — цель перехода
+      carrier('IR.add', [reg(7), reg(5), reg(1)]), // 5 — чтение приёмника после цели
+      carrier('IR.ret', [imm(0), reg(0)]), // 6
+    ];
+    const linear = removeCopies(carriers);
+    expect(linear.removed, 'без учёта цели перехода копия снимается — правило линейно').toBe(1);
+    const withTargets = removeCopies(carriers, { blockStarts: [4] });
+    expect(withTargets.removed, 'копия через границу базового блока снята быть не может').toBe(0);
+    expect(withTargets.carriers.length, 'поток не укоротился').toBe(carriers.length);
+    // Тот же случай, но цель записана АБСОЛЮТНЫМ индексом потока модуля, как её и несёт носитель:
+    // срез процедуры начинается со смещения 3, значит цель перехода — 7, а не 4. Если смещение не
+    // учитывать, цель «уедет из потока» и граница не будет поставлена вовсе (это и был дефект
+    // первой редакции правила: у `сумма` всех пяти ядер перестали сниматься копии).
+    const absolute = [
+      carrier('IR.const', [reg(2), imm(7), imm(0)]), // 0 (=3 в потоке модуля)
+      carrier('IR.jmp', [imm(3 + 4)]), // 1 — цель 7 в потоке модуля = локальный 4
+      carrier('IR.const', [reg(5), imm(0), imm(0)]), // 2
+      carrier('IR.move', [reg(5), reg(2)]), // 3 — копия
+      carrier('IR.add', [reg(6), reg(0), reg(0)]), // 4 — цель
+      carrier('IR.add', [reg(7), reg(5), reg(1)]), // 5 — чтение приёмника
+      carrier('IR.ret', [imm(0), reg(0)]), // 6
+    ];
+    expect(removeCopies(absolute, { codeOffset: 3 }).removed, 'абсолютная цель не учтена как граница').toBe(0);
+    // А цель ВНЕ среза границы внутри среза не создаёт: она ведёт в другую процедуру.
+    const outside = [
+      carrier('IR.const', [reg(2), imm(7), imm(0)]),
+      carrier('IR.jmp', [imm(99)]),
+      carrier('IR.move', [reg(5), reg(2)]),
+      carrier('IR.add', [reg(7), reg(5), reg(1)]),
+      carrier('IR.ret', [imm(0), reg(0)]),
+    ];
+    expect(removeCopies(outside, { codeOffset: 3 }).removed, 'цель вне среза не должна блокировать снятие').toBe(1);
   });
 
   it('негативный контроль: снятая проверка «источник не переопределяется» ломает звуковость', () => {
