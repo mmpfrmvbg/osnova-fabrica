@@ -25,6 +25,7 @@
 import { describe, it, expect } from 'vitest';
 import { scheduleAsm, type AsmScheduleResult } from './asmScheduler';
 import { buildAsmDependencyGraph } from './asmGraph';
+import { classOfMnemonic, CLUSTERS_ARE_NOOP } from './asmScheduler';
 import { registersOf, packetableRefusal } from './widePacker';
 import { realOpcode } from './e2k-real';
 import { latencyFor, opClassOf } from '../vliw/e2kDevices';
@@ -157,6 +158,45 @@ describe('шаг 2.1: def-use граф по командам e2k', () => {
     const pairs = graph.edges.map(([from, to]) => `${from}→${to}`);
     expect(pairs, 'эффект 0→1').toContain('0→1');
     expect(pairs, 'эффект 1→2').toContain('1→2');
+  });
+});
+
+describe('шаг 2.2: каналы и кластеры', () => {
+  it('2.2.1 две команды одного такта не делят канал', () => {
+    const result = scheduleAsm(INDEPENDENT);
+    const problems: string[] = [];
+    for (const packet of result.packets) {
+      const channels = packet.map((index) => result.channels[index]!);
+      const unique = new Set(channels);
+      if (unique.size !== packet.length) problems.push(`такт с ${packet.length} командами: каналы ${channels.join(',')}`);
+    }
+    expect(problems, 'повтор канала в одном такте').toEqual([]);
+    // И у каждой размещённой команды канал лежит в её допустимом наборе.
+    for (const command of INDEPENDENT) {
+      const allowed = realOpcode(command.mnemonic)!.channels;
+      expect(allowed.length, `${command.mnemonic}: каналы непусты`).toBeGreaterThan(0);
+    }
+  });
+
+  it('2.2.2 кластеры — no-op: причина названа и такты от неё не зависят', () => {
+    // Кластеры не участвуют в расписании: предпочтение измерено как no-op
+    // (src/vliw/e2kDevices.ts:104-107), штраф в модели 0 (docs/hardware-debt.md §3.2).
+    expect(CLUSTERS_ARE_NOOP, 'причина названа').toContain('no-op');
+    expect(CLUSTERS_ARE_NOOP, 'ссылка на измерение').toContain('e2kDevices.ts:104-107');
+    // Такты от кластера не зависят: у одной и той же программы расписание детерминировано.
+    const first = scheduleAsm(INDEPENDENT);
+    const second = scheduleAsm(INDEPENDENT);
+    expect(second.metrics.cycles, 'детерминизм').toBe(first.metrics.cycles);
+    expect(second.issueAt, 'issueAt').toEqual(first.issueAt);
+  });
+
+  it('2.2.3 латентность учтена: у muls готовность дальше, чем у adds того же такта', () => {
+    // muls — класс fp (4 такта, руководство МЦСТ стр. 71), adds — int (1 такт).
+    expect(classOfMnemonic('adds'), 'класс adds').toBe('int');
+    expect(classOfMnemonic('muls'), 'класс muls').toBe('fp');
+    const added = scheduleAsm([add(3, 1, 2)]);
+    const multiplied = scheduleAsm([{ mnemonic: 'muls', channel: 0, operands: [reg(1), reg(2), reg(3)] }]);
+    expect(multiplied.readyAt[0]!, 'readyAt muls').toBeGreaterThan(added.readyAt[0]!);
   });
 });
 
