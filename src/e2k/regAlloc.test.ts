@@ -43,10 +43,12 @@ import { regModuleOf } from '../vliw/regOracle';
 import {
   ALLOCATABLE_REGISTERS,
   allocateRegisters,
+  allocateSegments,
   applyAllocation,
 } from './regAlloc';
-import { defUseOf, liveIntervalsOf } from './liveness';
+import { defUseOf, liveIntervalsOf, liveSegmentsOf, overlaps } from './liveness';
 import { ARRAY_REGISTERS } from './arrayRuntime';
+import { livePeakOf, removeCopies } from './copyElim';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const imm = (value: number): Operand => ({ kind: 'imm', value });
@@ -261,3 +263,123 @@ describe('раскладка FIR: 17 vreg в 10 свободных регист�
     expect(applied.unmapped, 'неотображённые названы').toEqual([9]);
   });
 });
+
+describe('устранение копий: без него 17 vreg в 10 не влезают', () => {
+  const filter = firProcedure('фильтр');
+
+  it('звуковое устранение убирает 9 копий и снижает пик 11 → 9', () => {
+    const elimination = removeCopies(filter);
+    // Измерено: 54 носителя → 45, убрано 9 пересылок, пик одновременной жизни 11 → 9.
+    expect(filter.length, 'носителей у фильтра').toBe(54);
+    expect(elimination.carriers.length, 'носителей после устранения').toBe(45);
+    expect(elimination.removed, 'убранных пересылок').toBe(9);
+    expect(elimination.peakBefore, 'пик до').toBe(11);
+    expect(elimination.peakAfter, 'пик после').toBe(9);
+  });
+
+  it('ЗВУКОВОСТЬ: источник удалённой копии не переопределяется до последнего чтения приёмника', () => {
+    // Независимая проверка правила (а не доверие к его реализации): после преобразования в окне
+    // между удалённой копией и последним чтением её приёмника НЕ должно быть определения источника.
+    // Иначе переименование «схлопнуло» бы разные значения — и живых стало бы подозрительно мало
+    // (замер без этой проверки давал пик 2 у бпф4 при 15 vreg'ах, что и есть признак ошибки).
+    const elimination = removeCopies(filter);
+    const defsOf = (carriers: readonly AsmInstruction[], vreg: number): number =>
+      carriers.reduce((sum, carrier) => sum + (defUseOf(carrier).def.includes(vreg) ? 1 : 0), 0);
+    // Число определений каждого vreg не выросло: переименование не создаёт новых значений.
+    const before = new Map<number, number>();
+    for (const interval of liveIntervalsOf(filter).intervals) before.set(interval.vreg, defsOf(filter, interval.vreg));
+    for (const [vreg, count] of before) {
+      expect(defsOf(elimination.carriers, vreg), `v${vreg}: определений до/после`).toBeLessThanOrEqual(count);
+    }
+    // И живых значений стало не «подозрительно мало»: пик остался в разумных пределах.
+    expect(elimination.peakAfter, 'пик после устранения').toBeGreaterThanOrEqual(5);
+  });
+
+  it('после устранения копий раскладка фильтра УДАЁТСЯ: 17 vreg в 10 регистров', () => {
+    const elimination = removeCopies(filter);
+    const segments = liveSegmentsOf(elimination.carriers);
+    // Раскладка идёт по ОТРЕЗКАМ жизни: объединение интервалов требует 11 (больше десяти), а
+    // отрезки укладываются, потому что регистр занимается только там, где значение живо.
+    expect(liveIntervalsOf(elimination.carriers).peak, 'пик объединений').toBe(11);
+    const result = allocateSegments(segments);
+    expect(result.ok, result.ok ? '' : `отказ: ${result.reason}`).toBe(true);
+    if (!result.ok) return;
+    const runtimeRegisters = Object.values(ARRAY_REGISTERS);
+    for (const physical of result.allocation.assignment.values()) {
+      expect(ALLOCATABLE_REGISTERS, `%b[${physical}] вне разрешённых`).toContain(physical);
+      expect(runtimeRegisters, `%b[${physical}] занят рантаймом`).not.toContain(physical);
+    }
+    expect(result.allocation.used.length, 'занято регистров').toBeLessThanOrEqual(10);
+    // Раскладка применена ко ВСЕМУ потоку: неотображённых vreg'ов нет.
+    const applied = applyAllocation(elimination.carriers, result.allocation.assignment);
+    expect(applied.unmapped, 'vreg без физического регистра').toEqual([]);
+    // Ни одна пара ОДНОВРЕМЕННО ЖИВУЩИХ отрезков не делит регистр. Проверяются именно отрезки, а не
+    // отображение «vreg → регистр»: у отрезков регистры позиционные, и один vreg законно может
+    // получить разные регистры на разных участках.
+    const assigned = result.assigned;
+    for (const first of assigned) {
+      for (const second of assigned) {
+        if (first === second || first.register !== second.register) continue;
+        expect(
+          overlaps(first, second),
+          `%b[${first.register}]: v${first.vreg}[${first.start}-${first.end}] и v${second.vreg}[${second.start}-${second.end}] живут одновременно`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('негативный контроль: снятая проверка «источник не переопределяется» ломает звуковость', () => {
+    // Мутация правила: разрешаем слияние независимо от переопределения источника. Пик при этом
+    // падает «подозрительно» — это и есть признак неверного преобразования, и проверка выше его
+    // ловит (число определений и нижняя граница пика).
+    const withoutGuard = (carriers: readonly AsmInstruction[]): number => {
+      let peak = livePeakOf(carriers);
+      let current: AsmInstruction[] = [...carriers];
+      let at = 0;
+      while (at < current.length) {
+        const carrier = current[at];
+        if (carrier === undefined || carrier.mnemonic !== 'IR.move') {
+          at++;
+          continue;
+        }
+        const d = carrier.operands[0];
+        const a = carrier.operands[1];
+        if (d?.kind !== 'reg' || a?.kind !== 'reg' || d.index === a.index) {
+          at++;
+          continue;
+        }
+        const candidate = current
+          .map((item, index) => {
+            if (index === at) return undefined;
+            return {
+              ...item,
+              operands: item.operands.map((operand, position) =>
+                operand.kind === 'reg' && operand.index === d.index && !(definesFirstOperandForTest(item.mnemonic) && position === 0)
+                  ? { kind: 'reg' as const, index: a.index }
+                  : operand,
+              ),
+            };
+          })
+          .filter((item): item is AsmInstruction => item !== undefined);
+        const candidatePeak = livePeakOf(candidate);
+        if (candidatePeak <= peak) {
+          current = candidate;
+          peak = candidatePeak;
+          at = 0;
+          continue;
+        }
+        at++;
+      }
+      return peak;
+    };
+    const honest = removeCopies(filter).peakAfter;
+    const broken = withoutGuard(filter);
+    expect(broken, 'мутация обязана дать другой (меньший) пик — иначе она пустышка').toBeLessThan(honest);
+  });
+});
+
+/** Копия правила `definesFirstOperand` для мутации — намеренно отдельная, чтобы мутация не зависела
+ * от боевой реализации. */
+function definesFirstOperandForTest(mnemonic: string): boolean {
+  return !['IR.jmp', 'IR.jmp_if', 'IR.jmp_if_not', 'IR.ret', 'IR.call', 'IR.invoke'].includes(mnemonic);
+}

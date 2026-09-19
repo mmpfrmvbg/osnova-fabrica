@@ -187,6 +187,87 @@ export function allocateProgram(
   });
   return { instructions: result, report };
 }
+/**
+ * Раскладка по ОТРЕЗКАМ жизни: одному и тому же vreg разные отрезки могут достаться разные
+ * регистры — регистр нужен только там, где значение живо.
+ *
+ * Зачем: интервал-объединение («от первого определения до последнего чтения») держит регистр на
+ * всём промежутке, включая мёртвые участки, и потому требует больше регистров, чем нужно по
+ * существу. У `фильтр` FIR после устранения копий объединения требуют 11, а точная граница — 9.
+ */
+export function allocateSegments(
+  segments: readonly LiveInterval[],
+  free: readonly number[] = ALLOCATABLE_REGISTERS,
+): AllocationResult & { readonly assigned: readonly (LiveInterval & { readonly register: number })[] } {
+  // Тот же linear scan, но по отрезкам: vreg в отображении повторяется, и это НЕ ошибка —
+  // отображение здесь позиционное (см. applySegments).
+  const sorted = [...segments].sort((a, b) => a.start - b.start || a.end - b.end);
+  const active: { end: number; register: number }[] = [];
+  const assignment = new Map<number, number>();
+  const assigned: (LiveInterval & { register: number })[] = [];
+  const used = new Set<number>();
+  for (const segment of sorted) {
+    for (let index = active.length - 1; index >= 0; index--) {
+      if (active[index]!.end < segment.start) {
+        used.delete(active[index]!.register);
+        active.splice(index, 1);
+      }
+    }
+    const taken = new Set(active.map((entry) => entry.register));
+    const register = free.find((candidate) => !taken.has(candidate));
+    if (register === undefined) {
+      const live = sorted.filter((other) => overlaps(other, segment));
+      return {
+        ok: false,
+        reason:
+          `раскладка по отрезкам невозможна: в тесный момент живы ${live.length} отрезков, ` +
+          `свободных регистров ${free.length} (${free.map((value) => `%b[${value}]`).join(', ')}); ` +
+          'вытеснение в память (spill) здесь не делается — это следующий слой',
+        conflicts: [...new Set(live.map((other) => other.vreg))].sort((a, b) => a - b),
+        assigned,
+      };
+    }
+    assignment.set(segment.vreg, register);
+    assigned.push({ ...segment, register });
+    active.push({ end: segment.end, register });
+    active.sort((a, b) => a.end - b.end);
+    used.add(register);
+  }
+  return { ok: true, allocation: { assignment, used: [...used].sort((a, b) => a - b) }, assigned };
+}
+
+/**
+ * Применить раскладку по отрезкам: для каждой команды каждый регистр-операнд берёт регистр того
+ * отрезка своего vreg, который накрывает эту команду.
+ *
+ * vreg без отрезка (например, приёмник, которого никто не прочёл: отрезок у него есть, но если
+ * раскладка его не назначила) остаётся как есть — и **называется** в `unmapped`.
+ */
+export function applySegments(
+  instructions: readonly AsmInstruction[],
+  segments: readonly (LiveInterval & { readonly register: number })[],
+): ApplyResult {
+  const unmapped = new Set<number>();
+  const mapped = instructions.map((instruction, at) => ({
+    ...instruction,
+    operands: instruction.operands.map((operand) => {
+      if (operand.kind !== 'reg') return operand;
+      const covering = segments.filter(
+        (segment) => segment.vreg === operand.index && segment.start <= at && at <= segment.end,
+      );
+      if (covering.length === 0) {
+        unmapped.add(operand.index);
+        return operand;
+      }
+      // Если отрезков несколько (не должно быть), берём самый узкий — он точнее.
+      const narrowest = covering.reduce((best, current) =>
+        current.end - current.start < best.end - best.start ? current : best,
+      );
+      return { ...operand, index: narrowest.register };
+    }),
+  }));
+  return { instructions: mapped, unmapped: [...unmapped].sort((a, b) => a - b) };
+}
 /** Итог применения раскладки к потоку носителей. */
 export interface ApplyResult {
   readonly instructions: readonly AsmInstruction[];

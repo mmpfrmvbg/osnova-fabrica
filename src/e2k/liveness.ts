@@ -236,6 +236,32 @@ export function liveIntervalsOf(instructions: readonly AsmInstruction[]): Livene
 }
 
 /**
+ * Отрезки жизни: непрерывные участки, на которых vreg жив.
+ *
+ * Отличаются от интервалов тем, что **рвутся смертью значения**: если vreg переопределён или между
+ * двумя чтениями значения нет, регистр на этом промежутке свободен для других значений. Именно это
+ * даёт раскладке уложиться, когда интервалов-объединений не хватает.
+ */
+export function liveSegmentsOf(instructions: readonly AsmInstruction[]): LiveInterval[] {
+  const { liveIn, liveOut } = liveSetsOf(instructions);
+  const segments: LiveInterval[] = [];
+  const open = new Map<number, number>();
+  instructions.forEach((instruction, at) => {
+    const alive = new Set<number>([...liveIn[at]!, ...liveOut[at]!, ...defUseOf(instruction).def]);
+    for (const [vreg, start] of [...open]) {
+      if (!alive.has(vreg)) {
+        segments.push({ vreg, start, end: at - 1 });
+        open.delete(vreg);
+      }
+    }
+    for (const vreg of alive) if (!open.has(vreg)) open.set(vreg, at);
+  });
+  const last = instructions.length - 1;
+  for (const [vreg, start] of open) segments.push({ vreg, start, end: Math.max(start, last) });
+  return segments;
+}
+
+/**
  * Пересекаются ли интервалы. Соприкосновение на одной команде считается пересечением: если одно
  * значение определяется там, где другое читается, регистр обязан быть разным (иначе чтение
  * получит новое значение).
