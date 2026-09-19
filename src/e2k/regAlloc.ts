@@ -60,10 +60,15 @@ export type AllocationResult =
  *
  * @param intervals интервалы жизни (из `liveIntervalsOf`)
  * @param free свободные регистры; по умолчанию `%b[0..9]`
+ * @param precisePeak точная нижняя граница (максимум живых на выходе, `Liveness.peakLive`) — она
+ *   попадает в причину отказа: без неё отказ выглядит как «не хватило по модели раскладки», а с ней
+ *   видно, сколько регистров нужно **по существу** (меньше этого числа не обойтись и с разбиением
+ *   интервалов).
  */
 export function allocateRegisters(
   intervals: readonly LiveInterval[],
   free: readonly number[] = ALLOCATABLE_REGISTERS,
+  precisePeak?: number,
 ): AllocationResult {
   if (free.length === 0) {
     return { ok: false, reason: 'свободных регистров не передано — раскладывать некуда', conflicts: [] };
@@ -96,8 +101,9 @@ export function allocateRegisters(
         reason:
           `раскладка невозможна: пик одновременной жизни ${peakOf(sorted)}, свободных регистров ${free.length} ` +
           `(${free.map((value) => `%b[${value}]`).join(', ')}); в тесный момент живы ${liveAtFailure.length + 1} ` +
-          `интервалов (v${interval.vreg} и ещё ${interferes.length} пересекающихся); ` +
-          'вытеснение в память (spill) здесь не делается — это следующий слой',
+          `интервалов (v${interval.vreg} и ещё ${interferes.length} пересекающихся)` +
+          (precisePeak === undefined ? '' : `; точная нижняя граница по живым на выходе: ${precisePeak} регистров`) +
+          '; вытеснение в память (spill) здесь не делается — это следующий слой',
         conflicts: [...new Set([interval.vreg, ...interferes.map((other) => other.vreg)])].sort((a, b) => a - b),
       };
     }
@@ -155,7 +161,7 @@ export function allocateProgram(
     if (from >= to) return;
     const carriers = instructions.slice(from, to);
     const liveness = liveIntervalsOf(carriers);
-    const allocation = allocateRegisters(liveness.intervals);
+    const allocation = allocateRegisters(liveness.intervals, ALLOCATABLE_REGISTERS, liveness.peakLive);
     const common = {
       procedure: procedure.name,
       vregs: procedure.vregs,

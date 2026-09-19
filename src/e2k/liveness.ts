@@ -58,10 +58,83 @@ export interface LiveInterval {
 /** Результат анализа: интервалы и наибольшее число одновременно живых. */
 export interface Liveness {
   readonly intervals: readonly LiveInterval[];
-  /** Нижняя граница числа регистров: столько интервалов живут одновременно в самый тесный момент. */
+  /**
+   * Нижняя граница числа регистров **по раскладке**: столько интервалов-объединений живут
+   * одновременно. Так считает linear scan (один регистр на vreg), поэтому именно это число решает,
+   * влезает раскладка или нет.
+   */
   readonly peak: number;
   /** Где этот момент: индекс носителя. */
   readonly peakAt: number;
+  /**
+   * Точная нижняя граница: максимум живых на выходе инструкции по **настоящему** анализу жизни
+   * (обратный обход с учётом переходов). Меньше неё не обойтись ни одной раскладке, даже если
+   * каждому отрезку жизни давать свой регистр: в этот момент все они живы одновременно.
+   */
+  readonly peakLive: number;
+  /** Где точный максимум: индекс носителя. */
+  readonly peakLiveAt: number;
+}
+
+/**
+ * Преемники носителя: следующий по порядку и цель перехода.
+ *
+ * Без этого анализ жизни был бы **небезопасен**: в цикле значение, живое на входе в тело, обязано
+ * считаться живым и на обратном ребре. Цели переходов — те же индексы, что у раскладки: смещения
+ * считает `src/e2k/twoPassLayout.ts`, а носитель несёт готовый номер инструкции.
+ */
+export function successorsOf(instructions: readonly AsmInstruction[], at: number): number[] {
+  const next = at + 1 < instructions.length ? [at + 1] : [];
+  const instruction = instructions[at];
+  if (instruction === undefined) return next;
+  if (instruction.mnemonic === 'IR.jmp' || instruction.mnemonic === 'IR.jmp_if' || instruction.mnemonic === 'IR.jmp_if_not') {
+    const offset = instruction.mnemonic === 'IR.jmp' ? instruction.operands[0] : instruction.operands[1];
+    if (offset !== undefined && offset.kind === 'imm' && offset.value >= 0 && offset.value < instructions.length) {
+      return [...next, offset.value];
+    }
+  }
+  return next;
+}
+
+/**
+ * Живые на входе и на выходе каждой инструкции — обратный анализ до неподвижной точки.
+ *
+ * Это то, что просит постановка §2.1, и это же даёт **точную** нижнюю границу числа регистров:
+ * максимум `|liveOut|` по потоку.
+ */
+export function liveSetsOf(instructions: readonly AsmInstruction[]): {
+  readonly liveIn: readonly (readonly number[])[];
+  readonly liveOut: readonly (readonly number[])[];
+} {
+  const liveIn = instructions.map(() => new Set<number>());
+  const liveOut = instructions.map(() => new Set<number>());
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let at = instructions.length - 1; at >= 0; at--) {
+      const { def, use } = defUseOf(instructions[at]!);
+      const out = new Set<number>();
+      for (const successor of successorsOf(instructions, at)) {
+        for (const vreg of liveIn[successor]!) out.add(vreg);
+      }
+      const inSet = new Set<number>(use);
+      for (const vreg of out) if (!def.includes(vreg)) inSet.add(vreg);
+      const same =
+        out.size === liveOut[at]!.size &&
+        inSet.size === liveIn[at]!.size &&
+        [...out].every((vreg) => liveOut[at]!.has(vreg)) &&
+        [...inSet].every((vreg) => liveIn[at]!.has(vreg));
+      if (!same) {
+        liveOut[at] = out;
+        liveIn[at] = inSet;
+        changed = true;
+      }
+    }
+  }
+  return {
+    liveIn: liveIn.map((set) => [...set].sort((a, b) => a - b)),
+    liveOut: liveOut.map((set) => [...set].sort((a, b) => a - b)),
+  };
 }
 
 /** Номер регистра-операнда, если он там есть. */
@@ -147,7 +220,19 @@ export function liveIntervalsOf(instructions: readonly AsmInstruction[]): Livene
       peakAt = at;
     }
   }
-  return { intervals, peak, peakAt };
+  // Точная граница — по живым на выходе каждой инструкции (обратный анализ с переходами):
+  // меньше этого числа не обойтись никакой раскладке, даже если каждому отрезку жизни дать свой
+  // регистр — в этот момент все они живы одновременно.
+  const sets = liveSetsOf(instructions);
+  let peakLive = 0;
+  let peakLiveAt = -1;
+  sets.liveOut.forEach((live, at) => {
+    if (live.length > peakLive) {
+      peakLive = live.length;
+      peakLiveAt = at;
+    }
+  });
+  return { intervals, peak, peakAt, peakLive, peakLiveAt };
 }
 
 /**
