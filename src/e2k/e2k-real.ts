@@ -246,6 +246,50 @@ export const REAL_OPCODES: readonly RealOpcodeEntry[] = [
   { mnemonic: "cmpesb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:999 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x2, implicitNops: 2, source: "opcodes/e2k-opc.h:999", formSource: ALF7_SOURCE },
 ];
 
+/**
+ * Слог ALS одной короткой команды — материал широкой команды (`docs/e2k-wide-commands.md`).
+ *
+ * Зачем отдельный экспорт: широкая команда — это HS плюс **несколько** слогов ALS; сборка
+ * нескольких слогов живёт в `src/e2k/widePacker.ts`, а раскладка полей — здесь, в одном месте с
+ * одиночным кодированием. Иначе появилась бы вторая реализация раскладки ALS, и расхождение
+ * между ними не поймал бы ни один оракул.
+ */
+export interface AlsSyllable {
+  readonly form: RealForm;
+  /** Разрешённые каналы операции (список, не маска). */
+  readonly channels: readonly number[];
+  /** Канал, выбранный для этой инструкции. */
+  readonly channel: number;
+  /** Слово слога ALS. */
+  readonly als: number;
+  /** Полуслог ALES (16 бит) — только у длинной формы ALF11. */
+  readonly ales?: number;
+  /** Обязательные `nop` формы (`implicitNops`); у сравнений — 2. */
+  readonly implicitNops: number;
+}
+
+/**
+ * Разложить команду в слог ALS (и полуслог ALES).
+ *
+ * Отказывает там, где одиночный кодировщик пошёл бы другой ветвью: литералы (`movts` с `_f16s`),
+ * управляющие слоги (`sdisp`, `call`, `ct`, `setbn`) и неизвестные мнемоники — у них слога ALS
+ * либо нет, либо он собирается вместе с LTS/CS. Причина отказа — та же, что у кодировщика.
+ */
+export function alsSyllableOf(instruction: AsmInstruction): AlsSyllable {
+  const entry = BY_MNEMONIC.get(instruction.mnemonic);
+  if (entry === undefined) throw new EncodingRefusedError(realRefusalReason(instruction.mnemonic));
+  const channel = channelOf(entry, instruction.channel);
+  const fields = fieldsOf(entry, instruction.operands);
+  return {
+    form: entry.form,
+    channels: entry.channels,
+    channel,
+    als: alsWord(entry, fields),
+    ...(entry.form === "ALF11" ? { ales: ALES_WORD } : {}),
+    implicitNops: entry.implicitNops ?? 0,
+  };
+}
+
 /** Таблица по мнемонике. */
 const BY_MNEMONIC: ReadonlyMap<string, RealOpcodeEntry> = new Map(
   REAL_OPCODES.map((entry) => [entry.mnemonic, entry]),
