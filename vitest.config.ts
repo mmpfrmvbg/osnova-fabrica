@@ -54,6 +54,8 @@ export default defineConfig({
       '**/e2kQemuRun.audit.test.ts',
       // Исполняет QEMU так же, как два предыдущих: ресурсозависимый (случай 12).
       '**/e2kSyscallRuntime.test.ts',
+      // Пакеты широких команд: прогон в QEMU — внешний ресурс, тот же случай 12.
+      '**/e2kWideQemu.test.ts',
     ],
   },
 });
