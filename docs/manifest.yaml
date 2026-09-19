@@ -58,6 +58,7 @@ docs/e2k-backend.md: {status: active, source-files: [src/e2k/backend.ts]}
 docs/e2k-loop-mode.md: {status: scratch}
 docs/e2k-spec-bit.md: {status: scratch}
 docs/e2k-literal-barriers.md: {status: scratch}
+docs/e2k-imm-short-effect.md: {status: scratch}
 docs/e2k-minimal-elf.md: {status: active, source-files: [src/e2k/elfMinimal.ts]}
 docs/e2k-encoding.md: {status: active, source-files: [src/e2k/encoding.ts]}
 docs/e2k-wide-commands.md: {status: active, source-files: [src/e2k/widePacker.ts]}

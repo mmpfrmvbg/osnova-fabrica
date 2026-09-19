@@ -148,8 +148,10 @@ describe('замер: FIR через группировку', () => {
     const stats = wideStats(FIR.commands);
     expect(stats.linearCommands, 'команд линейно').toBe(235);
     expect(stats.packets, 'пакетов').toBe(212);
-    expect(stats.bytesLinear, 'байт линейно').toBe(2064);
-    expect(stats.bytesWide, 'байт пакетами').toBe(2048);
+    // Байты уменьшились после короткой непосредственной формы `0xc0|N` (значения 0…15 — 8 байт
+    // вместо 16): было 2064 линейно и 2048 пакетами, стало 1904 и 1888.
+    expect(stats.bytesLinear, 'байт линейно').toBe(1904);
+    expect(stats.bytesWide, 'байт пакетами').toBe(1888);
     expect(stats.packedSlots, 'слогов в многоместных пакетах').toBe(44);
     expect(stats.refused, 'отказов кодировщика среди понижённых команд').toBe(0);
   });
@@ -185,7 +187,7 @@ describe('замер: пять ядер', () => {
     // названо и совпадает с замером».
     expect(rows.map((row) => `${row.name}:${row.carriers}→${row.commands}`)).toEqual([
       'fir:111→235',
-      'iir:91→145',
+      'iir:91→146',
       'fft:105→204',
       'convolution:110→160',
       'correlation:100→176',
