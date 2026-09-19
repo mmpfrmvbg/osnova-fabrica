@@ -24,6 +24,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { scheduleAsm, type AsmScheduleResult } from './asmScheduler';
+import { buildAsmDependencyGraph } from './asmGraph';
 import { registersOf, packetableRefusal } from './widePacker';
 import { realOpcode } from './e2k-real';
 import { latencyFor, opClassOf } from '../vliw/e2kDevices';
@@ -113,6 +114,49 @@ describe('планировщик AsmInstruction: контракт (красны�
     const result = scheduleAsm([]);
     expect(result.order, 'order').toEqual([]);
     expect(result.metrics.cycles, 'такты').toBe(0);
+  });
+});
+
+describe('шаг 2.1: def-use граф по командам e2k', () => {
+  it('2.1.1 независимые команды не связаны ни одним ребром', () => {
+    const graph = buildAsmDependencyGraph(INDEPENDENT);
+    const problems = graph.edges
+      .filter(([from, to]) => from < 3 && to < 3)
+      .map(([from, to]) => `#${from} → #${to}`);
+    expect(problems, 'рёбра между независимыми').toEqual([]);
+  });
+
+  it('2.1.2 RAW-цепочка даёт рёбра по порядку', () => {
+    const graph = buildAsmDependencyGraph(CHAIN);
+    // Цепочка: 0 читает 1,2 пишет 3; 1 читает 3 пишет 6; 2 читает 6 пишет 5.
+    const pairs = graph.edges.map(([from, to]) => `${from}→${to}`);
+    expect(pairs, 'RAW по цепочке').toContain('0→1');
+    expect(pairs, 'RAW по цепочке').toContain('1→2');
+  });
+
+  it('2.1.3 файл регистров различается: %b[3] и %r3 не склеиваются', () => {
+    const baseOnly = buildAsmDependencyGraph([add(3, 1, 2), movts(3, 4)]);
+    expect(baseOnly.edges.length, 'базовый читает базовый — есть RAW').toBeGreaterThan(0);
+    const windowed: AsmInstruction = {
+      mnemonic: 'movts',
+      channel: 0,
+      operands: [{ kind: 'reg', index: 3, file: 'window' }, reg(4)],
+    };
+    const mixed = buildAsmDependencyGraph([add(3, 1, 2), windowed]);
+    expect(mixed.edges.filter(([from, to]) => from === 0 && to === 1), 'оконный читает базовый').toEqual([]);
+  });
+
+  it('2.1.4 цепочка эффектов упорядочена даже без общих регистров', () => {
+    // Литеральные пересылки не группируются (packetableRefusal), значит обязаны упорядочиться.
+    const literal = (value: number, dst: number): AsmInstruction => ({
+      mnemonic: 'movts',
+      channel: 0,
+      operands: [imm(value), reg(dst)],
+    });
+    const graph = buildAsmDependencyGraph([literal(1, 10), literal(2, 11), literal(3, 12)]);
+    const pairs = graph.edges.map(([from, to]) => `${from}→${to}`);
+    expect(pairs, 'эффект 0→1').toContain('0→1');
+    expect(pairs, 'эффект 1→2').toContain('1→2');
   });
 });
 
