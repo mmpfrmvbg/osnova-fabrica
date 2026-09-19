@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (17). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (18). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -45,7 +45,7 @@
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
 - [docs/e2k-real-run.md](e2k-real-run.md) ⚠
-- [docs/e2k-return-port.md](e2k-return-port.md)
+- [docs/e2k-return-port.md](e2k-return-port.md) ⚠
 - [docs/e2k-setwd-memory.md](e2k-setwd-memory.md)
 - [docs/e2k-subset-dsp.md](e2k-subset-dsp.md) ⚠
 - [docs/e2k-syllables-real.md](e2k-syllables-real.md)
@@ -128,7 +128,7 @@
 - [docs/legacy/system-invoke-api-v0.2.md](legacy/system-invoke-api-v0.2.md)
 - [docs/legacy/trace-format-v0.1.md](legacy/trace-format-v0.1.md)
 
-## Разведка и сырьё (20)
+## Разведка и сырьё (21)
 
 - [docs/ai-centric-os-recommendations.md](ai-centric-os-recommendations.md)
 - [docs/brainstorm/00-map.md](brainstorm/00-map.md)
@@ -139,6 +139,7 @@
 - [docs/brainstorm/05-step1-measurement.md](brainstorm/05-step1-measurement.md)
 - [docs/brainstorm/06-next-steps.md](brainstorm/06-next-steps.md)
 - [docs/brainstorm/06-stepB-packet-size.md](brainstorm/06-stepB-packet-size.md)
+- [docs/e2k-literal-barriers.md](e2k-literal-barriers.md)
 - [docs/e2k-loop-mode.md](e2k-loop-mode.md)
 - [docs/e2k-shell-ticks.md](e2k-shell-ticks.md)
 - [docs/e2k-spec-bit.md](e2k-spec-bit.md)
