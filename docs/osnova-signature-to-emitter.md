@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/vliw/vliwPipeline.ts, src/compiler/regcodegen.ts -->
 # Интерфейс «подпись → эмиттер»
 
 **Дата:** 2026-09-15

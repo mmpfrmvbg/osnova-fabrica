@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/runtime/vm/regcode.ts, src/runtime/vm/reginterpreter.ts, src/compiler/regcodegen.ts -->
 # Миграция на регистровую IR (RegIR) — план
 
 **Дата:** 2026-09

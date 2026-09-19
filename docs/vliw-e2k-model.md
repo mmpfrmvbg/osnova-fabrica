@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/vliw/e2kDevices.ts, src/vliw/e2kModel.ts, src/vliw/e2kMachineModel.ts -->
 # Модель e2k в планировщике Основа
 
 **Статус:** действующий документ. Описывает, что именно планировщик знает о железе

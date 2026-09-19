@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/e2k/e2kQemuExec.test.ts -->
 # QEMU-e2k: сборка (или почему нет)
 
 **Дата:** 2026-09-15

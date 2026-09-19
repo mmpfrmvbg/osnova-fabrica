@@ -1,3 +1,4 @@
+<!-- doc-status: deprecated -->
 ## Формат трейсинга Основа / Фабрика v0.1
 
 **superseded-by: docs/traces-v1.md** — этот документ устарел. Реальный формат определяется `src/trace/types.ts` и `src/pipeline/types.ts`. См. traces-v1.md.

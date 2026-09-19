@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: src/compiler/lexer.ts, src/compiler/parser.ts, src/compiler/ast.ts, src/compiler/semantic.ts, src/compiler/codegen.ts, src/compiler/compiler.ts -->
 # Язык Основа v2.3.2 — спецификация
 
 Канон языка определяется реализацией в `src/compiler/**` и `src/runtime/vm/**`.

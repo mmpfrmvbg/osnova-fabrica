@@ -1,3 +1,4 @@
+<!-- doc-status: frozen -->
 ---
 # ОС-НОВА Center — спека v1
 

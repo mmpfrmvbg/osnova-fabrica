@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/e2k/emitterOracle.ts -->
 # Двусторонняя внешняя проверка кодировки e2k
 
 **Дата:** 2026-09-15

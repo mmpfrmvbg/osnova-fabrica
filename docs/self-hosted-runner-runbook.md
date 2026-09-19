@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: .github/workflows/ci.yml -->
 # Self-hosted Runner Runbook
 
 This runbook documents monitoring and recovery for GitHub Actions self-hosted runners used by this repository.

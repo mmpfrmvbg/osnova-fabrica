@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: docs/golden-tests.json -->
 # Golden-тесты Основа v0.1
 
 > **⚠️ Статус документа:** описывает конструкции Phase 1 (MVP) и Phase 2 (design).

@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/e2k/e2k.ts -->
 # Спецификация подмножества e2k под DSP
 
 **Дата:** 2026-09-15

@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/vliw/crdtKernel.test.ts -->
 # Спецификация подписи приложения: метаданные VLIW-готовности
 
 **Дата:** 2026-09-15

@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: src/runtime/fixtures/chat.osapp.yaml -->
 # Golden-приложение: Чат-клиент (Chat)
 
 Приложение категории **network** — минимальный клиент для отправки

@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/e2k/syscallRuntime.ts -->
 # Syscall ABI e2k: извлечение из порта QEMU-e2k
 
 Документ фиксирует **только то, что найдено в исходниках** порта QEMU-e2k

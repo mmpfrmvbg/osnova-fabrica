@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/runtime/fixtures/micro_crm.osnova -->
 # Пример раскола: micro_crm → signature + skin
 
 **Версия:** 0.1

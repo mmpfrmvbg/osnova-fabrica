@@ -1,3 +1,4 @@
+<!-- doc-status: active -->
 # OSNOVA Project Config
 
 Эталонный формат для [`read_osnova_md`](osnova/state_reader.py) и для людей. Редактируйте секции ниже под свой репозиторий.

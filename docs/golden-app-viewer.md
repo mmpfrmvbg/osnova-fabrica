@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: src/runtime/fixtures/viewer.osvbc.json -->
 # Golden-приложение: File Viewer (ОСи)
 
 Второе «реальное» OS-nova-апп для golden-теста рантайма ОСи: окно, файловый ввод/вывод, хранилище и статусная строка.

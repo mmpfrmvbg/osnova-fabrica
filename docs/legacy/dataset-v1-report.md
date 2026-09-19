@@ -1,3 +1,4 @@
+<!-- doc-status: deprecated -->
 # Dataset v1 — Baseline Report
 Date: 2026-03-18
 Model: qwen-coder-plus

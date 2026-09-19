@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: src/runtime/fixtures/notepad.osapp.yaml -->
 # Golden-приложение: Блокнот (Notepad)
 
 Приложение категории **utility** для хранения текстовых заметок. Минимальный golden-пример: хранилище, строки, цикл по заметкам.

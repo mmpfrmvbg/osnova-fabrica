@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: src/compiler/language-schema.ts -->
 # Language Contributing v2.0
 
 Документ описывает обязательный процесс изменения языка Основа v2.0.

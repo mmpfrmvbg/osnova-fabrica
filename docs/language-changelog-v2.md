@@ -1,3 +1,4 @@
+<!-- doc-status: stable -->
 # Language Changelog v2
 
 Версионирование языка:

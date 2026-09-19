@@ -1,3 +1,4 @@
+<!-- doc-status: active -->
 # RFC-002 / Anti-RFC A-6: sentinel pattern — пусто вместо ошибок
 
 **Тип:** anti-rfc

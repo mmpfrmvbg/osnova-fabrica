@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/e2k/elfMinimal.ts -->
 # Минимальный ELF для e2k: `_start` без `exit(42)`
 
 **Дата:** 2026-09-15 (ночь).

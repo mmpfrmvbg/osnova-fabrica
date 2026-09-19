@@ -1,3 +1,4 @@
+<!-- doc-status: scratch -->
 # Запуск ОС-НОВА в Termux (Android)
 
 ## Требования

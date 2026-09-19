@@ -1,3 +1,4 @@
+<!-- doc-status: superseded -->
 # Парсер языка «Основа» v0.1
 
 > **⚠️ Статус:** architecture design document. Описывает планируемую архитектуру парсера

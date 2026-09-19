@@ -1,3 +1,4 @@
+<!-- doc-status: frozen -->
 # OSNOVA Forge — актуальная шина и соответствие GHA
 
 Краткий канон для репозитория. Подробные narrative blueprint’ы (v5 / v5.1 / v5.2) могут жить отдельно; **источник истины по коду** — каталог [`forge/`](../forge/) и [`.github/workflows/`](../.github/workflows/).

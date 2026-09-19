@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: src/runtime/fixtures/game_rounds.osnova -->
 # Golden-приложение: Игровые раунды (Game Rounds)
 
 Приложение категории **game** для golden-теста: агрегация по массиву раундов (результат, очки), условия с логическим **`и`**, сравнения. Без нового рантайм-API.

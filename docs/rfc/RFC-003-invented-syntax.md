@@ -1,3 +1,4 @@
+<!-- doc-status: active -->
 # RFC-003 / Anti-RFC A-7: invented syntax — структура, данные, система.типы
 
 **Тип:** anti-rfc

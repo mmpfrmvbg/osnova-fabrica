@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: src/runtime/fixtures/todo.osnova -->
 # Golden-приложение: TODO-лист (ОСи)
 
 Первый «реальный» OS-nova-апп для golden-теста всей ОСи: окно, хранилище, кнопки, цикл обработки событий.

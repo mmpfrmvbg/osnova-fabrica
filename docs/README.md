@@ -1,0 +1,140 @@
+# Карта документации
+
+> Сгенерировано `src/scripts/doc-guardian.ts --fix`. Не редактировать руками —
+
+> источник истины — `docs/manifest.yaml`.
+
+
+> ⚠ — исходник менялся позже дока (17). Детали: `npm run docs:check`.
+## Канон (19)
+
+- [docs/DOCS.md](DOCS.md)
+- [docs/bytecode-v1.md](bytecode-v1.md)
+- [docs/coding-with-osnova-v2.md](coding-with-osnova-v2.md)
+- [docs/golden-app-chat.md](golden-app-chat.md) ⚠
+- [docs/golden-app-game-rounds.md](golden-app-game-rounds.md)
+- [docs/golden-app-micro-crm.md](golden-app-micro-crm.md)
+- [docs/golden-app-notepad.md](golden-app-notepad.md)
+- [docs/golden-app-todo.md](golden-app-todo.md)
+- [docs/golden-app-viewer.md](golden-app-viewer.md)
+- [docs/golden-schema.md](golden-schema.md) ⚠
+- [docs/golden-tests.md](golden-tests.md) ⚠
+- [docs/language-changelog-v2.md](language-changelog-v2.md)
+- [docs/language-contributing-v2.md](language-contributing-v2.md) ⚠
+- [docs/language-registry.md](language-registry.md) ⚠
+- [docs/language-v2.md](language-v2.md)
+- [docs/release-process.md](release-process.md) ⚠
+- [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md) ⚠
+- [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
+- [docs/system-api-v1.md](system-api-v1.md)
+
+## Фронтир и замеры (42)
+
+- [AGENTS.md](../AGENTS.md)
+- [BIG-PICTURE.md](../BIG-PICTURE.md)
+- [OSNOVA-CLI.md](../OSNOVA-CLI.md)
+- [OSNOVA.md](../OSNOVA.md)
+- [README.md](../README.md)
+- [docs/e2k-backend.md](e2k-backend.md) ⚠
+- [docs/e2k-dsp-instructions.md](e2k-dsp-instructions.md) ⚠
+- [docs/e2k-encoding.md](e2k-encoding.md) ⚠
+- [docs/e2k-external-as.md](e2k-external-as.md)
+- [docs/e2k-external-validation.md](e2k-external-validation.md)
+- [docs/e2k-minimal-elf.md](e2k-minimal-elf.md) ⚠
+- [docs/e2k-opcodes-real.md](e2k-opcodes-real.md)
+- [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
+- [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
+- [docs/e2k-real-run.md](e2k-real-run.md) ⚠
+- [docs/e2k-subset-dsp.md](e2k-subset-dsp.md) ⚠
+- [docs/e2k-syllables-real.md](e2k-syllables-real.md)
+- [docs/e2k-syscall-abi.md](e2k-syscall-abi.md)
+- [docs/e2k-syscalls-minimal.md](e2k-syscalls-minimal.md)
+- [docs/e2k-wide-commands.md](e2k-wide-commands.md)
+- [docs/hardware-debt.md](hardware-debt.md)
+- [docs/language-v2-requirements.md](language-v2-requirements.md)
+- [docs/osnova-apps-roadmap.md](osnova-apps-roadmap.md)
+- [docs/osnova-atlas-v0.1.md](osnova-atlas-v0.1.md)
+- [docs/osnova-atom-boundaries.md](osnova-atom-boundaries.md)
+- [docs/osnova-semantic-skin.md](osnova-semantic-skin.md)
+- [docs/osnova-signature-spec.md](osnova-signature-spec.md)
+- [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md)
+- [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md)
+- [docs/osnova-vision.md](osnova-vision.md)
+- [docs/register-ir-migration.md](register-ir-migration.md) ⚠
+- [docs/rfc/RFC-001-try-catch-avoidance.md](rfc/RFC-001-try-catch-avoidance.md)
+- [docs/rfc/RFC-002-sentinel-pattern.md](rfc/RFC-002-sentinel-pattern.md)
+- [docs/rfc/RFC-003-invented-syntax.md](rfc/RFC-003-invented-syntax.md)
+- [docs/roadmap.md](roadmap.md)
+- [docs/spec-alignment.md](spec-alignment.md)
+- [docs/token-cost-report.md](token-cost-report.md)
+- [docs/trace-failure-report.md](trace-failure-report.md)
+- [docs/verification-debt.md](verification-debt.md)
+- [docs/vliw-e2k-model.md](vliw-e2k-model.md) ⚠
+- [docs/vliw-ilp-calibration.md](vliw-ilp-calibration.md)
+- [docs/vliw-phases-plan.md](vliw-phases-plan.md)
+
+## Заморожено (13)
+
+- [ARCHITECTURE-AS-IS.md](../ARCHITECTURE-AS-IS.md)
+- [docs/app-manifest-v0.1.md](app-manifest-v0.1.md)
+- [docs/doc-status-plan.md](doc-status-plan.md)
+- [docs/forge-blueprint-audit-report.md](forge-blueprint-audit-report.md)
+- [docs/llm-providers-v1.md](llm-providers-v1.md)
+- [docs/llm-routing-v1.md](llm-routing-v1.md)
+- [docs/osnova-center-v1.md](osnova-center-v1.md)
+- [docs/osnova-forge-blueprint.md](osnova-forge-blueprint.md)
+- [docs/pipeline-v1.md](pipeline-v1.md)
+- [docs/registry-v0.1.md](registry-v0.1.md)
+- [docs/system-services-v1.md](system-services-v1.md)
+- [docs/traces-v1.md](traces-v1.md)
+- [docs/training-llm-from-traces-v0.1.md](training-llm-from-traces-v0.1.md)
+
+## Заменено (20)
+
+- [docs/LANGUAGE-CHANGELOG.md](LANGUAGE-CHANGELOG.md)
+- [docs/b-task-candidates.md](b-task-candidates.md)
+- [docs/chat-app-language-needs.md](chat-app-language-needs.md)
+- [docs/compiler-v0.1.md](compiler-v0.1.md)
+- [docs/e2k-address-loading.md](e2k-address-loading.md)
+- [docs/e2k-emitter-plan.md](e2k-emitter-plan.md)
+- [docs/e2k-emitter-shell.md](e2k-emitter-shell.md)
+- [docs/e2k-encoding-raw.md](e2k-encoding-raw.md)
+- [docs/e2k-sources-raw.md](e2k-sources-raw.md)
+- [docs/e2k-subset-requirements.md](e2k-subset-requirements.md)
+- [docs/e2k-syscalls-raw.md](e2k-syscalls-raw.md)
+- [docs/language-evolution.md](language-evolution.md)
+- [docs/language-v1.md](language-v1.md)
+- [docs/lexer-v0.1.md](lexer-v0.1.md)
+- [docs/osnova-roadmap-v1.5.md](osnova-roadmap-v1.5.md)
+- [docs/parser-v0.1.md](parser-v0.1.md)
+- [docs/tokenization-v0.1.md](tokenization-v0.1.md)
+- [docs/vliw-packing.md](vliw-packing.md)
+- [docs/vliw-reg-plan.md](vliw-reg-plan.md)
+- [docs/vliw-scheduler-plan.md](vliw-scheduler-plan.md)
+
+## Устарело (11)
+
+- [docs/legacy/README.md](legacy/README.md)
+- [docs/legacy/dataset-v1-report.md](legacy/dataset-v1-report.md)
+- [docs/legacy/grammatika-v0.1.md](legacy/grammatika-v0.1.md)
+- [docs/legacy/jarvis-gaps-v1.md](legacy/jarvis-gaps-v1.md)
+- [docs/legacy/launcher-runtime-manifest.md](legacy/launcher-runtime-manifest.md)
+- [docs/legacy/pipeline-llm-osnova.md](legacy/pipeline-llm-osnova.md)
+- [docs/legacy/pm-handoff.md](legacy/pm-handoff.md)
+- [docs/legacy/rfc/anti-rfc-level3-results.md](legacy/rfc/anti-rfc-level3-results.md)
+- [docs/legacy/roadmap-osnova-ideal-os.md](legacy/roadmap-osnova-ideal-os.md)
+- [docs/legacy/system-invoke-api-v0.2.md](legacy/system-invoke-api-v0.2.md)
+- [docs/legacy/trace-format-v0.1.md](legacy/trace-format-v0.1.md)
+
+## Разведка и сырьё (10)
+
+- [docs/ai-centric-os-recommendations.md](ai-centric-os-recommendations.md)
+- [docs/e2k-shell-ticks.md](e2k-shell-ticks.md)
+- [docs/micromodules-v2.md](micromodules-v2.md)
+- [docs/osnova-v5.4-vision.md](osnova-v5.4-vision.md)
+- [docs/patterns.md](patterns.md)
+- [docs/project-strategy-v1.md](project-strategy-v1.md)
+- [docs/state-audit.md](state-audit.md)
+- [docs/termux-setup.md](termux-setup.md)
+- [docs/vliw-considerations.md](vliw-considerations.md)
+- [docs/vliw-pack-diagnosis.md](vliw-pack-diagnosis.md)

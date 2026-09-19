@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/vliw/vliwPipeline.ts, src/vliw/latencyScheduler.ts -->
 # Калибровка выигрыша VLIW-перестановки
 
 **Дата измерения:** 2026-09-15

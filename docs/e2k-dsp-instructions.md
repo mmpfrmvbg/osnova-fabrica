@@ -1,3 +1,4 @@
+<!-- doc-status: active; source: src/e2k/latencyMap.ts -->
 # Извлечение DSP-инструкций из руководства МЦСТ
 
 **Дата:** 2026-09-15

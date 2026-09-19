@@ -1,6 +1,7 @@
 # Cursorrules для osnova-fabrica
 
 ## Канон документации
+- Точка входа для агентов: `AGENTS.md` (карта проекта: три фазы, слои истины, как менять язык)
 - Язык (human-readable): `docs/language-v2.md`
 - Язык (machine-readable): `docs/osnova/language-schema.json`
 - Источник истины: код компилятора `src/compiler/**`

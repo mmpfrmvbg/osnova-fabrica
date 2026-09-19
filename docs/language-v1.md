@@ -1,3 +1,4 @@
+<!-- doc-status: superseded -->
 # Язык Основа v1
 
 > [!WARNING]
