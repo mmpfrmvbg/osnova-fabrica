@@ -110,6 +110,8 @@ export function tryRemoveCopy(
   if (destination?.kind !== 'reg' || source?.kind !== 'reg' || destination.index === source.index) return undefined;
 
   const { liveOut } = liveSetsOf(carriers);
+  // Обратная дуга: приёмник читается РАНЬШЕ пересылки — значение переносится через цикл.
+  if (carriers.some((item, index) => index < at && defUseOf(item).use.includes(destination.index))) return undefined;
   // Где `d` читается после пересылки и докуда вообще жив.
   const targets: number[] = [];
   for (let index = at + 1; index < carriers.length; index++) {
