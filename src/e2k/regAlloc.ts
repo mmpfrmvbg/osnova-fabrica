@@ -120,10 +120,7 @@ function peakOf(intervals: readonly LiveInterval[]): number {
   return peak;
 }
 
-/** Соприкасается ли новый интервал с уже разложенным (для списка конфликтов). */
-function assignmentsOverlap(candidate: LiveInterval, other: LiveInterval, assignment: ReadonlyMap<number, number>): boolean {
-  return assignment.has(candidate.vreg) && assignment.has(other.vreg) && overlaps(candidate, other);
-}
+
 
 /** Итог применения раскладки к потоку носителей. */
 export interface ApplyResult {
