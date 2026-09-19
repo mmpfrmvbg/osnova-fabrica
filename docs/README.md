@@ -130,7 +130,7 @@
 - [docs/legacy/system-invoke-api-v0.2.md](legacy/system-invoke-api-v0.2.md)
 - [docs/legacy/trace-format-v0.1.md](legacy/trace-format-v0.1.md)
 
-## Разведка и сырьё (22)
+## Разведка и сырьё (23)
 
 - [docs/ai-centric-os-recommendations.md](ai-centric-os-recommendations.md)
 - [docs/brainstorm/00-map.md](brainstorm/00-map.md)
@@ -144,6 +144,7 @@
 - [docs/e2k-imm-short-effect.md](e2k-imm-short-effect.md)
 - [docs/e2k-literal-barriers.md](e2k-literal-barriers.md)
 - [docs/e2k-loop-mode.md](e2k-loop-mode.md)
+- [docs/e2k-reorder-effect.md](e2k-reorder-effect.md)
 - [docs/e2k-shell-ticks.md](e2k-shell-ticks.md)
 - [docs/e2k-spec-bit.md](e2k-spec-bit.md)
 - [docs/micromodules-v2.md](micromodules-v2.md)
