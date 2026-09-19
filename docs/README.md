@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (16). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (17). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -44,7 +44,7 @@
 - [docs/e2k-opcodes-real.md](e2k-opcodes-real.md)
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
-- [docs/e2k-real-run.md](e2k-real-run.md)
+- [docs/e2k-real-run.md](e2k-real-run.md) ⚠
 - [docs/e2k-setwd-memory.md](e2k-setwd-memory.md)
 - [docs/e2k-subset-dsp.md](e2k-subset-dsp.md) ⚠
 - [docs/e2k-syllables-real.md](e2k-syllables-real.md)
@@ -127,9 +127,14 @@
 - [docs/legacy/system-invoke-api-v0.2.md](legacy/system-invoke-api-v0.2.md)
 - [docs/legacy/trace-format-v0.1.md](legacy/trace-format-v0.1.md)
 
-## Разведка и сырьё (10)
+## Разведка и сырьё (15)
 
 - [docs/ai-centric-os-recommendations.md](ai-centric-os-recommendations.md)
+- [docs/brainstorm/00-map.md](brainstorm/00-map.md)
+- [docs/brainstorm/01-opportunities.md](brainstorm/01-opportunities.md)
+- [docs/brainstorm/02-ai-vs-hardware.md](brainstorm/02-ai-vs-hardware.md)
+- [docs/brainstorm/03-candidates.md](brainstorm/03-candidates.md)
+- [docs/brainstorm/04-first-experiment.md](brainstorm/04-first-experiment.md)
 - [docs/e2k-shell-ticks.md](e2k-shell-ticks.md)
 - [docs/micromodules-v2.md](micromodules-v2.md)
 - [docs/osnova-v5.4-vision.md](osnova-v5.4-vision.md)

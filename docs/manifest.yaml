@@ -124,8 +124,18 @@ docs/vliw-packing.md: {status: superseded, superseded-by: src/vliw/packetPacker.
 # ============================================================
 # Массовые списки: разведка/сырьё, оставшееся без преемника
 # ============================================================
+# Сеанс 2026-09-19 «мозговой штурм: где теряются такты и что AI может знать такого, чего
+# hardware-предсказатель не может» — карта конвейера, диагностика, сравнение и кандидаты.
+# scratch, а не active: это разведка с гипотезами, а не подтверждённые замеры. Оракул
+# документа — src/scripts/brainstorm.audit.test.ts (ссылки существуют, оценки помечены,
+# каждый ход имеет риск и проверяемость).
 scratch:
   - docs/ai-centric-os-recommendations.md
+  - docs/brainstorm/00-map.md
+  - docs/brainstorm/01-opportunities.md
+  - docs/brainstorm/02-ai-vs-hardware.md
+  - docs/brainstorm/03-candidates.md
+  - docs/brainstorm/04-first-experiment.md
   - docs/e2k-shell-ticks.md
   - docs/micromodules-v2.md
   - docs/osnova-v5.4-vision.md
