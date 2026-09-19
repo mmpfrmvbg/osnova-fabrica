@@ -47,6 +47,7 @@ import {
   applyAllocation,
 } from './regAlloc';
 import { defUseOf, liveIntervalsOf } from './liveness';
+import { ARRAY_REGISTERS } from './arrayRuntime';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const imm = (value: number): Operand => ({ kind: 'imm', value });
@@ -162,9 +163,18 @@ describe('linear scan: раскладка по интервалам', () => {
     const result = allocateRegisters(intervals);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    // Сверка идёт с РАНТАЙМОМ МАССИВОВ, а не с собственной константой раскладки: иначе проверка
+    // сверяла бы константу сама с собой, и захват `%b[10]` прошёл бы незамеченным (реестр
+    // проверяемости, случай 14 — ожидание, выведенное из проверяемого же места).
+    const runtimeRegisters = Object.values(ARRAY_REGISTERS);
     for (const physical of result.allocation.assignment.values()) {
       expect(ALLOCATABLE_REGISTERS, `регистр %b[${physical}] вне разрешённых`).toContain(physical);
-      expect(RESERVED_REGISTERS, `регистр %b[${physical}] занят рантаймом массивов`).not.toContain(physical);
+      expect(runtimeRegisters, `регистр %b[${physical}] занят рантаймом массивов`).not.toContain(physical);
+      expect(physical, `регистр %b[${physical}] вне окна`).toBeLessThan(16);
+    }
+    expect(ALLOCATABLE_REGISTERS.length, 'свободных регистров ровно десять').toBe(10);
+    for (const register of ALLOCATABLE_REGISTERS) {
+      expect(runtimeRegisters, `%b[${register}] отдан и рантайму, и раскладке`).not.toContain(register);
     }
   });
 

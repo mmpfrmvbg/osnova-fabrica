@@ -345,8 +345,50 @@ export const DEFECTS_WIDE: readonly Defect[] = [
 ];
 
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
+/**
+ * Дефекты **раскладки регистров** (шаг 8).
+ *
+ * Проверка идёт оракулом `src/e2k/regAlloc.test.ts`: он быстрый (меньше секунды) и проверяет и
+ * интервалы, и раскладку. Каждый дефект обязан быть пойман **своим** предметом: снятая liveness —
+ * пиком, снятая интерференция — совпадением регистров у живых значений, захват `%b[10]` — проверкой
+ * зарезервированных регистров, перепутанные концы интервалов — пересечением.
+ */
+export const DEFECTS_REGALLOC: readonly Defect[] = [
+  {
+    id: '8.1',
+    title: 'интервалы растянуты до конца потока — раскладка перестаёт влезать',
+    file: 'src/e2k/liveness.ts',
+    from: '    end: lastUse.get(vreg) ?? start,',
+    to: '    end: Math.max(0, instructions.length - 1), // ДЕФЕКТ 8.1: значение живёт до конца потока',
+    tests: ['src/e2k/regAlloc.test.ts'],
+  },
+  {
+    id: '8.2',
+    title: 'проверка интерференции снята: занятые регистры не учитываются',
+    file: 'src/e2k/regAlloc.ts',
+    from: '    const taken = new Set(active.map((entry) => entry.register));',
+    to: '    const taken = new Set<number>(); // ДЕФЕКТ 8.2: интерференция не проверяется',
+    tests: ['src/e2k/regAlloc.test.ts'],
+  },
+  {
+    id: '8.3',
+    title: 'захвачен регистр рантайма массивов %b[10]',
+    file: 'src/e2k/regAlloc.ts',
+    from: 'export const ALLOCATABLE_REGISTERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];',
+    to: 'export const ALLOCATABLE_REGISTERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; // ДЕФЕКТ 8.3',
+    tests: ['src/e2k/regAlloc.test.ts'],
+  },
+  {
+    id: '8.4',
+    title: 'конец интервала потерян: значение умирает на определении',
+    file: 'src/e2k/liveness.ts',
+    from: '    end: lastUse.get(vreg) ?? start,',
+    to: '    end: start, // ДЕФЕКТ 8.4: интервал схлопнут в точку определения',
+    tests: ['src/e2k/regAlloc.test.ts'],
+  },
+];
 export function runAll(
-  defects: readonly Defect[] = [...DEFECTS, ...DEFECTS_STEP6, ...DEFECTS_WIDE],
+  defects: readonly Defect[] = [...DEFECTS, ...DEFECTS_STEP6, ...DEFECTS_WIDE, ...DEFECTS_REGALLOC],
   work = WORK,
 ): DefectReport[] {
   const reports: DefectReport[] = [];
