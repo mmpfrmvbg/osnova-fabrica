@@ -54,6 +54,9 @@ docs/osnova-vision.md: {status: active}
 
 # --- e2k: подтверждённые/текущие (active) ---
 docs/e2k-backend.md: {status: active, source-files: [src/e2k/backend.ts]}
+# --- e2k: извлечение семантики из чужих источников (scratch: разведка, не замер) ---
+docs/e2k-loop-mode.md: {status: scratch}
+docs/e2k-spec-bit.md: {status: scratch}
 docs/e2k-minimal-elf.md: {status: active, source-files: [src/e2k/elfMinimal.ts]}
 docs/e2k-encoding.md: {status: active, source-files: [src/e2k/encoding.ts]}
 docs/e2k-wide-commands.md: {status: active, source-files: [src/e2k/widePacker.ts]}
@@ -139,6 +142,7 @@ scratch:
   - docs/brainstorm/04-first-experiment.md
   - docs/brainstorm/05-step1-measurement.md
   - docs/brainstorm/06-stepB-packet-size.md
+  - docs/brainstorm/06-next-steps.md
   - docs/e2k-shell-ticks.md
   - docs/micromodules-v2.md
   - docs/osnova-v5.4-vision.md
