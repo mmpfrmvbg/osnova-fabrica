@@ -66,6 +66,7 @@ docs/e2k-dsp-instructions.md: {status: active, source-files: [src/e2k/latencyMap
 docs/e2k-subset-dsp.md: {status: active, source-files: [src/e2k/e2k.ts]}
 docs/e2k-qemu-build.md: {status: active, source-files: [src/e2k/e2kQemuExec.test.ts]}
 docs/e2k-qemu-run.md: {status: active, source-files: [src/e2k/e2kRealRun.ts]}
+docs/e2k-return-port.md: {status: active, source-files: [src/e2k/e2kRealRun.ts]}
 docs/e2k-real-run.md: {status: active, source-files: [src/e2k/e2kRealRun.ts]}
 docs/e2k-external-validation.md: {status: active, source-files: [src/e2k/emitterOracle.ts]}
 docs/e2k-external-as.md: {status: active, source-files: [src/e2k/emitterOracle.ts]}

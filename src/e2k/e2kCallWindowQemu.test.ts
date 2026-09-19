@@ -16,7 +16,8 @@
  *    изнутри себя. Признак — **адрес ловушки**: ловушка на первой команде тела значит «регистр
  *    недоступен», иначе запись прошла. Перебор `K` даёт границу; признак различает два исхода, а
  *    одно наблюдение не доказывало бы ничего.
- * 2. **Возврат:** тело пишет свой `%r7` и делает `return %ctpr3`; вызывающий после возврата выходит
+ * 2. **Возврат:** тело пишет свой `%r7` и возвращается — тремя способами: (а) одна CS0 `return %ctpr3`;
+ *    (б) одна SS `ct %ctpr3`; (в) пара `return %ctpr3` + `ct %ctpr3`. Вызывающий после возврата выходит
  *    кодом 99. Ожидание «99» — успех; иное — названная причина.
  *
  * # Что измерено (07.2026, и почему это записано как результат, а не как успех)
@@ -26,12 +27,21 @@
  * | доступны в вызываемой | `%r0..%r7` (**8** регистров) |
  * | недоступны | `%r8`, `%r9`, `%r10` — ловушка на первой команде тела |
  * | системный вызов из вызываемой | **невозможен**: номер берётся из `%r8`, а его у вызываемой нет |
- * | `return %ctpr3` | порт **падает на утверждении** `op_descr->is_al` (`translate-lookahead.c:318`, `e2k_update_used_regs_context`), статус 134 |
- * | системный вызов вызывающего ПОСЛЕ возврата | падает с «syscall without proper WD configuration» (`cpu_loop.c:164-168`) — геометрия окна в порте не восстанавливается |
+ * | `return %ctpr3` (CS0) **одна** | порт **падает на утверждении** `op_descr->is_al` (`translate-lookahead.c:318`, `e2k_update_used_regs_context`), статус 134 |
+ * | `ct %ctpr3` (SS) **одна**, без подготовки | гостевое исключение на самой `ct`: `call` стирает ctpr в пустой тег `CTPEW` (`translate-ct.c:1135-1138`), статус 9 |
+ * | `return %ctpr3` **и** `ct %ctpr3` подряд | **управление возвращается**: вызывающий доходит до своего выхода, статус **99** |
+ *
+ * **Поправка (07.2026).** Прежняя запись «системный вызов вызывающего после возврата теряет геометрию
+ * окна» **неверна и снята**: она наблюдалась тогда, когда возврата не было вовсе (порт падал на
+ * утверждении), и падение приписывалось возврату. В опыте с работающей парой выход вызывающего
+ * (`exit(99)`) проходит — геометрия окна восстанавливается из кадра вызова
+ * (`e2k_cpu_exec_ct_return`, `translate-ct.c:27-67`). Подробности и предложение правки порта —
+ * `docs/e2k-return-port.md`.
  *
  * Отсюда следствие для раскладки: `фильтр` ядра FIR занимает `%b[0..9]` (10 регистров), то есть в
  * окно вызываемой (8) **не влезает**; влезают `сумма` (6) и подобные. И следствие для шага 4:
- * сквозной прогон FIR с вызовами в этом порте пока невозможен — упирается не в наш код, а в порт.
+ * сквозной прогон FIR с вызовами возможен — возврат даётся **парой** `return` + `ct` (16 байт вместо
+ * 8), но бюджет вызываемой (8 регистров) от этого не меняется.
  *
  * # Чего оракул НЕ доказывает
  *
@@ -46,12 +56,16 @@ import * as path from 'path';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { buildElfFromCode, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
 import { SYS_EXIT, HELLO_SETBN_RSZ, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
+import { CT_COND_ALWAYS } from './e2k-real';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
+
+/** Чем заканчивается тело процедуры: своим системным вызовом, одной CS0-формой, или парой `return` + `ct`. */
+type ReturnForm = 'exit' | 'cs0' | 'ss' | 'pair';
 
 /**
  * Программа: вызывающий зовёт процедуру; процедура либо выходит сама, либо возвращается.
@@ -60,7 +74,24 @@ const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window
  * редакция опыта считала адреса вручную, цель уезжала, и выводы были недействительны. Признак
  * (адрес ловушки) проверяется против того же расчёта.
  */
-function program(register: number, returns: boolean): { bytes: Uint8Array; bodyAddress: number; returnAddress: number } {
+function program(register: number, returnForm: ReturnForm): { bytes: Uint8Array; bodyAddress: number; returnAddress: number } {
+  const returnBody: Record<ReturnForm, AsmInstruction[]> = {
+    exit: [
+      { mnemonic: 'movts', channel: 0, operands: [imm(42), window_(WINDOW_NUMBER_REGISTER + 1)] },
+      { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
+      { mnemonic: 'sdisp', channel: 0, operands: [imm(2), imm(0)] },
+      { mnemonic: 'call', channel: 0, operands: [imm(2), imm(SYSCALL_WBS)] },
+    ],
+    // CS0-форма: в порте это НЕ переход, а подготовка ctpr3 (`translate-ctp.c:110-141`), прыжка нет.
+    cs0: [{ mnemonic: 'return', channel: 0, operands: [imm(3)] }],
+    // SS-форма без подготовки: ctpr3 пуст (`call` стирает ctpr в тег `CTPEW`), поэтому это ловушка.
+    ss: [{ mnemonic: 'ct', channel: 0, operands: [imm(3), imm(CT_COND_ALWAYS)] }],
+    // Пара: подготовка плюс переход — именно так возврат исполняется в порте.
+    pair: [
+      { mnemonic: 'return', channel: 0, operands: [imm(3)] },
+      { mnemonic: 'ct', channel: 0, operands: [imm(3), imm(CT_COND_ALWAYS)] },
+    ],
+  };
   const build = (callTarget: number): AsmInstruction[] => [
     // ── вызывающий ──────────────────────────────────────────────────────────────
     { mnemonic: 'setbn', channel: 0, operands: [imm(HELLO_SETBN_RSZ), imm(0), imm(0)] },
@@ -74,14 +105,7 @@ function program(register: number, returns: boolean): { bytes: Uint8Array; bodyA
     { mnemonic: 'call', channel: 0, operands: [imm(2), imm(SYSCALL_WBS)] },
     // ── процедура ───────────────────────────────────────────────────────────────
     { mnemonic: 'movts', channel: 0, operands: [imm(42), window_(register)] },
-    ...(returns
-      ? [{ mnemonic: 'return' as const, channel: 0, operands: [imm(3)] }]
-      : [
-          { mnemonic: 'movts' as const, channel: 0, operands: [imm(42), window_(WINDOW_NUMBER_REGISTER + 1)] },
-          { mnemonic: 'movts' as const, channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
-          { mnemonic: 'sdisp' as const, channel: 0, operands: [imm(2), imm(0)] },
-          { mnemonic: 'call' as const, channel: 0, operands: [imm(2), imm(SYSCALL_WBS)] },
-        ]),
+    ...returnBody[returnForm],
   ];
   const addressesOf = (list: readonly AsmInstruction[]): number[] => {
     const addresses: number[] = [];
@@ -113,9 +137,9 @@ function program(register: number, returns: boolean): { bytes: Uint8Array; bodyA
 }
 
 /** Прогнать программу: тело пишет в свой `%rK`; признак — адрес ловушки. */
-function probe(register: number, returns = false): { status: number | null; exceptionIp?: number; tail: string; bodyAddress: number } {
-  const built = program(register, returns);
-  const file = path.join(ROOT, '.tmp', `e2k-call-window-${register}${returns ? '-ret' : ''}.elf`);
+function probe(register: number, returnForm: ReturnForm = 'exit'): { status: number | null; exceptionIp?: number; tail: string; bodyAddress: number } {
+  const built = program(register, returnForm);
+  const file = path.join(ROOT, '.tmp', `e2k-call-window-${register}-${returnForm}.elf`);
   fs.writeFileSync(file, buildElfFromCode(built.bytes, MINIMAL_BASE).bytes);
   const run = runInQemu(file, { shim: true, timeoutMs: 30_000 });
   return {
@@ -160,9 +184,9 @@ describe('модель окна на вызове процедуры: сколь
     expect(result.exceptionIp, 'ловушка обязана стоять на записи в %r8 вызываемой').toBe(numberAddress + 8);
   });
 
-  it('return %ctpr3 в этом порте не исполняется — названа причина, а не «не получилось»', () => {
+  it('одна `return %ctpr3` в этом порте не возвращает — названа причина, а не «не получилось»', () => {
     if (shim === undefined) return;
-    const result = probe(7, true);
+    const result = probe(7, 'cs0');
     if (result.status === 99) {
       // Если порт когда-нибудь начнёт возвращать управление, это надо увидеть здесь, а не в отчёте:
       // оракул фиксирует оба исхода и требует, чтобы исход был НАЗВАН.
@@ -171,5 +195,26 @@ describe('модель окна на вызове процедуры: сколь
     }
     expect(result.status, 'ожидался либо код 99, либо падение порта на утверждении').toBe(134);
     expect(result.tail, 'падение обязано быть названо утверждением порта').toMatch(/Assertion failed|is_al/);
+  });
+
+  it('одна `ct %ctpr3` не возвращает: `call` стирает ctpr3 в пустой тег, ловушка на самой `ct`', () => {
+    if (shim === undefined) return;
+    const result = probe(7, 'ss');
+    // Измерено: в вызванной процедуре порт называет адрес ловушки на **следующей** команде после `ct`
+    // (тело 0x100068, `ct` на 0x100070, ловушка 0x100078). Для одиночной `ct` в начале программы порт
+    // называл её собственный адрес — то есть адрес ловушки у порта зависит от места, и это его
+    // свойство, а не наше. Поэтому проверяем названное число, а не «примерно там».
+    expect(result.exceptionIp, 'ловушка обязана стоять на команде после `ct`').toBe(result.bodyAddress + 16);
+    expect(result.status, 'исход обязан быть назван гостевым исключением, а не утверждением порта').toBe(9);
+    expect(result.tail, 'причина обязана быть названа').toMatch(/exception/);
+  });
+
+  it('пара `return %ctpr3` + `ct %ctpr3` возвращает управление: вызывающий выходит кодом 99', () => {
+    if (shim === undefined) return;
+    const result = probe(7, 'pair');
+    expect(
+      result.status,
+      'пара обязана вернуть управление (99); если здесь 134 — порт падает на утверждении, смотрите docs/e2k-return-port.md',
+    ).toBe(99);
   });
 });
