@@ -44,12 +44,15 @@ import {
   DISP_SOURCE,
   DISP_UNITS,
   carrierForm,
+  carrierFormOf,
   firstPass,
   jumpCommands,
   layoutOf,
   secondPass,
   sizeOfCarrier,
 } from './twoPassLayout';
+import { lowerArrayCall } from './arrayRuntime';
+import { allocateProgram } from './regAlloc';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const KERNELS_DIR = path.join(ROOT, 'tests', 'dsp', 'kernels');
@@ -97,6 +100,120 @@ function kernelCarriers(name: string, atom: string): readonly AsmInstruction[] {
 const CARRIERS: ReadonlyMap<string, readonly AsmInstruction[]> = new Map(
   KERNELS.map(({ name, atom }) => [name, kernelCarriers(name, atom)]),
 );
+
+/**
+ * `IR.invoke` РАЗМЕЩАЕТСЯ: длина берётся у рантайма, а не из догадки.
+ *
+ * # Почему это отдельная проверка
+ *
+ * У `IR.invoke` нет формы «по мнемонике»: сколько команд он займёт, зависит от **имени** вызова
+ * (`payload` — индекс в `invokeNames` образа): `длина` — одна команда, `создать` — три, `получить` —
+ * шесть, `добавить` — девять (измерено `.tmp/invoke-names.ts`). Пока формы нет, носитель не
+ * размещается, адреса всех следующих команд уезжают, и в отчёте это выглядит как «22 отказа из 111»
+ * — то есть как отсутствие понижения, хотя рантайм массивов его умеет (`src/e2k/arrayRuntime.ts`).
+ *
+ * # Чего проверка не делает
+ *
+ * Не кодирует: размеры команд берутся из **таблицы форм** (`adds`/`ldd`/`std` — ALF1, 8 байт), и это
+ * сверяется с кодировщиком отдельной проверкой 1.2 — то есть раскладка остаётся независимой от
+ * кодировщика, а расхождение объявления и реализации не пройдёт молча.
+ */
+describe('раскладка: IR.invoke получает длину от рантайма массивов', () => {
+  const INVOKE_NAMES = ['система.массив.длина', 'система.массив.создать', 'система.массив.получить', 'система.массив.добавить'];
+  const invoke = (payload: number, flags: number, args: readonly number[], destination?: number): AsmInstruction =>
+    carrier('IR.invoke', [
+      imm(flags),
+      reg(args[0] ?? 0),
+      reg(args[1] ?? 0),
+      imm(payload),
+      ...(destination === undefined ? [] : [reg(destination)]),
+    ]);
+
+  it('длина зависит от имени вызова — и совпадает с понижением рантайма', () => {
+    // Флаги носителя несут арность: `flags >> 1` — сколько аргументов, `flags & 1` — есть ли приёмник.
+    // Арность — по источнику (`src/runtime/vm/invokeRegistry.ts:44-50`): у «создать» 0, у «длина» 1,
+    // у «получить» и «добавить» — 2. Несовпадение арности означает, что носитель и рантайм разошлись,
+    // и это обязано быть видно (форма тогда не берётся, а причина называется).
+    const expected: ReadonlyArray<{ payload: number; flags: number; commands: number; bytes: number }> = [
+      { payload: 1, flags: 0b001, commands: 3, bytes: 24 }, // создать: 0 аргументов, приёмник есть
+      { payload: 0, flags: 0b011, commands: 1, bytes: 8 }, // длина: 1 аргумент
+      { payload: 2, flags: 0b101, commands: 6, bytes: 48 }, // получить: 2 аргумента
+      { payload: 3, flags: 0b100, commands: 9, bytes: 72 }, // добавить: 2 аргумента, приёмника нет
+    ];
+    for (const item of expected) {
+      const form = carrierFormOf(invoke(item.payload, item.flags, [0, 1], 2), { invokeNames: INVOKE_NAMES });
+      expect(form, `payload ${item.payload}: формы нет — носитель не разместится`).toBeDefined();
+      expect(form!.commands.length, `payload ${item.payload}: команд`).toBe(item.commands);
+      expect(form!.commands.reduce((sum, command) => sum + command.size, 0), `payload ${item.payload}: байт`).toBe(item.bytes);
+      for (const command of form!.commands) expect(command.size, `${command.mnemonic}: размер`).toBe(REAL_SHORT_FORM_SIZE);
+    }
+  });
+
+  it('арность носителя и рантайма не разошлись: лишний аргумент — отказ с причиной', () => {
+    // `создать` берёт 0 аргументов: если носитель принёс один, форма не берётся, и причина — от рантайма.
+    const wrong = invoke(1, 0b011, [0, 1], 2);
+    const table = layoutOf([wrong], { invokeNames: INVOKE_NAMES });
+    expect(table.unplaced.length, 'носитель с лишним аргументом не размещён').toBe(1);
+    expect(table.unplaced[0]!.reason, 'причина отказа').toMatch(/аргумент/);
+  });
+
+  it('размер формы совпадает с длиной кодирования (раскладка независима, но не расходится)', () => {
+    const cases: ReadonlyArray<{ payload: number; flags: number }> = [
+      { payload: 1, flags: 0b001 },
+      { payload: 0, flags: 0b011 },
+      { payload: 2, flags: 0b101 },
+      { payload: 3, flags: 0b100 },
+    ];
+    for (const item of cases) {
+      const form = carrierFormOf(invoke(item.payload, item.flags, [0, 1], 2), { invokeNames: INVOKE_NAMES })!;
+      const lowered = lowerArrayCall(INVOKE_NAMES[item.payload]!, [reg(0), reg(1)].slice(0, item.flags >> 1), 2);
+      expect(form.commands.map((command) => command.mnemonic)).toEqual(lowered.map((command) => command.mnemonic));
+      form.commands.forEach((command, at) => {
+        expect(command.size, `${command.mnemonic}: таблица против кодировщика`).toBe(realEncoder.encode(lowered[at]!).length);
+      });
+    }
+  });
+
+  it('без списка имён — отказ с причиной, а не молчание', () => {
+    expect(carrierFormOf(invoke(0, 0b11, [0, 1], 2)), 'без имён форма не берётся').toBeUndefined();
+    const table = layoutOf([invoke(0, 0b11, [0, 1], 2)]);
+    expect(table.unplaced.length, 'носитель обязан попасть в неразмещённые').toBe(1);
+    expect(table.unplaced[0]!.reason, 'причина отказа').toMatch(/имён/);
+  });
+
+  it('неподдерживаемый вызов не размещается — причина называет рантайм', () => {
+    const table = layoutOf([invoke(0, 0b11, [0, 1])], { invokeNames: ['система.математика.остаток'] });
+    expect(table.unplaced.length, 'неподдерживаемый вызов не размещён').toBe(1);
+    expect(table.unplaced[0]!.reason, 'причина отказа').toMatch(/рантайм|операции/);
+  });
+
+  it('FIR: все 22 носителя IR.invoke размещаются — но только ПОСЛЕ раскладки регистров', () => {
+    const source = fs.readFileSync(path.join(KERNELS_DIR, 'fir.osnova'), 'utf-8');
+    const built = regModuleOf(source)!;
+    const annotated = annotateAtomRegions(built.module, [
+      { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
+    ]);
+    const emitted = emitShell(annotated, shellEncoder);
+    const names = emitted.image.invokeNames;
+    // Порядок обязателен: рантайм массивов отказывает, если операнд попал в зарезервированную область
+    // `%b[10..15]` (куча, ноль, временные), а до раскладки номера vreg'ов туда как раз и попадают.
+    // Поэтому форму `IR.invoke` можно взять только у РАЗЛОЖЕННОГО потока.
+    const allocated = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
+    const table = layoutOf(allocated.instructions, { invokeNames: names });
+    const placed = table.entries.filter((entry) => entry.carrier === 'IR.invoke').length;
+    expect(placed, 'размещено IR.invoke после раскладки').toBe(22);
+    expect(table.unplaced.filter((item) => item.carrier === 'IR.invoke').length, 'не размещено IR.invoke').toBe(0);
+    // И обратное: на НЕразложенном потоке часть носителей формы не получает — причина от рантайма,
+    // а не «формы нет». Это и есть измеренная зависимость шага 2 от шага 1.
+    const raw = layoutOf(emitted.instructions, { invokeNames: names });
+    const rawPlaced = raw.entries.filter((entry) => entry.carrier === 'IR.invoke').length;
+    expect(rawPlaced, 'без раскладки часть IR.invoke не размещается').toBeLessThan(22);
+    expect(
+      raw.unplaced.some((item) => item.carrier === 'IR.invoke' && /зарезервирован/.test(item.reason)),
+      'причина отказа обязана называть зарезервированные регистры рантайма',
+    ).toBe(true);
+  });
+});
 
 const ALL_CARRIERS: readonly AsmInstruction[] = [...CARRIERS.values()].flat();
 

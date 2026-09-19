@@ -458,6 +458,45 @@ export const DEFECTS_WIRING: readonly Defect[] = [
   },
 ];
 
+/**
+ * Дефекты **длины `IR.invoke`** (шаг 10).
+ *
+ * Проверяются оракулами `src/e2k/twoPassLayout.test.ts` (форма и её сверка с кодировщиком) и
+ * `src/e2k/e2kRealRun.test.ts` («раскладка и кодирование не расходятся», покрытие).
+ */
+export const DEFECTS_INVOKE: readonly Defect[] = [
+  {
+    // Длина берётся «одна команда на любой вызов»: у `получить` их шесть, у `добавить` девять, поэтому
+    // адреса всех следующих команд уезжают, и сумма размеров раскладки перестаёт совпадать с байтами.
+    id: '10.1',
+    title: 'длина IR.invoke взята фиксированной — адреса уезжают',
+    file: 'src/e2k/twoPassLayout.ts',
+    from: '  return { form: { carrier: \'IR.invoke\', commands } };',
+    to: '  return { form: { carrier: \'IR.invoke\', commands: [commands[0]!] } }; // ДЕФЕКТ 10.1: длина фиксирована',
+    tests: ['src/e2k/twoPassLayout.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+  },
+  {
+    // Контекст (`invokeNames`) не передаётся: `IR.invoke` снова не размещается — то есть шаг 2 отменён
+    // целиком, и это обязано быть видно отчётом, а не только «меньшим покрытием».
+    id: '10.2',
+    title: 'контекст с именами хост-вызовов не передаётся — IR.invoke не размещается',
+    file: 'src/e2k/twoPassLayout.ts',
+    from: '    const { form, reason } = carrierFormWithReason(instruction, context);',
+    to: '    const { form, reason } = carrierFormWithReason(instruction, {}); // ДЕФЕКТ 10.2: контекст потерян',
+    tests: ['src/e2k/twoPassLayout.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+  },
+  {
+    // Размеры команд рантайма объявлены длинной формой: раскладка считает адреса по 16 байт, а
+    // кодировщик выдаёт 8 — расхождение обязано поймать сверка «раскладка и кодирование не расходятся».
+    id: '10.3',
+    title: 'размер команд рантайма объявлен вдвое больше — раскладка расходится с кодированием',
+    file: 'src/e2k/twoPassLayout.ts',
+    from: "  ['adds', { mnemonic: 'adds', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],",
+    to: "  ['adds', { mnemonic: 'adds', form: 'ALF1', size: REAL_LONG_FORM_SIZE, source: SHORT_SOURCE }], // ДЕФЕКТ 10.3",
+    tests: ['src/e2k/twoPassLayout.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+  },
+];
+
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
 export function runAll(
   defects: readonly Defect[] = [
@@ -466,6 +505,7 @@ export function runAll(
     ...DEFECTS_WIDE,
     ...DEFECTS_REGALLOC,
     ...DEFECTS_WIRING,
+    ...DEFECTS_INVOKE,
   ],
   work = WORK,
 ): DefectReport[] {

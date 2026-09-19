@@ -62,7 +62,7 @@
 import type { AsmInstruction, Encoder, Operand } from "./backend";
 import { sameInstruction } from "./backend";
 import { realOpcode, type RealSlot } from "./e2k-real";
-import { JUMP_CARRIER, carrierForm, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
+import { JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall } from "./arrayRuntime";
 import { allocateProgram, type ProcedureAllocation } from "./regAlloc";
@@ -615,7 +615,10 @@ export function runKernelThroughRealEncoding(
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
   const code = allocation.instructions;
   // ── Раскладка: адрес каждой инструкции, затем смещение каждого перехода ──────
-  const layout = layoutOf(code);
+  //
+  // Контекст обязателен: длина `IR.invoke` зависит от имени вызова, и без списка имён носитель не
+  // размещается вовсе (`carrierFormOf` возвращает причину, а не длину «на глаз»).
+  const layout = layoutOf(code, { invokeNames: emitted.image.invokeNames });
   const resolved = secondPass(code, layout.addresses);
   // ── Сопоставление пар «сравнение → условный переход» ────────────────────────
   const pairing = pairPredicates(code);
@@ -690,7 +693,12 @@ export function runKernelThroughRealEncoding(
   const carriers: CarrierReport[] = [...stats.entries()]
     .map(([carrier, stat]) => {
       const rule = loweringOf(carrier);
-      const form = carrierForm(carrier);
+      // Форма берётся с ОПЕРАНДАМИ, а не по мнемонике: у `IR.invoke` длина зависит от имени вызова
+      // (одна команда у «длина», девять у «добавить»), а имя лежит в операндах. Берётся первый
+      // носитель этого вида — длина у всех носителей одного имени одна и та же, и это проверяет
+      // `src/e2k/twoPassLayout.test.ts`.
+      const sample = code.find((instruction) => instruction.mnemonic === carrier);
+      const form = sample === undefined ? carrierForm(carrier) : carrierFormOf(sample, { invokeNames: emitted.image.invokeNames });
       const entry = rule === undefined ? undefined : realOpcode(rule.mnemonic);
       return {
         carrier,

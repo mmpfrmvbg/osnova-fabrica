@@ -242,7 +242,7 @@ describe('сопоставление пары: 4. раскладка и покр
     }
   });
 
-  it('сквозной прогон: понижено 277, отвергнуто 131, байт 3088', () => {
+  it('сквозной прогон: понижено 357, отвергнуто 51, байт 7296', () => {
     let encoded = 0;
     let refused = 0;
     let bytes = 0;
@@ -272,9 +272,9 @@ describe('сопоставление пары: 4. раскладка и покр
     expect(instructions).toBe(408);
     expect(eliminated, 'снято устранением копий').toBe(109);
     expect(instructions + eliminated, 'носителей эмиттера').toBe(517);
-    expect(encoded, 'покрытие').toBe(277);
-    expect(refused, 'отказов').toBe(131);
-    expect(bytes, 'байт образа').toBe(3088);
+    expect(encoded, 'покрытие').toBe(357);
+    expect(refused, 'отказов').toBe(51);
+    expect(bytes, 'байт образа').toBe(7296);
     expect(mismatches, 'расхождений круга быть не должно').toEqual([]);
   });
 });

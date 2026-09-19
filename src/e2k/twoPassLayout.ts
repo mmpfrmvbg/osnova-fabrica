@@ -56,6 +56,7 @@
 
 import type { AsmInstruction, Operand } from "./backend";
 import { CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from "./e2k-real";
+import { lowerArrayCall } from "./arrayRuntime";
 
 const imm = (value: number): Operand => ({ kind: "imm", value });
 
@@ -213,6 +214,118 @@ export function carrierForm(carrier: string): CarrierForm | undefined {
   return FORMS_BY_CARRIER.get(carrier);
 }
 
+/**
+ * Формы команд рантайма массивов: `adds`, `ldd`, `std` — все ALF1, по 8 байт.
+ *
+ * Рантайм выражает вызовы массивов **только** этими командами и только регистрами (литералов в них
+ * нет: `src/e2k/arrayRuntime.ts`, `timesEight` — три `adds`). Размеры всё равно берутся из формы, а не
+ * из арифметики «сколько байт мне кажется»: оракул сверяет их с кодировщиком.
+ */
+const ARRAY_COMMAND_FORMS: ReadonlyMap<string, CommandForm> = new Map([
+  ['adds', { mnemonic: 'adds', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  [
+    'ldd',
+    {
+      mnemonic: 'ldd',
+      form: 'ALF3',
+      size: REAL_SHORT_FORM_SIZE,
+      source:
+        'ALF3 (src1[23:16], src2[15:8], src3[7:0]) — REAL_SHORT_FORM_SIZE; адрес = сумма двух ' +
+        'регистров (qemu/target/e2k/tcg/translate-al-c11.c:26-34), измерено docs/e2k-opcodes-real.md §5',
+    },
+  ],
+  [
+    'std',
+    {
+      mnemonic: 'std',
+      form: 'ALF3',
+      size: REAL_SHORT_FORM_SIZE,
+      source:
+        `ALF3, REAL_SHORT_FORM_SIZE; каналы только 2 и 5 (opcodes/e2k-opc.h:969-984), порядок операндов ` +
+        `текста — (значение, база, смещение): измерено .tmp/std-order.ts`,
+    },
+  ],
+]);
+
+/** Что нужно, чтобы взять форму носителя: для `IR.invoke` — имена хост-вызовов образа. */
+export interface CarrierFormContext {
+  /**
+   * Таблица имён хост-вызовов (`ShellImage.invokeNames`): `payload` носителя `IR.invoke` — это
+   * **индекс** в ней, и без неё длину понижения взять негде.
+   */
+  readonly invokeNames?: readonly string[];
+}
+
+/** Форма носителя или причина, почему её нет. Причина называется, а не подменяется догадкой. */
+function carrierFormWithReason(
+  instruction: AsmInstruction,
+  context: CarrierFormContext,
+): { form?: CarrierForm; reason?: string } {
+  if (instruction.mnemonic !== 'IR.invoke') {
+    const form = carrierForm(instruction.mnemonic);
+    return form === undefined ? {} : { form };
+  }
+  const names = context.invokeNames;
+  if (names === undefined) {
+    return {
+      reason:
+        '«IR.invoke»: не передан список имён хост-вызовов образа (`invokeNames`) — `payload` носителя ' +
+        'это индекс в нём, и длину понижения (одна команда у «длина», девять у «добавить») взять негде',
+    };
+  }
+  const payload = instruction.operands[3];
+  const flags = instruction.operands[0];
+  if (payload === undefined || payload.kind !== 'imm' || flags === undefined || flags.kind !== 'imm') {
+    return { reason: '«IR.invoke»: операнды носителя не той формы (ожидались flags и payload числами)' };
+  }
+  const name = names[payload.value];
+  if (name === undefined) {
+    return {
+      reason: `«IR.invoke»: в таблице имён нет записи с индексом ${payload.value} (всего имён ${names.length})`,
+    };
+  }
+  const argc = flags.value >> 1;
+  const hasDestination = (flags.value & 1) === 1;
+  const destination = instruction.operands[4];
+  const args = [instruction.operands[1], instruction.operands[2]].slice(0, argc) as readonly Operand[];
+  const lowered = ((): readonly AsmInstruction[] | string => {
+    try {
+      return lowerArrayCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  })();
+  if (typeof lowered === 'string') return { reason: lowered };
+  const commands: CommandForm[] = [];
+  for (const command of lowered) {
+    const form = ARRAY_COMMAND_FORMS.get(command.mnemonic);
+    if (form === undefined) {
+      return {
+        reason:
+          `«${name}»: у команды понижения «${command.mnemonic}» нет формы в таблице раскладки — ` +
+          'длину взять негде (в рантайме массивов таких команд быть не должно)',
+      };
+    }
+    commands.push(form);
+  }
+  return { form: { carrier: 'IR.invoke', commands } };
+}
+
+/**
+ * Форма понижения носителя **с учётом операндов**.
+ *
+ * Нужна там, где длина зависит не только от мнемоники: `IR.invoke` понижается в 1, 3, 6 или 9 команд
+ * в зависимости от имени вызова (измерено `.tmp/invoke-names.ts`). Размеры команд берутся из таблицы
+ * форм, а не из пробного кодирования: раскладка обязана быть независима от кодировщика, иначе
+ * расхождение между ними нечем поймать (`src/e2k/twoPassLayout.ts`: так же устроены остальные формы).
+ */
+export function carrierFormOf(
+  instruction: AsmInstruction,
+  context: CarrierFormContext = {},
+): CarrierForm | undefined {
+  return carrierFormWithReason(instruction, context).form;
+}
+
 /** Размер носителя в байтах; `undefined` — формы нет. */
 export function sizeOfCarrier(carrier: string): number | undefined {
   const form = carrierForm(carrier);
@@ -313,15 +426,20 @@ function unplacedReason(carrier: string): string {
  * Размер берётся из {@link CARRIER_FORMS} по носителю — **не** из пробного кодирования: раскладка
  * обязана быть независима от кодировщика, иначе расхождение между ними нечем поймать.
  */
-export function layoutOf(instructions: readonly AsmInstruction[]): LayoutTable {
+export function layoutOf(
+  instructions: readonly AsmInstruction[],
+  context: CarrierFormContext = {},
+): LayoutTable {
   const entries: LayoutEntry[] = [];
   const unplaced: UnplacedInstruction[] = [];
   const addresses = new Map<number, number>();
   let offset = 0;
   instructions.forEach((instruction, index) => {
-    const form = carrierForm(instruction.mnemonic);
+    const { form, reason } = carrierFormWithReason(instruction, context);
     if (form === undefined) {
-      unplaced.push({ index, carrier: instruction.mnemonic, reason: unplacedReason(instruction.mnemonic) });
+      // Причина называется своя, если она известна (например, у `IR.invoke` без имён хост-вызовов):
+      // общая отговорка «формы понижения нет» на этом месте врала бы — форма есть, её негде взять.
+      unplaced.push({ index, carrier: instruction.mnemonic, reason: reason ?? unplacedReason(instruction.mnemonic) });
       return;
     }
     const size = form.commands.reduce((sum, command) => sum + command.size, 0);

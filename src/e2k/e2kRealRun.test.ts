@@ -161,8 +161,19 @@ describe('сквозной прогон: понижение и кодирова�
       const report = REPORTS.get(name)!;
       expect(report.executableThroughReal, `${name}: неожиданно полный прогон`).toBe(false);
       const carriers = report.blocking.map((blocking) => blocking.carrier);
-      expect(carriers, `${name}: не назван хост-вызов`).toContain('IR.invoke');
-      // Константы подключены к понижению, упор сместился на пары «подготовка + возврат».
+      // Что мешает каждому ядру — ИЗМЕРЕНО, а не предположено. `IR.invoke` перестал быть препятствием
+      // там, где раскладка удалась: его длина берётся у рантайма массивов (`carrierFormOf`), и носитель
+      // размещается. Остаются два места: `iir` (вызов `система.математика.остаток` — не операция
+      // массива) и `convolution` (раскладка `свёртки` отказывает, её vreg'и остаются в `%b[10..]`, а
+      // рантайм такие операнды отвергает).
+      const expectedBlocking: Readonly<Record<string, readonly string[]>> = {
+        fir: ['IR.call', 'IR.ret'],
+        iir: ['IR.call', 'IR.div', 'IR.invoke', 'IR.ret'],
+        fft: ['IR.call', 'IR.ret'],
+        convolution: ['IR.call', 'IR.invoke', 'IR.ret'],
+        correlation: ['IR.call', 'IR.ret'],
+      };
+      expect([...carriers].sort(), `${name}: мешающие носители`).toEqual([...(expectedBlocking[name] ?? [])].sort());
       expect(carriers, `${name}: не названы возвраты`).toContain('IR.ret');
       expect(carriers, `${name}: константы обязаны быть понижены`).not.toContain('IR.const');
       // Переход понижён — он больше не мешает прогону и в списке мешающих не значится.
@@ -171,6 +182,15 @@ describe('сквозной прогон: понижение и кодирова�
       expect(carriers, `${name}: условные переходы понижены`).not.toContain('IR.jmp_if_not');
       expect(carriers, `${name}: сравнения понижены`).not.toContain('IR.lt');
       expect(carriers, `${name}: вызов ещё не понижен`).toContain('IR.call');
+      // Если `IR.invoke` всё-таки мешает — причина обязана называть рантайм, а не «формы нет»: форма
+      // есть, её негде взять из-за зарезервированных регистров или неподдерживаемой операции.
+      const invokeBlocking = report.blocking.find((item) => item.carrier === 'IR.invoke');
+      if (invokeBlocking !== undefined) {
+        expect(invokeBlocking.reason, `${name}: причина отказа IR.invoke`).toMatch(/зарезервирован|нет такой операции/);
+        // Отговорка «формы понижения нет» здесь недопустима: форма ЕСТЬ (её даёт `carrierFormOf`),
+        // просто взять её негде — операнд в зарезервированной области или операция не массива.
+        expect(invokeBlocking.reason, `${name}: отговорка вместо причины`).not.toMatch(/формы понижения нет/);
+      }
       for (const blocking of report.blocking) {
         expect(blocking.reason.length, `${name}: ${blocking.carrier} без причины`).toBeGreaterThan(10);
       }
@@ -347,7 +367,7 @@ describe('сквозной прогон: переходы понижены — �
     return { bytes: Uint8Array.from(chunks), addresses: layout.addresses, displacements: resolved.displacements };
   }
 
-  it('покрытие 277 из 408, отказов 131 — и отказы разложены по носителям', () => {
+  it('покрытие 357 из 408, отказов 51 — и отказы разложены по носителям', () => {
     // Знаменатель уменьшился НЕ из-за потери покрытия: 109 носителей снято устранением копий, и все
     // они понижались успешно. Отказов столько же, сколько было (131): среди них пересылок нет, поэтому
     // копии не могли «унести» ни одного отказа.
@@ -368,12 +388,12 @@ describe('сквозной прогон: переходы понижены — �
     expect(instructions).toBe(408);
     expect(eliminated, 'снято носителей устранением копий').toBe(109);
     expect(instructions + eliminated, 'носителей эмиттера').toBe(517);
-    expect(encoded, 'покрытие пяти ядер').toBe(277);
-    expect(refused, 'отказов').toBe(131);
+    expect(encoded, 'покрытие пяти ядер').toBe(357);
+    expect(refused, 'отказов').toBe(51);
     expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([
-      ['IR.invoke', 87],
       ['IR.ret', 32],
       ['IR.call', 11],
+      ['IR.invoke', 7],
       ['IR.div', 1],
     ]);
     // Переход понижён целиком: 12 из 12.
@@ -650,23 +670,23 @@ describe('сквозной прогон: раскладка регистров �
     }
   });
 
-  it('покрытие FIR после снятия копий: 64 из 94, и препятствие названо — раскладка не размещает IR.invoke', () => {
-    // Это не «регрессия»: причина — двухпроходная раскладка не умеет считать ДЛИНУ последовательности
-    // для `IR.invoke` (она зависит от имени вызова), поэтому носитель не размещается и в образ не
-    // попадает, хотя рантайм массивов умеет его понижать (src/e2k/arrayRuntime.ts). Числитель упал
-    // вместе со знаменателем: снятые копии понижались успешно, и их уход уменьшил оба числа.
+  it('покрытие FIR после снятия копий: 86 из 94, мешают только возвраты и вызовы', () => {
+    // Здесь стояло «64 из 94, раскладка не размещает IR.invoke». `IR.invoke` размещается: длина берётся
+    // у рантайма массивов, и 22 носителя FIR понижены (22 отказа → 0). Остались `IR.ret` (6) и
+    // `IR.call` (2) — это шаг «call/ret и модель окна».
     const report = REPORTS.get('fir')!;
     expect(report.instructions, 'носителей в FIR после снятия копий').toBe(94);
     expect(report.removedCopies, 'снято копий').toBe(17);
-    expect(report.encoded, 'понижено').toBe(64);
-    expect(report.refused, 'отказов').toBe(30);
+    expect(report.encoded, 'понижено').toBe(86);
+    expect(report.refused, 'отказов').toBe(8);
     const invoke = report.carriers.find((item) => item.carrier === 'IR.invoke')!;
-    expect(invoke.refused, 'отказов IR.invoke').toBe(22);
-    expect(invoke.reason ?? '', 'причина отказа IR.invoke').toMatch(/формы понижения нет/);
+    expect(invoke.total, 'носителей IR.invoke').toBe(22);
+    expect(invoke.encoded, 'понижено IR.invoke').toBe(22);
+    expect(invoke.refused, 'отказов IR.invoke').toBe(0);
+    expect(invoke.commands?.length, 'команд у IR.invoke в отчёте').toBeGreaterThan(0);
     expect(report.executableThroughReal, 'сквозной прогон через реальную кодировку').toBe(false);
     expect(report.blocking.map((item) => item.carrier).sort(), 'что мешает полному прогону').toEqual([
       'IR.call',
-      'IR.invoke',
       'IR.ret',
     ]);
   });
