@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (17). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (18). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -45,7 +45,7 @@
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
 - [docs/e2k-real-run.md](e2k-real-run.md) ⚠
-- [docs/e2k-setwd-memory.md](e2k-setwd-memory.md)
+- [docs/e2k-setwd-memory.md](e2k-setwd-memory.md) ⚠
 - [docs/e2k-subset-dsp.md](e2k-subset-dsp.md) ⚠
 - [docs/e2k-syllables-real.md](e2k-syllables-real.md)
 - [docs/e2k-syscall-abi.md](e2k-syscall-abi.md)
