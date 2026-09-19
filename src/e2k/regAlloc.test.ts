@@ -42,7 +42,6 @@ import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
 import {
   ALLOCATABLE_REGISTERS,
-  RESERVED_REGISTERS,
   allocateRegisters,
   applyAllocation,
 } from './regAlloc';
