@@ -123,14 +123,11 @@ export const ANCHORS: readonly Anchor[] = [
   // наш кодировщик
   { file: "src/e2k/e2k-real.ts", from: 266, to: 266, contains: "movts", claim: "movts есть в кодировщике" },
   { file: "src/e2k/e2k-real.ts", from: 267, to: 267, contains: "movtd", claim: "movtd есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 942, to: 944, contains: "0xd8", claim: "поля F16/F32/F64" },
-  {
-    file: "src/e2k/e2k-real.ts",
-    from: 933,
-    to: 966,
-    contains: "encodeImm64",
-    claim: "форма 0xdc реализована (encodeImm64)",
-  },
+  { file: "src/e2k/e2k-real.ts", from: 947, to: 949, contains: "0xd8", claim: "поля F16/F32/F64" },
+  // Числа пересчитаны 2026-09-20: короткая непосредственная форма (`encodeShortImm`, коммит соседней
+  // работы) добавила строки выше, и прежние 942-944 / 933-966 указывали мимо. Якоря — это ФАКТ о
+  // файле, поэтому они пересчитываются замером, а не «подгоняются» под проходящий тест.
+  { file: "src/e2k/e2k-real.ts", from: 1009, to: 1046, contains: "encodeImm64", claim: "форма 0xdc реализована (encodeImm64)" },
 ];
 
 /**

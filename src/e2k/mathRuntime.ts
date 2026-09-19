@@ -58,14 +58,17 @@ export function lowerMathCall(
     );
   }
   if (args.length !== 2) {
-    throw new Error(`«${name}»: аргументов ${args.length}, форма ${REMAINDER_MNEMONIC} несёт два (делимое и делитель)`);
+    throw new Error(
+      `«${name}»: аргументов ${args.length}, а форма ${REMAINDER_MNEMONIC} несёт два (делимое и делитель); ` +
+        'рантайм математики других вызовов не заменяет',
+    );
   }
   if (destination === undefined) {
-    throw new Error(`«${name}»: результату некуда лечь — приёмник не передан`);
+    throw new Error(`«${name}»: результату некуда лечь — приёмник не передан; рантайм математики не умеет вызов без результата`);
   }
   for (const [position, argument] of args.entries()) {
     if (argument.kind !== 'reg') {
-      throw new Error(`«${name}»: аргумент ${position} не в регистре — в форме это поле слога`);
+      throw new Error(`«${name}»: аргумент ${position} не в регистре — в форме это поле слога; рантайм математики принимает только регистры`);
     }
   }
   return [
