@@ -28,13 +28,14 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md)
 
-## Фронтир и замеры (44)
+## Фронтир и замеры (45)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
 - [OSNOVA-CLI.md](../OSNOVA-CLI.md)
 - [OSNOVA.md](../OSNOVA.md)
 - [README.md](../README.md)
+- [docs/e2k-array-literals.md](e2k-array-literals.md)
 - [docs/e2k-backend.md](e2k-backend.md) ⚠
 - [docs/e2k-dsp-instructions.md](e2k-dsp-instructions.md) ⚠
 - [docs/e2k-encoding.md](e2k-encoding.md) ⚠
