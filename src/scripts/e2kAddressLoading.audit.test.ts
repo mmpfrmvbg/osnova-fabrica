@@ -121,9 +121,9 @@ export const ANCHORS: readonly Anchor[] = [
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 520, to: 520, contains: "movtd", claim: "MOVTD в LLVM" },
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 950, to: 950, contains: "movtq", claim: "MOVTQ в LLVM" },
   // наш кодировщик
-  { file: "src/e2k/e2k-real.ts", from: 244, to: 244, contains: "movts", claim: "movts есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 245, to: 245, contains: "movtd", claim: "movtd есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 920, to: 922, contains: "0xd8", claim: "поля F16/F32/F64" },
+  { file: "src/e2k/e2k-real.ts", from: 266, to: 266, contains: "movts", claim: "movts есть в кодировщике" },
+  { file: "src/e2k/e2k-real.ts", from: 267, to: 267, contains: "movtd", claim: "movtd есть в кодировщике" },
+  { file: "src/e2k/e2k-real.ts", from: 942, to: 944, contains: "0xd8", claim: "поля F16/F32/F64" },
   {
     file: "src/e2k/e2k-real.ts",
     from: 933,

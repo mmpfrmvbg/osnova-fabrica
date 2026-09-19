@@ -51,9 +51,6 @@ export const DOC_NAMES: readonly string[] = [
   '04-first-experiment.md',
 ];
 
-/** Расширения, которые считаются «ссылкой на файл»; иначе `wbs=4` читалось бы как путь. */
-const SOURCE_EXTENSIONS: readonly string[] = ['.ts', '.md', '.json', '.jsonl', '.h', '.c', '.yaml', '.yml'];
-
 /** Внешние каталоги, которых в репозитории нет, но которые названы источниками извлечения. */
 export const EXTERNAL_PREFIXES: readonly string[] = ['qemu/', 'opcodes/', 'gas/', 'elbrus-docs/', 'include/'];
 

@@ -46,7 +46,6 @@ import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import {
   ARRAY_REGISTERS,
   ARRAY_WINDOW_RSZ,
-  ARRAY_WINDOW_WSZ,
   arrayPrologue,
   checkArraySequence,
   lowerArrayCall,
