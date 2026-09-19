@@ -26,7 +26,8 @@
  */
 
 import type { AsmInstruction, Operand } from './backend';
-import { defUseOf, liveIntervalsOf, overlaps, type LiveInterval } from './liveness';
+import { defUseOf, liveIntervalsOf, liveSegmentsOf, overlaps, type LiveInterval } from './liveness';
+import { removeCopies } from './copyElim';
 
 /**
  * Операнды-регистры, которые носитель **действительно** читает или пишет.
@@ -98,7 +99,10 @@ export function allocateRegisters(
     // освобождает: на одной команде чтение и запись не должны попасть в один регистр.
     for (let index = active.length - 1; index >= 0; index--) {
       if (active[index]!.end < interval.start) {
-        usedRegisters.delete(active[index]!.register);
+        // Освобождение регистра НЕ вычёркивает его из `usedRegisters`: это множество — «сколько
+        // регистров раскладка взяла из файла», а не «сколько занято в последний момент». Прежняя
+        // редакция вычёркивала, и «занято» означало «занято последним интервалом» (реестр
+        // проверяемости, случай 18).
         active.splice(index, 1);
       }
     }
@@ -142,64 +146,205 @@ function peakOf(intervals: readonly LiveInterval[]): number {
 
 
 
+/** Позиция цели перехода в операндах носителя (`src/e2k/twoPassLayout.ts:414`). */
+const JUMP_TARGET_OPERAND: Readonly<Record<string, number>> = {
+  'IR.jmp': 0,
+  'IR.jmp_if': 1,
+  'IR.jmp_if_not': 1,
+};
+
+/**
+ * Пересчитать цели переходов после укорочения потока.
+ *
+ * Цели записаны **абсолютными индексами потока модуля** (измерено, случай 17 реестра проверяемости),
+ * поэтому снятие каждой команды сдвигает все цели, которые лежат дальше неё. Сдвиг считается по
+ * списку снятых индексов, а не по разнице длин: команды снимаются в разных процедурах, и «сколько
+ * снято до цели» — единственная верная величина.
+ *
+ * Цель, которая сама оказалась снятой, — отказ: вызывать его нечем (`removeCopies` такие пересылки не
+ * снимает: пересылка-цель перехода входит в начала блоков). Здесь это проверяется ещё раз, потому
+ * что молча сдвинуть цель на соседнюю команду значило бы поменять программу.
+ */
+function remapJumpTargets(
+  instructions: readonly AsmInstruction[],
+  removedAt: readonly number[],
+): { instructions: readonly AsmInstruction[]; problems: readonly string[] } {
+  const removed = [...removedAt].sort((a, b) => a - b);
+  const removedSet = new Set(removed);
+  const shiftOf = (target: number): number => removed.filter((index) => index < target).length;
+  const problems: string[] = [];
+  const remapped = instructions.map((instruction) => {
+    const targetAt = JUMP_TARGET_OPERAND[instruction.mnemonic];
+    if (targetAt === undefined) return instruction;
+    const operand = instruction.operands[targetAt];
+    if (operand === undefined || operand.kind !== 'imm' || !Number.isInteger(operand.value)) {
+      problems.push(`«${instruction.mnemonic}»: цель перехода не выражена числом`);
+      return instruction;
+    }
+    if (removedSet.has(operand.value)) {
+      problems.push(`«${instruction.mnemonic}»: цель перехода #${operand.value} снята устранением копий`);
+      return instruction;
+    }
+    const operands = instruction.operands.map((item, at) => {
+      if (at !== targetAt || item.kind !== 'imm') return item;
+      return { ...item, value: item.value - shiftOf(item.value) };
+    });
+    return { ...instruction, operands };
+  });
+  return { instructions: remapped, problems };
+}
+
 /** Что вышло по одной процедуре: раскладка удалась или отказ с причиной. */
 export interface ProcedureAllocation {
   readonly procedure: string;
   readonly vregs: number;
+  /** Носителей до устранения копий (то, что выдал эмиттер оболочки). */
   readonly carriers: number;
-  /** Пик одновременной жизни — нижняя граница числа нужных регистров. */
+  /** Носителей после устранения копий: столько инструкций раскладывалось. */
+  readonly rewritten: number;
+  /** Сколько пересылок снято в этой процедуре. */
+  readonly removedCopies: number;
+  /** Пик модели раскладки по интервалам-объединениям (консервативная величина). */
   readonly peak: number;
+  /** Точная нижняя граница: максимум живых на выходе инструкции, обратный анализ с переходами. */
+  readonly peakLive: number;
+  /** Сколько отрезков жизни было разложено. */
+  readonly segments: number;
+  /**
+   * Входящие vreg'и: читаются, но в этой процедуре не определяются (параметры). Их регистры
+   * **закреплены**: перенести значение — значит положить его не туда, куда смотрит вызывающий.
+   */
+  readonly incoming: readonly number[];
   readonly ok: boolean;
   readonly reason?: string;
   readonly conflicts: readonly number[];
+  /** Сколько регистров выдано (длина `usedRegisters`). */
   readonly used: number;
+  /** Какие именно регистры выданы — по ним проверяется закрепление, и видно, что рантайм не тронут. */
+  readonly usedRegisters: readonly number[];
   readonly unmapped: readonly number[];
 }
 
+/** Входящие vreg'и: читаются, но нигде в процедуре не определяются (параметры вызова). */
+export function incomingRegisters(instructions: readonly AsmInstruction[]): readonly number[] {
+  const defined = new Set<number>();
+  const used = new Set<number>();
+  for (const instruction of instructions) {
+    const { def, use } = defUseOf(instruction);
+    for (const vreg of def) defined.add(vreg);
+    for (const vreg of use) used.add(vreg);
+  }
+  return [...used].filter((vreg) => !defined.has(vreg)).sort((a, b) => a - b);
+}
+
 /**
- * Разложить регистры по процедурам модуля.
+ * Разложить регистры по процедурам модуля: устранение копий, затем раскладка по **отрезкам** жизни.
  *
- * Применяется там, где раскладка удалась; отказ **называется** (пик, живые в тесный момент,
- * конфликтующие vreg'и), а не замалчивается: молчаливое «оставили номера vreg'ов» — это ровно тот
- * случай, когда программа затирает регистры рантайма массивов, и никто об этом не знает.
+ * # Почему отрезки, а не интервалы
+ *
+ * Интервал-объединение держит регистр за vreg'ом на всём промежутке «первое определение — последнее
+ * чтение», включая мёртвые участки. У `фильтр` FIR объединения требуют 11 регистров, отрезки — 9
+ * (`docs/e2k-opcodes-real.md` §7.8). Устранение копий обязательно **вместе** с отрезками: без него
+ * `фильтр` не влезает в десять регистров даже по отрезкам (замер `.tmp/fit-without-copyelim.ts`).
+ *
+ * # Что возвращается
+ *
+ * Переписанный поток **короче** исходного (копии сняты), поэтому смещения процедур меняются — они
+ * возвращаются рядом с потоком, а не пересчитываются вызывающим по догадке. Число снятых копий
+ * названо отдельно: иначе «инструкций стало меньше» читалось бы как падение покрытия, а не как
+ * другой знаменатель.
+ *
+ * # Отказ
+ *
+ * Отказ называется (пик, живые в тесный момент, конфликтующие vreg'и), а не замалчивается: номера
+ * vreg'ов остаются как есть, и это видно в отчёте. Молчаливое «оставили номера vreg'ов» — это ровно
+ * тот случай, когда программа затирает регистры рантайма массивов.
  */
 export function allocateProgram(
   instructions: readonly AsmInstruction[],
   procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[],
-): { readonly instructions: readonly AsmInstruction[]; readonly report: readonly ProcedureAllocation[] } {
-  const result: AsmInstruction[] = [...instructions];
+): {
+  readonly instructions: readonly AsmInstruction[];
+  readonly procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[];
+  readonly report: readonly ProcedureAllocation[];
+  readonly removedCopies: number;
+} {
+  const result: AsmInstruction[] = [];
+  const rewrittenProcedures: { name: string; codeOffset: number; vregs: number }[] = [];
   const report: ProcedureAllocation[] = [];
+  const removedAbsolute: number[] = [];
+  let removedCopies = 0;
   procedures.forEach((procedure, index) => {
     const from = procedure.codeOffset;
     const to = index + 1 < procedures.length ? procedures[index + 1]!.codeOffset : instructions.length;
+    rewrittenProcedures.push({ name: procedure.name, codeOffset: result.length, vregs: procedure.vregs });
     if (from >= to) return;
     const carriers = instructions.slice(from, to);
-    const liveness = liveIntervalsOf(carriers);
-    const allocation = allocateRegisters(liveness.intervals, ALLOCATABLE_REGISTERS, liveness.peakLive);
+    // Цели переходов в носителях — индексы потока МОДУЛЯ, поэтому устранению копий передаётся
+    // смещение среза: без него границы блоков не находятся вовсе (измерено, случай 17 реестра).
+    const elimination = removeCopies(carriers, { codeOffset: from });
+    for (const local of elimination.removedAt) removedAbsolute.push(from + local);
+    const liveness = liveIntervalsOf(elimination.carriers);
+    const incoming = incomingRegisters(elimination.carriers);
+    const segments = liveSegmentsOf(elimination.carriers);
+    // Закреплённые регистры не отдаются: иначе значение параметра уехало бы из своего регистра.
+    const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
+    const allocation = allocateSegments(
+      segments.filter((segment) => !incoming.includes(segment.vreg)),
+      free,
+    );
     const common = {
       procedure: procedure.name,
       vregs: procedure.vregs,
       carriers: carriers.length,
+      rewritten: elimination.carriers.length,
+      removedCopies: elimination.removed,
       peak: liveness.peak,
+      peakLive: liveness.peakLive,
+      segments: segments.length,
+      incoming,
     };
+    removedCopies += elimination.removed;
     if (!allocation.ok) {
-      report.push({
-        ...common,
-        ok: false,
-        reason: allocation.reason,
-        conflicts: allocation.conflicts,
-        used: 0,
-        unmapped: [],
-      });
+      report.push({ ...common, ok: false, reason: allocation.reason, conflicts: allocation.conflicts, used: 0, usedRegisters: [], unmapped: [] });
+      result.push(...elimination.carriers);
       return;
     }
-    const applied = applyAllocation(carriers, allocation.allocation.assignment);
-    applied.instructions.forEach((instruction, at) => {
-      result[from + at] = instruction;
+    const applied = applySegments(elimination.carriers, allocation.assigned, new Set(incoming));
+    report.push({
+      ...common,
+      ok: true,
+      conflicts: [],
+      used: allocation.allocation.used.length,
+      usedRegisters: allocation.allocation.used,
+      unmapped: applied.unmapped,
     });
-    report.push({ ...common, ok: true, conflicts: [], used: allocation.allocation.used.length, unmapped: applied.unmapped });
+    result.push(...applied.instructions);
   });
-  return { instructions: result, report };
+  // Цели переходов пересчитываются ПОСЛЕ сборки: сдвиг зависит от снятий во всех процедурах.
+  const remapped = remapJumpTargets(result, removedAbsolute);
+  if (remapped.problems.length > 0) {
+    for (const problem of remapped.problems) {
+      report.push({
+        procedure: '(цели переходов)',
+        vregs: 0,
+        carriers: 0,
+        rewritten: 0,
+        removedCopies: 0,
+        peak: 0,
+        peakLive: 0,
+        segments: 0,
+        incoming: [],
+        ok: false,
+        reason: problem,
+        conflicts: [],
+        used: 0,
+        usedRegisters: [],
+        unmapped: [],
+      });
+    }
+  }
+  return { instructions: remapped.instructions, procedures: rewrittenProcedures, report, removedCopies };
 }
 /**
  * Раскладка по ОТРЕЗКАМ жизни: одному и тому же vreg разные отрезки могут достаться разные
@@ -223,7 +368,12 @@ export function allocateSegments(
   for (const segment of sorted) {
     for (let index = active.length - 1; index >= 0; index--) {
       if (active[index]!.end < segment.start) {
-        used.delete(active[index]!.register);
+        // Регистр освобождается, но из `used` НЕ вычёркивается: `used` — это сколько регистров
+        // раскладка ВЗЯЛА из файла, а не сколько занято в последний момент. Здесь стояло
+        // `used.delete(...)`, и число получалось бессмысленным: у `фильтр` оно равнялось 2 при
+        // десяти выданных регистрах (замер `.tmp/segment-assign.ts`), потому что в конце оставались
+        // живы всего два отрезка. Ошибка была только в отчёте — назначение регистров считает
+        // `taken` по активным, — но число это попадало и в оракулы, и в документацию.
         active.splice(index, 1);
       }
     }
@@ -260,6 +410,7 @@ export function allocateSegments(
 export function applySegments(
   instructions: readonly AsmInstruction[],
   segments: readonly (LiveInterval & { readonly register: number })[],
+  keep: ReadonlySet<number> = new Set(),
 ): ApplyResult {
   const unmapped = new Set<number>();
   const mapped = instructions.map((instruction, at) => {
@@ -271,6 +422,8 @@ export function applySegments(
         // Слот, которого носитель не читает и не пишет (`IR.ret imm(0), reg(N)`), — не значение:
         // он не отображается и в `unmapped` не попадает.
         if (!named.has(operand.index)) return operand;
+        // Закреплённый vreg (входящий параметр) остаётся в своём регистре — и это не «неотображён».
+        if (keep.has(operand.index)) return operand;
         const covering = segments.filter(
           (segment) => segment.vreg === operand.index && segment.start <= at && at <= segment.end,
         );
@@ -304,6 +457,7 @@ export interface ApplyResult {
 export function applyAllocation(
   instructions: readonly AsmInstruction[],
   assignment: ReadonlyMap<number, number>,
+  keep: ReadonlySet<number> = new Set(),
 ): ApplyResult {
   const unmapped = new Set<number>();
   const mapped = instructions.map((instruction) => {
@@ -311,6 +465,7 @@ export function applyAllocation(
     const operands: Operand[] = instruction.operands.map((operand) => {
       if (operand.kind !== 'reg') return operand;
       if (!named.has(operand.index)) return operand;
+      if (keep.has(operand.index)) return operand;
       const physical = assignment.get(operand.index);
       if (physical === undefined) {
         unmapped.add(operand.index);
@@ -321,4 +476,14 @@ export function applyAllocation(
     return { ...instruction, operands };
   });
   return { instructions: mapped, unmapped: [...unmapped].sort((a, b) => a - b) };
+}
+
+/**
+ * Закрепление входящих vreg'ов: их регистры не отдаются раскладке.
+ *
+ * Нужно там, где раскладка применяется к потоку целиком (`applySegments`): закреплённый vreg
+ * остаётся как есть и в `unmapped` не попадает — «не отображён» и «закреплён» это разные вещи.
+ */
+export function pinRegisters(incoming: readonly number[]): ReadonlySet<number> {
+  return new Set(incoming);
 }

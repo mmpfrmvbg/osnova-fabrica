@@ -123,6 +123,10 @@ export function tryRemoveCopy(
     return carriers.filter((_, index) => index !== at);
   }
   const last = targets[targets.length - 1]!;
+  // Пересылка САМА является началом блока: на неё можно прийти, минуя её же (переход в неё).
+  // Тогда снятие переставило бы смысл: путь, пришедший по переходу, исполнил бы следующую команду
+  // без копии. Отказ — и он же держит цели переходов живыми, без чего нельзя пересчитать индексы.
+  if (blockStarts.includes(at)) return undefined;
   // Граница базового блока внутри промежутка: на неё можно прийти, минуя пересылку. Строго больше
   // `at` — пересылка на самой границе исполняется на всех путях, ведущих к чтениям.
   const boundary = blockStarts.find((start) => start > at && start <= last);
@@ -158,6 +162,13 @@ export function tryRemoveCopy(
 export interface CopyElimination {
   readonly carriers: readonly AsmInstruction[];
   readonly removed: number;
+  /**
+   * Индексы снятых команд в **исходном** потоке (локальные для среза процедуры).
+   *
+   * Нужны вызывающему, чтобы пересчитать цели переходов: они записаны абсолютными индексами потока
+   * модуля, и после укорочения сдвигаются на число снятых команд перед целью.
+   */
+  readonly removedAt: readonly number[];
   /** Пик до и после — по нему видно, дало ли преобразование эффект. */
   readonly peakBefore: number;
   readonly peakAfter: number;
@@ -182,15 +193,18 @@ export function removeCopies(
 ): CopyElimination {
   const codeOffset = options.codeOffset ?? 0;
   let current: AsmInstruction[] = [...carriers];
+  // Параллельно инструкциям едет их ИСХОДНЫЙ индекс: он и попадает в `removedAt`.
+  let origin: number[] = carriers.map((_, index) => index);
   const peakBefore = livePeakOf(current);
   if (options.blockStarts === undefined) {
     const blocks = blockStartsOf(current, codeOffset);
     if (blocks.reason !== undefined) {
-      return { carriers: current, removed: 0, peakBefore, peakAfter: peakBefore, refused: blocks.reason };
+      return { carriers: current, removed: 0, removedAt: [], peakBefore, peakAfter: peakBefore, refused: blocks.reason };
     }
   }
   const initialStarts = options.blockStarts ?? blockStartsOf(current, codeOffset).starts ?? [];
   let starts = new Set<number>(initialStarts);
+  const removedAt: number[] = [];
   let peak = peakBefore;
   let removed = 0;
   let at = 0;
@@ -200,6 +214,8 @@ export function removeCopies(
       const candidatePeak = livePeakOf(candidate);
       if (candidatePeak <= peak) {
         current = candidate;
+        removedAt.push(origin[at]!);
+        origin = origin.filter((_, index) => index !== at);
         peak = candidatePeak;
         removed++;
         starts = new Set([...starts].filter((start) => start !== at).map((start) => (start > at ? start - 1 : start)));
@@ -208,5 +224,5 @@ export function removeCopies(
     }
     at++;
   }
-  return { carriers: current, removed, peakBefore, peakAfter: peak };
+  return { carriers: current, removed, removedAt, peakBefore, peakAfter: peak };
 }

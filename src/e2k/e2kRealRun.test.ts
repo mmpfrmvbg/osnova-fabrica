@@ -347,21 +347,28 @@ describe('сквозной прогон: переходы понижены — �
     return { bytes: Uint8Array.from(chunks), addresses: layout.addresses, displacements: resolved.displacements };
   }
 
-  it('покрытие 386 из 517, отказов 131 — и отказы разложены по носителям', () => {
+  it('покрытие 277 из 408, отказов 131 — и отказы разложены по носителям', () => {
+    // Знаменатель уменьшился НЕ из-за потери покрытия: 109 носителей снято устранением копий, и все
+    // они понижались успешно. Отказов столько же, сколько было (131): среди них пересылок нет, поэтому
+    // копии не могли «унести» ни одного отказа.
     let instructions = 0;
     let encoded = 0;
     let refused = 0;
+    let eliminated = 0;
     const byCarrier = new Map<string, number>();
     for (const report of REPORTS.values()) {
       instructions += report.instructions;
       encoded += report.encoded;
       refused += report.refused;
+      eliminated += report.eliminated;
       for (const carrier of report.carriers) {
         if (carrier.refused > 0) byCarrier.set(carrier.carrier, (byCarrier.get(carrier.carrier) ?? 0) + carrier.refused);
       }
     }
-    expect(instructions).toBe(517);
-    expect(encoded, 'покрытие пяти ядер').toBe(386);
+    expect(instructions).toBe(408);
+    expect(eliminated, 'снято носителей устранением копий').toBe(109);
+    expect(instructions + eliminated, 'носителей эмиттера').toBe(517);
+    expect(encoded, 'покрытие пяти ядер').toBe(277);
     expect(refused, 'отказов').toBe(131);
     expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([
       ['IR.invoke', 87],
@@ -573,38 +580,68 @@ describe('сквозной прогон: раскладка регистров �
     expect(problems, problems.join('; ')).toEqual([]);
   });
 
-  it('фильтр FIR: пик 13 при десяти свободных регистрах — отказ назван', () => {
+  it('фильтр FIR раскладывается: входящие v0 и v1 закреплены, значения уложены в %b[2..9]', () => {
+    // Прежде здесь стоял ОТКАЗ («пик 13 при десяти свободных»). Он снят не ослаблением проверки, а
+    // двумя преобразованиями, каждое из которых измерено: устранение копий (54 → 46 носителей) и
+    // раскладка по ОТРЕЗКАМ жизни, а не по интервалам-объединениям.
     const report = REPORTS.get('fir')!;
     const filter = report.allocation.find((item) => item.procedure === 'фильтр')!;
-    expect(filter.vregs, 'vreg у фильтра').toBe(17);
-    expect(filter.peak, 'пик одновременной жизни').toBe(13);
-    expect(filter.ok, 'раскладка 17 vreg в 10 регистров').toBe(false);
-    expect(filter.reason, 'причина отказа').toMatch(/пик одновременной жизни 13/);
-    expect(filter.conflicts.length, 'конфликтующие vreg названы').toBeGreaterThan(0);
+    expect(filter.ok, filter.ok ? '' : `отказ: ${filter.reason}`).toBe(true);
+    // Входящие v0 и v1 — параметры процедуры: они приходят в своих регистрах, и раскладка не имеет
+    // права их переносить (иначе вызывающий положил бы значение не туда). Это место закроет шаг
+    // «call/ret и модель окна», до тех пор закрепление — единственное звуковое поведение.
+    expect(filter.incoming, 'входящие vreg названы').toEqual([0, 1]);
+    expect(filter.usedRegisters, 'закреплённые регистры не отданы другим значениям').not.toContain(0);
+    expect(filter.usedRegisters, 'закреплённые регистры не отданы другим значениям').not.toContain(1);
+    // Измерено: восемь свободных регистров (`%b[2..9]`), и заняты все восемь — раскладка укладывается
+    // впритык: самый тесный момент требует восьми отрезков одновременно.
+    expect(filter.used, 'занято регистров').toBe(8);
+    expect(filter.usedRegisters, 'занятые регистры').toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(filter.unmapped, 'неотображённые vreg').toEqual([]);
+    expect(filter.removedCopies, 'снято копий').toBe(8);
+    expect(filter.segments, 'отрезков жизни').toBe(37);
+  });
+
+  it('поток укорочен устранением копий: знаменатель отчёта — после снятия', () => {
+    // Копии снимаются ДО раскладки, поэтому «инструкций» в отчёте меньше, чем носителей эмиттера:
+    // измерено 111 → 94 у FIR. `encoded + refused === instructions` считается уже по укороченному
+    // потоку, а снятые носители названы отдельным числом — иначе «покрытие упало» читалось бы как
+    // регрессия, хотя это другой знаменатель.
+    const report = REPORTS.get('fir')!;
+    expect(report.instructions, 'носителей после устранения копий').toBe(94);
+    expect(report.eliminated, 'снято носителей').toBe(17);
+    expect(report.removedCopies, 'снято копий в ядре').toBe(17);
+    expect(report.encoded + report.refused, 'encoded + refused = instructions').toBe(report.instructions);
+    expect(report.instructions + report.eliminated, 'носителей эмиттера').toBe(111);
   });
 
   it('процедуры, которым десяти регистров хватает, разложены', () => {
     const laid = KERNELS.flatMap(({ name }) =>
       REPORTS.get(name)!
         .allocation.filter((item) => item.ok)
-        .map((item) => `${name}/${item.procedure}:${item.used}`),
+        .map((item) => `${name}/${item.procedure}`),
     );
-    // Измерено: раскладка удалась у suma/главная всех ядер, у процедур IIR и у бпф4 (ровно 10 регистров).
-    expect(laid, 'удавшиеся раскладки').toEqual([
-      'fir/сумма:8',
-      'fir/главная:7',
-      'iir/целое_деление:6',
-      'iir/фильтр:7',
-      'iir/сумма:8',
-      'iir/главная:7',
-      'fft/бпф4:10',
-      'fft/сумма:8',
-      'fft/главная:6',
-      'convolution/сумма:8',
-      'convolution/главная:6',
-      'correlation/сумма:8',
-      'correlation/главная:6',
-    ]);
+    // Измерено: раскладка удалась у всех процедур пяти ядер, кроме `свёртки` (у неё 11 одновременно
+    // живых отрезков при десяти свободных — отказ назван отдельной проверкой выше).
+    expect(laid.sort(), 'удавшиеся раскладки').toEqual(
+      [
+        'fir/сумма',
+        'fir/главная',
+        'fir/фильтр',
+        'iir/целое_деление',
+        'iir/фильтр',
+        'iir/сумма',
+        'iir/главная',
+        'fft/бпф4',
+        'fft/сумма',
+        'fft/главная',
+        'convolution/сумма',
+        'convolution/главная',
+        'correlation/корреляция',
+        'correlation/сумма',
+        'correlation/главная',
+      ].sort(),
+    );
     for (const report of REPORTS.values()) {
       for (const item of report.allocation.filter((entry) => entry.ok)) {
         expect(item.used, `${item.procedure}: занято регистров`).toBeLessThanOrEqual(10);
@@ -613,13 +650,15 @@ describe('сквозной прогон: раскладка регистров �
     }
   });
 
-  it('покрытие FIR: 81 из 111, и препятствие названо — раскладка не размещает IR.invoke', () => {
+  it('покрытие FIR после снятия копий: 64 из 94, и препятствие названо — раскладка не размещает IR.invoke', () => {
     // Это не «регрессия»: причина — двухпроходная раскладка не умеет считать ДЛИНУ последовательности
     // для `IR.invoke` (она зависит от имени вызова), поэтому носитель не размещается и в образ не
-    // попадает, хотя рантайм массивов умеет его понижать (src/e2k/arrayRuntime.ts).
+    // попадает, хотя рантайм массивов умеет его понижать (src/e2k/arrayRuntime.ts). Числитель упал
+    // вместе со знаменателем: снятые копии понижались успешно, и их уход уменьшил оба числа.
     const report = REPORTS.get('fir')!;
-    expect(report.instructions, 'носителей в FIR').toBe(111);
-    expect(report.encoded, 'понижено').toBe(81);
+    expect(report.instructions, 'носителей в FIR после снятия копий').toBe(94);
+    expect(report.removedCopies, 'снято копий').toBe(17);
+    expect(report.encoded, 'понижено').toBe(64);
     expect(report.refused, 'отказов').toBe(30);
     const invoke = report.carriers.find((item) => item.carrier === 'IR.invoke')!;
     expect(invoke.refused, 'отказов IR.invoke').toBe(22);

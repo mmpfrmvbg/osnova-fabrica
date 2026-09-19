@@ -242,11 +242,12 @@ describe('сопоставление пары: 4. раскладка и покр
     }
   });
 
-  it('сквозной прогон: понижено 386, отвергнуто 131, байт 3960', () => {
+  it('сквозной прогон: понижено 277, отвергнуто 131, байт 3088', () => {
     let encoded = 0;
     let refused = 0;
     let bytes = 0;
     let instructions = 0;
+    let eliminated = 0;
     const mismatches: string[] = [];
     for (const { name, atom } of KERNELS) {
       const source = fs.readFileSync(path.join(ROOT, 'tests', 'dsp', 'kernels', `${name}.osnova`), 'utf-8');
@@ -257,6 +258,7 @@ describe('сопоставление пары: 4. раскладка и покр
       const emitted = emitShell(annotated, shellEncoder);
       const report = runKernelThroughRealEncoding(emitted, realEncoder, { kernel: name, atom });
       instructions += report.instructions;
+      eliminated += report.eliminated;
       encoded += report.encoded;
       refused += report.refused;
       bytes += report.bytes;
@@ -264,10 +266,15 @@ describe('сопоставление пары: 4. раскладка и покр
       expect(report.layout.placed, `${name}: раскладка против понижения`).toBe(report.encoded);
       expect(report.layout.totalBytes, `${name}: сумма размеров против байтов`).toBe(report.bytes);
     }
-    expect(instructions).toBe(517);
-    expect(encoded, 'покрытие').toBe(386);
+    // Числа — после устранения копий (2026-09-19): в понижение входит укороченный поток. Носителей
+    // эмиттера по-прежнему 517, а понижается 408: 109 снято, и отказов столько же, сколько было (131),
+    // потому что среди отказов пересылок нет.
+    expect(instructions).toBe(408);
+    expect(eliminated, 'снято устранением копий').toBe(109);
+    expect(instructions + eliminated, 'носителей эмиттера').toBe(517);
+    expect(encoded, 'покрытие').toBe(277);
     expect(refused, 'отказов').toBe(131);
-    expect(bytes, 'байт образа').toBe(3960);
+    expect(bytes, 'байт образа').toBe(3088);
     expect(mismatches, 'расхождений круга быть не должно').toEqual([]);
   });
 });

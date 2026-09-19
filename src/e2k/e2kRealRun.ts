@@ -513,7 +513,18 @@ export interface CarrierReport {
 export interface KernelRealReport {
   readonly kernel: string;
   readonly atom: string;
+  /**
+   * Носителей, **понижавшихся** в этом прогоне: столько осталось после устранения копий.
+   *
+   * Не путать с числом носителей эмиттера (`eliminated + instructions`) и с числом **команд** e2k
+   * (`roundTrip.commands`): у перехода команд две, поэтому 87 команд при 90 носителях — не ошибка.
+   * Три числа названы явно, потому что их смешение уже один раз прочиталось как «покрытие упало».
+   */
   readonly instructions: number;
+  /** Сколько носителей эмиттера снято устранением копий (знаменатель отчёта уменьшился на столько). */
+  readonly eliminated: number;
+  /** Сколько именно пересылок снято (часть снятых носителей — мертвые пересылки, не копии). */
+  readonly removedCopies: number;
   readonly encoded: number;
   readonly refused: number;
   readonly bytes: number;
@@ -539,6 +550,12 @@ export interface KernelRealReport {
    * заменены на физические; где нет — отказ с пиком и конфликтами назван здесь, а не замалчивается.
    */
   readonly allocation: readonly ProcedureAllocation[];
+  /**
+   * Смещения процедур **после** укорочения потока (`name`, `codeOffset`).
+   *
+   * Смещения эмиттера оболочки к укороченному потоку неприменимы: между ними стоит устранение копий.
+   */
+  readonly allocationProcedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[];
   /** Носители, мешающие полному прогону, с причинами. */
   readonly blocking: readonly { readonly carrier: string; readonly count: number; readonly reason: string }[];
 }
@@ -584,18 +601,24 @@ export function runKernelThroughRealEncoding(
     invokeNames: emitted.image.invokeNames,
   };
 
-  // ── Раскладка: адрес каждой инструкции, затем смещение каждого перехода ──────
-  const layout = layoutOf(emitted.instructions);
-  const resolved = secondPass(emitted.instructions, layout.addresses);
-  // ── Раскладка РЕГИСТРОВ по процедурам ───────────────────────────────────────
+  // ── Раскладка регистров по процедурам (устранение копий + отрезки жизни) ────
   //
   // Эмиттер оболочки пишет номер vreg'а прямо в поле регистра; для ядра FIR это `%b[0..16]`, а
-  // `%b[10..15]` держит рантайм массивов. Здесь интервалы жизни раскладываются по десяти свободным
-  // регистрам (`src/e2k/regAlloc.ts`), а где не хватает — отказ называется в отчёте.
-  const allocation = allocateProgram(resolved.instructions, emitted.scheduled.procedures);
+  // `%b[10..15]` держит рантайм массивов. Здесь копии снимаются, а оставшиеся значения
+  // раскладываются по десяти свободным регистрам (`src/e2k/regAlloc.ts`); где не хватает — отказ
+  // называется в отчёте, а не замалчивается. Входящие vreg'и (параметры) закреплены.
+  //
+  // ВАЖНО: раскладка **укорачивает** поток, поэтому двухпроходная раскладка адресов, сопоставление
+  // пар и понижение идут дальше по нему, а не по `emitted.instructions`: иначе адреса, смещения
+  // переходов и номера пар считались бы по другому потоку, чем тот, который кодируется. Цели
+  // переходов внутри укороченного потока пересчитывает сама раскладка (`remapJumpTargets`).
+  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
   const code = allocation.instructions;
+  // ── Раскладка: адрес каждой инструкции, затем смещение каждого перехода ──────
+  const layout = layoutOf(code);
+  const resolved = secondPass(code, layout.addresses);
   // ── Сопоставление пар «сравнение → условный переход» ────────────────────────
-  const pairing = pairPredicates(emitted.instructions);
+  const pairing = pairPredicates(code);
   const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
   const predicateAt = new Map(
     pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),
@@ -606,8 +629,8 @@ export function runKernelThroughRealEncoding(
   for (const refusal of resolved.refusals) refusalAt.set(refusal.index, refusal.reason);
   for (const refusal of pairing.refusals) refusalAt.set(refusal.index, refusal.reason);
 
-  for (let index = 0; index < emitted.instructions.length; index++) {
-    const instruction = emitted.instructions[index]!;
+  for (let index = 0; index < code.length; index++) {
+    const instruction = code[index]!;
     const stat = stats.get(instruction.mnemonic) ?? { total: 0, encoded: 0, refused: 0 };
     stat.total++;
     const layoutRefusal = refusalAt.get(index);
@@ -690,12 +713,15 @@ export function runKernelThroughRealEncoding(
   return {
     kernel: meta.kernel,
     atom: meta.atom,
-    instructions: emitted.instructions.length,
-    encoded: emitted.instructions.length - refused,
+    instructions: code.length,
+    eliminated: emitted.instructions.length - code.length,
+    removedCopies: allocation.removedCopies,
+    encoded: code.length - refused,
     refused,
     bytes,
     carriers,
     allocation: allocation.report,
+    allocationProcedures: allocation.procedures,
     roundTrip: { checked, commands, mismatches },
     layout: {
       placed: layout.entries.length,

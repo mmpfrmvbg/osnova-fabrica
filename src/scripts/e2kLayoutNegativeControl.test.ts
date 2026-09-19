@@ -29,6 +29,7 @@ import {
   DEFECTS_REGALLOC,
   DEFECTS_STEP6,
   DEFECTS_WIDE,
+  DEFECTS_WIRING,
   locateAnchor,
   replacementFor,
   verdictOf,
@@ -37,8 +38,8 @@ import {
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
-/** Все дефекты всех шагов: таблица одна, а шагов уже четыре. */
-const ALL_DEFECTS = [...DEFECTS, ...DEFECTS_STEP6, ...DEFECTS_WIDE, ...DEFECTS_REGALLOC];
+/** Все дефекты всех шагов: таблица одна, а шагов уже пять. */
+const ALL_DEFECTS = [...DEFECTS, ...DEFECTS_STEP6, ...DEFECTS_WIDE, ...DEFECTS_REGALLOC, ...DEFECTS_WIRING];
 
 /** Годный отчёт: дефект пойман, файл восстановлен, прогон состоялся. */
 function good(overrides: Partial<DefectReport> = {}): DefectReport {

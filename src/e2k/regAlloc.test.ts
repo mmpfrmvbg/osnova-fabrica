@@ -268,12 +268,15 @@ describe('раскладка FIR: 17 vreg в 10 свободных регист�
 describe('устранение копий: без него 17 vreg в 10 не влезают', () => {
   const filter = firProcedure('фильтр');
 
-  it('звуковое устранение убирает 9 копий и снижает пик 11 → 9', () => {
+  it('звуковое устранение убирает 8 копий и снижает пик 11 → 9', () => {
     const elimination = removeCopies(filter);
-    // Измерено: 54 носителя → 45, убрано 9 пересылок, пик одновременной жизни 11 → 9.
+    // Измерено: 54 носителя → 46, убрано 8 пересылок, пик одновременной жизни 11 → 9. Было 9 снятых,
+    // стало 8: добавлено правило «пересылка-цель перехода не снимается» (случай 17 реестра
+    // проверяемости) — иначе после укорочения потока цель перехода указывала бы на соседнюю команду.
     expect(filter.length, 'носителей у фильтра').toBe(54);
-    expect(elimination.carriers.length, 'носителей после устранения').toBe(45);
-    expect(elimination.removed, 'убранных пересылок').toBe(9);
+    expect(elimination.carriers.length, 'носителей после устранения').toBe(46);
+    expect(elimination.removed, 'убранных пересылок').toBe(8);
+    expect(elimination.removedAt.length, 'названы индексы снятых').toBe(8);
     expect(elimination.peakBefore, 'пик до').toBe(11);
     expect(elimination.peakAfter, 'пик после').toBe(9);
   });
@@ -327,6 +330,38 @@ describe('устранение копий: без него 17 vreg в 10 не в
         ).toBe(false);
       }
     }
+  });
+
+  it('«занято» считает ВСЕ выданные регистры, а не только живые в конце', () => {
+    // Здесь стояла ошибка, найденная только проводкой в конвейер: `allocateSegments` вычёркивал
+    // регистр из `used` при освобождении, поэтому «занято» означало «сколько регистров занято
+    // последним отрезком». У `фильтр` выходило **2** при десяти реально выданных регистрах
+    // (измерено `.tmp/segment-assign.ts`), и это число попало в оракулы и в документацию.
+    // Назначение регистров при этом было верным (`taken` считается по активным) — врало только число.
+    const filter = firProcedure('фильтр');
+    const elimination = removeCopies(filter);
+    const result = allocateSegments(liveSegmentsOf(elimination.carriers));
+    expect(result.ok, result.ok ? '' : result.reason).toBe(true);
+    if (!result.ok) return;
+    const distinct = new Set(result.assigned.map((segment) => segment.register));
+    expect(result.allocation.used.length, '«занято» против числа разных выданных регистров').toBe(distinct.size);
+    // И оно не меньше самого тесного момента: иначе раскладка «уложилась» бы в меньшее число, чем
+    // требует одновременная жизнь.
+    let maxOverlap = 0;
+    for (let at = 0; at < elimination.carriers.length; at++) {
+      const overlap = result.assigned.filter((segment) => segment.start <= at && at <= segment.end).length;
+      if (overlap > maxOverlap) maxOverlap = overlap;
+    }
+    expect(result.allocation.used.length, 'занято меньше, чем одновременно живых отрезков').toBeGreaterThanOrEqual(maxOverlap);
+    // То же правило у раскладки по ИНТЕРВАЛАМ: там стояла та же ошибка (регистр вычёркивался из
+    // «занято» при освобождении), и ни один оракул её не называл. Проверяется на `сумма`: у неё
+    // интервалы в десять регистров влезают (у `фильтр` — нет, объединения требуют 11).
+    const sum = removeCopies(firProcedure('сумма')).carriers;
+    const byIntervals = allocateRegisters(liveIntervalsOf(sum).intervals);
+    expect(byIntervals.ok).toBe(true);
+    if (!byIntervals.ok) return;
+    const intervalDistinct = new Set(byIntervals.allocation.assignment.values());
+    expect(byIntervals.allocation.used.length, '«занято» по интервалам против разных регистров').toBe(intervalDistinct.size);
   });
 
   it('применение раскладки: мёртвый слот операнда — не «неотображённый vreg»', () => {

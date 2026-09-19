@@ -417,9 +417,56 @@ export const DEFECTS_REGALLOC: readonly Defect[] = [
   },
 ];
 
+/**
+ * Дефекты **проводки раскладки в конвейер понижения** (шаг 9).
+ *
+ * Проверяются оракулами `src/e2k/regAlloc.test.ts` и `src/e2k/e2kRealRun.test.ts`: первый знает про
+ * закрепление входящих и про «занято», второй — про укороченный поток, пересчёт целей переходов и
+ * согласованность раскладки с кодированием.
+ */
+export const DEFECTS_WIRING: readonly Defect[] = [
+  {
+    // Закрепление снято: входящий параметр (v0) раскладывается как обычное значение и уезжает в чужой
+    // регистр. Оракул обязан это поймать — параметр приходит в своём регистре, и вызывающий смотрит
+    // туда же.
+    id: '9.1',
+    title: 'закрепление входящих снято — параметр уезжает в чужой регистр',
+    file: 'src/e2k/regAlloc.ts',
+    from: '    const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));',
+    to: '    const free = [...ALLOCATABLE_REGISTERS]; // ДЕФЕКТ 9.1: закрепление входящих снято',
+    tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+  },
+  {
+    // Цели переходов не пересчитаны после укорочения потока: смещения считаются по сдвинутым индексам,
+    // и переходы ведут не туда. Ловится сверкой раскладки с кодированием и круговой сверкой.
+    id: '9.2',
+    title: 'цели переходов не пересчитаны после укорочения потока',
+    file: 'src/e2k/regAlloc.ts',
+    from: '  const remapped = remapJumpTargets(result, removedAbsolute);',
+    to: '  const remapped = { instructions: result, problems: [] as string[] }; // ДЕФЕКТ 9.2: цели не пересчитаны',
+    tests: ['src/e2k/e2kRealRun.test.ts'],
+  },
+  {
+    // «Занято» снова считается по активным отрезкам: число врёт (2 при десяти выданных), и оракул
+    // обязан это назвать — иначе непроверенное число снова уедет в документ.
+    id: '9.3',
+    title: '«занято» вычёркивает освобождённые регистры — число врёт',
+    file: 'src/e2k/regAlloc.ts',
+    from: '        active.splice(index, 1);\n      }\n    }',
+    to: '        used.delete(active[index]!.register); // ДЕФЕКТ 9.3: выданные регистры вычёркиваются\n        active.splice(index, 1);\n      }\n    }',
+    tests: ['src/e2k/regAlloc.test.ts'],
+  },
+];
+
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
 export function runAll(
-  defects: readonly Defect[] = [...DEFECTS, ...DEFECTS_STEP6, ...DEFECTS_WIDE, ...DEFECTS_REGALLOC],
+  defects: readonly Defect[] = [
+    ...DEFECTS,
+    ...DEFECTS_STEP6,
+    ...DEFECTS_WIDE,
+    ...DEFECTS_REGALLOC,
+    ...DEFECTS_WIRING,
+  ],
   work = WORK,
 ): DefectReport[] {
   const reports: DefectReport[] = [];
