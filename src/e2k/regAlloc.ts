@@ -26,7 +26,7 @@
  */
 
 import type { AsmInstruction, Operand } from './backend';
-import { overlaps, type LiveInterval } from './liveness';
+import { liveIntervalsOf, overlaps, type LiveInterval } from './liveness';
 
 /** Свободные регистры раскладки: `%b[0..9]`. */
 export const ALLOCATABLE_REGISTERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -122,6 +122,65 @@ function peakOf(intervals: readonly LiveInterval[]): number {
 
 
 
+/** Что вышло по одной процедуре: раскладка удалась или отказ с причиной. */
+export interface ProcedureAllocation {
+  readonly procedure: string;
+  readonly vregs: number;
+  readonly carriers: number;
+  /** Пик одновременной жизни — нижняя граница числа нужных регистров. */
+  readonly peak: number;
+  readonly ok: boolean;
+  readonly reason?: string;
+  readonly conflicts: readonly number[];
+  readonly used: number;
+  readonly unmapped: readonly number[];
+}
+
+/**
+ * Разложить регистры по процедурам модуля.
+ *
+ * Применяется там, где раскладка удалась; отказ **называется** (пик, живые в тесный момент,
+ * конфликтующие vreg'и), а не замалчивается: молчаливое «оставили номера vreg'ов» — это ровно тот
+ * случай, когда программа затирает регистры рантайма массивов, и никто об этом не знает.
+ */
+export function allocateProgram(
+  instructions: readonly AsmInstruction[],
+  procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[],
+): { readonly instructions: readonly AsmInstruction[]; readonly report: readonly ProcedureAllocation[] } {
+  const result: AsmInstruction[] = [...instructions];
+  const report: ProcedureAllocation[] = [];
+  procedures.forEach((procedure, index) => {
+    const from = procedure.codeOffset;
+    const to = index + 1 < procedures.length ? procedures[index + 1]!.codeOffset : instructions.length;
+    if (from >= to) return;
+    const carriers = instructions.slice(from, to);
+    const liveness = liveIntervalsOf(carriers);
+    const allocation = allocateRegisters(liveness.intervals);
+    const common = {
+      procedure: procedure.name,
+      vregs: procedure.vregs,
+      carriers: carriers.length,
+      peak: liveness.peak,
+    };
+    if (!allocation.ok) {
+      report.push({
+        ...common,
+        ok: false,
+        reason: allocation.reason,
+        conflicts: allocation.conflicts,
+        used: 0,
+        unmapped: [],
+      });
+      return;
+    }
+    const applied = applyAllocation(carriers, allocation.allocation.assignment);
+    applied.instructions.forEach((instruction, at) => {
+      result[from + at] = instruction;
+    });
+    report.push({ ...common, ok: true, conflicts: [], used: allocation.allocation.used.length, unmapped: applied.unmapped });
+  });
+  return { instructions: result, report };
+}
 /** Итог применения раскладки к потоку носителей. */
 export interface ApplyResult {
   readonly instructions: readonly AsmInstruction[];

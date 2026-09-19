@@ -65,6 +65,7 @@ import { realOpcode, type RealSlot } from "./e2k-real";
 import { JUMP_CARRIER, carrierForm, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall } from "./arrayRuntime";
+import { allocateProgram, type ProcedureAllocation } from "./regAlloc";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
 import { createDefaultInvokeHandler, type StackValue } from "../runtime/vm/interpreter";
@@ -533,6 +534,11 @@ export interface KernelRealReport {
   };
   /** Все ли инструкции потока понижены (иначе сквозной прогон через реальную кодировку невозможен). */
   readonly executableThroughReal: boolean;
+  /**
+   * Раскладка регистров по процедурам (`src/e2k/regAlloc.ts`): где удалась — регистры
+   * заменены на физические; где нет — отказ с пиком и конфликтами назван здесь, а не замалчивается.
+   */
+  readonly allocation: readonly ProcedureAllocation[];
   /** Носители, мешающие полному прогону, с причинами. */
   readonly blocking: readonly { readonly carrier: string; readonly count: number; readonly reason: string }[];
 }
@@ -570,11 +576,24 @@ export function runKernelThroughRealEncoding(
   let commands = 0;
   const mismatches: string[] = [];
   // Пул констант нужен носителю IR.const: его операнд — индекс пула, а литералу нужно значение.
-  const baseContext: LoweringContext = { constants: emitted.scheduled.constants };
+  // Имена хост-вызовов обязательны: `payload` носителя `IR.invoke` — это ИНДЕКС в таблице имён
+  // образа, и без неё понижение отказывает («не передан список имён»), хотя рантайм массивов умеет
+  // заменять такие вызовы настоящими `ldd`/`std` (`src/e2k/arrayRuntime.ts`).
+  const baseContext: LoweringContext = {
+    constants: emitted.scheduled.constants,
+    invokeNames: emitted.image.invokeNames,
+  };
 
   // ── Раскладка: адрес каждой инструкции, затем смещение каждого перехода ──────
   const layout = layoutOf(emitted.instructions);
   const resolved = secondPass(emitted.instructions, layout.addresses);
+  // ── Раскладка РЕГИСТРОВ по процедурам ───────────────────────────────────────
+  //
+  // Эмиттер оболочки пишет номер vreg'а прямо в поле регистра; для ядра FIR это `%b[0..16]`, а
+  // `%b[10..15]` держит рантайм массивов. Здесь интервалы жизни раскладываются по десяти свободным
+  // регистрам (`src/e2k/regAlloc.ts`), а где не хватает — отказ называется в отчёте.
+  const allocation = allocateProgram(resolved.instructions, emitted.scheduled.procedures);
+  const code = allocation.instructions;
   // ── Сопоставление пар «сравнение → условный переход» ────────────────────────
   const pairing = pairPredicates(emitted.instructions);
   const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
@@ -601,7 +620,7 @@ export function runKernelThroughRealEncoding(
     const displacement = displacementAt.get(index);
     const predicate = predicateAt.get(index);
     const condition = conditionAt.get(index);
-    const lowered = lowerCarrier(resolved.instructions[index]!, {
+    const lowered = lowerCarrier(code[index]!, {
       ...baseContext,
       ...(displacement === undefined ? {} : { displacement }),
       ...(predicate === undefined ? {} : { predicate }),
@@ -676,6 +695,7 @@ export function runKernelThroughRealEncoding(
     refused,
     bytes,
     carriers,
+    allocation: allocation.report,
     roundTrip: { checked, commands, mismatches },
     layout: {
       placed: layout.entries.length,

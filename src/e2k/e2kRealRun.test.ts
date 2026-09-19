@@ -553,3 +553,82 @@ describe('сквозной прогон: понижение одной инст�
     expect(realEncoder.encode(wrong)).not.toEqual(realEncoder.encode(shuffled));
   });
 });
+
+describe('сквозной прогон: раскладка регистров по процедурам', () => {
+  it('раскладка посчитана для каждой процедуры каждого ядра и названа в отчёте', () => {
+    const problems: string[] = [];
+    for (const { name } of KERNELS) {
+      const report = REPORTS.get(name)!;
+      const expectedProcedures = kernelModule(name).procedures.length;
+      if (report.allocation.length !== expectedProcedures) {
+        problems.push(`${name}: раскладок ${report.allocation.length}, процедур ${expectedProcedures}`);
+      }
+      for (const item of report.allocation) {
+        if (item.peak < 1) problems.push(`${name}/${item.procedure}: пик ${item.peak}`);
+        if (!item.ok && (item.reason ?? '').length < 30) {
+          problems.push(`${name}/${item.procedure}: отказ без причины`);
+        }
+      }
+    }
+    expect(problems, problems.join('; ')).toEqual([]);
+  });
+
+  it('фильтр FIR: пик 13 при десяти свободных регистрах — отказ назван', () => {
+    const report = REPORTS.get('fir')!;
+    const filter = report.allocation.find((item) => item.procedure === 'фильтр')!;
+    expect(filter.vregs, 'vreg у фильтра').toBe(17);
+    expect(filter.peak, 'пик одновременной жизни').toBe(13);
+    expect(filter.ok, 'раскладка 17 vreg в 10 регистров').toBe(false);
+    expect(filter.reason, 'причина отказа').toMatch(/пик одновременной жизни 13/);
+    expect(filter.conflicts.length, 'конфликтующие vreg названы').toBeGreaterThan(0);
+  });
+
+  it('процедуры, которым десяти регистров хватает, разложены', () => {
+    const laid = KERNELS.flatMap(({ name }) =>
+      REPORTS.get(name)!
+        .allocation.filter((item) => item.ok)
+        .map((item) => `${name}/${item.procedure}:${item.used}`),
+    );
+    // Измерено: раскладка удалась у suma/главная всех ядер, у процедур IIR и у бпф4 (ровно 10 регистров).
+    expect(laid, 'удавшиеся раскладки').toEqual([
+      'fir/сумма:8',
+      'fir/главная:7',
+      'iir/целое_деление:6',
+      'iir/фильтр:7',
+      'iir/сумма:8',
+      'iir/главная:7',
+      'fft/бпф4:10',
+      'fft/сумма:8',
+      'fft/главная:6',
+      'convolution/сумма:8',
+      'convolution/главная:6',
+      'correlation/сумма:8',
+      'correlation/главная:6',
+    ]);
+    for (const report of REPORTS.values()) {
+      for (const item of report.allocation.filter((entry) => entry.ok)) {
+        expect(item.used, `${item.procedure}: занято регистров`).toBeLessThanOrEqual(10);
+        expect(item.unmapped, `${item.procedure}: неотображённые vreg'и`).toEqual([]);
+      }
+    }
+  });
+
+  it('покрытие FIR: 81 из 111, и препятствие названо — раскладка не размещает IR.invoke', () => {
+    // Это не «регрессия»: причина — двухпроходная раскладка не умеет считать ДЛИНУ последовательности
+    // для `IR.invoke` (она зависит от имени вызова), поэтому носитель не размещается и в образ не
+    // попадает, хотя рантайм массивов умеет его понижать (src/e2k/arrayRuntime.ts).
+    const report = REPORTS.get('fir')!;
+    expect(report.instructions, 'носителей в FIR').toBe(111);
+    expect(report.encoded, 'понижено').toBe(81);
+    expect(report.refused, 'отказов').toBe(30);
+    const invoke = report.carriers.find((item) => item.carrier === 'IR.invoke')!;
+    expect(invoke.refused, 'отказов IR.invoke').toBe(22);
+    expect(invoke.reason ?? '', 'причина отказа IR.invoke').toMatch(/формы понижения нет/);
+    expect(report.executableThroughReal, 'сквозной прогон через реальную кодировку').toBe(false);
+    expect(report.blocking.map((item) => item.carrier).sort(), 'что мешает полному прогону').toEqual([
+      'IR.call',
+      'IR.invoke',
+      'IR.ret',
+    ]);
+  });
+});
