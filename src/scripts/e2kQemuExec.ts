@@ -75,9 +75,22 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 `;
 
-/** Путь шима на стороне Windows; он же виден в WSL через `/mnt/...`. */
-export const SHIM_SOURCE_FILE = path.join(ROOT, '.tmp', 'e2k-noreplace.c');
-export const SHIM_FILE = path.join(ROOT, '.tmp', 'e2k-noreplace.so');
+/**
+ * Пути шима на стороне Windows (он же виден в WSL через `/mnt/...`).
+ *
+ * **В имени есть pid, и это не украшение.** Шим собирался в один общий файл
+ * `.tmp/e2k-noreplace.so`, а `runInQemu` вызывал сборку **на каждом прогоне** — то есть при
+ * параллельном прогоне файлов шлюза (`npm run gate:qemu`) один процесс перезаписывал `.so`
+ * компилятором ровно тогда, когда другой держал его в `LD_PRELOAD`. Измерено 2026-09-19: шлюз с
+ * параллелизмом файлов падал в `src/e2k/e2kMemoryQemu.test.ts` три раза подряд (ожидалось 42 и 43 —
+ * приходило 1), тот же файл **в одиночку** проходил, а шлюз с `--no-file-parallelism` — 6 файлов /
+ * 30 проверок зелёными. Это тот же класс, что случай 12 реестра проверяемости, но на уровень
+ * глубже: гейт отделил ресурс от полного прогона и не отделил от **себя**.
+ * Поэтому шим свой у каждого процесса и собирается **один раз на процесс** (кэш): общий файл,
+ * который переписывают под работающим загрузчиком, — это общий изменяемый артефакт, а не ресурс.
+ */
+export const SHIM_SOURCE_FILE = path.join(ROOT, '.tmp', `e2k-noreplace-${process.pid}.c`);
+export const SHIM_FILE = path.join(ROOT, '.tmp', `e2k-noreplace-${process.pid}.so`);
 
 /** Путь Windows → путь внутри WSL. */
 export function toWslPath(file: string): string {
@@ -98,8 +111,19 @@ export interface QemuRun {
   readonly guestExitCode?: number;
 }
 
-/** Собрать шим в WSL. `undefined` — компилятора нет. */
+/** Собранный в этом процессе шим: путь, либо `undefined`, если компилятора нет. */
+let shimCache: string | undefined;
+let shimAttempted = false;
+
+/**
+ * Собрать шим в WSL. `undefined` — компилятора нет.
+ *
+ * Собирается **один раз на процесс** (результат кэшируется вместе с отказом): сборка на каждом
+ * прогоне переписывала общий `.so` под работающим загрузчиком (см. историю путей выше).
+ */
 export function buildShim(): string | undefined {
+  if (shimAttempted) return shimCache;
+  shimAttempted = true;
   if (!fs.existsSync(path.dirname(SHIM_SOURCE_FILE))) fs.mkdirSync(path.dirname(SHIM_SOURCE_FILE), { recursive: true });
   fs.writeFileSync(SHIM_SOURCE_FILE, NOREPLACE_SHIM_SOURCE, 'utf-8');
   try {
@@ -108,9 +132,11 @@ export function buildShim(): string | undefined {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch {
+    shimCache = undefined;
     return undefined;
   }
-  return fs.existsSync(SHIM_FILE) ? SHIM_FILE : undefined;
+  shimCache = fs.existsSync(SHIM_FILE) ? SHIM_FILE : undefined;
+  return shimCache;
 }
 
 /** Разобрать вывод QEMU: адрес исключения и код возврата гостя, если он есть. */

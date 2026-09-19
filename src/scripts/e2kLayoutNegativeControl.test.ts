@@ -22,7 +22,23 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { DEFECTS, verdictOf, type DefectReport } from './e2kLayoutNegativeControl';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {
+  DEFECTS,
+  DEFECTS_REGALLOC,
+  DEFECTS_STEP6,
+  DEFECTS_WIDE,
+  locateAnchor,
+  replacementFor,
+  verdictOf,
+  type DefectReport,
+} from './e2kLayoutNegativeControl';
+
+const ROOT = path.resolve(__dirname, '..', '..');
+
+/** Все дефекты всех шагов: таблица одна, а шагов уже четыре. */
+const ALL_DEFECTS = [...DEFECTS, ...DEFECTS_STEP6, ...DEFECTS_WIDE, ...DEFECTS_REGALLOC];
 
 /** Годный отчёт: дефект пойман, файл восстановлен, прогон состоялся. */
 function good(overrides: Partial<DefectReport> = {}): DefectReport {
@@ -80,5 +96,66 @@ describe('протокол негативного контроля: годен �
     const blind = verdictOf(good({ caught: 0, caughtBy: [] }));
     expect(blind.join(' ')).toMatch(/ни один оракул не покраснел/);
     expect(blind.join(' '), 'поломка мутации не должна упоминаться').not.toMatch(/собрал 0 проверок/);
+  });
+});
+
+/**
+ * ОРАКУЛ ВНОСИМОСТИ: дефект, который нельзя внести, — не контроль.
+ *
+ * # Что здесь ловится
+ *
+ * Замена в протоколе строковая, а якорь записан в таблице с `\n`. Пока якорь подгонялся под файл
+ * только «как есть», дефект **6.3** (перестановка слов 64-битного литерала) не вносился вовсе:
+ * `src/e2k/e2k-real.ts` целиком в CRLF, `String.includes` этого не видит, `String.replace` по
+ * ненайденной строке возвращает текст без изменений. Инструмент при этом останавливался — но
+ * числа для 6.3 в `docs/e2k-real-run.md` §2.4.2 уже стояли, а полного прогона не было.
+ *
+ * # Почему проверка идёт по **всем** таблицам
+ *
+ * Шагов уже четыре (4–5, 6, 7, 8), и каждая новая таблица — новый шанс завести якорь, который
+ * никуда не попадёт. Проверка «оракулы названы, замена не пустая» была только у `DEFECTS`; теперь
+ * она у всех, и добавляется главное — якорь обязан **находиться в файле на диске**.
+ */
+describe('таблица дефектов: каждый дефект обязан быть вносимым', () => {
+  it('якорь каждого дефекта находится в целевом файле', () => {
+    const missing: string[] = [];
+    for (const defect of ALL_DEFECTS) {
+      const file = path.join(ROOT, defect.file);
+      expect(fs.existsSync(file), `${defect.id}: нет файла ${defect.file}`).toBe(true);
+      const source = fs.readFileSync(file, 'utf-8');
+      if (locateAnchor(source, defect.from) === undefined) missing.push(defect.id);
+    }
+    expect(missing, 'дефекты, которые не будут внесены (якорь не найден)').toEqual([]);
+  });
+
+  it('идентификаторы уникальны, оракулы названы, замена не пустая и не совпадает с якорем', () => {
+    const ids = ALL_DEFECTS.map((defect) => defect.id);
+    expect(new Set(ids).size, `повторяющиеся id: ${ids.join(', ')}`).toBe(ids.length);
+    for (const defect of ALL_DEFECTS) {
+      expect(defect.tests.length, `${defect.id}: не названы оракулы`).toBeGreaterThan(0);
+      expect(defect.file, `${defect.id}: файл вне src`).toMatch(/^src\//);
+      expect(defect.from.length, `${defect.id}: якорь слишком короткий`).toBeGreaterThan(10);
+      expect(defect.from, `${defect.id}: замена ничего не меняет`).not.toBe(defect.to);
+    }
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: якорь с LF в CRLF-файле ищется, а замена не смешивает переводы строк', () => {
+    // Именно эта пара и была дефектом 6.3: якорь с LF, файл в CRLF.
+    const crlfSource = 'до\r\n  writeWord(a);\r\n  writeWord(b);\r\nпосле\r\n';
+    const anchor = locateAnchor(crlfSource, '  writeWord(a);\n  writeWord(b);');
+    expect(anchor, 'якорь с LF не найден в CRLF-файле — дефект не будет внесён').toBe(
+      '  writeWord(a);\r\n  writeWord(b);',
+    );
+    const replacement = replacementFor(anchor!, '  writeWord(b); // ДЕФЕКТ\n  writeWord(a);');
+    expect(replacement, 'замена обязана иметь переводы строк файла, а не якоря таблицы').not.toMatch(/(?<!\r)\n/);
+    expect(crlfSource.replace(anchor!, replacement)).toContain('  writeWord(b); // ДЕФЕКТ\r\n  writeWord(a);');
+
+    // Обратный случай: файл в LF, якорь записан с CRLF — правило работает в обе стороны.
+    const lfSource = 'до\n  writeWord(a);\n  writeWord(b);\nпосле\n';
+    const lfAnchor = locateAnchor(lfSource, '  writeWord(a);\r\n  writeWord(b);');
+    expect(lfAnchor).toBe('  writeWord(a);\n  writeWord(b);');
+
+    // Якоря нет ни в одном стиле — это по-прежнему «не найдено», а не тихая пустышка.
+    expect(locateAnchor(crlfSource, '  writeWord(совсем другое);\n  writeWord(и это);')).toBeUndefined();
   });
 });

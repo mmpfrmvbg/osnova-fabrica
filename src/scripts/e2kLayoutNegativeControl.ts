@@ -137,6 +137,35 @@ export function sha256(file: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').toUpperCase();
 }
 
+/**
+ * Найти в тексте файла якорь дефекта — с учётом того, **какие переводы строк в файле**.
+ *
+ * Это не украшение, а снятая ловушка. Замена — строковая (`String.includes`), а якорь в таблице
+ * дефектов записан с `\n`. В файле с CRLF такой якорь **не находится**, и дефект молча не
+ * вносится: `String.replace` по ненайденной строке возвращает текст без изменений. Дальше
+ * сработала бы проверка «мутация не изменила файл» — но только как «контроль пустой», а числа в
+ * документации к тому времени уже стояли. Замер: из 21 дефекта не находился ровно один — 6.3
+ * (перестановка слов литерала), потому что `src/e2k/e2k-real.ts` целиком в CRLF.
+ *
+ * Поэтому якорь подгоняется под переводы строк файла, а не наоборот: переписывать чужие файлы
+ * ради удобства контроля — значит менять предмет проверки. Возвращается **найденный** вариант
+ * якоря: им же подгоняется и замена, иначе в файле получилась бы смесь `\n` и `\r\n`.
+ */
+export function locateAnchor(source: string, from: string): string | undefined {
+  if (source.includes(from)) return from;
+  // Якорь с LF в файле с CRLF (и наоборот) — тот же текст, разные переводы строк.
+  const crlf = from.replace(/(?<!\r)\n/g, '\r\n');
+  if (crlf !== from && source.includes(crlf)) return crlf;
+  const lf = from.replace(/\r\n/g, '\n');
+  if (lf !== from && source.includes(lf)) return lf;
+  return undefined;
+}
+
+/** Замена с теми же переводами строк, что у найденного якоря (без смеси `\n` и `\r\n`). */
+export function replacementFor(anchor: string, to: string): string {
+  return anchor.includes('\r\n') ? to.replace(/(?<!\r)\n/g, '\r\n') : to.replace(/\r\n/g, '\n');
+}
+
 /** Прогон оракулов: сколько прошло и какие проверки покраснели. */
 export interface OracleRun {
   /**
@@ -222,10 +251,11 @@ export function checkDefect(defect: Defect, work = WORK): DefectReport {
   fs.copyFileSync(file, backup);
   const shaBefore = sha256(file);
   const source = fs.readFileSync(file, 'utf-8');
-  if (!source.includes(defect.from)) {
+  const anchor = locateAnchor(source, defect.from);
+  if (anchor === undefined) {
     throw new Error(`дефект ${defect.id}: в ${defect.file} не найдено «${defect.from}»`);
   }
-  fs.writeFileSync(file, source.replace(defect.from, defect.to), 'utf-8');
+  fs.writeFileSync(file, source.replace(anchor, replacementFor(anchor, defect.to)), 'utf-8');
   // Мутация обязана изменить файл: правка-пустышка («from» равно «to») выглядела бы как контроль.
   const mutatedChanged = sha256(file) !== shaBefore;
 
@@ -344,7 +374,6 @@ export const DEFECTS_WIDE: readonly Defect[] = [
   },
 ];
 
-/** Прогнать все дефекты, проверить восстановление и записать отчёт. */
 /**
  * Дефекты **раскладки регистров** (шаг 8).
  *
@@ -387,6 +416,8 @@ export const DEFECTS_REGALLOC: readonly Defect[] = [
     tests: ['src/e2k/regAlloc.test.ts'],
   },
 ];
+
+/** Прогнать все дефекты, проверить восстановление и записать отчёт. */
 export function runAll(
   defects: readonly Defect[] = [...DEFECTS, ...DEFECTS_STEP6, ...DEFECTS_WIDE, ...DEFECTS_REGALLOC],
   work = WORK,

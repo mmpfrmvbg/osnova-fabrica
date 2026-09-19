@@ -27,7 +27,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { buildElfFromCode, buildMinimalElf, writeMinimalElf } from './elfMinimal';
-import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
+import { buildShim, runInQemu, SHIM_FILE } from '../scripts/e2kQemuExec';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const imm = (value: number): Operand => ({ kind: 'imm', value });
@@ -80,7 +80,11 @@ describe('исполнение e2k-кода в QEMU: шим, минимальн�
     if (shim === undefined) return; // компилятора в дистрибутиве нет — случай назван ниже
     const doc = fs.readFileSync(path.join(ROOT, 'docs', 'e2k-qemu-run.md'), 'utf-8');
     expect(doc, 'в документе нет исходника шима').toContain('MAP_FIXED_NOREPLACE) == 0');
-    expect(shim).toBe(path.join(ROOT, '.tmp', 'e2k-noreplace.so'));
+    expect(shim).toBe(SHIM_FILE);
+    // Имя обязано нести pid: на общем `.so` параллельные файлы шлюза переписывали шим друг под
+    // другом (`LD_PRELOAD`), и `src/e2k/e2kMemoryQemu.test.ts` отвечал 1 вместо 42. Это проверка
+    // свойства, ради которого имя такое, а не украшение.
+    expect(path.basename(shim), 'в имени шима нет pid процесса').toMatch(new RegExp(`-${process.pid}\\.so$`));
   });
 
   it('без шима прогон упирается в guest_base — преграду снимает именно шим', () => {
