@@ -266,6 +266,63 @@ export function liveSegmentsOf(instructions: readonly AsmInstruction[]): LiveInt
  * значение определяется там, где другое читается, регистр обязан быть разным (иначе чтение
  * получит новое значение).
  */
+/**
+ * Слить отрезки жизни, переносящие значение через обратную дугу (цикл).
+ *
+ * Отрезок жизни — величина линейная, и раскладка считает два отрезка неконфликтующими, если они не
+ * пересекаются по индексам. В цикле это неверно: значение, живое в заголовке, живо на каждом витке,
+ * поэтому регистр, отданный другому значению внутри тела, затирает его между двумя чтениями.
+ * Измерено (docs/e2k-regalloc-debt.md): цикл по массиву возвращал 8 вместо 36, цикл суммы зависал.
+ */
+export function mergeLoopCarriedSegments(
+  segments: readonly LiveInterval[],
+  instructions: readonly AsmInstruction[],
+  codeOffset = 0,
+): LiveInterval[] {
+  const loops: { readonly from: number; readonly to: number }[] = [];
+  instructions.forEach((instruction, at) => {
+    if (instruction.mnemonic !== 'IR.jmp' && instruction.mnemonic !== 'IR.jmp_if' && instruction.mnemonic !== 'IR.jmp_if_not') return;
+    const operand = instruction.operands[instruction.mnemonic === 'IR.jmp' ? 0 : 1];
+    if (operand === undefined || operand.kind !== 'imm' || !Number.isInteger(operand.value)) return;
+    const target = operand.value - codeOffset;
+    if (target < 0 || target > at || target >= instructions.length) return;
+    loops.push({ from: target, to: at });
+  });
+  if (loops.length === 0) return [...segments];
+  const byVreg = new Map<number, LiveInterval[]>();
+  for (const segment of segments) {
+    const list = byVreg.get(segment.vreg) ?? [];
+    list.push(segment);
+    byVreg.set(segment.vreg, list);
+  }
+  const merged: LiveInterval[] = [];
+  for (const [vreg, list] of [...byVreg].sort((a, b) => a[0] - b[0])) {
+    const carried = list.filter((segment) => loops.some((loop) => segment.start <= loop.to && loop.to <= segment.end));
+    if (carried.length === 0) {
+      merged.push(...list);
+      continue;
+    }
+    let current = list.map((segment) => ({ ...segment }));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const loop of loops) {
+        const covering = current.filter((segment) => segment.start <= loop.to && loop.from <= segment.end);
+        const atBackEdge = covering.filter((segment) => segment.start <= loop.to && loop.to <= segment.end);
+        if (atBackEdge.length === 0) continue;
+        const start = Math.min(...covering.map((segment) => segment.start), loop.from);
+        const end = Math.max(...covering.map((segment) => segment.end), loop.to);
+        if (covering.length === 1 && covering[0]!.start === start && covering[0]!.end === end) continue;
+        current = current.filter((segment) => !covering.includes(segment));
+        current.push({ vreg, start, end });
+        changed = true;
+      }
+    }
+    merged.push(...current);
+  }
+  return merged;
+}
+
 export function overlaps(a: LiveInterval, b: LiveInterval): boolean {
   return a.start <= b.end && b.start <= a.end;
 }

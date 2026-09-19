@@ -26,7 +26,7 @@
  */
 
 import type { AsmInstruction, Operand } from './backend';
-import { defUseOf, liveIntervalsOf, liveSegmentsOf, overlaps, type LiveInterval } from './liveness';
+import { defUseOf, liveIntervalsOf, liveSegmentsOf, mergeLoopCarriedSegments, overlaps, type LiveInterval } from './liveness';
 import { removeCopies } from './copyElim';
 import { rematerializeConstants } from './rematerialize';
 
@@ -334,7 +334,8 @@ export function allocateProgram(
     const stream = materialization.instructions;
     const liveness = liveIntervalsOf(stream);
     const incoming = incomingRegisters(stream);
-    const segments = liveSegmentsOf(stream);
+    // Отрезки, переносящие значение через цикл, сливаются: линейный отрезок про цикл не знает.
+    const segments = mergeLoopCarriedSegments(liveSegmentsOf(stream), stream, from);
     // Закреплённые регистры не отдаются: иначе значение параметра уехало бы из своего регистра.
     const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
     const allocation = allocateSegments(
