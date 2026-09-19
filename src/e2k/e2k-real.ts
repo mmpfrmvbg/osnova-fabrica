@@ -587,7 +587,12 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
     return encodeImm64(entry, channel, instruction.operands, wide, literal.value);
   }
   const literal = literalOperand(entry, instruction.operands);
-  if (literal !== undefined) return encodeWithLiteral(entry, channel, instruction.operands, literal);
+  if (literal !== undefined) {
+    // Значение 0…15 ассемблер МЦСТ кладёт короткой непосредственной формой — 8 байт вместо 16.
+    // Измерено: `movts,0 5, %b[1]` → `01 00 00 04 01 c5 c0 60`; при 16 он сам берёт литерал.
+    if (isShortImmediate(literal.value, entry.form)) return encodeShortImm(entry, channel, instruction.operands, literal);
+    return encodeWithLiteral(entry, channel, instruction.operands, literal);
+  }
   const fields = fieldsOf(entry, instruction.operands);
   const long = entry.form === "ALF11";
   const size = long ? REAL_LONG_FORM_SIZE : REAL_SHORT_FORM_SIZE;
@@ -942,6 +947,55 @@ function literalOperand(entry: RealOpcodeEntry, operands: readonly Operand[]): L
 export const LITERAL_FIELD_F16 = 0xd4;
 export const LITERAL_FIELD_F32 = 0xd8;
 export const LITERAL_FIELD_F64 = 0xdc;
+
+/**
+ * Поле короткой непосредственной формы: `0xc0 | N` для N = 0…15.
+ *
+ * Измерено ассемблером МЦСТ: `movts,0 5, %b[1]` → `01 00 00 04 01 c5 c0 60` (8 байт), то есть
+ * значение лежит в битах 15:8 второго слова как `0xc0 | N`. При `N = 16` ассемблер сам переходит
+ * на литерал LTS (`11 00 00 04 01 d4 c0 60 …`), поэтому граница формы — **ровно 0…15**.
+ */
+export const IMM_SHORT_BASE = 0xc0;
+
+/** Наибольшее значение, выразимое короткой непосредственной формой. */
+export const IMM_SHORT_MAX = 15;
+
+/**
+ * Выразимо ли значение короткой непосредственной формой — **без литерала**.
+ *
+ * Применимо только к коротким формам ALS (`ALF1`, `ALF2`): у длинной формы (`ALF11`) слог литерала
+ * конкурирует за место с полуслогом ALES, и раскладка отвергается (`literalOperand`).
+ */
+export function isShortImmediate(value: number, form: RealForm): boolean {
+  return Number.isInteger(value) && value >= 0 && value <= IMM_SHORT_MAX && form !== "ALF11";
+}
+
+/**
+ * Собрать инструкцию короткой непосредственной формы: **8 байт**, поле `0xc0 | N` в слоте литерала.
+ *
+ * Форма слова ALS — та же, что у литеральной (`alsWord`), меняется только поле слота и длина:
+ * `lng = 0` (одно слово), тогда как литерал занимает `lng = 1` (два слова).
+ */
+function encodeShortImm(
+  entry: RealOpcodeEntry,
+  channel: number,
+  operands: readonly Operand[],
+  literal: LiteralOperand,
+): Uint8Array {
+  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0 };
+  entry.operands.forEach((slot, index) => {
+    if (index === literal.index) return;
+    values[slot] = registerField(operands[index], slot, entry.mnemonic);
+  });
+  const literalSlot = entry.operands[literal.index]!;
+  values[literalSlot] = IMM_SHORT_BASE | literal.value;
+  // У ALF2 на месте src1 лежит расширение opce = NONE (`include/opcode/e2k.h:93`) — как и у литерала.
+  if (entry.form === "ALF2") values.src1 = ALES_OPCE_NONE;
+  const bytes = new Uint8Array(REAL_SHORT_FORM_SIZE);
+  writeWord(bytes, 0, headerWord(entry, channel, false));
+  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, src3: values.src3 ?? 0, dst: values.dst!, pdst: 0 }));
+  return bytes;
+}
 
 /** Собрать инструкцию с литеральным операндом: 16 байт, литерал — в последнем слове. */
 /**
