@@ -1277,6 +1277,18 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     // Предикат-приёмник сравнения: номер — поле pdst[4:0], отдельный файл, а не регистр.
     if (slot === "pdst") return { kind: "pred" as const, index: pdst };
     const value = slot === "src1" ? src1 : slot === "src2" ? src2 : slot === "src3" ? src3 : dst;
+    // Короткая непосредственная форма: поле `0xc0 | N` — значение 0…15 **в самом поле**, без
+    // литерального слова. Измерено ассемблером МЦСТ: `movts,0 5, %b[1]` → `01 00 00 04 01 c5 c0 60`
+    // (8 байт, `lng = 0`). Слово литерала при этом быть не должно: `lng = 0` означает одно слово.
+    if (value >= IMM_SHORT_BASE && value <= IMM_SHORT_BASE + IMM_SHORT_MAX) {
+      if (bytes.length !== REAL_SHORT_FORM_SIZE) {
+        throw new EncodingError(
+          `короткая непосредственная форма (поле 0x${value.toString(16)}) в команде ${bytes.length} байт: ` +
+            "она выражается одним словом (lng = 0), литерального слова у неё нет",
+        );
+      }
+      return { kind: "imm" as const, value: value - IMM_SHORT_BASE };
+    }
     // Литеральная ссылка: поле 0xd0..0xdf — это не регистр, а литерал
     // (opcodes/e2k-dis.c:445-504). Значение берётся из последнего слова.
     if (value >= 0xd0 && value <= 0xdf) {
