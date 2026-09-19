@@ -47,6 +47,29 @@ function namedRegisters(instruction: AsmInstruction): ReadonlySet<number> {
 export const ALLOCATABLE_REGISTERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /**
+ * Регистров окна у **вызывающего** (точка входа) — `%r0..%r15`.
+ *
+ * Измерено прогоном (`.tmp/rsz-sweep.ts`): при `setbn rsz = 7` доступны `%b[0..15]`, дальше окно не
+ * пускает (начальные `psize_q = 4`, `size_q = 8` квадрослов — `qemu/linux-user/e2k/cpu_loop.c:302-303`).
+ */
+export const WINDOW_REGISTERS_ENTRY = 16;
+
+/**
+ * Регистров окна у **вызываемой** процедуры — `%r0..%r7`.
+ *
+ * Измерено прогоном в модели (`src/e2k/e2kCallWindowQemu.test.ts`, `.tmp/call-window3.ts`): при
+ * `call %ctpr1, wbs=4` запись в `%r5` и `%r7` проходит, а в `%r8`, `%r9`, `%r10` — ловушка на первой
+ * команде тела. Сходится с исходником модели: `call` делает `size_q -= wbs` (`size_q` 8 → 4), а
+ * индекс окна считается как `(base_d + idx) % MAXSR_D` с проверкой `idx < size_d = 2*size_q`
+ * (`qemu/target/e2k/tcg/translate-ct.c`, `e2k_cpu_exec_ct_CALL`; `reg-index.h:55-81`).
+ *
+ * Следствие: процедура, которой нужно больше восьми регистров, **вызвана быть не может** — а
+ * `фильтр` ядра FIR занимает десять (`%b[0..9]`). Расширение окна — `setwd` (измерено, но отложено:
+ * с памятью модель ведёт себя неустойчиво) или вытеснение в память (следующий слой).
+ */
+export const WINDOW_REGISTERS_CALLEE = 8;
+
+/**
  * Занятые регистры — рантайм массивов (`ARRAY_REGISTERS` в `src/e2k/arrayRuntime.ts`):
  * `%b[10..15]`. Проверяются оракулом: раскладка не имеет права их выдать.
  */
@@ -222,6 +245,15 @@ export interface ProcedureAllocation {
   readonly used: number;
   /** Какие именно регистры выданы — по ним проверяется закрепление, и видно, что рантайм не тронут. */
   readonly usedRegisters: readonly number[];
+  /**
+   * Сколько регистров окна процедура занимает: закреплённые плюс выданные.
+   *
+   * Это число сравнивается с {@link WINDOW_REGISTERS_CALLEE}: вызываемая процедура получает восемь,
+   * и всё, что больше, вызвано быть не может (измерено, `src/e2k/e2kCallWindowQemu.test.ts`).
+   */
+  readonly windowRegistersNeeded: number;
+  /** Влезает ли процедура в окно вызываемой ({@link WINDOW_REGISTERS_CALLEE}). */
+  readonly fitsCalleeWindow: boolean;
   readonly unmapped: readonly number[];
 }
 
@@ -306,17 +338,35 @@ export function allocateProgram(
     };
     removedCopies += elimination.removed;
     if (!allocation.ok) {
-      report.push({ ...common, ok: false, reason: allocation.reason, conflicts: allocation.conflicts, used: 0, usedRegisters: [], unmapped: [] });
+      report.push({
+        ...common,
+        ok: false,
+        reason: allocation.reason,
+        conflicts: allocation.conflicts,
+        used: 0,
+        usedRegisters: [],
+        // Отказ раскладки — это и отказ влезть в окно вызываемой: регистры придётся занять все до
+        // единого, а сколько именно, видно по точной границе.
+        windowRegistersNeeded: liveness.peakLive + incoming.filter((vreg) => vreg < WINDOW_REGISTERS_ENTRY).length,
+        fitsCalleeWindow: false,
+        unmapped: [],
+      });
       result.push(...elimination.carriers);
       return;
     }
     const applied = applySegments(elimination.carriers, allocation.assigned, new Set(incoming));
+    // Сколько РЕГИСТРОВ ОКНА занимает процедура: закреплённые (параметры) плюс выданные раскладкой.
+    // Закреплённые считаются по своим номерам: параметр приходит в регистре с этим номером.
+    const pinned = incoming.filter((vreg) => vreg < WINDOW_REGISTERS_ENTRY);
+    const windowRegistersNeeded = pinned.length + allocation.allocation.used.length;
     report.push({
       ...common,
       ok: true,
       conflicts: [],
       used: allocation.allocation.used.length,
       usedRegisters: allocation.allocation.used,
+      windowRegistersNeeded,
+      fitsCalleeWindow: windowRegistersNeeded <= WINDOW_REGISTERS_CALLEE,
       unmapped: applied.unmapped,
     });
     result.push(...applied.instructions);
@@ -340,6 +390,8 @@ export function allocateProgram(
         conflicts: [],
         used: 0,
         usedRegisters: [],
+        windowRegistersNeeded: 0,
+        fitsCalleeWindow: false,
         unmapped: [],
       });
     }

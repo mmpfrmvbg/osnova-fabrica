@@ -65,7 +65,7 @@ import { realOpcode, type RealSlot } from "./e2k-real";
 import { JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall } from "./arrayRuntime";
-import { allocateProgram, type ProcedureAllocation } from "./regAlloc";
+import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
 import { createDefaultInvokeHandler, type StackValue } from "../runtime/vm/interpreter";
@@ -199,8 +199,15 @@ export const REFUSALS: Readonly<Record<string, string>> = {
   "IR.invoke":
     "НЕТ В ИСТОЧНИКЕ: хост-вызов — операция рантайма; в таблице опкодов МЦСТ (opcodes/e2k-opc.h) " +
     "операции с такой семантикой нет",
-  "IR.call": "не реализовано в e2k-real: вызов — управляющий слог CS (opcodes/e2k-dis.c:1895)",
-  "IR.ret": "не реализовано в e2k-real: возврат — управляющий слог CS (opcodes/e2k-dis.c:1895)",
+  "IR.call":
+    "вызов понижается в `disp` + `call %ctpr1, wbs=4` (форма CS1 есть в кодировщике), но исполнение " +
+    "в модели не подтверждено: у вызываемой процедуры окно **8** регистров против 16 у вызывающего " +
+    "(измерено, `src/e2k/e2kCallWindowQemu.test.ts`), поэтому соглашение о передаче аргументов и " +
+    "результата не проверено прогоном — см. docs/e2k-opcodes-real.md §7.10",
+  "IR.ret":
+    "возврат понижается в `return %ctpr3` (форма CS0 есть в кодировщике), но порт модели на этой " +
+    "команде падает на утверждении `op_descr->is_al` (измерено, `src/e2k/e2kCallWindowQemu.test.ts`), " +
+    "а системный вызов вызывающего после возврата теряет геометрию окна — см. docs/e2k-opcodes-real.md §7.10",
   "IR.jmp": JUMP_NEEDS_LAYOUT,
   "IR.jmp_if": JUMP_IF_NEEDS_PAIR,
   "IR.jmp_if_not": JUMP_IF_NEEDS_PAIR,
@@ -556,6 +563,20 @@ export interface KernelRealReport {
    * Смещения эмиттера оболочки к укороченному потоку неприменимы: между ними стоит устранение копий.
    */
   readonly allocationProcedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[];
+  /**
+   * Вызываемые процедуры и их окно: сколько регистров нужно против {@link WINDOW_REGISTERS_CALLEE}.
+   *
+   * `ok: false` значит «вызвать эту процедуру нельзя» — либо раскладка не удалась, либо она занимает
+   * больше восьми регистров окна. Это не пожелание, а измерение: у вызываемой окно вдвое уже
+   * (`src/e2k/e2kCallWindowQemu.test.ts`).
+   */
+  readonly calleeWindow: readonly {
+    readonly procedure: string;
+    readonly available: number;
+    readonly needed: number;
+    readonly ok: boolean;
+    readonly reason?: string;
+  }[];
   /** Носители, мешающие полному прогону, с причинами. */
   readonly blocking: readonly { readonly carrier: string; readonly count: number; readonly reason: string }[];
 }
@@ -718,6 +739,39 @@ export function runKernelThroughRealEncoding(
     .filter((carrier) => carrier.refused > 0)
     .map((carrier) => ({ carrier: carrier.carrier, count: carrier.refused, reason: carrier.reason ?? "не понижается" }));
 
+  // ── Окно вызываемой процедуры ───────────────────────────────────────────────
+  //
+  // Вызываемая процедура получает ВОСЕМЬ регистров окна против шестнадцати у вызывающего — измерено
+  // (`src/e2k/e2kCallWindowQemu.test.ts`). Значит «влезает ли процедура в окно вызываемой» — не
+  // подробность, а условие того, что её вообще можно вызвать. Считается здесь, потому что вызывающих
+  // видно только по носителям `IR.call`: их `payload` — индекс процедуры в модуле
+  // (`src/e2k/emitterShell.ts:245-252`).
+  const calledIndices = new Set<number>();
+  for (const instruction of code) {
+    if (instruction.mnemonic !== 'IR.call') continue;
+    const payload = instruction.operands[3];
+    if (payload?.kind === 'imm' && Number.isInteger(payload.value)) calledIndices.add(payload.value);
+  }
+  const calleeWindow = allocation.report
+    .map((item, index) => ({ item, index }))
+    .filter(({ index }) => calledIndices.has(index))
+    .map(({ item }) => ({
+      procedure: item.procedure,
+      available: WINDOW_REGISTERS_CALLEE,
+      needed: item.windowRegistersNeeded,
+      ok: item.ok && item.fitsCalleeWindow,
+      ...(item.ok
+        ? item.fitsCalleeWindow
+          ? {}
+          : {
+              reason:
+                `«${item.procedure}»: нужно ${item.windowRegistersNeeded} регистров окна, а вызываемой ` +
+                `доступно ${WINDOW_REGISTERS_CALLEE} (измерено: call wbs=4 уменьшает окно — ` +
+                'docs/e2k-opcodes-real.md §7.10); вызвать её нельзя',
+            }
+        : { reason: item.reason ?? 'раскладка не удалась' }),
+    }));
+
   return {
     kernel: meta.kernel,
     atom: meta.atom,
@@ -730,6 +784,7 @@ export function runKernelThroughRealEncoding(
     carriers,
     allocation: allocation.report,
     allocationProcedures: allocation.procedures,
+    calleeWindow,
     roundTrip: { checked, commands, mismatches },
     layout: {
       placed: layout.entries.length,

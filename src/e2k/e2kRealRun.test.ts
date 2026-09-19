@@ -670,6 +670,46 @@ describe('сквозной прогон: раскладка регистров �
     }
   });
 
+  it('окно вызываемой: у вызывающего 16 регистров, у вызываемой 8 — и это названо, а не замолчано', () => {
+    // Измерено прогоном (`src/e2k/e2kCallWindowQemu.test.ts`): вызываемая процедура пишет в `%r5` и
+    // `%r7`, а в `%r8` — ловушка. Отсюда не пожелание, а условие: процедура, которой нужно больше
+    // восьми регистров, **вызвана быть не может**.
+    const expected: Readonly<Record<string, ReadonlyArray<{ procedure: string; needed: number; ok: boolean }>>> = {
+      fir: [
+        { procedure: 'фильтр', needed: 10, ok: false },
+        { procedure: 'сумма', needed: 6, ok: true },
+      ],
+      iir: [
+        { procedure: 'целое_деление', needed: 4, ok: true },
+        { procedure: 'фильтр', needed: 7, ok: true },
+        { procedure: 'сумма', needed: 6, ok: true },
+      ],
+      fft: [
+        { procedure: 'бпф4', needed: 9, ok: false },
+        { procedure: 'сумма', needed: 6, ok: true },
+      ],
+      correlation: [
+        { procedure: 'корреляция', needed: 10, ok: false },
+        { procedure: 'сумма', needed: 6, ok: true },
+      ],
+    };
+    for (const [name, items] of Object.entries(expected)) {
+      const report = REPORTS.get(name)!;
+      expect(
+        report.calleeWindow.map((item) => ({ procedure: item.procedure, needed: item.needed, ok: item.ok })),
+        `${name}: вызываемые процедуры и их окно`,
+      ).toEqual(items);
+      for (const item of report.calleeWindow) {
+        expect(item.available, `${name}/${item.procedure}: доступно регистров вызываемой`).toBe(8);
+        if (!item.ok) {
+          expect(item.reason ?? '', `${name}/${item.procedure}: причина отказа без причины`).toMatch(/регистр|раскладка/);
+        }
+      }
+    }
+    // У FIR это и есть препятствие шага 4: единственная вызываемая процедура ядра в окно не влезает.
+    expect(REPORTS.get('fir')!.calleeWindow.some((item) => !item.ok), 'FIR: ни одной вызываемой, которая не влезает').toBe(true);
+  });
+
   it('покрытие FIR после снятия копий: 86 из 94, мешают только возвраты и вызовы', () => {
     // Здесь стояло «64 из 94, раскладка не размещает IR.invoke». `IR.invoke` размещается: длина берётся
     // у рантайма массивов, и 22 носителя FIR понижены (22 отказа → 0). Остались `IR.ret` (6) и

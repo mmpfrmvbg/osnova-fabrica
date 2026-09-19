@@ -56,6 +56,7 @@ export default defineConfig({
       'src/e2k/e2kWideQemu.test.ts',
       'src/e2k/e2kMemoryQemu.test.ts',
       'src/e2k/e2kArraysQemu.test.ts',
+      'src/e2k/e2kCallWindowQemu.test.ts',
     ],
   },
 });

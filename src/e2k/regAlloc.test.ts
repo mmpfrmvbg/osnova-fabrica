@@ -42,6 +42,9 @@ import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
 import {
   ALLOCATABLE_REGISTERS,
+  WINDOW_REGISTERS_CALLEE,
+  WINDOW_REGISTERS_ENTRY,
+  incomingRegisters,
   allocateRegisters,
   allocateSegments,
   applyAllocation,
@@ -330,6 +333,34 @@ describe('устранение копий: без него 17 vreg в 10 не в
         ).toBe(false);
       }
     }
+  });
+
+  it('окно вызываемой: 8 регистров — измеренный предел, и `фильтр` в него не влезает', () => {
+    // Число 8 — не оценка: `call wbs=4` уменьшает `size_q` с 8 до 4 (то есть `size_d` с 16 до 8), и
+    // прогон это подтверждает: в вызываемой доступны `%r0..%r7`, а `%r8` — ловушка
+    // (`src/e2k/e2kCallWindowQemu.test.ts`). Здесь проверяется СЛЕДСТВИЕ для раскладки: сколько
+    // регистров окна занимает процедура и влезает ли она в окно вызываемой.
+    expect(WINDOW_REGISTERS_ENTRY, 'окно вызывающего').toBe(16);
+    expect(WINDOW_REGISTERS_CALLEE, 'окно вызываемой').toBe(8);
+    const needed = (name: string): { pins: number; used: number; total: number } => {
+      const carriers = firProcedure(name);
+      const elimination = removeCopies(carriers);
+      const incoming = incomingRegisters(elimination.carriers);
+      const segments = liveSegmentsOf(elimination.carriers);
+      const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
+      const result = allocateSegments(
+        segments.filter((segment) => !incoming.includes(segment.vreg)),
+        free,
+      );
+      expect(result.ok, `${name}: раскладка обязана удаться (иначе проверить бюджет нечем)`).toBe(true);
+      if (!result.ok) return { pins: incoming.length, used: 0, total: 0 };
+      return { pins: incoming.length, used: result.allocation.used.length, total: incoming.length + result.allocation.used.length };
+    };
+    const filter = needed('фильтр');
+    expect(filter, 'фильтр: параметры + занятые').toEqual({ pins: 2, used: 8, total: 10 });
+    expect(filter.total, '`фильтр` в окно вызываемой не влезает').toBeGreaterThan(WINDOW_REGISTERS_CALLEE);
+    const sum = needed('сумма');
+    expect(sum.total, '`сумма` в окно вызываемой влезает').toBeLessThanOrEqual(WINDOW_REGISTERS_CALLEE);
   });
 
   it('«занято» считает ВСЕ выданные регистры, а не только живые в конце', () => {

@@ -60,6 +60,8 @@ export default defineConfig({
       '**/e2kMemoryQemu.test.ts',
       // Массивы (память вместо invoke) в QEMU — тот же внешний ресурс.
       '**/e2kArraysQemu.test.ts',
+      // Окно вызываемой процедуры и `return`: измеряется прогоном в QEMU — тот же случай 12.
+      '**/e2kCallWindowQemu.test.ts',
     ],
   },
 });

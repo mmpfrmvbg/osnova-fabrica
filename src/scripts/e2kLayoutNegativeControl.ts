@@ -497,6 +497,32 @@ export const DEFECTS_INVOKE: readonly Defect[] = [
   },
 ];
 
+/**
+ * Дефекты **окна вызываемой процедуры** (шаг 11).
+ *
+ * Проверяется оракулами `src/e2k/regAlloc.test.ts` (измеренный предел 8) и `src/e2k/e2kRealRun.test.ts`
+ * (какие вызываемые процедуры в него не влезают). Подмена предела — ровно тот случай, когда
+ * «программа собирается, но вызвать её нельзя» остаётся незамеченным.
+ */
+export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
+  {
+    id: '11.1',
+    title: 'окно вызываемой объявлено как у вызывающего (16) — «фильтр» будто бы влезает',
+    file: 'src/e2k/regAlloc.ts',
+    from: 'export const WINDOW_REGISTERS_CALLEE = 8;',
+    to: 'export const WINDOW_REGISTERS_CALLEE = 16; // ДЕФЕКТ 11.1: окно вызываемой равно вызывающему',
+    tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+  },
+  {
+    id: '11.2',
+    title: 'нужно регистров окна считается только по выданным (закреплённые забыты)',
+    file: 'src/e2k/regAlloc.ts',
+    from: '    const windowRegistersNeeded = pinned.length + allocation.allocation.used.length;',
+    to: '    const windowRegistersNeeded = allocation.allocation.used.length; // ДЕФЕКТ 11.2: закреплённые забыты',
+    tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+  },
+];
+
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
 export function runAll(
   defects: readonly Defect[] = [
@@ -506,6 +532,7 @@ export function runAll(
     ...DEFECTS_REGALLOC,
     ...DEFECTS_WIRING,
     ...DEFECTS_INVOKE,
+    ...DEFECTS_CALLEE_WINDOW,
   ],
   work = WORK,
 ): DefectReport[] {

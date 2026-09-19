@@ -31,6 +31,7 @@ import {
   DEFECTS_WIDE,
   DEFECTS_WIRING,
   DEFECTS_INVOKE,
+  DEFECTS_CALLEE_WINDOW,
   locateAnchor,
   replacementFor,
   verdictOf,
@@ -47,6 +48,7 @@ const ALL_DEFECTS = [
   ...DEFECTS_REGALLOC,
   ...DEFECTS_WIRING,
   ...DEFECTS_INVOKE,
+  ...DEFECTS_CALLEE_WINDOW,
 ];
 
 /** Годный отчёт: дефект пойман, файл восстановлен, прогон состоялся. */

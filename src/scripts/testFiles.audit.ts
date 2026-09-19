@@ -97,6 +97,10 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     match: 'e2kArraysQemu.test.ts',
     reason: 'исполняет массивы (память вместо invoke) в QEMU, вынесен в gate:qemu по случаю 12',
   },
+  {
+    match: 'e2kCallWindowQemu.test.ts',
+    reason: 'измеряет окно вызываемой процедуры и `return` прогоном в QEMU, вынесен в gate:qemu по случаю 12',
+  },
 ];
 
 /** Разбор расхождений. */
