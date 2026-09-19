@@ -50,6 +50,7 @@ export const DOC_NAMES: readonly string[] = [
   '03-candidates.md',
   '04-first-experiment.md',
   '05-step1-measurement.md',
+  '06-stepB-packet-size.md',
 ];
 
 /** Внешние каталоги, которых в репозитории нет, но которые названы источниками извлечения. */

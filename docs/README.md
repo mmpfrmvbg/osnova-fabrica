@@ -128,7 +128,7 @@
 - [docs/legacy/system-invoke-api-v0.2.md](legacy/system-invoke-api-v0.2.md)
 - [docs/legacy/trace-format-v0.1.md](legacy/trace-format-v0.1.md)
 
-## Разведка и сырьё (16)
+## Разведка и сырьё (17)
 
 - [docs/ai-centric-os-recommendations.md](ai-centric-os-recommendations.md)
 - [docs/brainstorm/00-map.md](brainstorm/00-map.md)
@@ -137,6 +137,7 @@
 - [docs/brainstorm/03-candidates.md](brainstorm/03-candidates.md)
 - [docs/brainstorm/04-first-experiment.md](brainstorm/04-first-experiment.md)
 - [docs/brainstorm/05-step1-measurement.md](brainstorm/05-step1-measurement.md)
+- [docs/brainstorm/06-stepB-packet-size.md](brainstorm/06-stepB-packet-size.md)
 - [docs/e2k-shell-ticks.md](e2k-shell-ticks.md)
 - [docs/micromodules-v2.md](micromodules-v2.md)
 - [docs/osnova-v5.4-vision.md](osnova-v5.4-vision.md)

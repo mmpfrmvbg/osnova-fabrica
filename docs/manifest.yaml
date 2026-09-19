@@ -138,6 +138,7 @@ scratch:
   - docs/brainstorm/03-candidates.md
   - docs/brainstorm/04-first-experiment.md
   - docs/brainstorm/05-step1-measurement.md
+  - docs/brainstorm/06-stepB-packet-size.md
   - docs/e2k-shell-ticks.md
   - docs/micromodules-v2.md
   - docs/osnova-v5.4-vision.md
