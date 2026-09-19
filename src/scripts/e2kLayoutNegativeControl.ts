@@ -523,6 +523,48 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
   },
 ];
 
+/**
+ * Дефекты **понижения вызова и возврата** (шаг 12).
+ *
+ * Проверяются оракулами `src/e2k/e2kCallLowering.test.ts` (соглашение по байтам) и
+ * `src/e2k/e2kRealRun.test.ts` (полнота прогона). Дефекты выбраны так, чтобы каждый ломал именно
+ * соглашение, а не «что-нибудь»: сдвиг окна, порядок чтения результата, приёмник возврата.
+ */
+export const DEFECTS_CALL_LOWERING: readonly Defect[] = [
+  {
+    id: '12.1',
+    title: 'аргументы кладутся не в то окно (сдвиг wbs вместо 2*wbs)',
+    file: 'src/e2k/e2kRealRun.ts',
+    from: '      instructions.push(movts(source.index, CALL_WBS * 2 + argument));',
+    to: '      instructions.push(movts(source.index, CALL_WBS + argument)); // ДЕФЕКТ 12.1: сдвиг окна перепутан',
+    tests: ['src/e2k/e2kCallLowering.test.ts'],
+  },
+  {
+    id: '12.2',
+    title: 'результат вызова читается ДО передачи управления (пересылка встала не туда)',
+    file: 'src/e2k/e2kRealRun.ts',
+    from: '      instructions.push(movts(CALL_WBS * 2, destination.index));',
+    to: '      instructions.unshift(movts(CALL_WBS * 2, destination.index)); // ДЕФЕКТ 12.2: чтение результата до вызова',
+    tests: ['src/e2k/e2kCallLowering.test.ts'],
+  },
+  {
+    id: '12.3',
+    title: 'возврат кладёт значение не в приёмник соглашения',
+    file: 'src/e2k/e2kRealRun.ts',
+    from: '      instructions.push(movts(value.index, 0));',
+    to: '      instructions.push(movts(value.index, CALL_WBS * 2)); // ДЕФЕКТ 12.3: приёмник возврата не тот',
+    tests: ['src/e2k/e2kCallLowering.test.ts'],
+  },
+  {
+    id: '12.4',
+    title: 'длина вызова не учитывает пересылку результата — адреса уезжают',
+    file: 'src/e2k/twoPassLayout.ts',
+    from: "  if (flags.hasDestination) commands.push(CALL_COMMAND_FORMS.get('movts')!);",
+    to: "  if (false) commands.push(CALL_COMMAND_FORMS.get('movts')!); // ДЕФЕКТ 12.4: длина вызова занижена",
+    tests: ['src/e2k/e2kCallLowering.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+  },
+];
+
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
 export function runAll(
   defects: readonly Defect[] = [
@@ -533,6 +575,7 @@ export function runAll(
     ...DEFECTS_WIRING,
     ...DEFECTS_INVOKE,
     ...DEFECTS_CALLEE_WINDOW,
+    ...DEFECTS_CALL_LOWERING,
   ],
   work = WORK,
 ): DefectReport[] {

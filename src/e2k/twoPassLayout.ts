@@ -256,11 +256,86 @@ export interface CarrierFormContext {
   readonly invokeNames?: readonly string[];
 }
 
+/**
+ * Команды, которыми понижается вызов и возврат: размеры — из той же таблицы форм.
+ *
+ * `movts` — короткая форма ALF2 (8 байт), `disp` — CS0 формата C0F2 (8), `call` — CS1 формата C1F1
+ * вместе со слогами SS (**16**), `return` — CS0 (8). Байты `call %ctpr1, wbs=4` и `return %ctpr3`
+ * измерены ассемблером МЦСТ (`docs/e2k-minimal-elf.md` §3, `src/e2k/e2k-real.ts` `REAL_CONTROL_OPCODES`).
+ */
+const CALL_COMMAND_FORMS: ReadonlyMap<string, CommandForm> = new Map([
+  ['movts', { mnemonic: 'movts', form: 'ALF2', size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  ['disp', { mnemonic: 'disp', form: 'CS0_DISP (C0F2)', size: REAL_SHORT_FORM_SIZE, source: DISP_COMMAND_SOURCE }],
+  [
+    'call',
+    {
+      mnemonic: 'call',
+      form: 'CS1_CALL (SS + C1F1)',
+      size: REAL_LONG_FORM_SIZE,
+      source:
+        'CS1 формат C1F1 (opc=5, `param`=wbs) вместе со слогом SS; измерено ассемблером: ' +
+        '`call %ctpr1, wbs=4` → 16 байт (docs/e2k-minimal-elf.md §3)',
+    },
+  ],
+  [
+    'return',
+    {
+      mnemonic: 'return',
+      form: 'CS0_RETURN',
+      size: REAL_SHORT_FORM_SIZE,
+      source: 'CS0, `ctp_opc = 0`; измерено ассемблером: `return %ctpr3` → 8 байт (docs/e2k-minimal-elf.md §3)',
+    },
+  ],
+]);
+
+/**
+ * Окно вызова в шестнадцатибайтных единицах: `wbs = 4`.
+ *
+ * Меньше нельзя — модель требует `wbs ≥ psize_q`, а начальный `psize_q = 4`
+ * (`qemu/linux-user/e2k/cpu_loop.c:302-303`, `translate-ct.c` `helper_e2k_prep_ct_CALL`). Именно
+ * поэтому аргументы вызываемого кладутся в `%r(2*wbs) = %r8` регистры вызывающего: индекс окна
+ * считается как `(base_d + idx)`, а `call` прибавляет `2*wbs` двоичных слов (`reg-index.h:79`).
+ */
+export const CALL_WBS = 4;
+
+/** Где в операндах носителя лежат признаки вызова: `flags = (есть приёмник) | (аргументов << 1)`. */
+function callFlags(instruction: AsmInstruction): { argc: number; hasDestination: boolean } | undefined {
+  const flags = instruction.operands[0];
+  if (flags === undefined || flags.kind !== 'imm') return undefined;
+  return { argc: flags.value >> 1, hasDestination: (flags.value & 1) === 1 };
+}
+
+/** Форма вызова: пересылки аргументов в окно вызываемого + `disp` + `call` + чтение результата. */
+function callForm(instruction: AsmInstruction): { form?: CarrierForm; reason?: string } {
+  const flags = callFlags(instruction);
+  if (flags === undefined) return { reason: '«IR.call»: операнд флагов не число — арность вызова неизвестна' };
+  if (flags.argc > 2) return { reason: `«IR.call»: аргументов ${flags.argc}, носитель несёт не больше двух` };
+  const commands: CommandForm[] = [];
+  for (let argument = 0; argument < flags.argc; argument++) commands.push(CALL_COMMAND_FORMS.get('movts')!);
+  commands.push(CALL_COMMAND_FORMS.get('disp')!);
+  commands.push(CALL_COMMAND_FORMS.get('call')!);
+  // Результат вызываемого приходит в его `%r0` — это регистр `%r(2*wbs)` вызывающего; читать его
+  // надо после возврата, поэтому пересылка идёт последней.
+  if (flags.hasDestination) commands.push(CALL_COMMAND_FORMS.get('movts')!);
+  return { form: { carrier: 'IR.call', commands } };
+}
+
+/** Форма возврата: пересылка значения в приёмник соглашения (`%r0` вызываемого) + `return %ctpr3`. */
+function retForm(instruction: AsmInstruction): { form?: CarrierForm; reason?: string } {
+  const flag = instruction.operands[0];
+  if (flag === undefined || flag.kind !== 'imm') return { reason: '«IR.ret»: операнд «есть значение» не число' };
+  const commands: CommandForm[] = flag.value === 1 ? [CALL_COMMAND_FORMS.get('movts')!] : [];
+  commands.push(CALL_COMMAND_FORMS.get('return')!);
+  return { form: { carrier: 'IR.ret', commands } };
+}
+
 /** Форма носителя или причина, почему её нет. Причина называется, а не подменяется догадкой. */
 function carrierFormWithReason(
   instruction: AsmInstruction,
   context: CarrierFormContext,
 ): { form?: CarrierForm; reason?: string } {
+  if (instruction.mnemonic === 'IR.call') return callForm(instruction);
+  if (instruction.mnemonic === 'IR.ret') return retForm(instruction);
   if (instruction.mnemonic !== 'IR.invoke') {
     const form = carrierForm(instruction.mnemonic);
     return form === undefined ? {} : { form };

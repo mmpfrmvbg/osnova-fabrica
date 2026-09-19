@@ -218,19 +218,22 @@ describe('сопоставление пары: 3. понижение', () => {
 });
 
 describe('сопоставление пары: 4. раскладка и покрытие', () => {
-  it('сравнения и условные переходы получают адреса: размещено 386, не размещено 131', () => {
+  it('сравнения и условные переходы получают адреса: размещено 429, не размещено 88', () => {
     const layout = layoutOf(ALL);
-    expect(layout.entries.length, 'покрытие раскладки').toBe(386);
-    expect(layout.unplaced.length, 'отказов раскладки').toBe(131);
+    expect(layout.entries.length, 'покрытие раскладки').toBe(429);
+    expect(layout.unplaced.length, 'отказов раскладки').toBe(88);
     const byCarrier = new Map<string, number>();
     for (const entry of layout.entries) byCarrier.set(entry.carrier, (byCarrier.get(entry.carrier) ?? 0) + 1);
     expect(byCarrier.get('IR.jmp_if_not')).toBe(14);
     expect(byCarrier.get('IR.lt')).toBe(12);
     expect(byCarrier.get('IR.le')).toBe(1);
     expect(byCarrier.get('IR.ge')).toBe(1);
-    for (const carrier of ['IR.invoke', 'IR.call', 'IR.ret']) {
-      expect(byCarrier.has(carrier), `${carrier} не должен размещаться`).toBe(false);
-    }
+    // Вызов и возврат ПОЛУЧИЛИ формы (шаг 3): их длина перестала быть неизвестной, и они размещаются.
+    expect(byCarrier.get('IR.call'), 'вызов размещается').toBe(11);
+    expect(byCarrier.get('IR.ret'), 'возврат размещается').toBe(32);
+    // `IR.invoke` размещается только там, где рантайм массивов может взять имя и операнды не попали в
+    // зарезервированную область; поэтому в этом потоке (носители БЕЗ раскладки регистров) его нет.
+    expect(byCarrier.has('IR.invoke'), 'IR.invoke без раскладки регистров не размещается').toBe(false);
   });
 
   it('смещения считаются и для условных переходов', () => {
@@ -242,7 +245,7 @@ describe('сопоставление пары: 4. раскладка и покр
     }
   });
 
-  it('сквозной прогон: понижено 357, отвергнуто 51, байт 7296', () => {
+  it('сквозной прогон: понижено 399, отвергнуто 9, байт 8104', () => {
     let encoded = 0;
     let refused = 0;
     let bytes = 0;
@@ -263,18 +266,26 @@ describe('сопоставление пары: 4. раскладка и покр
       refused += report.refused;
       bytes += report.bytes;
       mismatches.push(...report.roundTrip.mismatches.map((item) => `${name}: ${item}`));
-      expect(report.layout.placed, `${name}: раскладка против понижения`).toBe(report.encoded);
-      expect(report.layout.totalBytes, `${name}: сумма размеров против байтов`).toBe(report.bytes);
+      // «Размещено» — у скольких носителей известна ДЛИНА; «понижено» — сколько дошло до байтов.
+      // Различаются они там, где носитель с формой не понизился (у вызова `convolution` нет адреса
+      // цели: вызываемая процедура не размещена). Строгое равенство — частный случай.
+      expect(report.layout.placed, `${name}: понижено больше, чем размещено`).toBeGreaterThanOrEqual(report.encoded);
+      expect(report.layout.placed, `${name}: размещено`).toBe(report.instructions - report.layout.unplaced);
+      if (report.layout.placed === report.encoded) {
+        expect(report.layout.totalBytes, `${name}: сумма размеров против байтов`).toBe(report.bytes);
+      } else {
+        expect(report.layout.totalBytes, `${name}: раскладка не меньше образа`).toBeGreaterThan(report.bytes);
+      }
     }
-    // Числа — после устранения копий (2026-09-19): в понижение входит укороченный поток. Носителей
-    // эмиттера по-прежнему 517, а понижается 408: 109 снято, и отказов столько же, сколько было (131),
-    // потому что среди отказов пересылок нет.
+    // Числа — после шагов 1–3 (2026-09-19): в понижение входит укороченный поток (снято 109 носителей,\r
+    // 517 → 408), а отказов осталось 9: iir — вещественное деление и вызов система.математика.остаток,\r
+    // convolution — шесть вызовов массива (раскладка свёртки отказывает) и один вызов без адреса цели.
     expect(instructions).toBe(408);
     expect(eliminated, 'снято устранением копий').toBe(109);
     expect(instructions + eliminated, 'носителей эмиттера').toBe(517);
-    expect(encoded, 'покрытие').toBe(357);
-    expect(refused, 'отказов').toBe(51);
-    expect(bytes, 'байт образа').toBe(7296);
+    expect(encoded, 'покрытие').toBe(399);
+    expect(refused, 'отказов').toBe(9);
+    expect(bytes, 'байт образа').toBe(8104);
     expect(mismatches, 'расхождений круга быть не должно').toEqual([]);
   });
 });

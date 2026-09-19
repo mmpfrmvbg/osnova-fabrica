@@ -32,6 +32,7 @@ import {
   DEFECTS_WIRING,
   DEFECTS_INVOKE,
   DEFECTS_CALLEE_WINDOW,
+  DEFECTS_CALL_LOWERING,
   locateAnchor,
   replacementFor,
   verdictOf,
@@ -49,6 +50,7 @@ const ALL_DEFECTS = [
   ...DEFECTS_WIRING,
   ...DEFECTS_INVOKE,
   ...DEFECTS_CALLEE_WINDOW,
+  ...DEFECTS_CALL_LOWERING,
 ];
 
 /** Годный отчёт: дефект пойман, файл восстановлен, прогон состоялся. */

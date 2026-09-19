@@ -31,7 +31,8 @@ import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
 import { layoutOf, secondPass } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
-import { lowerCarrier, type LoweringContext } from './e2kRealRun';
+import { callDisplacementsOf, lowerCarrier, type LoweringContext } from './e2kRealRun';
+import { allocateProgram } from './regAlloc';
 import { wideStats } from './widePacker';
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -64,10 +65,16 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
     { atom, procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
   const emitted = emitShell(annotated, getEncoder('internal-shell'));
-  const layout = layoutOf(emitted.instructions);
-  const resolved = secondPass(emitted.instructions, layout.addresses);
-  const pairing = pairPredicates(emitted.instructions);
+  // Поток берётся ТОТ ЖЕ, что идёт в понижение в конвейере: сначала раскладка регистров (устранение
+  // копий + отрезки), затем раскладка адресов с именами хост-вызовов и смещениями вызовов. Иначе
+  // измерялся бы не тот поток, который кодируется.
+  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
+  const stream = allocation.instructions;
+  const layout = layoutOf(stream, { invokeNames: emitted.image.invokeNames });
+  const resolved = secondPass(stream, layout.addresses);
+  const pairing = pairPredicates(stream);
   const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
+  const callDisplacementAt = callDisplacementsOf(stream, allocation.procedures, layout.addresses);
   const predicateAt = new Map(
     pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),
   );
@@ -79,7 +86,7 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
 
   const commands: AsmInstruction[] = [];
   const refusals = new Map<string, string>();
-  for (let index = 0; index < emitted.instructions.length; index++) {
+  for (let index = 0; index < stream.length; index++) {
     const carrier = resolved.instructions[index]!;
     const blocked = refusalAt.get(index);
     if (blocked !== undefined) {
@@ -88,7 +95,9 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
     }
     const context: LoweringContext = {
       constants: emitted.scheduled.constants,
+      invokeNames: emitted.image.invokeNames,
       ...(displacementAt.has(index) ? { displacement: displacementAt.get(index)! } : {}),
+      ...(callDisplacementAt.has(index) ? { callDisplacement: callDisplacementAt.get(index)! } : {}),
       ...(predicateAt.has(index) ? { predicate: predicateAt.get(index)! } : {}),
       ...(conditionAt.has(index) ? { condition: conditionAt.get(index)! } : {}),
     };
@@ -105,25 +114,22 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
 const FIR = kernelStreamOf('fir', 'A5');
 
 describe('замер: FIR через группировку', () => {
-  it('поток FIR понижается не весь — препятствие названо поимённо', () => {
-    expect(FIR.carriers, 'носителей IR в ядре FIR').toBe(111);
-    expect(FIR.commands.length, 'команд e2k после понижения').toBe(87);
-    // 24 носителя из 111 не понижаются — именно они и мешают прогону «FIR = 181» в QEMU.
-    const refused = [...FIR.refusals.keys()].sort();
-    expect(refused, 'отказы понижения').toEqual(['IR.call', 'IR.invoke', 'IR.ret']);
-    expect(
-      FIR.refusals.get('IR.invoke')?.length ?? 0,
-      'причина отказа IR.invoke не названа',
-    ).toBeGreaterThan(30);
+  it('поток FIR понижается целиком — отказов нет, и это НЕ значит «исполняется»', () => {
+    expect(FIR.carriers, 'носителей эмиттера в ядре FIR').toBe(111);
+    expect(FIR.commands.length, 'команд e2k после понижения').toBe(235);
+    // После шагов 1–3 отказов в этом потоке нет: раскладка регистров, длина `IR.invoke`, вызов и
+    // возврат закрыты. Это «байты собраны и сверены», а не «ядро исполняется»: прогон упирается в
+    // порт (docs/e2k-opcodes-real.md §7.10) и в окно вызываемой процедуры.
+    expect([...FIR.refusals.keys()], 'отказы понижения').toEqual([]);
   });
 
   it('группировка сокращает число команд и байтов', () => {
     const stats = wideStats(FIR.commands);
-    expect(stats.linearCommands, 'команд линейно').toBe(87);
-    expect(stats.packets, 'пакетов').toBe(67);
-    expect(stats.bytesLinear, 'байт линейно').toBe(864);
-    expect(stats.bytesWide, 'байт пакетами').toBe(824);
-    expect(stats.packedSlots, 'слогов в многоместных пакетах').toBe(33);
+    expect(stats.linearCommands, 'команд линейно').toBe(235);
+    expect(stats.packets, 'пакетов').toBe(212);
+    expect(stats.bytesLinear, 'байт линейно').toBe(2064);
+    expect(stats.bytesWide, 'байт пакетами').toBe(2048);
+    expect(stats.packedSlots, 'слогов в многоместных пакетах').toBe(44);
     expect(stats.refused, 'отказов кодировщика среди понижённых команд').toBe(0);
   });
 
@@ -132,8 +138,9 @@ describe('замер: FIR через группировку', () => {
     // `IR.invoke` (обращения к массивам) и до кодировщика не доезжает.
     const counts = new Map<string, number>();
     for (const command of FIR.commands) counts.set(command.mnemonic, (counts.get(command.mnemonic) ?? 0) + 1);
-    expect(counts.get('movts'), 'пересылок movts').toBe(64);
-    expect((counts.get('adds') ?? 0) + (counts.get('subs') ?? 0) + (counts.get('muls') ?? 0), 'арифметики').toBe(8);
+    expect(counts.get('movts'), 'пересылок movts').toBe(55);
+    expect(counts.get('adds'), 'сложений-адресации (ldd/std адресуются суммой)').toBe(104);
+    expect((counts.get('adds') ?? 0) + (counts.get('subs') ?? 0) + (counts.get('muls') ?? 0), 'арифметики').toBe(107);
   });
 });
 
@@ -152,13 +159,15 @@ describe('замер: пять ядер', () => {
   it('ни у одного ядра поток не понижается целиком — и это записано', () => {
     const problems = rows.filter((row) => row.refused !== 0).map((row) => row.name);
     expect(problems, 'ядра с отказами кодировщика').toEqual([]);
-    // Отказы понижения есть у всех: числа измерены и печатаются в отчёте.
+    // Числа измерены и печатаются в отчёте. После шагов 1–3 команд стало больше: `IR.invoke` понижается
+    // в 1/3/6/9 команд, вызов — в 4–5, возврат — в 1–2. Смысл проверки не «мало команд», а «число
+    // названо и совпадает с замером».
     expect(rows.map((row) => `${row.name}:${row.carriers}→${row.commands}`)).toEqual([
-      'fir:111→87',
-      'iir:91→70',
-      'fft:105→79',
-      'convolution:110→94',
-      'correlation:100→82',
+      'fir:111→235',
+      'iir:91→145',
+      'fft:105→204',
+      'convolution:110→160',
+      'correlation:100→176',
     ]);
   });
 

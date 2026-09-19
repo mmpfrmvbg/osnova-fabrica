@@ -43,6 +43,8 @@ import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
 import { disassembleElf, findExternalTool, parseObjdumpOutput } from '../scripts/e2kExternalObjdump';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 import { layoutOf, secondPass, type Displacement } from './twoPassLayout';
+import { allocateProgram } from './regAlloc';
+import { callDisplacementsOf } from './e2kRealRun';
 import { pairPredicates } from './predicatePairing';
 import {
   JUMP_NEEDS_LAYOUT,
@@ -131,7 +133,13 @@ describe('сквозной прогон: понижение и кодирова�
       for (const blocking of report.blocking) {
         expect(blocking.reason.length, `${name}: ${blocking.carrier} без причины`).toBeGreaterThan(10);
       }
-      expect(report.blocking.length, `${name}: ни одного отказа — тогда прогон был бы полным`).toBeGreaterThan(0);
+      // У части ядер отказов не осталось (шаги 1–3 закрыли раскладку, длину `IR.invoke`, вызов и
+      // возврат) — тогда и мешающих носителей быть не должно. Это проверка согласованности двух
+      // чисел отчёта, а не ослабление: `blocking` перечисляет именно то, что попало в `refused`.
+      expect(report.blocking.length === 0, `${name}: отказы против списка мешающих`).toBe(report.refused === 0);
+      for (const blocking of report.blocking) {
+        expect(blocking.count, `${name}: ${blocking.carrier} без числа`).toBeGreaterThan(0);
+      }
     });
 
     it(`${name} (${algorithm}): round-trip каждой понижённой инструкции проходит`, () => {
@@ -143,9 +151,19 @@ describe('сквозной прогон: понижение и кодирова�
     it(`${name} (${algorithm}): раскладка и кодирование не расходятся`, () => {
       const report = REPORTS.get(name)!;
       // Раскладка считает адреса по таблице форм, кодировщик выдаёт байты: числа обязаны сойтись.
-      expect(report.layout.placed, `${name}: размещено не столько, сколько понижено`).toBe(report.encoded);
-      expect(report.layout.unplaced, `${name}: не размещено не столько, сколько отвергнуто`).toBe(report.refused);
-      expect(report.layout.totalBytes, `${name}: сумма размеров раскладки против суммы байтов`).toBe(report.bytes);
+      // Два числа различаются осмысленно: «размещено» — у скольких носителей известна ДЛИНА, а
+      // «понижено» — сколько дошло до байтов. Носитель с формой может не понизиться (у вызова не
+      // нашлось адреса цели, если вызываемая процедура не размещена), поэтому строгое равенство
+      // `placed === encoded` верно лишь там, где отказов такого рода нет.
+      expect(report.layout.placed, `${name}: размещено`).toBe(report.instructions - report.layout.unplaced);
+      expect(report.layout.placed, `${name}: понижено больше, чем размещено`).toBeGreaterThanOrEqual(report.encoded);
+      expect(report.layout.unplaced, `${name}: не размещено больше, чем отвергнуто`).toBeLessThanOrEqual(report.refused);
+      // Сумма размеров раскладки равна байтам ровно тогда, когда понижены все размещённые носители.
+      if (report.layout.placed === report.encoded) {
+        expect(report.layout.totalBytes, `${name}: сумма размеров раскладки против суммы байтов`).toBe(report.bytes);
+      } else {
+        expect(report.layout.totalBytes, `${name}: раскладка не может быть меньше образа`).toBeGreaterThan(report.bytes);
+      }
       // Смещение нужно КАЖДОМУ переходу — безусловному и условным: его считает один проход.
       const jumps = ['IR.jmp', 'IR.jmp_if', 'IR.jmp_if_not'].reduce(
         (sum, carrier) => sum + (report.carriers.find((item) => item.carrier === carrier)?.encoded ?? 0),
@@ -157,31 +175,32 @@ describe('сквозной прогон: понижение и кодирова�
       expect(report.roundTrip.mismatches, `${name}`).toEqual([]);
     });
 
-    it(`${name} (${algorithm}): полный сквозной прогон невозможен — названы мешающие носители`, () => {
+    it(`${name} (${algorithm}): полнота прогона и названные мешающие носители`, () => {
       const report = REPORTS.get(name)!;
-      expect(report.executableThroughReal, `${name}: неожиданно полный прогон`).toBe(false);
       const carriers = report.blocking.map((blocking) => blocking.carrier);
-      // Что мешает каждому ядру — ИЗМЕРЕНО, а не предположено. `IR.invoke` перестал быть препятствием
-      // там, где раскладка удалась: его длина берётся у рантайма массивов (`carrierFormOf`), и носитель
-      // размещается. Остаются два места: `iir` (вызов `система.математика.остаток` — не операция
-      // массива) и `convolution` (раскладка `свёртки` отказывает, её vreg'и остаются в `%b[10..]`, а
-      // рантайм такие операнды отвергает).
+      // Что мешает каждому ядру — ИЗМЕРЕНО, а не предположено. После шагов 1–3 (раскладка, длина
+      // `IR.invoke`, вызов и возврат) у fir, fft и correlation не мешает НИЧЕГО; остаются `iir` (вызов
+      // `система.математика.остаток` — не операция массива, и вещественное `IR.div`) и `convolution`
+      // (раскладка `свёртки` отказывает, её vreg'и остаются в `%b[10..]`, и рантайм такие операнды
+      // отвергает; плюс один вызов, у которого из-за этого нет адреса цели).
       const expectedBlocking: Readonly<Record<string, readonly string[]>> = {
-        fir: ['IR.call', 'IR.ret'],
-        iir: ['IR.call', 'IR.div', 'IR.invoke', 'IR.ret'],
-        fft: ['IR.call', 'IR.ret'],
-        convolution: ['IR.call', 'IR.invoke', 'IR.ret'],
-        correlation: ['IR.call', 'IR.ret'],
+        fir: [],
+        iir: ['IR.div', 'IR.invoke'],
+        fft: [],
+        convolution: ['IR.call', 'IR.invoke'],
+        correlation: [],
       };
       expect([...carriers].sort(), `${name}: мешающие носители`).toEqual([...(expectedBlocking[name] ?? [])].sort());
-      expect(carriers, `${name}: не названы возвраты`).toContain('IR.ret');
+      // Полнота прогона — это ровно «нет мешающих носителей», и она проверяется тем же измерением.
+      expect(report.executableThroughReal, `${name}: полнота прогона`).toBe((expectedBlocking[name] ?? []).length === 0);
       expect(carriers, `${name}: константы обязаны быть понижены`).not.toContain('IR.const');
       // Переход понижён — он больше не мешает прогону и в списке мешающих не значится.
       expect(carriers, `${name}: переход понижён, мешать он не может`).not.toContain('IR.jmp');
       // Условные переходы и сравнения понижены парой — они больше не мешают.
       expect(carriers, `${name}: условные переходы понижены`).not.toContain('IR.jmp_if_not');
       expect(carriers, `${name}: сравнения понижены`).not.toContain('IR.lt');
-      expect(carriers, `${name}: вызов ещё не понижен`).toContain('IR.call');
+      // Возврат понижён у ВСЕХ ядер: формы `return` есть, соглашение проверено по байтам.
+      expect(carriers, `${name}: возврат понижён`).not.toContain('IR.ret');
       // Если `IR.invoke` всё-таки мешает — причина обязана называть рантайм, а не «формы нет»: форма
       // есть, её негде взять из-за зарезервированных регистров или неподдерживаемой операции.
       const invokeBlocking = report.blocking.find((item) => item.carrier === 'IR.invoke');
@@ -325,18 +344,24 @@ describe('сквозной прогон: переходы понижены — �
   function laidOutImage(
     carriers: readonly AsmInstruction[],
     constants?: readonly unknown[],
+    invokeNames?: readonly string[],
+    procedures?: readonly { readonly name: string; readonly codeOffset: number }[],
   ): {
     bytes: Uint8Array;
     addresses: Map<number, number>;
     displacements: readonly Displacement[];
   } {
-    const layout = layoutOf(carriers);
+    const layout = layoutOf(carriers, invokeNames === undefined ? {} : { invokeNames });
     const resolved = secondPass(carriers, layout.addresses);
     expect(resolved.refusals.map((item) => `#${item.index}: ${item.reason}`), 'переход не разрешён').toEqual([]);
     // Пары «сравнение → условный переход» нужны и здесь: без них сравнение не понижается.
     const pairing = pairPredicates(carriers);
     expect(pairing.refusals.map((item) => `#${item.index}: ${item.reason}`), 'пара не составлена').toEqual([]);
     const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
+    // Вызовы: смещение считает ТА ЖЕ функция, что в конвейере (`callDisplacementsOf`) — иначе проверка
+    // сверяла бы конвейер с собственной копией его формулы, а не с внешним инструментом.
+    const callDisplacementAt =
+      procedures === undefined ? new Map<number, number>() : callDisplacementsOf(carriers, procedures, layout.addresses);
     const predicateAt = new Map(
       pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),
     );
@@ -350,11 +375,14 @@ describe('сквозной прогон: переходы понижены — �
       const displacement = displacementAt.get(index);
       const predicate = predicateAt.get(index);
       const condition = conditionAt.get(index);
+      const callDisplacement = callDisplacementAt.get(index);
       const lowered = lowerCarrier(instruction, {
         ...(constants === undefined ? {} : { constants }),
+        ...(invokeNames === undefined ? {} : { invokeNames }),
         ...(displacement === undefined ? {} : { displacement }),
         ...(predicate === undefined ? {} : { predicate }),
         ...(condition === undefined ? {} : { condition }),
+        ...(callDisplacement === undefined ? {} : { callDisplacement }),
       });
       expect(lowered.ok, `#${index} ${instruction.mnemonic}: ${lowered.ok ? '' : lowered.reason}`).toBe(true);
       if (!lowered.ok) return;
@@ -367,7 +395,7 @@ describe('сквозной прогон: переходы понижены — �
     return { bytes: Uint8Array.from(chunks), addresses: layout.addresses, displacements: resolved.displacements };
   }
 
-  it('покрытие 357 из 408, отказов 51 — и отказы разложены по носителям', () => {
+  it('покрытие 399 из 408, отказов 9 — и отказы разложены по носителям', () => {
     // Знаменатель уменьшился НЕ из-за потери покрытия: 109 носителей снято устранением копий, и все
     // они понижались успешно. Отказов столько же, сколько было (131): среди них пересылок нет, поэтому
     // копии не могли «унести» ни одного отказа.
@@ -388,13 +416,12 @@ describe('сквозной прогон: переходы понижены — �
     expect(instructions).toBe(408);
     expect(eliminated, 'снято носителей устранением копий').toBe(109);
     expect(instructions + eliminated, 'носителей эмиттера').toBe(517);
-    expect(encoded, 'покрытие пяти ядер').toBe(357);
-    expect(refused, 'отказов').toBe(51);
+    expect(encoded, 'покрытие пяти ядер').toBe(399);
+    expect(refused, 'отказов').toBe(9);
     expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([
-      ['IR.ret', 32],
-      ['IR.call', 11],
       ['IR.invoke', 7],
       ['IR.div', 1],
+      ['IR.call', 1],
     ]);
     // Переход понижён целиком: 12 из 12.
     const jumps = [...REPORTS.values()].flatMap((report) =>
@@ -432,8 +459,17 @@ describe('сквозной прогон: переходы понижены — �
 
   it('образ ядра fir читается MCST-objdump: у каждого disp тот же адрес цели, что в раскладке', () => {
     const image0 = kernelImage('fir', 'A5');
-    const carriers = image0.instructions;
-    const image = laidOutImage(carriers, image0.scheduled.constants);
+    // Образ собирается из РАЗЛОЖЕННОГО потока — того же, что идёт в понижение: без раскладки регистров
+    // хост-вызовы `фильтр` не получают формы (их операнды попадают в зарезервированную область), и
+    // адреса первой команды процедуры просто нет — тогда и вызову некуда указывать.
+    const allocation = allocateProgram(image0.instructions, image0.scheduled.procedures);
+    const carriers = allocation.instructions;
+    const image = laidOutImage(
+      carriers,
+      image0.scheduled.constants,
+      image0.image.invokeNames,
+      allocation.procedures,
+    );
     // В fir шесть переходов: три безусловных и три условных — смещение нужно каждому.
     expect(image.displacements.length, 'в fir шесть переходов').toBe(6);
     // Смещения ведут в адрес цели — проверяется арифметикой до внешнего инструмента.
@@ -710,24 +746,20 @@ describe('сквозной прогон: раскладка регистров �
     expect(REPORTS.get('fir')!.calleeWindow.some((item) => !item.ok), 'FIR: ни одной вызываемой, которая не влезает').toBe(true);
   });
 
-  it('покрытие FIR после снятия копий: 86 из 94, мешают только возвраты и вызовы', () => {
-    // Здесь стояло «64 из 94, раскладка не размещает IR.invoke». `IR.invoke` размещается: длина берётся
-    // у рантайма массивов, и 22 носителя FIR понижены (22 отказа → 0). Остались `IR.ret` (6) и
-    // `IR.call` (2) — это шаг «call/ret и модель окна».
+  it('покрытие FIR: 94 из 94 — все носители понижены, но это не значит «исполняется»', () => {
+    // Вызов и возврат понижены (соглашение проверено по байтам, `src/e2k/e2kCallLowering.test.ts`),
+    // поэтому у FIR отказов больше нет. Это НЕ значит, что ядро исполняется: `return` в порте падает
+    // на утверждении, а окно вызываемой — восемь регистров, тогда как `фильтр` занимает десять
+    // (`docs/e2k-opcodes-hardware` §7.10, `docs/hardware-debt.md` §3.17–3.18).
     const report = REPORTS.get('fir')!;
     expect(report.instructions, 'носителей в FIR после снятия копий').toBe(94);
     expect(report.removedCopies, 'снято копий').toBe(17);
-    expect(report.encoded, 'понижено').toBe(86);
-    expect(report.refused, 'отказов').toBe(8);
-    const invoke = report.carriers.find((item) => item.carrier === 'IR.invoke')!;
-    expect(invoke.total, 'носителей IR.invoke').toBe(22);
-    expect(invoke.encoded, 'понижено IR.invoke').toBe(22);
-    expect(invoke.refused, 'отказов IR.invoke').toBe(0);
-    expect(invoke.commands?.length, 'команд у IR.invoke в отчёте').toBeGreaterThan(0);
-    expect(report.executableThroughReal, 'сквозной прогон через реальную кодировку').toBe(false);
-    expect(report.blocking.map((item) => item.carrier).sort(), 'что мешает полному прогону').toEqual([
-      'IR.call',
-      'IR.ret',
-    ]);
+    expect(report.encoded, 'понижено').toBe(94);
+    expect(report.refused, 'отказов').toBe(0);
+    expect(report.blocking, 'мешающих носителей у FIR не осталось').toEqual([]);
+    expect(report.executableThroughReal, 'сквозной прогон через реальную кодировку').toBe(true);
+    // Но вызывать `фильтр` всё равно нельзя — окно вызываемой меньше, чем ему нужно.
+    const filter = report.calleeWindow.find((item) => item.procedure === 'фильтр')!;
+    expect(filter.ok, 'окно вызываемой для `фильтр`').toBe(false);
   });
 });

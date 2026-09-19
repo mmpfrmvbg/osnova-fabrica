@@ -264,15 +264,21 @@ describe('двухпроходная раскладка: 1.1 первый про
     }
   });
 
-  it('инструкции без формы не выдумываются: у них названная причина, и их ровно 131', () => {
+  it('инструкции без формы не выдумываются: у них названная причина, и их ровно 88', () => {
+    // Числа перемерены после шага 3: вызов и возврат ПОЛУЧИЛИ формы (11 и 32 носителя), а
+    // `IR.invoke` размещается только с именами хост-вызовов и после раскладки регистров — в этом
+    // потоке (носители без имён) его 87 и они остаются неразмещёнными.
     const layout = layoutOf(ALL_CARRIERS);
     expect(ALL_CARRIERS.length).toBe(517);
-    expect(layout.entries.length, 'покрытие раскладки').toBe(386);
-    expect(layout.unplaced.length, 'отказов раскладки').toBe(131);
+    expect(layout.entries.length, 'покрытие раскладки').toBe(429);
+    expect(layout.unplaced.length, 'отказов раскладки').toBe(88);
     // Молчаливой потери нет: каждая инструкция либо размещена, либо названа.
     expect(layout.entries.length + layout.unplaced.length).toBe(ALL_CARRIERS.length);
     for (const unplaced of layout.unplaced) {
       expect(unplaced.reason.length, `#${unplaced.index}: причина не названа`).toBeGreaterThan(10);
+      // Причина — СВОЯ: у `IR.invoke` форма есть, её просто негде взять без имён, поэтому общая
+      // отговорка «формы понижения нет» здесь недопустима.
+      if (unplaced.carrier === 'IR.invoke') continue;
       expect(carrierForm(unplaced.carrier), `#${unplaced.index}: у «${unplaced.carrier}» форма есть`).toBeUndefined();
     }
     const byCarrier = new Map<string, number>();
@@ -281,8 +287,6 @@ describe('двухпроходная раскладка: 1.1 первый про
     }
     expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([
       ['IR.invoke', 87],
-      ['IR.ret', 32],
-      ['IR.call', 11],
       ['IR.div', 1],
     ]);
     for (const placed of ['IR.jmp', 'IR.jmp_if_not', 'IR.lt', 'IR.le', 'IR.ge']) {

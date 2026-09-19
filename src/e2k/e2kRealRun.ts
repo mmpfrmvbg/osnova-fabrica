@@ -61,8 +61,8 @@
 
 import type { AsmInstruction, Encoder, Operand } from "./backend";
 import { sameInstruction } from "./backend";
-import { realOpcode, type RealSlot } from "./e2k-real";
-import { JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
+import { REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from "./e2k-real";
+import { CALL_WBS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall } from "./arrayRuntime";
 import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
@@ -74,6 +74,22 @@ import { isRegPacket, type RegInstruction, type RegModule } from "../runtime/vm/
 
 const reg = (index: number): Operand => ({ kind: "reg", index });
 const imm = (value: number): Operand => ({ kind: "imm", value });
+
+/**
+ * `movts src, dst` — оконная пересылка (короткая форма ALF2, 8 байт).
+ *
+ * Файл регистров — **оконный** (`%rN`): и аргументы вызова, и приёмник результата заданы в окне
+ * (`WINDOW_NUMBER_REGISTER` в `src/e2k/syscallRuntime.ts` — тот же регистр, куда ABI кладёт номер
+ * системного вызова, потому что `call` сдвигает окно на `2*wbs` регистров).
+ */
+const movts = (source: number, destination: number): AsmInstruction => ({
+  mnemonic: "movts",
+  channel: 0,
+  operands: [
+    { kind: "reg", index: source, file: "window" },
+    { kind: "reg", index: destination, file: "window" },
+  ],
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ТАБЛИЦА ПОНИЖЕНИЯ
@@ -273,6 +289,14 @@ export interface LoweringContext {
    * предикату, `0x60` — по инверсному. Полярность выводит сопоставление, а не понижение.
    */
   readonly condition?: number;
+  /**
+   * Смещение вызова: на сколько восьмибайтных слов цель `disp` отстоит от **самой команды `disp`**
+   * (она идёт после пересылок аргументов, то есть не по адресу носителя).
+   *
+   * Считает его конвейер: адрес цели — это адрес первой команды вызываемой процедуры, а он известен
+   * только после двухпроходной раскладки. Без него вызов не понижается — с названной причиной.
+   */
+  readonly callDisplacement?: number;
 }
 
 /**
@@ -353,6 +377,72 @@ export function lowerInstruction(instruction: AsmInstruction, context: LoweringC
  * Остальные носители понижаются одной командой — {@link lowerInstruction}.
  */
 export function lowerCarrier(instruction: AsmInstruction, context: LoweringContext = {}): CarrierLoweringResult {
+  // ── Вызов и возврат ─────────────────────────────────────────────────────────
+  //
+  // Соглашение (наше, проверяемое по байтам и дизассемблеру, без исполнения): аргументы кладутся в
+  // `%r(2*wbs + i)` **вызывающего** — вызываемая увидит их как свои `%r0`, `%r1`, потому что индекс
+  // окна считается как `base_d + idx`, а `call` прибавляет `2*wbs` двоичных слов (`reg-index.h:79`,
+  // `e2k_cpu_exec_ct_CALL`). Результат вызываемая оставляет в своём `%r0` — то есть в `%r(2*wbs)`
+  // вызывающего. Окно вызываемой при `wbs = 4` — восемь регистров, и это ИЗМЕРЕНО в модели
+  // (`src/e2k/e2kCallWindowQemu.test.ts`): процедура, которой нужно больше, вызвана быть не может,
+  // и это названо в отчёте (`calleeWindow`), а не замолчано.
+  if (instruction.mnemonic === "IR.call") {
+    const flags = instruction.operands[0];
+    if (flags === undefined || flags.kind !== "imm") {
+      return { ok: false, reason: '«IR.call»: операнд флагов не число — арность вызова неизвестна' };
+    }
+    const argc = flags.value >> 1;
+    const hasDestination = (flags.value & 1) === 1;
+    if (argc > 2) {
+      return { ok: false, reason: `«IR.call»: аргументов ${argc}, носитель несёт не больше двух` };
+    }
+    if (context.callDisplacement === undefined) {
+      return {
+        ok: false,
+        reason:
+          '«IR.call»: не передано смещение вызова — цель это адрес первой команды вызываемой процедуры, ' +
+          'и он известен только после двухпроходной раскладки (src/e2k/twoPassLayout.ts)',
+      };
+    }
+    const instructions: AsmInstruction[] = [];
+    for (let argument = 0; argument < argc; argument++) {
+      const source = instruction.operands[1 + argument];
+      if (source === undefined || source.kind !== "reg") {
+        return { ok: false, reason: `«IR.call»: аргумент ${argument} не в регистре` };
+      }
+      instructions.push(movts(source.index, CALL_WBS * 2 + argument));
+    }
+    instructions.push({ mnemonic: "disp", channel: 0, operands: [imm(1), imm(context.callDisplacement)] });
+    instructions.push({ mnemonic: "call", channel: 0, operands: [imm(1), imm(CALL_WBS)] });
+    if (hasDestination) {
+      const destination = instruction.operands[4];
+      if (destination === undefined || destination.kind !== "reg") {
+        return { ok: false, reason: '«IR.call»: флаг обещает результат, а регистра-приёмника нет' };
+      }
+      instructions.push(movts(CALL_WBS * 2, destination.index));
+    }
+    return { ok: true, instructions };
+  }
+
+  if (instruction.mnemonic === "IR.ret") {
+    const flag = instruction.operands[0];
+    if (flag === undefined || flag.kind !== "imm") {
+      return { ok: false, reason: '«IR.ret»: операнд «есть значение» не число' };
+    }
+    const instructions: AsmInstruction[] = [];
+    if (flag.value === 1) {
+      const value = instruction.operands[1];
+      if (value === undefined || value.kind !== "reg") {
+        return { ok: false, reason: '«IR.ret»: флаг обещает значение, а регистра нет' };
+      }
+      instructions.push(movts(value.index, 0));
+    }
+    // `return %ctpr3`: цель возврата готовит сам `call` (адрес следующей команды), и это приём
+    // соглашения, а не факт: исполнение в порте не подтверждено (§7.10).
+    instructions.push({ mnemonic: "return", channel: 0, operands: [imm(3)] });
+    return { ok: true, instructions };
+  }
+
   // ── Массивы: `IR.invoke` заменяется настоящими обращениями к памяти ─────────────────────────
   //
   // Семантику несёт **имя** вызова (`payload` — индекс в `invokeNames` образа оболочки,
@@ -582,6 +672,39 @@ export interface KernelRealReport {
 }
 
 /**
+ * Смещения вызовов: цель — адрес первой команды вызываемой процедуры, а `disp` идёт ПОСЛЕ пересылок
+ * аргументов, то есть НЕ по адресу носителя.
+ *
+ * Возвращается отображение «индекс носителя → смещение в восьмибайтных словах». Носителя нет в
+ * отображении, если адрес цели неизвестен (вызываемая процедура не размещена) — тогда понижение
+ * откажет с названной причиной, а не выдумает адрес. Функция вынесена отдельно, чтобы её применяли и
+ * конвейер, и оракул раскладки: одна формула в двух местах разошлась бы.
+ */
+export function callDisplacementsOf(
+  instructions: readonly AsmInstruction[],
+  procedures: readonly { readonly name: string; readonly codeOffset: number }[],
+  addresses: ReadonlyMap<number, number>,
+): Map<number, number> {
+  const displacements = new Map<number, number>();
+  instructions.forEach((instruction, index) => {
+    if (instruction.mnemonic !== 'IR.call') return;
+    const payload = instruction.operands[3];
+    if (payload === undefined || payload.kind !== 'imm') return;
+    const callee = procedures[payload.value];
+    const carrierAddress = addresses.get(index);
+    const targetOffset = callee === undefined ? undefined : addresses.get(callee.codeOffset);
+    if (callee === undefined || carrierAddress === undefined || targetOffset === undefined) return;
+    const flags = instruction.operands[0];
+    const argc = flags !== undefined && flags.kind === 'imm' ? flags.value >> 1 : 0;
+    const dispAddress = carrierAddress + argc * REAL_SHORT_FORM_SIZE;
+    const delta = targetOffset - dispAddress;
+    if (delta % REAL_SHORT_FORM_SIZE !== 0) return;
+    displacements.set(index, delta / REAL_SHORT_FORM_SIZE);
+  });
+  return displacements;
+}
+
+/**
  * Совпадают ли понижённая инструкция и разобранная обратно.
  *
  * Делегировано общему {@link sameInstruction}: он сравнивает и **файл регистров**, а `%b[0]` и
@@ -648,6 +771,11 @@ export function runKernelThroughRealEncoding(
     pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),
   );
   const conditionAt = new Map(pairing.pairs.map((pair) => [pair.jumpIndex, pair.condition]));
+  // ── Смещение каждого вызова ─────────────────────────────────────────────────
+  //
+  // Цель вызова — адрес первой команды вызываемой процедуры, а сама команда `disp` идёт ПОСЛЕ
+  // пересылок аргументов. Одна формула на конвейер и на оракул — `callDisplacementsOf`.
+  const callDisplacementAt = callDisplacementsOf(code, allocation.procedures, layout.addresses);
   const refusalAt = new Map<number, string>();
   for (const unplaced of layout.unplaced) refusalAt.set(unplaced.index, unplaced.reason);
   for (const refusal of resolved.refusals) refusalAt.set(refusal.index, refusal.reason);
@@ -667,11 +795,13 @@ export function runKernelThroughRealEncoding(
     const displacement = displacementAt.get(index);
     const predicate = predicateAt.get(index);
     const condition = conditionAt.get(index);
+    const callDisplacement = callDisplacementAt.get(index);
     const lowered = lowerCarrier(code[index]!, {
       ...baseContext,
       ...(displacement === undefined ? {} : { displacement }),
       ...(predicate === undefined ? {} : { predicate }),
       ...(condition === undefined ? {} : { condition }),
+      ...(callDisplacement === undefined ? {} : { callDisplacement }),
     });
     if (!lowered.ok) {
       stat.refused++;
