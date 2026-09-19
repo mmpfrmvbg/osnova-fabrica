@@ -295,8 +295,60 @@ export function verdictOf(report: DefectReport): string[] {
   return problems;
 }
 
+/**
+ * Дефекты **группировки в широкие команды** (шаг 7).
+ *
+ * Проверяется не только «поймано», но и **чем именно**: снятие группировки обязано ловиться
+ * оракулом раскладки (пакетов становится больше), а прогон в QEMU при этом остаётся зелёным —
+ * результат-то не изменился. Нарушение зависимостей, наоборот, обязано ловиться **прогоном**:
+ * модель читает источники широкой команды параллельно (§5.1 `docs/e2k-wide-commands.md`).
+ */
+export const DEFECTS_WIDE: readonly Defect[] = [
+  {
+    // Ловится оракулом раскладки; прогон в QEMU остаётся зелёным — и это правильный результат:
+    // снятие группировки не меняет смысл программы, только число команд.
+    id: '7.1',
+    title: 'группировка снята — команд столько же, сколько инструкций',
+    file: 'src/e2k/widePacker.ts',
+    from: '        : dependent({ reads: groupReads, writes: groupWrites }, registers) ??',
+    to: '        : "ДЕФЕКТ 7.1: группировка снята" ?? //',
+    tests: ['src/e2k/widePackets.test.ts'],
+  },
+  {
+    // Ловится прогоном: зависимые операции в одной команде дают неверный результат (измерено: 5).
+    id: '7.2',
+    title: 'проверка зависимостей снята — зависимые операции в одной команде',
+    file: 'src/e2k/widePacker.ts',
+    from: 'function dependent(a: { reads: string[]; writes: string[] }, b: { reads: string[]; writes: string[] }): string | undefined {',
+    to: 'function dependent(a: { reads: string[]; writes: string[] }, b: { reads: string[]; writes: string[] }): string | undefined {\n  return undefined; // ДЕФЕКТ 7.2: зависимости не проверяются',
+    tests: ['src/e2k/e2kWideQemu.test.ts'],
+    config: 'vitest.qemu.config.ts',
+  },
+  {
+    // Ловится внешней сверкой: два слога в один канал дают команду, которой ассемблер не собирает.
+    id: '7.3',
+    title: 'слоты свалены в один канал — байты расходятся с ассемблером',
+    file: 'src/e2k/widePacker.ts',
+    from: '  const ordered = [...group].sort((a, b) => a.syllable.channel - b.syllable.channel);',
+    to: '  const ordered = [...group].map((slot) => ({ ...slot, syllable: { ...slot.syllable, channel: 0 } })); // ДЕФЕКТ 7.3',
+    tests: ['src/e2k/widePackets.test.ts'],
+  },
+  {
+    // WAR/WAW сняты, RAW на месте: оракул раскладки это видит, прогон — нет (параллельное чтение).
+    id: '7.4',
+    title: 'проверка WAR и WAW снята — осталось только RAW',
+    file: 'src/e2k/widePacker.ts',
+    from: '  const writeWrite = shared(a.writes, b.writes);\n  if (writeWrite.length > 0) return `WAW по ${writeWrite.join(\', \')}`;',
+    to: '  // ДЕФЕКТ 7.4: WAW и WAR не проверяются\n  if (false) return "WAW снят";',
+    tests: ['src/e2k/widePackets.test.ts'],
+  },
+];
+
 /** Прогнать все дефекты, проверить восстановление и записать отчёт. */
-export function runAll(defects: readonly Defect[] = [...DEFECTS, ...DEFECTS_STEP6], work = WORK): DefectReport[] {
+export function runAll(
+  defects: readonly Defect[] = [...DEFECTS, ...DEFECTS_STEP6, ...DEFECTS_WIDE],
+  work = WORK,
+): DefectReport[] {
   const reports: DefectReport[] = [];
   let passed = 0;
   let failed = 0;

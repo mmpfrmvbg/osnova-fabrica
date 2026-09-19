@@ -123,8 +123,14 @@ export const ANCHORS: readonly Anchor[] = [
   // наш кодировщик
   { file: "src/e2k/e2k-real.ts", from: 232, to: 232, contains: "movts", claim: "movts есть в кодировщике" },
   { file: "src/e2k/e2k-real.ts", from: 233, to: 233, contains: "movtd", claim: "movtd есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 799, to: 801, contains: "0xd8", claim: "поля F16/F32/F64" },
-  { file: "src/e2k/e2k-real.ts", from: 812, to: 841, contains: "0xdc", claim: "форма 0xdc реализована (encodeImm64)" },
+  { file: "src/e2k/e2k-real.ts", from: 843, to: 845, contains: "0xd8", claim: "поля F16/F32/F64" },
+  {
+    file: "src/e2k/e2k-real.ts",
+    from: 856,
+    to: 885,
+    contains: "encodeImm64",
+    claim: "форма 0xdc реализована (encodeImm64)",
+  },
 ];
 
 /**
