@@ -54,7 +54,7 @@
  * причиной ({@link secondPass}), а не выдуманный адрес.
  */
 
-import type { AsmInstruction, Operand } from "./backend";
+import type { AsmInstruction, Operand, WideGroupShape } from "./backend";
 import { CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from "./e2k-real";
 import { lowerArrayCall } from "./arrayRuntime";
 
@@ -408,6 +408,69 @@ export function sizeOfCarrier(carrier: string): number | undefined {
   return form.commands.reduce((sum, command) => sum + command.size, 0);
 }
 
+/**
+ * РАЗМЕР ШИРОКОЙ КОМАНДЫ в байтах — по её форме, а не по сумме размеров отдельных команд.
+ *
+ * # Почему не «число слогов × 8»
+ *
+ * Команда e2k — это контейнер, а не набор: её длину задаёт структура
+ * (`src/e2k/widePacker.ts:110-144`, `docs/e2k-wide-commands.md` §2.2, §2.5):
+ *
+ * ```
+ * слова = добивка_до_чётного(1 + N + ceil(ALES / 2))
+ * байт  = слова × 4
+ * ```
+ *
+ * где `1` — заголовочный слог HS, `N` — слоги ALS по 4 байта, `ALES` — полуслоги по 2 байта,
+ * которые делят слово **по двое** (`widePacker.ts:123-127`), а добивка до чётного числа слов — из
+ * `gas/config/tc-e2k.c:9488-9492` (`widePacker.ts:129`).
+ *
+ * Поэтому «N × 8» неверно уже на трёх слогах: `HS + 3 ALS = 4 слова = 16 байт`, а не 24
+ * (`src/e2k/widePackets.test.ts:73-74`). Выравнивание даёт нечётный шаг: 3 и 5 слогов стоят
+ * столько же, сколько 4 и 6.
+ *
+ * Формула сверена с кодировщиком оракулом `src/e2k/packetSize.test.ts`: там числа байт измеряет
+ * сам `packWide`, а не пересказ этой формулы.
+ *
+ * @param slots слогов ALS в команде (не меньше одного)
+ * @param ales сколько из них несут полуслог ALES (длинная форма); не больше `slots`
+ * @throws Error если форма невыразима: ноль слогов, полуслогов больше, чем слогов, либо длина
+ *   вышла за предел поля `lng` (3 бита — 8 слов, `widePacker.ts:133`). Последний случай не
+ *   гипотетический: шесть слогов с двумя и более длинными формами дают 10 слов = 40 байт, и такая
+ *   команда невыразима вовсе. Молча вернуть 40 значило бы отдать раскладке размер, которого у
+ *   команды быть не может.
+ */
+export function sizeOfWideGroup(slots: number, ales: number): number {
+  if (!Number.isInteger(slots) || slots < 1) {
+    throw new Error(`широкая команда: слогов ${String(slots)} — команда без слогов невыразима`);
+  }
+  if (!Number.isInteger(ales) || ales < 0) {
+    throw new Error(`широкая команда: полуслогов ${String(ales)} — число не может быть отрицательным`);
+  }
+  if (ales > slots) {
+    throw new Error(
+      `широкая команда: полуслогов ${ales} больше, чем слогов ${slots} — ` +
+        'полуслог ALES принадлежит слогу ALS и без него не существует',
+    );
+  }
+  // HS + N слогов ALS + слова полуслогов, затем добивка до чётного числа 4-байтовых слогов.
+  const words = 1 + slots + Math.ceil(ales / 2);
+  const padded = words % 2 === 0 ? words : words + 1;
+  if (padded > MAX_WIDE_WORDS) {
+    throw new Error(
+      `широкая команда: ${padded} слов (${padded * 4} байт) при ${slots} слогах и ${ales} длинных — ` +
+        `предел поля lng ${MAX_WIDE_WORDS} слов; форма невыразима (src/e2k/widePacker.ts:133)`,
+    );
+  }
+  return padded * 4;
+}
+
+/**
+ * Предел длины широкой команды в 4-байтовых словах: поле `lng` занимает три бита
+ * (`widePacker.ts:133` — `lng = words / 2 - 1`, маска `0x7`), то есть не больше 8 слов = 32 байта.
+ */
+export const MAX_WIDE_WORDS = 8;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // КОМАНДЫ ПЕРЕХОДА
 // ─────────────────────────────────────────────────────────────────────────────
@@ -462,8 +525,17 @@ export interface LayoutEntry {
   readonly size: number;
   /** Носитель IR. */
   readonly carrier: string;
-  /** Команды в порядке выдачи. */
+  /**
+   * Команды в порядке выдачи.
+   *
+   * У **широкой команды** список пуст: она не разлагается на команды таблицы форм, её размер даёт
+   * {@link sizeOfWideGroup}, а форма лежит в {@link LayoutEntry.wideGroup}. Это не «забыли
+   * заполнить»: пустой список у записи с `wideGroup` — признак того, что размер посчитан по
+   * структуре команды, а не по сумме форм.
+   */
   readonly commands: readonly CommandForm[];
+  /** Форма широкой команды, если эта запись — широкая команда, а не носитель. */
+  readonly wideGroup?: WideGroupShape;
 }
 
 /** Инструкция, которой адрес не присвоен, и почему. */
@@ -510,6 +582,22 @@ export function layoutOf(
   const addresses = new Map<number, number>();
   let offset = 0;
   instructions.forEach((instruction, index) => {
+    // Широкая команда — не носитель и не форма: её размер задаёт структура (HS + слоги + добивка),
+    // и в `CARRIER_FORMS` её нет и быть не может, потому что она собирается из нескольких команд.
+    if (instruction.wideGroup !== undefined) {
+      const size = sizeOfWideGroup(instruction.wideGroup.slots, instruction.wideGroup.ales);
+      entries.push({
+        index,
+        address: offset,
+        size,
+        carrier: instruction.mnemonic,
+        commands: [],
+        wideGroup: instruction.wideGroup,
+      });
+      addresses.set(index, offset);
+      offset += size;
+      return;
+    }
     const { form, reason } = carrierFormWithReason(instruction, context);
     if (form === undefined) {
       // Причина называется своя, если она известна (например, у `IR.invoke` без имён хост-вызовов):

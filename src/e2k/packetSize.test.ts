@@ -42,7 +42,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { packWide, MAX_SLOTS } from './widePacker';
-import { sizeOfWideGroup } from './twoPassLayout';
+import { firstPass, layoutOf, sizeOfCarrier, sizeOfWideGroup } from './twoPassLayout';
 import type { AsmInstruction, Operand } from './backend';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
@@ -173,14 +173,34 @@ describe('размер широкой команды: формула совпа�
 
   it('1.5 размер кратен 4 и не превышает предел поля lng (8 слов = 32 байта)', () => {
     const bad: string[] = [];
+    // Комбинации сверх предела обязаны быть **отказом**, а не числом: 6 слогов с двумя и более
+    // длинными формами дают 10 слов = 40 байт, и такая команда невыразима вовсе.
+    let refusals = 0;
     for (let slots = 1; slots <= MAX_SLOTS; slots++) {
       for (let ales = 0; ales <= slots; ales++) {
-        const size = sizeOfWideGroup(slots, ales);
+        let size: number;
+        try {
+          size = sizeOfWideGroup(slots, ales);
+        } catch {
+          refusals++;
+          continue;
+        }
         if (size % 4 !== 0) bad.push(`${slots}/${ales}: ${size} не кратно 4`);
         if (size > 32) bad.push(`${slots}/${ales}: ${size} больше 32 байт`);
       }
     }
     expect(bad, 'размеры вне диапазона').toEqual([]);
+    // Отказы быть обязаны: если бы их не было вовсе, проверка выше ничего не проверяла бы.
+    expect(refusals, 'отказов на формах сверх предела').toBeGreaterThan(0);
+  });
+
+  it('1.5-б форма сверх предела — названный отказ, а не размер', () => {
+    // Шесть слогов, два длинных: HS + 6 ALS + 1 слово ALES = 8 слов... и ещё одно слово добивки
+    // не нужно; но при трёх длинных уже 10 слов = 40 байт — предела нет.
+    expect(sizeOfWideGroup(6, 0), 'шесть коротких').toBe(32);
+    expect(sizeOfWideGroup(6, 1), 'шесть слогов, один длинный').toBe(32);
+    expect(() => sizeOfWideGroup(5, 5), 'пять длинных').toThrow(/предел поля lng/);
+    expect(() => sizeOfWideGroup(6, 3), 'шесть слогов, три длинных').toThrow(/предел поля lng/);
   });
 
   it('1.6 одиночный слог: короткая форма 8, длинная 16 — как в CARRIER_FORMS', () => {
@@ -201,5 +221,90 @@ describe('размер широкой команды: формула совпа�
     expect(agreements.length, 'совпадений «N × 8» с измерениями').toBeLessThan(PACKET_SIZE_SAMPLES.length);
     // И конкретно: расхождение обязано быть на трёх слогах, где 24 против 16.
     expect(wrong(3), '«N × 8» для трёх слогов').not.toBe(sizeOfWideGroup(3, 0));
+  });
+});
+
+/**
+ * РАСКЛАДКА ПОТОКА С ШИРОКОЙ КОМАНДОЙ (шаг B, задача 2).
+ *
+ * `layoutOf` берёт размер из формы носителя. У широкой команды формы нет — есть структура, и её
+ * размер даёт `sizeOfWideGroup`. Здесь проверяется, что раскладка этим пользуется: адреса не
+ * съезжают, `totalBytes` равен сумме размеров записей, а поток из одних одиночных команд считает
+ * ровно как раньше (обратная совместимость).
+ */
+describe('раскладка: широкая команда получает размер по структуре', () => {
+  /** Инструкция-контейнер: несёт только форму широкой команды. */
+  const wide = (slots: number, ales: number): AsmInstruction => ({
+    mnemonic: 'wide',
+    channel: 0,
+    operands: [],
+    wideGroup: { slots, ales },
+  });
+  /**
+   * Носитель `IR.add` — то, что раскладка умеет размещать (форма ALF1, 8 байт).
+   *
+   * Внимание: `layoutOf` размещает поток **носителей**, поэтому команда `adds` в нём не размещается
+   * вовсе (`unplacedReason`: «не носитель IR»). Фикстуры потока обязаны быть носителями, иначе
+   * проверка адресов мерила бы отказы, а не раскладку.
+   */
+  const carrierAdd = (): AsmInstruction => ({ mnemonic: 'IR.add', channel: 0, operands: [reg(1), reg(2), reg(3)] });
+
+  it('2.1 запись широкой команды получает размер N по структуре, а не 0', () => {
+    const layout = layoutOf([wide(3, 0)]);
+    expect(layout.unplaced.length, 'неразмещённых').toBe(0);
+    expect(layout.entries.length, 'записей').toBe(1);
+    expect(layout.entries[0]!.size, 'размер записи').toBe(sizeOfWideGroup(3, 0));
+    expect(layout.entries[0]!.size, 'три слога').toBe(16);
+    // Список команд пуст осознанно: форма лежит в wideGroup, а не в commands.
+    expect(layout.entries[0]!.commands.length, 'команд таблицы форм').toBe(0);
+    expect(layout.entries[0]!.wideGroup, 'форма команды').toEqual({ slots: 3, ales: 0 });
+  });
+
+  it('2.2 адреса считаются с учётом размера широкой команды', () => {
+    // Носитель 8 байт, затем широкая команда из трёх слогов (16), затем ещё носитель (8).
+    const layout = layoutOf([carrierAdd(), wide(3, 0), carrierAdd()]);
+    expect(layout.unplaced.length, 'неразмещённых').toBe(0);
+    expect(layout.entries.map((entry) => entry.address), 'адреса').toEqual([0, 8, 24]);
+    expect(layout.totalBytes, 'всего байт').toBe(32);
+  });
+
+  it('2.3 totalBytes равен сумме размеров записей, и разложение на команды не врёт', () => {
+    const layout = layoutOf([wide(2, 1), carrierAdd(), wide(6, 0)]);
+    const sum = layout.entries.reduce((total, entry) => total + entry.size, 0);
+    expect(layout.totalBytes, 'totalBytes против суммы size').toBe(sum);
+    // Разложение по командам: у широких записей список пуст, у носителя — одна команда 8 байт.
+    const commandBytes = layout.entries.reduce(
+      (total, entry) => total + entry.commands.reduce((part, command) => part + command.size, 0),
+      0,
+    );
+    expect(commandBytes, 'байт по командам таблицы форм').toBe(8);
+    expect(layout.totalBytes - commandBytes, 'байт, пришедших от широких команд').toBe(
+      sizeOfWideGroup(2, 1) + sizeOfWideGroup(6, 0),
+    );
+  });
+
+  it('2.4 обратная совместимость: поток без широких команд считается как раньше', () => {
+    const carriers = ['IR.add', 'IR.move', 'IR.const', 'IR.mul'];
+    const layout = layoutOf(carriers.map((carrier) => ({ mnemonic: carrier, channel: 0, operands: [] })));
+    const expected = carriers.reduce((sum, carrier) => sum + (sizeOfCarrier(carrier) ?? 0), 0);
+    expect(layout.unplaced.length, 'неразмещённых').toBe(0);
+    expect(layout.totalBytes, 'сумма форм носителей').toBe(expected);
+    expect(layout.entries.every((entry) => entry.wideGroup === undefined), 'ни одной широкой команды').toBe(true);
+  });
+
+  it('2.5 форма сверх предела — отказ раскладки, а не размер', () => {
+    // Шесть слогов и три длинных: 10 слов = 40 байт, команда невыразима. Раскладка обязана
+    // отказать названно, а не посчитать адреса по несуществующей длине.
+    expect(() => layoutOf([wide(6, 3)]), 'форма сверх предела').toThrow(/предел поля lng/);
+  });
+
+  it('2.6 firstPass пользуется тем же размером, что layoutOf', () => {
+    const stream = [carrierAdd(), wide(4, 0), carrierAdd()];
+    const addresses = firstPass(stream);
+    expect([...addresses.entries()], 'адреса первого прохода').toEqual([
+      [0, 0],
+      [1, 8],
+      [2, 32],
+    ]);
   });
 });
