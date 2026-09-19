@@ -45,6 +45,7 @@ import { describe, it, expect } from 'vitest';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import {
   ARRAY_REGISTERS,
+  ARRAY_WINDOW_RSZ,
   arrayPrologue,
   checkArraySequence,
   lowerArrayCall,
@@ -112,14 +113,19 @@ describe('рантайм массивов: последовательности 
 });
 
 describe('рантайм массивов: пролог и контракт регистров', () => {
-  it('пролог задаёт ноль, размер элемента и указатель кучи', () => {
+  it('пролог задаёт ноль, единицу, размер элемента и указатель кучи', () => {
     const prologue = arrayPrologue(0x102000);
-    expect(mnemonics(prologue)).toEqual(['movts', 'movts', 'movtd']);
-    expect(prologue[0]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.zero));
-    expect(prologue[1]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.eight));
-    expect(prologue[2]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.heap));
+    expect(mnemonics(prologue)).toEqual(['setbn', 'movts', 'movts', 'movts', 'movtd']);
+    // Первая команда — `setbn`: она расширяет окно, иначе верхние регистры рантайма не адресуются
+    // (измерено: при `rsz = 5` доступны только `%b[0..11]`, `.tmp/rsz-sweep.ts`).
+    expect(prologue[0]!.mnemonic, 'окно ставится прологом').toBe('setbn');
+    expect(prologue[0]!.operands[0]).toEqual({ kind: 'imm', value: ARRAY_WINDOW_RSZ });
+    expect(prologue[1]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.zero));
+    expect(prologue[2]!.operands[1], 'единица: длина растёт на элемент').toEqual(reg(ARRAY_REGISTERS.one));
+    expect(prologue[3]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.eight));
+    expect(prologue[4]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.heap));
     // Куча — внешняя память, а не литерал: адрес 64-битный (форма 0xdc).
-    expect(prologue[2]!.operands[0]!.kind).toBe('imm64');
+    expect(prologue[4]!.operands[0]!.kind).toBe('imm64');
     for (const instruction of prologue) encoder.encode(instruction);
   });
 

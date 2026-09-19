@@ -78,6 +78,14 @@ export const REAL_CHANNELS = 6;
 /** Максимальный регистр в поле слога: `%r0`…`%r63` (`E2KRegisterInfo.td:23-25`). */
 export const REAL_MAX_REGISTER = 63;
 
+/**
+ * Базовых (глобальных) регистров — **32**: `E2K_RF_GLOB_IDX_MAX = 32` (`qemu/target/e2k/cpu.h:90`).
+ *
+ * Поле слога шире файла (семь бит, `0x00-0x7f` — `opcodes/e2k-dis.c:416-419`), поэтому «выражается
+ * полем» ещё не значит «существует». Измерено: `movts,0 0, %b[60]` в модели даёт исключение.
+ */
+export const BASE_REGISTER_COUNT = 32;
+
 /** Поля заголовочного слога (HS) — `qemu/target/e2k/syllab-format.h:17-29`. */
 const HS = {
   /** `mdl[3:0]` — «средняя точка»: число 4-байтовых слогов до неё минус один. */
@@ -377,6 +385,17 @@ function registerFieldValue(operand: Operand, slot: RealSlot, mnemonic: string):
   if (!Number.isInteger(operand.index) || operand.index < 0 || operand.index > REAL_MAX_REGISTER) {
     throw new EncodingError(
       `«${mnemonic}»: регистр ${String(operand.index)} не выражается полем слога (0..${REAL_MAX_REGISTER})`,
+    );
+  }
+  // Базовый (глобальный) файл — **32** регистра, а не 64: `E2K_RF_GLOB_IDX_MAX = 32`
+  // (`qemu/target/e2k/cpu.h:90`). Поле слога шире файла, поэтому адрес, который «выражается полем»,
+  // может не существовать: измерено — `movts,0 0, %b[60]` в модели даёт
+  // «qemu: exception at IP = …», и прогон кончается статусом 9.
+  // Оконный файл (`%rN`, поле `0x80 | N`) ограничен 64 (`E2K_RF_WIN_IDX_MAX`, `cpu.h:88`).
+  if (registerFileOf(operand) !== "window" && operand.index >= BASE_REGISTER_COUNT) {
+    throw new EncodingError(
+      `«${mnemonic}»: базовых регистров ${BASE_REGISTER_COUNT} (E2K_RF_GLOB_IDX_MAX — qemu/target/e2k/cpu.h:90), ` +
+        `%b[${String(operand.index)}] в модели не существует; для оконных регистров используйте %rN`,
     );
   }
   return (registerFileOf(operand) === "window" ? REGISTER_FILE_WINDOW : 0) | operand.index;

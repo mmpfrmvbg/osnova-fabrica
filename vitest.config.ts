@@ -58,6 +58,8 @@ export default defineConfig({
       '**/e2kWideQemu.test.ts',
       // Память (ld/st) в QEMU — тот же внешний ресурс.
       '**/e2kMemoryQemu.test.ts',
+      // Массивы (память вместо invoke) в QEMU — тот же внешний ресурс.
+      '**/e2kArraysQemu.test.ts',
     ],
   },
 });

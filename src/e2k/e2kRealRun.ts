@@ -64,6 +64,7 @@ import { sameInstruction } from "./backend";
 import { realOpcode, type RealSlot } from "./e2k-real";
 import { JUMP_CARRIER, carrierForm, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
+import { lowerArrayCall } from "./arrayRuntime";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
 import { createDefaultInvokeHandler, type StackValue } from "../runtime/vm/interpreter";
@@ -242,6 +243,12 @@ export interface LoweringContext {
   /** Пул констант модуля (`RegModule.constants`) — нужен носителю `IR.const`. */
   readonly constants?: readonly unknown[];
   /**
+   * Таблица имён хост-вызовов образа оболочки (`ShellImage.invokeNames`) — нужна носителю
+   * `IR.invoke`: его `payload` это **индекс** в этой таблице, а семантику несёт имя
+   * (`система.массив.*`), а не код операции (`src/e2k/emitterShell.ts:255-269`).
+   */
+  readonly invokeNames?: readonly string[];
+  /**
    * Вычисленное смещение перехода в 8-байтных единицах — результат **второго прохода** раскладки
    * (`secondPass`). Без него переход не понижается: смещение — не поле инструкции, а свойство
    * раскладки.
@@ -338,6 +345,55 @@ export function lowerInstruction(instruction: AsmInstruction, context: LoweringC
  * Остальные носители понижаются одной командой — {@link lowerInstruction}.
  */
 export function lowerCarrier(instruction: AsmInstruction, context: LoweringContext = {}): CarrierLoweringResult {
+  // ── Массивы: `IR.invoke` заменяется настоящими обращениями к памяти ─────────────────────────
+  //
+  // Семантику несёт **имя** вызова (`payload` — индекс в `invokeNames` образа оболочки,
+  // `src/e2k/emitterShell.ts:255-269`), а не код операции: в таблице опкодов МЦСТ такой операции
+  // нет. Рантайм массивов (`src/e2k/arrayRuntime.ts`) превращает вызов в `ldd`/`std`; всё, чего он
+  // не умеет (установить, удалить, срез, строки, математика), остаётся отказом с причиной имени.
+  if (instruction.mnemonic === "IR.invoke") {
+    const names = context.invokeNames;
+    if (names === undefined) {
+      return {
+        ok: false,
+        reason:
+          "«IR.invoke»: не передан список имён хост-вызовов (`invokeNames` образа оболочки) — " +
+          "без него `payload` это число, а не операция",
+      };
+    }
+    const payload = instruction.operands[3];
+    const flags = instruction.operands[0];
+    if (payload === undefined || payload.kind !== "imm" || flags === undefined || flags.kind !== "imm") {
+      return { ok: false, reason: "«IR.invoke»: операнды носителя не той формы (ожидались flags и payload числами)" };
+    }
+    const name = names[payload.value];
+    if (name === undefined) {
+      return {
+        ok: false,
+        reason: `«IR.invoke»: в таблице имён нет записи с индексом ${payload.value} (всего имён ${names.length})`,
+      };
+    }
+    const argc = flags.value >> 1;
+    const hasDestination = (flags.value & 1) === 1;
+    const args = [instruction.operands[1], instruction.operands[2]].slice(0, argc);
+    const destination = instruction.operands[4];
+    if (hasDestination && (destination === undefined || destination.kind !== "reg")) {
+      return { ok: false, reason: `«${name}»: у носителя нет регистра-приёмника, а флаг обещает результат` };
+    }
+    try {
+      return {
+        ok: true,
+        instructions: lowerArrayCall(
+          name,
+          args as readonly Operand[],
+          hasDestination ? (destination as { index: number }).index : undefined,
+        ),
+      };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   const comparison = comparisonMnemonicOf(instruction.mnemonic);
   if (comparison !== undefined) {
     const predicate = context.predicate;
