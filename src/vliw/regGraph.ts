@@ -211,7 +211,21 @@ export function buildRegDependencyGraph(
   const uses: number[][] = new Array(n);
 
   const lastDef = new Map<number, number>();
-  const lastUse = new Map<number, number>();
+  /**
+   * Читатели каждого регистра с его **последней** записи.
+   *
+   * Здесь стоял один `lastUse` на регистр, и WAR-ребро строилось только от него. Из-за этого
+   * неупорядоченными с записью оставались все прочие читатели, и планировщик с перестановкой
+   * (`src/vliw/reorderScheduler.ts`) этим пользовался — **не по своей вине: граф был неверен**.
+   *
+   * Измерено (`docs/e2k-array-literals.md`): у массива из трёх литералов `система.массив.длина(a)`
+   * (пишет vreg) выдавалась раньше третьего `добавить` (читает тот же vreg), `%b[1]` хранил ДЛИНУ,
+   * и следующая команда рантайма читала память по адресу 2 — ловушка 0x100110 на команде #33.
+   * В графе были рёбра `0→9` (WAW) и `7→9` (WAR от последнего читателя), а `6→9` отсутствовало.
+   * После правки: `6→9` есть, программа `[1,2,3]` возвращает **3** вместо ловушки, и ни один
+   * закреплённый замер не меняется (0 из 2424, замер `.tmp/war-graph-experiment.ts`).
+   */
+  const readersSinceDef = new Map<number, number[]>();
   let lastEffect: number | undefined;
 
   const addEdge = (from: number, to: number): void => {
@@ -237,10 +251,10 @@ export function buildRegDependencyGraph(
       const prev = lastDef.get(def);
       if (prev !== undefined) addEdge(prev, i);
     }
-    // WAR: читатели должны успеть до перезаписи.
+    // WAR: читатели должны успеть до перезаписи — от КАЖДОГО читателя с последней записи,
+    // а не только от последнего: иначе перестановка выносит запись над чтением (см. выше).
     if (def !== undefined) {
-      const reader = lastUse.get(def);
-      if (reader !== undefined && lastDef.get(def) !== reader) addEdge(reader, i);
+      for (const reader of readersSinceDef.get(def) ?? []) addEdge(reader, i);
     }
 
     const isPureCall = ins.op === "call" && options.callPure?.(ins.fi) === true;
@@ -249,8 +263,16 @@ export function buildRegDependencyGraph(
       lastEffect = i;
     }
 
-    if (def !== undefined) lastDef.set(def, i);
-    for (const r of use) lastUse.set(r, i);
+    if (def !== undefined) {
+      lastDef.set(def, i);
+      // Запись закрывает список читателей: следующий WAR считается от читателей уже этого значения.
+      readersSinceDef.set(def, []);
+    }
+    for (const r of use) {
+      const list = readersSinceDef.get(r) ?? [];
+      if (!list.includes(i)) list.push(i);
+      readersSinceDef.set(r, list);
+    }
   }
 
   return { nodes: n, edges, preds, defs, uses };

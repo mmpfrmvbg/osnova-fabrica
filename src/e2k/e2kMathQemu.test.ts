@@ -105,8 +105,12 @@ function exitCodeOf(source: string, file: string): { code?: number; refused: rea
     bytes.set(chunk, offset);
     offset += chunk.length;
   }
-  fs.writeFileSync(path.join(ROOT, '.tmp', file), buildElfFromCode(bytes, MINIMAL_BASE).bytes);
-  const run = runInQemu(path.join(ROOT, '.tmp', file), { shim: true, timeoutMs: 20_000 });
+  // Имя файла — своё у каждого процесса: общий `.tmp`-файл может держать убитый по таймауту QEMU,
+  // и следующая запись упадёт с «UNKNOWN: unknown error, open …» (случай 16 реестра проверяемости:
+  // проверки делили один изменяемый артефакт).
+  const path0 = path.join(ROOT, '.tmp', `${file.replace(/\.elf$/, '')}-${String(process.pid)}.elf`);
+  fs.writeFileSync(path0, buildElfFromCode(bytes, MINIMAL_BASE).bytes);
+  const run = runInQemu(path0, { shim: true, timeoutMs: 20_000 });
   if ((run?.output ?? '').includes('exception')) return { refused };
   return { code: run?.guestExitCode ?? run?.status ?? undefined, refused };
 }

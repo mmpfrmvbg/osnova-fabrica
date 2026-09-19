@@ -65,9 +65,9 @@ function sourceOf(first: number, second: number): string {
  * `IR.ret` в понижении **не участвует** (возврата процедуры в e2k-бэкенде ещё нет): его регистр
  * читается, и значение уходит в код возврата `exit` — так результат виден снаружи.
  */
-function programBytes(first: number, second: number, heapAddress: number): { bytes: Uint8Array; carriers: number; refused: string[] } {
-  const built = regModuleOf(sourceOf(first, second));
-  if (built === null) throw new Error('программа с массивами не компилируется');
+function programBytes(source: string, heapAddress: number): { bytes: Uint8Array; carriers: number; refused: string[] } {
+  const built = regModuleOf(source);
+  if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
@@ -125,9 +125,25 @@ function programBytes(first: number, second: number, heapAddress: number): { byt
   return { bytes, carriers: emitted.instructions.length, refused };
 }
 
-function exitCodeOf(first: number, second: number, file: string): number | undefined {
+/**
+ * Источник программы с массивом из ЛИТЕРАЛОВ. Служит оракулом к правке WAR-рёбер
+ * (`src/vliw/regGraph.ts`): при трёх и более литералах планировщик выносил чтение длины над третьим
+ * `добавить`, и рантайм читал память по адресу-длине (ловушка 0x100110 на команде #33, измерено
+ * `docs/e2k-array-literals.md`). Два литерала работали и до правки — поэтому нужны оба случая.
+ */
+function literalSource(values: readonly number[]): string {
+  return [
+    'модуль ПробаМассивЛитералов',
+    'процедура главная()',
+    `  пусть a = [${values.join(', ')}]`,
+    '  вернуть система.массив.длина(a)',
+    'конец',
+  ].join('\n');
+}
+
+function exitCodeOf(source: string, file: string): number | undefined {
   const heap = MINIMAL_BASE + HEAP_OFFSET;
-  const { bytes, refused } = programBytes(first, second, heap);
+  const { bytes, refused } = programBytes(source, heap);
   // Отказов быть не должно: единственный носитель, который не понижается, — `IR.ret`, он пропущен.
   expect(refused, `непонижённые носители: ${refused.join('; ')}`).toEqual([]);
   fs.writeFileSync(
@@ -150,7 +166,7 @@ describe('массивы в модели: настоящие обращения 
 
   it('различающий опыт: элементы 5 и 7 — читаем индекс 1 и получаем 7', () => {
     if (shim === undefined) return;
-    const code = exitCodeOf(5, 7, 'e2k-array-57.elf');
+    const code = exitCodeOf(sourceOf(5, 7), 'e2k-array-57.elf');
     if (code === undefined) {
       expect(code, 'QEMU не запустился — причина названа в оракуле прогона (e2kQemuExec.test.ts)').toBeDefined();
       return;
@@ -160,11 +176,34 @@ describe('массивы в модели: настоящие обращения 
 
   it('порядок другой — и результат другой: элементы 7 и 5 дают 5', () => {
     if (shim === undefined) return;
-    const code = exitCodeOf(7, 5, 'e2k-array-75.elf');
+    const code = exitCodeOf(sourceOf(7, 5), 'e2k-array-75.elf');
     if (code === undefined) {
       expect(code, 'QEMU не запустился').toBeDefined();
       return;
     }
     expect(code, 'второй добавленный элемент (5) — значит порядок взят из памяти, а не из литерала').toBe(5);
+  });
+
+  it('массив из ТРЁХ литералов строится: длина = 3', () => {
+    if (shim === undefined) return;
+    // До правки WAR-рёбер (`src/vliw/regGraph.ts`) здесь была ловушка 0x100110 на команде #33:
+    // планировщик выносил чтение длины над третьим `добавить`, и рантайм читал память по адресу-длине
+    // (измерено `docs/e2k-array-literals.md`). Два литерала проходили и прежде — исход различающий.
+    const code = exitCodeOf(literalSource([1, 2, 3]), 'e2k-array-literal-3.elf');
+    if (code === undefined) {
+      expect(code, 'модель не довела программу до выхода (до правки здесь была ловушка)').toBeDefined();
+      return;
+    }
+    expect(code, 'длина массива из трёх литералов').toBe(3);
+  });
+
+  it('массив из ЧЕТЫРЁХ литералов строится: длина = 4', () => {
+    if (shim === undefined) return;
+    const code = exitCodeOf(literalSource([1, 2, 3, 4]), 'e2k-array-literal-4.elf');
+    if (code === undefined) {
+      expect(code, 'модель не довела программу до выхода').toBeDefined();
+      return;
+    }
+    expect(code, 'длина массива из четырёх литералов').toBe(4);
   });
 });

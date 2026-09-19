@@ -189,13 +189,14 @@ describe('свёртка: правка источника плюс встраи�
     if (shim === undefined) return;
     const built = buildImage(INLINE_CONVOLUTION);
     expect(built.refused, `непонижённые носители: ${built.refused.join('; ')}`).toEqual([]);
-    fs.writeFileSync(
-      path.join(ROOT, '.tmp', 'e2k-convolution-inline.elf'),
-      buildElfFromCode(built.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes,
-    );
+    // Имя файла — своё у каждого процесса: общий `.tmp`-файл держит убитый по таймауту QEMU, и
+    // следующая запись падает с «UNKNOWN: unknown error, open …» (тот же класс, что случай 16
+    // реестра проверяемости: проверки делили один изменяемый артефакт).
+    const elf = path.join(ROOT, '.tmp', `e2k-convolution-inline-${String(process.pid)}.elf`);
+    fs.writeFileSync(elf, buildElfFromCode(built.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes);
     // Бюджет прогона короткий намеренно: здесь важно отличить «модель считает» от «модель встала»
     // (то же решение, что в `docs/e2k-setwd-memory.md` §2), а не измерить время.
-    const run = runInQemu(path.join(ROOT, '.tmp', 'e2k-convolution-inline.elf'), { shim: true, timeoutMs: 10_000 });
+    const run = runInQemu(elf, { shim: true, timeoutMs: 10_000 });
     const value = (run?.output ?? '').includes('exception') ? undefined : (run?.guestExitCode ?? run?.status ?? undefined);
     if (value === 90) {
       // Если раскладка циклов когда-нибудь станет звуковой (долг §3.20), это надо УВИДЕТЬ здесь:
