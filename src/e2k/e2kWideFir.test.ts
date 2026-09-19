@@ -32,7 +32,7 @@ import { regModuleOf } from '../vliw/regOracle';
 import { layoutOf, secondPass } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
 import { lowerCarrier, type LoweringContext } from './e2kRealRun';
-import { packWide, wideStats } from './widePacker';
+import { wideStats } from './widePacker';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const KERNELS_DIR = path.join(ROOT, 'tests', 'dsp', 'kernels');
