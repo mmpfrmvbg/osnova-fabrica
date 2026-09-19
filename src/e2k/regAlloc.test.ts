@@ -77,11 +77,11 @@ function firProcedure(name: string): AsmInstruction[] {
 }
 
 describe('liveness: интервалы жизни', () => {
-  it('1.1 интервал = от определения до последнего чтения', () => {
+  it('1.1 интервал = от первого определения до последнего чтения', () => {
     // 0: const v0 = 5
-    // 1: move v1 = v0      (v0 жив здесь)
-    // 2: const v0 = 7      (v0 переопределён: интервал кончается на 1)
-    // 3: use   v0 (add v2 = v1 + v0)  → новый интервал v0: [2, 3]
+    // 1: move v1 = v0      (v0 читается здесь)
+    // 2: const v0 = 7      (v0 переопределён)
+    // 3: add  v2 = v1 + v0 (v0 и v1 читаются здесь — последнее чтение обоих)
     const program = [
       carrier('IR.const', [reg(0), imm(5), imm(0)]),
       carrier('IR.move', [reg(1), reg(0)]),
@@ -89,14 +89,14 @@ describe('liveness: интервалы жизни', () => {
       carrier('IR.add', [reg(2), reg(1), reg(0)]),
     ];
     const { intervals } = liveIntervalsOf(program);
-    // v0 дважды определён → два интервала; v1 — один.
-    const v0 = intervals.filter((interval) => interval.vreg === 0);
-    expect(v0.map((interval) => [interval.start, interval.end]), 'два интервала v0').toEqual([
-      [0, 1],
-      [2, 3],
-    ]);
-    const v1 = intervals.filter((interval) => interval.vreg === 1);
-    expect(v1.map((interval) => [interval.start, interval.end])).toEqual([[1, 3]]);
+    // Постановка §2.2: один интервал на vreg, от первого определения до последнего чтения.
+    // Переопределение на шаге 2 интервал НЕ разрывает: переименования значений (SSA) в этом слое
+    // нет, и раскладка обязана выражаться отображением «vreg → регистр».
+    const byVreg = new Map(intervals.map((interval) => [interval.vreg, interval]));
+    expect(byVreg.get(0), 'v0').toEqual({ vreg: 0, start: 0, end: 3 });
+    expect(byVreg.get(1), 'v1').toEqual({ vreg: 1, start: 1, end: 3 });
+    expect(byVreg.get(2), 'v2').toEqual({ vreg: 2, start: 3, end: 3 });
+    expect(intervals.length, 'один интервал на vreg').toBe(3);
   });
 
   it('1.6 негативный контроль: чтение после «конца» расширяет интервал', () => {
@@ -121,8 +121,9 @@ describe('liveness: интервалы жизни', () => {
       def: [8],
       use: [6, 7],
     });
-    expect(defUseOf(carrier('IR.invoke', [imm(0b100), reg(6), reg(7), imm(0), reg(8)]))).toEqual({
-      def: [],
+    // flags = 0b011: приёмник есть (бит 0), аргументов ОДИН (0b011 >> 1 = 1).
+    expect(defUseOf(carrier('IR.invoke', [imm(0b011), reg(6), reg(7), imm(0), reg(8)]))).toEqual({
+      def: [8],
       use: [6],
     });
   });
@@ -140,8 +141,8 @@ describe('linear scan: раскладка по интервалам', () => {
     const result = allocateRegisters(intervals);
     expect(result.ok, result.ok ? '' : result.reason).toBe(true);
     if (!result.ok) return;
-    expect(result.allocation.get(0), 'v0').not.toBe(result.allocation.get(1));
-    expect(result.allocation.get(0)).not.toBe(result.allocation.get(2));
+    expect(result.allocation.assignment.get(0), 'v0').not.toBe(result.allocation.assignment.get(1));
+    expect(result.allocation.assignment.get(0)).not.toBe(result.allocation.assignment.get(2));
   });
 
   it('непересекающиеся интервалы переиспользуют один регистр', () => {
@@ -151,7 +152,7 @@ describe('linear scan: раскладка по интервалам', () => {
     const result = allocateRegisters(intervals);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.allocation.get(0)).toBe(result.allocation.get(1));
+    expect(result.allocation.assignment.get(0)).toBe(result.allocation.assignment.get(1));
   });
 
   it('1.4 заняты только %b[0..9]: регистры рантайма не трогаются', () => {
@@ -161,7 +162,7 @@ describe('linear scan: раскладка по интервалам', () => {
     const result = allocateRegisters(intervals);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    for (const physical of result.allocation.values()) {
+    for (const physical of result.allocation.assignment.values()) {
       expect(ALLOCATABLE_REGISTERS, `регистр %b[${physical}] вне разрешённых`).toContain(physical);
       expect(RESERVED_REGISTERS, `регистр %b[${physical}] занят рантаймом массивов`).not.toContain(physical);
     }
@@ -193,21 +194,21 @@ describe('раскладка FIR: 17 vreg в 10 свободных регист�
   const filter = firProcedure('фильтр');
   const liveness = liveIntervalsOf(filter);
 
-  it('измерено: интервалов 15, пик одновременной жизни 12', () => {
+  it('измерено: интервалов 17 (по одному на vreg), пик одновременной жизни 13', () => {
     // Это измерение, а не ожидание: оно и решает, влезает ли 17 vreg'ов в 10 регистров.
-    expect(liveness.intervals.length, 'интервалов у фильтра').toBe(15);
-    expect(liveness.peak, 'пик одновременно живых').toBe(12);
+    expect(liveness.intervals.length, 'интервалов у фильтра — по одному на vreg').toBe(17);
+    expect(liveness.peak, 'пик одновременно живых — больше десяти свободных').toBe(13);
   });
 
   it('1.3 раскладка либо удаётся, либо отказ называет причину и конфликты', () => {
     const result = allocateRegisters(liveness.intervals);
     if (result.ok) {
       // Удалась — проверяем, что она действительно корректна.
-      for (const physical of result.allocation.values()) {
+      for (const physical of result.allocation.assignment.values()) {
         expect(ALLOCATABLE_REGISTERS).toContain(physical);
       }
       const byRegister = new Map<number, number[]>();
-      for (const [vreg, physical] of result.allocation) {
+      for (const [vreg, physical] of result.allocation.assignment) {
         byRegister.set(physical, [...(byRegister.get(physical) ?? []), vreg]);
       }
       for (const [physical, vregs] of byRegister) {
@@ -238,10 +239,11 @@ describe('раскладка FIR: 17 vreg в 10 свободных регист�
       [5, 7],
     ]);
     const applied = applyAllocation([carrier('IR.move', [reg(0), reg(5)]), carrier('IR.const', [reg(9), imm(1), imm(0)])], allocation);
-    expect(applied[0]!.operands[0]).toEqual(reg(3));
-    expect(applied[0]!.operands[1]).toEqual(reg(7));
+    expect(applied.instructions[0]!.operands[0]).toEqual(reg(3));
+    expect(applied.instructions[0]!.operands[1]).toEqual(reg(7));
     // Не отображённая vreg остаётся как есть — но это видно, а не молчание: функция обязана
     // возвращать список неотображённых в отдельном поле.
-    expect(applied[1]!.operands[0]).toEqual(reg(9));
+    expect(applied.instructions[1]!.operands[0]).toEqual(reg(9));
+    expect(applied.unmapped, 'неотображённые названы').toEqual([9]);
   });
 });
