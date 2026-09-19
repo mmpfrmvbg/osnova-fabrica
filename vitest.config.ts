@@ -62,6 +62,10 @@ export default defineConfig({
       '**/e2kArraysQemu.test.ts',
       // Окно вызываемой процедуры и `return`: измеряется прогоном в QEMU — тот же случай 12.
       '**/e2kCallWindowQemu.test.ts',
+      // Рантайм остатка: исполнение в модели — тот же внешний ресурс.
+      '**/e2kMathQemu.test.ts',
+      // Свёртка (правка источника + встраивание): прогон в модели — тот же внешний ресурс.
+      '**/e2kConvolutionQemu.test.ts',
     ],
   },
 });
