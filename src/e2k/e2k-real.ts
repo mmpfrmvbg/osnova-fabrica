@@ -212,6 +212,14 @@ const LONG_CHANNELS: readonly number[] = [0, 1, 3, 4];
 /** Каналы памяти: `ld*` — `{1, 0, 1, 1, 0, 1}`, `st*` — `{0, 0, 1, 0, 0, 1}` (`opcodes/e2k-opc.h:604-619`, `:969-984`). */
 const LOAD_CHANNELS: readonly number[] = [0, 2, 3, 5];
 const STORE_CHANNELS: readonly number[] = [2, 5];
+/**
+ * Каналы деления и остатка: `{0, 0, 0, 0, 0, 1}` — **только пятый**.
+ *
+ * Так в таблице МЦСТ у всех восьми форм (`opcodes/e2k-opc.h:39-74`), и это не мелочь: попытка положить
+ * `sdivs` в другой канал — отказ, а не молчаливая запись бита. Руководство (§10.3.3) и язык ассемблера
+ * говорят то же: канал пишется явно, пример — `sdivs,5 %g17, %g16, %g16`.
+ */
+const DIVISION_CHANNELS: readonly number[] = [5];
 
 /**
  * Таблица кодируемых операций.
@@ -233,6 +241,20 @@ export const REAL_OPCODES: readonly RealOpcodeEntry[] = [
   { mnemonic: "addd", opc: 0x11, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:24 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:24", formSource: ALF1_SOURCE },
   { mnemonic: "subs", opc: 0x12, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:29 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:29", formSource: ALF1_SOURCE },
   { mnemonic: "subd", opc: 0x13, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:34 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:34", formSource: ALF1_SOURCE },
+  // ── Деление и остаток: раздел 10.3.3 руководства МЦСТ, ALOPF1, канал ТОЛЬКО пятый ──────────────
+  //
+  // `UDIVX`/`SDIVX`/`UMODX`/`SMODX` — деление 64/32→32 (расширенное делимое), `*s`/`*d` — 32/32→32 и
+  // 64/64→64. Остаток имеет знак делимого; нецелые частные отсекаются. Байты сверены с ассемблером
+  // МЦСТ (`as-new -mcpu=elbrus-v5`, `.tmp/div-forms.ts`) и пришпилены в
+  // `src/e2k/e2kDivisionForms.test.ts`.
+  { mnemonic: "udivs", opc: 0x40, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:59 (ARGS_SSS)", channels: DIVISION_CHANNELS, source: "opcodes/e2k-opc.h:59", formSource: ALF1_SOURCE },
+  { mnemonic: "udivd", opc: 0x41, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:64 (ARGS_DDD)", channels: DIVISION_CHANNELS, source: "opcodes/e2k-opc.h:64", formSource: ALF1_SOURCE },
+  { mnemonic: "sdivs", opc: 0x42, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:69 (ARGS_SSS)", channels: DIVISION_CHANNELS, source: "opcodes/e2k-opc.h:69", formSource: ALF1_SOURCE },
+  { mnemonic: "sdivd", opc: 0x43, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:74 (ARGS_DDD)", channels: DIVISION_CHANNELS, source: "opcodes/e2k-opc.h:74", formSource: ALF1_SOURCE },
+  { mnemonic: "udivx", opc: 0x44, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "S", "S"], argsSource: "opcodes/e2k-opc.h:39 (ARGS_DSS)", channels: DIVISION_CHANNELS, source: "opcodes/e2k-opc.h:39", formSource: ALF1_SOURCE },
+  { mnemonic: "umodx", opc: 0x45, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "S", "S"], argsSource: "opcodes/e2k-opc.h:44 (ARGS_DSS)", channels: DIVISION_CHANNELS, source: "opcodes/e2k-opc.h:44", formSource: ALF1_SOURCE },
+  { mnemonic: "sdivx", opc: 0x46, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "S", "S"], argsSource: "opcodes/e2k-opc.h:49 (ARGS_DSS)", channels: DIVISION_CHANNELS, source: "opcodes/e2k-opc.h:49", formSource: ALF1_SOURCE },
+  { mnemonic: "smodx", opc: 0x47, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "S", "S"], argsSource: "opcodes/e2k-opc.h:54 (ARGS_DSS)", channels: DIVISION_CHANNELS, source: "opcodes/e2k-opc.h:54", formSource: ALF1_SOURCE },
   { mnemonic: "scls", opc: 0x14, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:159 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:159", formSource: ALF1_SOURCE },
   { mnemonic: "scld", opc: 0x15, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:164 (ARGS_DDD)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:164", formSource: ALF1_SOURCE },
   { mnemonic: "shls", opc: 0x18, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:139 (ARGS_SSS)", channels: ALL_CHANNELS, source: "opcodes/e2k-opc.h:139", formSource: ALF1_SOURCE },

@@ -41,7 +41,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { EncodingRefusedError, getEncoder, type AsmInstruction, type Operand } from './backend';
+import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { REAL_OPCODES, realOpcode } from './e2k-real';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 
@@ -127,18 +127,28 @@ describe('формы деления и остатка: из источника',
 
   it('канал, кроме пятого, — отказ: в таблице МЦСТ форма живёт только в пятом', () => {
     for (const channel of [0, 1, 2, 3, 4]) {
+      // Форма отказа — как у остальных форм проекта («запрещён источником», `channelOf` в
+      // `src/e2k/e2k-real.ts`): каналы берутся из `allowed_channels` таблицы МЦСТ, а не выбираются нами.
       expect(
         () => encoder.encode({ ...instructionOf(FORMS[0]!), channel }),
         `sdivs в канале ${channel} обязан быть отвергнут`,
-      ).toThrow(EncodingRefusedError);
+      ).toThrow(/запрещён источником/);
     }
+    expect(() => encoder.encode(instructionOf(FORMS[0]!)), 'пятый канал разрешён').not.toThrow();
   });
 
-  it('чужая разрядность — отказ, а не молчаливая подстановка', () => {
-    // `sdivs` требует S-операнды: с 64-битным приёмником кодировать нельзя.
-    expect(() =>
-      encoder.encode({ mnemonic: 'sdivs', channel: 5, operands: [reg(2), reg(3), dreg(4)] }),
-    ).toThrow();
+  it('разрядность операндов — из источника: `S` одиночный, `D` двойной (ARGS_*)', () => {
+    // Здесь стояла проверка «кодировщик отвергает чужую разрядность» — и она оказалась НЕВЕРНА по
+    // существу: поле регистра в слоге одно, а `S`/`D` описывают ширину, которую подразумевает КОД
+    // операции (`%b[N]` и `%db[N]` — один и тот же номер, `opcodes/e2k-dis.c:417,454`). Проверять в
+    // кодировщике нечего; проверяется верность ИЗВЛЕЧЕНИЯ: формат каждого операнда совпадает с
+    // `ARGS_*` записи таблицы МЦСТ.
+    for (const form of FORMS) {
+      const entry = REAL_OPCODES.find((item) => item.mnemonic === form.mnemonic);
+      expect(entry, `${form.mnemonic}: нет записи`).toBeDefined();
+      expect(entry!.argFormats, `${form.mnemonic}: разрядность операндов`).toEqual(form.formats);
+      expect(entry!.argsSource, `${form.mnemonic}: источник разрядности`).toContain(`ARGS_${form.formats.join('')}`);
+    }
   });
 
   it('ассемблер МЦСТ собирает те же тексты — и его байты те же (живая сверка)', () => {
