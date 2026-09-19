@@ -26,9 +26,15 @@
 
 import { describe, it, expect } from 'vitest';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
-import { packWide, wideStats } from './widePacker';
+import { packWide, wideStats, wideBytes } from './widePacker';
+import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
+import { hexOf } from '../scripts/e2kWideCommands.audit.test';
 
 const encoder = getEncoder('e2k');
+
+/** Байты → hex: тот же формат, что в документе и отчётах. */
+const hexOf = (bytes: Uint8Array): string =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(' ');
 
 const reg = (index: number, file?: 'base' | 'window'): Operand =>
   file === undefined ? { kind: 'reg', index } : { kind: 'reg', index, file };
@@ -112,10 +118,20 @@ describe('группировка: зависимости', () => {
   });
 
   it('зависимость по регистру окна учитывается так же, как по базовому', () => {
-    // b3 (базовый) и r3 (оконный) — разные регистры: паковать можно.
-    expect(packWide([add(1, 2, 3), add(3, 2, 9, 'window')]).length, 'разные файлы регистров').toBe(1);
-    // Один и тот же оконный регистр — нельзя.
-    expect(packWide([add(1, 2, 9, 'window'), add(9, 2, 10, 'window')]).length, 'тот же оконный').toBe(2);
+    // Оконные r1/r2/r9 и базовые b1/b2/b9 — разные регистры: паковать можно.
+    const windowAdd = (src1: number, src2: number, dst: number): AsmInstruction => ({
+      mnemonic: 'adds',
+      channel: 0,
+      operands: [reg(src1, 'window'), reg(src2, 'window'), reg(dst, 'window')],
+    });
+    expect(packWide([add(1, 2, 3), windowAdd(1, 2, 9)]).length, 'разные файлы регистров').toBe(1);
+    // Один и тот же оконный регистр: вторая читает то, что пишет первая, — RAW.
+    expect(packWide([windowAdd(1, 2, 9), windowAdd(9, 2, 10)]).length, 'тот же оконный').toBe(2);
+    // И базовый b3 не «тот же», что оконный r3: чтение оконного r3 не зависит от записи базового b3.
+    expect(
+      packWide([add(1, 2, 3), { mnemonic: 'adds', channel: 0, operands: [reg(3, 'window'), reg(2), reg(9)] }]).length,
+      'базовый против оконного',
+    ).toBe(1);
   });
 });
 
@@ -143,6 +159,81 @@ describe('группировка: что не группируется', () => {
   });
 });
 
+describe('группировка: внешняя сверка с ассемблером МЦСТ', () => {
+  /** Ассемблерный текст набора: пакеты так, как их назначил группировщик. */
+  const asTextOf = (instructions: readonly AsmInstruction[]): string => {
+    const lines: string[] = [];
+    for (const packet of packWide(instructions)) {
+      const text = (slot: { instruction: AsmInstruction; channel: number }): string =>
+        `${slot.instruction.mnemonic},${slot.channel} ` +
+        slot.instruction.operands
+          .map((operand) => (operand.kind === 'reg' ? `%b[${operand.index}]` : '<не регистр>'))
+          .join(', ');
+      if (packet.slots.length === 1) {
+        lines.push(text(packet.slots[0]!));
+        continue;
+      }
+      lines.push('{');
+      for (const slot of packet.slots) lines.push(text(slot));
+      lines.push('}');
+    }
+    return lines.join('\n');
+  };
+
+  const CASES: ReadonlyArray<{ key: string; instructions: AsmInstruction[] }> = [
+    { key: 'add+add', instructions: [add(1, 2, 3), add(4, 5, 6)] },
+    { key: 'add+add+add', instructions: [add(1, 2, 3), add(4, 5, 6), add(7, 8, 9)] },
+    {
+      key: 'add+sub',
+      instructions: [add(1, 2, 3), { mnemonic: 'subs', channel: 0, operands: [reg(4), reg(5), reg(6)] }],
+    },
+    { key: 'mul+mul (ALES делят слово)', instructions: [mul(1, 2, 3), mul(4, 5, 6)] },
+    { key: 'mul+add', instructions: [mul(1, 2, 3), add(4, 5, 6)] },
+    { key: 'mul+mul+add', instructions: [mul(1, 2, 3), mul(4, 5, 6), add(7, 8, 9)] },
+  ];
+
+  it('байты группировщика совпадают с ассемблером побайтово — или причина названа', () => {
+    const { tool, reason } = findExternalAs();
+    if (tool === undefined) {
+      expect(reason, 'причина недоступности ассемблера не названа').toBeDefined();
+      expect(reason!.length).toBeGreaterThan(20);
+      return;
+    }
+    const samples: AsSample[] = CASES.map((item, index) => ({
+      key: item.key,
+      mnemonic: 'adds',
+      channel: index,
+      form: 'ALF1',
+      asText: asTextOf(item.instructions),
+      instruction: item.instructions[0]!,
+      source: 'src/e2k/widePackets.test.ts',
+    }));
+    const results = assembleAll(samples);
+    const problems: string[] = [];
+    CASES.forEach((item, index) => {
+      const result = results[index]!;
+      const ours = hexOf(wideBytes(packWide(item.instructions)));
+      if (!result.ok) {
+        problems.push(`«${item.key}»: ассемблер отказал — ${result.error}`);
+        return;
+      }
+      const theirs = hexOf(result.bytes);
+      if (ours !== theirs) problems.push(`«${item.key}»: наши ${ours}, ассемблер ${theirs}`);
+    });
+    expect(problems, problems.join('; ')).toEqual([]);
+  });
+
+  it('негативный контроль сверки: подмена байтов расхождение показывает', () => {
+    // Сверка сравнивает hex, поэтому подменённые байты обязаны дать расхождение — иначе она
+    // сравнивала бы что-то другое.
+    const packets = packWide([add(1, 2, 3), add(4, 5, 6)]);
+    const ours = hexOf(wideBytes(packets));
+    const mutated = new Uint8Array(wideBytes(packets));
+    mutated[0] = (mutated[0]! ^ 0xff) & 0xff;
+    expect(hexOf(mutated)).not.toBe(ours);
+  });
+});
+
 describe('группировка: замер', () => {
   it('счёт команд и байтов: линейно против пакетов', () => {
     const instructions = [add(1, 2, 3), add(4, 5, 6), add(7, 8, 9), mul(10, 11, 12)];
@@ -150,5 +241,15 @@ describe('группировка: замер', () => {
     expect(stats.linearCommands, 'команд линейно').toBe(4);
     expect(stats.packets, 'пакетов').toBeLessThan(4);
     expect(stats.bytesWide, 'байт в пакетах').toBeLessThanOrEqual(stats.bytesLinear);
+    expect(stats.refused, 'отказов кодировщика').toBe(0);
+  });
+
+  it('замер не падает на инструкции, которую кодировщик отвергает, а считает её', () => {
+    // Носитель `IR.*` одиночный кодировщик отвергает — замер обязан назвать это числом, а не
+    // упасть: иначе замер по потоку ядра невозможен (там 131 такой носитель).
+    const carrier: AsmInstruction = { mnemonic: 'IR.invoke', channel: 0, operands: [reg(1), reg(2)] };
+    const stats = wideStats([add(1, 2, 3), carrier]);
+    expect(stats.refused, 'отказов кодировщика').toBe(1);
+    expect(stats.linearCommands).toBe(2);
   });
 });

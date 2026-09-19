@@ -242,6 +242,8 @@ export interface WideStats {
   readonly bytesWide: number;
   /** Сколько инструкций реально уехало в команды из двух и более слогов. */
   readonly packedSlots: number;
+  /** Сколько инструкций одиночный кодировщик **отказался** кодировать (носители `IR.*`). */
+  readonly refused: number;
   /** Отказы группировки: мнемоника → причина. */
   readonly refusals: ReadonlyMap<string, string>;
 }
@@ -249,7 +251,17 @@ export interface WideStats {
 /** Посчитать замер по списку инструкций одной процедуры. */
 export function wideStats(instructions: readonly AsmInstruction[]): WideStats {
   const packets = packWide(instructions);
-  const bytesLinear = instructions.reduce((sum, instruction) => sum + encoder.encode(instruction).length, 0);
+  // Отказ одиночного кодировщика — не исключение для замера: инструкция без кодировки считается
+  // отдельно, иначе замер падал бы на первом же носителе `IR.*` вместо того, чтобы его назвать.
+  let bytesLinear = 0;
+  let refused = 0;
+  for (const instruction of instructions) {
+    try {
+      bytesLinear += encoder.encode(instruction).length;
+    } catch {
+      refused++;
+    }
+  }
   const bytesWide = packets.reduce((sum, packet) => sum + packet.bytes.length, 0);
   const refusals = new Map<string, string>();
   for (const packet of packets) {
@@ -261,6 +273,7 @@ export function wideStats(instructions: readonly AsmInstruction[]): WideStats {
     bytesLinear,
     bytesWide,
     packedSlots: packets.filter((packet) => packet.slots.length > 1).reduce((sum, packet) => sum + packet.slots.length, 0),
+    refused,
     refusals,
   };
 }
