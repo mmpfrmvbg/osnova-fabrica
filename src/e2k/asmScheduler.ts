@@ -32,6 +32,7 @@ import type { AsmInstruction } from './backend';
 import { realOpcode } from './e2k-real';
 import { latencyFor, type OpClass } from '../vliw/e2kDevices';
 import { buildAsmDependencyGraph, type AsmGraphOptions } from './asmGraph';
+import { registersOf } from './widePacker';
 
 /**
  * КЛАССЫ ОПЕРАЦИЙ: откуда берутся и почему не из `opClassOf`.
@@ -91,8 +92,37 @@ export function scheduleAsm(
     return { order: [], packets: [], issueAt: [], readyAt: [], channels: [], metrics: { cycles: 0, nopCycles: 0, packets: 0, ilp: 0 } };
   }
   const graph = buildAsmDependencyGraph(commands, options);
+  const reads = commands.map((command) => new Set(registersOf(command).reads));
+  const writes = commands.map((command) => new Set(registersOf(command).writes));
+  /**
+   * РАЗВЕДЕНИЕ РЁБЕР — исправление шага 2.4.
+   *
+   * Здесь стояло одно предусловие на все четыре вида рёбер, и на реальном ядре это давало **цикл**:
+   * A читает `r1` и пишет `r2`, B читает `r2` и пишет `r1` — `A → B` по RAW и `B → A` по WAR,
+   * обе команды ждут друг друга, 211 команд из 920 остались без `issueAt`.
+   *
+   * | вид | куда идёт | почему |
+   * |---|---|---|
+   * | RAW | порядок выдачи | результат производителя нужен потребителю |
+   * | эффект | порядок выдачи | наблюдаемый порядок нельзя менять |
+   * | WAR | запрет совместной упаковки | читатель обязан прочитать **до** записи, но переставлять их можно |
+   * | WAW | запрет совместной упаковки | две записи одного регистра в одном такте — неопределённый порядок |
+   */
+  const orderEdges: [number, number][] = [];
+  const packingPairs = new Set<string>();
+  for (const [from, to] of graph.edges) {
+    const raw = [...writes[from]!].some((key) => reads[to]!.has(key));
+    const war = [...reads[from]!].some((key) => writes[to]!.has(key));
+    const waw = [...writes[from]!].some((key) => writes[to]!.has(key));
+    if (raw) orderEdges.push([from, to]);
+    else if (war || waw) packingPairs.add(`${from}|${to}`);
+    else orderEdges.push([from, to]); // цепочка эффектов: порядок наблюдаем
+  }
   const predecessors: number[][] = commands.map(() => []);
-  for (const [from, to] of graph.edges) predecessors[to]!.push(from);
+  for (const [from, to] of orderEdges) predecessors[to]!.push(from);
+  /** Нельзя ли поставить эти две команды в один такт (WAR/WAW). */
+  const conflicts = (a: number, b: number): boolean =>
+    packingPairs.has(`${a}|${b}`) || packingPairs.has(`${b}|${a}`);
 
   const latency = commands.map((command) => latencyFor(classOfMnemonic(command.mnemonic)));
   const issueAt = new Array<number>(commands.length).fill(-1);
@@ -100,6 +130,8 @@ export function scheduleAsm(
   const channelOf = new Array<number>(commands.length).fill(-1);
   /** Какие каналы заняты в каждом такте (по индексу такта). */
   const busy = new Map<number, Set<number>>();
+  /** Кто уже поставлен в такт — для проверки запретов упаковки. */
+  const tickOf: number[][] = commands.map(() => []);
   const order: number[] = [];
   let tick = 0;
 
@@ -119,6 +151,8 @@ export function scheduleAsm(
       let at = Math.max(ready, tick);
       let channel: number | undefined;
       for (let attempt = 0; attempt < 8 && channel === undefined; attempt++) {
+        const inTick = tickOf[index] ?? [];
+        if (inTick.some((other) => conflicts(other, index))) { at++; continue; }
         const occupied = busy.get(at) ?? new Set<number>();
         channel = allowed.find((candidate) => !occupied.has(candidate));
         if (channel === undefined) at++;
@@ -129,6 +163,7 @@ export function scheduleAsm(
       channelOf[index] = channel;
       if (!busy.has(at)) busy.set(at, new Set<number>());
       busy.get(at)!.add(channel);
+      tickOf[at]!.push(index);
       order.push(index);
       tick = Math.max(tick, at);
       progressed = true;
