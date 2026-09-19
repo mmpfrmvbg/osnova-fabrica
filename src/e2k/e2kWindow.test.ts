@@ -30,6 +30,7 @@ import { describe, it, expect } from 'vitest';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { realOpcode } from './e2k-real';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
+import { ARRAY_WINDOW_RSZ, arrayPrologue } from './arrayRuntime';
 
 const encoder = getEncoder('e2k');
 const imm = (value: number): Operand => ({ kind: 'imm', value });
@@ -107,5 +108,19 @@ describe('окно регистров: кодировка setwd', () => {
     expect(hexOf(encoder.encode(setwd(16))), 'wsz=16').not.toBe(hexOf(encoder.encode(setwd(8))));
     // Бит `dbl` — третий, а не пятый: подмена поля обязана быть видна.
     expect(hexOf(encoder.encode(setwd(16, 1))), 'dbl').not.toBe(hexOf(encoder.encode(setwd(16, 0))));
+  });
+
+  it('решение зафиксировано: рантайм массивов окно НЕ расширяет', () => {
+    // Окно управляемо (§7.6 docs/e2k-opcodes-real.md), но программа с расширенным окном в модели
+    // ведёт себя НЕУСТОЙЧИВО: один и тот же образ даёт то успех, то исключение, а программа с
+    // памятью зависла дважды (`docs/e2k-setwd-memory.md` §2). Поэтому рантайм работает в окне по
+    // умолчанию, и это зафиксировано здесь: появление `setwd` в прологе — не мелочь, а смена решения.
+    const prologue = arrayPrologue(0x102000);
+    expect(
+      prologue.map((instruction) => instruction.mnemonic),
+      'пролог рантайма массивов не должен использовать setwd',
+    ).not.toContain('setwd');
+    expect(prologue[0]!.mnemonic, 'окно ставится setbn в пределах по умолчанию').toBe('setbn');
+    expect(prologue[0]!.operands[0]).toEqual({ kind: 'imm', value: ARRAY_WINDOW_RSZ });
   });
 });

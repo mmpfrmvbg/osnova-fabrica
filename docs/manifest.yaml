@@ -60,6 +60,7 @@ docs/e2k-wide-commands.md: {status: active, source-files: [src/e2k/widePacker.ts
 docs/e2k-syscall-abi.md: {status: active, source-files: [src/e2k/syscallRuntime.ts]}
 docs/e2k-syscalls-minimal.md: {status: active, source-files: [src/e2k/syscallRuntime.ts]}
 docs/e2k-opcodes-real.md: {status: active, source-files: [src/e2k/encoding.ts]}
+docs/e2k-setwd-memory.md: {status: active, source-files: [src/e2k/e2kWindow.test.ts]}
 docs/e2k-syllables-real.md: {status: active, source-files: [src/e2k/e2k.ts]}
 docs/e2k-dsp-instructions.md: {status: active, source-files: [src/e2k/latencyMap.ts]}
 docs/e2k-subset-dsp.md: {status: active, source-files: [src/e2k/e2k.ts]}
