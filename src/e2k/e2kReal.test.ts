@@ -77,7 +77,7 @@ const ALES_OPC2_EXT = 0x01;
 
 function expectedWords(instruction: AsmInstruction): number[] {
   const entry = realOpcode(instruction.mnemonic)!;
-  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0, pdst: 0 };
+  const values: Record<string, number> = { src1: 0, src2: 0, src3: 0, dst: 0, pdst: 0 };
   entry.operands.forEach((slot, index) => {
     const operand = instruction.operands[index]!;
     if (slot === "pdst") {
@@ -98,7 +98,10 @@ function expectedWords(instruction: AsmInstruction): number[] {
         ((values.src2! & 0xff) << 8) |
         (((entry.cmpOpce ?? 0) & 0x7) << 5) |
         (values.pdst! & 0x1f)
-      : (entry.opc << 24) | ((src1 & 0xff) << 16) | ((values.src2! & 0xff) << 8) | (values.dst! & 0xff);
+      : entry.form === "ALF3"
+        ? // ALF3: младший байт — `src3`, а не приёмник (`qemu/target/e2k/syllab-format.h:47-49`).
+          (entry.opc << 24) | ((src1 & 0xff) << 16) | ((values.src2! & 0xff) << 8) | (values.src3! & 0xff)
+        : (entry.opc << 24) | ((src1 & 0xff) << 16) | ((values.src2! & 0xff) << 8) | (values.dst! & 0xff);
   const words = long ? REAL_LONG_FORM_SIZE / 4 : REAL_SHORT_FORM_SIZE / 4;
   const lng = words / 2 - 1;
   const hs =

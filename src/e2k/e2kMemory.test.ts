@@ -128,7 +128,7 @@ describe('память e2k: байты', () => {
       expect(reason, 'причина недоступности ассемблера не названа').toBeDefined();
       return;
     }
-    const samples: AsSample[] = cases.map((item, index) => ({
+    const samples: AsSample[] = cases.map((item) => ({
       key: item.asText,
       mnemonic: item.instruction.mnemonic,
       channel: item.instruction.channel,
@@ -152,12 +152,37 @@ describe('память e2k: байты', () => {
     expect(problems, problems.join('; ')).toEqual([]);
   });
 
-  it('негативный контроль: чужой канал и чужая база ловятся кодировщиком', () => {
-    // Операнд-литерал там, где обязан быть регистр, — отказ с причиной.
-    expect(() =>
-      encoder.encode({ mnemonic: 'ldd', channel: 0, operands: [{ kind: 'imm', value: 1 }, reg(2), reg(3)] }),
-    ).toThrow();
+  it('негативный контроль: неизвестная мнемоника памяти — отказ, а разница форм литерала названа', () => {
     // Неизвестной мнемоники памяти нет — отказ, а не молчаливые байты.
     expect(() => encoder.encode({ mnemonic: 'ldq', channel: 0, operands: [reg(1), reg(2), reg(3)] })).toThrow();
+    // Литерал в операнде памяти: ассемблер кодирует малый литерал **встроенным полем** `0xc0 | v`
+    // (8 байт), наш кодировщик — ссылкой на слог литерала `0xd4` (16 байт). Обе формы законны,
+    // но это РАЗНЫЕ байты, и разница измерена, а не замолчана.
+    const ours = encoder.encode({
+      mnemonic: 'ldd',
+      channel: 0,
+      operands: [{ kind: 'imm', value: 5 }, reg(2), reg(3)],
+    });
+    expect(ours.length, 'наш литерал в памяти — форма LTS (16 байт)').toBe(16);
+    // Литерал стоит на месте операнда `src1` — это биты 23:16 слова ALS, то есть байт 6
+    // (у `movts` литерал попадает в `src2` — биты 15:8, байт 5: `docs/e2k-opcodes-real.md` §5).
+    expect(ours[6], 'поле ссылки на литерал в src1').toBe(0xd4);
+
+    const { tool } = findExternalAs();
+    if (tool === undefined) return;
+    const [result] = assembleAll([
+      {
+        key: 'ldd-imm',
+        mnemonic: 'ldd',
+        channel: 0,
+        form: 'mem',
+        asText: 'ldd,0 5, %b[2], %db[3]',
+        instruction: { mnemonic: 'ldd', channel: 0, operands: [] },
+        source: 'src/e2k/e2kMemory.test.ts',
+      },
+    ]);
+    expect(result?.ok, 'ассемблер отказал на литерале в операнде памяти').toBe(true);
+    // Измерено: 01 00 00 04 03 02 c5 67 — поле 0xc5 = встроенный литерал 5.
+    expect(hexOf(result!.ok ? result!.bytes : new Uint8Array())).toBe('01 00 00 04 03 02 c5 67');
   });
 });

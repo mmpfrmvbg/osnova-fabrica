@@ -56,6 +56,8 @@ export default defineConfig({
       '**/e2kSyscallRuntime.test.ts',
       // Пакеты широких команд: прогон в QEMU — внешний ресурс, тот же случай 12.
       '**/e2kWideQemu.test.ts',
+      // Память (ld/st) в QEMU — тот же внешний ресурс.
+      '**/e2kMemoryQemu.test.ts',
     ],
   },
 });

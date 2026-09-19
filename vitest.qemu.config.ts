@@ -54,6 +54,7 @@ export default defineConfig({
       'src/scripts/e2kQemuRun.audit.test.ts',
       'src/e2k/e2kSyscallRuntime.test.ts',
       'src/e2k/e2kWideQemu.test.ts',
+      'src/e2k/e2kMemoryQemu.test.ts',
     ],
   },
 });

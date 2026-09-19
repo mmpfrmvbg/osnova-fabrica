@@ -89,6 +89,10 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     match: 'e2kWideQemu.test.ts',
     reason: 'исполняет широкие команды в QEMU (exit-коды), вынесен в gate:qemu по случаю 12',
   },
+  {
+    match: 'e2kMemoryQemu.test.ts',
+    reason: 'исполняет запись/чтение памяти в QEMU (exit-коды), вынесен в gate:qemu по случаю 12',
+  },
 ];
 
 /** Разбор расхождений. */

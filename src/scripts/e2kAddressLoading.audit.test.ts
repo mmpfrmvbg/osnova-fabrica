@@ -121,13 +121,13 @@ export const ANCHORS: readonly Anchor[] = [
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 520, to: 520, contains: "movtd", claim: "MOVTD в LLVM" },
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 950, to: 950, contains: "movtq", claim: "MOVTQ в LLVM" },
   // наш кодировщик
-  { file: "src/e2k/e2k-real.ts", from: 232, to: 232, contains: "movts", claim: "movts есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 233, to: 233, contains: "movtd", claim: "movtd есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 843, to: 845, contains: "0xd8", claim: "поля F16/F32/F64" },
+  { file: "src/e2k/e2k-real.ts", from: 236, to: 236, contains: "movts", claim: "movts есть в кодировщике" },
+  { file: "src/e2k/e2k-real.ts", from: 237, to: 237, contains: "movtd", claim: "movtd есть в кодировщике" },
+  { file: "src/e2k/e2k-real.ts", from: 874, to: 876, contains: "0xd8", claim: "поля F16/F32/F64" },
   {
     file: "src/e2k/e2k-real.ts",
-    from: 856,
-    to: 885,
+    from: 887,
+    to: 920,
     contains: "encodeImm64",
     claim: "форма 0xdc реализована (encodeImm64)",
   },

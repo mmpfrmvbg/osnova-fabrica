@@ -130,7 +130,7 @@ export const ALES_WORD_SOURCE =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Формы, которые эта реализация кодирует. */
-export type RealForm = "ALF1" | "ALF2" | "ALF11" | "ALF7";
+export type RealForm = "ALF1" | "ALF2" | "ALF3" | "ALF11" | "ALF7";
 
 /**
  * Слот операнда в слоге. Порядок в `operands` — порядок операндов интерфейса (результат последним).
@@ -138,7 +138,7 @@ export type RealForm = "ALF1" | "ALF2" | "ALF11" | "ALF7";
  * `pdst` — **предикат**-приёмник сравнения (поле `pdst[4:0]` формы ALF7), а не регистр: в
  * `ARGS_*` записи таблицы его нет, он принадлежит форме.
  */
-export type RealSlot = "src1" | "src2" | "dst" | "pdst";
+export type RealSlot = "src1" | "src2" | "src3" | "dst" | "pdst";
 
 /**
  * Формат аргумента: `S` — одиночный регистр (`%b[N]`), `D` — двойной (`%db[N]`),
@@ -191,6 +191,7 @@ export interface RealOpcodeEntry {
 
 const ALF1_SOURCE = "qemu/target/e2k/syllab-format.h:39-41 (ALF1: dst[7:0], src2[15:8], src1[23:16])";
 const ALF2_SOURCE = "qemu/target/e2k/syllab-format.h:43-45 (ALF2: dst[7:0], src2[15:8], opce[23:16])";
+const ALF3_SOURCE = "qemu/target/e2k/syllab-format.h:47-49 (ALF3: src3[7:0], src2[15:8], src1[23:16])";
 const ALF11_SOURCE = "qemu/target/e2k/syllab-format.h:85-91 (ALEF: opc2[15:8], opce[7:0])";
 const ALF7_SOURCE =
   "qemu/target/e2k/syllab-format.h:59-63 (ALF7: src1[23:16], src2[15:8], cmpopce[7:5], pdst[4:0]); " +
@@ -200,6 +201,9 @@ const ALF7_SOURCE =
 const ALL_CHANNELS: readonly number[] = [0, 1, 2, 3, 4, 5];
 /** Каналы длинной формы этих операций: `{1, 1, 0, 1, 1, 0}` в таблице МЦСТ — без 2 и 5. */
 const LONG_CHANNELS: readonly number[] = [0, 1, 3, 4];
+/** Каналы памяти: `ld*` — `{1, 0, 1, 1, 0, 1}`, `st*` — `{0, 0, 1, 0, 0, 1}` (`opcodes/e2k-opc.h:604-619`, `:969-984`). */
+const LOAD_CHANNELS: readonly number[] = [0, 2, 3, 5];
+const STORE_CHANNELS: readonly number[] = [2, 5];
 
 /**
  * Таблица кодируемых операций.
@@ -244,6 +248,24 @@ export const REAL_OPCODES: readonly RealOpcodeEntry[] = [
   { mnemonic: "cmplsb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1019 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x6, implicitNops: 2, source: "opcodes/e2k-opc.h:1019", formSource: ALF7_SOURCE },
   { mnemonic: "cmplesb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1024 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x7, implicitNops: 2, source: "opcodes/e2k-opc.h:1024", formSource: ALF7_SOURCE },
   { mnemonic: "cmpesb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:999 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x2, implicitNops: 2, source: "opcodes/e2k-opc.h:999", formSource: ALF7_SOURCE },
+  // ── ПАМЯТЬ (`ld*`/`st*`) ────────────────────────────────────────────────────────────────────
+  //
+  // Адрес — **сумма двух регистров**: `src1 + src2` (`qemu/target/e2k/tcg/translate-al-c11.c:26-34`,
+  // `calc_addr_LD_ST`; её же ставит `prep_LD`/`prep_ST` — `:65-95`). Ни поля смещения, ни
+  // масштабирования в самой команде нет: индекс обязан быть домножен программно.
+  //
+  // **Порядок операндов — текстовый, а не придуманный.** У `ld*` текст ассемблера идёт
+  // `(src1, src2, приёмник)`, у `st*` — `(значение, база, смещение)` = `(src3, src1, src2)`:
+  // измерено `as-new -mcpu=elbrus-v5` (`.tmp/std-order.ts`); поэтому слоты стоят в этом порядке,
+  // и общая сборка ассемблерного текста (`registerText`) даёт верную строку без исключений.
+  { mnemonic: "ldb", opc: 0x64, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:604 (ARGS_DDD)", channels: LOAD_CHANNELS, source: "opcodes/e2k-opc.h:604", formSource: ALF1_SOURCE },
+  { mnemonic: "ldh", opc: 0x65, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:609 (ARGS_DDD)", channels: LOAD_CHANNELS, source: "opcodes/e2k-opc.h:609", formSource: ALF1_SOURCE },
+  { mnemonic: "ldw", opc: 0x66, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:614 (ARGS_DDD)", channels: LOAD_CHANNELS, source: "opcodes/e2k-opc.h:614", formSource: ALF1_SOURCE },
+  { mnemonic: "ldd", opc: 0x67, form: "ALF1", operands: ["src1", "src2", "dst"], argFormats: ["D", "D", "D"], argsSource: "opcodes/e2k-opc.h:619 (ARGS_DDD)", channels: LOAD_CHANNELS, source: "opcodes/e2k-opc.h:619", formSource: ALF1_SOURCE },
+  { mnemonic: "stb", opc: 0x24, form: "ALF3", operands: ["src3", "src1", "src2"], argFormats: ["D", "D", "S"], argsSource: "opcodes/e2k-opc.h:969 (ARGS_DDS)", channels: STORE_CHANNELS, source: "opcodes/e2k-opc.h:969", formSource: ALF3_SOURCE },
+  { mnemonic: "sth", opc: 0x25, form: "ALF3", operands: ["src3", "src1", "src2"], argFormats: ["D", "D", "S"], argsSource: "opcodes/e2k-opc.h:974 (ARGS_DDS)", channels: STORE_CHANNELS, source: "opcodes/e2k-opc.h:974", formSource: ALF3_SOURCE },
+  { mnemonic: "stw", opc: 0x26, form: "ALF3", operands: ["src3", "src1", "src2"], argFormats: ["D", "D", "S"], argsSource: "opcodes/e2k-opc.h:979 (ARGS_DDS)", channels: STORE_CHANNELS, source: "opcodes/e2k-opc.h:979", formSource: ALF3_SOURCE },
+  { mnemonic: "std", opc: 0x27, form: "ALF3", operands: ["src3", "src1", "src2"], argFormats: ["D", "D", "S"], argsSource: "opcodes/e2k-opc.h:984 (ARGS_DDS)", channels: STORE_CHANNELS, source: "opcodes/e2k-opc.h:984", formSource: ALF3_SOURCE },
 ];
 
 /**
@@ -413,7 +435,7 @@ function predicateField(operand: Operand | undefined, mnemonic: string): number 
 function fieldsOf(
   entry: RealOpcodeEntry,
   operands: readonly Operand[],
-): { src1: number; src2: number; dst: number; pdst: number } {
+): { src1: number; src2: number; src3: number; dst: number; pdst: number } {
   if (operands.length !== entry.operands.length) {
     throw new EncodingError(
       `«${entry.mnemonic}»: операндов ${operands.length}, форма ${entry.form} несёт ${entry.operands.length} ` +
@@ -422,6 +444,7 @@ function fieldsOf(
   }
   let src1 = 0;
   let src2 = 0;
+  let src3 = 0;
   let dst = 0;
   let pdst = 0;
   entry.operands.forEach((slot, index) => {
@@ -432,13 +455,14 @@ function fieldsOf(
     const value = registerField(operands[index], slot, entry.mnemonic);
     if (slot === "src1") src1 = value;
     else if (slot === "src2") src2 = value;
+    else if (slot === "src3") src3 = value;
     else dst = value;
   });
   if (entry.form === "ALF2") {
     // У ALF2 на месте src1 лежит расширение opce: операнда src1 у операции нет.
     src1 = ALES_OPCE_NONE;
   }
-  return { src1, src2, dst, pdst };
+  return { src1, src2, src3, dst, pdst };
 }
 
 /**
@@ -451,7 +475,7 @@ function fieldsOf(
  */
 function alsWord(
   entry: RealOpcodeEntry,
-  fields: { src1: number; src2: number; dst: number; pdst: number },
+  fields: { src1: number; src2: number; src3: number; dst: number; pdst: number },
 ): number {
   if (entry.form === "ALF7") {
     if (entry.cmpOpce === undefined) {
@@ -463,6 +487,13 @@ function alsWord(
       ((fields.src2 & 0xff) << 8) |
       ((entry.cmpOpce & 0x7) << 5) |
       (fields.pdst & 0x1f)
+    );
+  }
+  if (entry.form === "ALF3") {
+    // ALF3: `src3[7:0]`, `src2[15:8]`, `src1[23:16]` — `qemu/target/e2k/syllab-format.h:47-49`.
+    // Младший байт — не приёмник: у записи в память он несёт записываемое значение.
+    return (
+      ((entry.opc & 0x7f) << 24) | ((fields.src1 & 0xff) << 16) | ((fields.src2 & 0xff) << 8) | (fields.src3 & 0xff)
     );
   }
   return (
@@ -885,7 +916,7 @@ function encodeImm64(
   const bytes = new Uint8Array(REAL_LONG_FORM_SIZE);
   // HS: mdl = 1, lng = 1 (16 байт), присутствует слог ALS.
   writeWord(bytes, 0, ((1 << 4) | 1 | ((1 << channel) << HS.al.shift)) >>> 0);
-  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, dst: values.dst!, pdst: 0 }));
+  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, src3: values.src3 ?? 0, dst: values.dst!, pdst: 0 }));
   writeWord(bytes, 8, Number(bits >> 32n) >>> 0);
   writeWord(bytes, 12, Number(bits & 0xffffffffn) >>> 0);
   return bytes;
@@ -932,7 +963,7 @@ function encodeWithLiteral(
   const bytes = new Uint8Array(REAL_LONG_FORM_SIZE);
   // HS: mdl = 1, lng = 1 (16 байт), присутствует слог ALS.
   writeWord(bytes, 0, ((1 << 4) | 1 | ((1 << channel) << HS.al.shift)) >>> 0);
-  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, dst: values.dst!, pdst: 0 }));
+  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, src3: values.src3 ?? 0, dst: values.dst!, pdst: 0 }));
   // Слово 2 — пустое; слово 3 — литерал (LTS читаются с конца: qemu/target/e2k/instr-bits.h:211-221).
   if (fits16) writeHalf(bytes, 14, literal.value & 0xffff);
   else writeWord(bytes, 12, literal.value >>> 0);
@@ -1048,6 +1079,8 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
   const src1 = (als >>> 16) & 0xff;
   const src2 = (als >>> 8) & 0xff;
   const dst = als & 0xff;
+  // ALF3: младший байт — `src3` (у записи в память это записываемое значение), а не приёмник.
+  const src3 = als & 0xff;
   // ALF7: младший байт слова ALF — это `cmpopce[7:5] | pdst[4:0]`, а не регистр-приёмник.
   const cmpOpce = (als >>> 5) & 0x7;
   const pdst = als & 0x1f;
@@ -1110,7 +1143,7 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
   for (const slot of entry.operands) {
     if (entry.form === "ALF2" && slot === "src1") continue;
     if (slot === "pdst") continue;
-    const value = slot === "src1" ? src1 : slot === "src2" ? src2 : dst;
+    const value = slot === "src1" ? src1 : slot === "src2" ? src2 : slot === "src3" ? src3 : dst;
     if (value >= 0xd0 && value <= 0xdf) continue;
     // Верхняя граница — 0x80 | 63: старший бит поля означает оконный файл регистров
     // (opcodes/e2k-dis.c:416-419), 0xc0+ занято литералами и непосредственными значениями.
@@ -1121,7 +1154,7 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
   const operands: Operand[] = entry.operands.map((slot) => {
     // Предикат-приёмник сравнения: номер — поле pdst[4:0], отдельный файл, а не регистр.
     if (slot === "pdst") return { kind: "pred" as const, index: pdst };
-    const value = slot === "src1" ? src1 : slot === "src2" ? src2 : dst;
+    const value = slot === "src1" ? src1 : slot === "src2" ? src2 : slot === "src3" ? src3 : dst;
     // Литеральная ссылка: поле 0xd0..0xdf — это не регистр, а литерал
     // (opcodes/e2k-dis.c:445-504). Значение берётся из последнего слова.
     if (value >= 0xd0 && value <= 0xdf) {

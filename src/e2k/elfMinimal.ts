@@ -182,7 +182,11 @@ export function buildMinimalElf(exitCode = 42, base = MINIMAL_BASE): MinimalElf 
  * Нужен для опытов с передачей управления: точка входа — начало кода, поэтому опыт знает адрес
  * каждой инструкции. Обычный путь (`buildMinimalElf`) — частный случай с тремя инструкциями.
  */
-export function buildElfFromCode(code: Uint8Array, base = MINIMAL_BASE): Omit<MinimalElf, 'program'> {
+export function buildElfFromCode(
+  code: Uint8Array,
+  base = MINIMAL_BASE,
+  options: { readonly writable?: boolean; readonly extraMemory?: number } = {},
+): Omit<MinimalElf, 'program'> {
   const textOffset = 0x1000;
   const sections: { name: string; offset: number; size: number }[] = [];
 
@@ -238,15 +242,28 @@ export function buildElfFromCode(code: Uint8Array, base = MINIMAL_BASE): Omit<Mi
   file.writeUInt16LE(shnum, 60);
   file.writeUInt16LE(4, 62); // e_shstrndx = индекс .shstrtab (4 из 5 секций)
 
-  // Заголовок программы: PT_LOAD, R|X, весь образ одним сегментом
+  // Заголовок программы: PT_LOAD, весь образ одним сегментом.
+  //
+  // Флаги: `R|X` (5) по умолчанию, `R|W|X` (7) — когда программе нужно **писать в память**.
+  //
+  // `extraMemory` дописывает `p_memsz` сверх `p_filesz`: хвост сегмента отображается нулями и
+  // **не является страницей кода**. Это не удобство, а требование замера: QEMU делает страницу
+  // переведённого кода защищённой, и запись в неё (`st` по адресу, где лежит код) кончается
+  // `QEMU internal SIGSEGV {code=ACCERR}` — измерено (`src/e2k/e2kMemoryQemu.test.ts`, `.tmp/mem-page.ts`):
+  // данные в той же странице, что код, → ACCERR; те же данные на отдельной странице → код возврата
+  // равен записанному значению.
   const segmentSize = shstrOffset + shstr.length - textOffset;
+  const extra = options.extraMemory ?? 0;
+  if (!Number.isInteger(extra) || extra < 0) {
+    throw new Error(`дополнительная память сегмента обязана быть неотрицательным целым, получено ${String(extra)}`);
+  }
   file.writeUInt32LE(1, 0x40);
-  file.writeUInt32LE(5, 0x44);
+  file.writeUInt32LE(options.writable === true ? 7 : 5, 0x44);
   file.writeBigUInt64LE(BigInt(textOffset), 0x48);
   file.writeBigUInt64LE(BigInt(base), 0x50);
   file.writeBigUInt64LE(BigInt(base), 0x58);
   file.writeBigUInt64LE(BigInt(segmentSize), 0x60);
-  file.writeBigUInt64LE(BigInt(segmentSize), 0x68);
+  file.writeBigUInt64LE(BigInt(segmentSize + extra), 0x68);
   file.writeBigUInt64LE(0x1000n, 0x70);
 
   file.set(text, textOffset);
