@@ -191,9 +191,9 @@ describe('литералы и слоги управления: отказы на
   });
 
   it('у каждой формы управления назван источник', () => {
-    // Четыре прежние формы (ct/disp/return/call) плюс sdisp и setbn — добавлены после того,
-    // как прогон показал, что без них exit(42) недостижим.
-    expect(REAL_CONTROL_OPCODES.length).toBe(6);
+    // Четыре прежние формы (ct/disp/return/call), затем sdisp и setbn (без них exit(42) недостижим)
+    // и setwd — размер окна регистров (`src/e2k/e2kWindow.test.ts`: байты сверены с ассемблером).
+    expect(REAL_CONTROL_OPCODES.length).toBe(7);
     expect(REAL_CONTROL_OPCODES.map((entry) => entry.mnemonic).sort()).toEqual([
       'call',
       'ct',
@@ -201,6 +201,7 @@ describe('литералы и слоги управления: отказы на
       'return',
       'sdisp',
       'setbn',
+      'setwd',
     ]);
     for (const entry of REAL_CONTROL_OPCODES) {
       expect(entry.source, `${entry.mnemonic}: нет источника`).toMatch(/tc-e2k\.c:\d+/);

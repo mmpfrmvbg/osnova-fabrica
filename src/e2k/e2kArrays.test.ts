@@ -46,6 +46,7 @@ import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import {
   ARRAY_REGISTERS,
   ARRAY_WINDOW_RSZ,
+  ARRAY_WINDOW_WSZ,
   arrayPrologue,
   checkArraySequence,
   lowerArrayCall,
@@ -116,9 +117,12 @@ describe('рантайм массивов: пролог и контракт ре
   it('пролог задаёт ноль, единицу, размер элемента и указатель кучи', () => {
     const prologue = arrayPrologue(0x102000);
     expect(mnemonics(prologue)).toEqual(['setbn', 'movts', 'movts', 'movts', 'movtd']);
-    // Первая команда — `setbn`: она расширяет окно, иначе верхние регистры рантайма не адресуются
-    // (измерено: при `rsz = 5` доступны только `%b[0..11]`, `.tmp/rsz-sweep.ts`).
-    expect(prologue[0]!.mnemonic, 'окно ставится прологом').toBe('setbn');
+    // Окно ставит `setbn`: в окне по умолчанию (`rsz = 7`) доступны `%b[0..15]`, и регистры
+    // рантайма взяты с верхнего края. Расширить окно через `setwd` **можно** (байты сверены с
+    // ассемблером, регистры `%b[20]`/`%b[31]` в модели становятся доступны — §7.7
+    // docs/e2k-opcodes-real.md), но программа с расширенным окном И памятью в модели зависает;
+    // поэтому рантайм работает в окне по умолчанию.
+    expect(prologue[0]!.mnemonic, 'окно ставится первым').toBe('setbn');
     expect(prologue[0]!.operands[0]).toEqual({ kind: 'imm', value: ARRAY_WINDOW_RSZ });
     expect(prologue[1]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.zero));
     expect(prologue[2]!.operands[1], 'единица: длина растёт на элемент').toEqual(reg(ARRAY_REGISTERS.one));

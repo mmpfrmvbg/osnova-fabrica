@@ -588,7 +588,7 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
 
 /** Поле инструкции управления: `ctpr` — номер регистра подготовки, `cond` — код условия `ct`,
  * `disp` — смещение перехода в восьмибайтовых словах, `wbs` — параметр `call`. */
-export type RealControlSlot = "ctpr" | "cond" | "disp" | "sdisp" | "wbs" | "rsz" | "rbs" | "rcur";
+export type RealControlSlot = "ctpr" | "cond" | "disp" | "sdisp" | "wbs" | "rsz" | "rbs" | "rcur" | "wsz" | "dbl";
 
 /**
  * Инструкция, которая кодируется **слогами управления**, а не слогом ALS.
@@ -601,7 +601,7 @@ export type RealControlSlot = "ctpr" | "cond" | "disp" | "sdisp" | "wbs" | "rsz"
 export interface RealControlEntry {
   /** Мнемоника — копия из ассемблера МЦСТ посимвольно (`as` принимает именно эти имена). */
   readonly mnemonic: string;
-  readonly form: "SS" | "CS0_DISP" | "CS0_SDISP" | "CS0_RETURN" | "CS1_SETBN" | "CS1_CALL";
+  readonly form: "SS" | "CS0_DISP" | "CS0_SDISP" | "CS0_RETURN" | "CS1_SETBN" | "CS1_SETWD" | "CS1_CALL";
   readonly operands: readonly RealControlSlot[];
   readonly size: number;
   /** Источник полей слога. */
@@ -676,6 +676,22 @@ export const REAL_CONTROL_OPCODES: readonly RealControlEntry[] = [
       "opcodes/e2k-dis.c:2046-2056 (CS1.opc: SETBR = 4), :2121-2127 (печать setbn rcur/rsz/rbs); " +
       "gas/config/tc-e2k.c:6257-6301 (имена параметров setbn rsz=, rbs=, rcur=); " +
       "измерено ассемблером: `setbn rsz=4, rbs=0, rcur=0` → `01 80 00 00 00 01 00 44`",
+  },
+  {
+    mnemonic: "setwd",
+    form: "CS1_SETWD",
+    operands: ["wsz", "dbl"],
+    size: 16,
+    formSource: CS1_SOURCE,
+    source:
+      "qemu/target/e2k/tcg/translate-misc.c:585-610 (размер окна берётся из литерала: " +
+      "`FIELD_EX32(instr_decoded->lts[0], LTF1, wsz) << 4`); " +
+      "qemu/target/e2k/tcg/translate-lookahead.c:645-663, :683-691 (setwd — это CS1 с opcode SETR0/SETR1 " +
+      "и литералом: `win_geo.wd_size_q = wsz`); " +
+      "qemu/target/e2k/syllab-format.h:150-160 (LTF1: immw[31:0], rpsz[16:12], wsz[11:5], nfx[3+1], dbl[3]); " +
+      "qemu/target/e2k/opcode-tables.h:60-68 (CS1 opc: SETR0 = 0); " +
+      "gas/config/tc-e2k.c:6257-6301 (имена параметров: setwd wsz=, nfx=, dbl=); " +
+      "измерено ассемблером: `setwd wsz=16, nfx=0, dbl=0` → `11 80 00 00 00 00 00 00 00 00 00 00 00 02 00 00`",
   },
   {
     mnemonic: "call",
@@ -834,6 +850,17 @@ function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Ui
       // HS: CS1 присутствует (бит 15), mdl = 1, lng = 0 → 8 байт (измерено: `01 80 00 00 …`).
       writeWord(bytes, 0, 0x00008001);
       writeWord(bytes, 4, cs1SetbnWord(values.get("rsz")!, values.get("rbs")!, values.get("rcur")!));
+      return bytes;
+    }
+    case "CS1_SETWD": {
+      // HS: CS1 присутствует (бит 15), mdl = 1, lng = 1 → 16 байт (измерено: `11 80 00 00 …`).
+      // Размер окна лежит в ЛИТЕРАЛЕ (LTS0 — последнее слово): `wsz[11:5]`, `dbl` — бит 3
+      // (`qemu/target/e2k/syllab-format.h:150-160`); сам слог CS1 пуст, а его код операции —
+      // `SETR0` (`qemu/target/e2k/opcode-tables.h:60`), потому что `setwd` — это SETR0 с литералом
+      // (`qemu/target/e2k/tcg/translate-lookahead.c:645-652`).
+      writeWord(bytes, 0, 0x00008011);
+      writeWord(bytes, 4, 0);
+      writeWord(bytes, 12, ((values.get("wsz")! & 0x7f) << 5) | ((values.get("dbl")! & 1) << 3));
       return bytes;
     }
     case "CS1_CALL": {
