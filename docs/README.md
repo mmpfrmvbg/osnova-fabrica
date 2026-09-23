@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (53)
+## Фронтир и замеры (58)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -78,6 +78,11 @@
 - [docs/tutorial/03-basics.md](tutorial/03-basics.md)
 - [docs/tutorial/04-control.md](tutorial/04-control.md)
 - [docs/tutorial/05-loops.md](tutorial/05-loops.md)
+- [docs/tutorial/06-procedures.md](tutorial/06-procedures.md)
+- [docs/tutorial/07-arrays.md](tutorial/07-arrays.md)
+- [docs/tutorial/08-objects.md](tutorial/08-objects.md)
+- [docs/tutorial/09-errors.md](tutorial/09-errors.md)
+- [docs/tutorial/10-modules.md](tutorial/10-modules.md)
 - [docs/tutorial/README.md](tutorial/README.md)
 - [docs/verification-debt.md](verification-debt.md)
 - [docs/vliw-e2k-model.md](vliw-e2k-model.md) ⚠

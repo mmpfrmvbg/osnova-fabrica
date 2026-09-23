@@ -34,6 +34,8 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const TUTORIAL = path.join(ROOT, "docs", "tutorial");
 
 const FILE_DIRECTIVE = /^\/\*\s*файл:\s*(\S+)\s*\*\/$/;
+/** `/* ожидается ошибка: подстрока *​/` — пример обязан упасть с этой ошибкой. */
+const ERROR_DIRECTIVE = /^\/\*\s*ожидается ошибка:\s*(.+?)\s*\*\/$/;
 
 interface Block {
   file: string;
@@ -42,6 +44,8 @@ interface Block {
   expected: string[] | null;
   /** Имя файла из директивы `/* файл: … *​/`, если блок — часть пакета. */
   fileName: string | null;
+  /** Подстрока из `/* ожидается ошибка: … *​/` — пример обязан упасть. */
+  expectError: string | null;
 }
 
 /** Разобрать markdown: блоки ```osnova и (необязательный) следующий ```вывод. */
@@ -70,12 +74,14 @@ export function blocksOf(markdown: string, file: string): Block[] {
       }
       const firstLine = (source.split("\n")[0] ?? "").trim();
       const match = FILE_DIRECTIVE.exec(firstLine);
+      const errMatch = ERROR_DIRECTIVE.exec(firstLine);
       blocks.push({
         file,
         index: blocks.length + 1,
         source,
         expected,
         fileName: match ? match[1]! : null,
+        expectError: errMatch ? errMatch[1]! : null,
       });
       continue;
     }
@@ -117,6 +123,14 @@ interface Run {
   sources: Map<string, string>;
   entry: string;
   expected: string[] | null;
+  expectError: string | null;
+}
+
+/** Тело примера без служебной первой строки-директивы. */
+function bodyOf(block: Block): string {
+  const lines = block.source.split("\n");
+  const first = (lines[0] ?? "").trim();
+  return FILE_DIRECTIVE.test(first) || ERROR_DIRECTIVE.test(first) ? lines.slice(1).join("\n") : block.source;
 }
 
 function runsOf(blocks: Block[]): Run[] {
@@ -124,7 +138,13 @@ function runsOf(blocks: Block[]): Run[] {
   const packages = new Map<string, Block[]>();
   for (const b of blocks) {
     if (b.fileName === null) {
-      runs.push({ name: `${b.file}: пример ${b.index}`, sources: new Map([["пример.osnova", b.source]]), entry: "пример.osnova", expected: b.expected });
+      runs.push({
+        name: `${b.file}: пример ${b.index}`,
+        sources: new Map([["пример.osnova", bodyOf(b)]]),
+        entry: "пример.osnova",
+        expected: b.expected,
+        expectError: b.expectError,
+      });
       continue;
     }
     const key = `${b.file}`;
@@ -135,13 +155,13 @@ function runsOf(blocks: Block[]): Run[] {
   for (const [key, list] of packages) {
     const entryBlock = list.find((b) => b.source.includes("использовать модуль")) ?? list[0]!;
     const sources = new Map<string, string>();
-    for (const b of list) sources.set(b.fileName!, b.source);
-    // Имя главного файла — то, что стоит в директиве у блока со `использовать`.
+    for (const b of list) sources.set(b.fileName!, bodyOf(b));
     runs.push({
       name: `${key}: пакет модулей (${list.length} файла(ов))`,
       sources,
       entry: entryBlock.fileName!,
       expected: entryBlock.expected,
+      expectError: entryBlock.expectError,
     });
   }
   return runs;
@@ -174,6 +194,8 @@ async function runProgram(sources: Map<string, string>, entry: string): Promise<
       })();
       await vm.runProcedure(index, []);
       return { output: out, error: null };
+    } catch (e) {
+      return { output: out, error: e instanceof Error ? e.message : String(e) };
     } finally {
       spy.mockRestore();
     }
@@ -215,7 +237,7 @@ describe("учебник: разметка и устаревшие формы", 
   it("каждый исполняемый пример — полный модуль", () => {
     const bad: string[] = [];
     for (const block of allBlocks()) {
-      const body = block.fileName ? block.source.split("\n").slice(1).join("\n") : block.source;
+      const body = bodyOf(block);
       if (!/^\s*модуль\s+\S/.test(body)) bad.push(`${block.file} пример ${block.index}: нет «модуль …»`);
       if (!/^\s*конец_модуля\s*$/m.test(body)) bad.push(`${block.file} пример ${block.index}: нет «конец_модуля»`);
     }
@@ -233,6 +255,11 @@ describe("учебник: примеры работают", () => {
   for (const run of runs) {
     it(run.name, async () => {
       const { output, error } = await runProgram(run.sources, run.entry);
+      if (run.expectError !== null) {
+        expect(error, `пример обязан упасть с ошибкой «${run.expectError}»`).not.toBeNull();
+        expect(error!).toContain(run.expectError);
+        return;
+      }
       expect(error, `пример должен исполняться: ${error ?? ""}`).toBeNull();
       if (run.expected !== null) {
         expect(output.map((l) => l.replace(/\s+$/, ""))).toEqual(run.expected);

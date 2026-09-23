@@ -38,6 +38,11 @@ docs/tutorial/02-install.md: {status: active}
 docs/tutorial/03-basics.md: {status: active}
 docs/tutorial/04-control.md: {status: active}
 docs/tutorial/05-loops.md: {status: active}
+docs/tutorial/06-procedures.md: {status: active}
+docs/tutorial/07-arrays.md: {status: active}
+docs/tutorial/08-objects.md: {status: active}
+docs/tutorial/09-errors.md: {status: active}
+docs/tutorial/10-modules.md: {status: active}
 
 # --- Фронтир, замеры, статус (active) ---
 AGENTS.md: {status: active}
