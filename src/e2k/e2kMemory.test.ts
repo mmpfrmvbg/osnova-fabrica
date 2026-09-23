@@ -163,10 +163,11 @@ describe('память e2k: байты', () => {
       channel: 0,
       operands: [{ kind: 'imm', value: 5 }, reg(2), reg(3)],
     });
-    expect(ours.length, 'наш литерал в памяти — форма LTS (16 байт)').toBe(16);
+    expect(ours.length, 'наш литерал в памяти — короткая непосредственная форма (8 байт)').toBe(8);
     // Литерал стоит на месте операнда `src1` — это биты 23:16 слова ALS, то есть байт 6
     // (у `movts` литерал попадает в `src2` — биты 15:8, байт 5: `docs/e2k-opcodes-real.md` §5).
-    expect(ours[6], 'поле ссылки на литерал в src1').toBe(0xd4);
+    // Поле несёт само значение: `0xc0 | 5` = `0xc5`.
+    expect(ours[6], 'поле короткой формы в src1').toBe(0xc0 | 5);
 
     const { tool } = findExternalAs();
     if (tool === undefined) return;
