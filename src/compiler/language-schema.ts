@@ -77,6 +77,7 @@ const KEYWORD_TO_CONSTRUCTION: Record<string, string[]> = {
   когда: ["match_when"],
   есть: ["match_when"],
   попробовать: ["try_catch"],
+  поймать: ["try_catch"],
   иначе_попытка: ["try_catch"],
   выбросить: ["throw_stmt"],
   для_каждого: ["for_each", "for_each_indexed"],

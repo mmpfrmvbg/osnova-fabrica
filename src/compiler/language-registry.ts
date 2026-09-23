@@ -139,7 +139,8 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "иначе_если", kind: "stmt", implemented: true, since: "0.1.0", description: "цепочка else-if между если и иначе" },
   { lexeme: "пока", kind: "stmt", implemented: true, since: "0.1.0" },
   { lexeme: "попробовать", kind: "stmt", implemented: true, since: "1.2.0", description: "начало блока обработки ошибок" },
-  { lexeme: "иначе_попытка", kind: "stmt", implemented: true, since: "1.2.0", description: "блок catch для попробовать" },
+  { lexeme: "поймать", kind: "stmt", implemented: true, since: "2.6.0", description: "блок catch для попробовать (канон)" },
+  { lexeme: "иначе_попытка", kind: "stmt", implemented: false, since: "1.2.0", description: "ALIAS: то же, что поймать; канон — поймать" },
   { lexeme: "выбросить", kind: "stmt", implemented: true, since: "1.2.0", description: "выброс исключения" },
   { lexeme: "для_каждого", kind: "stmt", implemented: true, since: "0.1.0", description: "цикл по коллекции" },
   { lexeme: "в", kind: "stmt", implemented: true, since: "0.1.0", description: "в конструкции для_каждого x в expr" },
@@ -293,8 +294,8 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
   },
   {
     id: "try_catch",
-    syntax: "попробовать\n  <тело>\nиначе_попытка ошибка\n  <обработчик>\nконец",
-    example: "попробовать\n  выбросить \"ошибка\"\nиначе_попытка е\n  вернуть 1\nконец",
+    syntax: "попробовать\n  <тело>\nпоймать ошибка\n  <обработчик>\nконец",
+    example: "попробовать\n  выбросить \"ошибка\"\nпоймать е\n  вернуть 1\nконец",
     astNode: {
       kind: "попробовать",
       fields: [
@@ -709,7 +710,7 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
     id: "js_try_catch",
     description: "Не использовать JavaScript try/catch",
     bad: "try { } catch(e) { }",
-    good: "попробовать\n  ...\nиначе_попытка ошибка\n  ...\nконец",
+    good: "попробовать\n  ...\nпоймать ошибка\n  ...\nконец",
   },
   {
     id: "array_index_syscall_direct",
@@ -768,8 +769,9 @@ const FORBIDDEN_V01: ForbiddenPatternSpec[] = [
  *
  * @remarks
  * Здесь же живут «почти канонические» русские написания, которые модель пишет
- * систематически: `поймать` — это `иначе_попытка`. Без алиаса такое слово
- * становится идентификатором, и разбор `попробовать` ломается на опечатке.
+ * систематически: `иначе_попытка` — старое написание канонического `поймать`.
+ * Без алиаса старое слово становится идентификатором, и разбор `попробовать`
+ * ломается на опечатке.
  */
 export const LLM_KEYWORD_ALIASES: Readonly<Record<string, string>> = {
   module: "модуль",
@@ -801,9 +803,9 @@ export const LLM_KEYWORD_ALIASES: Readonly<Record<string, string>> = {
   export: "экспорт",
   when: "когда",
   is: "есть",
-  /** `попробовать` … `поймать ошибка` — привычная моделью форма catch. */
-  поймать: "иначе_попытка",
-  catch: "иначе_попытка",
+  /** `попробовать` … `поймать ошибка` — канон; старое `иначе_попытка` — алиас. */
+  иначе_попытка: "поймать",
+  catch: "поймать",
 };
 
 /** Реестр языка Основа v0.1 (текущая реализованная версия). */

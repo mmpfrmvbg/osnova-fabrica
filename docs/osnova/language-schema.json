@@ -930,14 +930,6 @@
       "status": "stable"
     },
     {
-      "spelling": "иначе_попытка",
-      "tokenKind": "иначе_попытка",
-      "relatedConstructions": [
-        "try_catch"
-      ],
-      "status": "stable"
-    },
-    {
       "spelling": "использовать",
       "tokenKind": "использовать",
       "relatedConstructions": [
@@ -1052,6 +1044,14 @@
       "tokenKind": "не",
       "relatedConstructions": [
         "not"
+      ],
+      "status": "stable"
+    },
+    {
+      "spelling": "поймать",
+      "tokenKind": "поймать",
+      "relatedConstructions": [
+        "try_catch"
       ],
       "status": "stable"
     },

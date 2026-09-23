@@ -981,7 +981,7 @@ export function parse(tokens: Token[]): ParseResult {
       advance();
       skipNewlines();
       const body: Stmt[] = [];
-      while (peek().kind !== "иначе_попытка" && !isAtCloser(TRY_CLOSER) && !isMismatchedCloser(TRY_CLOSER) && peek().kind !== "конец_файла") {
+      while (peek().kind !== "поймать" && !isAtCloser(TRY_CLOSER) && !isMismatchedCloser(TRY_CLOSER) && peek().kind !== "конец_файла") {
         const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
@@ -992,12 +992,12 @@ export function parse(tokens: Token[]): ParseResult {
         if (pos === before) break;
         skipNewlines();
       }
-      if (!consume("иначе_попытка", "Ожидается 'иначе_попытка'")) return null;
+      if (!consume("поймать", "Ожидается 'поймать' (алиас: 'иначе_попытка')")) return null;
       skipNewlines();
       if (!isAt("идентификатор")) {
         const t = peek();
         errors.push({
-          message: "Ожидается имя переменной ошибки после 'иначе_попытка'",
+          message: "Ожидается имя переменной ошибки после 'поймать'",
           line: t.line,
           column: t.column,
           context: "stmt",
