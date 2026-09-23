@@ -5,11 +5,11 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (21). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (24). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
-- [docs/bytecode-v1.md](bytecode-v1.md)
+- [docs/bytecode-v1.md](bytecode-v1.md) ⚠
 - [docs/coding-with-osnova-v2.md](coding-with-osnova-v2.md)
 - [docs/golden-app-chat.md](golden-app-chat.md) ⚠
 - [docs/golden-app-game-rounds.md](golden-app-game-rounds.md)
@@ -21,7 +21,7 @@
 - [docs/golden-tests.md](golden-tests.md) ⚠
 - [docs/language-changelog-v2.md](language-changelog-v2.md)
 - [docs/language-contributing-v2.md](language-contributing-v2.md) ⚠
-- [docs/language-registry.md](language-registry.md)
+- [docs/language-registry.md](language-registry.md) ⚠
 - [docs/language-v2.md](language-v2.md) ⚠
 - [docs/release-process.md](release-process.md) ⚠
 - [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md) ⚠
@@ -62,7 +62,7 @@
 - [docs/osnova-atom-boundaries.md](osnova-atom-boundaries.md)
 - [docs/osnova-semantic-skin.md](osnova-semantic-skin.md)
 - [docs/osnova-signature-spec.md](osnova-signature-spec.md)
-- [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md)
+- [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md) ⚠
 - [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md)
 - [docs/osnova-vision.md](osnova-vision.md)
 - [docs/register-ir-migration.md](register-ir-migration.md) ⚠
