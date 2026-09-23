@@ -53,11 +53,11 @@ export interface KernelByteRow {
 }
 
 export const KERNEL_BYTES: readonly KernelByteRow[] = [
-  { name: 'fir', carriers: 111, commands: 235, layout: 2064, linear: 2064, wide: 2048, refusedBytes: 0 },
-  { name: 'iir', carriers: 91, commands: 145, layout: 1312, linear: 1312, wide: 1296, refusedBytes: 0 },
-  { name: 'fft', carriers: 105, commands: 204, layout: 1760, linear: 1760, wide: 1744, refusedBytes: 0 },
-  { name: 'convolution', carriers: 110, commands: 160, layout: 1472, linear: 1424, wide: 1392, refusedBytes: 48 },
-  { name: 'correlation', carriers: 100, commands: 176, layout: 1544, linear: 1544, wide: 1536, refusedBytes: 0 },
+  { name: 'fir', carriers: 111, commands: 235, layout: 2064, linear: 1904, wide: 1888, refusedBytes: 160 },
+  { name: 'iir', carriers: 91, commands: 146, layout: 1320, linear: 1240, wide: 1224, refusedBytes: 80 },
+  { name: 'fft', carriers: 105, commands: 204, layout: 1760, linear: 1648, wide: 1632, refusedBytes: 112 },
+  { name: 'convolution', carriers: 110, commands: 160, layout: 1472, linear: 1296, wide: 1264, refusedBytes: 176 },
+  { name: 'correlation', carriers: 100, commands: 176, layout: 1544, linear: 1432, wide: 1424, refusedBytes: 112 },
 ];
 
 /** Размер носителей, размещённых раскладкой, но не попавших в команды. */
