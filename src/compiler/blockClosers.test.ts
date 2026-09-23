@@ -323,6 +323,27 @@ describe("БЛОК 1, негативный контроль: закрывающ�
     expect(parserMessages(src).length).toBeGreaterThan(0);
   });
 
+  it("конец_цикла не закрывает пока: цикл — отдельный блок, не алиас", () => {
+    // Замер 2026-09-23: `цикл` — своя конструкция реестра (id: "loop",
+    // `astNode.kind: "цикл"`, bytecode `loop: body; jmp loop`), а не сахар для
+    // `пока` (у того `condition` и `jmp_if_not`). Поэтому `конец_цикла` остаётся,
+    // и чужое закрытие на обоих блоках — ошибка.
+    const onWhile = ["модуль t", "процедура f()", "  пока истина", "    прервать", "  конец_цикла", "конец", "конец"].join("\n");
+    const onLoop = ["модуль t", "процедура f()", "  цикл", "    прервать", "  конец_пока", "конец", "конец"].join("\n");
+    expect(parserMessages(onWhile).some((m) => m.includes("блок «пока»"))).toBe(true);
+    expect(parserMessages(onLoop).some((m) => m.includes("блок «цикл»"))).toBe(true);
+  });
+
+  it("`цикл` — отдельный узел AST без условия, `конец_цикла` его закрывает", () => {
+    const src = ["модуль t", "процедура f()", "  цикл", "    прервать", "  конец_цикла", "конец", "конец"].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.map((e) => e.message)).toEqual([]);
+    const body = (ast as Program).modules[0]?.procedures[0]?.body ?? [];
+    expect(body[0]?.kind).toBe("цикл");
+    // У `цикл` нет условия — этим он и отличается от `пока`.
+    expect(Object.keys(body[0] ?? {})).not.toContain("condition");
+  });
+
   it("конец_процедуры закрывает модуль → ошибка парсера", () => {
     const src = ["модуль t", "процедура главная()", "  вернуть 0", "конец", "конец_процедуры"].join("\n");
     expect(parserMessages(src).length).toBeGreaterThan(0);
