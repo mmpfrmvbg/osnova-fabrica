@@ -25,10 +25,11 @@
  *
  * | регистр | что держит |
  * |---|---|
- * | `%b[62]` | указатель кучи (растёт вверх) |
- * | `%b[61]` | 8 — размер элемента и заголовка |
- * | `%b[60]` | 0 — нулевое смещение для адреса |
- * | `%b[59]`, `%b[58]` | временные (рантайм их **портит**) |
+ * | `%b[15]` | указатель кучи (растёт вверх; двигают **обе** выделяющие операции) |
+ * | `%b[14]` | 8 — размер элемента и заголовка |
+ * | `%b[13]` | 1 — прирост длины на элемент |
+ * | `%b[12]` | 0 — нулевое смещение для адреса |
+ * | `%b[11]`, `%b[10]` | временные (рантайм их **портит**) |
  *
  * Умножение на 8 сделано **удвоением** (`adds`), а не `shls`: форма `adds` уже проверена в модели
  * (`src/e2k/e2kWideQemu.test.ts`), а `shls` — нет. Это выбор в пользу проверенного.
@@ -88,11 +89,38 @@ describe('рантайм массивов: последовательности 
     expect(sequence.at(-1)!.operands[2], 'приёмник чтения').toEqual(reg(6));
   });
 
-  it('добавить: обновить длину, вычислить адрес элемента, записать значение', () => {
+  it('добавить: обновить длину, вычислить адрес элемента, записать значение, сдвинуть кучу', () => {
     const sequence = lowerArrayCall('система.массив.добавить', [reg(7), reg(8)], undefined);
-    // чтение длины, +1, запись новой длины, три удвоения, заголовок, база, запись значения.
-    expect(mnemonics(sequence)).toEqual(['ldd', 'adds', 'std', 'adds', 'adds', 'adds', 'adds', 'adds', 'std']);
-    expect(sequence.at(-1)!.operands[0], 'записывается значение').toEqual(reg(8));
+    // чтение длины, +1, запись новой длины, три удвоения, заголовок, база, запись значения и сдвиг
+    // указателя кучи на элемент (последняя команда — она и разводит блоки двух массивов).
+    expect(mnemonics(sequence)).toEqual([
+      'ldd', 'adds', 'std', 'adds', 'adds', 'adds', 'adds', 'adds', 'std', 'adds',
+    ]);
+    expect(sequence.at(-2)!.operands[0], 'записывается значение').toEqual(reg(8));
+    // Сдвиг кучи: приёмник — сам указатель кучи, и он не перепутан с адресом записи (тот лежит в
+    // scratch2 и в последней команде не участвует).
+    expect(sequence.at(-1)!.operands[0], 'сдвиг кучи: от чего').toEqual(reg(ARRAY_REGISTERS.heap));
+    expect(sequence.at(-1)!.operands[1], 'сдвиг кучи: на размер элемента').toEqual(reg(ARRAY_REGISTERS.eight));
+    expect(sequence.at(-1)!.operands[2], 'сдвиг кучи: куда').toEqual(reg(ARRAY_REGISTERS.heap));
+  });
+
+  it('создать и добавить согласованы: обе операции двигают кучи на размер своего блока', () => {
+    // «Согласованы» здесь значит: за заголовок платит `создать`, за каждый элемент — `добавить`.
+    // Иначе блоки массивов накладываются друг на друга (измерено: FIR 177 вместо 181, §12
+    // `docs/e2k-regalloc-debt.md`).
+    const create = lowerArrayCall('система.массив.создать', [], 3);
+    const append = lowerArrayCall('система.массив.добавить', [reg(7), reg(8)], undefined);
+    const advances = (sequence: readonly AsmInstruction[]): number =>
+      sequence.filter(
+        (instruction) =>
+          instruction.mnemonic === 'adds' &&
+          instruction.operands[2]?.kind === 'reg' &&
+          (instruction.operands[2] as { index: number }).index === ARRAY_REGISTERS.heap,
+      ).length;
+    expect(advances(create), 'создать двигает кучи один раз — на заголовок').toBe(1);
+    expect(advances(append), 'добавить двигает кучи один раз — на элемент').toBe(1);
+    // И ни одна из них не двигает кучи дважды: двойной сдвиг — это «дыра» в куче, а не запас.
+    expect(advances(create) + advances(append)).toBe(2);
   });
 
   it('каждая команда последовательностей кодируется нашим кодировщиком', () => {
@@ -182,5 +210,15 @@ describe('рантайм массивов: сторож последовател
     const broken = honest.filter((instruction, index) => !(index === 2 && instruction.mnemonic === 'std'));
     const problems = checkArraySequence('система.массив.добавить', broken);
     expect(problems.join(' '), 'потерянная запись длины не поймана').toMatch(/длин/);
+  });
+
+  it('снятый сдвиг кучи в «добавить» ловится сторожем', () => {
+    // Это ровно тот дефект, из-за которого FIR давал 177: без сдвига блок следующего массива
+    // начинается на первом элементе этого.
+    const honest = lowerArrayCall('система.массив.добавить', [reg(7), reg(8)], undefined);
+    expect(checkArraySequence('система.массив.добавить', honest)).toEqual([]);
+    const broken = honest.slice(0, -1);
+    const problems = checkArraySequence('система.массив.добавить', broken);
+    expect(problems.join(' '), 'снятый сдвиг кучи не пойман').toMatch(/куч/);
   });
 });

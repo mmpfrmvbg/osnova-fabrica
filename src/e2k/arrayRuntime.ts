@@ -15,10 +15,16 @@
  *
  * | регистр | что держит | кто пишет |
  * |---|---|---|
- * | `%b[62]` | указатель кучи (растёт вверх по 8 байт на массив) | пролог и `создать` |
- * | `%b[61]` | 8 — размер элемента и заголовка | пролог |
- * | `%b[60]` | 0 — нулевое смещение адреса | пролог |
- * | `%b[59]`, `%b[58]` | временные | рантайм (портит) |
+ * | `%b[15]` | указатель кучи (растёт вверх по 8 байт на массив) | пролог, `создать` (заголовок) и `добавить` (элемент) |
+ * | `%b[14]` | 8 — размер элемента и заголовка | пролог |
+ * | `%b[12]` | 0 — нулевое смещение адреса | пролог |
+ * | `%b[13]` | 1 — прирост длины на элемент | пролог |
+ * | `%b[11]`, `%b[10]` | временные (`scratch`, `scratch2`) | рантайм (портит) |
+ *
+ * Указатель кучи обязаны двигать **обе** выделяющие операции: `создать` — на слово заголовка,
+ * `добавить` — на элемент. Пока `добавить` его не двигал, блок второго массива начинался на первом
+ * элементе первого: `получить(вход, i)` при i = 0…7 давал `[длина(коэф), коэф[0..3], вход[5..7]]`,
+ * и FIR давал 177 вместо 181 (измерено, `docs/e2k-regalloc-debt.md` §12).
  *
  * Чужой код в эти регистры не пишет: операция массива, у которой операнд попал в зарезервированную
  * область, **отказывает** ({@link RESERVED_FROM} и ниже) — иначе она затрёт указатель кучи.
@@ -215,6 +221,12 @@ export function lowerArrayCall(name: string, args: readonly Operand[], dst: numb
         adds(scratch2, eight, scratch2),
         adds(scratch2, registers[0]!, scratch2),
         std(registers[1]!, scratch2, zero),
+        // Указатель кучи двигается на элемент: без этого блок СЛЕДУЮЩЕГО массива ляжет на первый
+        // элемент этого (замер: `вход` и `коэффициенты` в FIR перекрывались, `получить(вход, i)` при
+        // i = 0…7 давал `[длина(коэф), коэф[0..3], вход[5..7]]`, FIR давал 177 вместо 181 —
+        // docs/e2k-regalloc-debt.md §12). Адресация выше считается от ДЛИНЫ массива, поэтому сдвиг
+        // кучи на неё не влияет — он нужен следующему `создать`.
+        adds(heap, eight, heap),
       ];
     }
     default:
@@ -263,18 +275,33 @@ export function arrayPrologue(heapAddress: number): AsmInstruction[] {
 export function checkArraySequence(name: string, instructions: readonly AsmInstruction[]): string[] {
   const problems: string[] = [];
   const kinds = instructions.map((instruction) => instruction.mnemonic);
+
+  /**
+   * Сдвигает ли последовательность указатель кучи на месте (`adds …, %b[heap]` в приёмник).
+   *
+   * Проверяются ОБЕ операции, выделяющие память: `создать` (заголовок) и `добавить` (элемент).
+   * Общий сторож нужен потому, что снятие сдвига в любой из них даёт один и тот же дефект —
+   * два массива ложатся друг на друга, — и раньше `добавить` этого сдвига не делал.
+   */
+  function advancesHeap(sequence: readonly AsmInstruction[]): boolean {
+    return sequence.some(
+      (instruction) =>
+        instruction.mnemonic === 'adds' &&
+        instruction.operands.some(
+          (operand) => operand.kind === 'reg' && operand.index === ARRAY_REGISTERS.heap,
+        ) &&
+        instruction.operands[2]?.kind === 'reg' &&
+        (instruction.operands[2] as { index: number }).index === ARRAY_REGISTERS.heap,
+    );
+  }
+
   switch (name) {
     case 'система.массив.создать': {
       if (!kinds.includes('std')) problems.push('«создать»: длина массива не обнулена (нет записи)');
       // Указатель кучи обязан сдвинуться: иначе два массива лягут на один адрес.
-      const advancesHeap = instructions.some(
-        (instruction) =>
-          instruction.mnemonic === 'adds' &&
-          instruction.operands.some((operand) => operand.kind === 'reg' && operand.index === ARRAY_REGISTERS.heap) &&
-          instruction.operands[2]?.kind === 'reg' &&
-          (instruction.operands[2] as { index: number }).index === ARRAY_REGISTERS.heap,
-      );
-      if (!advancesHeap) problems.push('«создать»: указатель кучи не сдвинут — массивы наложатся друг на друга');
+      if (!advancesHeap(instructions)) {
+        problems.push('«создать»: указатель кучи не сдвинут — массивы наложатся друг на друга');
+      }
       break;
     }
     case 'система.массив.добавить': {
@@ -282,8 +309,14 @@ export function checkArraySequence(name: string, instructions: readonly AsmInstr
       if (kinds.filter((kind) => kind === 'std').length < 2) {
         problems.push('«добавить»: длина не записана или значение не записано — нужны обе записи');
       }
-      if (kinds.filter((kind) => kind === 'adds').length < 5) {
-        problems.push('«добавить»: адрес элемента не досчитан (нужны ×8, заголовок и база)');
+      if (kinds.filter((kind) => kind === 'adds').length < 6) {
+        problems.push('«добавить»: адрес элемента не досчитан (нужны ×8, заголовок, база и сдвиг кучи)');
+      }
+      // Указатель кучи обязан сдвинуться и здесь: `создать` выделяет только заголовок, а элементы
+      // растут вместе с массивом. Без этого сдвига блок следующего массива ложится на первый элемент
+      // этого — измерено (`docs/e2k-regalloc-debt.md` §12: FIR 177 вместо 181).
+      if (!advancesHeap(instructions)) {
+        problems.push('«добавить»: указатель кучи не сдвинут — следующий массив наложится на этот');
       }
       break;
     }

@@ -138,7 +138,7 @@ describe('раскладка: IR.invoke получает длину от ран�
       { payload: 1, flags: 0b001, commands: 3, bytes: 24 }, // создать: 0 аргументов, приёмник есть
       { payload: 0, flags: 0b011, commands: 1, bytes: 8 }, // длина: 1 аргумент
       { payload: 2, flags: 0b101, commands: 6, bytes: 48 }, // получить: 2 аргумента
-      { payload: 3, flags: 0b100, commands: 9, bytes: 72 }, // добавить: 2 аргумента, приёмника нет
+      { payload: 3, flags: 0b100, commands: 10, bytes: 80 }, // добавить: 2 аргумента, приёмника нет (+сдвиг кучи)
     ];
     for (const item of expected) {
       const form = carrierFormOf(invoke(item.payload, item.flags, [0, 1], 2), { invokeNames: INVOKE_NAMES });
