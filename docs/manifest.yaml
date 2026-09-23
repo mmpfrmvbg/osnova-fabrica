@@ -31,6 +31,14 @@ docs/golden-app-notepad.md: {status: stable, source-files: [src/runtime/fixtures
 docs/golden-app-todo.md: {status: stable, source-files: [src/runtime/fixtures/todo.osnova]}
 docs/golden-app-viewer.md: {status: stable, source-files: [src/runtime/fixtures/viewer.osvbc.json]}
 
+# --- Учебник языка (active) ---
+docs/tutorial/README.md: {status: active}
+docs/tutorial/01-intro.md: {status: active}
+docs/tutorial/02-install.md: {status: active}
+docs/tutorial/03-basics.md: {status: active}
+docs/tutorial/04-control.md: {status: active}
+docs/tutorial/05-loops.md: {status: active}
+
 # --- Фронтир, замеры, статус (active) ---
 AGENTS.md: {status: active}
 BIG-PICTURE.md: {status: active}

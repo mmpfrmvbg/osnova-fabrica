@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (47)
+## Фронтир и замеры (53)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -73,6 +73,12 @@
 - [docs/spec-alignment.md](spec-alignment.md)
 - [docs/token-cost-report.md](token-cost-report.md)
 - [docs/trace-failure-report.md](trace-failure-report.md)
+- [docs/tutorial/01-intro.md](tutorial/01-intro.md)
+- [docs/tutorial/02-install.md](tutorial/02-install.md)
+- [docs/tutorial/03-basics.md](tutorial/03-basics.md)
+- [docs/tutorial/04-control.md](tutorial/04-control.md)
+- [docs/tutorial/05-loops.md](tutorial/05-loops.md)
+- [docs/tutorial/README.md](tutorial/README.md)
 - [docs/verification-debt.md](verification-debt.md)
 - [docs/vliw-e2k-model.md](vliw-e2k-model.md) ⚠
 - [docs/vliw-ilp-calibration.md](vliw-ilp-calibration.md)

@@ -9,7 +9,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { compileSource } from "../compiler/compiler";
 import { formatDeprecatedWarning } from "../compiler/cliCompile";
-import { VM, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
+import { VM, createDefaultInvokeHandler, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
+import { isKnownInvoke } from "../runtime/vm/invokeRegistry";
 import type { OsVbcModule } from "../runtime/vm/bytecode";
 
 function usage(): void {
@@ -75,6 +76,12 @@ async function cmdRun(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Общий обработчик — источник истины для вызовов языка (строки, математика,
+  // объекты, JSON, итератор для `для`). Раньше здесь были только `лог` и массивы,
+  // и любой другой известный вызов молча возвращал `null`: `для_каждого` не делал
+  // ни одной итерации, `система.строка.*` давали пусто. Свои случаи раннера
+  // (`лог`, массивы) остаются выше, остальное берётся из общего обработчика.
+  const base = createDefaultInvokeHandler();
   const invoke: InvokeHandler = (name, args) => {
     if (name === "система.лог.вывести") {
       console.log(...args);
@@ -98,6 +105,7 @@ async function cmdRun(args: string[]): Promise<void> {
       if (Array.isArray(arr) && idx >= 0 && idx < arr.length) arr[idx] = args[2] as StackValue;
       return null;
     }
+    if (isKnownInvoke(name)) return base(name, args);
     console.warn(`[VM] неизвестный syscall: ${name}`);
     return null;
   };
