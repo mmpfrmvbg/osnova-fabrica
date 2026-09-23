@@ -109,6 +109,33 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     match: 'e2kMathQemu.test.ts',
     reason: 'ресурсозависимый, живёт в gate:qemu: математические ядра исполняются в QEMU (случай 12)',
   },
+  // Пять тест-ЦЕЛЕЙ e2k: не состояние, а требование завершённой работы линии.
+  // Красные одинаково на всех ветках (docs/hardware-debt.md §3.23), поэтому в
+  // полном прогоне они стирали различие «сломали» и «ещё не доделали».
+  {
+    match: 'e2kPredicatePairs.test.ts',
+    reason: 'тест-цель, живёт в test:e2k-targets: раскладка даёт регистр вне поля слога',
+  },
+  {
+    match: 'elfMinimal.test.ts',
+    reason: 'тест-цель, живёт в test:e2k-targets: ожидания под короткую форму 0xc0|N не перемерены',
+  },
+  {
+    match: 'regAlloc.test.ts',
+    reason: 'тест-цель, живёт в test:e2k-targets: звуковая правка раскладки в дерево не внесена',
+  },
+  {
+    match: 'rematerialize.test.ts',
+    reason: 'тест-цель, живёт в test:e2k-targets: `фильтр` требует 11 живых при окне вызываемой 8',
+  },
+  {
+    match: 'twoPassLayout.test.ts',
+    reason: 'тест-цель, живёт в test:e2k-targets: длина носителя IR.invoke ждёт правки рантайма массивов',
+  },
+  {
+    match: 'e2kRealRun.test.ts',
+    reason: 'тест-цель, живёт в test:e2k-targets: падает на загрузке — регистр 193 вне поля слога',
+  },
 ];
 
 /** Разбор расхождений. */
