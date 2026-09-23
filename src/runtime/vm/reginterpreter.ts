@@ -320,6 +320,14 @@ export class RegVM {
         this.write(ins.d, a / b);
         return next;
       }
+      case "idiv": {
+        // БЛОК 2: целочисленное деление — отсечение к нулю (как `SDIVs` в e2k).
+        const a = this.read(ins.a) as number;
+        const b = this.read(ins.b) as number;
+        if (b === 0) throw new RegInterpreterError("Integer division by zero", this.pc, "idiv");
+        this.write(ins.d, Math.trunc(a / b));
+        return next;
+      }
       case "rem": {
         const a = this.read(ins.a) as number;
         const b = this.read(ins.b) as number;

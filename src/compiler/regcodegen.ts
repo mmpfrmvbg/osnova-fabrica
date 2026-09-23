@@ -71,6 +71,8 @@ const REG_BINARY_OP: Record<string, RegOp> = {
   "*": "mul",
   "/": "div",
   "%": "rem",
+  // БЛОК 2: целочисленное деление — свой регистровый опкод (см. `regcode.ts`).
+  "div": "idiv",
   "==": "eq",
   "!=": "ne",
   "<": "lt",

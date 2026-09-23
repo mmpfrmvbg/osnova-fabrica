@@ -1146,6 +1146,12 @@
         "module_export"
       ],
       "status": "stable"
+    },
+    {
+      "spelling": "div",
+      "tokenKind": "div",
+      "relatedConstructions": [],
+      "status": "stable"
     }
   ],
   "operators": [
@@ -2781,7 +2787,7 @@
     },
     {
       "id": "div",
-      "description": "Arithmetic divide",
+      "description": "Arithmetic divide (real)",
       "relatedNodeTypes": [
         "бинарное"
       ]
@@ -2811,6 +2817,13 @@
     {
       "id": "gt",
       "description": "Compare greater than",
+      "relatedNodeTypes": [
+        "бинарное"
+      ]
+    },
+    {
+      "id": "idiv",
+      "description": "Integer divide, truncation toward zero (БЛОК 2: оператор `div`)",
       "relatedNodeTypes": [
         "бинарное"
       ]

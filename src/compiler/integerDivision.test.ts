@@ -32,7 +32,7 @@ import { describe, it, expect } from "vitest";
 import { compileSource, tokenize, VM } from ".";
 import { LANGUAGE_REGISTRY, LLM_KEYWORD_ALIASES } from "./language-registry";
 import { REFUSALS, loweringOf } from "../e2k/e2kRealRun";
-import { carrierForOp } from "../e2k/emitterShell";
+import { CARRIER_OF_OP } from "../e2k/emitterShell";
 
 /** Скомпилировать и исполнить процедуру `р()` из источника. */
 async function run(source: string): Promise<unknown> {
@@ -79,8 +79,8 @@ describe("БЛОК 2: `div` — целочисленное деление", () =
   it("работает в выражении, в присваивании и в условии", async () => {
     // приоритет как у `*` и `/`: 2 + 10 div 3 = 5
     expect(await run(proc("  вернуть 2 + 10 div 3"))).toBe(5);
-    // левоассоциативность: 20 div 3 div 2 = (20 div 3) div 2 = 2
-    expect(await run(proc("  вернуть 20 div 3 div 2"))).toBe(2);
+    // левоассоциативность: 20 div 3 div 2 = (20 div 3) div 2 = 6 div 2 = 3
+    expect(await run(proc("  вернуть 20 div 3 div 2"))).toBe(3);
     // присваивание
     expect(await run(proc("  пусть н = 100 div 7\n  вернуть н"))).toBe(14);
     // условие
@@ -138,6 +138,6 @@ describe("БЛОК 2: понижение `div` в e2k — форма `SDIVs`", (
   });
 
   it("байткод-операция `idiv` ведёт к носителю `IR.idiv`", () => {
-    expect(carrierForOp("idiv")).toBe("IR.idiv");
+    expect(CARRIER_OF_OP["idiv"]).toBe("IR.idiv");
   });
 });

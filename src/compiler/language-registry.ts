@@ -180,6 +180,12 @@ const KEYWORDS_V01: KeywordSpec[] = [
   { lexeme: "и", kind: "expr", implemented: true, since: "0.1.0", description: "логическое И, short-circuit" },
   { lexeme: "или", kind: "expr", implemented: true, since: "0.1.0", description: "логическое ИЛИ, short-circuit" },
   { lexeme: "не", kind: "expr", implemented: true, since: "0.1.0", description: "логическое НЕ" },
+  // БЛОК 2: целочисленное деление. `//` занять нельзя — это комментарий до конца
+  // строки (lexer.ts), и `10 // 3` молча даёт 10. Форма `div` — короткое
+  // ASCII-написание (как алиасы `for`/`catch`/`end`), русское `цел_деление` ведёт к
+  // тому же виду токена через LLM_KEYWORD_ALIASES. Округление — к нулю (см. оракул).
+  { lexeme: "div", kind: "expr", implemented: true, since: "2.6.0",
+    description: "целочисленное деление с отсечением к нулю (10 div 3 = 3; -7 div 3 = -2)" },
   { lexeme: "тогда", kind: "stmt", implemented: true, since: "1.1.0", description: "опциональное слово после условия в если/иначе_если/пока" },
   { lexeme: "когда", kind: "stmt", implemented: true, since: "2.2.0", description: "разбор перечня по вариантам, с исчерпыванием" },
   { lexeme: "есть", kind: "stmt", implemented: true, since: "2.2.0", description: "ветка когда: есть Имя.вариант" },
@@ -817,6 +823,8 @@ export const LLM_KEYWORD_ALIASES: Readonly<Record<string, string>> = {
   /** `попробовать` … `поймать ошибка` — канон; старое `иначе_попытка` — алиас. */
   иначе_попытка: "поймать",
   catch: "поймать",
+  /** БЛОК 2: русское написание целочисленного деления ведёт к канону `div`. */
+  цел_деление: "div",
 };
 
 /** Реестр языка Основа v0.1 (текущая реализованная версия). */

@@ -94,6 +94,10 @@ export const IR_CARRIERS: Readonly<Record<string, number>> = {
   "IR.sub": 0x83,
   "IR.mul": 0x84,
   "IR.div": 0x85,
+  // БЛОК 2: целочисленное деление языка — свой носитель (0x96 — свободный код
+  // вне документированной таблицы). Отдельный от `IR.div`, потому что семантика
+  // другая: `IR.div` вещественный и остаётся отказом, `IR.idiv` понижается в `sdivs`.
+  "IR.idiv": 0x96,
   "IR.rem": 0x86,
   "IR.eq": 0x87,
   "IR.ne": 0x88,
@@ -130,6 +134,7 @@ const CARRIER_SLOTS: Readonly<Record<string, readonly CarrierSlot[]>> = {
   "IR.sub": ["dst", "src1", "src2"],
   "IR.mul": ["dst", "src1", "src2"],
   "IR.div": ["dst", "src1", "src2"],
+  "IR.idiv": ["dst", "src1", "src2"],
   "IR.rem": ["dst", "src1", "src2"],
   "IR.eq": ["dst", "src1", "src2"],
   "IR.ne": ["dst", "src1", "src2"],

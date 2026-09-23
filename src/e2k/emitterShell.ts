@@ -82,6 +82,10 @@ export const CARRIER_OF_OP: Readonly<Record<string, string>> = {
   sub: "IR.sub",
   mul: "IR.mul",
   div: "IR.div",
+  // БЛОК 2: целочисленное деление — отдельный носитель. `IR.div` вещественный и
+  // потому остаётся отказом, а `IR.idiv` понижается в `sdivs` (семантика совпадает:
+  // отсечение к нулю).
+  idiv: "IR.idiv",
   rem: "IR.rem",
   eq: "IR.eq",
   ne: "IR.ne",

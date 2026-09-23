@@ -592,6 +592,15 @@ export class VM {
         this.stack.push(a / b);
         return next;
       }
+      case "idiv": {
+        // БЛОК 2: целочисленное деление — отсечение К НУЛЮ (как `SDIVs` в e2k и
+        // как остаток `rem` в этом же интерпретаторе: знак — по делимому).
+        const b = this.stack.pop() as number;
+        const a = this.stack.pop() as number;
+        if (b === 0) throw new InterpreterError("Integer division by zero", this.pc, "idiv");
+        this.stack.push(Math.trunc(a / b));
+        return next;
+      }
       case "rem": {
         const b = this.stack.pop() as number;
         const a = this.stack.pop() as number;

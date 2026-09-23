@@ -48,6 +48,7 @@ export type Op =
   | "sub"
   | "mul"
   | "div"
+  | "idiv"
   | "rem"
   | "eq"
   | "ne"
@@ -98,6 +99,7 @@ export const ALL_OPS = [
   "sub",
   "mul",
   "div",
+  "idiv",
   "rem",
   "eq",
   "ne",

@@ -155,7 +155,10 @@ describe("e2kModel: слоты формата Основа выводятся и
     // разрешал деление в любом ALU-слоте. Деление умеет только АЛУ5.
     expect(possibleSlots("div")).toEqual(["M"]);
     expect(possibleSlots("rem")).toEqual(["M"]);
+    // БЛОК 2: целочисленное деление — тот же делитель АЛУ5.
+    expect(possibleSlots("idiv")).toEqual(["M"]);
     expect(channelsFor("div")).toEqual([CHANNELS.ALU[5]]);
+    expect(channelsFor("idiv")).toEqual([CHANNELS.ALU[5]]);
   });
 
   it("ветвление и вызовы — только СТ", () => {
@@ -204,7 +207,7 @@ describe("e2kModel: слоты формата Основа выводятся и
     // Это тест против той самой рассинхронизации, из-за которой здесь когда-то
     // жили `global.get`/`global.set`/`field.get`/`field.set`/`result.unwrap`/
     // `result.tag`. Сверяемся с `ALL_OPS`, а не с копией списка.
-    expect(REAL_OPS).toHaveLength(34);
+    expect(REAL_OPS).toHaveLength(35);
 
     // Каждый реальный опкод обязан получить канал и слот.
     for (const op of REAL_OPS) {

@@ -63,6 +63,7 @@
 | `sub` | [a, b] → [a-b] | |
 | `mul` | [a, b] → [a*b] | |
 | `div` | [a, b] → [a/b] | `b === 0` → InterpreterError |
+| `idiv` | [a, b] → [trunc(a/b)] | целочисленное деление, отсечение **к нулю** (БЛОК 2: оператор `div`); `b === 0` → InterpreterError |
 | `rem` | [a, b] → [a%b] | `b === 0` → InterpreterError |
 
 ### 3.3. Сравнения

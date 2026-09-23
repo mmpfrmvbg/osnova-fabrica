@@ -77,6 +77,8 @@ export type RegOp =
   | "sub"
   | "mul"
   | "div"
+  /** Целочисленное деление с отсечением к нулю (БЛОК 2: оператор `div`). */
+  | "idiv"
   | "rem"
   | "eq"
   | "ne"
@@ -136,6 +138,7 @@ export interface RegInstructionBinary {
     | "sub"
     | "mul"
     | "div"
+    | "idiv"
     | "rem"
     | "eq"
     | "ne"
@@ -363,6 +366,7 @@ export const REG_OPS: readonly RegOp[] = [
   "sub",
   "mul",
   "div",
+  "idiv",
   "rem",
   "eq",
   "ne",

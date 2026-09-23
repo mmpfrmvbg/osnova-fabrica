@@ -142,7 +142,7 @@ export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult 
    */
   const EXPR_CONTINUATION_KINDS: readonly TokenKind[] = [
     "=", "+=", "-=", "*=", "/=",
-    "+", "-", "*", "/", "%",
+    "+", "-", "*", "/", "%", "div",
     "==", "!=", "<", "<=", ">", ">=",
     "и", "или", "?", ".",
     "[", "]", "(", ")",
@@ -1336,7 +1336,8 @@ export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult 
   function parseMul(): Expr | null {
     let left = parseUnary();
     if (!left) return null;
-    while (peek().kind === "*" || peek().kind === "/" || peek().kind === "%") {
+    // `div` — целочисленное деление (БЛОК 2): тот же уровень, что `*`, `/`, `%`.
+    while (peek().kind === "*" || peek().kind === "/" || peek().kind === "%" || peek().kind === "div") {
       const op = advance().kind;
       skipNewlines();
       const right = parseUnary();
