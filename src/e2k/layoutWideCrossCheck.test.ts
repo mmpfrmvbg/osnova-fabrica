@@ -53,11 +53,11 @@ export interface KernelByteRow {
 }
 
 export const KERNEL_BYTES: readonly KernelByteRow[] = [
-  { name: 'fir', carriers: 111, commands: 235, layout: 2064, linear: 2064, wide: 2048, refusedBytes: 0 },
-  { name: 'iir', carriers: 91, commands: 145, layout: 1312, linear: 1312, wide: 1296, refusedBytes: 0 },
-  { name: 'fft', carriers: 105, commands: 204, layout: 1760, linear: 1760, wide: 1744, refusedBytes: 0 },
-  { name: 'convolution', carriers: 110, commands: 160, layout: 1472, linear: 1424, wide: 1392, refusedBytes: 48 },
-  { name: 'correlation', carriers: 100, commands: 176, layout: 1544, linear: 1544, wide: 1536, refusedBytes: 0 },
+  { name: 'fir', carriers: 111, commands: 221, layout: 1832, linear: 1784, wide: 1704, refusedBytes: 48 },
+  { name: 'iir', carriers: 91, commands: 161, layout: 1360, linear: 1360, wide: 1296, refusedBytes: 0 },
+  { name: 'fft', carriers: 105, commands: 228, layout: 1840, linear: 1840, wide: 1792, refusedBytes: 0 },
+  { name: 'convolution', carriers: 110, commands: 174, layout: 1456, linear: 1408, wide: 1352, refusedBytes: 48 },
+  { name: 'correlation', carriers: 100, commands: 155, layout: 1304, linear: 1256, wide: 1224, refusedBytes: 48 },
 ];
 
 /** Размер носителей, размещённых раскладкой, но не попавших в команды. */
@@ -69,7 +69,14 @@ function refusedBytesOf(name: string, atom: string): {
   readonly unplaced: number;
 } {
   const stream = kernelStreamOf(name, atom);
-  const carriersLayout = layoutOf(stream.carrierStream, { invokeNames: stream.invokeNames });
+  // Пул констант обязателен: без него `IR.const` берётся ЛИТЕРАЛЬНОЙ формой (LTS, 16 байт) и
+  // раскладка показывает лишние байты. Замер у FIR: 1992 без пула против 1832 с пулом при 1784
+  // линейных — то есть посылка «раскладка − линейные = отвергнутые носители» без пула НЕ выполняется,
+  // и расхождение объяснялось бы не тем, чем является. С пулом она выполняется до байта.
+  const carriersLayout = layoutOf(stream.carrierStream, {
+    invokeNames: stream.invokeNames,
+    constants: stream.constants,
+  });
   const sumOfSizes = carriersLayout.entries.reduce((sum, entry) => sum + entry.size, 0);
   const commandIndices = new Set(stream.commandIndices);
   let refusedBytes = 0;
@@ -152,24 +159,32 @@ describe('сверка раскладки с упаковщиком: пять я
   it('3.4 расхождение объяснено: у ядер без отвергнутых носителей раскладка и линейные совпадают', () => {
     const withRefusals = KERNEL_BYTES.filter((row) => row.refusedBytes > 0).map((row) => row.name);
     const withoutRefusals = KERNEL_BYTES.filter((row) => row.refusedBytes === 0).map((row) => row.name);
-    expect(withRefusals, 'ядра с отвергнутыми носителями').toEqual(['convolution']);
-    expect(withoutRefusals.length, 'ядер без отвергнутых').toBe(4);
+    // Перемер 2026-09-23: отвергнутые носители есть у ТРЁХ ядер, а не у одной свёртки — у FIR и
+    // корреляции отказывает раскладка `IR.invoke` (приёмник/аргумент в зарезервированной области
+    // `%b[10..15]` рантайма массивов), по 48 байт. Прежняя запись «единственное ядро — свёртка» была
+    // неверна уже до правки рантайма: замер до неё даёт те же 48/48/48.
+    expect(withRefusals, 'ядра с отвергнутыми носителями').toEqual(['fir', 'convolution', 'correlation']);
+    expect(withoutRefusals.length, 'ядер без отвергнутых').toBe(2);
     for (const row of KERNEL_BYTES) {
       if (row.refusedBytes !== 0) continue;
       expect(row.layout - row.linear, `${row.name}: раскладка против линейных`).toBe(0);
     }
-    // И у единственного ядра с отказами расхождение названо точно.
-    const convolution = KERNEL_BYTES.find((row) => row.name === 'convolution')!;
-    expect(convolution.layout - convolution.linear, 'convolution: раскладка − линейно').toBe(48);
-    expect(convolution.refusedBytes, 'convolution: отвергнутые носители').toBe(48);
+    // И у ядер с отказами расхождение названо точно: раскладка минус линейные равно отвергнутым.
+    for (const row of KERNEL_BYTES) {
+      if (row.refusedBytes === 0) continue;
+      expect(row.layout - row.linear, `${row.name}: раскладка − линейно`).toBe(48);
+      expect(row.refusedBytes, `${row.name}: отвергнутые носители`).toBe(48);
+    }
   });
 
-  it('3.5 итог по пяти ядрам: раскладка 8152, линейно 8104, пакетами 8016', () => {
+  it('3.5 итог по пяти ядрам: раскладка 7792, линейно 7648, пакетами 7368', () => {
     const sum = (pick: (row: KernelByteRow) => number): number => KERNEL_BYTES.reduce((total, row) => total + pick(row), 0);
-    expect(sum((row) => row.layout), 'раскладка').toBe(8152);
-    expect(sum((row) => row.linear), 'линейно').toBe(8104);
-    expect(sum((row) => row.wide), 'пакетами').toBe(8016);
-    expect(sum((row) => row.layout) - sum((row) => row.wide), 'выигрыш упаковки').toBe(136);
+    // Перемер 2026-09-23: раскладка с пулом констант 7792, линейных 7648 (было 8152 и 8104),
+    // пакетами 7368 (было 8016). Сдвиг дала правка рантайма массивов: `добавить` 9 → 10 команд.
+    expect(sum((row) => row.layout), 'раскладка').toBe(7792);
+    expect(sum((row) => row.linear), 'линейно').toBe(7648);
+    expect(sum((row) => row.wide), 'пакетами').toBe(7368);
+    expect(sum((row) => row.layout) - sum((row) => row.wide), 'выигрыш упаковки').toBe(424);
   });
 
   it('3.6 проверка не проходит при нулевой упаковке: равенство «пакетами = линейно» запрещено явно', () => {
