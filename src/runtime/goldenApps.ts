@@ -14,6 +14,13 @@ import type { OsnovaSpec } from '../pipeline/types';
 
 const STORAGE_ROOT = path.join(os.tmpdir(), 'osnova-storage');
 
+/**
+ * Корень хранилища golden-приложений. Экспортирован для оракула app-runner'а:
+ * он обязан читать те же ключи из того же корня, что пишет приложение
+ * (`src/runtime/appRunner.test.ts`), иначе проверка смотрела бы в другое место.
+ */
+export const GOLDEN_STORAGE_ROOT = STORAGE_ROOT;
+
 function makeTmpStorageRoot(): string {
   const dir = path.join(os.tmpdir(), `osnova-golden-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   fssync.mkdirSync(dir, { recursive: true });

@@ -12,6 +12,7 @@ import type { WindowApi } from "./ui";
 import * as storage from "./storage";
 import { isOsVbcModule } from "./vm/bytecode";
 import { VM, loadModule, runProgram, createDefaultInvokeHandler } from "./vm/interpreter";
+import { isKnownInvoke } from "./vm/invokeRegistry";
 import type { StackValue } from "./vm/interpreter";
 import type { OsVbcModule } from "./vm/bytecode";
 
@@ -98,6 +99,11 @@ function createInvokeHandler(
 ) {
   const { windowApi } = appContext;
   const pad2 = (n: number): string => String(Math.trunc(n)).padStart(2, "0");
+  /**
+   * Общий обработчик — источник истины для чистых системных вызовов языка.
+   * Держим один экземпляр: он без состояния, а создание на каждый вызов — лишнее.
+   */
+  const base = createDefaultInvokeHandler();
 
   return async (name: string, args: StackValue[]): Promise<StackValue | null> => {
     switch (name) {
@@ -597,6 +603,15 @@ function createInvokeHandler(
         if (name.startsWith("система.сеть") && !sandbox.allowNetwork) {
           throw new SandboxError("Network not allowed");
         }
+        // Чистые вызовы языка (математика, `объект.*`, `строка.из_числа`,
+        // `итератор.из`) реализованы в общем обработчике. Раньше они молча
+        // становились здесь заглушкой, и это ломало приложения: `для_каждого`
+        // компилируется в `система.итератор.из` (`src/compiler/codegen.ts`), а
+        // байткод-фикстуры приложений перегенерированы в `7853a50` — app-runner
+        // новый системный вызов не получил, и ни один `для` не делал итераций
+        // (Micro-CRM считал 0 вместо 65). Свои вызовы — окно, хранилище, файлы,
+        // лог, интерфейс — раннер держит выше в `switch` и они сюда не доходят.
+        if (isKnownInvoke(name)) return base(name, args);
         console.error("[osnova-vm] invoke stub:", name);
         return null;
     }
