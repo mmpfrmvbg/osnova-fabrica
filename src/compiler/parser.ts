@@ -630,6 +630,8 @@ export function parse(tokens: Token[]): ParseResult {
       if (s) body.push(s);
       else syncToStmtBoundary();
       // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+      // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+      // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
       if (pos === before) break;
       skipNewlines();
     }
@@ -850,6 +852,8 @@ export function parse(tokens: Token[]): ParseResult {
         if (s) body.push(s);
         else syncToStmtBoundary();
         // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
         if (pos === before) break;
         skipNewlines();
       }
@@ -868,6 +872,8 @@ export function parse(tokens: Token[]): ParseResult {
           if (s) clauseBody.push(s);
           else syncToStmtBoundary();
           // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+          // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
           if (pos === before) break;
           skipNewlines();
         }
@@ -884,6 +890,8 @@ export function parse(tokens: Token[]): ParseResult {
           if (s) elseBody.push(s);
           else syncToStmtBoundary();
           // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+          // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
           if (pos === before) break;
           skipNewlines();
         }
@@ -916,6 +924,8 @@ export function parse(tokens: Token[]): ParseResult {
           if (s) armBody.push(s);
           else syncToStmtBoundary();
           // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+          // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
           if (pos === before) break;
           skipNewlines();
         }
@@ -942,6 +952,8 @@ export function parse(tokens: Token[]): ParseResult {
           if (s) elseBody.push(s);
           else syncToStmtBoundary();
           // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+          // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
           if (pos === before) break;
           skipNewlines();
         }
@@ -959,6 +971,8 @@ export function parse(tokens: Token[]): ParseResult {
         if (s) body.push(s);
         else syncToStmtBoundary();
         // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
         if (pos === before) break;
         skipNewlines();
       }
@@ -987,6 +1001,8 @@ export function parse(tokens: Token[]): ParseResult {
         if (s) catchBody.push(s);
         else syncToStmtBoundary();
         // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
         if (pos === before) break;
         skipNewlines();
       }
@@ -1014,6 +1030,8 @@ export function parse(tokens: Token[]): ParseResult {
         if (s) body.push(s);
         else syncToStmtBoundary();
         // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
         if (pos === before) break;
         skipNewlines();
       }
@@ -1069,6 +1087,8 @@ export function parse(tokens: Token[]): ParseResult {
         if (s) body.push(s);
         else syncToStmtBoundary();
         // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
         if (pos === before) break;
         skipNewlines();
       }
@@ -1102,6 +1122,8 @@ export function parse(tokens: Token[]): ParseResult {
         if (s) body.push(s);
         else syncToStmtBoundary();
         // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
         if (pos === before) break;
         skipNewlines();
       }
