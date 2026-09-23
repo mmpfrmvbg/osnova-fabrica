@@ -3,6 +3,7 @@
  */
 
 import { KEYWORDS, type Token, type TokenKind } from "./lexer";
+import { resolveSyscallAlias } from "../runtime/vm/invokeRegistry";
 import type { Program, Module, Procedure, Stmt, Expr, ImportDeclaration, TypeDeclaration, TypeRef, TypeField } from "./ast";
 
 export type ParseErrorContext = "module" | "procedure" | "stmt" | "expr";
@@ -1437,7 +1438,9 @@ export function parse(tokens: Token[]): ParseResult {
               } else break;
             }
             if (!consume(")", "Ожидается ')'")) return null;
-            return { kind: "вызов", name: fullName, args };
+            // Синоним системного вызова сводится к канону здесь, где имя попадает
+            // в AST: тогда семантика, кодогенерация и обе VM видят одно имя.
+            return { kind: "вызов", name: resolveSyscallAlias(fullName), args };
           }
           expr = { kind: "поле", object: expr, field };
         }
@@ -1469,7 +1472,7 @@ export function parse(tokens: Token[]): ParseResult {
           } else break;
         }
         consume(")", "Ожидается ')'");
-        return { kind: "вызов", name, args };
+        return { kind: "вызов", name: resolveSyscallAlias(name), args };
       }
       return expr;
     }
