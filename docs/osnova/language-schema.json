@@ -977,6 +977,60 @@
       "status": "stable"
     },
     {
+      "spelling": "конец_для",
+      "tokenKind": "конец_для",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_для_каждого",
+      "tokenKind": "конец_для_каждого",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_если",
+      "tokenKind": "конец_если",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_когда",
+      "tokenKind": "конец_когда",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_модуля",
+      "tokenKind": "конец_модуля",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_пока",
+      "tokenKind": "конец_пока",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_попробовать",
+      "tokenKind": "конец_попробовать",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_процедуры",
+      "tokenKind": "конец_процедуры",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_цикла",
+      "tokenKind": "конец_цикла",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
       "spelling": "ложь",
       "tokenKind": "ложь",
       "relatedConstructions": [

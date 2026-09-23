@@ -296,6 +296,26 @@ export function tokenize(source: string): LexerResult {
         continue;
       }
       const kw = KEYWORDS[lex] ?? (LLM_KEYWORD_ALIASES[lex] as TokenKind | undefined);
+      // Английский алиас `end` ведёт к тому же виду токена, что `конец`:
+      // лексема у него своя, поэтому контекст закрытия надо сохранить.
+      if (kw === "конец") {
+        tokens.push(makeToken("конец", "конец"));
+        continue;
+      }
+      // `else if` пишется с пробелом: посимвольный алиас его не ловит. Собираем
+      // в один токен `иначе_если`, иначе `else` уходил в ветку `иначе`, а `if`
+      // начинал новую инструкцию внутри неё.
+      if (lex === "else") {
+        const save = i;
+        while (peek() === " " || peek() === "\t") advance();
+        if (source.startsWith("if", i) && !isIdContinue(source[i + 2] ?? "")) {
+          advance();
+          advance();
+          tokens.push(makeToken("иначе_если", "else if"));
+          continue;
+        }
+        i = save;
+      }
       if (kw) tokens.push(makeToken(kw, lex));
       else tokens.push(makeToken("идентификатор", lex, lex));
       continue;

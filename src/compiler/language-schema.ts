@@ -195,13 +195,22 @@ export function buildLanguageSchema(): LanguageSchema {
   }));
   constructions.push(...PLANNED_CONSTRUCTIONS);
 
-  const keywords = Object.keys(KEYWORDS)
-    .sort((a, b) => a.localeCompare(b, "ru"))
+  // Ключевые слова — из карты лексера ПЛЮС закрывающие блок слова (`конец`,
+  // `конец_если`, …): они реализованы, но в карту не входят, потому что лексер
+  // проверяет их до неё (у них свой TokenKind). Схема обязана их знать, иначе
+  // machine-readable канон перестаёт описывать синтаксис, который принимается.
+  const blockClosingLexemes = LANGUAGE_REGISTRY.keywords
+    .filter((k) => k.kind === "block" && k.implemented)
+    .map((k) => k.lexeme);
+  const keywordSpellings = Array.from(new Set([...Object.keys(KEYWORDS), ...blockClosingLexemes]))
+    .sort((a, b) => a.localeCompare(b, "ru"));
+
+  const keywords = keywordSpellings
     .map((spelling) => {
       const spec = LANGUAGE_REGISTRY.keywords.find((k) => k.lexeme === spelling);
       return {
         spelling,
-        tokenKind: KEYWORDS[spelling],
+        tokenKind: KEYWORDS[spelling] ?? spelling,
         relatedConstructions: KEYWORD_TO_CONSTRUCTION[spelling] ?? [],
         status: (spec?.implemented ? "stable" : "experimental") as Status,
       };

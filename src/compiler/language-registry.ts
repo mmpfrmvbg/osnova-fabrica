@@ -782,6 +782,7 @@ export const LLM_KEYWORD_ALIASES: Readonly<Record<string, string>> = {
   if: "если",
   else: "иначе",
   elif: "иначе_если",
+  "else if": "иначе_если",
   elseif: "иначе_если",
   then: "тогда",
   return: "вернуть",
