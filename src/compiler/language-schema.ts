@@ -39,6 +39,8 @@ interface LanguageSchema {
     relatedTokens: string[];
     relatedAstNodes: string[];
     status: Status;
+    /** Написания-алиасы того же оператора (метаданные, не отдельный оператор). */
+    aliases: string[];
   }>;
   types: Array<{
     id: string;
@@ -222,9 +224,10 @@ export function buildLanguageSchema(): LanguageSchema {
     category: op.kind,
     precedence: op.precedence,
     associativity: op.associativity,
-    relatedTokens: [op.symbol],
+    relatedTokens: [op.symbol, ...(op.aliases ?? [])],
     relatedAstNodes: ["бинарное", "унарное", "присвоить"],
     status: (op.implemented ? "stable" : "planned") as Status,
+    aliases: op.aliases ?? [],
   }));
 
   const syscalls = Object.keys(INVOKE_ARG_COUNT)

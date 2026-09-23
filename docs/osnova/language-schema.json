@@ -1162,7 +1162,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "-(унарный)",
@@ -1177,7 +1178,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "-=",
@@ -1192,7 +1194,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "!=",
@@ -1207,7 +1210,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "*",
@@ -1222,7 +1226,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "*=",
@@ -1237,7 +1242,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "/",
@@ -1252,7 +1258,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "/=",
@@ -1267,7 +1274,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "%",
@@ -1282,7 +1290,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "+",
@@ -1297,7 +1306,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "+=",
@@ -1312,7 +1322,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "<",
@@ -1327,7 +1338,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "<=",
@@ -1342,7 +1354,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "=",
@@ -1350,14 +1363,18 @@
       "precedence": 1,
       "associativity": "right",
       "relatedTokens": [
-        "="
+        "=",
+        ":="
       ],
       "relatedAstNodes": [
         "бинарное",
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": [
+        ":="
+      ]
     },
     {
       "symbol": "==",
@@ -1372,7 +1389,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": ">",
@@ -1387,7 +1405,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": ">=",
@@ -1402,7 +1421,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     }
   ],
   "types": [

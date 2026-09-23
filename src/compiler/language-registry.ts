@@ -90,6 +90,13 @@ export interface OperatorSpec {
   associativity: "left" | "right";
   implemented: boolean;
   since: string;
+  /**
+   * Написания-алиасы, которые лексер сводит к этому же оператору (метаданные, а
+   * не отдельный оператор). Отдельная запись оператора означала бы отдельный
+   * `TokenKind`, а инвариант `compiler.test.ts` требует, чтобы символ оператора
+   * давал токен того же вида.
+   */
+  aliases?: string[];
 }
 
 export interface SyscallSpec {
@@ -567,7 +574,9 @@ const CONSTRUCTS_V01: ConstructSpec[] = [
 ];
 
 const OPERATORS_V01: OperatorSpec[] = [
-  { symbol: "=", kind: "assign", precedence: 1, associativity: "right", implemented: true, since: "0.1.0" },
+  // `:=` — алиас присваивания из Паскаля (пункт 1.3 требований): лексер сводит его к `=`.
+  // Метаданные, а не отдельный оператор: отдельная запись потребовала бы своего TokenKind.
+  { symbol: "=", kind: "assign", precedence: 1, associativity: "right", implemented: true, since: "0.1.0", aliases: [":="] },
   { symbol: "==", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
   { symbol: "!=", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
   { symbol: "<", kind: "compare", precedence: 4, associativity: "left", implemented: true, since: "0.1.0" },
