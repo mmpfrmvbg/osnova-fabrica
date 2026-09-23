@@ -120,6 +120,22 @@ export function parse(tokens: Token[]): ParseResult {
   }
 
   /**
+   * Глубина разбора условия. В условии одиночный `=` читается как `==`
+   * (пункт 1.1 требований: 52 случая в трейсах — модель тянет `=` из Pascal/SQL).
+   * Вне условия `=` остаётся оператором инструкции, и в выражении он — ошибка.
+   */
+  let conditionDepth = 0;
+
+  /** Разобрать выражение в позиции условия (`если`, `иначе_если`, `пока`). */
+  function parseCondition(): Expr | null {
+    conditionDepth++;
+    try {
+      return parseExpr();
+    } finally {
+      conditionDepth--;
+    }
+  }
+  /**
    * Токен — закрывающее слово для блока. `конец_X` однозначны (ключевые слова).
    * `конец` закрывает только тогда, когда за ним НЕТ продолжения инструкции.
    */
@@ -841,7 +857,7 @@ export function parse(tokens: Token[]): ParseResult {
     if (peek().kind === "если") {
       advance();
       skipNewlines();
-      const condition = parseExpr();
+      const condition = parseCondition();
       if (!condition) return null;
       if (peek().kind === "тогда") advance();
       skipNewlines();
@@ -861,7 +877,7 @@ export function parse(tokens: Token[]): ParseResult {
       while (atElseIf()) {
         consumeElseIf();
         skipNewlines();
-        const cond = parseExpr();
+        const cond = parseCondition();
         if (!cond) return null;
         if (peek().kind === "тогда") advance();
         skipNewlines();
@@ -1019,7 +1035,7 @@ export function parse(tokens: Token[]): ParseResult {
     if (peek().kind === "пока") {
       advance();
       skipNewlines();
-      const condition = parseExpr();
+      const condition = parseCondition();
       if (!condition) return null;
       if (peek().kind === "тогда") advance();
       skipNewlines();
@@ -1187,16 +1203,23 @@ export function parse(tokens: Token[]): ParseResult {
     return parseCompare();
   }
 
+  /** Оператор сравнения; в позиции условия одиночный `=` читается как `==` (пункт 1.1). */
+  function isCompareOp(k: TokenKind): boolean {
+    if (k === "=") return conditionDepth > 0;
+    return k === "==" || k === "!=" || k === "<" || k === "<=" || k === ">" || k === ">=";
+  }
+
   function parseCompare(): Expr | null {
     const left = parseAdd();
     if (!left) return null;
-    const compareOps = new Set<TokenKind>(["==", "!=", "<", "<=", ">", ">="]);
-    if (!compareOps.has(peek().kind)) return left;
+    if (!isCompareOp(peek().kind)) return left;
     // a < b < c → (a < b) и (b < c) — как пишут нейросети и Python
     let acc: Expr | null = null;
     let prevRight: Expr = left;
-    while (compareOps.has(peek().kind)) {
-      const op = advance().kind;
+    while (isCompareOp(peek().kind)) {
+      const raw = advance().kind;
+      // В условии `=` — сравнение, а не присваивание: в AST идёт `==`.
+      const op = raw === "=" ? "==" : raw;
       skipNewlines();
       const right = parseAdd();
       if (!right) return null;
