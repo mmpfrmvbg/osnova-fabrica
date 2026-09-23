@@ -664,7 +664,39 @@ export function parse(tokens: Token[]): ParseResult {
     };
   }
 
+  /**
+   * `пока_не` в позиции КОНСТРУКЦИИ: слово, за которым идёт выражение
+   * (`пока_не x > 5`). Решение владельца — конструкцию не добавлять; здесь только
+   * точная диагностика вместо каскада ошибок.
+   *
+   * Как имя переменной слово законно (`пусть пока_не = 5`, `пока_не = 1`,
+   * `пока_не(...)`, `пока_не.поле`), поэтому за присваиванием/вызовом/полем/
+   * индексом и в конце строки диагностика молчит.
+   */
+  function atMissingWhileNot(): boolean {
+    const t = peek();
+    if (t.kind !== "идентификатор" || t.lexeme !== "пока_не") return false;
+    const varLike: TokenKind[] = [
+      "=", "+=", "-=", "*=", "/=", "(", ".", "[", ",",
+      "новая_строка", "конец_файла",
+    ];
+    return !varLike.includes(peekNext().kind);
+  }
   function parseStmt(): Stmt | null {
+    if (atMissingWhileNot()) {
+      const t = peek();
+      errors.push({
+        message: "нет конструкции 'пока_не'; используйте 'пока не x'",
+        line: t.line,
+        column: t.column,
+        context: "stmt",
+        expected: ["пока"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      advance();
+      return null;
+    }
     const compoundToBinaryOp: Record<"+=" | "-=" | "*=" | "/=", "+" | "-" | "*" | "/"> = {
       "+=": "+",
       "-=": "-",
