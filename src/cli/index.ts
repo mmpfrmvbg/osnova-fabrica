@@ -9,7 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { compileSource } from "../compiler/compiler";
 import { formatDeprecatedWarning } from "../compiler/cliCompile";
-import { VM, createDefaultInvokeHandler, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
+import { VM, createDefaultInvokeHandler, formatOsnovaValue, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import { isKnownInvoke } from "../runtime/vm/invokeRegistry";
 import type { OsVbcModule } from "../runtime/vm/bytecode";
 
@@ -84,7 +84,7 @@ async function cmdRun(args: string[]): Promise<void> {
   const base = createDefaultInvokeHandler();
   const invoke: InvokeHandler = (name, args) => {
     if (name === "система.лог.вывести") {
-      console.log(...args);
+      console.log(formatOsnovaValue(args[0]));
       return null;
     }
     if (name === "система.массив.создать") return [] as StackValue[];
@@ -119,7 +119,7 @@ async function cmdRun(args: string[]): Promise<void> {
   })();
 
   const result = await vm.runProcedure(mainIdx, []);
-  if (result !== null && result !== undefined) console.log(result);
+  if (result !== null && result !== undefined) console.log(formatOsnovaValue(result));
 }
 
 async function main(): Promise<void> {

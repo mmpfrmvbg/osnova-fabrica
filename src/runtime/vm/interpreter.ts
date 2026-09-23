@@ -76,9 +76,9 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       return null;
     }
     case "система.строка.объединить": {
-      const a = String(args[0] ?? "");
-      const b = String(args[1] ?? "");
-      return a + b;
+      // Тот же формат значения, что у `+` со строкой: иначе `+` и `объединить`
+      // расходились бы на логических (`истина` против `true`).
+      return formatOsnovaValue(args[0]) + formatOsnovaValue(args[1]);
     }
     case "система.строка.длина": {
       const s = String(args[0] ?? "");
@@ -197,7 +197,11 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       return Math.floor(diffDays);
     }
     case "система.лог.вывести": {
-      console.log(args[0]);
+      // Печатаем ОСНОВСКИЙ вид значения: логические — словами, `пусто` — словом.
+      // Голое `console.log(args[0])` давало `true`, тогда как склейка через `+`
+      // давала `истина`, — одно значение выглядело по-разному в зависимости от
+      // способа печати (найдено при написании учебника, 2026-09-23).
+      console.log(formatOsnovaValue(args[0]));
       return null;
     }
     case "система.время.сейчас": {
@@ -361,7 +365,19 @@ export class InterpreterError extends Error {
   }
 }
 
-function osnovaStringify(v: StackValue | undefined): string {
+/**
+ * Значение программы как текст — по-основски.
+ *
+ * Единственное место, где решается, как выглядит значение при печати и склейке:
+ * логические — словами `истина` / `ложь`, отсутствие значения — словом `пусто`,
+ * массив и объект — в JSON, числа и строки — как есть.
+ *
+ * Почему экспортируется: тот же вид обязаны давать ВСЕ пути вывода — общий
+ * обработчик, раннер приложений и CLI. Пока каждый печатал по-своему, голое
+ * логическое выводилось как `true`, а в склейке через `+` — как `истина`
+ * (найдено при написании учебника, 2026-09-23).
+ */
+export function formatOsnovaValue(v: StackValue | undefined): string {
   if (v === true) return "истина";
   if (v === false) return "ложь";
   if (v === null || v === undefined) return "пусто";
@@ -567,7 +583,7 @@ export class VM {
         const b = this.stack.pop();
         const a = this.stack.pop();
         if (typeof a === "string" || typeof b === "string") {
-          this.stack.push(osnovaStringify(a) + osnovaStringify(b));
+          this.stack.push(formatOsnovaValue(a) + formatOsnovaValue(b));
           return next;
         }
         this.stack.push((a as number) + (b as number));

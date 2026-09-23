@@ -11,7 +11,7 @@ import { setupWindow, setupService } from "./ui";
 import type { WindowApi } from "./ui";
 import * as storage from "./storage";
 import { isOsVbcModule } from "./vm/bytecode";
-import { VM, loadModule, runProgram, createDefaultInvokeHandler } from "./vm/interpreter";
+import { VM, loadModule, runProgram, createDefaultInvokeHandler, formatOsnovaValue } from "./vm/interpreter";
 import { isKnownInvoke } from "./vm/invokeRegistry";
 import type { StackValue } from "./vm/interpreter";
 import type { OsVbcModule } from "./vm/bytecode";
@@ -108,7 +108,7 @@ function createInvokeHandler(
   return async (name: string, args: StackValue[]): Promise<StackValue | null> => {
     switch (name) {
       case "система.лог.вывести":
-        console.log(String(args[0] ?? ""));
+        console.log(formatOsnovaValue(args[0]));
         return null;
 
       case "система.файлы.прочитать_все": {

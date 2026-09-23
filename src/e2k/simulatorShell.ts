@@ -47,6 +47,7 @@ import { CLASS_LATENCY, latencyEntry, type LatencyClass, type MappingSource } fr
 import { getInvokeArgCount, isKnownInvoke } from '../runtime/vm/invokeRegistry';
 import type { InvokeHandler, StackValue } from '../runtime/vm/interpreter';
 import { createDefaultInvokeHandler } from '../runtime/vm/interpreter';
+import { formatOsnovaValue } from '../runtime/vm/interpreter';
 import { resolveEntryIndex } from '../oracle/parity';
 import type { RegInstruction, RegProcedure } from '../runtime/vm/regcode';
 
@@ -615,7 +616,7 @@ export class ShellSimulator {
           return next;
         }
         if (typeof left === 'string' || typeof right === 'string') {
-          this.write(ins.d, osnovaStringify(left) + osnovaStringify(right));
+          this.write(ins.d, formatOsnovaValue(left) + formatOsnovaValue(right));
           return next;
         }
         this.write(ins.d, (left as number) + (right as number));
@@ -776,20 +777,10 @@ export class ShellSimulator {
   }
 }
 
-/** Строковое представление значения — как в регистровой VM (`add` со строками). */
-function osnovaStringify(value: StackValue | undefined): string {
-  if (value === true) return 'истина';
-  if (value === false) return 'ложь';
-  if (value === null || value === undefined) return 'пусто';
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return '[object]';
-    }
-  }
-  return String(value);
-}
+/**
+ * Строковое представление значения — берётся из общего места (`add` со строками),
+ * чтобы модель e2k печатала логические так же, как обе VM.
+ */
 
 /** Прогнать разобранную программу до завершения. */
 export async function runShellProgram(

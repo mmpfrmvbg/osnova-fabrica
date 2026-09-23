@@ -32,6 +32,9 @@ import type {
 import { isRegPacket } from "./regcode";
 import { getInvokeArgCount, isKnownInvoke } from "./invokeRegistry";
 import type { InvokeHandler, StackValue } from "./interpreter";
+// Формат значения — один на все VM: своя копия здесь разошлась бы с общей, и
+// склейка строк в регистровой машине печатала бы логическое иначе, чем в стековой.
+import { formatOsnovaValue } from "./interpreter";
 
 export type { StackValue };
 
@@ -104,20 +107,6 @@ interface TryFrame {
 
 function describeValue(v: StackValue | undefined): string {
   if (v !== null && typeof v === "object") {
-    try {
-      return JSON.stringify(v);
-    } catch {
-      return "[object]";
-    }
-  }
-  return String(v);
-}
-
-function osnovaStringify(v: StackValue | undefined): string {
-  if (v === true) return "истина";
-  if (v === false) return "ложь";
-  if (v === null || v === undefined) return "пусто";
-  if (typeof v === "object") {
     try {
       return JSON.stringify(v);
     } catch {
@@ -301,7 +290,7 @@ export class RegVM {
         const b = this.read(ins.b);
         const a = this.read(ins.a);
         if (typeof a === "string" || typeof b === "string") {
-          this.write(ins.d, osnovaStringify(a) + osnovaStringify(b));
+          this.write(ins.d, formatOsnovaValue(a) + formatOsnovaValue(b));
           return next;
         }
         this.write(ins.d, (a as number) + (b as number));
