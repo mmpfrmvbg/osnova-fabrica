@@ -107,6 +107,12 @@ export interface Module {
   imports: ImportDeclaration[];
   typeDeclarations: TypeDeclaration[];
   procedures: Procedure[];
+  /**
+   * Строка закрывающего слова модуля (`конец` или `конец_модуля`), если модуль
+   * был закрыт явно. Нужна диагностике «лишний `конец`» (БЛОК 1 v2): сообщение
+   * называет строку лишнего слова и строку, где модуль уже закрыт.
+   */
+  moduleClosedAt?: number;
 }
 
 export interface Program {

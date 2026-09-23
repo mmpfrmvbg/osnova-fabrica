@@ -35,6 +35,15 @@ const TOKEN_KINDS = [
   "прервать",
   "продолжить",
   "конец",
+  "конец_если",
+  "конец_пока",
+  "конец_для",
+  "конец_для_каждого",
+  "конец_цикла",
+  "конец_когда",
+  "конец_попробовать",
+  "конец_процедуры",
+  "конец_модуля",
   "вернуть",
   "и",
   "или",
@@ -89,9 +98,32 @@ export interface Token {
   column: number;
 }
 
-/** Ключевые слова лексера — из реестра языка (implemented: true). */
+/**
+ * Закрывающие лексемы: `конец` (legacy, контекстный) и `конец_X` (канон).
+ *
+ * Проверяются **до** карты ключевых слов и потому в неё не попадают: у каждой
+ * свой `TokenKind`, а контекст («это закрытие или имя?») решает парсер, не лексер.
+ * `конец_файла` сюда НЕ входит — это служебный вид токена, а не ключевое слово.
+ * `конец` остаётся в реестре как implemented: иначе реестр перестанет описывать
+ * синтаксис, который лексер принимает.
+ */
+export const BLOCK_CLOSING_LEXEMES: readonly string[] = [
+  "конец",
+  "конец_если",
+  "конец_пока",
+  "конец_для",
+  "конец_для_каждого",
+  "конец_цикла",
+  "конец_когда",
+  "конец_попробовать",
+  "конец_процедуры",
+  "конец_модуля",
+];
+
 export const KEYWORDS: Record<string, TokenKind> = Object.fromEntries(
-  getImplementedKeywords().map((k) => [k.lexeme, k.lexeme as TokenKind]),
+  getImplementedKeywords()
+    .filter((k) => !BLOCK_CLOSING_LEXEMES.includes(k.lexeme))
+    .map((k) => [k.lexeme, k.lexeme as TokenKind]),
 ) as Record<string, TokenKind>;
 
 function isLetter(c: string): boolean {
@@ -251,6 +283,18 @@ export function tokenize(source: string): LexerResult {
     if (isLetter(c) || c === "_") {
       let lex = "";
       while (isIdContinue(peek())) lex += advance();
+      // Служебный токен конца файла — не ключевое слово и не `конец_` + `файла`:
+      // проверяется раньше всего остального, иначе слово `конец_файла` в исходнике
+      // закрывало бы блок.
+      if (lex === "конец_файла") {
+        tokens.push(makeToken("конец_файла", lex));
+        continue;
+      }
+      // `конец` и `конец_X` — отдельные виды токенов; контекст решает парсер.
+      if (BLOCK_CLOSING_LEXEMES.includes(lex)) {
+        tokens.push(makeToken(lex as TokenKind, lex));
+        continue;
+      }
       const kw = KEYWORDS[lex] ?? (LLM_KEYWORD_ALIASES[lex] as TokenKind | undefined);
       if (kw) tokens.push(makeToken(kw, lex));
       else tokens.push(makeToken("идентификатор", lex, lex));

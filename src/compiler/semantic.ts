@@ -60,7 +60,14 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
     ?? new Map<string, Map<string, number>>();
   const extraSyscallByName = context.extraSyscallByName ?? new Map<string, number>();
   const hostNamespaces = context.hostNamespaces ?? new Set<string>();
-  const kwSet = new Set(LANGUAGE_REGISTRY.keywords.map((k) => k.lexeme));
+  // Закрывающие блоки лексемы (`конец`, `конец_если`, …) — контекстные, а не
+  // зарезервированные: вне позиции закрытия это обычные имена. Поэтому в набор
+  // «ключевых слов, которыми нельзя называть» они не входят (БЛОК 1 v2).
+  const kwSet = new Set(
+    LANGUAGE_REGISTRY.keywords
+      .filter((k) => k.kind !== "block")
+      .map((k) => k.lexeme),
+  );
 
   // ─── RFC-003: invented syntax check ───
   function checkInventedSyntaxInExpr(expr: Expr): void {
