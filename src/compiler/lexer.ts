@@ -393,6 +393,15 @@ export function tokenize(source: string): LexerResult {
       tokens.push(makeToken("/=", "/="));
       continue;
     }
+    // `:=` — алиас `=` (пункт 1.3 требований: 20 случаев в трейсах, модель тянет
+    // `:=` из Паскаля). Двоеточие в языке только в аннотации типа и в литералах
+    // объектов, где за ним идёт имя типа, а не `=`, поэтому разбор однозначен.
+    if (c === ":" && source[i + 1] === "=") {
+      advance();
+      advance();
+      tokens.push(makeToken("=", ":="));
+      continue;
+    }
 
     const single: Record<string, TokenKind> = {
       "=": "=",
