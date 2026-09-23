@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { compileSource } from ".";
 import { tokenize } from "./lexer";
 import { VM } from "../runtime/vm/interpreter";
+import { LANGUAGE_REGISTRY } from "./language-registry";
 
 function wrap(body: string): string {
   return `модуль т\nпроцедура главная()\n${body}\nконец\nконец`;
@@ -254,5 +255,45 @@ describe("LLM ergonomics: `:=` как алиас `=` (пункт 1.3 требо�
 
   it("контроль: литерал объекта { x: 5 } не сломан", async () => {
     expect(await run(wrap("  пусть o = { x: 5 }\n  вернуть o.x"))).toBe(5);
+  });
+});
+
+describe("LLM ergonomics: `поймать` — канон, `иначе_попытка` — алиас", () => {
+  const tryCatch = (catchWord: string): string => `модуль т
+процедура главная()
+  попробовать
+    выбросить "ошибка"
+  ${catchWord} е
+    вернуть 1
+  конец
+  вернуть 0
+конец
+конец`;
+
+  it("канон поймать перехватывает выброшенное", async () => {
+    expect(await run(tryCatch("поймать"))).toBe(1);
+  });
+
+  it("алиас иначе_попытка работает так же", async () => {
+    expect(await run(tryCatch("иначе_попытка"))).toBe(1);
+  });
+
+  it("оба написания дают один вид токена — канонический `поймать`", () => {
+    const kindsOf = (word: string): string[] =>
+      tokenize(word).tokens.filter((t) => t.kind !== "конец_файла").map((t) => t.kind);
+    expect(kindsOf("поймать")).toEqual(["поймать"]);
+    expect(kindsOf("иначе_попытка"), "старое написание — алиас к тому же виду").toEqual(["поймать"]);
+  });
+
+  it("канон зафиксирован реестром: поймать implemented, иначе_попытка — алиас", () => {
+    const canon = LANGUAGE_REGISTRY.keywords.find((k) => k.lexeme === "поймать");
+    const alias = LANGUAGE_REGISTRY.keywords.find((k) => k.lexeme === "иначе_попытка");
+    expect(canon?.implemented, "поймать — канон (implemented)").toBe(true);
+    expect(alias?.implemented, "иначе_попытка — алиас, не канон").toBe(false);
+  });
+
+  it("английский catch — тот же вид токена", () => {
+    const kinds = tokenize("catch е").tokens.filter((t) => t.kind !== "конец_файла").map((t) => t.kind);
+    expect(kinds).toEqual(["поймать"]);
   });
 });
