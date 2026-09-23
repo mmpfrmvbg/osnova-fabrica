@@ -8,12 +8,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import { compileSource } from "../compiler/compiler";
+import { formatDeprecatedWarning } from "../compiler/cliCompile";
 import { VM, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import type { OsVbcModule } from "../runtime/vm/bytecode";
 
 function usage(): void {
   console.error("Использование:");
-  console.error("  osnova compile <файл.osnova> [-o <файл.osvbc.json>]");
+  console.error("  osnova compile <файл.osnova> [-o <файл.osvbc.json>] [--warn-deprecated]");
   console.error("  osnova run <файл.osvbc.json>");
   process.exit(1);
 }
@@ -29,8 +30,15 @@ function cmdCompile(args: string[]): void {
       ? args[outFlagIdx + 1]!
       : inputFile.replace(/\.osnova$/i, ".osvbc.json");
 
+  // Стадия 2 плана v2: предупреждение об устаревшем закрывающем `конец`
+  // выключено по умолчанию, включается явным флагом.
+  const warnDeprecated = args.includes("--warn-deprecated");
+
   const source = fs.readFileSync(inputFile, "utf-8");
-  const result = compileSource(source, { baseDir: path.dirname(path.resolve(inputFile)) });
+  const result = compileSource(source, {
+    baseDir: path.dirname(path.resolve(inputFile)),
+    warnDeprecated,
+  });
 
   if (!result.compilerSuccess || !result.module) {
     for (const e of result.lexerErrors)
@@ -39,6 +47,7 @@ function cmdCompile(args: string[]): void {
       console.error(`[парсер] строка ${e.line}: ${e.message}`);
     for (const e of result.compilerErrors)
       console.error(`[компилятор] ${e.message}`);
+    for (const w of result.warnings) console.warn(formatDeprecatedWarning(w));
     process.exit(1);
   }
 
@@ -46,6 +55,8 @@ function cmdCompile(args: string[]): void {
     for (const e of result.compilerErrors)
       console.warn(`[предупреждение] ${e.message}`);
   }
+
+  for (const w of result.warnings) console.warn(formatDeprecatedWarning(w));
 
   fs.writeFileSync(outputFile, JSON.stringify(result.module, null, 2), "utf-8");
   console.log(`Скомпилировано: ${inputFile} → ${outputFile}`);

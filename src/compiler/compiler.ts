@@ -11,7 +11,7 @@
  */
 
 import { tokenize } from './lexer';
-import { parse, type ParseError } from './parser';
+import { parse, type ParseError, type ParseWarning } from './parser';
 import { compile, compileProgram } from './codegen';
 import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction } from '../runtime/vm/bytecode';
 import { OsVbcVM, type OsVbcVMOptions, type StackValue } from '../runtime/vm';
@@ -65,6 +65,13 @@ export interface CompileResult {
   compilerErrors: { message: string; node?: string; file?: string; line?: number; column?: number }[];
   /** Ошибки семантического анализатора (предупреждения первого этапа) */
   semanticErrors: SemanticError[];
+  /**
+   * Предупреждения компиляции. **Не** влияют на `compilerSuccess` и на
+   * `BuildReport.success`: это информация, а не отказ (Стадия 2 плана v2 —
+   * устаревшее закрывающее `конец`). Пусто, если предупреждения не запрошены
+   * ({@link CompileOptions.warnDeprecated}).
+   */
+  warnings: ParseWarning[];
   /** Время компиляции в мс */
   durationMs: number;
   /** Логи компиляции для отладки и трассировки */
@@ -95,6 +102,13 @@ export interface CompileOptions {
    * Проверяются как syscall (имя + argc). Не добавляются в language-registry.
    */
   extraSyscalls?: HostSyscallSpec[];
+  /**
+   * Включить предупреждения об устаревших конструкциях. По умолчанию
+   * **выключено**: корпус и примеры ещё на legacy-закрытиях `конец`, и молчание
+   * по умолчанию — часть Стадии 2 (массовая миграция — после выкладки 0.1).
+   * Включается флагом CLI `--warn-deprecated` и шагом CI.
+   */
+  warnDeprecated?: boolean;
 }
 
 /** Ошибка разворачивания импорта: файл и место, не только текст. */
@@ -1268,7 +1282,9 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   const start = Date.now();
   const logs: CompileLog[] = [];
   const { tokens, errors: lexerErrors } = tokenize(source);
-  const { ast: program, errors: parserErrors } = parse(tokens);
+  const { ast: program, errors: parserErrors, warnings } = parse(tokens, {
+    warnDeprecated: options.warnDeprecated === true,
+  });
 
   // Логирование ошибок лексера
   for (const err of lexerErrors) {
@@ -1289,6 +1305,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       parserErrors,
       compilerErrors: [],
       semanticErrors: [],
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };
@@ -1312,6 +1329,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       parserErrors: [],
       compilerErrors: [err],
       semanticErrors: [],
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };
@@ -1344,6 +1362,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       parserErrors: [],
       compilerErrors: namedTypeErrors,
       semanticErrors: [],
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };
@@ -1376,6 +1395,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
         parserErrors: [],
         compilerErrors: programSemanticAsCompiler,
         semanticErrors: programSemanticErrors,
+        warnings,
         durationMs: Date.now() - start,
         logs,
       };
@@ -1393,6 +1413,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
           { message: errorMsg },
         ],
         semanticErrors: programSemanticErrors,
+        warnings,
         durationMs: Date.now() - start,
         logs,
       };
@@ -1410,6 +1431,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       parserErrors: [],
       compilerErrors: semanticAsCompiler,
       semanticErrors,
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };
@@ -1427,6 +1449,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
         { message: errorMsg },
       ],
       semanticErrors,
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };

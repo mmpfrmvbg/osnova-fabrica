@@ -22,7 +22,7 @@ import * as os from "os";
 import * as path from "path";
 import { compileSource } from "./compiler";
 import { runCompileCli } from "./cliCompile";
-import { deprecatedClosingsOf } from "../scripts/deprecatedEndReport";
+import { deprecatedClosingsOf, reportDeprecatedEnds } from "../scripts/deprecatedEnds";
 
 /** Минимальная программа, закрытая legacy-словами. */
 const LEGACY = ["модуль t", "процедура главная()", "  вернуть 0", "конец", "конец"].join("\n");
@@ -150,5 +150,24 @@ describe("отчёт по устаревшим закрытиям (информ�
     const src = ["модуль t", "процедура f()", "  пусть конец = 1", "  вернуть конец", "конец_процедуры", "конец_модуля"].join("\n");
     const rows = deprecatedClosingsOf([{ file: "имя.osnova", text: src }]);
     expect(rows[0]!.count).toBe(0);
+  });
+
+  it("шаг CI на реальном корпусе: код 0 и число долга названо", () => {
+    // Корпус НЕ мигрирован (требование владельца), поэтому долг > 0 — это норма.
+    // Проверяется не число, а работоспособность шага и инвариант «по умолчанию молчит».
+    let out = "";
+    let err = "";
+    const code = reportDeprecatedEnds({
+      out: (s) => {
+        out += s + "\n";
+      },
+      err: (s) => {
+        err += s + "\n";
+      },
+    });
+    expect(err, "ошибок шага нет").toBe("");
+    expect(code).toBe(0);
+    expect(out).toMatch(/итого: \d+ закрытий 'конец' в \d+ файлах корпуса/);
+    expect(out).toContain("по умолчанию предупреждение выключено");
   });
 });

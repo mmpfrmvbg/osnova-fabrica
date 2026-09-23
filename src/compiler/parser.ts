@@ -21,10 +21,43 @@ export interface ParseError {
 export interface ParseResult {
   ast: Program | null;
   errors: ParseError[];
+  /**
+   * Предупреждения разбора. Пусто, если предупреждения не запрошены
+   * ({@link ParseOptions.warnDeprecated}) — по умолчанию их нет.
+   */
+  warnings: ParseWarning[];
 }
 
-export function parse(tokens: Token[]): ParseResult {
+/**
+ * Предупреждение разбора. Это **не** ошибка: разбор завершился, AST построен,
+ * компиляция продолжается. Единственный вид сейчас — устаревшее закрывающее
+ * слово `конец` (Стадия 2 плана v2).
+ */
+export interface ParseWarning {
+  kind: "deprecated_closer";
+  message: string;
+  line: number;
+  column: number;
+  /** Блок, который закрыт устаревшим словом (`процедура`, `модуль`, `пока`, …). */
+  block: string;
+  /** Каноническое закрывающее слово этого блока (`конец_процедуры`, …). */
+  canonical: string;
+}
+
+export interface ParseOptions {
+  /**
+   * Предупреждать об устаревшем одиночном `конец`.
+   *
+   * По умолчанию **выключено**: корпус и примеры написаны на legacy-закрытиях, и
+   * по умолчанию компилятор обязан молчать (Стадия 2: массовая миграция — после
+   * выкладки 0.1, до неё предупреждение только по явному запросу).
+   */
+  warnDeprecated?: boolean;
+}
+
+export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult {
   const errors: ParseError[] = [];
+  const warnings: ParseWarning[] = [];
   let pos = 0;
 
   function peek(): Token {
@@ -188,11 +221,34 @@ export function parse(tokens: Token[]): ParseResult {
   }
 
   /**
+   * Устаревшее закрытие: одиночный `конец` вместо `конец_<блок>`.
+   *
+   * Срабатывает ровно в момент ПРИНЯТОГО закрытия (`advance()` ниже), поэтому
+   * `конец` в позиции имени (`пусть конец = 5`) сюда не попадает — он и не
+   * закрытие. По умолчанию предупреждение выключено, см. {@link ParseOptions}.
+   */
+  function warnLegacyCloser(spec: CloserSpec): void {
+    if (options.warnDeprecated !== true) return;
+    const t = peek();
+    if (t.kind !== "конец") return;
+    const canonical = String(spec.kinds[0]);
+    warnings.push({
+      kind: "deprecated_closer",
+      message: `устаревшее закрытие «конец»: блок «${spec.block}» в каноне v2 закрывается '${canonical}'`,
+      line: t.line,
+      column: t.column,
+      block: spec.block,
+      canonical,
+    });
+  }
+
+  /**
    * Закрыть блок. Отказ называет блок и ожидаемое слово: «Закрытие ... не
    * совпадает» при явно не том слове и «Ожидается закрытие ...» при отсутствии.
    */
   function expectCloser(spec: CloserSpec): boolean {
     if (isAtCloser(spec)) {
+      warnLegacyCloser(spec);
       advance();
       return true;
     }
@@ -369,6 +425,7 @@ export function parse(tokens: Token[]): ParseResult {
     }
     // Опциональный закрывающий "конец"/"конец_модуля" для модуля (БЛОК 1 v2).
     if (isAtCloser(MODULE_CLOSER)) {
+      warnLegacyCloser(MODULE_CLOSER);
       advance();
       skipNewlines();
     }
@@ -1536,11 +1593,16 @@ export function parse(tokens: Token[]): ParseResult {
         ...modules[0],
       } as Program)
     : null;
-  return { ast, errors };
+  return { ast, errors, warnings };
 }
 
 /** Форматированный вывод ошибки парсера для CLI (строка + указатель + ожидалось/получено). */
-export function printParseError(e: ParseError, source: string): void {
+export function printParseError(
+  e: ParseError,
+  source: string,
+  /** Куда печатать. Параметр добавлен для CLI, который собирает вывод в io. */
+  sink: (line: string) => void = (line) => console.error(line),
+): void {
   const lines = source.split(/\r?\n/);
   const line = lines[e.line - 1] ?? "";
   const pointer = " ".repeat(Math.max(0, e.column - 1)) + "^";
@@ -1549,7 +1611,7 @@ export function printParseError(e: ParseError, source: string): void {
   const actual = e.actualKind ? `, получено: ${e.actualKind}` : "";
   const where = e.context ? `[${e.context}] ` : "";
 
-  console.error(
+  sink(
     `Парсер ${e.line}:${e.column}: ${where}${e.message}${expected}${actual}\n${line}\n${pointer}`,
   );
 }
