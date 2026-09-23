@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildOsnovaPrompt } from "./buildOsnovaPrompt";
+import { compileSource } from "../compiler/compiler";
 
 const prompt = buildOsnovaPrompt("посчитай сумму чисел из списка");
 
@@ -36,5 +37,44 @@ describe("промпт кодогенерации: правило redeclare_var"
   it("промпт учит канону форм: `для`, `поймать`", () => {
     expect(prompt, "канон перебора").toContain("для ч в");
     expect(prompt, "канон catch").toContain("поймать");
+  });
+});
+
+
+describe("промпт кодогенерации: правило undeclared_var (пункт 1.7 требований)", () => {
+  // Самая частая семантическая диагностика на датасете — 106 (снимок
+  // 2026-09-23, 3611 исходников). Лечится правилом в промпте, не языком:
+  // компилятор уже говорит точно («используется без объявления через пусть»),
+  // но модель не видит правила заранее.
+
+  it("правило «объявлять до первого использования» сформулировано явно", () => {
+    expect(prompt).toContain("до первого использования");
+    expect(prompt, "нужна пара НЕЛЬЗЯ").toMatch(/НЕЛЬЗЯ:[^\n]*индекс/);
+    expect(prompt, "нужна пара ПРАВИЛЬНО").toMatch(/ПРАВИЛЬНО:[^\n]*пусть индекс/);
+  });
+
+  it("few-shot: объявление идёт раньше использования и пример компилируется", () => {
+    const marker = "// Пример: объявление до использования";
+    expect(prompt, "нужен few-shot").toContain(marker);
+    const lines = prompt.split("\n");
+    const start = lines.findIndex((l) => l.includes(marker));
+    const block: string[] = [];
+    for (let i = start + 1; i < lines.length; i++) {
+      if ((lines[i] ?? "").trim() === "") break;
+      block.push(lines[i]!);
+    }
+    const example = block.join("\n");
+    const decl = example.indexOf("пусть индекс");
+    const use = example.indexOf("индекс = индекс");
+    expect(decl, "в примере есть объявление").toBeGreaterThanOrEqual(0);
+    expect(use, "в примере есть использование без пусть").toBeGreaterThanOrEqual(0);
+    expect(decl, "объявление раньше использования").toBeLessThan(use);
+
+    // Главное: пример — рабочая программа, а не текст «похожий на код».
+    const cr = compileSource(example, { filename: "пример.osnova" });
+    expect(cr.lexerErrors).toEqual([]);
+    expect(cr.parserErrors.map((e) => e.message)).toEqual([]);
+    expect(cr.semanticErrors.map((e) => e.kind)).not.toContain("undeclared_var");
+    expect(cr.compilerSuccess).toBe(true);
   });
 });
