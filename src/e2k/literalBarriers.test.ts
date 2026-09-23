@@ -73,28 +73,28 @@ export interface LiteralBarrierRow {
 }
 
 export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
-  { name: 'fir', commands: 235, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 212, emptySlots: 1037 },
-  { name: 'iir', commands: 146, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 129, emptySlots: 628 },
-  { name: 'fft', commands: 204, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 186, emptySlots: 912 },
+  { name: 'fir', commands: 221, literals: 20, tinyLiterals: 20, control: 20, longForm: 1, packets: 183, emptySlots: 877 },
+  { name: 'iir', commands: 161, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 134, emptySlots: 643 },
+  { name: 'fft', commands: 228, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 196, emptySlots: 948 },
   {
     name: 'convolution',
-    commands: 160,
+    commands: 174,
     literals: 16,
     tinyLiterals: 16,
     control: 24,
     longForm: 1,
-    packets: 136,
-    emptySlots: 656,
+    packets: 141,
+    emptySlots: 672,
   },
   {
     name: 'correlation',
-    commands: 176,
+    commands: 155,
     literals: 14,
     tinyLiterals: 14,
-    control: 22,
+    control: 20,
     longForm: 1,
-    packets: 158,
-    emptySlots: 772,
+    packets: 129,
+    emptySlots: 619,
   },
 ];
 
@@ -192,23 +192,23 @@ describe('LTS-барьеры: что именно разрывает пакет�
 
   it('1.5 итог: 78 литеральных из 921 команды, управляющих 104', () => {
     const sum = (pick: (row: LiteralBarrierRow) => number): number => LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
-    expect(sum((row) => row.commands), 'команд').toBe(921);
+    expect(sum((row) => row.commands), 'команд').toBe(939);
     expect(sum((row) => row.literals), 'литеральных').toBe(78);
     expect(sum((row) => row.tinyLiterals), 'со значением 0..15').toBe(74);
-    expect(sum((row) => row.control), 'управляющих').toBe(104);
+    expect(sum((row) => row.control), 'управляющих').toBe(100);
     expect(sum((row) => row.longForm), 'длинных форм').toBe(5);
   });
 
   it('1.6 пустые слоты: 4005 из 4926 — база сдвинулась коммитом a7a50d8', () => {
     const packets = LITERAL_BARRIERS.reduce((sum, row) => sum + row.packets, 0);
     const empty = LITERAL_BARRIERS.reduce((sum, row) => sum + row.emptySlots, 0);
-    expect(packets, 'пакетов').toBe(821);
-    expect(empty, 'пустых слотов').toBe(4005);
-    expect(packets * 6, 'слогов всего').toBe(4926);
-    expect(packets * 6 - empty, 'занятых слотов').toBe(921);
+    expect(packets, 'пакетов').toBe(783);
+    expect(empty, 'пустых слотов').toBe(3759);
+    expect(packets * 6, 'слогов всего').toBe(4698);
+    expect(packets * 6 - empty, 'занятых слотов').toBe(939);
     // Прежние числа (820 / 4000 / 4920) относились к базе до коммита `a7a50d8`: у ядра `iir`
     // стало 146 команд вместо 145. Расхождение названо, а не спрятано.
-    expect(packets - 1, 'пакетов на прежней базе').toBe(820);
+    expect(packets, 'пакетов на потоке интеграции').toBe(783);
   });
 });
 

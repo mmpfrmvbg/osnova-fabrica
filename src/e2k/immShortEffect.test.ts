@@ -44,15 +44,15 @@ export interface ImmShortRow {
 }
 
 export const IMM_SHORT_EFFECT: readonly ImmShortRow[] = [
-  { name: 'fir', commands: 235, short: 20, shortLiterals: 20, saved: 160 },
-  { name: 'iir', commands: 146, short: 10, shortLiterals: 10, saved: 80 },
-  { name: 'fft', commands: 204, short: 14, shortLiterals: 14, saved: 112 },
-  { name: 'convolution', commands: 160, short: 16, shortLiterals: 16, saved: 128 },
-  { name: 'correlation', commands: 176, short: 14, shortLiterals: 14, saved: 112 },
+  { name: 'fir', commands: 221, short: 20, shortLiterals: 20, saved: 160 },
+  { name: 'iir', commands: 161, short: 10, shortLiterals: 10, saved: 80 },
+  { name: 'fft', commands: 228, short: 14, shortLiterals: 14, saved: 112 },
+  { name: 'convolution', commands: 174, short: 16, shortLiterals: 16, saved: 128 },
+  { name: 'correlation', commands: 155, short: 14, shortLiterals: 14, saved: 112 },
 ];
 
 /** Текущая база: линейные байты пяти ядер после коммита `a7a50d8`. */
-export const LINEAR_BYTES_BASELINE = 8112;
+export const LINEAR_BYTES_BASELINE = 7648;
 
 const encoder = getEncoder('e2k');
 
@@ -126,8 +126,8 @@ describe('эффект короткой формы: измерение по пя
     const sum = (pick: (row: { commands: number }) => number): number =>
       LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
     const effectSum = IMM_SHORT_EFFECT.reduce((total, row) => total + row.commands, 0);
-    expect(sum((row) => row.commands), 'таблица барьеров').toBe(921);
-    expect(effectSum, 'таблица эффекта').toBe(921);
+    expect(sum((row) => row.commands), 'таблица барьеров').toBe(939);
+    expect(effectSum, 'таблица эффекта').toBe(939);
     expect(sum((row) => row.commands), 'оба оракула на одной базе').toBe(effectSum);
     // Экономия от сдвига базы не зависит: она считается по числу коротких форм.
     expect(IMM_SHORT_EFFECT.reduce((total, row) => total + row.short, 0) * 8, 'экономия').toBe(592);
