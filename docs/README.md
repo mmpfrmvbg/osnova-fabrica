@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (20). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (21). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -26,7 +26,7 @@
 - [docs/release-process.md](release-process.md) ⚠
 - [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md) ⚠
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
-- [docs/system-api-v1.md](system-api-v1.md)
+- [docs/system-api-v1.md](system-api-v1.md) ⚠
 
 ## Фронтир и замеры (47)
 
