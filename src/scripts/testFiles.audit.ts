@@ -101,6 +101,14 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     match: 'e2kCallWindowQemu.test.ts',
     reason: 'измеряет окно вызываемой процедуры и `return` прогоном в QEMU, вынесен в gate:qemu по случаю 12',
   },
+  {
+    match: 'e2kConvolutionQemu.test.ts',
+    reason: 'ресурсозависимый, живёт в gate:qemu: встраивание свёртки измеряется прогоном в QEMU (случай 12)',
+  },
+  {
+    match: 'e2kMathQemu.test.ts',
+    reason: 'ресурсозависимый, живёт в gate:qemu: математические ядра исполняются в QEMU (случай 12)',
+  },
 ];
 
 /** Разбор расхождений. */
