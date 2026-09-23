@@ -49,6 +49,9 @@ docs/tutorial/13-advanced.md: {status: active}
 docs/tutorial/14-reference.md: {status: active}
 docs/tutorial/15-faq.md: {status: active}
 
+# --- Лицензия (active) ---
+LICENSE-COMMERCIAL.md: {status: active}
+
 # --- Фронтир, замеры, статус (active) ---
 AGENTS.md: {status: active}
 BIG-PICTURE.md: {status: active}

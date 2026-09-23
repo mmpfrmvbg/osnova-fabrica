@@ -1,6 +1,7 @@
 {
   "name": "osnova-fabrica",
   "version": "0.1.1",
+  "license": "GPL-3.0-only",
   "description": "Кодогенератор для языка Основа: LLM → .osnova → .osvbc → VM",
   "private": true,
   "bin": {
