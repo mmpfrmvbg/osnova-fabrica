@@ -293,7 +293,55 @@ describe("LLM ergonomics: `поймать` — канон, `иначе_попы�
   });
 
   it("английский catch — тот же вид токена", () => {
-    const kinds = tokenize("catch е").tokens.filter((t) => t.kind !== "конец_файла").map((t) => t.kind);
+    const kinds = tokenize("catch").tokens.filter((t) => t.kind !== "конец_файла").map((t) => t.kind);
     expect(kinds).toEqual(["поймать"]);
+  });
+});
+
+describe("LLM ergonomics: `для` — канон, `для_каждого` — алиас", () => {
+  // Замер цены (docs/token-cost-report.md §4): `для_каждого` — 6 токенов,
+  // естественная форма — 3. Одно слово `для` короче обоих.
+  it("для ч в массив — канон (сумма 6)", async () => {
+    const src = wrap("  пусть с = 0\n  для ч в [1, 2, 3]\n    с = с + ч\n  конец\n  вернуть с");
+    expect(await run(src)).toBe(6);
+  });
+
+  it("для_каждого ч в массив — алиас, тот же результат", async () => {
+    const src = wrap("  пусть с = 0\n  для_каждого ч в [1, 2, 3]\n    с = с + ч\n  конец\n  вернуть с");
+    expect(await run(src)).toBe(6);
+  });
+
+  it("для с индексом: ч, инд — индекс с нуля (сумма 9)", async () => {
+    const src = wrap("  пусть с = 0\n  для ч, инд в [1, 2, 3]\n    с = с + ч + инд\n  конец\n  вернуть с");
+    expect(await run(src)).toBe(9);
+  });
+
+  it("оба написания дают один канонический вид токена", () => {
+    const first = (w: string): string | undefined =>
+      tokenize(`${w} ч в м`).tokens.find((t) => t.kind !== "конец_файла")?.kind;
+    expect(first("для")).toBe("для");
+    expect(first("для_каждого"), "старое написание — алиас к тому же виду").toBe("для");
+  });
+
+  it("канон зафиксирован реестром: для implemented, для_каждого — алиас", () => {
+    expect(LANGUAGE_REGISTRY.keywords.find((k) => k.lexeme === "для")?.implemented).toBe(true);
+    expect(LANGUAGE_REGISTRY.keywords.find((k) => k.lexeme === "для_каждого")?.implemented).toBe(false);
+  });
+
+  it("конфликт 4.3: имя, начинающееся с для, остаётся идентификатором", async () => {
+    // Максимальное сцепление: `для_чего` — цельное слово, а не `для` + `_чего`.
+    const { tokens } = tokenize("для_чего");
+    expect(tokens[0]?.kind).toBe("идентификатор");
+    expect(tokens[0]?.lexeme).toBe("для_чего");
+    expect(await run(wrap("  пусть для_чего = 5\n  вернуть для_чего"))).toBe(5);
+  });
+
+  it("конфликт 4.3: `для` как имя переменной становится ключевым словом (граница)", () => {
+    // Осознанное следствие: `для` — ключевое слово, значит имя `для` больше нельзя.
+    // В корпусе такого имени нет (проверено grep: `для` встречается только в
+    // комментариях), поэтому цена нулевая, но граница фиксируется тестом.
+    const cr = compileSource(wrap("  пусть для = 5\n  вернуть 1"));
+    expect(cr.compilerSuccess).toBe(false);
+    expect(cr.semanticErrors.some((e) => e.kind === "keyword_as_identifier")).toBe(true);
   });
 });
