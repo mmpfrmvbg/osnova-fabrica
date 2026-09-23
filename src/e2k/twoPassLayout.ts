@@ -55,7 +55,7 @@
  */
 
 import type { AsmInstruction, Operand, WideGroupShape } from "./backend";
-import { CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from "./e2k-real";
+import { CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
 import { lowerArrayCall } from "./arrayRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 
@@ -258,6 +258,12 @@ export interface CarrierFormContext {
    * **индекс** в ней, и без неё длину понижения взять негде.
    */
   readonly invokeNames?: readonly string[];
+  /**
+   * Пул констант модуля (`ShellEmitResult.scheduled.constants`). Нужен носителю `IR.const`: его
+   * операнд — **индекс** в пуле, а длина понижения зависит от ЗНАЧЕНИЯ литерала (0…15 кодируются
+   * короткой непосредственной формой, 8 байт; остальные — литеральной, 16 байт).
+   */
+  readonly constants?: readonly unknown[];
 }
 
 /**
@@ -334,10 +340,48 @@ function retForm(instruction: AsmInstruction): { form?: CarrierForm; reason?: st
 }
 
 /** Форма носителя или причина, почему её нет. Причина называется, а не подменяется догадкой. */
+/**
+ * Форма носителя `IR.const`: длина зависит от ЗНАЧЕНИЯ литерала.
+ *
+ * Кодировщик кладёт значение 0…15 короткой непосредственной формой — 8 байт (`src/e2k/e2k-real.ts`,
+ * `isShortImmediate`, `encodeShortImm`), а большее — литеральной, 16 байт (LTS). Модель форм обязана
+ * знать то же правило: иначе `secondPass` считает смещения переходов по одним длинам, а образ
+ * собирается из других. Измерено: без этого правила обратный переход цикла уводил за начало
+ * программы (3 расхождения длин из 13, `.tmp/form-size-probe.ts`).
+ *
+ * Если пул констант не передан, берётся литеральная форма (как было до короткой), и это **названо**
+ * в поле `source`: молчаливой подмены длины нет.
+ */
+function constForm(instruction: AsmInstruction, context: CarrierFormContext): CarrierForm {
+  const poolIndex = instruction.operands[1];
+  const pool = context.constants;
+  const value = poolIndex !== undefined && poolIndex.kind === 'imm' ? pool?.[poolIndex.value] : undefined;
+  const short = typeof value === 'number' && isShortImmediate(value, "ALF2");
+  return {
+    carrier: "IR.const",
+    commands: [
+      {
+        mnemonic: "movts",
+        form: short ? "ALF2 + короткая непосредственная (0xc0|N)" : "ALF2 + LTS",
+        size: short ? REAL_SHORT_FORM_SIZE : REAL_LONG_FORM_SIZE,
+        source: short
+          ? `значение ${String(value)} ∈ 0…15 — короткая непосредственная форма, 8 байт (` +
+            'измерено: movts,0 5, %b[1] → 01 00 00 04 01 c5 c0 60; src/e2k/e2k-real.ts encodeShortImm)'
+          : pool === undefined
+            ? 'пул констант не передан — взята литеральная форма (LTS, 16 байт), длина НЕ проверена по значению'
+            : 'значение вне 0…15 — литеральная форма (LTS, 16 байт)',
+      },
+    ],
+  };
+}
+
 function carrierFormWithReason(
   instruction: AsmInstruction,
   context: CarrierFormContext,
 ): { form?: CarrierForm; reason?: string } {
+  // `IR.const` — единственный носитель, чья длина зависит от ЗНАЧЕНИЯ (литерал из пула), поэтому
+  // форма берётся отдельной ветвью, а не из статической таблицы CARRIER_FORMS.
+  if (instruction.mnemonic === 'IR.const') return { form: constForm(instruction, context) };
   if (instruction.mnemonic === 'IR.call') return callForm(instruction);
   if (instruction.mnemonic === 'IR.ret') return retForm(instruction);
   if (instruction.mnemonic !== 'IR.invoke') {

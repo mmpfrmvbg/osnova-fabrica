@@ -772,7 +772,8 @@ export function runKernelThroughRealEncoding(
   //
   // Контекст обязателен: длина `IR.invoke` зависит от имени вызова, и без списка имён носитель не
   // размещается вовсе (`carrierFormOf` возвращает причину, а не длину «на глаз»).
-  const layout = layoutOf(code, { invokeNames: emitted.image.invokeNames });
+  // Пул констант обязателен: длина \`IR.const\` зависит от значения литерала (короткая форма 0…15).
+  const layout = layoutOf(code, { invokeNames: emitted.image.invokeNames, constants: emitted.scheduled.constants });
   const resolved = secondPass(code, layout.addresses);
   // ── Сопоставление пар «сравнение → условный переход» ────────────────────────
   const pairing = pairPredicates(code);
