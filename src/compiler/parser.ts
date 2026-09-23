@@ -139,24 +139,7 @@ export function parse(tokens: Token[]): ParseResult {
     return t.kind === "конец" && CONTEXTUAL_NAME_LEXEMES.includes(t.lexeme);
   }
 
-  /**
-   * `конец` как имя В ВЫРАЖЕНИИ (`вернуть конец`). Не считает именем
-   * закрывающее слово: `конец` в конце строки или перед другим закрытием
-   * закрывает блок, и разбор выражения не должен съесть его как переменную.
-   */
-  /** Текущий токен завершает инструкцию `вернуть ...`: новая строка или конец файла.
-   *  Закрывающее слово сюда НЕ входит: `вернуть конец` возвращает значение
-   *  переменной, а не пусто. */
-  function isStmtTerminator(): boolean {
-    const t = peek();
-    if (t.kind === "новая_строка" || t.kind === "конец_файла") return true;
-    // Именованное закрытие завершает `вернуть` (пусто).
-    if (ANY_BLOCK_CLOSER_KINDS.includes(t.kind)) return true;
-    // Голый `конец`: завершает, только если он реально закрывает блок.
-    return t.kind === "конец" && isCloserToken(t);
-  }
 
-  /** Текущий токен — закрывающее слово (любого блока), без учёта контекста имени. */
   /** Принимаемое закрытие конкретного блока: канон (`конец_X`) и legacy (`конец`). */
   interface CloserSpec {
     kinds: readonly TokenKind[];
@@ -822,9 +805,19 @@ export function parse(tokens: Token[]): ParseResult {
     }
     if (peek().kind === "вернуть") {
       advance();
+      // Два сигнала вместе, порознь их не хватает:
+      //  - значение может быть и на следующей строке (`вернуть` + перевод + `0`):
+      //    это зафиксировано тестом parser.test.ts и должно остаться;
+      //  - `конец` на ТОЙ ЖЕ строке, что `вернуть`, — имя переменной (§1.4):
+      //    закрытие блока на строке с `вернуть` не пишут;
+      //  - `конец` на СЛЕДУЮЩЕЙ строке — закрытие блока, а не значение: иначе
+      //    пустой возврат съедал бы закрытие.
+      const sameLine = peek().kind !== "новая_строка";
       skipNewlines();
+      const atEof = peek().kind === "конец_файла";
+      const closerOnNextLine = !sameLine && isCloserToken(peek());
       let value: Expr | undefined;
-      if (!isStmtTerminator()) {
+      if (!atEof && !closerOnNextLine) {
         const v = parseExpr();
         if (v) {
           if (peek().kind === ",") {
