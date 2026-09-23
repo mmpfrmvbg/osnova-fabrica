@@ -15,6 +15,7 @@ import { describe, it, expect } from "vitest";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { compileSource } from "./compiler";
+import type { Program } from "./ast";
 
 function parseProgram(source: string) {
   const { tokens, errors: lexerErrors } = tokenize(source);
@@ -498,5 +499,91 @@ describe("БЛОК 1, пункт 4: диагностика лишнего `ко�
     const src = ["модуль t", "процедура главная()", "  вернуть 0", "конец", "конец"].join("\n");
     const { errors } = parseProgram(src);
     expect(errors.map((e) => e.message)).toEqual([]);
+  });
+});
+
+describe("БЛОК 1: `вернуть` и контекстное имя `конец`", () => {
+  // Оракул задачи «вернуть конец». Признак значения — та же строка, что `вернуть`:
+  // `вернуть конец` возвращает переменную, `вернуть` + перевод строки — пустой
+  // возврат, а `конец` на следующей строке закрывает блок.
+  it("1.1 `вернуть конец` возвращает значение переменной (байткод как с `x`)", () => {
+    const withKonets = [
+      "модуль t",
+      "процедура f()",
+      "  пусть конец = 5",
+      "  вернуть конец",
+      "конец",
+      "процедура главная()",
+      "  вернуть f()",
+      "конец",
+      "конец",
+    ].join("\n");
+    const withX = [
+      "модуль t",
+      "процедура f()",
+      "  пусть x = 5",
+      "  вернуть x",
+      "конец",
+      "процедура главная()",
+      "  вернуть f()",
+      "конец",
+      "конец",
+    ].join("\n");
+    // Сравнение по байткоду: имя `конец` не должно менять ничего, кроме имени.
+    expect(compiledCode(withKonets)).toBe(compiledCode(withX));
+  });
+
+  it("1.2 `вернуть` без значения — пустой возврат, закрытие блока не съедено", () => {
+    const legacy = ["модуль t", "процедура главная()", "  вернуть", "конец", "конец"].join("\n");
+    const named = ["модуль t", "процедура главная()", "  вернуть", "конец_процедуры", "конец_модуля"].join("\n");
+    expect(parseProgram(legacy).errors.map((e) => e.message)).toEqual([]);
+    expect(compiledCode(legacy)).toBe(compiledCode(named));
+    // И значение действительно пустое, а не «вернули закрывающее слово».
+    const proc = (parseProgram(legacy).ast as Program).modules[0]?.procedures[0];
+    expect(proc?.body[0]).toEqual({ kind: "вернуть", value: undefined });
+  });
+
+  it("1.3 `вернуть конец_если` — ошибка: закрывающее слово не выражение", () => {
+    const src = ["модуль t", "процедура главная()", "  вернуть конец_если", "конец", "конец"].join("\n");
+    const { errors } = parseProgram(src);
+    const messages = errors.map((e) => e.message);
+    expect(messages.length, `получено: ${JSON.stringify(messages)}`).toBeGreaterThan(0);
+    // Диагностика должна указывать на выражение, а не на «закрытие процедуры».
+    expect(messages.some((m) => m.includes("Ожидается выражение"))).toBe(true);
+  });
+
+  it("1.4 поле `конец` в возвращаемом выражении не сломано", () => {
+    const src = [
+      "модуль t",
+      "тип Объект = { конец: Число }",
+      "процедура главная()",
+      "  пусть о = Объект { конец: 5 }",
+      "  вернуть о.конец",
+      "конец",
+      "конец",
+    ].join("\n");
+    const r = compileSource(src, { filename: "поле-возврат.osnova" });
+    expect(r.parserErrors.map((e) => e.message)).toEqual([]);
+    expect(r.semanticErrors.map((e) => e.message)).toEqual([]);
+    expect(r.compilerSuccess).toBe(true);
+  });
+
+  it("1.5 `вернуть конец` не путается с закрытием блока (значение и закрытие рядом)", () => {
+    // Значение — на строке `вернуть`; закрытие — следующей строкой. Оба `конец`.
+    const src = [
+      "модуль t",
+      "процедура f()",
+      "  пусть конец = 1",
+      "  вернуть конец",
+      "конец",
+      "конец",
+    ].join("\n");
+    const { ast, errors } = parseProgram(src);
+    expect(errors.map((e) => e.message)).toEqual([]);
+    const proc = (ast as Program).modules[0]?.procedures[0];
+    expect(proc?.body[1]).toEqual({
+      kind: "вернуть",
+      value: { kind: "переменная", name: "конец" },
+    });
   });
 });
