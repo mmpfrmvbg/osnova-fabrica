@@ -193,3 +193,9 @@ Golden:          passed ✅
 ## OSNOVA Forge CLI
 
 Команды `osnova` (status, health, forge, do, fix, …): см. [OSNOVA-CLI.md](OSNOVA-CLI.md).
+
+## Лицензия
+
+Двойная: GNU GPL v3 (`LICENSE`) либо коммерческая по договорённости
+(`LICENSE-COMMERCIAL.md`, краткое пояснение — `COPYING`). Учебник по языку —
+`docs/tutorial/`.
