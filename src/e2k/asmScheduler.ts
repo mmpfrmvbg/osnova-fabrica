@@ -131,7 +131,7 @@ export function scheduleAsm(
   /** Какие каналы заняты в каждом такте (по индексу такта). */
   const busy = new Map<number, Set<number>>();
   /** Кто уже поставлен в такт — для проверки запретов упаковки. */
-  const tickOf: number[][] = commands.map(() => []);
+  const tickOf = new Map<number, number[]>();
   const order: number[] = [];
   let tick = 0;
 
@@ -148,11 +148,37 @@ export function scheduleAsm(
       if (ready === Number.POSITIVE_INFINITY) continue;
       // Канал: первый допустимый, свободный в такте `ready`; иначе команда ждёт следующий такт.
       const allowed = realOpcode(commands[index]!.mnemonic)?.channels ?? [];
+      // Управляющая команда (`disp`, `ct`, `call`, `return`, `setbn`, `sdisp`) несёт слог CS/SS, а
+      // не ALS: её нет в таблице ALS-опкодов, и списка каналов у неё нет вовсе. Такая команда
+      // занимает **отдельный такт** — в широкую команду вместе с ALS-операциями она не встаёт.
+      // Замер вскрыл это отказом на `disp` (#15) после того, как были исправлены два предыдущих
+      // дефекта: предел поиска такта и индексация карты тактов индексом команды.
+      if (allowed.length === 0) {
+        const controlAt = Math.max(ready, tick);
+        issueAt[index] = controlAt;
+        readyAt[index] = controlAt + latency[index]!;
+        channelOf[index] = -1; // ALS-канал не занят: слог управляющий
+        tickOf.set(controlAt, [...(tickOf.get(controlAt) ?? []), index]);
+        order.push(index);
+        tick = controlAt + 1;
+        progressed = true;
+        continue;
+      }
       let at = Math.max(ready, tick);
       let channel: number | undefined;
-      for (let attempt = 0; attempt < 8 && channel === undefined; attempt++) {
-        const inTick = tickOf[index] ?? [];
-        if (inTick.some((other) => conflicts(other, index))) { at++; continue; }
+      // Поиск такта не ограничен: каналы освобождаются каждый такт, свободный найдётся.
+      // Здесь стоял предел в восемь попыток, а карта тактов индексировалась **индексом команды**
+      // вместо такта (`tickOf[index]` вместо `tickOf.get(at)`) — два дефекта, из-за которых на
+      // реальном ядре не размещались 94 команды из 920.
+      for (let attempt = 0; channel === undefined; attempt++) {
+        if (attempt > 4096) {
+          throw new Error(`канал не найден за 4096 тактов для команды #${index} (${commands[index]!.mnemonic})`);
+        }
+        const inTick = tickOf.get(at) ?? [];
+        if (inTick.some((other) => conflicts(other, index))) {
+          at++;
+          continue;
+        }
         const occupied = busy.get(at) ?? new Set<number>();
         channel = allowed.find((candidate) => !occupied.has(candidate));
         if (channel === undefined) at++;
@@ -163,7 +189,7 @@ export function scheduleAsm(
       channelOf[index] = channel;
       if (!busy.has(at)) busy.set(at, new Set<number>());
       busy.get(at)!.add(channel);
-      tickOf[at]!.push(index);
+      tickOf.set(at, [...(tickOf.get(at) ?? []), index]);
       order.push(index);
       tick = Math.max(tick, at);
       progressed = true;
