@@ -30,6 +30,9 @@ import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
 import { lowerCarrier } from './e2kRealRun';
 import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
+import { allocateProgram } from './regAlloc';
+import { layoutOf, secondPass } from './twoPassLayout';
+import { pairPredicates } from './predicatePairing';
 import { buildElfFromCode, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
 import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
@@ -153,7 +156,215 @@ function exitCodeOf(source: string, file: string): number | undefined {
   return runInQemu(path.join(ROOT, '.tmp', file), { shim: true })?.status;
 }
 
+/**
+ * Полный конвейер (раскладка регистров, раскладка адресов, пары предикатов, понижение) — тот же,
+ * что в `e2kConvolutionQemu.test.ts`. Нужен там, где в программе есть ЦИКЛЫ: без раскладки адресов
+ * у переходов нет смещений.
+ */
+function loweredProgram(source: string): { bytes: Uint8Array; refused: readonly string[]; used: number } {
+  const built = regModuleOf(source);
+  if (built === null) throw new Error('программа не компилируется');
+  const annotated = annotateAtomRegions(built.module, [
+    { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
+  ]);
+  const emitted = emitShell(annotated, shellEncoder);
+  const context = { constants: emitted.scheduled.constants, invokeNames: emitted.image.invokeNames };
+  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
+  const report = allocation.report[0]!;
+  if (!report.ok) throw new Error(`раскладка отказала: ${report.reason ?? 'причина не названа'}`);
+  const code = allocation.instructions;
+  const layout = layoutOf(code, { invokeNames: emitted.image.invokeNames, constants: emitted.scheduled.constants });
+  const resolved = secondPass(code, layout.addresses);
+  const pairing = pairPredicates(code);
+  const predicateAt = new Map(
+    pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),
+  );
+  const conditionAt = new Map(pairing.pairs.map((pair) => [pair.jumpIndex, pair.condition]));
+  const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
+
+  const body: AsmInstruction[] = [];
+  const refused: string[] = [];
+  let returnRegister: number | undefined;
+  for (let index = 0; index < code.length; index++) {
+    const carrier = code[index]!;
+    const problem =
+      layout.unplaced.find((item) => item.index === index) ??
+      resolved.refusals.find((item) => item.index === index) ??
+      pairing.refusals.find((item) => item.index === index);
+    if (problem !== undefined) {
+      refused.push(`#${index} ${carrier.mnemonic}: ${problem.reason}`);
+      continue;
+    }
+    if (carrier.mnemonic === 'IR.ret') {
+      const flag = carrier.operands[0];
+      const value = carrier.operands[1];
+      if (returnRegister === undefined && flag?.kind === 'imm' && flag.value === 1 && value?.kind === 'reg') {
+        returnRegister = value.index;
+      }
+      continue;
+    }
+    const lowered = lowerCarrier(carrier, {
+      ...context,
+      ...(displacementAt.get(index) === undefined ? {} : { displacement: displacementAt.get(index)! }),
+      ...(predicateAt.get(index) === undefined ? {} : { predicate: predicateAt.get(index)! }),
+      ...(conditionAt.get(index) === undefined ? {} : { condition: conditionAt.get(index)! }),
+    });
+    if (!lowered.ok) {
+      refused.push(`#${index} ${carrier.mnemonic}: ${lowered.reason}`);
+      continue;
+    }
+    body.push(...lowered.instructions);
+  }
+  if (returnRegister === undefined) throw new Error('в программе нет возврата значения');
+
+  const instructions: AsmInstruction[] = [
+    ...arrayPrologue(MINIMAL_BASE + HEAP_OFFSET),
+    ...body,
+    {
+      mnemonic: 'adds',
+      channel: 0,
+      operands: [base(returnRegister), base(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 1)],
+    },
+    { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
+    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+    { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+  ];
+  const chunks = instructions.map((instruction) => encoder.encode(instruction));
+  const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return { bytes, refused, used: report.used };
+}
+
 const shim = buildShim();
+
+/**
+ * ЗАМЕР: ДВА МАССИВА В ОДНОЙ ПРОГРАММЕ — БЛОКИ ПЕРЕКРЫВАЮТСЯ, И ЧТЕНИЕ ПЕРВОГО ВРЁТ.
+ *
+ * # Что измерено (2026-09-23, QEMU-e2k)
+ *
+ * `система.массив.создать` сдвигает указатель кучи на **одно слово** (заголовок длины), а
+ * `система.массив.добавить` **не сдвигает его вовсе** (`src/e2k/arrayRuntime.ts:193-218`). Значит
+ * блок ВТОРОГО массива ложится ровно на первый элемент ПЕРВОГО. Для `вход = [3,1,4,1,5,9,2,6]` и
+ * `коэффициенты = [1,2,3,4]` память становится
+ * `[8, 4,1,2,3,4, 9,2,6]`: слот 0 — длина входа, слот 1 — длина коэффициентов, слоты 2…5 — сами
+ * коэффициенты, слоты 6…8 — уцелевший хвост входа.
+ *
+ * Отсюда измеренная карта `получить(вход, i)` при `i = 0…7`:
+ * **`4, 1, 2, 3, 4, 9, 2, 6`** — то есть `[длина(коэффициенты), коэф[0..3], вход[5..7]]`.
+ * Второй массив цел (его блок писали последним), поэтому `получить(коэффициенты, i)` верен.
+ *
+ * # Почему это важно для FIR
+ *
+ * FIR читает `вход[n-k]` при `n-k = 0…7`, то есть первые пять чтений врут. Эталон 181, а разница
+ * считается поимённо: `(4−3)·1 + (2−4)·3 + (3−1)·4 + (4−5)·4 = +1 −6 +8 −4 = −4` — ровно измеренные
+ * **177**. То есть остаток −4 после правки зависимостей по памяти (`docs/e2k-regalloc-debt.md` §9) —
+ * не планировщик, а перекрытие блоков в куче.
+ *
+ * # Чего оракул не делает
+ *
+ * Не чинит рантайм: правка `добавить` меняет длину носителя `IR.invoke` (9 → 10 команд) и все
+ * замороженные числа форм, поэтому решение владельца, а не побочный эффект замера.
+ */
+function twoArrayProgram(declarations: readonly string[], first: string, expression: string): string {
+  return ['модуль ПробаКуча', 'процедура главная()', ...declarations, first, `  вернуть ${expression}`, 'конец'].join('\n');
+}
+
+const ВХОД = '  пусть вход = [3, 1, 4, 1, 5, 9, 2, 6]';
+const КОЭФ = '  пусть коэффициенты = [1, 2, 3, 4]';
+
+/** FIR целиком: две петли, один аккумулятор — источник, которым измерен эталон 181. */
+const FIR = [
+  'модуль ПробаFIR',
+  'процедура главная()',
+  ВХОД,
+  КОЭФ,
+  '  пусть итог = 0',
+  '  пусть n = система.массив.длина(коэффициенты) - 1',
+  '  пока n < система.массив.длина(вход)',
+  '    пусть k = 0',
+  '    пока k < система.массив.длина(коэффициенты)',
+  '      итог = итог + система.массив.получить(вход, n - k) * система.массив.получить(коэффициенты, k)',
+  '      k = k + 1',
+  '    конец',
+  '    n = n + 1',
+  '  конец',
+  '  вернуть итог',
+  'конец',
+].join('\n');
+
+function exitOfLowered(source: string, file: string): number | undefined {
+  const { bytes, refused, used } = loweredProgram(source);
+  expect(refused, `непонижённые носители: ${refused.join('; ')}`).toEqual([]);
+  expect(used, 'выдано регистров').toBeLessThanOrEqual(10);
+  fs.writeFileSync(
+    path.join(ROOT, '.tmp', file),
+    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes,
+  );
+  return runInQemu(path.join(ROOT, '.tmp', file), { shim: true, timeoutMs: 20_000 })?.status;
+}
+
+describe('два массива в куче: перекрытие блоков — замер, а не ожидание', () => {
+  it('шим и модель доступны — или причина названа', () => {
+    if (shim === undefined) {
+      expect(shim, 'шим не собран: в WSL-дистрибутиве нет компилятора C (docs/e2k-qemu-run.md §2.5)').toBeUndefined();
+      return;
+    }
+    expect(shim.length).toBeGreaterThan(3);
+  });
+
+  it('контроль: у ОДНОГО массива чтение верное на обоих концах (перекрытие требует второго)', () => {
+    if (shim === undefined) return;
+    const zero = exitOfLowered(twoArrayProgram([ВХОД], '', 'система.массив.получить(вход, 0)'), 'e2k-heap-one-0.elf');
+    const three = exitOfLowered(twoArrayProgram([ВХОД], '', 'система.массив.получить(вход, 3)'), 'e2k-heap-one-3.elf');
+    expect(zero, 'вход[0] при одном массиве').toBe(3);
+    expect(three, 'вход[3] при одном массиве').toBe(1);
+  });
+
+  it('карта чтения первого массива при ДВУХ массивах — измеренная, а не ожидаемая', () => {
+    if (shim === undefined) return;
+    const measured: number[] = [];
+    for (let index = 0; index < 8; index++) {
+      const code = exitOfLowered(
+        twoArrayProgram([ВХОД, КОЭФ], '', `система.массив.получить(вход, ${String(index)})`),
+        `e2k-heap-two-${String(index)}.elf`,
+      );
+      if (code === undefined) {
+        expect(code, 'модель не довела программу до выхода').toBeDefined();
+        return;
+      }
+      measured.push(code);
+    }
+    // Если это покраснело — рантайм массивов починен (указатель кучи двигается на `добавить`):
+    // тогда обновить §3.22 `docs/hardware-debt.md`, FIR должен стать 181, а не 177.
+    expect(measured, 'карта получить(вход, 0…7): [длина(коэф), коэф[0..3], вход[5..7]]').toEqual([
+      4, 1, 2, 3, 4, 9, 2, 6,
+    ]);
+  });
+
+  it('второй массив цел: его элементы читаются верно', () => {
+    if (shim === undefined) return;
+    const first = exitOfLowered(twoArrayProgram([ВХОД, КОЭФ], '', 'система.массив.получить(коэффициенты, 0)'), 'e2k-heap-h0.elf');
+    const last = exitOfLowered(twoArrayProgram([ВХОД, КОЭФ], '', 'система.массив.получить(коэффициенты, 3)'), 'e2k-heap-h3.elf');
+    expect(first, 'коэф[0]').toBe(1);
+    expect(last, 'коэф[3]').toBe(4);
+  });
+
+  it('FIR целиком: 177 при эталоне 181, и −4 названо по слагаемым', () => {
+    if (shim === undefined) return;
+    const code = exitOfLowered(FIR, 'e2k-heap-fir.elf');
+    if (code === undefined) {
+      expect(code, 'модель не довела FIR до выхода').toBeDefined();
+      return;
+    }
+    // Слагаемые разницы при карте [4,1,2,3,4,…] против [3,1,4,1,5,…]:
+    //   (4−3)·1 + (2−4)·3 + (3−1)·4 + (4−5)·4 = +1 −6 +8 −4 = −4.
+    expect(code, 'FIR при перекрытии блоков: 181 − 4').toBe(177);
+  });
+});
 
 describe('массивы в модели: настоящие обращения вместо invoke', () => {
   it('шим и модель доступны — или причина названа', () => {
