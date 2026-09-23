@@ -44,9 +44,9 @@
 - [docs/e2k-opcodes-real.md](e2k-opcodes-real.md) ⚠
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
-- [docs/e2k-real-run.md](e2k-real-run.md) ⚠
+- [docs/e2k-real-run.md](e2k-real-run.md)
 - [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md)
-- [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md)
+- [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md) ⚠
 - [docs/e2k-return-port.md](e2k-return-port.md) ⚠
 - [docs/e2k-setwd-memory.md](e2k-setwd-memory.md) ⚠
 - [docs/e2k-subset-dsp.md](e2k-subset-dsp.md) ⚠

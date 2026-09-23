@@ -856,9 +856,9 @@ export function runKernelThroughRealEncoding(
     .map(([carrier, stat]) => {
       const rule = loweringOf(carrier);
       // Форма берётся с ОПЕРАНДАМИ, а не по мнемонике: у `IR.invoke` длина зависит от имени вызова
-      // (одна команда у «длина», девять у «добавить»), а имя лежит в операндах. Берётся первый
-      // носитель этого вида — длина у всех носителей одного имени одна и та же, и это проверяет
-      // `src/e2k/twoPassLayout.test.ts`.
+      // (одна команда у «длина», десять у «добавить» — сдвиг кучи на элемент), а имя лежит в операндах.
+      // Берётся первый носитель этого вида — длина у всех носителей одного имени одна и та же, и это
+      // проверяет `src/e2k/twoPassLayout.test.ts`.
       const sample = code.find((instruction) => instruction.mnemonic === carrier);
       const form = sample === undefined ? carrierForm(carrier) : carrierFormOf(sample, { invokeNames: emitted.image.invokeNames });
       const entry = rule === undefined ? undefined : realOpcode(rule.mnemonic);
