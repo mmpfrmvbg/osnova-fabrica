@@ -642,9 +642,12 @@ export function parse(tokens: Token[]): ParseResult {
     }
     const body: Stmt[] = [];
     while (!isAtCloser(PROCEDURE_CLOSER) && !isMismatchedCloser(PROCEDURE_CLOSER) && peek().kind !== "конец_файла") {
+      const before = pos;
       const s = parseStmt();
       if (s) body.push(s);
       else syncToStmtBoundary();
+      // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+      if (pos === before) break;
       skipNewlines();
     }
     if (!expectCloser(PROCEDURE_CLOSER)) return null;
@@ -849,9 +852,12 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
       const body: Stmt[] = [];
       while (peek().kind !== "иначе_если" && peek().kind !== "иначе" && !isAtCloser(IF_CLOSER) && !isMismatchedCloser(IF_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        if (pos === before) break;
         skipNewlines();
       }
       const elseIfClauses: Array<{ condition: Expr; body: Stmt[] }> = [];
@@ -864,9 +870,12 @@ export function parse(tokens: Token[]): ParseResult {
         skipNewlines();
         const clauseBody: Stmt[] = [];
         while (peek().kind !== "иначе_если" && peek().kind !== "иначе" && !isAtCloser(IF_CLOSER) && !isMismatchedCloser(IF_CLOSER) && peek().kind !== "конец_файла") {
+          const before = pos;
           const s = parseStmt();
           if (s) clauseBody.push(s);
           else syncToStmtBoundary();
+          // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          if (pos === before) break;
           skipNewlines();
         }
         elseIfClauses.push({ condition: cond, body: clauseBody });
@@ -877,9 +886,12 @@ export function parse(tokens: Token[]): ParseResult {
         skipNewlines();
         elseBody = [];
         while (!isAtCloser(WHEN_CLOSER) && !isMismatchedCloser(WHEN_CLOSER) && peek().kind !== "конец_файла") {
+          const before = pos;
           const s = parseStmt();
           if (s) elseBody.push(s);
           else syncToStmtBoundary();
+          // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          if (pos === before) break;
           skipNewlines();
         }
       }
@@ -906,9 +918,12 @@ export function parse(tokens: Token[]): ParseResult {
           !isAtCloser(WHEN_CLOSER)  &&
           peek().kind !== "конец_файла"
         ) {
+          const before = pos;
           const s = parseStmt();
           if (s) armBody.push(s);
           else syncToStmtBoundary();
+          // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          if (pos === before) break;
           skipNewlines();
         }
         arms.push({ variant, body: armBody });
@@ -929,9 +944,12 @@ export function parse(tokens: Token[]): ParseResult {
         skipNewlines();
         elseBody = [];
         while (!isAtCloser(WHEN_CLOSER) && !isMismatchedCloser(WHEN_CLOSER) && peek().kind !== "конец_файла") {
+          const before = pos;
           const s = parseStmt();
           if (s) elseBody.push(s);
           else syncToStmtBoundary();
+          // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          if (pos === before) break;
           skipNewlines();
         }
       }
@@ -943,9 +961,12 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
       const body: Stmt[] = [];
       while (peek().kind !== "иначе_попытка" && !isAtCloser(TRY_CLOSER) && !isMismatchedCloser(TRY_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        if (pos === before) break;
         skipNewlines();
       }
       if (!consume("иначе_попытка", "Ожидается 'иначе_попытка'")) return null;
@@ -968,9 +989,12 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
       const catchBody: Stmt[] = [];
       while (!isAtCloser(TRY_CLOSER) && !isMismatchedCloser(TRY_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) catchBody.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        if (pos === before) break;
         skipNewlines();
       }
       if (!expectCloser(TRY_CLOSER)) return null;
@@ -992,9 +1016,12 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
       const body: Stmt[] = [];
       while (!isAtCloser(WHILE_CLOSER) && !isMismatchedCloser(WHILE_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        if (pos === before) break;
         skipNewlines();
       }
       if (!expectCloser(WHILE_CLOSER)) return null;
@@ -1044,9 +1071,12 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
       const body: Stmt[] = [];
       while (!isAtCloser(FOR_EACH_CLOSER) && !isMismatchedCloser(FOR_EACH_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        if (pos === before) break;
         skipNewlines();
       }
       if (!expectCloser(FOR_EACH_CLOSER)) return null;
@@ -1074,9 +1104,12 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
       const body: Stmt[] = [];
       while (!isAtCloser(LOOP_CLOSER) && !isMismatchedCloser(LOOP_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        if (pos === before) break;
         skipNewlines();
       }
       if (!expectCloser(LOOP_CLOSER)) return null;
