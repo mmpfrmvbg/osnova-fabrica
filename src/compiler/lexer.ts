@@ -126,6 +126,20 @@ export const KEYWORDS: Record<string, TokenKind> = Object.fromEntries(
     .map((k) => [k.lexeme, k.lexeme as TokenKind]),
 ) as Record<string, TokenKind>;
 
+/**
+ * Все лексемы-ключевые слова, которые лексер ПРИНИМАЕТ.
+ *
+ * `KEYWORDS` — только зарезервированные; контекстные закрывающие (`конец_*`) в
+ * него не входят намеренно: их вид определяет парсер, а не лексер. Но реестр
+ * языка обязан описывать и их, поэтому согласованность лексера с реестром надо
+ * проверять по этому полному набору — иначе проверка требует от лексера
+ * «зарезервировать» контекстные слова и краснеет на верном коде.
+ */
+export const ACCEPTED_KEYWORD_LEXEMES: readonly string[] = [
+  ...Object.keys(KEYWORDS),
+  ...BLOCK_CLOSING_LEXEMES,
+];
+
 function isLetter(c: string): boolean {
   if (!c) return false;
   const code = c.charCodeAt(0);
