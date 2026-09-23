@@ -1,4 +1,5 @@
 import type { Expr, Program, Module, Stmt } from "./ast";
+import { unknownSyscallMessage } from "../runtime/vm/invokeRegistry";
 import { LANGUAGE_REGISTRY } from "./language-registry";
 
 export interface SemanticError {
@@ -83,14 +84,14 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
         if (expr.name.startsWith("система.типы.")) {
           errors.push({
             kind: "invented_syntax",
-            message: `Конструкция '${expr.name}' не существует в языке Основа. Используйте объектный литерал: { поле: значение }`,
+            message: `Конструкция '${expr.name}' не существует в языке Основа. Именованный тип объявляется: тип Имя = { поле: Тип } (перечень: тип Имя = вариант | вариант)`,
           });
         }
         if (expr.name === "система.хранилище.установить_поле") {
           errors.push({
             kind: "invented_syntax",
             message:
-              "Конструкция 'система.хранилище.установить_поле' не существует. Используйте система.хранилище.записать(ключ, значение)",
+              "Конструкция 'система.хранилище.установить_поле' не существует. Поле объекта устанавливается присваиванием: объект.поле = значение",
           });
         }
         // только .новый — система.объект.получить валиден в реестре
@@ -268,7 +269,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           if (!spec) {
             errors.push({
               kind: "unknown_syscall",
-              message: `системный вызов '${expr.name}' не существует`,
+              message: unknownSyscallMessage(expr.name),
             });
           } else if (expr.args.length !== spec.argc) {
             errors.push({
