@@ -43,7 +43,7 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "validate:spec": "tsx src/compiler/validate-language-registry.ts",
     "osnova-language:validate": "npx tsx src/compiler/validate-language-registry.ts",
-    "ci": "npm --prefix apps/osiris ci --no-audit && npm run typecheck && npm test && npm run lint && npx tsx src/scripts/check-yaml-drift.ts && npm run docs:check && cross-env OSNOVA_STORAGE_ROOT=/tmp/osnova-storage-ci npm run golden && npm run gate:reorder && npm run report:deprecated-end && npm run validate:spec && cross-env OSNOVA_STORAGE_ROOT=/tmp/osnova-storage-ci npm run coverage",
+    "ci": "tsx src/scripts/ciChain.ts",
     "osnova-mini-os:e2e": "tsx src/scripts/osnova-mini-os-e2e.ts",
     "traces": "tsx src/scripts/trace-viewer.ts",
     "center": "tsx src/center/index.ts",

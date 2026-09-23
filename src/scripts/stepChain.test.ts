@@ -16,6 +16,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { runSteps } from './stepChain';
 import { TEST_STEPS, runStepInherit } from './testChain';
+import { CI_STEPS } from './ciChain';
 
 describe('runSteps: шаги независимы', () => {
   it('падение первого шага не отменяет остальные и даёт код 1', () => {
@@ -59,6 +60,25 @@ describe('runSteps: шаги независимы', () => {
     expect(TEST_STEPS[0]).toContain('vitest run');
     expect(TEST_STEPS[1]).toBe('npm run check:test-files');
     expect(TEST_STEPS[2]).toBe('npm run check:language-schema');
+  });
+
+  it('шаги `npm run ci` — тот же порядок, что был в цепочке `&&`, и ничего не потеряно', () => {
+    // Проверка сторожит не «состав», а ПЕРЕНОС: цепочка `&&` заменена списком,
+    // значит список обязан содержать каждый прежний шаг — иначе шаг тихо исчезнет.
+    const expected = [
+      'npm --prefix apps/osiris ci --no-audit',
+      'npm run typecheck',
+      'npm test',
+      'npm run lint',
+      'npx tsx src/scripts/check-yaml-drift.ts',
+      'npm run docs:check',
+      'cross-env OSNOVA_STORAGE_ROOT=/tmp/osnova-storage-ci npm run golden',
+      'npm run gate:reorder',
+      'npm run report:deprecated-end',
+      'npm run validate:spec',
+      'cross-env OSNOVA_STORAGE_ROOT=/tmp/osnova-storage-ci npm run coverage',
+    ];
+    expect([...CI_STEPS]).toEqual(expected);
   });
 });
 
