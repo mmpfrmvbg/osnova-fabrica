@@ -16,6 +16,7 @@
     "test": "tsx src/scripts/testChain.ts",
     "check:test-files": "tsx src/scripts/testFiles.audit.ts",
     "test:e2e-osiris": "vitest run --config vitest.e2e.config.ts",
+    "test:e2k-targets": "vitest run --config vitest.e2k.config.ts",
     "coverage": "vitest run --coverage --coverage.exclude=src/agents/RepairEngineer.ts --coverage.exclude=src/pipeline-llm/buildOsnovaPrompt.ts --exclude src/agents/RepairEngineer.test.ts",
     "test:watch": "vitest",
     "test:forge": "python -m unittest discover -s forge/tests -p \"test_*.py\"",
