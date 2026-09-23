@@ -43,6 +43,11 @@ docs/tutorial/07-arrays.md: {status: active}
 docs/tutorial/08-objects.md: {status: active}
 docs/tutorial/09-errors.md: {status: active}
 docs/tutorial/10-modules.md: {status: active}
+docs/tutorial/11-syscalls.md: {status: active}
+docs/tutorial/12-division.md: {status: active}
+docs/tutorial/13-advanced.md: {status: active}
+docs/tutorial/14-reference.md: {status: active}
+docs/tutorial/15-faq.md: {status: active}
 
 # --- Фронтир, замеры, статус (active) ---
 AGENTS.md: {status: active}
