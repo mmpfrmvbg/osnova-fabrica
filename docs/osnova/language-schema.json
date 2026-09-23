@@ -865,12 +865,9 @@
       "status": "stable"
     },
     {
-      "spelling": "для_каждого",
-      "tokenKind": "для_каждого",
-      "relatedConstructions": [
-        "for_each",
-        "for_each_indexed"
-      ],
+      "spelling": "для",
+      "tokenKind": "для",
+      "relatedConstructions": [],
       "status": "stable"
     },
     {

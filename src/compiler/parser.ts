@@ -171,7 +171,7 @@ export function parse(tokens: Token[]): ParseResult {
   const WHILE_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ПОКА, "конец"], block: "пока" };
   // `конец_для_каждого` — полная форма имени конструкции; реестр знает короткую
   // `конец_для`. Обе принимаются: отказ на полной форме был бы непонятен.
-  const FOR_EACH_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ДЛЯ, "конец_для_каждого", "конец"], block: "для_каждого" };
+  const FOR_EACH_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ДЛЯ, "конец_для_каждого", "конец"], block: "для" };
   const LOOP_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ЦИКЛА, "конец"], block: "цикл" };
 
   /** Закрывает ли текущий токен блок по спецификации `spec`. */
@@ -256,7 +256,7 @@ export function parse(tokens: Token[]): ParseResult {
       "когда",
       "пока",
       "вернуть",
-      "для_каждого",
+      "для",
       "попробовать",
       "выбросить",
       "прервать",
@@ -1054,12 +1054,12 @@ export function parse(tokens: Token[]): ParseResult {
       if (!expectCloser(WHILE_CLOSER)) return null;
       return { kind: "пока", condition, body };
     }
-    if (peek().kind === "для_каждого") {
+    if (peek().kind === "для") {
       advance();
       if (!isAt("идентификатор")) {
         const t = peek();
         errors.push({
-          message: "Ожидается имя переменной после 'для_каждого'",
+          message: "Ожидается имя переменной после 'для'",
           line: t.line,
           column: t.column,
           context: "stmt",
@@ -1090,7 +1090,7 @@ export function parse(tokens: Token[]): ParseResult {
         const tokIndex = advance();
         index = String(tokIndex.value ?? tokIndex.lexeme);
       }
-      if (!consume("в", "Ожидается 'в' после переменной для_каждого")) return null;
+      if (!consume("в", "Ожидается 'в' после переменной для")) return null;
       skipNewlines();
       const source = parseExpr();
       if (!source) return null;
