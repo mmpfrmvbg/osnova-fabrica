@@ -269,7 +269,7 @@ describe("учебник: примеры работают", () => {
 });
 
 describe("учебник: команды из раздела 02 работают", () => {
-  it("`compile` + `run` из CLI печатают то, что обещано", () => {
+  it("`run <файл.osnova>` — одна команда: компилирует и исполняет", () => {
     const readme = fs.readFileSync(path.join(TUTORIAL, "README.md"), "utf-8");
     const first = blocksOf(readme, "README.md")[0];
     expect(first, "в README есть исполняемый пример").toBeDefined();
@@ -277,22 +277,42 @@ describe("учебник: команды из раздела 02 работают
 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "osnova-tutorial-cli-"));
     const sourceFile = path.join(dir, "привет.osnova");
-    const bytecodeFile = path.join(dir, "привет.osvbc.json");
     fs.writeFileSync(sourceFile, first!.source, "utf-8");
 
-    const compile = spawnSync(
-      `npx tsx src/cli/index.ts compile ${JSON.stringify(sourceFile)} -o ${JSON.stringify(bytecodeFile)}`,
-      { shell: true, cwd: ROOT, encoding: "utf-8" },
-    );
-    expect(compile.status, `compile: ${compile.stderr ?? ""}`).toBe(0);
-
-    const run = spawnSync(`npx tsx src/cli/index.ts run ${JSON.stringify(bytecodeFile)}`, {
+    // Никакого compile: одной командой запускаем исходник.
+    const run = spawnSync(`npx tsx src/cli/index.ts run ${JSON.stringify(sourceFile)}`, {
       shell: true,
       cwd: ROOT,
       encoding: "utf-8",
     });
     expect(run.status, `run: ${run.stderr ?? ""}`).toBe(0);
     expect((run.stdout ?? "").trim().split("\n")).toEqual(first!.expected);
+    // И промежуточного байткода рядом не появилось — команда компилирует в память.
+    expect(fs.existsSync(path.join(dir, "привет.osvbc.json")), "байткод не создаётся").toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("`compile` + `run <файл.osvbc.json>` по-прежнему работают", () => {
+    const readme = fs.readFileSync(path.join(TUTORIAL, "README.md"), "utf-8");
+    const first = blocksOf(readme, "README.md")[0]!;
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "osnova-tutorial-cli2-"));
+    const sourceFile = path.join(dir, "привет.osnova");
+    const bytecodeFile = path.join(dir, "привет.osvbc.json");
+    fs.writeFileSync(sourceFile, first.source, "utf-8");
+
+    const compile = spawnSync(
+      `npx tsx src/cli/index.ts compile ${JSON.stringify(sourceFile)} -o ${JSON.stringify(bytecodeFile)}`,
+      { shell: true, cwd: ROOT, encoding: "utf-8" },
+    );
+    expect(compile.status, `compile: ${compile.stderr ?? ""}`).toBe(0);
+    const run = spawnSync(`npx tsx src/cli/index.ts run ${JSON.stringify(bytecodeFile)}`, {
+      shell: true,
+      cwd: ROOT,
+      encoding: "utf-8",
+    });
+    expect(run.status, `run: ${run.stderr ?? ""}`).toBe(0);
+    expect((run.stdout ?? "").trim().split("\n")).toEqual(first.expected);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

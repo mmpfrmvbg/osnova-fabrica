@@ -16,8 +16,47 @@ import type { OsVbcModule } from "../runtime/vm/bytecode";
 function usage(): void {
   console.error("Использование:");
   console.error("  osnova compile <файл.osnova> [-o <файл.osvbc.json>] [--warn-deprecated]");
-  console.error("  osnova run <файл.osvbc.json>");
+  console.error("  osnova run <файл.osnova>            скомпилировать и сразу запустить");
+  console.error("  osnova run <файл.osvbc.json>        запустить готовый байткод");
   process.exit(1);
+}
+
+/**
+ * Прочитать программу из файла: исходник компилируется, байткод разбирается.
+ *
+ * Исходник (`.osnova`) компилируется **в память**: одной командой `run` можно
+ * запустить программу, не оставляя рядом `.osvbc.json`. Ошибки компиляции
+ * печатаются теми же строками, что у `compile`.
+ */
+function readProgram(inputFile: string): OsVbcModule {
+  const full = path.resolve(inputFile);
+  if (!fs.existsSync(full)) {
+    console.error(`Файл не найден: ${full}`);
+    process.exit(1);
+  }
+  const raw = fs.readFileSync(full, "utf-8");
+
+  if (/\.osnova$/i.test(inputFile)) {
+    const result = compileSource(raw, {
+      baseDir: path.dirname(full),
+      filename: path.basename(full),
+    });
+    if (!result.compilerSuccess || !result.module) {
+      for (const e of result.lexerErrors) console.error(`[лексер] строка ${e.line}: ${e.message}`);
+      for (const e of result.parserErrors) console.error(`[парсер] строка ${e.line}: ${e.message}`);
+      for (const e of result.compilerErrors) console.error(`[компилятор] ${e.message}`);
+      process.exit(1);
+    }
+    for (const e of result.compilerErrors) console.warn(`[предупреждение] ${e.message}`);
+    return result.module;
+  }
+
+  try {
+    return JSON.parse(raw) as OsVbcModule;
+  } catch {
+    console.error(`Ошибка: не удалось разобрать файл байткода: ${inputFile}`);
+    process.exit(1);
+  }
 }
 
 function cmdCompile(args: string[]): void {
@@ -64,17 +103,11 @@ function cmdCompile(args: string[]): void {
 }
 
 async function cmdRun(args: string[]): Promise<void> {
-  const inputFile = args.find((a) => !a.startsWith("-"));
-  if (!inputFile) { console.error("Ошибка: не указан файл байткода"); usage(); }
+  const inputIdx = args.findIndex((a) => !a.startsWith("-"));
+  if (inputIdx === -1) { console.error("Ошибка: не указан файл программы"); usage(); }
+  const inputFile = args[inputIdx]!;
 
-  const raw = fs.readFileSync(inputFile!, "utf-8");
-  let module: OsVbcModule;
-  try {
-    module = JSON.parse(raw) as OsVbcModule;
-  } catch {
-    console.error(`Ошибка: не удалось разобрать файл байткода: ${inputFile}`);
-    process.exit(1);
-  }
+  const module = readProgram(inputFile);
 
   // Общий обработчик — источник истины для вызовов языка (строки, математика,
   // объекты, JSON, итератор для `для`). Раньше здесь были только `лог` и массивы,
