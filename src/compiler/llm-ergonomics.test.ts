@@ -8,6 +8,13 @@ function wrap(body: string): string {
   return `модуль т\nпроцедура главная()\n${body}\nконец\nконец`;
 }
 
+/** Байткод программы: сравнение «синоним ≡ канон» по коду, а не по факту сборки. */
+function bytecodeOf(src: string): string {
+  const cr = compileSource(src);
+  expect(cr.compilerSuccess, cr.parserErrors.map((e) => e.message).join("; ")).toBe(true);
+  return JSON.stringify(cr.module?.code ?? null);
+}
+
 async function run(src: string): Promise<unknown> {
   const cr = compileSource(src);
   expect(cr.parserErrors, cr.parserErrors.map((e) => e.message).join("; ")).toEqual([]);
@@ -416,5 +423,49 @@ describe("LLM ergonomics: `пока_не` — не конструкция (ди�
 конец
 конец`;
     expect(await run(withProc)).toBe(7);
+  });
+});
+describe("LLM ergonomics: синонимы системных вызовов (пункт 1.5, 41 случай)", () => {
+  // Решение: реестр синонимов, а не синтаксис. Карта — по ПОЛНОМУ имени:
+  // `система.массив.получить` — канон (argc 2), подстановка по последнему сегменту
+  // `получить` → `прочитать` сломала бы его, поэтому сегментной замены нет.
+  it("система.хранилище.получить работает как прочитать (42)", async () => {
+    const src = wrap('  система.хранилище.записать("к", 42)\n  вернуть система.хранилище.получить("к")');
+    expect(await run(src)).toBe(42);
+  });
+
+  it("синоним сводится к канону на уровне байткода", () => {
+    const alias = wrap('  система.хранилище.записать("к", 42)\n  вернуть система.хранилище.получить("к")');
+    const canon = wrap('  система.хранилище.записать("к", 42)\n  вернуть система.хранилище.прочитать("к")');
+    expect(bytecodeOf(alias)).toBe(bytecodeOf(canon));
+  });
+
+  it("система.хранилище.сохранить работает как записать", async () => {
+    const src = wrap('  система.хранилище.сохранить("к", 7)\n  вернуть система.хранилище.прочитать("к")');
+    expect(await run(src)).toBe(7);
+  });
+
+  it("система.окно.вывод разрешается как система.лог.вывести", async () => {
+    // Раньше компиляция проходила, а VM падала: Unknown invoke.
+    const src = wrap('  система.окно.вывод("привет")\n  вернуть 1');
+    expect(await run(src)).toBe(1);
+  });
+
+  it("система.строка.срез работает как подстрока", async () => {
+    expect(await run(wrap('  вернуть система.строка.срез("привет", 1, 3)'))).toBe("ри");
+  });
+
+  it("контроль: канонические имена не тронуты", async () => {
+    expect(await run(wrap('  система.хранилище.записать("к", 1)\n  вернуть система.хранилище.прочитать("к")'))).toBe(1);
+    expect(await run(wrap('  вернуть система.строка.подстрока("привет", 0, 2)'))).toBe("пр");
+  });
+
+  it("контроль: система.массив.получить — канон, сегментной подстановки нет", async () => {
+    expect(await run(wrap("  пусть a = [7, 8]\n  вернуть система.массив.получить(a, 1)"))).toBe(8);
+  });
+
+  it("контроль: неизвестный системный вызов не принимается молча", () => {
+    const cr = compileSource(wrap("  система.ерунда.вызов(1)\n  вернуть 1"));
+    expect(cr.semanticErrors.some((e) => e.kind === "unknown_syscall")).toBe(true);
   });
 });
