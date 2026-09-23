@@ -381,3 +381,24 @@ describe("LLM ergonomics: `когда` — не позиция булева ус
     expect(await run(src)).toBe(1);
   });
 });
+describe("LLM ergonomics: `пока_не` — не конструкция (диагностика, решение владельца)", () => {
+  // Решение владельца: конструкцию НЕ добавлять. Вместо каскада ошибок —
+  // точное сообщение в позиции конструкции.
+  it("пока_не x > 5 — ошибка с точным сообщением", () => {
+    const cr = compileSource(wrap("  пусть x = 0\n  пока_не x > 5\n    x = x + 1\n  конец\n  вернуть x"));
+    expect(cr.compilerSuccess).toBe(false);
+    const msgs = cr.parserErrors.map((e) => e.message).join(" | ");
+    expect(msgs, msgs).toContain("нет конструкции");
+    expect(msgs).toContain("пока_не");
+    expect(msgs).toContain("пока не");
+  });
+
+  it("подсказка ведёт к рабочей форме: пока не x", async () => {
+    const src = wrap("  пусть x = 0\n  пока не x > 5\n    x = x + 1\n  конец\n  вернуть x");
+    expect(await run(src)).toBe(6);
+  });
+
+  it("контроль: пока_не — законное имя переменной, диагностики нет", async () => {
+    expect(await run(wrap("  пусть пока_не = 5\n  вернуть пока_не"))).toBe(5);
+  });
+});
