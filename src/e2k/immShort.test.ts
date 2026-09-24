@@ -104,6 +104,33 @@ describe('короткая непосредственная форма: стру
     expect(encoder.encode(movtsImm(-1)).length, 'минус один').toBe(16);
     expect(encoder.encode(movtsImm(32767)).length, '32767').toBe(16);
   });
+
+  /**
+   * Разбор обязан ПРИНИМАТЬ короткую форму.
+   *
+   * Повод: поле `0xc0|N` — непосредственное значение, а не регистр. Проверка
+   * «регистр выражается полем слога» стояла до разбора операндов и падала на
+   * `0xc1`: «регистр 193 не выражается полем слога (0..63)». Из-за этого
+   * сквозной прогон ядер (`e2kRealRun`) падал целиком на первом же `movts` с
+   * маленьким литералом вместо того, чтобы назвать причину.
+   */
+  it('1.7 разбор читает короткую форму как непосредственное значение, а не как регистр', () => {
+    for (const [value, destination] of [
+      [0, 2],
+      [1, 12],
+      [15, 9],
+    ] as const) {
+      const bytes = encoder.encode(movtsImm(value, destination));
+      expect(bytes.length, `N = ${value}: короткая форма`).toBe(8);
+      const back = encoder.decode(bytes);
+      expect(back.mnemonic, `N = ${value}`).toBe('movts');
+      expect(back.operands[0], `N = ${value}: первый операнд — непосредственное`).toEqual({
+        kind: 'imm',
+        value,
+      });
+      expect(back.operands[1], `N = ${value}: адресат`).toEqual({ kind: 'reg', index: destination });
+    }
+  });
 });
 
 describe('короткая непосредственная форма: сверка с ассемблером МЦСТ', () => {

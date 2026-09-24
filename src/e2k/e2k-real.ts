@@ -1267,6 +1267,11 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     if (slot === "pdst") continue;
     const value = slot === "src1" ? src1 : slot === "src2" ? src2 : slot === "src3" ? src3 : dst;
     if (value >= 0xd0 && value <= 0xdf) continue;
+    // Короткая непосредственная форма `0xc0 | N` — тоже НЕ регистр: значение 0…15 лежит в самом
+    // поле, литерального слова у команды нет (измерено ассемблером МЦСТ, `encodeShortImm`).
+    // Без этой строки проверка падала на первом же таком поле: «регистр 193» (0xc1) — и сквозной
+    // прогон ядер умирал целиком вместо разбора операндов, который эту форму умеет.
+    if (value >= IMM_SHORT_BASE && value <= IMM_SHORT_BASE + IMM_SHORT_MAX) continue;
     // Верхняя граница — 0x80 | 63: старший бит поля означает оконный файл регистров
     // (opcodes/e2k-dis.c:416-419), 0xc0+ занято литералами и непосредственными значениями.
     if (value > (REGISTER_FILE_WINDOW | REAL_MAX_REGISTER)) {
