@@ -128,17 +128,20 @@ export function buildHelloProgram(text = 'hello', exitCode = 0): SyscallProgram 
     textAddress,
     expectDisasm: [
       'setbn rbs = 0x0, rsz = 0x5, rcur = 0x0',
-      `movts,0 _f16s 0x${SYS_WRITE.toString(16)}, %r${WINDOW_NUMBER_REGISTER}`,
-      `movts,0 _f16s 0x${STDOUT_FD.toString(16)}, %r${WINDOW_FD_REGISTER}`,
+      // Значения 0…15 кодировщик кладёт короткой непосредственной формой (`0xc0 | N`), и внешний
+      // дизассемблер печатает её **без** `_f16s`: `_f16s` — признак литерального поля LTS
+      // (`src/e2k/e2k-real.ts`, `isShortImmediate`/`encodeShortImm`; замер `.tmp/measure-hello.ts`).
+      `movts,0 0x${SYS_WRITE.toString(16)}, %r${WINDOW_NUMBER_REGISTER}`,
+      `movts,0 0x${STDOUT_FD.toString(16)}, %r${WINDOW_FD_REGISTER}`,
       // Приёмник 64-битного литерала дизассемблер печатает `%dr10`: `reg_prefix = {"", "d", …}`
       // (`opcodes/e2k-dis.c:407`), печать `"%%%sr%d"` (`:575`). Здесь стояло `%r10` — вывод из
       // наших обозначений, а не замер; исправлено по замеру (`.tmp/hello-dis.ts`).
       `movtd,0 _f64 0x${textAddress.toString(16)}, %dr${WINDOW_BUFFER_REGISTER}`,
-      `movts,0 _f16s 0x${text.length.toString(16)}, %r${WINDOW_COUNT_REGISTER}`,
+      `movts,0 0x${text.length.toString(16)}, %r${WINDOW_COUNT_REGISTER}`,
       'sdisp %ctpr1',
       'call %ctpr1, wbs = 0x4',
-      `movts,0 _f16s 0x${SYS_EXIT.toString(16)}, %r${WINDOW_NUMBER_REGISTER}`,
-      `movts,0 _f16s 0x${exitCode.toString(16)}, %r${WINDOW_FD_REGISTER}`,
+      `movts,0 0x${SYS_EXIT.toString(16)}, %r${WINDOW_NUMBER_REGISTER}`,
+      `movts,0 0x${exitCode.toString(16)}, %r${WINDOW_FD_REGISTER}`,
       'sdisp %ctpr1',
       'call %ctpr1, wbs = 0x4',
     ],

@@ -118,10 +118,12 @@ describe('hello без libc: образ читается дизассембле�
   /**
    * Значение, а не форма. Первая проверка сравнивает **префикс** строки и потому смотрит на
    * наше же вычисление: подмена значения в вычислении уехала бы вместе с ожиданием. Здесь
-   * значение читается из чужого вывода и **пришпилено** к измеренному адресу 0x100098 — то есть
-   * расхождение в самом вычислении тоже видно.
+   * значение читается из чужого вывода и **пришпилено** к измеренному адресу 0x100070 — то есть
+   * расхождение в самом вычислении тоже видно. Адрес перемерен 2026-09-23: после короткой
+   * непосредственной формы (`0xc0 | N`) код стал на 32 байта короче, строка уехала следом
+   * (было 0x100098; замер `.tmp/measure-hello.ts`).
    */
-  it('значения из образа: литерал 0x100098 в %dr10, rsz = 5, wbs = 4, sdisp = 0', () => {
+  it('значения из образа: литерал 0x100070 в %dr10, rsz = 5, wbs = 4, sdisp = 0', () => {
     const seen = disasm();
     if ('missing' in seen) {
       expect(seen.missing.length).toBeGreaterThan(20);
@@ -130,8 +132,8 @@ describe('hello без libc: образ читается дизассембле�
     const program = buildHelloProgram('hello');
     const facts = disasmFacts(seen.lines);
     expect(facts.literalValue, 'литерал адреса строки не прочитан из образа').toBeDefined();
-    // Главная проверка: значение в байтах против измеренной константы (код 152 байта, база 0x100000).
-    expect(facts.literalValue, 'адрес строки в образе').toBe(0x100098n);
+    // Главная проверка: значение в байтах против измеренной константы (код 117 байт, база 0x100000).
+    expect(facts.literalValue, 'адрес строки в образе').toBe(0x100070n);
     expect(facts.literalValue, 'адрес строки равен вычисленному сборщиком').toBe(BigInt(program.textAddress));
     // Приёмник: дизассемблер печатает двойной регистр как `%drN` (`opcodes/e2k-dis.c:407,575`).
     expect(facts.literalRegister, 'приёмник литерала').toBe(`%dr${WINDOW_BUFFER_REGISTER}`);
@@ -139,8 +141,8 @@ describe('hello без libc: образ читается дизассембле�
     expect(facts.rsz, 'rsz в образе').toBe(HELLO_SETBN_RSZ);
     expect(facts.wbs, 'wbs обоих вызовов').toEqual([SYSCALL_WBS, SYSCALL_WBS]);
     expect(facts.sdisp, 'иммедиаты sdisp').toEqual([0, 0]);
-    // Литерал указывает на строку: смещение строки в образе — те самые 0x98, а не совпадение.
-    expect(program.textAddress - MINIMAL_BASE, 'смещение строки в образе').toBe(0x98);
+    // Литерал указывает на строку: смещение строки в образе — те самые 0x70, а не совпадение.
+    expect(program.textAddress - MINIMAL_BASE, 'смещение строки в образе').toBe(0x70);
   });
 });
 
@@ -182,8 +184,10 @@ describe('hello без libc: исполнение в QEMU', () => {
       return;
     }
     const program = buildHelloProgram('hello', 42);
-    // Адрес строки от кода возврата не зависит: `exit(42)` — та же длина команды `movts`.
-    expect(program.textAddress - MINIMAL_BASE, 'смещение строки не изменилось').toBe(0x98);
+    // Адрес строки от кода возврата не зависит только в том случае, когда форма `movts` одна и та же;
+    // здесь `exit(42)` требует литеральной формы (16 байт) вместо короткой (8), поэтому строка
+    // сдвигается на 8 байт: 0x78 против 0x70 у `hello` без кода возврата (перемер 2026-09-23).
+    expect(program.textAddress - MINIMAL_BASE, 'смещение строки с литеральным кодом возврата').toBe(0x78);
     const file = path.join(ROOT, '.tmp', 'e2k-hello-42.elf');
     fs.writeFileSync(file, buildElfFromCode(program.code, MINIMAL_BASE).bytes);
     const result = runInQemu(file, { shim: true });

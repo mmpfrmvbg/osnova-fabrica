@@ -138,15 +138,17 @@
 
 ## 4. Пример: `exit(42)` — исполнено в модели
 
-Пять инструкций (байты и адреса измерены, `docs/e2k-minimal-elf.md` §2 и §7):
+Пять инструкций (байты и адреса измерены, `docs/e2k-minimal-elf.md` §2 и §7; адреса после первой
+`movts` **перемерены 2026-09-23** — номер вызова кодируется короткой формой `0xc0\|N`, 8 байт вместо
+16, поэтому программа стала 56 байт):
 
 | адрес | инструкция | что делает по этому ABI | источник |
 |---|---|---|---|
-| `0x100000` | `setbn rsz=4, rbs=0, rcur=0` | расширяет окно вращаемых регистров, чтобы номер и аргумент вообще попали в окно | байты — `docs/e2k-minimal-elf.md:44`; окно `(rsz+1)*2` единиц — `target/e2k/reg-index.h:30-52` |
-| `0x100008` | `movts,0 1, %r8` | номер `1` (`exit`) | `linux-user/e2k/syscall_nr.h:9`; адрес — `docs/e2k-minimal-elf.md:45` |
-| `0x100018` | `movts,0 42, %r9` | аргумент `1` = 42 | адрес — `docs/e2k-minimal-elf.md:46`; оконный `r1` — `linux-user/e2k/cpu_loop.c:175` |
-| `0x100028` | `sdisp %ctpr1, 0` | тег `CTPSL` | `target/e2k/tcg/translate-ctp.c:174` |
-| `0x100030` | `call %ctpr1, wbs=4` | сдвиг окна `wbs=4` → номер оказывается в оконном `r0`, запуск вызова | `target/e2k/tcg/translate-ct.c:1090`, `linux-user/e2k/cpu_loop.c:164`, `target/e2k/tcg/translate-ct.c:1144-1145` |
+| `0x100000` | `setbn rsz=4, rbs=0, rcur=0` | расширяет окно вращаемых регистров, чтобы номер и аргумент вообще попали в окно | байты — `docs/e2k-minimal-elf.md` §2; окно `(rsz+1)*2` единиц — `target/e2k/reg-index.h:30-52` |
+| `0x100008` | `movts,0 1, %r8` | номер `1` (`exit`) — короткая непосредственная форма, 8 байт | `linux-user/e2k/syscall_nr.h:9`; адрес — `docs/e2k-minimal-elf.md` §2 |
+| `0x100010` | `movts,0 42, %r9` | аргумент `1` = 42 (литерал LTS, 16 байт) | адрес — `docs/e2k-minimal-elf.md` §2; оконный `r1` — `linux-user/e2k/cpu_loop.c:175` |
+| `0x100020` | `sdisp %ctpr1, 0` | тег `CTPSL` | `target/e2k/tcg/translate-ctp.c:174` |
+| `0x100028` | `call %ctpr1, wbs=4` | сдвиг окна `wbs=4` → номер оказывается в оконном `r0`, запуск вызова | `target/e2k/tcg/translate-ct.c:1090`, `linux-user/e2k/cpu_loop.c:164`, `target/e2k/tcg/translate-ct.c:1144-1145` |
 
 ```asm
         setbn   rsz = 4, rbs = 0, rcur = 0
