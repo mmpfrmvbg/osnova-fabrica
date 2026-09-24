@@ -6,7 +6,8 @@
  *
  * 1. **Заголовок.** `ELFCLASS64`, `ELFDATA2LSB`, `e_machine = 175`, `e_flags` с машиной 8c,
  *    точка входа в начале `.text`, заголовок программы `PT_LOAD`.
- * 2. **Код кодируется извлечёнными формами**: два литерала (LTS) и передача управления (SS).
+ * 2. **Код кодируется извлечёнными формами**: короткая непосредственная (номер вызова),
+ *    литерал LTS (аргумент) и передача управления (SS). Формы названы замером, а не выбором.
  * 3. **Дизассемблер МЦСТ разбирает код в этом ELF** — внешняя проверка того, что образ
  *    действительно читается как программа, а не как набор байтов.
  * 4. **Препятствия названы, а не спрятаны**: `exit(42)` этим ELF'ом не выполняется, и тест
@@ -79,18 +80,19 @@ describe('минимальный ELF: заголовок и код', () => {
       'sdisp',
       'call',
     ]);
-    // setbn 8 + movts 16 + movts 16 + sdisp 8 + call 16
-    expect(program.code.length).toBe(8 + 16 + 16 + 8 + 16);
+    // setbn 8 + movts (короткая непосредственная) 8 + movts (литерал LTS) 16 + sdisp 8 + call 16
+    expect(program.code.length).toBe(8 + 8 + 16 + 8 + 16 /* 56 */);
     // Номер вызова — 1 (exit), а не 60: взято из syscall_nr.h порта QEMU.
     expect(SYS_EXIT).toBe(1);
-    // Литеральные поля (0xd4, 16 бит) — в слотах второго и третьего movts.
-    expect(program.code[8 + 5]).toBe(0xd4);
-    expect(program.code[24 + 5]).toBe(0xd4);
+    // Две разные формы записи непосредственного значения, обе — замером (сверено с `as`):
+    // 1 влезает в 4 бита — короткая форма (0xc1, 8 байт), 42 — литеральное поле LTS (0xd4, 16 байт).
+    expect(program.code[8 + 5]).toBe(0xc1);
+    expect(program.code[16 + 5]).toBe(0xd4);
     // Оконный файл регистров: поля слога несут старший бит 0x80 (номер вызова — %r8, довод — %r9).
     expect(program.code[8 + 4]).toBe(SYSCALL_NUMBER_REGISTER | 0x80);
-    expect(program.code[24 + 4]).toBe(SYSCALL_ARGUMENT_REGISTER | 0x80);
+    expect(program.code[16 + 4]).toBe(SYSCALL_ARGUMENT_REGISTER | 0x80);
     // sdisp: ctp_opc = 2 (0x60 в старшем байте) — им ставится тег CTPSL.
-    expect(program.code[40 + 7]).toBe(0x60);
+    expect(program.code[32 + 7]).toBe(0x60);
     // call: сдвиг окна wbs = 4 (SYSCALL_WBS здесь же названа константой).
     expect(typeof SYSCALL_WBS).toBe('number');
   });
@@ -131,7 +133,7 @@ describe('минимальный ELF: внешняя проверка', () => {
     }
   });
 
-  it('ассемблер МЦСТ: формы совпадают байтами, для 0..15 — измеренная разница форм', () => {
+  it('ассемблер МЦСТ: все пять форм совпадают байтами, включая короткую для 0..15', () => {
     if (asTool === undefined) return;
     const program = buildMinimalProgram(42);
     const texts = [
@@ -157,14 +159,14 @@ describe('минимальный ELF: внешняя проверка', () => {
       expect(result.ok, `ассемблер отверг «${text}»`).toBe(true);
       if (!result.ok) continue;
       const ours = Array.from(encoder.encode(program.instructions[index]!));
-      // Значение 1 влезает в 4 бита, поэтому здесь ассемблер берёт непосредственную форму (0xc1,
-      // 8 байт), а наш кодировщик — литерал LTS (0xd4, 16 байт): разница форм, а не ошибка.
+      // Значение 1 влезает в 4 бита, поэтому и ассемблер МЦСТ, и наш кодировщик берут короткую
+      // непосредственную форму (0xc1, 8 байт) — замерено: байты совпадают, разницы форм нет.
+      // (Литерал LTS 0xd4 ассемблер берёт только там, где значение в 4 бита не влезает: см. 42 ниже.)
       if (text === 'movts,0 1, %r8') {
         expect(Array.from(result.bytes)).toEqual([0x01, 0, 0, 4, 0x88, 0xc1, 0xc0, 0x60]);
+        expect(ours.length).toBe(8);
         expect(ours[4]).toBe(0x88);
-        expect(ours[5]).toBe(0xd4);
-        expect(ours.length).toBeGreaterThan(result.bytes.length);
-        continue;
+        expect(ours[5]).toBe(0xc1);
       }
       expect(Array.from(result.bytes), `байты ассемблера для «${text}»`).toEqual(ours);
     }

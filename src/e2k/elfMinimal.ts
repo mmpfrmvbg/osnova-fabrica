@@ -113,6 +113,9 @@ export interface MinimalProgram {
  * тег `CTPSL` ставит только `sdisp` (`translate-ctp.c:174`); номер вызова ABI читает из **оконного**
  * `r0` (`cpu_loop.c:164-170`), а `call` сдвигает окно на `wbs`, поэтому запись идёт в `%r8`/`%r9`,
  * и для этого окно вращаемых регистров должно быть расширено `setbn` (`reg-index.h:30-52`).
+ *
+ * Форма записи значения тоже замерена: 1 влезает в 4 бита и кодируется короткой непосредственной
+ * формой (8 байт), 42 — литеральным полем LTS (16 байт). Обе формы сверены с `as` побайтно.
  */
 export function buildMinimalProgram(exitCode = 42): MinimalProgram {
   const encoder = getEncoder('e2k');
@@ -135,7 +138,9 @@ export function buildMinimalProgram(exitCode = 42): MinimalProgram {
     code,
     expectDisasm: [
       'setbn rbs = 0x0, rsz = 0x4, rcur = 0x0',
-      `movts,0 _f16s 0x1, %r${SYSCALL_NUMBER_REGISTER}`,
+      // Короткая непосредственная форма: внешний дизассемблер МЦСТ печатает её без `_f16s`
+      // («movts,0 0x1, %r8»), а `_f16s` — признак литерального поля LTS. Обе формы замерены.
+      `movts,0 0x${SYS_EXIT.toString(16)}, %r${SYSCALL_NUMBER_REGISTER}`,
       `movts,0 _f16s 0x${exitCode.toString(16)}, %r${SYSCALL_ARGUMENT_REGISTER}`,
       'sdisp %ctpr1',
       'call %ctpr1, wbs = 0x4',
