@@ -12,12 +12,18 @@ import { formatDeprecatedWarning } from "../compiler/cliCompile";
 import { VM, createDefaultInvokeHandler, formatOsnovaValue, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import { isKnownInvoke } from "../runtime/vm/invokeRegistry";
 import type { OsVbcModule } from "../runtime/vm/bytecode";
+import { runParity } from "../oracle/parity";
+import { regModuleOf } from "../vliw/regOracle";
+import { compareReorders, formatComparison } from "../vliw/reorderEquivalence";
 
 function usage(): void {
   console.error("Использование:");
   console.error("  osnova compile <файл.osnova> [-o <файл.osvbc.json>] [--warn-deprecated]");
   console.error("  osnova run <файл.osnova>            скомпилировать и сразу запустить");
   console.error("  osnova run <файл.osvbc.json>        запустить готовый байткод");
+  console.error("  osnova parity <файл.osnova>         сверка стековой и регистровой VM");
+  console.error("  osnova schedule <файл.osvbc.json>   планирование линейного кода в пакеты VLIW");
+  console.error("  osnova reorder <файл.osnova>        оракул перестановки: линейный код против переставленного");
   process.exit(1);
 }
 
@@ -155,11 +161,118 @@ async function cmdRun(args: string[]): Promise<void> {
   if (result !== null && result !== undefined) console.log(formatOsnovaValue(result));
 }
 
+/**
+ * `osnova parity файл.osnova` — сверка двух бэкендов.
+ *
+ * Компилирует один исходник дважды (стековый и регистровый байткод), исполняет
+ * обе VM с одинаковым хостом и сверяет трассы вызовов и итоговое значение.
+ * Код возврата: 0 — совпало, 1 — расхождение, 2 — программа вне среза
+ * регистрового бэкенда, 3 — обе VM не завершились за лимит шагов.
+ */
+async function cmdParity(args: string[]): Promise<void> {
+  const input = args.find((a) => !a.startsWith("-"));
+  if (!input) {
+    console.error("Использование: osnova parity файл.osnova [--entry имя]");
+    process.exit(1);
+  }
+  const inputPath = path.resolve(input);
+  if (!fs.existsSync(inputPath)) {
+    console.error("Файл не найден:", inputPath);
+    process.exit(1);
+  }
+  const entryIdx = args.indexOf("--entry");
+  const entryProcedure = entryIdx >= 0 ? args[entryIdx + 1] : undefined;
+
+  const source = fs.readFileSync(inputPath, "utf-8");
+  const result = await runParity(source, { entryProcedure });
+  if ("skipped" in result) {
+    console.log(`[skip] ${path.basename(inputPath)}: ${result.reason}`);
+    process.exit(2);
+  }
+  console.log(`[${result.ok ? "OK" : "FAIL"}] ${path.basename(inputPath)}`);
+  console.log("  статус:         ", result.status);
+  console.log("  стековая VM:    ", JSON.stringify(result.stackValue));
+  console.log("  регистровая VM: ", JSON.stringify(result.regValue));
+  console.log("  шагов трассы:   ", result.stackTrace.length);
+  console.log("  сверка:         ", result.message);
+  if (result.status === "both_hit_step_limit") {
+    console.error("  обе VM не завершились за лимит шагов — сравнивать нечего");
+    process.exit(3);
+  }
+  if (!result.ok) {
+    console.error(`  первое расхождение на шаге ${result.divergenceIndex}`);
+    process.exit(1);
+  }
+}
+
+/** `osnova schedule файл.osvbc.json` — планирование линейного кода в пакеты VLIW. */
+async function cmdSchedule(args: string[]): Promise<void> {
+  const { runScheduleCli } = await import("../vliw/cli");
+  process.exit(await runScheduleCli(args));
+}
+
+/**
+ * `osnova reorder файл.osnova` — оракул перестановки независимых операций:
+ * линейный регистровый код против переставленного на одной RegVM, плюс счётчики e2k.
+ */
+async function cmdReorder(args: string[]): Promise<void> {
+  const input = args.find((a) => !a.startsWith("-"));
+  if (!input) {
+    console.error("Использование: osnova reorder файл.osnova [--memory l1|l2|l3|mem] [--entry имя] [--steps N]");
+    process.exit(1);
+  }
+  const inputPath = path.resolve(input);
+  if (!fs.existsSync(inputPath)) {
+    console.error("Файл не найден:", inputPath);
+    process.exit(1);
+  }
+
+  const argOf = (flag: string): string | undefined => {
+    const i = args.indexOf(flag);
+    return i >= 0 ? args[i + 1] : undefined;
+  };
+  const memoryRaw = argOf("--memory") ?? "l1";
+  const allowed = ["l1", "l2", "l3", "mem"] as const;
+  if (!(allowed as readonly string[]).includes(memoryRaw)) {
+    console.error(`Неизвестный уровень памяти: ${memoryRaw}. Допустимо: ${allowed.join(", ")}`);
+    process.exit(1);
+  }
+  const memoryLevel = memoryRaw as (typeof allowed)[number];
+  const entryProcedure = argOf("--entry");
+  const stepsRaw = argOf("--steps");
+  const maxSteps = stepsRaw !== undefined ? Number(stepsRaw) : undefined;
+  if (maxSteps !== undefined && (!Number.isFinite(maxSteps) || maxSteps <= 0)) {
+    console.error("--steps должен быть положительным числом");
+    process.exit(1);
+  }
+
+  const source = fs.readFileSync(inputPath, "utf-8");
+  const built = regModuleOf(source);
+  if (!built) {
+    console.error(`[FAIL] ${path.basename(inputPath)}: исходник не компилируется`);
+    process.exit(2);
+  }
+
+  const cmp = await compareReorders(built.module, {
+    memoryLevel,
+    ...(entryProcedure !== undefined ? { entryProcedure } : {}),
+    ...(maxSteps !== undefined ? { maxSteps } : {}),
+  });
+  console.log(formatComparison(path.basename(inputPath), cmp, memoryLevel));
+  if (!cmp.equivalence.ok) {
+    console.error(`  расхождение: ${cmp.equivalence.message}`);
+    process.exit(1);
+  }
+}
+
 async function main(): Promise<void> {
   const [,, cmd, ...rest] = process.argv;
   switch (cmd) {
     case "compile": cmdCompile(rest); break;
     case "run":     await cmdRun(rest); break;
+    case "parity":  await cmdParity(rest); break;
+    case "schedule": await cmdSchedule(rest); break;
+    case "reorder": await cmdReorder(rest); break;
     default:        usage();
   }
 }
