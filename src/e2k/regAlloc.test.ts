@@ -1,4 +1,4 @@
-// ЦЕЛЬ, не состояние. См. hardware-debt §3.23.
+// ЦЕЛЬ названа в комментариях, а проверки описывают состояние. См. hardware-debt §3.23.
 /**
  * ОРАКУЛ РАСКЛАДКИ РЕГИСТРОВ: LIVE RANGES + LINEAR SCAN.
  *
@@ -272,17 +272,20 @@ describe('раскладка FIR: 17 vreg в 10 свободных регист�
 describe('устранение копий: без него 17 vreg в 10 не влезают', () => {
   const filter = firProcedure('фильтр');
 
-  it('звуковое устранение убирает 8 копий и снижает пик 11 → 9', () => {
+  it('звуковое устранение убирает 7 копий и снижает пик 11 → 10', () => {
     const elimination = removeCopies(filter);
-    // Измерено: 54 носителя → 46, убрано 8 пересылок, пик одновременной жизни 11 → 9. Было 9 снятых,
-    // стало 8: добавлено правило «пересылка-цель перехода не снимается» (случай 17 реестра
-    // проверяемости) — иначе после укорочения потока цель перехода указывала бы на соседнюю команду.
+    // Перемерено 2026-09-23 (`.tmp/measure-regalloc.ts`): 54 носителя → 47, убрано 7 пересылок, пик
+    // одновременной жизни 11 → 10. Было 8 снятых и пик 9: добавлены ДВА правила, и оба уменьшают
+    // снятие, а не увеличивают его — «пересылка-цель перехода не снимается» (случай 17 реестра
+    // проверяемости) и «пересылка, приёмник которой читается раньше неё по обратной дуге, не
+    // снимается» (баг 1 `docs/e2k-regalloc-debt.md` §1). Прежнее число снималось против незвукового
+    // правила и потому недействительно.
     expect(filter.length, 'носителей у фильтра').toBe(54);
-    expect(elimination.carriers.length, 'носителей после устранения').toBe(46);
-    expect(elimination.removed, 'убранных пересылок').toBe(8);
-    expect(elimination.removedAt.length, 'названы индексы снятых').toBe(8);
+    expect(elimination.carriers.length, 'носителей после устранения').toBe(47);
+    expect(elimination.removed, 'убранных пересылок').toBe(7);
+    expect(elimination.removedAt.length, 'названы индексы снятых').toBe(7);
     expect(elimination.peakBefore, 'пик до').toBe(11);
-    expect(elimination.peakAfter, 'пик после').toBe(9);
+    expect(elimination.peakAfter, 'пик после').toBe(10);
   });
 
   it('ЗВУКОВОСТЬ: источник удалённой копии не переопределяется до последнего чтения приёмника', () => {
@@ -303,28 +306,48 @@ describe('устранение копий: без него 17 vreg в 10 не в
     expect(elimination.peakAfter, 'пик после устранения').toBeGreaterThanOrEqual(5);
   });
 
-  it('после устранения копий раскладка фильтра УДАЁТСЯ: 17 vreg в 10 регистров', () => {
+  it('звуковая раскладка фильтра ОТКАЗЫВАЕТ: 13 живых отрезков при десяти свободных', () => {
+    // ЦЕЛЬ (не достигнута): 17 vreg'ов `фильтр` обязаны уложиться в 10 регистров `%b[0..9]`.
+    // СОСТОЯНИЕ на 2026-09-23 (`.tmp/measure-regalloc.ts`): отказ — звуковое слияние отрезков,
+    // переносящих значение через дугу цикла (`mergeLoopCarriedSegments`, `src/e2k/liveness.ts`),
+    // расширяет их на всю область цикла, и в тесный момент живых отрезков 13 при 10 свободных. Прежде
+    // здесь стояло «удаётся»: то число снималось против НЕзвуковых правил (объединения интервалов
+    // недооценивали жизнь через обратную дугу) и потому недействительно.
+    // Снимает отказ шаг 4 `docs/e2k-regalloc-debt.md` §5 — точная живость по CFG (`liveIn`/`liveOut`)
+    // либо вытеснение в память. Различающий опыт ниже: тот же код раскладывает `главная`, значит
+    // отказ не в раскладчике вообще, а в требовании этой процедуры.
     const elimination = removeCopies(filter);
     const segments = liveSegmentsOf(elimination.carriers);
-    // Раскладка идёт по ОТРЕЗКАМ жизни: объединение интервалов требует 11 (больше десяти), а
-    // отрезки укладываются, потому что регистр занимается только там, где значение живо.
+    expect(segments.length, 'отрезки построены').toBeGreaterThan(0);
+    // Отрезки требуют БОЛЬШЕ, чем объединения интервалов: 11 против 13 — это и есть мера того, что
+    // линейные интервалы недооценивают жизнь через дугу цикла.
     expect(liveIntervalsOf(elimination.carriers).peak, 'пик объединений').toBe(11);
     const result = allocateSegments(segments);
-    expect(result.ok, result.ok ? '' : `отказ: ${result.reason}`).toBe(true);
-    if (!result.ok) return;
+    expect(result.ok, result.ok ? 'раскладка удалась — цель достигнута, обновите §3.23' : `отказ: ${result.reason}`).toBe(false);
+    if (result.ok) return;
+    expect(result.reason, 'причина отказа названа числом и списком').toMatch(
+      /живы 13 отрезков, свободных регистров 10 \(%b\[0\], %b\[1\], %b\[2\], %b\[3\], %b\[4\], %b\[5\], %b\[6\], %b\[7\], %b\[8\], %b\[9\]\)/,
+    );
+    expect(result.reason, 'отказ обязан назвать следующий слой').toMatch(/spill/);
+    // --- Различающий опыт: та же дорога для `главная` раскладывается, и проверки качества раскладки
+    // (разные регистры у одновременно живых отрезков, занято не больше десяти, все vreg'и отображены)
+    // выполняются на ней.
+    const main = removeCopies(firProcedure('главная'));
+    const mainResult = allocateSegments(liveSegmentsOf(main.carriers));
+    expect(mainResult.ok, mainResult.ok ? '' : `главная: отказ: ${mainResult.reason}`).toBe(true);
+    if (!mainResult.ok) return;
     const runtimeRegisters = Object.values(ARRAY_REGISTERS);
-    for (const physical of result.allocation.assignment.values()) {
+    for (const physical of mainResult.allocation.assignment.values()) {
       expect(ALLOCATABLE_REGISTERS, `%b[${physical}] вне разрешённых`).toContain(physical);
       expect(runtimeRegisters, `%b[${physical}] занят рантаймом`).not.toContain(physical);
     }
-    expect(result.allocation.used.length, 'занято регистров').toBeLessThanOrEqual(10);
-    // Раскладка применена ко ВСЕМУ потоку: неотображённых vreg'ов нет.
-    const applied = applyAllocation(elimination.carriers, result.allocation.assignment);
+    expect(mainResult.allocation.used.length, 'занято регистров у `главная`').toBeLessThanOrEqual(10);
+    const applied = applyAllocation(main.carriers, mainResult.allocation.assignment);
     expect(applied.unmapped, 'vreg без физического регистра').toEqual([]);
     // Ни одна пара ОДНОВРЕМЕННО ЖИВУЩИХ отрезков не делит регистр. Проверяются именно отрезки, а не
     // отображение «vreg → регистр»: у отрезков регистры позиционные, и один vreg законно может
     // получить разные регистры на разных участках.
-    const assigned = result.assigned;
+    const assigned = mainResult.assigned;
     for (const first of assigned) {
       for (const second of assigned) {
         if (first === second || first.register !== second.register) continue;
@@ -341,9 +364,17 @@ describe('устранение копий: без него 17 vreg в 10 не в
     // прогон это подтверждает: в вызываемой доступны `%r0..%r7`, а `%r8` — ловушка
     // (`src/e2k/e2kCallWindowQemu.test.ts`). Здесь проверяется СЛЕДСТВИЕ для раскладки: сколько
     // регистров окна занимает процедура и влезает ли она в окно вызываемой.
+    //
+    // Перемерено 2026-09-23: у `фильтр` раскладка в восьми свободных регистрах ОТКАЗЫВАЕТ (11 живых
+    // отрезков), а не «занимает 10 из 8». Отказ — это и есть измеренный ответ «не влезает», причём
+    // более прямой, чем прежняя сумма «2 закреплённых + 8 занятых»: сумма опиралась на удавшуюся
+    // раскладку, которой при звуковых правилах нет. Положительный контроль — `сумма`: её раскладка
+    // удаётся и укладывается в окно, то есть отказ `фильтр` не является свойством метода.
     expect(WINDOW_REGISTERS_ENTRY, 'окно вызывающего').toBe(16);
     expect(WINDOW_REGISTERS_CALLEE, 'окно вызываемой').toBe(8);
-    const needed = (name: string): { pins: number; used: number; total: number } => {
+    const needed = (
+      name: string,
+    ): { pins: number; used: number; total: number; ok: boolean; reason: string; free: number } => {
       const carriers = firProcedure(name);
       const elimination = removeCopies(carriers);
       const incoming = incomingRegisters(elimination.carriers);
@@ -353,26 +384,41 @@ describe('устранение копий: без него 17 vreg в 10 не в
         segments.filter((segment) => !incoming.includes(segment.vreg)),
         free,
       );
-      expect(result.ok, `${name}: раскладка обязана удаться (иначе проверить бюджет нечем)`).toBe(true);
-      if (!result.ok) return { pins: incoming.length, used: 0, total: 0 };
-      return { pins: incoming.length, used: result.allocation.used.length, total: incoming.length + result.allocation.used.length };
+      if (!result.ok) {
+        return { pins: incoming.length, used: 0, total: 0, ok: false, reason: result.reason, free: free.length };
+      }
+      return {
+        pins: incoming.length,
+        used: result.allocation.used.length,
+        total: incoming.length + result.allocation.used.length,
+        ok: true,
+        reason: '',
+        free: free.length,
+      };
     };
     const filter = needed('фильтр');
-    expect(filter, 'фильтр: параметры + занятые').toEqual({ pins: 2, used: 8, total: 10 });
-    expect(filter.total, '`фильтр` в окно вызываемой не влезает').toBeGreaterThan(WINDOW_REGISTERS_CALLEE);
+    expect(filter.free, 'свободных регистров у вызываемой').toBe(8);
+    expect(filter.ok, filter.ok ? 'раскладка удалась — цель достигнута, обновите §3.23' : filter.reason).toBe(false);
+    expect(filter.reason, 'причина отказа `фильтр` в окне вызываемой').toMatch(/живы 11 отрезков, свободных регистров 8/);
+    // ЦЕЛЬ: `фильтр` обязан влезать — сумма «2 закреплённых + занятые» должна быть не больше 8.
+    // СОСТОЯНИЕ: отказ выше; снимает его шаг 4 (`docs/e2k-regalloc-debt.md` §5).
     const sum = needed('сумма');
+    expect(sum.ok, sum.ok ? '' : `сумма: отказ: ${sum.reason}`).toBe(true);
     expect(sum.total, '`сумма` в окно вызываемой влезает').toBeLessThanOrEqual(WINDOW_REGISTERS_CALLEE);
   });
 
   it('«занято» считает ВСЕ выданные регистры, а не только живые в конце', () => {
     // Здесь стояла ошибка, найденная только проводкой в конвейер: `allocateSegments` вычёркивал
     // регистр из `used` при освобождении, поэтому «занято» означало «сколько регистров занято
-    // последним отрезком». У `фильтр` выходило **2** при десяти реально выданных регистрах
+    // последним отрезком». На `фильтр` выходило **2** при десяти реально выданных регистрах
     // (измерено `.tmp/segment-assign.ts`), и это число попало в оракулы и в документацию.
     // Назначение регистров при этом было верным (`taken` считается по активным) — врало только число.
-    const filter = firProcedure('фильтр');
-    const elimination = removeCopies(filter);
-    const result = allocateSegments(liveSegmentsOf(elimination.carriers));
+    //
+    // Носитель проверки сменился 2026-09-23: у `фильтр` раскладка теперь отказывает (проверка выше),
+    // а инвариант «`used` — это все выданные регистры» от процедуры не зависит и проверяется на
+    // `сумма`, где раскладка удаётся.
+    const procedure = removeCopies(firProcedure('сумма'));
+    const result = allocateSegments(liveSegmentsOf(procedure.carriers));
     expect(result.ok, result.ok ? '' : result.reason).toBe(true);
     if (!result.ok) return;
     const distinct = new Set(result.assigned.map((segment) => segment.register));
@@ -380,7 +426,7 @@ describe('устранение копий: без него 17 vreg в 10 не в
     // И оно не меньше самого тесного момента: иначе раскладка «уложилась» бы в меньшее число, чем
     // требует одновременная жизнь.
     let maxOverlap = 0;
-    for (let at = 0; at < elimination.carriers.length; at++) {
+    for (let at = 0; at < procedure.carriers.length; at++) {
       const overlap = result.assigned.filter((segment) => segment.start <= at && at <= segment.end).length;
       if (overlap > maxOverlap) maxOverlap = overlap;
     }

@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (23). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (20). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -42,12 +42,12 @@
 - [docs/e2k-encoding.md](e2k-encoding.md) ⚠
 - [docs/e2k-external-as.md](e2k-external-as.md)
 - [docs/e2k-external-validation.md](e2k-external-validation.md)
-- [docs/e2k-minimal-elf.md](e2k-minimal-elf.md) ⚠
+- [docs/e2k-minimal-elf.md](e2k-minimal-elf.md)
 - [docs/e2k-opcodes-real.md](e2k-opcodes-real.md)
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
-- [docs/e2k-real-run.md](e2k-real-run.md) ⚠
-- [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md) ⚠
+- [docs/e2k-real-run.md](e2k-real-run.md)
+- [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md)
 - [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md)
 - [docs/e2k-return-port.md](e2k-return-port.md) ⚠
 - [docs/e2k-setwd-memory.md](e2k-setwd-memory.md)
