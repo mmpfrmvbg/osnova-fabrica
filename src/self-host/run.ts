@@ -3,7 +3,7 @@
 // Использование: npx tsx src/self-host/run.ts <файл.osvbc.json>
 
 import * as fs from 'fs';
-import { VM } from '../runtime/vm/interpreter';
+import { VM, formatOsnovaValue } from '../runtime/vm/interpreter';
 import type { OsVbcModule } from '../runtime/vm/bytecode';
 
 async function main(): Promise<void> {
@@ -17,7 +17,9 @@ async function main(): Promise<void> {
   const vm = new VM(mod, { maxSteps: 1_000_000 });
   const idx = vm.findProcedureIndex('главная');
   const result = await vm.runProcedure(idx, []);
-  if (result !== null && result !== undefined) console.log(result);
+  // Тот же вид значения, что у CLI: логическое — словом `истина`/`ложь`,
+  // отсутствие значения — словом `пусто` (formatOsnovaValue).
+  if (result !== null && result !== undefined) console.log(formatOsnovaValue(result));
 }
 
 main().catch(err => {

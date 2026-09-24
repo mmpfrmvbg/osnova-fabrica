@@ -82,6 +82,43 @@ describe("печать значений: логическое — словом",
   });
 });
 
+describe("печать значений: self-host runner показывает то же", () => {
+  it("`src/self-host/run.ts` печатает истина/ложь, а не true/false", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "osnova-selfhost-"));
+    const sourceFile = path.join(dir, "флаг.osnova");
+    const bytecodeFile = path.join(dir, "флаг.osvbc.json");
+    fs.writeFileSync(
+      sourceFile,
+      [
+        "модуль флаг",
+        "",
+        "процедура главная(): Логический",
+        "  вернуть 10 > 3",
+        "конец_процедуры",
+        "",
+        "конец_модуля",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const compile = spawnSync(
+      `npx tsx src/cli/index.ts compile ${JSON.stringify(sourceFile)} -o ${JSON.stringify(bytecodeFile)}`,
+      { shell: true, cwd: ROOT, encoding: "utf-8" },
+    );
+    expect(compile.status, `compile: ${compile.stderr ?? ""}`).toBe(0);
+
+    const run = spawnSync(`npx tsx src/self-host/run.ts ${JSON.stringify(bytecodeFile)}`, {
+      shell: true,
+      cwd: ROOT,
+      encoding: "utf-8",
+    });
+    expect(run.status, `run: ${run.stderr ?? ""}`).toBe(0);
+    expect((run.stdout ?? "").trim()).toBe("истина");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe("печать значений: CLI показывает то же", () => {
   it("`compile` + `run` печатают истина/ложь, а не true/false", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "osnova-print-"));

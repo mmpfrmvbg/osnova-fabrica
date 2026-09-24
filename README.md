@@ -163,6 +163,11 @@ gh workflow run release.yml --ref main -f bump=patch
 | Коллекции / массивы | ✅ success | Поддерживается с v2.0.0 |
 | Многомодульный код | ⚠️ parser error | Один модуль на файл |
 
+**Проверки.** `npm run ci` — **11/11 зелёный**. `gate:qemu` имеет **6 известных
+падений** (ресурсозависимые QEMU-оракулы e2k-долга: `e2kConvolutionQemu`,
+`e2kQemuExec`, `e2kSyscallRuntime`); этот шлюз не входит в `npm run ci`. FIR
+целиком при этом проверяется прогоном и равен **181**.
+
 ### Пример запуска
 
 ```bash
