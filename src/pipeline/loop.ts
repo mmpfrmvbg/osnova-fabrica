@@ -216,7 +216,7 @@ export async function runLoop(goal: string, opts: RunLoopOptions = {}): Promise<
 
       // build
       log.info(`loop: build (итерация ${iteration})`);
-      buildReport = compileToBuildReport(compileSource(current.source));
+      buildReport = compileToBuildReport(compileSource(current.source, { filename: current.filename }));
 
       const g2 = checkG2(buildReport);
       if (!g2.passed) {

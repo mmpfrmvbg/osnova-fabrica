@@ -85,6 +85,10 @@ export interface RegVliwOracleOptions {
 
 /** Собрать регистровый модуль из исходника; `null`, если не компилируется. */
 export function regModuleOf(source: string): { module: RegModule; compiled: CompileResult } | null {
+  // Компилируется СТРОКА, а не файл: вызывающий передаёт уже готовый исходник,
+  // каталога у него нет, импортов он не несёт. `filename` и `baseDir` не
+  // передаются намеренно — имя модуля здесь не используется, сверяется
+  // регистровый модуль. Аудит: `.tmp/call-sites-audit.ts`.
   const compiled = compileSource(source);
   if (!compiled.module || !compiled.moduleAst) return null;
   return { module: compileToReg(compiled.moduleAst), compiled };

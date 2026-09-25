@@ -162,7 +162,7 @@ export async function runPipeline(
     for (let loop = 0; loop <= MAX_REPAIR_LOOPS; loop++) {
       // ─── Фаза 4: build ───
       log.info(`phase: build (attempt ${loop + 1})`);
-      buildReport = compileToBuildReport(compileSource(lastSource.source));
+      buildReport = compileToBuildReport(compileSource(lastSource.source, { filename: lastSource.filename }));
 
       // ─── Gate G2 ───
       const g2 = checkG2(buildReport);

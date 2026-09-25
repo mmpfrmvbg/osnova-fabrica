@@ -282,6 +282,11 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       const src = /^\s*модуль(?:\s|$)/.test(raw)
         ? raw
         : `модуль Внутр\nпроцедура главная()\n  вернуть ${raw}\nконец\nконец`;
+      // Компилируется СТРОКА, а не файл: источник строится здесь же и несёт
+      // явную шапку `модуль Внутр`, поэтому имя модуля берётся из шапки, а
+      // `filename` передавать неоткуда. `baseDir` тоже не нужен: каталога нет
+      // и импортов такая строка не содержит. Названо намеренно — иначе следующий
+      // читатель решит, что опции забыли (аудит `.tmp/call-sites-audit.ts`).
       const { compileSource } = await import("../../compiler/compiler");
       const compiled = compileSource(src);
       if (!compiled.module || compiled.lexerErrors.length || compiled.parserErrors.length) {
@@ -299,6 +304,11 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       const src = /^\s*модуль(?:\s|$)/.test(raw)
         ? raw
         : `модуль Внутр\nпроцедура главная()\n  вернуть ${raw}\nконец\nконец`;
+      // Компилируется СТРОКА, а не файл: источник строится здесь же и несёт
+      // явную шапку `модуль Внутр`, поэтому имя модуля берётся из шапки, а
+      // `filename` передавать неоткуда. `baseDir` тоже не нужен: каталога нет
+      // и импортов такая строка не содержит. Названо намеренно — иначе следующий
+      // читатель решит, что опции забыли (аудит `.tmp/call-sites-audit.ts`).
       const { compileSource } = await import("../../compiler/compiler");
       const compiled = compileSource(src);
       if (!compiled.module || compiled.lexerErrors.length || compiled.parserErrors.length) {

@@ -120,6 +120,11 @@ export async function runParity(
   source: string,
   options: ParityOptions = {},
 ): Promise<ParityResult | ParitySkip> {
+  // Компилируется СТРОКА, переданная вызывающим: файла нет, каталога нет,
+  // импортов такая строка не несёт (импорты разворачиваются ДО вызова parity —
+  // сюда приходит уже развёрнутый источник). Поэтому `filename` и `baseDir` не
+  // передаются намеренно, а не забыты (аудит `.tmp/call-sites-audit.ts`).
+  // Имя модуля для parity не значимо: сверяются трассы, а не имена.
   const stackCompiled = compileSource(source);
   if (!stackCompiled.module || !stackCompiled.moduleAst) {
     throw new Error(

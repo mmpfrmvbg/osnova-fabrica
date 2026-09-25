@@ -81,8 +81,13 @@ function cmdCompile(args: string[]): void {
   const warnDeprecated = args.includes("--warn-deprecated");
 
   const source = fs.readFileSync(inputFile, "utf-8");
+  // Имя файла передаётся ЯВНО: под каноном «файл = модуль» без него модуль
+  // получает имя `вход` (умолчание из parser.ts), и артефакт расходится с тем,
+  // что даёт компиляторный CLI и сторож `src/runtime/artifactDrift.test.ts`.
+  // Ровно этот дефект был в `src/cli.ts` и `src/compiler/compile-fixtures.ts`.
   const result = compileSource(source, {
     baseDir: path.dirname(path.resolve(inputFile)),
+    filename: path.basename(inputFile),
     warnDeprecated,
   });
 
