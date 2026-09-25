@@ -194,10 +194,10 @@ describe("честный замер: что даёт перестановка н
   it("на корпусе циклических мультипроцедурных программ выигрыш мал и измерен", async () => {
     const measured: Array<[string, number, number]> = [];
     for (const file of [
-      "cycle-multi.osnova",
-      "cycle-nested.osnova",
-      "cycle-array.osnova",
-      "cycle-chains.osnova",
+      "cycle_multi.osnova",
+      "cycle_nested.osnova",
+      "cycle_array.osnova",
+      "cycle_chains.osnova",
     ]) {
       const m = moduleOf(file);
       expect(m.procedures.length, `${file} должен быть многоproцедурным`).toBeGreaterThan(1);
@@ -217,8 +217,8 @@ describe("честный замер: что даёт перестановка н
   });
 
   it("выигрыш есть на процедуре с несколькими независимыми цепочками", async () => {
-    // cycle-chains: три независимых накопления в одной процедуре.
-    const m = moduleOf("cycle-chains.osnova");
+    // cycle_chains: три независимых накопления в одной процедуре.
+    const m = moduleOf("cycle_chains.osnova");
     const report = await runReorderEquivalence(m, { maxSteps: 500_000 });
     expect(report.ok, report.message).toBe(true);
     // Хотя бы где-то в модуле порядок изменён.

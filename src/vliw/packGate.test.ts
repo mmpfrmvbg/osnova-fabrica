@@ -31,9 +31,9 @@ const FIXTURES = path.join(__dirname, "..", "runtime", "fixtures");
 const SUBSET: Array<{ file: string; entry?: string }> = [
   { file: path.join("reg-parity", "while.osnova") },
   { file: path.join("reg-parity", "try.osnova") },
-  { file: "cycle-array.osnova" },
+  { file: "cycle_array.osnova" },
   { file: "task_stats.osnova" },
-  { file: "ilp-high.osnova" },
+  { file: "ilp_high.osnova" },
 ];
 
 function cases(): PackGateCase[] {

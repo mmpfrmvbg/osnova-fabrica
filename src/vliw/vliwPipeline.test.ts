@@ -148,9 +148,9 @@ describe("конвейер: наборы инструкций совпадают
   const files = [
     path.join("reg-parity", "while.osnova"),
     path.join("reg-parity", "try.osnova"),
-    "cycle-array.osnova",
+    "cycle_array.osnova",
     "task_stats.osnova",
-    "ilp-high.osnova",
+    "ilp_high.osnova",
   ];
 
   it("во всех конфигурациях исполнимых инструкций столько же, сколько в исходном модуле", () => {

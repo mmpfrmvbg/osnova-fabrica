@@ -9,9 +9,9 @@
  *
  * | фикстура | форма слияния | чего ожидали |
  * | --- | --- | --- |
- * | `crdt/counter-merge.osnova` | G-Counter, покомпонентный максимум по независимым репликам | есть что переставлять |
- * | `crdt/scalar-merge.osnova` | одиночный счётчик, слияние — один максимум (O(1)) | переставлять нечего |
- * | `crdt/sequence-merge.osnova` | последовательный merge: элемент зависит от предыдущего | переставлять нечего |
+ * | `crdt/counter_merge.osnova` | G-Counter, покомпонентный максимум по независимым репликам | есть что переставлять |
+ * | `crdt/scalar_merge.osnova` | одиночный счётчик, слияние — один максимум (O(1)) | переставлять нечего |
+ * | `crdt/sequence_merge.osnova` | последовательный merge: элемент зависит от предыдущего | переставлять нечего |
  *
  * ## Результат отрицательный, и это главное
  *
@@ -47,9 +47,9 @@ const MODEL = e2kMachineModel();
 
 /** Ожидаемые результаты фикстур. Значения получены прогоном, а не выведены. */
 const CASES: Array<{ file: string; expected: number }> = [
-  { file: "counter-merge.osnova", expected: 8 },
-  { file: "scalar-merge.osnova", expected: 7 },
-  { file: "sequence-merge.osnova", expected: 11 },
+  { file: "counter_merge.osnova", expected: 8 },
+  { file: "scalar_merge.osnova", expected: 7 },
+  { file: "sequence_merge.osnova", expected: 11 },
 ];
 
 function source(file: string): string {
@@ -93,8 +93,8 @@ describe("B4: проверка на конкретных вариантах CRDT
       if (!built) throw new Error(`фикстура не компилируется: ${file}`);
       return buildVliwConfigs(built.module, MODEL)["reorder+packets"].density;
     };
-    const scalar = density("scalar-merge.osnova");
-    const sequence = density("sequence-merge.osnova");
+    const scalar = density("scalar_merge.osnova");
+    const sequence = density("sequence_merge.osnova");
     // Ожидание «зависимая цепочка не пакуется, а O(1) не пакуется тем более»
     // измерением НЕ подтверждается: последовательный вариант плотнее.
     expect(sequence).toBeGreaterThanOrEqual(scalar);

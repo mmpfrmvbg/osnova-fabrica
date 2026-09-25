@@ -43,10 +43,10 @@ export const TERMINATING_FILES = [
  * расписания, а не скорость исполнения.
  */
 export const CYCLIC_FILES = [
-  "cycle-multi.osnova",
-  "cycle-nested.osnova",
-  "cycle-array.osnova",
-  "cycle-chains.osnova",
+  "cycle_multi.osnova",
+  "cycle_nested.osnova",
+  "cycle_array.osnova",
+  "cycle_chains.osnova",
 ];
 
 /**
@@ -56,7 +56,7 @@ export const CYCLIC_FILES = [
  * цепочек, а не от наличия цикла как такового. Уровни заданы в комментариях
  * фикстур. Измерения — `docs/vliw-ilp-calibration.md`.
  */
-export const ILP_FILES = ["ilp-low.osnova", "ilp-mid.osnova", "ilp-high.osnova"];
+export const ILP_FILES = ["ilp_low.osnova", "ilp_mid.osnova", "ilp_high.osnova"];
 
 /** Корпус конструкций: независимое ожидание, все завершаются. */
 export const PARITY_FILES = ["while.osnova", "foreach.osnova", "tuple.osnova", "try.osnova"];
