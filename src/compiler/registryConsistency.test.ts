@@ -52,6 +52,52 @@ describe("checkRegistryConsistency: негативные контроли (по�
     expect(r.aliasShadowsCanon).toEqual([]);
     expect(r.acceptedAndRejected).toEqual([]);
     expect(r.falseNonexistenceClaims).toEqual([]);
+    expect(r.nonexistenceWithoutReason).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+
+  it("запрет говорит «нет», а точной причины у компилятора нет — ловится", () => {
+    // Промпт утверждает несуществование, но компилятор на это имя ответит общим
+    // «системный вызов не существует»: точная причина из запрета до модели не дойдёт.
+    // `noCanon` пуст намеренно: в базовой фикстуре это имя причину УЖЕ имеет, и
+    // без изоляции контроль проверял бы не то, что заявлено.
+    const r = checkRegistryConsistency(
+      synthetic({
+        noCanon: {},
+        forbidden: [
+          {
+            id: "env_api_missing",
+            description: "система.окружение.* не поддерживается",
+            bad: 'система.окружение.получить("X")',
+          },
+        ],
+      }),
+    );
+    expect(r.nonexistenceWithoutReason).toEqual([
+      {
+        id: "env_api_missing",
+        name: "система.окружение.получить",
+        description: "система.окружение.* не поддерживается",
+      },
+    ]);
+    expect(r.falseNonexistenceClaims, "имя не принимается — это не ложное утверждение").toEqual([]);
+    expect(r.ok).toBe(false);
+  });
+
+  it("у имени с точной причиной в SYSCALL_NO_CANON — НЕ ловится", () => {
+    const r = checkRegistryConsistency(
+      synthetic({
+        noCanon: { "система.окружение.получить": "не поддерживается: модуля нет" },
+        forbidden: [
+          {
+            id: "env_api_missing",
+            description: "система.окружение.* не поддерживается",
+            bad: 'система.окружение.получить("X")',
+          },
+        ],
+      }),
+    );
+    expect(r.nonexistenceWithoutReason, "причина названа — молчать не о чем").toEqual([]);
     expect(r.ok).toBe(true);
   });
 
@@ -205,6 +251,17 @@ describe("реестры системных вызовов согласован�
       (c) => `${c.id}: «${c.description}», а имя «${c.name}» компилятор принимает`,
     );
     expect(detail, "запрет и реестр синонимов не должны противоречить друг другу").toEqual([]);
+  });
+
+  it("у каждого имени, о котором запрет говорит «нет», есть ТОЧНАЯ причина отказа", () => {
+    // Иначе модель читает в промпте «этого нет», пишет это имя — и получает от
+    // компилятора общее «системный вызов не существует», не узнав, что писать
+    // вместо. Точная причина уже написана в описании запрета; она обязана дойти.
+    const r = checkRegistryConsistency(REAL);
+    const detail = r.nonexistenceWithoutReason.map(
+      (c) => `${c.id}: запрет говорит «${c.description}» про «${c.name}», но в SYSCALL_NO_CANON имени нет`,
+    );
+    expect(detail, "неточное сообщение вместо точного").toEqual([]);
   });
 
   it("вся картина вместе — ok", () => {

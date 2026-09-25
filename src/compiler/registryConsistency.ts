@@ -76,6 +76,17 @@ export interface RegistryConsistencyReport {
   readonly acceptedAndRejected: readonly string[];
   /** Запрет утверждает, что имени нет, а компилятор его принимает. */
   readonly falseNonexistenceClaims: readonly NonexistenceClaim[];
+  /**
+   * Запрет утверждает, что имени нет, а точной причины отказа у компилятора нет:
+   * имени не нашлось ни в реестре вызовов, ни в `SYSCALL_NO_CANON`.
+   *
+   * Почему это дефект, а не придирка. Промпт говорит модели «этого нет», а
+   * компилятор, встретив такое имя, отвечает общим «системный вызов '…' не
+   * существует». Модель не узнаёт, ЧТО писать вместо, — то есть точная причина,
+   * уже написанная в описании запрета, до неё не доходит. Записи запрета и
+   * `SYSCALL_NO_CANON` — две стороны одного сообщения и обязаны быть согласованы.
+   */
+  readonly nonexistenceWithoutReason: readonly NonexistenceClaim[];
   readonly ok: boolean;
 }
 
@@ -116,11 +127,14 @@ export function checkRegistryConsistency(
     .sort();
 
   const falseNonexistenceClaims: NonexistenceClaim[] = [];
+  const nonexistenceWithoutReason: NonexistenceClaim[] = [];
   for (const pattern of input.forbidden) {
     if (!NONEXISTENCE_CLAIM.test(pattern.description)) continue;
     for (const name of syscallNamesIn(pattern.bad)) {
       if (accepted.has(name)) {
         falseNonexistenceClaims.push({ id: pattern.id, name, description: pattern.description });
+      } else if (!(name in input.noCanon)) {
+        nonexistenceWithoutReason.push({ id: pattern.id, name, description: pattern.description });
       }
     }
   }
@@ -130,7 +144,8 @@ export function checkRegistryConsistency(
     aliasChains.length === 0 &&
     aliasShadowsCanon.length === 0 &&
     acceptedAndRejected.length === 0 &&
-    falseNonexistenceClaims.length === 0;
+    falseNonexistenceClaims.length === 0 &&
+    nonexistenceWithoutReason.length === 0;
 
   return {
     aliasTargetsMissing,
@@ -138,6 +153,7 @@ export function checkRegistryConsistency(
     aliasShadowsCanon,
     acceptedAndRejected,
     falseNonexistenceClaims,
+    nonexistenceWithoutReason,
     ok,
   };
 }
