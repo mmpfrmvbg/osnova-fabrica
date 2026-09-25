@@ -81,26 +81,33 @@ const PAIRS = SOURCES.map((src) => ({ src, artifact: src.replace(/\.osnova$/u, "
 /** Артефакты без исходника рядом. */
 const ORPHANS = ARTIFACTS.filter((a) => !fs.existsSync(a.replace(/\.osvbc\.json$/u, ".osnova")));
 
+/** Отслеживаемые манифесты приложений. */
+const MANIFESTS = trackedFiles("*.osapp.yaml").filter((file) => fs.existsSync(file));
+
 /**
- * Осиротевшие артефакты, которые объяснены. Причина обязана быть содержательной:
- * «так исторически сложилось» причиной не является.
+ * РУКОПИСНЫЕ артефакты: источника `.osnova` нет, и источник им не компилятор —
+ * дрейфовать не от чего. Это ЗАКОННАЯ категория, а не дефект: то же различие
+ * проводит `src/self-host/bootstrap-hash.test.ts` («артефакты без парного
+ * `.osnova` — рукописные фикстуры — пропускаются: их источник не компилятор»).
  *
- * Здесь два РАЗНЫХ случая, и путать их нельзя:
- *   • рукописная фикстура — её источник не компилятор, дрейфовать не от чего
- *     (это же различие проводит `src/self-host/bootstrap-hash.test.ts`);
- *   • артефакт-продукт компилятора без исходника — дрейф возможен, и решение
- *     (удалить или оставить) принимает владелец плоскости.
+ * Причина обязана называть, КТО файл загружает: «ссылок нет» — уже не причина,
+ * а ошибка наблюдения. Ровно на ней я и споткнулся: `viewer.osvbc.json` и
+ * `notifications.osvbc.json` оказались живыми — их грузят манифесты
+ * (`entry.module` — имя ФАЙЛА в каталоге пакета, `vm/interpreter.ts:865`), и
+ * golden их исполняет. Настоящий дефект был не в них, а в том, что у чата рядом
+ * с живым `chat.osvbc.json` лежал устаревший `чат.osvbc.json`, и рантайм грузил
+ * именно его.
  */
-const KNOWN_ORPHANS: ReadonlyArray<{ name: string; reason: string }> = [
+const HANDWRITTEN: ReadonlyArray<{ name: string; reason: string }> = [
   {
     name: "src/runtime/fixtures/notifications.osvbc.json",
     reason:
-      "фикстура без источника .osnova; ссылок на файл не нашлось ни в коде, ни в документах, ни в соседнем notifications.osapp.yaml. ВНЕ моей плоскости (src/runtime/fixtures/** — владельца фикстур): назван, чтобы не пропасть, решение за ним",
+      "рукописная фикстура (version 1, источника .osnova нет); загружается манифестом notifications.osapp.yaml (entry.module: notifications, каталог пакета = каталог манифеста), исполняется golden",
   },
   {
     name: "src/runtime/fixtures/viewer.osvbc.json",
     reason:
-      "фикстура без источника .osnova; упомянута в docs/golden-app-viewer.md. ВНЕ моей плоскости: названа, решение за владельцем фикстур",
+      "рукописная фикстура (version 1, источника .osnova нет); загружается манифестом file-viewer.osapp.yaml (entry.module: viewer), упомянута в docs/golden-app-viewer.md, исполняется golden",
   },
   {
     name: "src/runtime/fixtures/vliw-example.osvbc.json",
@@ -149,15 +156,115 @@ describe("артефакты: закоммиченный .osvbc.json совпа�
   }
 });
 
-describe("артефакты без исходника названы, а не найдены руками", () => {
-  it("каждый осиротевший артефакт объяснён", () => {
-    const unexplained = ORPHANS.map(rel).filter((name) => !KNOWN_ORPHANS.some((k) => k.name === name));
-    expect(unexplained, "артефакты без исходника рядом — назовите их причиной").toEqual([]);
+describe("артефакты без исходника — рукописные, и это названо", () => {
+  it("каждый артефакт без исходника объявлен рукописным", () => {
+    const unexplained = ORPHANS.map(rel).filter((name) => !HANDWRITTEN.some((h) => h.name === name));
+    expect(unexplained, "артефакт без .osnova — назовите его рукописным с причиной").toEqual([]);
   });
 
-  it("нет устаревших исключений: каждое объясняет существующий файл", () => {
+  it("нет устаревших записей: каждая объясняет существующий артефакт", () => {
     const present = new Set(ORPHANS.map(rel));
-    const stale = KNOWN_ORPHANS.filter((k) => !present.has(k.name)).map((k) => k.name);
-    expect(stale, "исключение прикрывает файл, которого больше нет").toEqual([]);
+    const stale = HANDWRITTEN.filter((h) => !present.has(h.name)).map((h) => h.name);
+    expect(stale, "запись прикрывает файл, которого больше нет").toEqual([]);
+  });
+});
+
+/**
+ * Манифесты, чей пакет лежит НЕ рядом с манифестом.
+ *
+ * Правило рантайма: каталог пакета — каталог манифеста, а `--package` его
+ * заменяет (`src/runtime/run.ts`); `entry.module` — имя ФАЙЛА
+ * `<имя>.osvbc.json` (`vm/interpreter.ts:865`). Значит манифест из
+ * `src/runtime/fixtures/` может указывать на артефакт в `apps/`, и без флага он
+ * не разрешается вовсе. Такие манифесты названы здесь с каталогом пакета.
+ */
+const PACKAGE_DIRS: Readonly<Record<string, string>> = {
+  "src/runtime/fixtures/chat.osapp.yaml": "apps/chat",
+};
+
+/** `entry.module` из манифеста: сначала ищем в блоке `entry`, иначе по всему тексту. */
+function entryModuleOf(text: string): string | undefined {
+  const entry = /^entry:[ \t]*$([\s\S]*?)(?=^\S|$(?![\s\S]))/mu.exec(text)?.[1];
+  const scope = entry ?? text;
+  return /^[ \t]+module:[ \t]*"?([^"\n]+?)"?[ \t]*$/mu.exec(scope)?.[1];
+}
+
+/**
+ * Проблемы манифеста. Чистая функция: `exists` подставляется, поэтому негативный
+ * контроль проверяет ТУ ЖЕ логику на подменённом `entry.module`, а не повторяет
+ * её глазами.
+ */
+function manifestProblems(
+  text: string,
+  manifestRel: string,
+  exists: (relPath: string) => boolean,
+  handwritten: ReadonlyArray<{ name: string }>,
+): string[] {
+  const problems: string[] = [];
+  const moduleName = entryModuleOf(text);
+  if (moduleName === undefined) {
+    return [`${manifestRel}: не найден entry.module`];
+  }
+  const dir = PACKAGE_DIRS[manifestRel] ?? path.posix.dirname(manifestRel);
+  const artifactRel = `${dir}/${moduleName}.osvbc.json`;
+  if (!exists(artifactRel)) {
+    problems.push(
+      `${manifestRel}: entry.module «${moduleName}» не разрешается в файл — нет ${artifactRel}` +
+        (PACKAGE_DIRS[manifestRel] === undefined
+          ? ""
+          : " (каталог пакета задаётся флагом --package)"),
+    );
+    return problems;
+  }
+  const sourceRel = `${dir}/${moduleName}.osnova`;
+  if (!exists(sourceRel) && !handwritten.some((h) => h.name === artifactRel)) {
+    problems.push(
+      `${manifestRel}: артефакт ${artifactRel} без источника ${sourceRel} и не назван рукописным — ` +
+        "источник не компилятор, объявите его в HANDWRITTEN с причиной",
+    );
+  }
+  return problems;
+}
+
+describe("манифесты: entry.module разрешается в существующий артефакт", () => {
+  const exists = (relPath: string): boolean => fs.existsSync(path.join(ROOT, relPath));
+
+  it("манифесты найдены — проверять есть что", () => {
+    expect(MANIFESTS.length, "манифестов .osapp.yaml").toBeGreaterThan(0);
+  });
+
+  it("у каждого манифеста entry.module разрешается, и рукописные объявлены", () => {
+    const problems = MANIFESTS.flatMap((manifest) =>
+      manifestProblems(fs.readFileSync(manifest, "utf-8"), rel(manifest), exists, HANDWRITTEN),
+    );
+    expect(problems, "манифест указывает на файл, которого нет, или на необъявленный рукописный").toEqual(
+      [],
+    );
+  });
+
+  it("НЕГАТИВНЫЙ КОНТРОЛЬ: подменённый entry.module краснеет", () => {
+    const manifest = path.join(ROOT, "src/runtime/fixtures/notifications.osapp.yaml");
+    const good = fs.readFileSync(manifest, "utf-8");
+    const clean = manifestProblems(good, "src/runtime/fixtures/notifications.osapp.yaml", exists, HANDWRITTEN);
+    expect(clean, "исходный манифест чист").toEqual([]);
+
+    const broken = good.replace(/module:\s*"?notifications"?/u, 'module: "нет_такого"');
+    expect(broken, "подмена применилась").not.toBe(good);
+    const problems = manifestProblems(
+      broken,
+      "src/runtime/fixtures/notifications.osapp.yaml",
+      exists,
+      HANDWRITTEN,
+    );
+    expect(problems.length, "подмена поймана").toBeGreaterThan(0);
+    expect(problems.join(" ")).toContain("нет_такого");
+  });
+
+  it("НЕГАТИВНЫЙ КОНТРОЛЬ: рукописный артефакт, не объявленный в HANDWRITTEN, краснеет", () => {
+    const manifest = path.join(ROOT, "src/runtime/fixtures/notifications.osapp.yaml");
+    const text = fs.readFileSync(manifest, "utf-8");
+    const problems = manifestProblems(text, "src/runtime/fixtures/notifications.osapp.yaml", exists, []);
+    expect(problems.length, "необъявленный рукописный пойман").toBeGreaterThan(0);
+    expect(problems.join(" ")).toContain("не назван рукописным");
   });
 });
