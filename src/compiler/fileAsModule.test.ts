@@ -348,3 +348,91 @@ describe("дополнение оракула: файл = модуль вмес�
     expect(r.module!.procedures.map((p) => p.name)).toContain("У2__удвоить");
   });
 });
+
+/**
+ * Пустой файл = пустой модуль — **следствие** «файл = модуль», а не отдельное
+ * правило.
+ *
+ * # Что было до правки
+ *
+ * `compilerSuccess = false` при **нуле диагностик во всех фазах**: лексер молчит,
+ * парсер молчит, компилятор молчит — и сборки нет. Причина: разбор пропускал
+ * путь «файл = модуль», когда поток начинался сразу с `конец_файла` (пустой
+ * источник, одни комментарии, одни переводы строк), модулей получалось ноль,
+ * AST — `null`, и `compileSource` отказывал по `program.modules.length === 0`.
+ *
+ * Отказ без диагностики — худший вид отказа: по нему нельзя понять, что не так.
+ * Под нормой «файл = модуль» у пустого файла есть честный ответ: это модуль с
+ * именем из имени файла и пустым телом.
+ *
+ * # Негативный контроль
+ *
+ * Снять правку — краснеет здесь: проверки требуют `compilerSuccess = true` и
+ * непустой `module` там, где компилятор до правки отказывал. Отдельно
+ * проверяется, что «компилируется пустое» не превратилось в «компилируется
+ * что угодно»: файл с посторонним словом по-прежнему отвергается.
+ */
+describe("пустой файл = пустой модуль (следствие «файл = модуль»)", () => {
+  /** Пустой источник, одни переводы строк, одни комментарии обоих видов. */
+  const EMPTY_SOURCES: ReadonlyArray<readonly [string, string]> = [
+    ["пустой источник", ""],
+    ["одни переводы строк", "\n\n\n"],
+    ["одни пробелы и переводы строк", "   \n\t\n  \n"],
+    ["однострочный комментарий", "// ничего\n"],
+    ["несколько однострочных комментариев", "// раз\n// два\n"],
+    ["блочный комментарий", "/* ничего */\n"],
+    ["комментарии вперемешку", "// раз\n/* два */\n\n// три\n"],
+  ];
+
+  for (const [label, source] of EMPTY_SOURCES) {
+    it(`${label} — компилируется, 0 диагностик`, () => {
+      const r = compileSource(source, { filename: "пустой.osnova" });
+      expect(r.lexerErrors, "лексер молчит").toEqual([]);
+      expect(r.parserErrors, "парсер молчит").toEqual([]);
+      expect(r.compilerErrors, "компилятор молчит").toEqual([]);
+      expect(r.semanticErrors, "семантика молчит").toEqual([]);
+      expect(r.compilerSuccess, "сборка есть").toBe(true);
+      expect(r.module, "модуль собран").not.toBeNull();
+    });
+  }
+
+  it("имя модуля берётся из имени файла, тело пустое", () => {
+    const r = compileSource("", { filename: "пустой.osnova" });
+    expect(r.module!.moduleName).toBe("пустой");
+    expect(r.module!.procedures, "процедур нет — но это список, а не отсутствие модуля").toEqual([]);
+  });
+
+  it("без имени файла — то же имя по умолчанию, что у входного файла", () => {
+    const r = compileSource("");
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module!.moduleName).toBe("вход");
+  });
+
+  it("AST: ровно один модуль, а не ноль", () => {
+    const { ast, errors } = parseAs("", "пустой.osnova");
+    expect(errors).toEqual([]);
+    expect(ast, "AST построен").not.toBeNull();
+    expect(ast!.modules).toHaveLength(1);
+    expect(ast!.modules[0]!.name).toBe("пустой");
+    expect(ast!.modules[0]!.procedures).toEqual([]);
+  });
+
+  it("файл, ставший пустым ПОСЛЕ правки, не ломает сборку байткода", () => {
+    const r = compileSource("\n", { filename: "пробел.osnova" });
+    expect(r.module, "байткод-модуль есть").not.toBeNull();
+    expect(r.module!.version, "формат модуля на месте").toBe(1);
+    expect(r.module!.procedures).toEqual([]);
+  });
+
+  it("НЕГАТИВНЫЙ КОНТРОЛЬ: постороннее слово в пустом файле — по-прежнему отказ", () => {
+    const r = compileSource("ерунда", { filename: "мусор.osnova" });
+    expect(r.compilerSuccess, "«компилируется пустое» не значит «компилируется что угодно»").toBe(false);
+    expect(r.parserErrors.length, "и отказ назван диагностикой, а не молчанием").toBeGreaterThan(0);
+  });
+
+  it("НЕГАТИВНЫЙ КОНТРОЛЬ: `конец_модуля` в пустом файле — по-прежнему отказ", () => {
+    const r = compileSource("конец_модуля\n", { filename: "закрытие.osnova" });
+    expect(r.compilerSuccess).toBe(false);
+    expect(r.parserErrors.some((e) => e.message.includes("конец_модуля"))).toBe(true);
+  });
+});
