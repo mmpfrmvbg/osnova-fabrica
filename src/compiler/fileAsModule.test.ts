@@ -40,7 +40,10 @@
  * был `null`. Проверки ниже падают и на старом компиляторе, и на любом, где
  * приём снят или имя модуля перестало браться из файла.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { compileSource } from "./compiler";
 import { parse } from "./parser";
 import type { ParseOptions, ParseWarning } from "./parser";
@@ -242,5 +245,106 @@ describe("1.5 негативный контроль: приём без «мод�
   it("имя файла не подменяет шапку: в шапке имя другое и оно выигрывает", () => {
     const r = compileSource(LEGACY_CLOSED, { filename: "особый-контроль-2.osnova" });
     expect(r.module!.moduleName).toBe("привет");
+  });
+});
+
+/**
+ * Эти проверки добавлены **пробой**, а не заданием: задание описывало файл без
+ * шапки как «процедуры и всё», а файл — это ещё импорт, `тип` и `экспорт`, и
+ * ошибка здесь была бы не видна на минимальном примере. Отдельно проверяется
+ * цель импорта: имя модуля импортируемого файла обязано браться из имени ЭТОГО
+ * файла, а не входного (`parseModuleOrThrow`).
+ */
+describe("дополнение оракула: файл = модуль вместе с импортом, типом и экспортом", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    while (dirs.length > 0) {
+      fs.rmSync(dirs.pop()!, { recursive: true, force: true });
+    }
+  });
+
+  function tmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "osnova-file-module-"));
+    dirs.push(dir);
+    return dir;
+  }
+
+  function write(dir: string, name: string, lines: string[]): void {
+    fs.writeFileSync(path.join(dir, name), lines.join("\n"), "utf-8");
+  }
+
+  function compileAt(dir: string, name: string) {
+    return compileSource(fs.readFileSync(path.join(dir, name), "utf-8"), {
+      baseDir: dir,
+      filename: name,
+    });
+  }
+
+  it("файл без шапки с импортом компилируется, имя — из имени файла", () => {
+    const dir = tmpDir();
+    write(dir, "у.osnova", ["процедура экспорт сложить(а, б)", "  вернуть а + б", "конец_процедуры"]);
+    write(dir, "главный.osnova", [
+      'использовать модуль У из "у.osnova"',
+      "",
+      "процедура главная()",
+      "  вернуть У.сложить(2, 3)",
+      "конец_процедуры",
+    ]);
+    const r = compileAt(dir, "главный.osnova");
+    expect(r.parserErrors).toEqual([]);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module!.moduleName).toBe("главный");
+    expect(r.module!.procedures.map((p) => p.name)).toContain("У__сложить");
+  });
+
+  it("файл без шапки с `тип` компилируется", () => {
+    const dir = tmpDir();
+    write(dir, "типный.osnova", [
+      "тип Точка { x: Число }",
+      "",
+      "процедура главная()",
+      "  пусть т = { x: 7 }",
+      "  вернуть т.x",
+      "конец_процедуры",
+    ]);
+    const r = compileAt(dir, "типный.osnova");
+    expect(r.parserErrors).toEqual([]);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module!.moduleName).toBe("типный");
+  });
+
+  it("файл без шапки с `экспорт` компилируется", () => {
+    const dir = tmpDir();
+    write(dir, "экспортный.osnova", ["экспорт процедура дать()", "  вернуть 42", "конец_процедуры"]);
+    const r = compileAt(dir, "экспортный.osnova");
+    expect(r.parserErrors).toEqual([]);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module!.procedures.map((p) => p.name)).toEqual(["дать"]);
+  });
+
+  it("файл без шапки, закрытый одиночным `конец`, компилируется (legacy-толерантность)", () => {
+    const dir = tmpDir();
+    write(dir, "одиночный.osnova", ["процедура главная()", "  вернуть 1", "конец"]);
+    const r = compileAt(dir, "одиночный.osnova");
+    expect(r.parserErrors).toEqual([]);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module!.moduleName).toBe("одиночный");
+  });
+
+  it("ЦЕЛЬ импорта без шапки: имя модуля берётся из имени импортируемого файла", () => {
+    const dir = tmpDir();
+    write(dir, "у2.osnova", ["процедура экспорт удвоить(а)", "  вернуть а * 2", "конец_процедуры"]);
+    write(dir, "главный2.osnova", [
+      'использовать модуль У2 из "у2.osnova"',
+      "",
+      "процедура главная()",
+      "  вернуть У2.удвоить(21)",
+      "конец_процедуры",
+    ]);
+    const r = compileAt(dir, "главный2.osnova");
+    expect(r.parserErrors, "импортируемый файл без шапки не отвергнут").toEqual([]);
+    expect(r.compilerSuccess).toBe(true);
+    expect(r.module!.procedures.map((p) => p.name)).toContain("У2__удвоить");
   });
 });
