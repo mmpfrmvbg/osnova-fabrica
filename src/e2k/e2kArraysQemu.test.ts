@@ -56,7 +56,6 @@ const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window
 /** Программа на Основе: одна процедура, массивы, результат — элемент массива. */
 function sourceOf(first: number, second: number): string {
   return [
-    'модуль ПробаМассив',
     'процедура главная()',
     '  пусть a = []',
     `  система.массив.добавить(a, ${String(first)})`,
@@ -141,7 +140,6 @@ function programBytes(source: string, heapAddress: number): { bytes: Uint8Array;
  */
 function literalSource(values: readonly number[]): string {
   return [
-    'модуль ПробаМассивЛитералов',
     'процедура главная()',
     `  пусть a = [${values.join(', ')}]`,
     '  вернуть система.массив.длина(a)',
@@ -290,7 +288,7 @@ const shim = buildShim();
  * кучу — это замерено в `src/e2k/arrayHeap.test.ts` отдельной проверкой.
  */
 function twoArrayProgram(declarations: readonly string[], first: string, expression: string): string {
-  return ['модуль ПробаКуча', 'процедура главная()', ...declarations, first, `  вернуть ${expression}`, 'конец'].join('\n');
+  return ['процедура главная()', ...declarations, first, `  вернуть ${expression}`, 'конец'].join('\n');
 }
 
 const ВХОД = FIR_REFERENCE_INPUT;

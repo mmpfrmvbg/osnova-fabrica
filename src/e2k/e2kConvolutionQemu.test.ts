@@ -51,9 +51,7 @@ const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window
  * Массивы строятся через `добавить`: построение массива из трёх и более литералов в модели падает
  * (измерено `.tmp/array-min.ts`, долг назван в `docs/hardware-debt.md` §3.20).
  */
-const INLINE_CONVOLUTION = `модуль СвёрткаВстроенная
-
-процедура главная()
+const INLINE_CONVOLUTION = `процедура главная()
   пусть а = []
   пусть б = []
   система.массив.добавить(а, 1)
