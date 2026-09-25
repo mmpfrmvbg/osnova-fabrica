@@ -207,7 +207,7 @@ const TODO_RECOMMENDED = `модуль ТудуПриложение
 // возвращало исходный текст, и обе пробы давали одинаковое число, которое
 // читалось как «алиасы не влияют». Сторож ниже делает такое молчание громким.
 const NS_RE = /система\.([а-яёА-ЯЁa-zA-Z0-9_]+)\./g;
-const CORE_PATH = path.resolve('apps', 'task-manager', 'tasks.core.osnova');
+const CORE_PATH = path.resolve('apps', 'task-manager', 'tasks_core.osnova');
 const CORE_AS_IS = fs.readFileSync(CORE_PATH, 'utf-8').trimEnd();
 const CORE_NS = [...new Set([...CORE_AS_IS.matchAll(NS_RE)].map((m) => m[1]!))].sort();
 const CORE_USE_COUNTS: Record<string, number> = Object.fromEntries(
@@ -319,8 +319,8 @@ const probes: Probe[] = [
   { group: 'приложение', name: 'todo — сокращённые идентификаторы', text: TODO_ABBREV },
   { group: 'приложение', name: 'todo — всё латиницей (гипотетически)', text: TODO_ENGLISH },
   { group: 'приложение', name: 'todo — естественный русский + namespace (гипотеза)', text: TODO_RECOMMENDED },
-  { group: 'приложение', name: 'tasks.core.osnova — как есть (72 строки)', text: CORE_AS_IS },
-  { group: 'приложение', name: 'tasks.core.osnova — с namespace-алиасами', text: CORE_ALIASED },
+  { group: 'приложение', name: 'tasks_core.osnova — как есть (72 строки)', text: CORE_AS_IS },
+  { group: 'приложение', name: 'tasks_core.osnova — с namespace-алиасами', text: CORE_ALIASED },
 ];
 
 // ============================================================
