@@ -55,17 +55,17 @@ const STRAIGHT: readonly AsmInstruction[] = [
  * ```
  * 0: const v1 = 1        ; инвариант
  * 2: add   v2 = v0 + v3  ; заголовок: оба значения приходят по обратной дуге
- * 3: jmp_if_not v2 → 7
+ * 3: jmp_if_not v2 → 6
  * 4: add   v0 = v1 + v1  ; определение v0 в теле
  * 5: mul   v3 = v1 + v1  ; определение v3 в теле
- * 6: jmp   → 2           ; обратная дуга
- * 7: ret   v2
+ * 6: jmp   → 1           ; обратная дуга
+ * 7: ret   v2            — в потоке индексы 0…6
  * ```
  */
 const LOOP_CARRIED: readonly AsmInstruction[] = [
   carrier('IR.const', [reg(1), imm(1), imm(0)]), // 0
   carrier('IR.add', [reg(2), reg(0), reg(3)]), // 1 — заголовок (цель дуги — 1)
-  carrier('IR.jmp_if_not', [reg(2), imm(7)]), // 2
+  carrier('IR.jmp_if_not', [reg(2), imm(6)]), // 2 — выход из цикла на 6
   carrier('IR.add', [reg(0), reg(1), reg(1)]), // 3 — определение v0 в теле
   carrier('IR.mul', [reg(3), reg(1), reg(1)]), // 4 — определение v3 в теле
   carrier('IR.jmp', [imm(1)]), // 5 — обратная дуга на 1
@@ -152,28 +152,58 @@ describe('CFG: точная живость (задача 1)', () => {
     }
   });
 
-  it('1.3б множества совпадают с пошаговым анализом, который уже стоит в конвейере', () => {
-    for (const program of [STRAIGHT, LOOP_CARRIED, BRANCH]) {
+  it('1.3б множества не шире пошагового анализа конвейера и совпадают там, где нет безусловного перехода', () => {
+    // Конвейер (`src/e2k/liveness.ts`, `successorsOf`) добавляет падение на следующую инструкцию
+    // даже после **безусловного** `IR.jmp`: это консервативно (лишнее ребро → лишняя жизнь), но
+    // не точно. Здесь это различие не замалчивается, а проверяется: множества CFG обязаны быть
+    // ПОДмножествами конвейерных, а на потоке без безусловных переходов — совпадать в точности.
+    const cases: ReadonlyArray<{ name: string; program: readonly AsmInstruction[]; exact: boolean }> = [
+      { name: 'прямая', program: STRAIGHT, exact: true },
+      { name: 'ветвление', program: BRANCH, exact: true },
+      // В цикле есть `IR.jmp` назад: расхождение ожидаемо и названо ниже.
+      { name: 'цикл', program: LOOP_CARRIED, exact: false },
+    ];
+    for (const { name, program, exact } of cases) {
       const mine = cfgLiveSets(program, options);
       const theirs = liveSetsOf(program);
-      expect(mine.liveIn.map((set) => [...set])).toEqual(theirs.liveIn.map((set) => [...set]));
-      expect(mine.liveOut.map((set) => [...set])).toEqual(theirs.liveOut.map((set) => [...set]));
+      program.forEach((_instruction, at) => {
+        for (const vreg of mine.liveIn[at]!) {
+          expect(theirs.liveIn[at], `${name}: liveIn(${at}) ⊇ v${vreg}`).toContain(vreg);
+        }
+        for (const vreg of mine.liveOut[at]!) {
+          expect(theirs.liveOut[at], `${name}: liveOut(${at}) ⊇ v${vreg}`).toContain(vreg);
+        }
+      });
+      if (exact) {
+        expect(mine.liveIn.map((set) => [...set]), `${name}: liveIn`).toEqual(
+          theirs.liveIn.map((set) => [...set]),
+        );
+        expect(mine.liveOut.map((set) => [...set]), `${name}: liveOut`).toEqual(
+          theirs.liveOut.map((set) => [...set]),
+        );
+      }
     }
+    // Названное расхождение: у цикла конвейер считает `v2` (условие выхода) живым и ПОСЛЕ
+    // своего последнего чтения — из-за лишнего ребра 5→6 после безусловного перехода.
+    const mineLoop = cfgLiveSets(LOOP_CARRIED, options);
+    const theirsLoop = liveSetsOf(LOOP_CARRIED);
+    expect(mineLoop.liveOut[5]).not.toContain(2);
+    expect(theirsLoop.liveOut[5]).toContain(2);
   });
 
   it('1.4 негативный контроль: без учёта обратных дуг переносимые значения живыми НЕ считаются', () => {
     const withBackEdges = cfgLiveSets(LOOP_CARRIED, options);
     const without = cfgLiveSets(LOOP_CARRIED, { ...options, ignoreBackEdges: true });
-    // С дугой: определения в теле живы на выходе (значение нужно следующему витку).
-    expect(withBackEdges.liveOut[3]).toContain(0);
-    expect(withBackEdges.liveOut[4]).toContain(3);
-    // Без дуги: тот же поток, но жизнь через виток не видна — ровно то, что ловит проверка 1.2.
-    expect(without.liveOut[3]).not.toContain(0);
-    expect(without.liveOut[4]).not.toContain(3);
-    // И «пик переносимых» падает с двух до нуля — то самое «2, а не 0» из постановки.
-    const carriedWith = [0, 3].filter((vreg) => withBackEdges.liveIn[1]!.includes(vreg)).length;
-    const carriedWithout = [0, 3].filter((vreg) => without.liveIn[1]!.includes(vreg)).length;
-    expect(carriedWith).toBe(2);
-    expect(carriedWithout).toBe(0);
+    // Переносимое значение считается живым на выходе СВОЕГО определения: ему предстоит чтение
+    // в заголовке на следующем витке. Это и теряет линейная модель.
+    const carried = (sets: { liveOut: readonly (readonly number[])[] }): number =>
+      [
+        [0, 3],
+        [3, 4],
+      ].filter(([vreg, def]) => sets.liveOut[def]!.includes(vreg!)).length;
+    // С дугой живут оба определения — «2, а не 0» из постановки.
+    expect(carried(withBackEdges)).toBe(2);
+    // Без дуги — ни одно: тот же поток, но жизнь через виток не видна.
+    expect(carried(without)).toBe(0);
   });
 });
