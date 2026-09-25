@@ -1,20 +1,4 @@
 {
   "version": "1.0.0",
-  "apps": [
-    {
-      "id": "osnova.task_manager",
-      "name": "Таск-менеджер Основа",
-      "type": "cli",
-      "languageVersion": "2.0.0",
-      "mainModule": "apps/task-manager/main.osnova",
-      "modules": [
-        "apps/task-manager/tasks_core.osnova",
-        "apps/task-manager/tasks_priorities.osnova",
-        "apps/task-manager/tasks_filters.osnova",
-        "apps/task-manager/tasks_storage.osnova"
-      ],
-      "description": "Референсное микромодульное приложение для управления задачами на языке Основа.",
-      "tags": ["reference", "tasks", "micro-modules", "storage"]
-    }
-  ]
+  "apps": []
 }

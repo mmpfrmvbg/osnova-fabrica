@@ -32,6 +32,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { loadAppRegistry, loadRegistry, registryToContext } from "./loadRegistry";
+import { compileSource } from "../compiler/compiler";
 
 /** Каталоги данных лежат рядом с этим оракулом. */
 const RUNTIME_DIR = __dirname;
@@ -87,46 +88,151 @@ describe("каталоги src/runtime/*.json", () => {
   }
 });
 
-describe("loadAppRegistry: зарегистрированное приложение", () => {
-  it("ровно одно приложение, и это osnova.task_manager", () => {
-    const reg = loadAppRegistry();
-    expect(reg.apps.map((a) => a.id)).toEqual(["osnova.task_manager"]);
+/**
+ * Приложения, СНЯТЫЕ из реестра до починки. Запись обязана называть ЧИСЛА: долг
+ * без чисел — обещание, а не долг.
+ *
+ * Реестр не имеет права объявлять то, что не собирается, поэтому
+ * `osnova.task_manager` из него убран, а файлы приложения остались в дереве.
+ * Обратно в реестр запись возвращается тем же коммитом, где приложение начнёт
+ * компилироваться и проходить golden.
+ */
+const PENDING: ReadonlyArray<{ id: string; dir: string; reason: string }> = [
+  {
+    id: "osnova.task_manager",
+    dir: "apps/task-manager",
+    reason:
+      "снято из реестра 2026-09-26. Числа: main.osnova — 6 семантических ошибок, " +
+      "tasks_core.osnova — 3 (в копии с дописанным импортом 5), filters/priorities/storage — чисто. " +
+      "Три названные причины: ЗадачиЯдро.создать ожидает 4 аргумента, передано 3 (трижды); " +
+      "ЗадачиПриоритеты.серверный_приоритет вызван без импорта, и такой процедуры нет " +
+      "(в tasks_priorities.osnova только высокий/средний/низкий); система.строка.объединить вызвана " +
+      "с 3 и 24 аргументами при argc 2 — рантайм реализован на два и обрезал бы JSON молча. " +
+      "Это не патч, а переделка модели задачи: main и ядро разошлись по арности",
+  },
+];
+
+/**
+ * Проблемы записей реестра: путь существует И компилируется.
+ *
+ * Чистая функция с подставляемыми `exists` и `compileProblems` — чтобы негативный
+ * контроль гонял ТУ ЖЕ логику на подставных данных (несуществующий путь,
+ * некомпилируемый файл), а не повторял её глазами.
+ */
+function registryProblems(
+  apps: ReadonlyArray<{ id: string; mainModule: string; modules: readonly string[] }>,
+  exists: (relPath: string) => boolean,
+  compileProblems: (relPath: string) => string[],
+): string[] {
+  const problems: string[] = [];
+  for (const app of apps) {
+    for (const relPath of [app.mainModule, ...app.modules]) {
+      if (!exists(relPath)) {
+        problems.push(`${app.id}: путь «${relPath}» не существует на диске`);
+        continue;
+      }
+      for (const problem of compileProblems(relPath)) problems.push(`${app.id}: ${relPath} — ${problem}`);
+    }
+  }
+  return problems;
+}
+
+/** Настоящая проверка компиляции: как CLI, с именем файла и его каталогом. */
+function compileProblemsOf(relPath: string): string[] {
+  const abs = path.join(REPO_ROOT, relPath);
+  const compiled = compileSource(fs.readFileSync(abs, "utf-8"), {
+    baseDir: path.dirname(abs),
+    filename: path.basename(abs),
+  });
+  return [...compiled.lexerErrors, ...compiled.parserErrors, ...compiled.compilerErrors, ...compiled.semanticErrors].map(
+    (e) => e.message,
+  );
+}
+
+const existsInRepo = (relPath: string): boolean => fs.existsSync(path.join(REPO_ROOT, relPath));
+
+describe("реестр приложений: объявленное обязано собираться", () => {
+  it("каждое приложение реестра существует на диске и компилируется", () => {
+    // Тот же класс, что сторож артефактов: система не имеет права объявлять то,
+    // что не собирается. Ошибка называет приложение, файл и причину.
+    const problems = registryProblems(loadAppRegistry().apps, existsInRepo, compileProblemsOf);
+    expect(problems, "приложения реестра, которые не собираются").toEqual([]);
   });
 
-  it("у приложения названы четыре модуля", () => {
-    const [app] = loadAppRegistry().apps;
-    expect(app, "приложение найдено").toBeDefined();
-    expect(app!.modules, "модулей в реестре").toHaveLength(4);
-  });
-
-  it("каждый путь — и главный модуль, и модули — существует на диске", () => {
-    // Это и есть сторож класса переименований: путь в реестре, отставший от
-    // файла, обязан краснеть здесь, а не обнаруживаться руками.
-    const paths = loadAppRegistry().apps.flatMap((a) => [a.mainModule, ...a.modules]);
-    const missing = paths.filter((p) => !fs.existsSync(path.join(REPO_ROOT, p)));
-    expect(missing, "пути реестра, которых нет на диске").toEqual([]);
+  it("реестр не врёт: снятые приложения в нём отсутствуют, а файлы на месте", () => {
+    // Пустой реестр не должен делать проверку пустой ПО ПОСТРОЕНИЮ: пустота
+    // объяснена списком PENDING, и каждое его утверждение проверяется — запись
+    // отсутствует в реестре, каталог существует, причина содержательна.
+    const ids = new Set(loadAppRegistry().apps.map((a) => a.id));
+    for (const pending of PENDING) {
+      expect(ids.has(pending.id), `${pending.id} не должен числиться в реестре до починки`).toBe(false);
+      expect(existsInRepo(pending.dir), `файлы ${pending.id} остаются в дереве`).toBe(true);
+      expect(pending.reason.length, "долг назван числами").toBeGreaterThan(40);
+    }
   });
 });
 
 describe("registryToContext: реестр ДОХОДИТ до контекста", () => {
-  it("контекст содержит блок референсных приложений и id приложения", () => {
-    // Прямая проверка того, что дефект ломал: при молчаливом `apps: []` блока в
-    // контексте не было, и регистрация не значила ничего.
-    const ctx = registryToContext(loadRegistry(), loadAppRegistry());
+  it("блок референсных приложений появляется, когда в реестре что-то есть", () => {
+    // Проверяется не текущее содержимое реестра (сейчас он пуст по решению
+    // владельца), а САМ МЕХАНИЗМ: с непустым каталогом блок в контексте есть.
+    // Именно он ломался молча: при `apps: []` регистрация не значила ничего.
+    const ctx = registryToContext(loadRegistry(), {
+      version: "1.0.0",
+      apps: [
+        {
+          id: "osnova.example",
+          name: "Пример",
+          type: "cli",
+          languageVersion: "2.0.0",
+          mainModule: "apps/example/main.osnova",
+          modules: [],
+        },
+      ],
+    });
     expect(ctx, "блок appRegistry в контексте").toContain(
       "Референсные приложения Основа (appRegistry)",
     );
-    expect(ctx).toContain("osnova.task_manager");
-    expect(ctx).toContain("apps/task-manager/main.osnova");
+    expect(ctx).toContain("osnova.example");
+    expect(ctx).toContain("apps/example/main.osnova");
+  });
+
+  it("с пустым реестром блок не появляется — и это состояние названо, а не случайно", () => {
+    const ctx = registryToContext(loadRegistry(), loadAppRegistry());
+    expect(ctx).not.toContain("Референсные приложения Основа (appRegistry)");
+    expect(PENDING.length, "пустота объяснена списком снятых").toBeGreaterThan(0);
+  });
+});
+
+describe("НЕГАТИВНЫЙ КОНТРОЛЬ: проверка реестра обязана краснеть", () => {
+  const APP = { id: "osnova.x", mainModule: "apps/x/main.osnova", modules: ["apps/x/extra.osnova"] };
+
+  it("несуществующий путь краснеет", () => {
+    const problems = registryProblems([APP], () => false, () => []);
+    expect(problems.length, "путь, которого нет").toBe(2);
+    expect(problems.join(" ")).toContain("не существует на диске");
+  });
+
+  it("некомпилируемый файл краснеет с причиной", () => {
+    const problems = registryProblems([APP], () => true, (p) =>
+      p.endsWith("extra.osnova") ? ["процедура 'X' не объявлена в модуле"] : [],
+    );
+    expect(problems).toEqual(["osnova.x: apps/x/extra.osnova — процедура 'X' не объявлена в модуле"]);
+  });
+
+  it("чистый реестр проблем не даёт — контроль к контролю", () => {
+    expect(registryProblems([APP], () => true, () => [])).toEqual([]);
   });
 });
 
 describe("негативный контроль: испорченный каталог обязан краснеть", () => {
   const GOOD = fs.readFileSync(path.join(RUNTIME_DIR, "appRegistry.json"), "utf-8");
 
-  it("целый каталог: приложения есть, ошибки НЕТ", () => {
+  it("целый каталог: разбор проходит, ошибки НЕТ", () => {
+    // Список приложений здесь НЕ проверяется: сейчас он пуст по решению
+    // владельца (запись task-manager снята до починки, см. PENDING). Проверяется
+    // разбор — то, что ломал дубль документа.
     const reg = loadAppRegistry();
-    expect(reg.apps.length, "приложения загружены").toBeGreaterThan(0);
     expect(reg.error, "у целого каталога причины нет").toBeUndefined();
   });
 
@@ -143,8 +249,23 @@ describe("негативный контроль: испорченный ката
     expect(registryToContext(loadRegistry(), loadAppRegistry(dir))).not.toContain(
       "Референсные приложения Основа (appRegistry)",
     );
-    // И обратная сторона: с целым каталогом блок на месте.
-    expect(registryToContext(loadRegistry(), loadAppRegistry())).toContain(
+    // И обратная сторона — на НЕПУСТОМ подставном каталоге, а не на настоящем:
+    // настоящий сейчас пуст по решению владельца (см. PENDING), и требовать от
+    // него блока значило бы требовать вернуть снятую запись.
+    const ctx = registryToContext(loadRegistry(), {
+      version: "1.0.0",
+      apps: [
+        {
+          id: "osnova.example",
+          name: "Пример",
+          type: "cli",
+          languageVersion: "2.0.0",
+          mainModule: "apps/example/main.osnova",
+          modules: [],
+        },
+      ],
+    });
+    expect(ctx, "с непустым каталогом блок на месте").toContain(
       "Референсные приложения Основа (appRegistry)",
     );
   });
