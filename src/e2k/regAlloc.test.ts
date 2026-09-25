@@ -51,8 +51,10 @@ import {
   applyAllocation,
   applySegments,
 } from './regAlloc';
-import { defUseOf, liveIntervalsOf, liveSegmentsOf, overlaps } from './liveness';
+import { defUseOf, liveIntervalsOf, liveSegmentsOf, mergeLoopCarriedSegments, overlaps } from './liveness';
+import { cfgSegmentsOf } from './liveness';
 import { ARRAY_REGISTERS } from './arrayRuntime';
+import { DEFAULT_SPILL_BASE } from './elfMinimal';
 import { livePeakOf, removeCopies } from './copyElim';
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -306,32 +308,47 @@ describe('устранение копий: без него 17 vreg в 10 не в
     expect(elimination.peakAfter, 'пик после устранения').toBeGreaterThanOrEqual(5);
   });
 
-  it('после устранения копий раскладка фильтра УДАЁТСЯ: 17 vreg в 10 регистров', () => {
-    // ЦЕЛЬ, и она НЕ достигнута — поэтому проверка красная намеренно (решение владельца).
-    // Измерено 2026-09-24 (`.tmp/measure-regalloc.ts`): раскладка ОТКАЗЫВАЕТ — в тесный момент живы
-    // **13** отрезков при 10 свободных. Причина — звуковое слияние отрезков, переносящих значение
-    // через дугу цикла (`mergeLoopCarriedSegments`, `src/e2k/liveness.ts`): линейный отрезок про цикл
-    // не знает, поэтому переносящийся отрезок расширяется на всю область цикла. Прежнее «удаётся»
-    // снималось против НЕзвуковых правил (объединения интервалов недооценивали жизнь через обратную
-    // дугу) и потому недействительно. Снимает отказ шаг 4 `docs/e2k-regalloc-debt.md` §5 — точная
-    // живость по CFG (`liveIn`/`liveOut`) либо вытеснение в память.
+  it('после устранения копий раскладка фильтра УДАЁТСЯ: 17 vreg в 10 регистров, одно значение — в память', () => {
+    // ЦЕЛЬ ДОСТИГНУТА 2026-09-24 минимальным вытеснением в память (`src/vliw/spill.ts`): в тесный
+    // момент живы 13 отрезков при 10 свободных (`%b[0..9]`), поэтому самое дешёвое значение уезжает
+    // в слот и перестаёт держать регистр. Замер — `.tmp/spill-measure.ts`.
+    // Проверка идёт ТЕМ ЖЕ путём, что конвейер: отрезки по графу потока управления (`cfgSegmentsOf`),
+    // слияние переносимых через дугу цикла (`mergeLoopCarriedSegments`) и план вытеснения. Прежняя
+    // редакция звала `allocateSegments` без плана — и потому оставалась красной даже тогда, когда
+    // раскладка уже удавалась конвейеру: это проверяло не то, что называла.
     const elimination = removeCopies(filter);
-    const segments = liveSegmentsOf(elimination.carriers);
-    // Раскладка идёт по ОТРЕЗКАМ жизни: объединение интервалов требует 11 (больше десяти), а
-    // отрезки укладывались бы, если бы точнее знали жизнь через дугу цикла.
-    expect(liveIntervalsOf(elimination.carriers).peak, 'пик объединений').toBe(11);
-    const result = allocateSegments(segments);
+    const stream = elimination.carriers;
+    const incoming = incomingRegisters(stream);
+    const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
+    // Раскладка идёт по ОТРЕЗКАМ жизни: объединение интервалов требует 11 (больше десяти).
+    expect(liveIntervalsOf(stream).peak, 'пик объединений').toBe(11);
+    const cfg = cfgSegmentsOf(stream);
+    const segments = mergeLoopCarriedSegments(cfg.segments, stream, 0);
+    const result = allocateSegments(
+      segments.filter((segment) => !incoming.includes(segment.vreg)),
+      free,
+      { spill: { base: DEFAULT_SPILL_BASE }, instructions: stream },
+    );
     expect(result.ok, result.ok ? '' : `отказ: ${result.reason}`).toBe(true);
     if (!result.ok) return;
+    // Вытеснений ровно столько, сколько разрешает минимальное вытеснение.
+    expect(result.spilled.length, 'вытеснено значений').toBeGreaterThanOrEqual(1);
+    expect(result.spilled.length, 'вытеснений на процедуру').toBeLessThanOrEqual(2);
     const runtimeRegisters = Object.values(ARRAY_REGISTERS);
     for (const physical of result.allocation.assignment.values()) {
       expect(ALLOCATABLE_REGISTERS, `%b[${physical}] вне разрешённых`).toContain(physical);
       expect(runtimeRegisters, `%b[${physical}] занят рантаймом`).not.toContain(physical);
     }
     expect(result.allocation.used.length, 'занято регистров').toBeLessThanOrEqual(10);
-    // Раскладка применена ко ВСЕМУ потоку: неотображённых vreg'ов нет.
-    const applied = applyAllocation(elimination.carriers, result.allocation.assignment);
+    // Раскладка применена ко ВСЕМУ потоку: неотображённых vreg'ов нет — включая вытесненные, у
+    // которых теперь есть носители чтения и записи вместо регистра.
+    const applied = applySegments(stream, result.assigned, new Set(incoming), result.spilled, free);
+    expect(applied.problems, 'вытеснение не состоялось').toEqual([]);
     expect(applied.unmapped, 'vreg без физического регистра').toEqual([]);
+    expect(
+      applied.spilled.reduce((sum, item) => sum + item.accesses, 0),
+      'обращений к памяти из-за вытеснения',
+    ).toBeGreaterThan(0);
     // Ни одна пара ОДНОВРЕМЕННО ЖИВУЩИХ отрезков не делит регистр. Проверяются именно отрезки, а не
     // отображение «vreg → регистр»: у отрезков регистры позиционные, и один vreg законно может
     // получить разные регистры на разных участках.

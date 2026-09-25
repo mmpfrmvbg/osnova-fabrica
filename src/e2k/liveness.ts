@@ -151,6 +151,18 @@ const registers = (...values: (number | undefined)[]): number[] =>
 export function defUseOf(instruction: AsmInstruction): DefUse {
   const operands = instruction.operands;
   switch (instruction.mnemonic) {
+    // Носители вытеснения в память (`src/vliw/spill.ts`): читают слот и пишут слот. У них уже
+    // ФИЗИЧЕСКИЕ регистры (они вставляются после раскладки), но def-use у них тот же, и он нужен
+    // тем, кто читает поток дальше: расписанию, графу зависимостей, широкой упаковке.
+    // `IR.spill_ld [адрес, приёмник, слот]` — читает регистр адреса, пишет приёмник.
+    case 'IR.spill_ld':
+      return { def: registers(registerAt(instruction, 1)), use: registers(registerAt(instruction, 0)) };
+    // `IR.spill_st [значение, адрес, слот]` — читает и значение, и регистр адреса.
+    case 'IR.spill_st':
+      return {
+        def: [],
+        use: registers(registerAt(instruction, 0), registerAt(instruction, 1)),
+      };
     case 'IR.const':
       return { def: registers(registerAt(instruction, 0)), use: [] };
     case 'IR.move':

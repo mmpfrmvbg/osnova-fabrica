@@ -44,15 +44,18 @@ export interface ImmShortRow {
 }
 
 export const IMM_SHORT_EFFECT: readonly ImmShortRow[] = [
-  { name: 'fir', commands: 221, short: 20, shortLiterals: 20, saved: 160 },
+  // Перемер 2026-09-24 (`.tmp/measure-literal-imm.ts`) после минимального вытеснения в память:
+  // команд у `fir` 259 (было 221), у `correlation` 196 (было 155). Коротких форм и экономии это
+  // не меняет: вытеснение кладёт адрес слота в `movtd` (`imm64`), а не в `movts`.
+  { name: 'fir', commands: 259, short: 20, shortLiterals: 20, saved: 160 },
   { name: 'iir', commands: 161, short: 10, shortLiterals: 10, saved: 80 },
   { name: 'fft', commands: 228, short: 14, shortLiterals: 14, saved: 112 },
   { name: 'convolution', commands: 174, short: 16, shortLiterals: 16, saved: 128 },
-  { name: 'correlation', commands: 155, short: 14, shortLiterals: 14, saved: 112 },
+  { name: 'correlation', commands: 199, short: 14, shortLiterals: 14, saved: 112 },
 ];
 
-/** Текущая база: линейные байты пяти ядер после коммита `a7a50d8`. */
-export const LINEAR_BYTES_BASELINE = 7648;
+/** Текущая база: линейные байты пяти ядер после минимального вытеснения (`.tmp/measure-wide-pins.ts`). */
+export const LINEAR_BYTES_BASELINE = 8392;
 
 const encoder = getEncoder('e2k');
 
@@ -62,7 +65,7 @@ describe('эффект короткой формы: измерение по пя
     const saved = IMM_SHORT_EFFECT.reduce((sum, row) => sum + row.saved, 0);
     expect(short, 'коротких форм').toBe(74);
     expect(saved, 'экономия байт').toBe(592);
-    // Доля образа: 592 из 8112.
+    // Доля образа: 592 из 8368 (перемер 2026-09-24: база выросла вместе с полным понижением ядра).
     expect(saved / LINEAR_BYTES_BASELINE, 'доля образа').toBeGreaterThan(0.07);
     expect(saved / LINEAR_BYTES_BASELINE, 'доля образа').toBeLessThan(0.08);
   });
@@ -121,13 +124,12 @@ describe('эффект короткой формы: измерение по пя
   });
 
   it('1.5 сверка баз: закреплённые числа шага 2 перемерены на текущем потоке', () => {
-    // Числа шага 2 снимались до коммита `a7a50d8` (920 команд); таблица перемерена на 921 —
-    // у ядра `iir` стало 146 команд вместо 145 (рантайм остатка).
+    // Перемер 2026-09-24: база — 1021 команда (было 939) после минимального вытеснения в память.
     const sum = (pick: (row: { commands: number }) => number): number =>
       LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
     const effectSum = IMM_SHORT_EFFECT.reduce((total, row) => total + row.commands, 0);
-    expect(sum((row) => row.commands), 'таблица барьеров').toBe(939);
-    expect(effectSum, 'таблица эффекта').toBe(939);
+    expect(sum((row) => row.commands), 'таблица барьеров').toBe(1021);
+    expect(effectSum, 'таблица эффекта').toBe(1021);
     expect(sum((row) => row.commands), 'оба оракула на одной базе').toBe(effectSum);
     // Экономия от сдвига базы не зависит: она считается по числу коротких форм.
     expect(IMM_SHORT_EFFECT.reduce((total, row) => total + row.short, 0) * 8, 'экономия').toBe(592);

@@ -13,10 +13,10 @@
  * 1. Интервалы сортируются по началу.
  * 2. Активные интервалы держатся в списке, отсортированном по концу.
  * 3. Пока активен интервал, кончившийся раньше начала текущего, — его регистр освобождается.
- * 4. Если свободных нет — **отказ** с числом одновременно живых и списком конфликтующих vreg'ов.
- *
- * `spill` (вытеснение в память) здесь НЕ делается: это следующий слой, и молчаливая перезапись
- * чужого значения недопустима — отказ обязан быть названным.
+ * 4. Если свободных нет — **минимальное вытеснение в память**: самое дешёвое из активных значений
+ *    уезжает в слот и освобождает регистр (`src/vliw/spill.ts`). Больше
+ *    `MAX_SPILLS_PER_PROCEDURE` вытеснений не делается: тогда **отказ** с числом одновременно живых
+ *    и списком конфликтующих vreg'ов.
  *
  * # Какие регистры свободны
  *
@@ -36,6 +36,19 @@ import {
 } from './liveness';
 import { removeCopies } from './copyElim';
 import { rematerializeConstants } from './rematerialize';
+import { DEFAULT_SPILL_BASE } from './elfMinimal';
+import {
+  MAX_SPILLS_PER_PROCEDURE,
+  chooseSpillVictim,
+  siteFeasible,
+  spillAddressOf,
+  spillCostsOf,
+  spillLoadCarrier,
+  spillSitesOf,
+  spillStoreCarrier,
+  type SpillOptions,
+  type SpilledValue,
+} from '../vliw/spill';
 
 /**
  * Операнды-регистры, которые носитель **действительно** читает или пишет.
@@ -49,6 +62,13 @@ import { rematerializeConstants } from './rematerialize';
 function namedRegisters(instruction: AsmInstruction): ReadonlySet<number> {
   const { def, use } = defUseOf(instruction);
   return new Set([...def, ...use]);
+}
+
+/** Сколько отрезков приходится на каждый vreg: по этой разнице видно, кого соединило слияние. */
+function countSegmentsByVreg(segments: readonly LiveInterval[]): ReadonlyMap<number, number> {
+  const counts = new Map<number, number>();
+  for (const segment of segments) counts.set(segment.vreg, (counts.get(segment.vreg) ?? 0) + 1);
+  return counts;
 }
 
 /** Свободные регистры раскладки: `%b[0..9]`. */
@@ -247,6 +267,11 @@ export interface ProcedureAllocation {
   readonly ok: boolean;
   readonly reason?: string;
   readonly conflicts: readonly number[];
+  /**
+   * Что уехало в память (минимальное вытеснение, `src/vliw/spill.ts`): значение, слот, адрес и
+   * сколько обращений к памяти это добавило. Пусто — вытеснения не потребовалось.
+   */
+  readonly spilled: readonly SpilledValue[];
   /** Сколько регистров выдано (длина `usedRegisters`). */
   readonly used: number;
   /** Какие именно регистры выданы — по ним проверяется закрепление, и видно, что рантайм не тронут. */
@@ -301,6 +326,12 @@ export function incomingRegisters(instructions: readonly AsmInstruction[]): read
 export function allocateProgram(
   instructions: readonly AsmInstruction[],
   procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[],
+  /**
+   * План вытеснения. По умолчанию — слоты по конвенции образа ({@link DEFAULT_SPILL_BASE}, под
+   * указателем кучи): тогда конвейер, замеры и шлюзовые образы считают **одни и те же** адреса, а
+   * не каждый свои. `maxSlots: 0` выключает вытеснение — так проверяется негативный контроль.
+   */
+  options: { readonly spill?: SpillOptions } = {},
 ): {
   readonly instructions: readonly AsmInstruction[];
   readonly procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[];
@@ -314,6 +345,7 @@ export function allocateProgram(
   const report: ProcedureAllocation[] = [];
   // «Старый индекс потока модуля → новый»: по нему пересчитываются цели переходов ПОСЛЕ сборки.
   const movedTo = new Map<number, number>();
+  const spillPlan: SpillOptions = options.spill ?? { base: DEFAULT_SPILL_BASE };
   let removedCopies = 0;
   let materializedConstants = 0;
   procedures.forEach((procedure, index) => {
@@ -329,12 +361,15 @@ export function allocateProgram(
     // сдвинуть индексы ВВЕРХ — поэтому карта индексов строится здесь, а не «сдвигом на число снятых».
     const materialization = rematerializeConstants(elimination.carriers, { codeOffset: from });
     materializedConstants += materialization.materialized.length;
-    { // карта: исходный локальный индекс → новый локальный индекс
+    // Карта «индекс потока МОДУЛЯ → индекс в потоке процедуры»: заполняется окончательными
+    // индексами ПОСЛЕ применения раскладки (вытеснение вставляет носители и сдвигает всё дальше).
+    const streamIndexOf = new Map<number, number>();
+    {
       let survivor = 0;
       for (let local = 0; local < carriers.length; local++) {
         if (elimination.removedAt.includes(local)) continue;
         const movedLocal = materialization.indexOf[survivor];
-        if (movedLocal !== undefined && movedLocal >= 0) movedTo.set(from + local, result.length + movedLocal);
+        if (movedLocal !== undefined && movedLocal >= 0) streamIndexOf.set(from + local, movedLocal);
         survivor++;
       }
     }
@@ -356,11 +391,20 @@ export function allocateProgram(
     // (`.tmp/negative-cfg.ts`, контроль B). Отрезков у `фильтр` при этом 37, после слияния — 24.
     // Слияние соединяет такие отрезки ОДНОГО vreg в один — и только их.
     const segments = mergeLoopCarriedSegments(cfg.segments, stream, from);
+    // Переносимые через дугу — те, у кого слияние соединило отрезки: у них было БОЛЬШЕ отрезков,
+    // чем стало. Их вытеснение дороже: добавленные обращения к памяти исполняются на каждом витке,
+    // и цена это учитывает (`src/vliw/spill.ts`, `LOOP_CARRIED_PENALTY`).
+    const rawPerVreg = countSegmentsByVreg(cfg.segments);
+    const mergedPerVreg = countSegmentsByVreg(segments);
+    const loopCarried = new Set(
+      [...rawPerVreg.keys()].filter((vreg) => (rawPerVreg.get(vreg) ?? 0) > (mergedPerVreg.get(vreg) ?? 0)),
+    );
     // Закреплённые регистры не отдаются: иначе значение параметра уехало бы из своего регистра.
     const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
     const allocation = allocateSegments(
       segments.filter((segment) => !incoming.includes(segment.vreg)),
       free,
+      { spill: spillPlan, loopCarried, instructions: stream },
     );
     const common = {
       procedure: procedure.name,
@@ -375,24 +419,42 @@ export function allocateProgram(
       incoming,
     };
     removedCopies += elimination.removed;
-    if (!allocation.ok) {
+    const base = result.length;
+    /** Отказ: поток уходит как есть, а цели переходов остаются на своих местах. */
+    const fail = (
+      reason: string,
+      conflicts: readonly number[],
+      unmapped: readonly number[],
+      spilled: readonly SpilledValue[],
+    ): void => {
       report.push({
         ...common,
         ok: false,
-        reason: allocation.reason,
-        conflicts: allocation.conflicts,
+        reason,
+        conflicts,
+        spilled,
         used: 0,
         usedRegisters: [],
         // Отказ раскладки — это и отказ влезть в окно вызываемой: регистры придётся занять все до
         // единого, а сколько именно, видно по точной границе.
         windowRegistersNeeded: liveness.peakLive + incoming.filter((vreg) => vreg < WINDOW_REGISTERS_ENTRY).length,
         fitsCalleeWindow: false,
-        unmapped: [],
+        unmapped,
       });
       result.push(...stream);
+      for (const [moduleIndex, streamIndex] of streamIndexOf) movedTo.set(moduleIndex, base + streamIndex);
+    };
+    if (!allocation.ok) {
+      fail(allocation.reason, allocation.conflicts, [], []);
       return;
     }
-    const applied = applySegments(stream, allocation.assigned, new Set(incoming));
+    const applied = applySegments(stream, allocation.assigned, new Set(incoming), allocation.spilled, free);
+    // Вытеснение не состоялось (нет свободного регистра в точке сайта) — это отказ раскладки, а не
+    // молчаливая потеря значения: поток уходит нерозыгранным, и причина названа.
+    if (applied.problems.length > 0) {
+      fail(`вытеснение не удалось: ${applied.problems.join('; ')}`, [], applied.unmapped, applied.spilled);
+      return;
+    }
     // Сколько РЕГИСТРОВ ОКНА занимает процедура: закреплённые (параметры) плюс выданные раскладкой.
     // Закреплённые считаются по своим номерам: параметр приходит в регистре с этим номером.
     const pinned = incoming.filter((vreg) => vreg < WINDOW_REGISTERS_ENTRY);
@@ -401,6 +463,7 @@ export function allocateProgram(
       ...common,
       ok: true,
       conflicts: [],
+      spilled: applied.spilled,
       used: allocation.allocation.used.length,
       usedRegisters: allocation.allocation.used,
       windowRegistersNeeded,
@@ -408,6 +471,11 @@ export function allocateProgram(
       unmapped: applied.unmapped,
     });
     result.push(...applied.instructions);
+    // Цель перехода — ПЕРВЫЙ носитель, выданный за эту инструкцию: если перед целью вставилось
+    // чтение из слота, переход обязан попасть на него, а не за него.
+    for (const [moduleIndex, streamIndex] of streamIndexOf) {
+      movedTo.set(moduleIndex, base + (applied.firstIndexOf[streamIndex] ?? streamIndex));
+    }
   });
   // Цели переходов пересчитываются ПОСЛЕ сборки: сдвиг зависит от снятий во всех процедурах.
   const remapped = remapJumpTargets(result, movedTo);
@@ -426,6 +494,7 @@ export function allocateProgram(
         ok: false,
         reason: problem,
         conflicts: [],
+        spilled: [],
         used: 0,
         usedRegisters: [],
         windowRegistersNeeded: 0,
@@ -436,6 +505,38 @@ export function allocateProgram(
   }
   return { instructions: remapped.instructions, procedures: rewrittenProcedures, report, removedCopies, materializedConstants };
 }
+/** Итог раскладки по отрезкам: либо она есть (с вытесненными значениями), либо отказ с причиной. */
+export type SegmentAllocationResult =
+  | {
+      readonly ok: true;
+      readonly allocation: Allocation;
+      readonly assigned: readonly (LiveInterval & { readonly register: number })[];
+      /** Что уехало в память: значение, слот, адрес и цена в обращениях к памяти. */
+      readonly spilled: readonly SpilledValue[];
+    }
+  | {
+      readonly ok: false;
+      readonly reason: string;
+      readonly conflicts: readonly number[];
+      readonly assigned: readonly (LiveInterval & { readonly register: number })[];
+    };
+
+/** Что нужно раскладке по отрезкам, кроме самих отрезков. */
+export interface SegmentAllocationOptions {
+  /**
+   * План вытеснения. Не передан — вытеснения не делается вовсе (так проверяется негативный
+   * контроль: та же программа обязана отказать).
+   */
+  readonly spill?: SpillOptions;
+  /**
+   * Значения, переносящие жизнь через обратную дугу цикла: их вытеснение дороже (добавленные
+   * обращения к памяти исполняются на каждом витке), и цена это учитывает.
+   */
+  readonly loopCarried?: ReadonlySet<number>;
+  /** Поток процедуры — по нему считается цена вытеснения (чтения и определения значения). */
+  readonly instructions?: readonly AsmInstruction[];
+}
+
 /**
  * Раскладка по ОТРЕЗКАМ жизни: одному и тому же vreg разные отрезки могут достаться разные
  * регистры — регистр нужен только там, где значение живо.
@@ -449,19 +550,57 @@ export function allocateProgram(
  * (`.tmp/cfg-experiment3.ts`) — и оказалось бесполезным: в звуковой раскладке тесный момент
  * `фильтр` даёт те же 9 живых отрезков при 8 свободных, отказы те же три процедуры. Правило снято,
  * чтобы не тащить лишнюю посылку в доказательство звуковости.
+ *
+ * # Вытеснение (минимальное)
+ *
+ * Регистра не хватило — в память уезжает **самое дешёвое** из активных значений
+ * (`src/vliw/spill.ts`: редко читается, не переносится через дугу), и его регистр освобождается.
+ * Вытесненных значений на процедуру — не больше `MAX_SPILLS_PER_PROCEDURE`; сверх этого **отказ**,
+ * а не тихая потеря значения. Носители вытеснения вставляет {@link applySegments}.
  */
 export function allocateSegments(
   segments: readonly LiveInterval[],
   free: readonly number[] = ALLOCATABLE_REGISTERS,
-): AllocationResult & { readonly assigned: readonly (LiveInterval & { readonly register: number })[] } {
+  options: SegmentAllocationOptions = {},
+): SegmentAllocationResult {
   // Тот же linear scan, но по отрезкам: vreg в отображении повторяется, и это НЕ ошибка —
   // отображение здесь позиционное (см. applySegments).
-  const sorted = [...segments].sort((a, b) => a.start - b.start || a.end - b.end);
-  const active: { end: number; register: number }[] = [];
+  const sorted = [...segments].sort((a, b) => a.start - b.start || a.end - b.end || a.vreg - b.vreg);
+  const active: { end: number; register: number; vreg: number }[] = [];
   const assignment = new Map<number, number>();
   const assigned: (LiveInterval & { register: number })[] = [];
   const used = new Set<number>();
+  const spilled: { vreg: number; slot: number; address: number }[] = [];
+  const spilledVregs = new Set<number>();
+  const plan = options.spill;
+  const maxSlots = plan?.maxSlots ?? MAX_SPILLS_PER_PROCEDURE;
+  const costs =
+    plan !== undefined && options.instructions !== undefined
+      ? spillCostsOf(options.instructions, {
+          defUse: defUseOf,
+          ...(options.loopCarried === undefined ? {} : { loopCarried: options.loopCarried }),
+        })
+      : new Map();
+  const sites =
+    plan !== undefined && options.instructions !== undefined
+      ? spillSitesOf(options.instructions, { defUse: defUseOf })
+      : new Map();
+  /**
+   * Сколько ЧУЖИХ значений занято в этой точке. Считается по отрезкам, а не по живости: раскладка
+   * знает ровно отрезки, и именно они решают, есть ли регистр под сайт вытеснения.
+   */
+  const occupiedAt = (at: number, exclude: number): number => {
+    const seen = new Set<number>();
+    for (const other of sorted) {
+      if (other.vreg === exclude || spilledVregs.has(other.vreg)) continue;
+      if (other.start <= at && at <= other.end) seen.add(other.vreg);
+    }
+    return seen.size;
+  };
+  const feasible = (vreg: number): boolean => siteFeasible(sites.get(vreg), free.length, (at) => occupiedAt(at, vreg));
   for (const segment of sorted) {
+    // Вытесненное значение регистра не занимает: оно живёт в слоте и подгружается в точке чтения.
+    if (spilledVregs.has(segment.vreg)) continue;
     for (let index = active.length - 1; index >= 0; index--) {
       // Регистр освобождается, когда отрезок кончился. Соприкосновение (end === start) НЕ
       // освобождает: в этот момент обе величины могут быть живы одновременно.
@@ -473,8 +612,44 @@ export function allocateSegments(
         active.splice(index, 1);
       }
     }
-    const taken = new Set(active.map((entry) => entry.register));
-    const register = free.find((candidate) => !taken.has(candidate));
+    const held = (): Set<number> => new Set(active.map((entry) => entry.register));
+    let register = free.find((candidate) => !held().has(candidate));
+    // Регистра нет — вытесняем самое дешёвое из тех, кто его держит, и пробуем снова.
+    while (register === undefined && plan !== undefined) {
+      if (spilled.length >= maxSlots) {
+        const live = sorted.filter((other) => overlaps(other, segment));
+        return {
+          ok: false,
+          reason:
+            (maxSlots === 0
+              ? 'раскладка по отрезкам невозможна: вытеснение в память (spill) не заказано (предел 0)'
+              : `вытеснение не минимально: значений в память нужно больше ${maxSlots} (предел ` +
+                '`MAX_SPILLS_PER_PROCEDURE`, src/vliw/spill.ts) — это уже не минимальное вытеснение, ' +
+                'а полный аллокатор с вытеснением') +
+            `; в тесный момент живы ${live.length} отрезков, ` +
+            `свободных регистров ${free.length} (${free.map((value) => `%b[${value}]`).join(', ')})`,
+          conflicts: [...new Set(live.map((other) => other.vreg))].sort((a, b) => a - b),
+          assigned,
+        };
+      }
+      const victim = chooseSpillVictim(
+        active.map((entry) => entry.vreg),
+        costs,
+        feasible,
+      );
+      if (victim === undefined) {
+        // Активных нет, а регистра всё равно нет: вытеснять некого — это отказ раскладки, а не
+        // вытеснения (такой случай возможен, если свободных регистров меньше, чем закреплённых).
+        register = undefined;
+        break;
+      }
+      spilledVregs.add(victim);
+      spilled.push({ vreg: victim, slot: spilled.length, address: spillAddressOf(plan.base, spilled.length) });
+      for (let index = active.length - 1; index >= 0; index--) {
+        if (active[index]!.vreg === victim) active.splice(index, 1);
+      }
+      register = free.find((candidate) => !held().has(candidate));
+    }
     if (register === undefined) {
       const live = sorted.filter((other) => overlaps(other, segment));
       return {
@@ -482,18 +657,30 @@ export function allocateSegments(
         reason:
           `раскладка по отрезкам невозможна: в тесный момент живы ${live.length} отрезков, ` +
           `свободных регистров ${free.length} (${free.map((value) => `%b[${value}]`).join(', ')}); ` +
-          'вытеснение в память (spill) здесь не делается — это следующий слой',
+          (plan === undefined
+            ? 'вытеснение в память (spill) не заказано — передайте план вытеснения'
+            : 'вытеснять больше нечего: активных значений нет'),
         conflicts: [...new Set(live.map((other) => other.vreg))].sort((a, b) => a - b),
         assigned,
       };
     }
     assignment.set(segment.vreg, register);
     assigned.push({ ...segment, register });
-    active.push({ end: segment.end, register });
+    active.push({ end: segment.end, register, vreg: segment.vreg });
     active.sort((a, b) => a.end - b.end);
     used.add(register);
   }
-  return { ok: true, allocation: { assignment, used: [...used].sort((a, b) => a - b) }, assigned };
+  // Назначения вытесненных значений снимаются: их отрезки были назначены ДО того, как значение
+  // выбрали жертвой, и с этого момента регистр держать нельзя.
+  const kept = assigned.filter((segment) => !spilledVregs.has(segment.vreg));
+  for (const segment of kept) assignment.set(segment.vreg, segment.register);
+  for (const vreg of spilledVregs) assignment.delete(vreg);
+  return {
+    ok: true,
+    allocation: { assignment, used: [...used].sort((a, b) => a - b) },
+    assigned: kept,
+    spilled: spilled.map((item) => ({ ...item, accesses: 0 })),
+  };
 }
 
 /**
@@ -502,16 +689,81 @@ export function allocateSegments(
  *
  * vreg без отрезка (например, приёмник, которого никто не прочёл: отрезок у него есть, но если
  * раскладка его не назначила) остаётся как есть — и **называется** в `unmapped`.
+ *
+ * # Вытесненные значения
+ *
+ * Значение, уехавшее в слот (`src/vliw/spill.ts`), регистра не держит, поэтому носители вытеснения
+ * вставляются **здесь** — в поток, уже разложенный по регистрам:
+ *
+ * * перед каждым **чтением** значения — чтение из слота в регистр, свободный в этой точке;
+ * * после каждого **определения** — запись значения в слот.
+ *
+ * Регистр сайта берётся из свободных **в этой самой команде** (по невытесненным отрезкам), поэтому
+ * вытеснение и экономит регистр: длинную жизнь значения заменяют короткие жизни «на одну команду».
+ * Один и тот же регистр может обслужить разные сайты.
+ *
+ * Регистр адреса не может совпасть с регистром значения: `std` читает оба. Если свободного регистра
+ * в точке сайта нет — это **названная проблема** (`problems`), а не молчаливая потеря значения.
  */
 export function applySegments(
   instructions: readonly AsmInstruction[],
   segments: readonly (LiveInterval & { readonly register: number })[],
   keep: ReadonlySet<number> = new Set(),
+  spilled: readonly SpilledValue[] = [],
+  free: readonly number[] = ALLOCATABLE_REGISTERS,
 ): ApplyResult {
+  const plan = new Map(spilled.map((item) => [item.vreg, item]));
   const unmapped = new Set<number>();
-  const mapped = instructions.map((instruction, at) => {
-    const named = namedRegisters(instruction);
-    return {
+  const problems: string[] = [];
+  const accesses = new Map<number, number>();
+  const emitted: AsmInstruction[] = [];
+  const firstIndexOf: number[] = [];
+  const pool = free.length > 0 ? free : ALLOCATABLE_REGISTERS;
+  /** Регистры, занятые в этой команде: закреплённые плюс выданные невытесненным отрезкам. */
+  const heldAt = (at: number): Set<number> => {
+    const held = new Set<number>(keep);
+    for (const segment of segments) {
+      if (segment.start <= at && at <= segment.end) held.add(segment.register);
+    }
+    return held;
+  };
+  const takeFree = (held: ReadonlySet<number>, exclude: readonly number[]): number | undefined =>
+    pool.find((candidate) => !held.has(candidate) && !exclude.includes(candidate));
+
+  instructions.forEach((instruction, at) => {
+    firstIndexOf.push(emitted.length);
+    const { def, use } = defUseOf(instruction);
+    const named = new Set([...def, ...use]);
+    const held = heldAt(at);
+    // Регистр сайта — одно чтение из слота на ЗНАЧЕНИЕ, а не на операнд: если значение читается
+    // дважды одной командой (`IR.add d, a, a`), хватает одного чтения.
+    const sites = new Map<number, number>();
+    const spilledReads = [...new Set(use)].filter((vreg) => plan.has(vreg)).sort((a, b) => a - b);
+    const spilledDefs = [...new Set(def)].filter((vreg) => plan.has(vreg)).sort((a, b) => a - b);
+    for (const vreg of spilledReads) {
+      const register = takeFree(held, []);
+      if (register === undefined) {
+        problems.push(`«${instruction.mnemonic}» #${at}: значение v${vreg} вытеснено, но свободного регистра под чтение из слота нет`);
+        continue;
+      }
+      held.add(register);
+      sites.set(vreg, register);
+      // Чтение из слота: адрес кладётся в тот же регистр, а потом в нём же оказывается значение.
+      emitted.push(spillLoadCarrier(register, register, plan.get(vreg)!.address));
+      accesses.set(vreg, (accesses.get(vreg) ?? 0) + 1);
+    }
+    for (const vreg of spilledDefs) {
+      if (sites.has(vreg)) continue;
+      const register = takeFree(held, []);
+      if (register === undefined) {
+        problems.push(`«${instruction.mnemonic}» #${at}: приёмник v${vreg} вытеснен, но свободного регистра под запись в слот нет`);
+        continue;
+      }
+      held.add(register);
+      sites.set(vreg, register);
+    }
+    // Сама команда: операнды вытесненных значений получают регистр своего сайта.
+    emitted.push({
       ...instruction,
       operands: instruction.operands.map((operand) => {
         if (operand.kind !== 'reg') return operand;
@@ -520,6 +772,8 @@ export function applySegments(
         if (!named.has(operand.index)) return operand;
         // Закреплённый vreg (входящий параметр) остаётся в своём регистре — и это не «неотображён».
         if (keep.has(operand.index)) return operand;
+        const site = sites.get(operand.index);
+        if (site !== undefined) return { ...operand, index: site };
         const covering = segments.filter(
           (segment) => segment.vreg === operand.index && segment.start <= at && at <= segment.end,
         );
@@ -533,15 +787,45 @@ export function applySegments(
         );
         return { ...operand, index: narrowest.register };
       }),
-    };
+    });
+    // Запись в слот — сразу после определения значения.
+    for (const vreg of spilledDefs) {
+      const value = sites.get(vreg);
+      if (value === undefined) continue; // причину уже назвали выше
+      const address = takeFree(held, [value]);
+      if (address === undefined) {
+        problems.push(`«${instruction.mnemonic}» #${at}: значение v${vreg} вытеснено, но регистра под адрес слота нет`);
+        continue;
+      }
+      held.add(address);
+      emitted.push(spillStoreCarrier(value, address, plan.get(vreg)!.address));
+      accesses.set(vreg, (accesses.get(vreg) ?? 0) + 1);
+    }
   });
-  return { instructions: mapped, unmapped: [...unmapped].sort((a, b) => a - b) };
+  return {
+    instructions: emitted,
+    unmapped: [...unmapped].sort((a, b) => a - b),
+    spilled: spilled.map((item) => ({ ...item, accesses: accesses.get(item.vreg) ?? 0 })),
+    firstIndexOf,
+    problems,
+  };
 }
 /** Итог применения раскладки к потоку носителей. */
 export interface ApplyResult {
   readonly instructions: readonly AsmInstruction[];
   /** vreg'и, которых не было в раскладке: они остались со своими номерами. */
   readonly unmapped: readonly number[];
+  /** Вытесненные значения с ценой в обращениях к памяти. */
+  readonly spilled: readonly SpilledValue[];
+  /**
+   * С какого индекса в новом потоке начинается каждая команда исходного.
+   *
+   * Нужно для целей переходов: если перед командой-целью вставилось чтение из слота, целью обязана
+   * стать эта вставка, иначе переход проскочит подгрузку и значение останется старым.
+   */
+  readonly firstIndexOf: readonly number[];
+  /** Почему вытеснение не состоялось: свободного регистра в точке сайта не нашлось. */
+  readonly problems: readonly string[];
 }
 
 /**
@@ -554,7 +838,7 @@ export function applyAllocation(
   instructions: readonly AsmInstruction[],
   assignment: ReadonlyMap<number, number>,
   keep: ReadonlySet<number> = new Set(),
-): ApplyResult {
+): { readonly instructions: readonly AsmInstruction[]; readonly unmapped: readonly number[] } {
   const unmapped = new Set<number>();
   const mapped = instructions.map((instruction) => {
     const named = namedRegisters(instruction);

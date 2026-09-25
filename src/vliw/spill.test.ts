@@ -61,14 +61,15 @@ const carrier = (mnemonic: string, operands: Operand[]): AsmInstruction => ({ mn
  *
  * Результат при `v0 = v1 = 1`: `2 + 3 + … + (count+1) = count·(count+3)/2`.
  */
-function liveValuesProgram(count: number): AsmInstruction[] {
+function liveValuesProgram(count: number, sumStartsWith = 2): AsmInstruction[] {
   const program: AsmInstruction[] = [carrier('IR.add', [reg(2), reg(0), reg(1)])];
   for (let index = 3; index <= count + 1; index++) {
     program.push(carrier('IR.add', [reg(index), reg(index - 1), reg(0)]));
   }
-  let sum = 2;
+  let sum = sumStartsWith;
   let next = count + 2;
-  for (let index = 3; index <= count + 1; index++) {
+  for (let index = 2; index <= count + 1; index++) {
+    if (index === sumStartsWith) continue;
     program.push(carrier('IR.add', [reg(next), reg(sum), reg(index)]));
     sum = next;
     next++;
@@ -210,9 +211,39 @@ describe('минимальное вытеснение в память', () => {
     expect(spillCarriers, 'носители вытеснения в эталонном источнике').toEqual([]);
   });
 
+  it('1.5 цель перехода попадает на подгрузку, а не за неё', () => {
+    // Программа с переходом ВПЕРЁД на инструкцию, которая читает вытесненное значение. Цель такого
+    // перехода обязана стать ПОДГРУЗКОЙ: если она указывает за неё, переход проскочит чтение из слота
+    // и значение останется старым — молчаливая ошибка, ради которой проверка и написана.
+    //
+    // Конфигурация найдена перебором (`.tmp/spill-jump-search.ts`): инструкция №3 — определение v5,
+    // читающее v4; раскладка вытесняет и v5, и v4. Если политика вытеснения изменится настолько, что
+    // этих значений в списке не будет, проверку придётся пересмотреть: иначе она перестанет
+    // проверять своё свойство (подгрузка по цели) и станет зелёной ни о чём.
+    const program = liveValuesProgram(9);
+    const targetAt = 3;
+    program.splice(targetAt, 0, carrier('IR.jmp', [imm(targetAt + 1)]));
+    const result = allocateProgram(program, proceduresOf(program), { spill: { base: SPILL_BASE } });
+    const report = result.report[0]!;
+    expect(report.ok, report.ok ? '' : `отказ: ${report.reason ?? ''}`).toBe(true);
+    expect(
+      report.spilled.map((item) => item.vreg),
+      'вытеснены определение v5 и чтение v4',
+    ).toEqual([5, 4]);
+    const jump = result.instructions.find((instruction) => instruction.mnemonic === 'IR.jmp');
+    expect(jump, 'переход в потоке').toBeDefined();
+    const destination = jump!.operands[0];
+    if (destination === undefined || destination.kind !== 'imm') throw new Error('цель перехода не число');
+    // Самое важное: по цели перехода лежит ПОДГРУЗКА, а сразу за ней — та самая арифметика.
+    expect(result.instructions[destination.value]?.mnemonic, 'носитель по цели перехода').toBe(SPILL_LOAD);
+    expect(result.instructions[destination.value + 1]?.mnemonic, 'носитель сразу за подгрузкой').toBe('IR.add');
+  });
+
   it('1.4 негативный контроль: без вытеснения та же программа раскладку не проходит', () => {
     const program = liveValuesProgram(9);
-    const without = allocateProgram(program, proceduresOf(program));
+    // «Снять вытеснение» выражено числом: предел слотов 0. Молчаливое «не передали план» больше
+    // ничего не доказывало бы — план есть по умолчанию, и это и есть предмет проверки.
+    const without = allocateProgram(program, proceduresOf(program), { spill: { base: SPILL_BASE, maxSlots: 0 } });
     const report = without.report[0]!;
     expect(report.ok, 'раскладка прошла без вытеснения — тогда проверка 1.1 ничего не доказывает').toBe(false);
     expect(report.reason ?? '', 'причина отказа').toMatch(/отрезков|регистр/);

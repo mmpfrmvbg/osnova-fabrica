@@ -64,8 +64,9 @@ import { sameInstruction } from "./backend";
 import { REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from "./e2k-real";
 import { CALL_WBS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
-import { lowerArrayCall } from "./arrayRuntime";
+import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
+import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
 import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
@@ -90,6 +91,20 @@ const movts = (source: number, destination: number): AsmInstruction => ({
     { kind: "reg", index: source, file: "window" },
     { kind: "reg", index: destination, file: "window" },
   ],
+});
+
+/** `ldd база, смещение, приёмник` — адрес = база + смещение (`translate-al-c11.c:30-34`). */
+const ldd = (base: number, offset: number, destination: number): AsmInstruction => ({
+  mnemonic: "ldd",
+  channel: 0,
+  operands: [reg(base), reg(offset), reg(destination)],
+});
+
+/** `std значение, база, смещение` — порядок операндов текстовый, `(значение, база, смещение)`. */
+const std = (value: number, base: number, offset: number): AsmInstruction => ({
+  mnemonic: "std",
+  channel: 2, // `st*` разрешены только в каналах 2 и 5 (opcodes/e2k-opc.h:969-984)
+  operands: [reg(value), reg(base), reg(offset)],
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -513,6 +528,56 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  // ── Вытеснение в память: чтение и запись слота (`src/vliw/spill.ts`) ─────────────────────────
+  //
+  // Адрес слота в e2k — **сумма двух регистров**, поля смещения в команде нет (измерено:
+  // `src/e2k/e2kMemory.test.ts`, `qemu/target/e2k/tcg/translate-al-c11.c:26-34`). Поэтому адрес
+  // кладётся в регистр литералом `movtd`, а смещением служит `%b[12]` — ноль рантайма массивов,
+  // который никто не переписывает (сам рантайм его только читает как нулевое смещение).
+  //
+  // Регистры в этих носителях уже ФИЗИЧЕСКИЕ: раскладка вставляет их после того, как раздала
+  // регистры (`src/e2k/regAlloc.ts`), и берёт под них регистр, свободный в точке сайта.
+  if (instruction.mnemonic === SPILL_LOAD || instruction.mnemonic === SPILL_STORE) {
+    const operands = instruction.operands;
+    const first = operands[0];
+    const second = operands[1];
+    const slot = operands[2];
+    if (
+      first === undefined ||
+      second === undefined ||
+      slot === undefined ||
+      first.kind !== "reg" ||
+      second.kind !== "reg" ||
+      slot.kind !== "imm"
+    ) {
+      return {
+        ok: false,
+        reason: `«${instruction.mnemonic}»: ожидались [регистр, регистр, адрес слота], получено [${operands
+          .map((operand) => operand.kind)
+          .join(", ")}]`,
+      };
+    }
+    const literal: Operand = { kind: "imm64", value: BigInt(slot.value) } as Operand;
+    if (instruction.mnemonic === SPILL_LOAD) {
+      // `[регистр-адреса, регистр-приёмника, слот]` → `movtd адрес, #слот` + `ldd адрес, ноль, приёмник`.
+      return {
+        ok: true,
+        instructions: [
+          { mnemonic: "movtd", channel: 0, operands: [literal, reg(first.index)] },
+          ldd(first.index, ARRAY_REGISTERS.zero, second.index),
+        ],
+      };
+    }
+    // `[регистр-значения, регистр-адреса, слот]` → `movtd адрес, #слот` + `std значение, адрес, ноль`.
+    return {
+      ok: true,
+      instructions: [
+        { mnemonic: "movtd", channel: 0, operands: [literal, reg(second.index)] },
+        std(first.index, second.index, ARRAY_REGISTERS.zero),
+      ],
+    };
   }
 
   const comparison = comparisonMnemonicOf(instruction.mnemonic);

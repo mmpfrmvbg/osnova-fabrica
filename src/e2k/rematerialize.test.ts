@@ -28,10 +28,11 @@ import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
-import { defUseOf, liveSegmentsOf } from './liveness';
+import { cfgSegmentsOf, defUseOf, mergeLoopCarriedSegments } from './liveness';
 import { removeCopies } from './copyElim';
 import { rematerializeConstants } from './rematerialize';
 import { ALLOCATABLE_REGISTERS, WINDOW_REGISTERS_CALLEE, allocateSegments, incomingRegisters } from './regAlloc';
+import { DEFAULT_SPILL_BASE } from './elfMinimal';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const KERNELS_DIR = path.join(ROOT, 'tests', 'dsp', 'kernels');
@@ -65,9 +66,13 @@ function procedure(name: string, procedureName: string): AsmInstruction[] {
 function windowNeed(carriers: readonly AsmInstruction[]): { need: number; used: number; pins: number } {
   const incoming = incomingRegisters(carriers);
   const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
+  // Тот же путь, что в конвейере: отрезки по графу потока управления (`cfgSegmentsOf`), слияние
+  // переносимых через дугу цикла и минимальное вытеснение в память (`src/vliw/spill.ts`).
+  const segments = mergeLoopCarriedSegments(cfgSegmentsOf(carriers).segments, carriers, 0);
   const result = allocateSegments(
-    liveSegmentsOf(carriers).filter((segment) => !incoming.includes(segment.vreg)),
+    segments.filter((segment) => !incoming.includes(segment.vreg)),
     free,
+    { spill: { base: DEFAULT_SPILL_BASE }, instructions: carriers },
   );
   if (!result.ok) throw new Error(`раскладка не удалась: ${result.reason}`);
   return { need: incoming.length + result.allocation.used.length, used: result.allocation.used.length, pins: incoming.length };
@@ -173,13 +178,12 @@ describe('повторная материализация: измеренный 
     expect(materialized.materialized, 'материализованных определений у фильтра').toEqual([]);
     expect(materialized.skipped['одночтение'], 'отказано: одно чтение').toBe(4);
     expect(materialized.skipped['границаблока'], 'отказано: граница блока внутри промежутка').toBe(1);
-    // ЦЕЛЬ, и она НЕ достигнута — проверка красная намеренно (решение владельца).
-    // Измерено 2026-09-24: раскладка `фильтр` в окне вызываемой ОТКАЗЫВАЕТ — 11 живых отрезков при
-    // 8 свободных (`.tmp/measure-regalloc.ts`), поэтому бюджет окна посчитать нечем: `windowNeed`
-    // ниже бросает отказ. Снимает его шаг 4 `docs/e2k-regalloc-debt.md` §5 — точная живость по CFG
-    // либо вытеснение. Прежнее «нужно 10, влезает 7 из 8» снималось против НЕзвуковых правил и
-    // потому недействительно; материализация констант этого не меняет: выше измерено, что у
-    // `фильтр` она отказывает на всех пяти константах.
+    // Перемер 2026-09-24 (`.tmp/spill-measure.ts`) после минимального вытеснения в память: раскладка
+    // `фильтр` теперь УДАЁТСЯ, и бюджет окна считается числом — **10** регистров (два закреплённых
+    // параметра плюс восемь занятых). В окно вызываемой (восемь) это по-прежнему НЕ влезает, и
+    // материализация констант этого не меняет: выше измерено, что у `фильтр` она отказывает на всех
+    // пяти константах. Прежняя редакция звала раскладку без плана вытеснения, поэтому `windowNeed`
+    // бросал отказ и числа не давал вовсе.
     const need = windowNeed(elimination.carriers).need;
     expect(need, 'нужно регистров окна').toBe(10);
     expect(need, 'в окно вызываемой не влезает').toBeGreaterThan(WINDOW_REGISTERS_CALLEE);

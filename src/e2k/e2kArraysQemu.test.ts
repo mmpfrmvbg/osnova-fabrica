@@ -173,12 +173,30 @@ function loweredProgram(source: string): { bytes: Uint8Array; refused: readonly 
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
   const emitted = emitShell(annotated, shellEncoder);
-  const context = { constants: emitted.scheduled.constants, invokeNames: emitted.image.invokeNames };
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
   const report = allocation.report[0]!;
   if (!report.ok) throw new Error(`раскладка отказала: ${report.reason ?? 'причина не названа'}`);
-  const code = allocation.instructions;
-  const layout = layoutOf(code, { invokeNames: emitted.image.invokeNames, constants: emitted.scheduled.constants });
+  return {
+    ...imageOfCarriers(allocation.instructions, emitted.scheduled.constants, emitted.image.invokeNames),
+    used: report.used,
+  };
+}
+
+/**
+ * Собрать образ из УЖЕ РАЗЛОЖЕННОГО потока носителей: раскладка адресов, пары «сравнение + переход»,
+ * понижение, пролог рантайма массивов и выход через `exit`.
+ *
+ * Вынесено из {@link loweredProgram}, чтобы тем же путём можно было прогнать поток, собранный
+ * ВРУЧНУЮ: у источника эмиттер вправе переставить чтения, и давление на регистры падает само
+ * (измерено: программа с одиннадцатью чтениями массива даёт пик 5 и вытеснения не требует).
+ */
+function imageOfCarriers(
+  code: readonly AsmInstruction[],
+  constants: readonly unknown[],
+  invokeNames: readonly string[],
+): { bytes: Uint8Array; refused: readonly string[] } {
+  const context = { constants, invokeNames };
+  const layout = layoutOf(code, { invokeNames, constants });
   const resolved = secondPass(code, layout.addresses);
   const pairing = pairPredicates(code);
   const predicateAt = new Map(
@@ -241,7 +259,7 @@ function loweredProgram(source: string): { bytes: Uint8Array; refused: readonly 
     bytes.set(chunk, offset);
     offset += chunk.length;
   }
-  return { bytes, refused, used: report.used };
+  return { bytes, refused };
 }
 
 const shim = buildShim();
@@ -403,5 +421,50 @@ describe('массивы в модели: настоящие обращения 
       return;
     }
     expect(code, 'длина массива из четырёх литералов').toBe(4);
+  });
+
+  it('ВЫТЕСНЕНИЕ В ПАМЯТЬ исполняется: одиннадцать живых значений дают верное число', () => {
+    if (shim === undefined) return;
+    // Поток собирается ВРУЧНУЮ, и это не прихоть: у источника эмиттер вправе переставить чтения, и
+    // давление падает само — измерено (`.tmp/spill-program-check.ts`), программа с одиннадцатью
+    // чтениями массива даёт пик 5 и вытеснения не требует. Здесь одиннадцать значений определены
+    // подряд и все читаются в конце, то есть живы ОДНОВРЕМЕННО, а свободных регистров у процедуры без
+    // параметров десять (`%b[0..9]`; `%b[10..15]` держит рантайм массивов). Раскладка обязана
+    // вытеснить одно значение в слот и подгружать его перед чтением (`src/vliw/spill.ts`), а сумма
+    // обязана остаться верной: 1 + 2 + … + 11 = 66.
+    const constants = Array.from({ length: 11 }, (_, index) => index + 1);
+    const program: AsmInstruction[] = constants.map((_, index) => ({
+      mnemonic: 'IR.const',
+      channel: 0,
+      operands: [base(index), imm(index), imm(0)],
+    }));
+    let sum = 0;
+    let next = constants.length;
+    for (let index = 1; index < constants.length; index++) {
+      program.push({ mnemonic: 'IR.add', channel: 0, operands: [base(next), base(sum), base(index)] });
+      sum = next;
+      next++;
+    }
+    program.push({ mnemonic: 'IR.ret', channel: 0, operands: [imm(1), base(sum)] });
+    const allocation = allocateProgram(program, [{ name: 'главная', codeOffset: 0, vregs: next }]);
+    const report = allocation.report[0]!;
+    expect(report.ok, report.ok ? '' : `отказ: ${report.reason ?? ''}`).toBe(true);
+    // Вытеснено два значения (не одно): линейный проход встаёт на первой точке нехватки, а не на
+    // самой плотной, и второго регистра ему не хватает там же. Главное — что вытеснение есть и что
+    // оно не больше разрешённого минимума.
+    expect(report.spilled.length, 'вытеснено значений').toBeGreaterThanOrEqual(1);
+    expect(report.spilled.length, 'вытеснений на процедуру').toBeLessThanOrEqual(2);
+    const image = imageOfCarriers(allocation.instructions, constants, []);
+    expect(image.refused, 'непонижённые носители: вытеснение обязано понижаться').toEqual([]);
+    fs.writeFileSync(
+      path.join(ROOT, '.tmp', 'e2k-spill.elf'),
+      buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes,
+    );
+    const code = runInQemu(path.join(ROOT, '.tmp', 'e2k-spill.elf'), { shim: true })?.status;
+    if (code === undefined) {
+      expect(code, 'модель не довела программу с вытеснением до выхода').toBeDefined();
+      return;
+    }
+    expect(code, 'сумма одиннадцати значений').toBe(66);
   });
 });

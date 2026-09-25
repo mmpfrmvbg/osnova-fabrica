@@ -122,6 +122,14 @@ const CT_COMMAND_SOURCE =
 const CMP_COMMAND_SOURCE =
   `ALF7, 8 байт — REAL_SHORT_FORM_SIZE; запись сравнения и её источник — src/e2k/e2k-real.ts ` +
   `(opcodes/e2k-opc.h:999,1019,1024); обязательное поле nop = 2 — gas/config/tc-e2k.c:5923`;
+const MOVTD_COMMAND_SOURCE =
+  `ALF2 + литерал LTS, 16 байт — REAL_LONG_FORM_SIZE (src/e2k/e2k-real.ts); измерено кодировщиком ` +
+  `(.tmp/spill-form-size.ts): movtd imm64, %b[5] → 11 00 00 04 05 dc c0 61 00 00 00 00 00 1f 10 00; каналы {0,1,3,4}`;
+const MEMORY_COMMAND_SOURCE =
+  `ALF1 (ldd) / ALF3 (std), 8 байт — REAL_SHORT_FORM_SIZE (src/e2k/e2k-real.ts); опкоды ldd 0x64…0x67 ` +
+  `и std 0x24…0x27 (opcodes/e2k-opc.h:604-619,969-984); измерено ассемблером МЦСТ и кодировщиком ` +
+  `(src/e2k/e2kMemory.test.ts); адрес — СУММА двух регистров, поля смещения в команде нет ` +
+  `(qemu/target/e2k/tcg/translate-al-c11.c:26-34)`;
 
 /**
  * Формы понижения — по одной на носитель.
@@ -180,6 +188,23 @@ export const CARRIER_FORMS: readonly CarrierForm[] = [
   // Сравнения: одна команда формы ALF7, 8 байт (`pdst[4:0]` — предикат-приёмник). Код условия
   // выбирает сопоставление (`src/e2k/predicatePairing.ts`): у `ge`/`gt`/`ne` он тот же, что у
   // `lt`/`le`/`eq`, но предикат читается с отрицанием — условий «больше» в наборе таблицы нет.
+  {
+    // Вытеснение в память (`src/vliw/spill.ts`): сперва адрес слота литералом, затем обращение.
+    // Две команды, а не одна, и это измерено: в e2k адрес памяти — **сумма двух регистров**, поля
+    // смещения в команде нет, поэтому адрес (он же номер слота) обязан сперва попасть в регистр.
+    carrier: "IR.spill_ld",
+    commands: [
+      { mnemonic: "movtd", form: "ALF2 + LTS", size: REAL_LONG_FORM_SIZE, source: MOVTD_COMMAND_SOURCE },
+      { mnemonic: "ldd", form: "ALF1", size: REAL_SHORT_FORM_SIZE, source: MEMORY_COMMAND_SOURCE },
+    ],
+  },
+  {
+    carrier: "IR.spill_st",
+    commands: [
+      { mnemonic: "movtd", form: "ALF2 + LTS", size: REAL_LONG_FORM_SIZE, source: MOVTD_COMMAND_SOURCE },
+      { mnemonic: "std", form: "ALF3", size: REAL_SHORT_FORM_SIZE, source: MEMORY_COMMAND_SOURCE },
+    ],
+  },
   {
     carrier: "IR.lt",
     commands: [{ mnemonic: "cmplsb", form: "ALF7", size: REAL_SHORT_FORM_SIZE, source: CMP_COMMAND_SOURCE }],

@@ -114,10 +114,16 @@ export interface PairingResult {
  * Раскладка наша и живёт в эмиттере оболочки (`src/e2k/emitterShell.ts`): бинарные операции и
  * сравнения несут `(dst, a, b)`, `move`/`not` — `(dst, a)`, `const` — `(dst, k, type)`,
  * `call`/`invoke` — `(flags, src1, src2, imm, dst)` (приёмник пятый), `ret` — `(флаг, значение)`,
- * `jmp_if`/`jmp_if_not` — `(cond, off)`, `jmp` — `(off)`.
+ * `jmp_if`/`jmp_if_not` — `(cond, off)`, `jmp` — `(off)`, вытеснение в память
+ * (`src/vliw/spill.ts`) — `spill_ld` `(адрес, приёмник, слот)`, `spill_st` `(значение, адрес, слот)`.
  *
  * `known: false` — операция, у которой приёмник и источники нам неизвестны; такая инструкция в
  * промежутке делает живость недоказанной, и пара отвергается (отказ, а не догадка).
+ *
+ * Носители вытеснения здесь описаны **обязательно**: они вставляются в поток между сравнением и
+ * условным переходом, и пока они были «неизвестны», промежуток обрывался на них, а читателем
+ * сравнения начинала считаться любая инструкция с тем же номером регистра дальше по потоку — то
+ * есть пара отвергалась по ложной причине (измерено: `корреляция`, `.tmp/pair-refusal-debug.ts`).
  */
 function registersOf(instruction: AsmInstruction): { known: boolean; reads: number[]; writes: number[] } {
   const regs = (operands: readonly { kind: string; index?: number }[]): number[] =>
@@ -129,6 +135,12 @@ function registersOf(instruction: AsmInstruction): { known: boolean; reads: numb
     writes,
   });
   switch (instruction.mnemonic) {
+    case "IR.spill_ld":
+      // `movtd` + `ldd`: читается регистр адреса, пишется приёмник.
+      return known(regs([operands[0]!]), regs([operands[1]!]));
+    case "IR.spill_st":
+      // `movtd` + `std`: читаются и значение, и регистр адреса; приёмника нет.
+      return known(regs([operands[0]!, operands[1]!]), []);
     case "IR.const":
       return known([], regs([operands[0]!]));
     case "IR.move":
