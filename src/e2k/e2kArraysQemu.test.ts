@@ -36,6 +36,11 @@ import { pairPredicates } from './predicatePairing';
 import { buildElfFromCode, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
 import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
+import {
+  FIR_REFERENCE_COEFFICIENTS,
+  FIR_REFERENCE_INPUT,
+  FIR_REFERENCE_SOURCE,
+} from './firReference';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
@@ -270,28 +275,16 @@ function twoArrayProgram(declarations: readonly string[], first: string, express
   return ['модуль ПробаКуча', 'процедура главная()', ...declarations, first, `  вернуть ${expression}`, 'конец'].join('\n');
 }
 
-const ВХОД = '  пусть вход = [3, 1, 4, 1, 5, 9, 2, 6]';
-const КОЭФ = '  пусть коэффициенты = [1, 2, 3, 4]';
+const ВХОД = FIR_REFERENCE_INPUT;
+const КОЭФ = FIR_REFERENCE_COEFFICIENTS;
 
-/** FIR целиком: две петли, один аккумулятор — источник, которым измерен эталон 181. */
-const FIR = [
-  'модуль ПробаFIR',
-  'процедура главная()',
-  ВХОД,
-  КОЭФ,
-  '  пусть итог = 0',
-  '  пусть n = система.массив.длина(коэффициенты) - 1',
-  '  пока n < система.массив.длина(вход)',
-  '    пусть k = 0',
-  '    пока k < система.массив.длина(коэффициенты)',
-  '      итог = итог + система.массив.получить(вход, n - k) * система.массив.получить(коэффициенты, k)',
-  '      k = k + 1',
-  '    конец',
-  '    n = n + 1',
-  '  конец',
-  '  вернуть итог',
-  'конец',
-].join('\n');
+/**
+ * FIR целиком: две петли, один аккумулятор — источник, которым измерен эталон 181.
+ *
+ * Вынесен в `src/e2k/firReference.ts`: на тот же текст смотрит оракул вытеснения
+ * (`src/vliw/spill.test.ts`) — «эталонный источник вытеснения не получает».
+ */
+const FIR = FIR_REFERENCE_SOURCE;
 
 function exitOfLowered(source: string, file: string): number | undefined {
   const { bytes, refused, used } = loweredProgram(source);
