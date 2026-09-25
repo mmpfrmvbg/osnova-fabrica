@@ -54,7 +54,11 @@ export interface KernelByteRow {
 
 export const KERNEL_BYTES: readonly KernelByteRow[] = [
   { name: 'fir', carriers: 111, commands: 221, layout: 1832, linear: 1784, wide: 1704, refusedBytes: 48 },
-  { name: 'iir', carriers: 91, commands: 161, layout: 1360, linear: 1360, wide: 1296, refusedBytes: 0 },
+  // Перемер 2026-09-24 (`.tmp/measure-wide-pins.ts`) после перехода раскладки на отрезки по
+  // графу потока управления: у `iir` пакетами стало 1304 вместо 1296 (раскладка `iir/фильтр` стала
+  // теснее на один регистр: 8 → 7, регистры выданы другие, упаковка слогов другая). Прочие ядра —
+  // байт в байт.
+  { name: 'iir', carriers: 91, commands: 161, layout: 1360, linear: 1360, wide: 1304, refusedBytes: 0 },
   { name: 'fft', carriers: 105, commands: 228, layout: 1840, linear: 1840, wide: 1792, refusedBytes: 0 },
   { name: 'convolution', carriers: 110, commands: 174, layout: 1456, linear: 1408, wide: 1352, refusedBytes: 48 },
   { name: 'correlation', carriers: 100, commands: 155, layout: 1304, linear: 1256, wide: 1224, refusedBytes: 48 },
@@ -177,14 +181,16 @@ describe('сверка раскладки с упаковщиком: пять я
     }
   });
 
-  it('3.5 итог по пяти ядрам: раскладка 7792, линейно 7648, пакетами 7368', () => {
+  it('3.5 итог по пяти ядрам: раскладка 7792, линейно 7648, пакетами 7376', () => {
     const sum = (pick: (row: KernelByteRow) => number): number => KERNEL_BYTES.reduce((total, row) => total + pick(row), 0);
     // Перемер 2026-09-23: раскладка с пулом констант 7792, линейных 7648 (было 8152 и 8104),
     // пакетами 7368 (было 8016). Сдвиг дала правка рантайма массивов: `добавить` 9 → 10 команд.
+    // Перемер 2026-09-24 (`.tmp/measure-wide-pins.ts`) после перехода на CFG-отрезки: пакетами
+    // 7376 (+8 у `iir`), выигрыш упаковки 416 вместо 424. Раскладка и линейные не сдвинулись.
     expect(sum((row) => row.layout), 'раскладка').toBe(7792);
     expect(sum((row) => row.linear), 'линейно').toBe(7648);
-    expect(sum((row) => row.wide), 'пакетами').toBe(7368);
-    expect(sum((row) => row.layout) - sum((row) => row.wide), 'выигрыш упаковки').toBe(424);
+    expect(sum((row) => row.wide), 'пакетами').toBe(7376);
+    expect(sum((row) => row.layout) - sum((row) => row.wide), 'выигрыш упаковки').toBe(416);
   });
 
   it('3.6 проверка не проходит при нулевой упаковке: равенство «пакетами = линейно» запрещено явно', () => {

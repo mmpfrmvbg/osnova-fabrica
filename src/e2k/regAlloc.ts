@@ -26,7 +26,14 @@
  */
 
 import type { AsmInstruction, Operand } from './backend';
-import { defUseOf, liveIntervalsOf, liveSegmentsOf, mergeLoopCarriedSegments, overlaps, type LiveInterval } from './liveness';
+import {
+  cfgSegmentsOf,
+  defUseOf,
+  liveIntervalsOf,
+  mergeLoopCarriedSegments,
+  overlaps,
+  type LiveInterval,
+} from './liveness';
 import { removeCopies } from './copyElim';
 import { rematerializeConstants } from './rematerialize';
 
@@ -334,8 +341,21 @@ export function allocateProgram(
     const stream = materialization.instructions;
     const liveness = liveIntervalsOf(stream);
     const incoming = incomingRegisters(stream);
-    // Отрезки, переносящие значение через цикл, сливаются: линейный отрезок про цикл не знает.
-    const segments = mergeLoopCarriedSegments(liveSegmentsOf(stream), stream, from);
+    // Отрезки жизни — по ГРАФУ потока управления (`src/vliw/cfg.ts`), а не по линейному порядку:
+    // в цикле значение, определённое в теле, живо в заголовке следующего витка, и линейная модель
+    // этого не видит. Граф даёт точный пик (`docs/e2k-regalloc-debt.md` §13: у `фильтр` линейный
+    // пик 11 против CFG-занятых 10 и CFG-точных 9).
+    const cfg = cfgSegmentsOf(stream);
+    // Но одной точной живости не хватает, и вот почему. Отрезки позиционные: `applySegments`
+    // отдаёт команде регистр того отрезка, который её НАКРЫВАЕТ. Значение, определённое в теле
+    // цикла и прочитанное в заголовке следующего витка, накрывается ДВУМЯ разными отрезками
+    // (чтение в заголовке — первым, определение в теле — вторым), и если они получат разные
+    // регистры, чтение возьмёт старое значение — цикл не сойдётся. Это не перестраховка:
+    // раскладка без слияния ломает FIR — **8** вместо 181 (`.tmp/cfg-experiment.ts`, вариант с
+    // переиспользованием регистра) и **0** при снятии слияния с итоговой конфигурации
+    // (`.tmp/negative-cfg.ts`, контроль B). Отрезков у `фильтр` при этом 37, после слияния — 24.
+    // Слияние соединяет такие отрезки ОДНОГО vreg в один — и только их.
+    const segments = mergeLoopCarriedSegments(cfg.segments, stream, from);
     // Закреплённые регистры не отдаются: иначе значение параметра уехало бы из своего регистра.
     const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
     const allocation = allocateSegments(
@@ -423,6 +443,12 @@ export function allocateProgram(
  * Зачем: интервал-объединение («от первого определения до последнего чтения») держит регистр на
  * всём промежутке, включая мёртвые участки, и потому требует больше регистров, чем нужно по
  * существу. У `фильтр` FIR после устранения копий объединения требуют 11, а точная граница — 9.
+ *
+ * Здесь же стояло правило «приёмник занимает регистр умирающего чтения» (`liveOut`): у `IR.add d, a, b`,
+ * где `a` — последнее чтение, приёмнику `d` хватает регистра `a`. Оно написано и замерено
+ * (`.tmp/cfg-experiment3.ts`) — и оказалось бесполезным: в звуковой раскладке тесный момент
+ * `фильтр` даёт те же 9 живых отрезков при 8 свободных, отказы те же три процедуры. Правило снято,
+ * чтобы не тащить лишнюю посылку в доказательство звуковости.
  */
 export function allocateSegments(
   segments: readonly LiveInterval[],
@@ -437,13 +463,13 @@ export function allocateSegments(
   const used = new Set<number>();
   for (const segment of sorted) {
     for (let index = active.length - 1; index >= 0; index--) {
+      // Регистр освобождается, когда отрезок кончился. Соприкосновение (end === start) НЕ
+      // освобождает: в этот момент обе величины могут быть живы одновременно.
       if (active[index]!.end < segment.start) {
-        // Регистр освобождается, но из `used` НЕ вычёркивается: `used` — это сколько регистров
-        // раскладка ВЗЯЛА из файла, а не сколько занято в последний момент. Здесь стояло
-        // `used.delete(...)`, и число получалось бессмысленным: у `фильтр` оно равнялось 2 при
-        // десяти выданных регистрах (замер `.tmp/segment-assign.ts`), потому что в конце оставались
-        // живы всего два отрезка. Ошибка была только в отчёте — назначение регистров считает
-        // `taken` по активным, — но число это попадало и в оракулы, и в документацию.
+        // Освобождение регистра НЕ вычёркивает его из `used`: это множество — «сколько
+        // регистров раскладка взяла из файла», а не «сколько занято в последний момент». Прежняя
+        // редакция вычёркивала, и «занято» означало «занято последним интервалом» (реестр
+        // проверяемости, случай 18).
         active.splice(index, 1);
       }
     }

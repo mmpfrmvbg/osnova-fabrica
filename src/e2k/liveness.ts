@@ -41,6 +41,7 @@
  */
 
 import type { AsmInstruction } from './backend';
+import { cfgLiveSets, cfgRanges } from '../vliw/cfg';
 
 /** Что носитель пишет и что читает (номера vreg'ов). */
 export interface DefUse {
@@ -321,6 +322,30 @@ export function mergeLoopCarriedSegments(
     merged.push(...current);
   }
   return merged;
+}
+
+/**
+ * Отрезки жизни по **графу потока управления** — точная модель, и множества живости рядом.
+ *
+ * Отличие от {@link liveSegmentsOf} только в одном, но решающем: анализ идёт по графу
+ * (`src/vliw/cfg.ts`), а не по линейному порядку, поэтому значение, определённое в теле цикла и
+ * прочитанное в его заголовке, живо **на выходе своего определения** — а не «нигде», как в
+ * линейной модели.
+ *
+ * Слияние отрезков через дугу (`mergeLoopCarriedSegments`) этим **не отменяется**: отрезки
+ * позиционные, и переносимое через дугу значение накрывается двумя разными отрезками, которым
+ * нельзя дать разные регистры. Замер `.tmp/cfg-experiment.ts`, вариант 1 (без слияния): FIR
+ * сломался — 8 вместо 181. Живость по графу даёт точный пик, но не отменяет позиционность.
+ *
+ * `liveOut` возвращается рядом как справочная величина: раскладка им не пользуется (правило
+ * «приёмник занимает регистр умирающего чтения» замерено бесполезным — `.tmp/cfg-experiment3.ts`).
+ */
+export function cfgSegmentsOf(instructions: readonly AsmInstruction[]): {
+  readonly segments: readonly LiveInterval[];
+  readonly liveOut: readonly (readonly number[])[];
+} {
+  const sets = cfgLiveSets(instructions, { defUse: defUseOf });
+  return { segments: cfgRanges(instructions, { defUse: defUseOf }), liveOut: sets.liveOut };
 }
 
 export function overlaps(a: LiveInterval, b: LiveInterval): boolean {
