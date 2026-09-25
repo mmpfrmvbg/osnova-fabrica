@@ -124,6 +124,12 @@ describe("registryToContext: реестр ДОХОДИТ до контекста
 describe("негативный контроль: испорченный каталог обязан краснеть", () => {
   const GOOD = fs.readFileSync(path.join(RUNTIME_DIR, "appRegistry.json"), "utf-8");
 
+  it("целый каталог: приложения есть, ошибки НЕТ", () => {
+    const reg = loadAppRegistry();
+    expect(reg.apps.length, "приложения загружены").toBeGreaterThan(0);
+    expect(reg.error, "у целого каталога причины нет").toBeUndefined();
+  });
+
   it("дубль документа ломает разбор — проверка разбора это видит", () => {
     const dir = tmpDirWith("appRegistry.json", GOOD + "\n" + GOOD);
     expect(catalogProblems(dir, "appRegistry.json"), "дубль пойман").not.toEqual([]);
@@ -143,8 +149,22 @@ describe("негативный контроль: испорченный ката
     );
   });
 
+  it("испорченный каталог НАЗЫВАЕТ причину, а не молчит", () => {
+    // Раньше здесь был молчаливый `apps: []` — именно из-за него дефект с двумя
+    // документами прожил незамеченным: «приложений нет» выглядело нормой.
+    const dir = tmpDirWith("appRegistry.json", GOOD + "\n" + GOOD);
+    const reg = loadAppRegistry(dir);
+    expect(reg.apps, "падать в пайплайне нельзя — список остаётся пустым").toEqual([]);
+    expect(reg.error, "причина названа").toBeTruthy();
+    expect(reg.error, "причина называет файл").toContain("appRegistry.json");
+    expect(reg.error, "причина — ошибка разбора, а не что-то иное").toMatch(/JSON|character|position/i);
+  });
+
   it("отсутствующий файл каталога назван, а не проглочен", () => {
     const dir = tmpDirWith("registry.json", "{}");
     expect(catalogProblems(dir, "appRegistry.json")).toEqual(["appRegistry.json: файла нет"]);
+    const reg = loadAppRegistry(dir);
+    expect(reg.apps).toEqual([]);
+    expect(reg.error, "нет файла — тоже названная причина").toContain("файла нет");
   });
 });

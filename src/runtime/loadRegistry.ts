@@ -29,6 +29,16 @@ export interface AppRegistryItem {
 export interface AppCatalogRegistry {
   version: string;
   apps: AppRegistryItem[];
+  /**
+   * Почему каталог пуст. Пустой список при этом ОСТАЁТСЯ: падать в пайплайне
+   * нельзя, контекст без референсных приложений — не отказ сборки.
+   *
+   * Но причина обязана быть названа. Молчаливый `apps: []` уже один раз скрыл
+   * настоящий дефект: `appRegistry.json` содержал два JSON-документа подряд и не
+   * разбирался вовсе, а выглядело это как «приложений нет» — реестр не попадал в
+   * контекст промпта, и никто этого не видел.
+   */
+  error?: string;
 }
 
 /**
@@ -93,11 +103,14 @@ export function loadAppRegistry(registryRoot?: string): AppCatalogRegistry {
   }
 
   const filePath = path.join(dir, 'appRegistry.json');
-  if (!fs.existsSync(filePath)) return { version: '1.0.0', apps: [] };
+  if (!fs.existsSync(filePath)) {
+    return { version: '1.0.0', apps: [], error: `${filePath}: файла нет` };
+  }
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as AppCatalogRegistry;
-  } catch {
-    return { version: '1.0.0', apps: [] };
+  } catch (e) {
+    // Ошибка НАЗЫВАЕТСЯ, а не проглатывается: см. комментарий к `error`.
+    return { version: '1.0.0', apps: [], error: `${filePath}: ${(e as Error).message}` };
   }
 }
 
