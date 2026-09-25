@@ -40,6 +40,8 @@
  * Где поведение e2k не измерено — стоит «не проверено», а не догадка.
  */
 import { describe, it, expect } from "vitest";
+import * as fs from "fs";
+import * as path from "path";
 import { compileSource } from "./compiler";
 import { OsVbcVM } from "../runtime/vm";
 import { InterpreterError } from "../runtime/vm/interpreter";
@@ -441,5 +443,97 @@ describe("канон: ноль в делителе — отдельное пра
       "не проверено: exc_div измерен для SDIVs, для SMODX измерения нет",
       "статус назван строкой",
     ).toContain("не проверено");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ПРИМЕРЫ КАНОНА КОМПИЛИРУЮТСЯ — иначе канон разойдётся с парсером
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("канон: блоки кода из docs/language-v2.md компилируются", () => {
+  /**
+   * Блоки вытаскиваются ИЗ КАНОНА, а не переписываются в тесте: переписанный
+   * пример — это копия, она разойдётся с документом и ничего не охраняет.
+   * Оракул падает, когда канон учит тому, чего парсер не принимает.
+   *
+   * Негативный контроль: испортить любой компилируемый блок в документе (взять
+   * закрытие не тем словом) — группа краснеет. Проверено мутацией документа.
+   */
+  const DOC = path.resolve("docs", "language-v2.md");
+
+  interface Block {
+    readonly firstLine: string;
+    readonly body: string;
+    readonly line: number;
+  }
+
+  /** Все блоки ```osnova документа, по порядку. */
+  function canonBlocks(): Block[] {
+    const lines = fs.readFileSync(DOC, "utf-8").split("\n");
+    const out: Block[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!/^```osnova\s*$/.test(lines[i]!)) continue;
+      const body: string[] = [];
+      let j = i + 1;
+      for (; j < lines.length && !/^```\s*$/.test(lines[j]!); j++) body.push(lines[j]!);
+      out.push({
+        firstLine: body.find((l) => l.trim() !== "") ?? "",
+        body: body.join("\n"),
+        line: i + 1,
+      });
+      i = j;
+    }
+    return out;
+  }
+
+  /**
+   * Блоки, которые НЕ обязаны компилироваться, — с причиной.
+   *
+   * Ключ — первая непустая строка блока, а не номер строки: номер съезжает от
+   * любой правки текста выше, и список исключений начал бы врать.
+   *
+   * Каждое исключение обязано объяснять СУЩЕСТВУЮЩИЙ блок (проверяется ниже):
+   * устаревшее исключение прикрывало бы уже несуществующее.
+   */
+  const EXCEPTIONS: ReadonlyArray<{ firstLine: string; reason: string }> = [
+    {
+      firstLine: "когда карта.масть",
+      reason:
+        "фрагмент ветки `когда`, а не программа: показан внутри процедуры, но не содержит её объявления, а `вернуть` вне процедуры не бывает",
+    },
+    {
+      firstLine: "модуль Библиотека",
+      reason:
+        "пример импорта: требует файла lib.osnova, которого в репозитории нет; проверяется не компиляцией, а формой записи",
+    },
+  ];
+  const exceptionFor = (firstLine: string) => EXCEPTIONS.find((e) => e.firstLine === firstLine);
+
+  it("блоки найдены — оракул не вакуумный", () => {
+    expect(canonBlocks().length, "блоков ```osnova в каноне").toBeGreaterThan(0);
+  });
+
+  for (const block of canonBlocks()) {
+    const exception = exceptionFor(block.firstLine);
+    if (exception) {
+      it(`исключение объяснено: «${block.firstLine.trim().slice(0, 40)}»`, () => {
+        expect(exception.reason.length, "у исключения есть причина").toBeGreaterThan(20);
+      });
+      continue;
+    }
+    it(`компилируется: «${block.firstLine.trim().slice(0, 40)}» (строка ${block.line})`, () => {
+      const c = compileSource(block.body, { filename: "канон-пример.osnova" });
+      const errs = [...c.lexerErrors, ...c.parserErrors, ...c.compilerErrors, ...c.semanticErrors].map(
+        (e) => e.message,
+      );
+      expect(errs, `канон учит тому, чего парсер не принимает: ${errs.join(" | ")}`).toEqual([]);
+      expect(c.compilerSuccess).toBe(true);
+    });
+  }
+
+  it("нет устаревших исключений: каждое объясняет существующий блок", () => {
+    const firstLines = new Set(canonBlocks().map((b) => b.firstLine));
+    const stale = EXCEPTIONS.filter((e) => !firstLines.has(e.firstLine)).map((e) => e.firstLine);
+    expect(stale, "исключение прикрывает блок, которого в каноне больше нет").toEqual([]);
   });
 });
