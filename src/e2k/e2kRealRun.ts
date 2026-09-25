@@ -145,6 +145,16 @@ export interface LoweringRule {
   readonly literalFromIr?: number;
   /** Значение литерала берётся из пула констант модуля по операнду `literalFromIr`. */
   readonly literalFromPool?: boolean;
+  /**
+   * Обязательный канал выдачи, если форма допускает **только один**.
+   *
+   * Обычно канал команды берётся от носителя (его выбрал планировщик оболочки), но есть формы,
+   * которые вне своего канала не кодируются вовсе: `sdivs` — только канал 5
+   * (`opcodes/e2k-opc.h:69`, `ARGS_SSS`; измерено: `.tmp/idiv-channel.ts`, носитель `IR.idiv` нёс
+   * канал 0, и кодировщик отказал). Так же поступает рантайм массивов: `std` он строит с каналом 2,
+   * потому что `st*` разрешены только в 2 и 5.
+   */
+  readonly channel?: number;
 }
 
 /**
@@ -206,6 +216,7 @@ export const LOWERING: readonly LoweringRule[] = [
     mnemonic: "sdivs",
     slots: ["src1", "src2", "dst"],
     fromIr: [1, 2, 0], // e2k: (src1 = a, src2 = b, dst = d); носитель несёт (dst, a, b)
+    channel: 5, // `sdivs` кодируется ТОЛЬКО в пятом канале — измерено, см. поле `channel` правила
     semantics:
       "SDIVs — деление целых со знаком 32/32→32 с отсечением к нулю (руководство МЦСТ §10.3.3; " +
       "форма ALF1, канал только пятый — opcodes/e2k-opc.h:69, ARGS_SSS)",
@@ -389,7 +400,9 @@ export function lowerInstruction(instruction: AsmInstruction, context: LoweringC
   }
   return {
     ok: true,
-    instruction: { mnemonic: rule.mnemonic, channel: instruction.channel, operands },
+    // Канал: у формы, которая вне своего канала не кодируется (`sdivs` — только пятый), он
+    // закреплён правилом; иначе остаётся канал носителя (его выбрал планировщик оболочки).
+    instruction: { mnemonic: rule.mnemonic, channel: rule.channel ?? instruction.channel, operands },
   };
 }
 
@@ -1026,6 +1039,8 @@ export const SYNTHETIC = {
   add: "прогон.понижение.add",
   sub: "прогон.понижение.sub",
   mul: "прогон.понижение.mul",
+  // Целочисленное деление (БЛОК 2): `SDIVs` отсекает к нулю — ровно то же, что `Math.trunc` в VM.
+  idiv: "прогон.понижение.idiv",
 } as const;
 
 /** Что наблюдалось при исполнении понижённых операций. */
@@ -1107,6 +1122,16 @@ export async function runLoweredValues(
         if (low !== exact) truncated++;
         if (Math.abs(exact) > maxAbsProduct) maxAbsProduct = Math.abs(exact);
         return low;
+      }
+      case SYNTHETIC.idiv: {
+        // e2k-семантика `SDIVs`: отсечение К НУЛЮ (совпадает с `Math.trunc` и с IR-операцией `idiv`,
+        // поэтому счётчик усечения здесь не растёт). Нулевой делитель на цели — `exc_div`, то есть
+        // машинная ошибка, а не значение: называем её, а не возвращаем Infinity.
+        const left = args[0] as number;
+        const right = args[1] as number;
+        if (typeof left !== "number" || typeof right !== "number") nonInteger++;
+        if (right === 0) throw new Error("целочисленное деление на ноль: на эльбрусе это exc_div");
+        return Math.trunc(left / right);
       }
       default:
         return host(name, args);

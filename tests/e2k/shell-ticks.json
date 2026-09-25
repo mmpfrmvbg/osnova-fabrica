@@ -49,23 +49,23 @@
       "algorithm": "IIR-фильтр",
       "atom": "A5",
       "checksum": 119,
-      "staticInstructions": 91,
-      "instructions": 315,
-      "ticks": 420,
-      "ticksLinear": 420,
-      "cpi": 1.333,
+      "staticInstructions": 85,
+      "instructions": 285,
+      "ticks": 390,
+      "ticksLinear": 390,
+      "cpi": 1.368,
       "classes": [
-        {
-          "label": "ALU",
-          "executed": 200,
-          "ticks": 200,
-          "stalls": 40
-        },
         {
           "label": "BRANCH",
           "executed": 37,
           "ticks": 179,
           "stalls": 60
+        },
+        {
+          "label": "ALU",
+          "executed": 175,
+          "ticks": 175,
+          "stalls": 40
         },
         {
           "label": "MUL",
@@ -75,8 +75,8 @@
         },
         {
           "label": "НЕТ КЛАССА",
-          "executed": 63,
-          "ticks": 63,
+          "executed": 58,
+          "ticks": 58,
           "stalls": 0
         }
       ]
@@ -185,9 +185,9 @@
     }
   },
   "total": {
-    "staticInstructions": 517,
-    "instructions": 2077,
-    "ticks": 2338,
-    "ticksLinear": 2338
+    "staticInstructions": 511,
+    "instructions": 2047,
+    "ticks": 2308,
+    "ticksLinear": 2308
   }
 }

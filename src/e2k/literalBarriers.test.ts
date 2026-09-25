@@ -79,7 +79,8 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   // `correlation` — 196 команд вместо 155. Литералов на ядрах не прибавилось: вытеснение кладёт
   // адрес слота в `movtd` (`imm64`), а не в `movts`.
   { name: 'fir', commands: 259, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 220, emptySlots: 1061 },
-  { name: 'iir', commands: 161, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 136, emptySlots: 655 },
+  // Перемер 2026-09-25: у `iir` 158 команд (было 161) — трюк `(a - a % b) / b` заменён на `div`.
+  { name: 'iir', commands: 158, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 133, emptySlots: 640 },
   { name: 'fft', commands: 228, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 197, emptySlots: 954 },
   {
     name: 'convolution',
@@ -195,29 +196,28 @@ describe('LTS-барьеры: что именно разрывает пакет�
     expect(problems, 'короткая непосредственная форма').toEqual([]);
   });
 
-  it('1.5 итог: 78 литеральных из 1079 команд, управляющих 106', () => {
+  it('1.5 итог: 78 литеральных из 1076 команд, управляющих 106', () => {
     const sum = (pick: (row: LiteralBarrierRow) => number): number => LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
-    // Перемер 2026-09-24 (`.tmp/measure-literal-imm.ts`) после подъёма предела вытеснения до 4:
-    // команд 1079 (было 939), управляющих 106 (было 100). Литеральных 78 и «малых» 74 не изменились —
-    // вытеснение адресует слот через `movtd`, а не через `movts`.
-    expect(sum((row) => row.commands), 'команд').toBe(1079);
+    // Перемер 2026-09-25 (`.tmp/measure-literal-imm.ts`) после замены трюка на `div`: команд 1076
+    // (было 1079 — у `iir` ушли вызов остатка и вычитание), литеральных 78 и «малых» 74 не изменились.
+    expect(sum((row) => row.commands), 'команд').toBe(1076);
     expect(sum((row) => row.literals), 'литеральных').toBe(78);
     expect(sum((row) => row.tinyLiterals), 'со значением 0..15').toBe(74);
     expect(sum((row) => row.control), 'управляющих').toBe(106);
     expect(sum((row) => row.longForm), 'длинных форм').toBe(5);
   });
 
-  it('1.6 пустые слоты: 4483 из 5562 — база сдвинулась вытеснением в память', () => {
+  it('1.6 пустые слоты: 4468 из 5544 — база сдвинулась вытеснением в память', () => {
     const packets = LITERAL_BARRIERS.reduce((sum, row) => sum + row.packets, 0);
     const empty = LITERAL_BARRIERS.reduce((sum, row) => sum + row.emptySlots, 0);
-    // Перемер 2026-09-24: пакетов 927 (было 783), пустых слотов 4483 (было 3759), слогов 5562.
-    expect(packets, 'пакетов').toBe(927);
-    expect(empty, 'пустых слотов').toBe(4483);
-    expect(packets * 6, 'слогов всего').toBe(5562);
-    expect(packets * 6 - empty, 'занятых слотов').toBe(1079);
-    // Прежние числа (783 / 3759 / 4698) относились к потоку до вытеснения: у ядра `fir` было 221
-    // команда вместо 259, у свёртки — 174 вместо 232, у корреляции — 155 вместо 199.
-    expect(packets, 'пакетов на потоке интеграции').toBe(927);
+    // Перемер 2026-09-25: пакетов 924 (было 927), пустых слотов 4468 (было 4483), слогов 5544.
+    expect(packets, 'пакетов').toBe(924);
+    expect(empty, 'пустых слотов').toBe(4468);
+    expect(packets * 6, 'слогов всего').toBe(5544);
+    expect(packets * 6 - empty, 'занятых слотов').toBe(1076);
+    // Прежние числа (783 / 3759 / 4698) относились к потоку до вытеснения; числа 927 / 4483 — к
+    // потоку с вытеснением, но ещё с трюком через остаток у `iir`.
+    expect(packets, 'пакетов на потоке интеграции').toBe(924);
   });
 });
 

@@ -48,14 +48,14 @@ export const IMM_SHORT_EFFECT: readonly ImmShortRow[] = [
   // команд у `fir` 259 (было 221), у `correlation` 196 (было 155). Коротких форм и экономии это
   // не меняет: вытеснение кладёт адрес слота в `movtd` (`imm64`), а не в `movts`.
   { name: 'fir', commands: 259, short: 20, shortLiterals: 20, saved: 160 },
-  { name: 'iir', commands: 161, short: 10, shortLiterals: 10, saved: 80 },
+  { name: 'iir', commands: 158, short: 10, shortLiterals: 10, saved: 80 },
   { name: 'fft', commands: 228, short: 14, shortLiterals: 14, saved: 112 },
   { name: 'convolution', commands: 232, short: 16, shortLiterals: 16, saved: 128 },
   { name: 'correlation', commands: 199, short: 14, shortLiterals: 14, saved: 112 },
 ];
 
 /** Текущая база: линейные байты пяти ядер после вытеснения в память (`.tmp/measure-wide-pins.ts`). */
-export const LINEAR_BYTES_BASELINE = 8968;
+export const LINEAR_BYTES_BASELINE = 8944;
 
 const encoder = getEncoder('e2k');
 
@@ -65,8 +65,8 @@ describe('эффект короткой формы: измерение по пя
     const saved = IMM_SHORT_EFFECT.reduce((sum, row) => sum + row.saved, 0);
     expect(short, 'коротких форм').toBe(74);
     expect(saved, 'экономия байт').toBe(592);
-    // Доля образа: 592 из 8968 = 0.066 (перемер 2026-09-24: база выросла вместе с полным понижением
-    // свёртки и FIR — было 592 из 8112 = 0.073). Экономия та же, знаменатель другой.
+    // Доля образа: 592 из 8944 = 0.066 (перемер 2026-09-25: у `iir` трюк через остаток заменён на
+    // `div`, база чуть уменьшилась — было 592 из 8968). Экономия та же, знаменатель другой.
     expect(saved / LINEAR_BYTES_BASELINE, 'доля образа').toBeGreaterThan(0.06);
     expect(saved / LINEAR_BYTES_BASELINE, 'доля образа').toBeLessThan(0.07);
   });
@@ -125,12 +125,12 @@ describe('эффект короткой формы: измерение по пя
   });
 
   it('1.5 сверка баз: закреплённые числа шага 2 перемерены на текущем потоке', () => {
-    // Перемер 2026-09-24: база — 1079 команд (было 939) после вытеснения в память.
+    // Перемер 2026-09-25: база — 1076 команд (было 1079) после замены трюка через остаток на `div`.
     const sum = (pick: (row: { commands: number }) => number): number =>
       LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
     const effectSum = IMM_SHORT_EFFECT.reduce((total, row) => total + row.commands, 0);
-    expect(sum((row) => row.commands), 'таблица барьеров').toBe(1079);
-    expect(effectSum, 'таблица эффекта').toBe(1079);
+    expect(sum((row) => row.commands), 'таблица барьеров').toBe(1076);
+    expect(effectSum, 'таблица эффекта').toBe(1076);
     expect(sum((row) => row.commands), 'оба оракула на одной базе').toBe(effectSum);
     // Экономия от сдвига базы не зависит: она считается по числу коротких форм.
     expect(IMM_SHORT_EFFECT.reduce((total, row) => total + row.short, 0) * 8, 'экономия').toBe(592);

@@ -270,14 +270,15 @@ describe('двухпроходная раскладка: 1.1 первый про
     }
   });
 
-  it('инструкции без формы не выдумываются: у них названная причина, и их ровно 88', () => {
-    // Числа перемерены после шага 3: вызов и возврат ПОЛУЧИЛИ формы (11 и 32 носителя), а
-    // `IR.invoke` размещается только с именами хост-вызовов и после раскладки регистров — в этом
-    // потоке (носители без имён) его 87 и они остаются неразмещёнными.
+  it('инструкции без формы не выдумываются: у них названная причина, и их ровно 86', () => {
+    // Числа перемерены 2026-09-25 после замены трюка через остаток на `div` в ядре IIR: носителей
+    // эмиттера стало 511 (было 517 — ушли вызов `система.математика.остаток`, вычитание и вещественное
+    // деление, пришёл один `IR.idiv`), неразмещённых 86 (было 88). `IR.invoke` по-прежнему не
+    // размещается без имён хост-вызовов, а `IR.div` (вещественное деление) формы не имеет вовсе.
     const layout = layoutOf(ALL_CARRIERS);
-    expect(ALL_CARRIERS.length).toBe(517);
-    expect(layout.entries.length, 'покрытие раскладки').toBe(429);
-    expect(layout.unplaced.length, 'отказов раскладки').toBe(88);
+    expect(ALL_CARRIERS.length).toBe(511);
+    expect(layout.entries.length, 'покрытие раскладки').toBe(425);
+    expect(layout.unplaced.length, 'отказов раскладки').toBe(86);
     // Молчаливой потери нет: каждая инструкция либо размещена, либо названа.
     expect(layout.entries.length + layout.unplaced.length).toBe(ALL_CARRIERS.length);
     for (const unplaced of layout.unplaced) {
@@ -291,10 +292,7 @@ describe('двухпроходная раскладка: 1.1 первый про
     for (const unplaced of layout.unplaced) {
       byCarrier.set(unplaced.carrier, (byCarrier.get(unplaced.carrier) ?? 0) + 1);
     }
-    expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([
-      ['IR.invoke', 87],
-      ['IR.div', 1],
-    ]);
+    expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([['IR.invoke', 86]]);
     for (const placed of ['IR.jmp', 'IR.jmp_if_not', 'IR.lt', 'IR.le', 'IR.ge']) {
       expect(byCarrier.has(placed), `${placed} обязан быть размещён`).toBe(false);
     }

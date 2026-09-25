@@ -188,7 +188,7 @@ describe('сквозной прогон: понижение и кодирова�
       // вытеснения, а предел был два; требование взято замером (`.tmp/convolution-spill-need.ts`).
       const expectedBlocking: Readonly<Record<string, readonly string[]>> = {
         fir: [],
-        iir: ['IR.div'],
+        iir: [],
         fft: [],
         convolution: [],
         correlation: [],
@@ -423,13 +423,14 @@ describe('сквозной прогон: переходы понижены — �
     };
   }
 
-  it('покрытие 467 из 468, отказов 1 — и отказ назван по носителю', () => {
+  it('покрытие 464 из 464, отказов 0 — и это проверено по носителям', () => {
     // Числа перемерены 2026-09-24 ТРЕТИЙ раз — после подъёма предела вытеснения до 4
     // (`.tmp/measure-realrun.ts`). Знаменатель 468: вытеснение вставляет носители (чтение из слота и
     // запись в слот), поэтому поток ДЛИННЕЕ исходного, а разница «носителей эмиттера минус поток»
     // (поле `eliminated`) у ядра со вставками может стать отрицательной — это не «снято копий», а
-    // итоговая разница. Сумма носителей эмиттера прежняя — 517. Отказ остался ОДИН: вещественный
-    // `IR.div` ядра `iir` (формы нет — решение владельца).
+    // итоговая разница. Сумма носителей эмиттера — 511 (была 517: у iir трюк через остаток заменён
+    // на div, и поток стал на шесть носителей короче). Отказов понижения НЕТ НИ ОДНОГО — впервые:
+    // последний, вещественный IR.div ядра iir, снят вместе с трюком.
     let instructions = 0;
     let encoded = 0;
     let refused = 0;
@@ -444,12 +445,12 @@ describe('сквозной прогон: переходы понижены — �
         if (carrier.refused > 0) byCarrier.set(carrier.carrier, (byCarrier.get(carrier.carrier) ?? 0) + carrier.refused);
       }
     }
-    expect(instructions).toBe(468);
-    expect(eliminated, 'разница носителей эмиттера и потока').toBe(49);
-    expect(instructions + eliminated, 'носителей эмиттера').toBe(517);
-    expect(encoded, 'покрытие пяти ядер').toBe(467);
-    expect(refused, 'отказов').toBe(1);
-    expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1])).toEqual([['IR.div', 1]]);
+    expect(instructions).toBe(464);
+    expect(eliminated, 'разница носителей эмиттера и потока').toBe(47);
+    expect(instructions + eliminated, 'носителей эмиттера').toBe(511);
+    expect(encoded, 'покрытие пяти ядер').toBe(464);
+    expect(refused, 'отказов').toBe(0);
+    expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1]), 'отказов понижения нет ни одного').toEqual([]);
     // Переход понижён целиком: 12 из 12.
     const jumps = [...REPORTS.values()].flatMap((report) =>
       report.carriers.filter((carrier) => carrier.carrier === 'IR.jmp'),

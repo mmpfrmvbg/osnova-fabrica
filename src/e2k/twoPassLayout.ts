@@ -122,6 +122,9 @@ const CT_COMMAND_SOURCE =
 const CMP_COMMAND_SOURCE =
   `ALF7, 8 байт — REAL_SHORT_FORM_SIZE; запись сравнения и её источник — src/e2k/e2k-real.ts ` +
   `(opcodes/e2k-opc.h:999,1019,1024); обязательное поле nop = 2 — gas/config/tc-e2k.c:5923`;
+const SDIV_COMMAND_SOURCE =
+  `ALF1, 8 байт — REAL_SHORT_FORM_SIZE; канал ТОЛЬКО пятый (opcodes/e2k-opc.h:69, ARGS_SSS); ` +
+  `измерено кодировщиком (.tmp/idiv-form-size.ts): sdivs %b[1], %b[2], %b[3] → 01 00 00 80 03 02 01 42`;
 const MOVTD_COMMAND_SOURCE =
   `ALF2 + литерал LTS, 16 байт — REAL_LONG_FORM_SIZE (src/e2k/e2k-real.ts); измерено кодировщиком ` +
   `(.tmp/spill-form-size.ts): movtd imm64, %b[5] → 11 00 00 04 05 dc c0 61 00 00 00 00 00 1f 10 00; каналы {0,1,3,4}`;
@@ -155,6 +158,14 @@ export const CARRIER_FORMS: readonly CarrierForm[] = [
   {
     carrier: "IR.sub",
     commands: [{ mnemonic: "subs", form: "ALF1", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  },
+  {
+    // Целочисленное деление (БЛОК 2, оператор `div`). Форма объявлена 2026-09-25: правило понижения
+    // (`src/e2k/e2kRealRun.ts`, `sdivs`) в таблице понижения БЫЛО, а формы размера здесь не было — и
+    // раскладка объявляла «формы понижения нет» на единственном оставшемся носителе конвейера
+    // (измерено: `.tmp/measure-realrun-div.out.txt`, отказ переехал с `IR.div` на `IR.idiv`).
+    carrier: "IR.idiv",
+    commands: [{ mnemonic: "sdivs", form: "ALF1", size: REAL_SHORT_FORM_SIZE, source: SDIV_COMMAND_SOURCE }],
   },
   {
     carrier: "IR.mul",

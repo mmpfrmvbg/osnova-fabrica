@@ -45,7 +45,7 @@ export const REORDER_KERNELS: ReadonlyArray<{
   readonly carriers: number;
 }> = [
   { name: 'fir', atom: 'A5', ticks: 802, carriers: 111 },
-  { name: 'iir', atom: 'A5', ticks: 420, carriers: 91 },
+  { name: 'iir', atom: 'A5', ticks: 390, carriers: 85 },
   { name: 'fft', atom: 'A5', ticks: 226, carriers: 105 },
   { name: 'convolution', atom: 'A6', ticks: 707, carriers: 110 },
   { name: 'correlation', atom: 'A6', ticks: 183, carriers: 100 },
@@ -131,7 +131,7 @@ describe('перестановка в реальной ветви: такты м
     expect(problems, 'такты до и после перестановки').toEqual([]);
     expect(measured, 'измеренные такты').toEqual([
       'fir:802/802',
-      'iir:420/420',
+      'iir:390/390',
       'fft:226/226',
       'convolution:707/707',
       'correlation:183/183',

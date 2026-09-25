@@ -23,7 +23,7 @@
 import type { AsmInstruction, Encoder } from "./backend";
 import { IR_CARRIERS } from "./shell";
 import { EmitterRefusalError, type ShellImage } from "./emitterOracle";
-import { CARRIER_OF_OP } from "./emitterShell";
+import { BINARY_OPS, CARRIER_OF_OP } from "./emitterShell";
 import { RegVM } from "../runtime/vm/reginterpreter";
 import { createDefaultInvokeHandler, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import { resolveEntryIndex } from "../oracle/parity";
@@ -184,9 +184,13 @@ export function toRegInstruction(
       return { op: "ret", v: value };
     }
     default: {
-      // Двухоперандные арифметические операции и сравнения.
-      const known = ["add", "sub", "mul", "div", "rem", "eq", "ne", "lt", "le", "gt", "ge", "and", "or"] as const;
-      const binary = known.find((name) => name === op);
+      // Двухоперандные операции берутся из набора, объявленного РЯДОМ С ТАБЛИЦЕЙ эмиттера
+      // (`BINARY_OPS` в `src/e2k/emitterShell.ts`), а не из литерала, переписанного здесь: здесь
+      // стоял рукописный перечень `["add","sub","mul","div","rem",…]`, и `idiv` в нём не было — круг
+      // «байты → IR» отказывал на единственном носителе, который появился позже списка (`IR.idiv`,
+      // БЛОК 2; измерено `npm test`: «iir: число совпадает с независимым эталоном» падало с
+      // «неизвестная операция IR «idiv»»). Правило файла — одна таблица, а не две.
+      const binary = BINARY_OPS.find((name) => name === op);
       if (binary === undefined) {
         throw new EmitterRefusalError(`носитель «${carrier}»: неизвестная операция IR «${op}»`);
       }

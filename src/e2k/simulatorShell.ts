@@ -239,6 +239,7 @@ function accessOf(instruction: RegInstruction): { reads: number[]; writes: numbe
     case 'sub':
     case 'mul':
     case 'div':
+    case 'idiv':
     case 'rem':
     case 'eq':
     case 'ne':
@@ -633,6 +634,20 @@ export class ShellSimulator {
         const right = this.read(ins.b) as number;
         if (right === 0) throw new ShellSimulatorError('деление на ноль', this.pc, instruction.carrier);
         this.write(ins.d, left / right);
+        return next;
+      }
+      case 'idiv': {
+        // Целочисленное деление (оператор `div`, БЛОК 2): отсечение К НУЛЮ — как `sdivs` на Эльбрусе
+        // и как `idiv` в регистровой VM (`src/runtime/vm/interpreter.ts`). Симулятор оболочки этой
+        // операции не знал, и ядро IIR, переведённое на `div` (2026-09-25), в нём не исполнялось:
+        // носитель `0x96` декодировался, а исполнять его было нечем (измерено `npm test`:
+        // «iir: число совпадает с независимым эталоном» падало).
+        const left = this.read(ins.a) as number;
+        const right = this.read(ins.b) as number;
+        if (right === 0) {
+          throw new ShellSimulatorError('целочисленное деление на ноль', this.pc, instruction.carrier);
+        }
+        this.write(ins.d, Math.trunc(left / right));
         return next;
       }
       case 'rem': {

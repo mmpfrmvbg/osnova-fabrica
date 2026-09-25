@@ -219,10 +219,10 @@ describe('сопоставление пары: 3. понижение', () => {
 });
 
 describe('сопоставление пары: 4. раскладка и покрытие', () => {
-  it('сравнения и условные переходы получают адреса: размещено 429, не размещено 88', () => {
+  it('сравнения и условные переходы получают адреса: размещено 425, не размещено 86', () => {
     const layout = layoutOf(ALL);
-    expect(layout.entries.length, 'покрытие раскладки').toBe(429);
-    expect(layout.unplaced.length, 'отказов раскладки').toBe(88);
+    expect(layout.entries.length, 'покрытие раскладки').toBe(425);
+    expect(layout.unplaced.length, 'отказов раскладки').toBe(86);
     const byCarrier = new Map<string, number>();
     for (const entry of layout.entries) byCarrier.set(entry.carrier, (byCarrier.get(entry.carrier) ?? 0) + 1);
     expect(byCarrier.get('IR.jmp_if_not')).toBe(14);
@@ -246,7 +246,7 @@ describe('сопоставление пары: 4. раскладка и покр
     }
   });
 
-  it('сквозной прогон: понижено 467, отвергнуто 1, байт 8968', () => {
+  it('сквозной прогон: понижено 464, отвергнуто 0, байт 8944', () => {
     let encoded = 0;
     let refused = 0;
     let bytes = 0;
@@ -278,18 +278,19 @@ describe('сопоставление пары: 4. раскладка и покр
         expect(report.layout.totalBytes, `${name}: раскладка не меньше образа`).toBeGreaterThan(report.bytes);
       }
     }
-    // Числа перемерены 2026-09-24 ЧЕТВЁРТЫЙ раз — после подъёма предела вытеснения до 4
+    // Числа перемерены 2026-09-25 ПЯТЫЙ раз — после замены трюка через остаток на div в ядре IIR
+    // (поток стал короче: 464 носителя вместо 468, отказов нет вовсе). Прежний перемер 2026-09-24 — после подъёма предела вытеснения до 4
     // (`.tmp/measure-realrun.ts`, пять ядер по тому же конвейеру). Поток стал ДЛИННЕЕ эмиттерного:
     // вытеснение вставляет чтения и записи слотов, поэтому поле «разница носителей» (49) — это
     // итоговая разница, а не «снято копий»: у ядра со вставками она отрицательна. Отказ остался
     // один — вещественный `IR.div` ядра `iir`. Прежние числа (455 / 62 / 447 / 8 / 8392) снимались
     // до подъёма предела.
-    expect(instructions).toBe(468);
-    expect(eliminated, 'разница носителей эмиттера и потока').toBe(49);
-    expect(instructions + eliminated, 'носителей эмиттера').toBe(517);
-    expect(encoded, 'покрытие').toBe(467);
-    expect(refused, 'отказов').toBe(1);
-    expect(bytes, 'байт образа').toBe(8968);
+    expect(instructions).toBe(464);
+    expect(eliminated, 'разница носителей эмиттера и потока').toBe(47);
+    expect(instructions + eliminated, 'носителей эмиттера').toBe(511);
+    expect(encoded, 'покрытие').toBe(464);
+    expect(refused, 'отказов').toBe(0);
+    expect(bytes, 'байт образа').toBe(8944);
     expect(mismatches, 'расхождений круга быть не должно').toEqual([]);
   });
 });
