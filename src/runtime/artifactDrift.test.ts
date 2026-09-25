@@ -64,7 +64,14 @@ function trackedFiles(pattern: string): string[] {
 }
 
 const SOURCES = trackedFiles("*.osnova");
-const ARTIFACTS = trackedFiles("*.osvbc.json");
+/**
+ * Артефакты, которые есть и в репозитории, И на диске.
+ *
+ * Проверка на существование обязательна: `git ls-files` перечисляет ИНДЕКС, и
+ * удалённый, но ещё не закоммиченный файл продолжал бы числиться артефактом —
+ * сторож краснел бы на собственной уборке.
+ */
+const ARTIFACTS = trackedFiles("*.osvbc.json").filter((file) => fs.existsSync(file));
 
 /** Пары «исходник + соседний артефакт». */
 const PAIRS = SOURCES.map((src) => ({ src, artifact: src.replace(/\.osnova$/u, ".osvbc.json") })).filter(
@@ -85,11 +92,6 @@ const ORPHANS = ARTIFACTS.filter((a) => !fs.existsSync(a.replace(/\.osvbc\.json$
  *     (удалить или оставить) принимает владелец плоскости.
  */
 const KNOWN_ORPHANS: ReadonlyArray<{ name: string; reason: string }> = [
-  {
-    name: "apps/chat/чат.osvbc.json",
-    reason:
-      "байткод чата, сохранённый под именем МОДУЛЯ («чат»), а не файла; исходника чат.osnova нет, ссылок на файл нет ни в коде, ни в документах. Это артефакт-продукт компилятора (version 1, moduleName «чат»), поэтому решение (удалить или оставить) — за владельцем плоскости приложений; до решения файл назван здесь, чтобы новые сироты не появлялись молча",
-  },
   {
     name: "src/runtime/fixtures/notifications.osvbc.json",
     reason:

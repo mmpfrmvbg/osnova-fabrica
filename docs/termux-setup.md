@@ -27,14 +27,18 @@ git clone https://github.com/mmpfrmvbg/osnova-fabrica.git
 cd osnova-fabrica
 npm install
 
-## Запуск чата с Jarvis
+## Запуск чата с Осирис
 
-Убедиться что Jarvis запущен на той же машине или в локальной сети
+Убедиться что Осирис запущен на той же машине или в локальной сети
 и доступен по HTTP_PORT (по умолчанию 3000).
 
-Если Jarvis на другой машине — изменить URL в apps/chat/chat.osnova:
-  пусть jarvis_url = "http://<IP-адрес>:3000/chat"
-  Затем перекомпилировать:
+Если Осирис на другой машине — адрес сервера задаётся АРГУМЕНТОМ в манифесте,
+а не переменной в исходнике (в `apps/chat/chat.osnova` процедура `главная(сервер)`
+принимает адрес параметром):
+  src/runtime/fixtures/chat.osapp.yaml → entry: args: ["http://<IP-адрес>:3000/chat"]
+
+  Затем перекомпилировать (команда обязана передавать имя файла — иначе канон
+  «файл = модуль» назовёт модуль `вход`; `src/cli.ts compile` это умеет):
   npx tsx src/cli.ts compile apps/chat/chat.osnova -o apps/chat/chat.osvbc.json
 
 Запуск:
@@ -47,7 +51,13 @@ npx tsx src/cli.ts run \
   [osnova-runtime] app id: osnova.chat
   [osnova-runtime] package loaded: 2 file(s)
   Чат запущен
-  Подключение к Jarvis: http://localhost:3000
+  [<адрес сервера>]
+  Осирис: <ответ>
+
+Если Осирис не запущен, прогон печатает `[osnova-vm] sandbox: Network error` и
+завершается кодом 1 — это ожидаемо: сервера нет. Компиляция и загрузка пакета
+при этом проходят (`package loaded`), то есть отсутствие сервера не является
+ошибкой сборки.
 
 ## Ввод текста из Android UI
 
@@ -67,13 +77,13 @@ storage (Android UI-режим):
 
 ## Известные ограничения
 
-- better-sqlite3 (используется только в apps/jarvis/) требует нативной
+- better-sqlite3 (используется только в apps/osiris/) требует нативной
   компиляции. Для запуска VM и компилятора Основа он НЕ нужен —
   VM работает без него.
 - Если npm install падает на better-sqlite3 — установить только
   корневые зависимости:
   npm install --ignore-scripts
-  Jarvis при этом не запустится, VM и компилятор — да.
+  Осирис при этом не запустится, VM и компилятор — да.
 - tsx требует Node.js >= 20. На Termux Node.js из pkg обычно 20+,
   но проверить: node --version
 
