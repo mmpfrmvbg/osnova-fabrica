@@ -198,14 +198,15 @@ describe('замер: пять ядер', () => {
   it('ни у одного ядра нет отказов КОДИРОВЩИКА, и у каждого число команд названо', () => {
     const problems = rows.filter((row) => row.refused !== 0).map((row) => row.name);
     expect(problems, 'ядра с отказами кодировщика').toEqual([]);
-    // Перемер 2026-09-24 после минимального вытеснения (`.tmp/measure-wide-pins.ts`): ядро `fir`
-    // понижается целиком (111 → 259, было 221), у `correlation` — 196 (было 155). Числа до этого:
-    // 'fir:111→221', 'iir:91→161', 'fft:105→228', 'convolution:110→174', 'correlation:100→155'.
+    // Перемер 2026-09-24 после подъёма предела вытеснения до 4 (`.tmp/measure-wide-pins.ts`): ядро
+    // `fir` понижается целиком (111 → 259), `correlation` — 199, `convolution` — 232 (свёртка тоже
+    // раскладывается: четыре значения в слот). Числа до этого: 'correlation:100→196',
+    // 'convolution:110→174'.
     expect(rows.map((row) => `${row.name}:${row.carriers}→${row.commands}`)).toEqual([
       'fir:111→259',
       'iir:91→161',
       'fft:105→228',
-      'convolution:110→174',
+      'convolution:110→232',
       'correlation:100→199',
     ]);
   });

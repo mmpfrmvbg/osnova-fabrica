@@ -113,9 +113,9 @@ export interface PairingResult {
  *
  * Раскладка наша и живёт в эмиттере оболочки (`src/e2k/emitterShell.ts`): бинарные операции и
  * сравнения несут `(dst, a, b)`, `move`/`not` — `(dst, a)`, `const` — `(dst, k, type)`,
- * `call`/`invoke` — `(flags, src1, src2, imm, dst)` (приёмник пятый), `ret` — `(флаг, значение)`,
- * `jmp_if`/`jmp_if_not` — `(cond, off)`, `jmp` — `(off)`, вытеснение в память
- * (`src/vliw/spill.ts`) — `spill_ld` `(адрес, приёмник, слот)`, `spill_st` `(значение, адрес, слот)`.
+ * `call`/`invoke` — `(flags, src1, src2, imm, dst)` (приёмник пятый, а источников ровно `flags >> 1`),
+ * `ret` — `(флаг, значение)`, `jmp_if`/`jmp_if_not` — `(cond, off)`, `jmp` — `(off)`, вытеснение в
+ * память (`src/vliw/spill.ts`) — `spill_ld` `(адрес, приёмник, слот)`, `spill_st` `(значение, адрес, слот)`.
  *
  * `known: false` — операция, у которой приёмник и источники нам неизвестны; такая инструкция в
  * промежутке делает живость недоказанной, и пара отвергается (отказ, а не догадка).
@@ -168,8 +168,21 @@ function registersOf(instruction: AsmInstruction): { known: boolean; reads: numb
     case "IR.ret":
       return known(regs([operands[1]!]), []);
     case "IR.call":
-    case "IR.invoke":
-      return known(regs([operands[1]!, operands[2]!]), regs([operands[4]!]));
+    case "IR.invoke": {
+      // Аргументов ровно `argc = flags >> 1`: слот НЕсуществующего аргумента эмиттер всё равно несёт
+      // (пятый операнд — приёмник, четвёртый — payload), и там лежит заполнитель вида `%b[0]`.
+      // Считать его чтением нельзя: именно так сравнение в встроенной свёртке получало «второго
+      // читателя» (`#54 IR.invoke` при `argc = 1` читал `%r0` — регистр результата `IR.lt #42`) и
+      // пара отвергалась по ложной причине (измерено, `.tmp/convolution-callers.ts`).
+      const flags = operands[0];
+      const argc = flags !== undefined && flags.kind === "imm" ? flags.value >> 1 : 0;
+      const argv: { kind: string; index?: number }[] = [];
+      for (let index = 0; index < argc; index++) {
+        const operand = operands[1 + index];
+        if (operand !== undefined) argv.push(operand);
+      }
+      return known(regs(argv), regs([operands[4]!]));
+    }
     default:
       return { known: false, reads: [], writes: [] };
   }

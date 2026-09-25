@@ -183,12 +183,15 @@ describe('минимальное вытеснение в память', () => {
     expect(executed, `результат программы (${String(count)} значений)`).toBe(expectedResult(count));
   });
 
-  it('1.2 вытеснений нужно больше двух — отказ с причиной, а не тихая потеря значения', () => {
-    const program = liveValuesProgram(12);
+  it('1.2 вытеснений нужно больше предела — отказ с причиной, а не тихая потеря значения', () => {
+    // Четырнадцать одновременно живых значений при восьми свободных: минимальному вытеснению нужно
+    // шесть слотов, а предел — `MAX_SPILLS_PER_PROCEDURE`. Предел берётся из модуля, а не числом в
+    // проверке: иначе при подъёме предела проверка молча перестала бы проверять свойство.
+    const program = liveValuesProgram(MAX_SPILLS_PER_PROCEDURE + 10);
     const result = allocateProgram(program, proceduresOf(program), { spill: { base: SPILL_BASE } });
     const report = result.report[0]!;
-    expect(report.ok, 'раскладка прошла там, где нужно больше двух вытеснений').toBe(false);
-    expect(report.reason ?? '', 'причина отказа').toMatch(new RegExp(`двух|${String(MAX_SPILLS_PER_PROCEDURE)}`));
+    expect(report.ok, 'раскладка прошла там, где нужно больше вытеснений, чем предел').toBe(false);
+    expect(report.reason ?? '', 'причина отказа').toMatch(new RegExp(`двух|трёх|${String(MAX_SPILLS_PER_PROCEDURE)}`));
   });
 
   it('1.3 FIR = 181 не ломается: эталонный источник FIR вытеснения не получает', () => {
