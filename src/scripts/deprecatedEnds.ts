@@ -41,7 +41,12 @@ export function deprecatedClosingsOf(sources: Array<{ file: string; text: string
   return sources.map(({ file, text }) => {
     const r = compileSource(text, { filename: file, warnDeprecated: true });
     const failed = r.lexerErrors.length > 0 || r.parserErrors.length > 0 || r.module === null;
-    return { file, count: failed ? 0 : r.warnings.length, failed };
+    // Считаются ТОЛЬКО устаревшие закрытия `конец`. С БЛОК 3 (пункт 1) под тем же
+    // флагом приходит и второй вид предупреждения — «шапка `модуль имя` без
+    // закрытия»; он про шапку, а не про закрывающее слово, и в этот долг не
+    // входит. Иначе число в отчёте перестало бы значить то, что написано в шапке.
+    const closings = r.warnings.filter((w) => w.kind === "deprecated_closer").length;
+    return { file, count: failed ? 0 : closings, failed };
   });
 }
 

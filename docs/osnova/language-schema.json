@@ -422,7 +422,7 @@
       "id": "module",
       "kind": "statement",
       "humanName": "module",
-      "description": "",
+      "description": "Один файл — один модуль; имя модуля берётся из имени файла (привет.osnova → «привет»). Шапка `модуль <имя>` не обязательна; `конец_модуля` без шапки — ошибка",
       "astNodeType": "Module",
       "fields": [
         {

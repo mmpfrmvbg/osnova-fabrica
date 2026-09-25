@@ -29,16 +29,28 @@ export interface ParseResult {
 }
 
 /**
+ * Вид предупреждения разбора.
+ *
+ * | вид | о чём |
+ * |---|---|
+ * | `deprecated_closer` | одиночный `конец` вместо `конец_<блок>` (Стадия 2 плана v2) |
+ * | `module_header_without_closer` | шапка `модуль имя` без закрытия модуля (БЛОК 3, пункт 1) |
+ *
+ * Оба вида — про **устаревшую форму записи**, поэтому включаются одним флагом
+ * {@link ParseOptions.warnDeprecated} и оба информационные.
+ */
+export type ParseWarningKind = "deprecated_closer" | "module_header_without_closer";
+
+/**
  * Предупреждение разбора. Это **не** ошибка: разбор завершился, AST построен,
- * компиляция продолжается. Единственный вид сейчас — устаревшее закрывающее
- * слово `конец` (Стадия 2 плана v2).
+ * компиляция продолжается.
  */
 export interface ParseWarning {
-  kind: "deprecated_closer";
+  kind: ParseWarningKind;
   message: string;
   line: number;
   column: number;
-  /** Блок, который закрыт устаревшим словом (`процедура`, `модуль`, `пока`, …). */
+  /** Блок, о котором предупреждение (`процедура`, `модуль`, `пока`, …). */
   block: string;
   /** Каноническое закрывающее слово этого блока (`конец_процедуры`, …). */
   canonical: string;
@@ -46,13 +58,48 @@ export interface ParseWarning {
 
 export interface ParseOptions {
   /**
-   * Предупреждать об устаревшем одиночном `конец`.
+   * Предупреждать об устаревших формах записи: одиночном `конец` и шапке
+   * `модуль имя` без закрытия (БЛОК 3, пункт 1).
    *
-   * По умолчанию **выключено**: корпус и примеры написаны на legacy-закрытиях, и
+   * По умолчанию **выключено**: корпус и примеры написаны на legacy-формах, и
    * по умолчанию компилятор обязан молчать (Стадия 2: массовая миграция — после
    * выкладки 0.1, до неё предупреждение только по явному запросу).
    */
   warnDeprecated?: boolean;
+  /**
+   * Имя исходного файла — источник имени модуля, когда шапки `модуль имя` нет
+   * (канон БЛОК 3, пункт 1: файл = модуль).
+   *
+   * Без имени файла модуль получает имя {@link DEFAULT_MODULE_NAME}: разбор
+   * обязан оставаться возможным и на безымянном источнике (так его зовут оракулы
+   * парсера), но угадывать имя ему не из чего.
+   */
+  filename?: string;
+}
+
+/**
+ * Имя модуля, когда шапки нет и имени файла тоже нет.
+ *
+ * То же слово, что у входного файла по умолчанию в `compileSource`: два разных
+ * умолчания для одного понятия разошлись бы.
+ */
+export const DEFAULT_MODULE_NAME = "вход";
+
+/**
+ * Имя модуля из имени файла: `привет.osnova` → `привет`.
+ *
+ * Снимается только расширение языка (`.osnova`, регистр не важен) и только
+ * каталог — как разделители принимаются и `/`, и `\`: на Windows путь приходит с
+ * обратными, и имя модуля не должно зависеть от платформы. Прочие точки в имени
+ * остаются частью имени (`мой.модуль.osnova` → `мой.модуль`): снимать «последнее
+ * расширение» значило бы молча терять часть имени.
+ */
+export function moduleNameFromFilename(filename: string | undefined): string {
+  if (filename === undefined || filename === "") return DEFAULT_MODULE_NAME;
+  const normalized = filename.replace(/\\/g, "/");
+  const base = normalized.slice(normalized.lastIndexOf("/") + 1);
+  const withoutExt = base.replace(/\.osnova$/i, "");
+  return withoutExt === "" ? DEFAULT_MODULE_NAME : withoutExt;
 }
 
 export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult {
@@ -243,6 +290,31 @@ export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult 
   }
 
   /**
+   * Шапка `модуль имя` без закрытия (БЛОК 3, пункт 1).
+   *
+   * Почему это **предупреждение**, а не ошибка. Замер 2026-09-19: из 68 файлов
+   * корпуса шапка есть у всех 68, а `конец_модуля` — только у 11, то есть 57
+   * файлов закрытия не имеют. Объявить их ошибкой значило бы обрушить корпус и
+   * 46 файлов оракулов разом, нарушив два критерия блока сразу («legacy
+   * принимается», «npm test — 0 падений»). Решение владельца: диагностика по
+   * флагу, жёсткая ошибка — только на закрытие без шапки (см.
+   * {@link parseFileAsModule}).
+   */
+  function warnModuleHeaderWithoutCloser(name: string, line: number, column: number): void {
+    if (options.warnDeprecated !== true) return;
+    warnings.push({
+      kind: "module_header_without_closer",
+      message:
+        `шапка «модуль ${name}» без закрытия: закройте блок словом 'конец_модуля' ` +
+        `или уберите шапку — файл сам является модулем`,
+      line,
+      column,
+      block: "модуль",
+      canonical: String(KIND_КОНЕЦ_МОДУЛЯ),
+    });
+  }
+
+  /**
    * Закрыть блок. Отказ называет блок и ожидаемое слово: «Закрытие ... не
    * совпадает» при явно не том слове и «Ожидается закрытие ...» при отсутствии.
    */
@@ -342,37 +414,14 @@ export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult 
     }
   }
 
-  function parseModule(): Module | null {
-    if (!isAt("модуль")) {
-      const t = peek();
-      errors.push({
-        message: "Ожидается 'модуль'",
-        line: t.line,
-        column: t.column,
-        context: "module",
-        expected: ["модуль"],
-        actualKind: t.kind,
-        actualLexeme: t.lexeme,
-      });
-      return null;
-    }
-    advance();
-    if (!isAt("идентификатор")) {
-      const t = peek();
-      errors.push({
-        message: "Ожидается имя модуля",
-        line: t.line,
-        column: t.column,
-        context: "module",
-        expected: ["идентификатор"],
-        actualKind: t.kind,
-        actualLexeme: t.lexeme,
-      });
-      return null;
-    }
-    const tokMod = advance();
-    const name = String(tokMod.value ?? tokMod.lexeme);
-    skipNewlines();
+  /**
+   * Тело модуля: импорты, типы, процедуры.
+   *
+   * Вынесено отдельно, потому что тело у обеих форм одно и то же (БЛОК 3, пункт
+   * 1): у шапки `модуль имя` и у файла-модуля различаются только объявление
+   * имени и закрытие.
+   */
+  function parseModuleBody(): Pick<Module, "imports" | "typeDeclarations" | "procedures"> {
     const imports: ImportDeclaration[] = [];
     // Импорт разрешён только в самом начале модуля.
     while (peek().kind === "использовать") {
@@ -423,13 +472,103 @@ export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult 
       else syncToTopLevel();
       skipNewlines();
     }
+    return { imports, typeDeclarations, procedures };
+  }
+
+  /**
+   * Legacy-форма: модуль объявлен шапкой `модуль <имя>`.
+   *
+   * Закрытие остаётся **необязательным**. Замер 2026-09-19: шапку пишут все 68
+   * файлов корпуса, а `конец_модуля` — только 11, то есть 57 файлов модуль не
+   * закрывают. Отсутствие закрытия — предупреждение по флагу, а не ошибка, см.
+   * {@link warnModuleHeaderWithoutCloser}.
+   */
+  function parseModule(): Module | null {
+    if (!isAt("модуль")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается 'модуль'",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["модуль"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      return null;
+    }
+    const tokHeader = advance();
+    if (!isAt("идентификатор")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается имя модуля",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["идентификатор"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      return null;
+    }
+    const tokMod = advance();
+    const name = String(tokMod.value ?? tokMod.lexeme);
+    skipNewlines();
+    const body = parseModuleBody();
     // Опциональный закрывающий "конец"/"конец_модуля" для модуля (БЛОК 1 v2).
     if (isAtCloser(MODULE_CLOSER)) {
       warnLegacyCloser(MODULE_CLOSER);
       advance();
       skipNewlines();
+    } else {
+      warnModuleHeaderWithoutCloser(name, tokHeader.line, tokHeader.column);
     }
-    return { name, imports, typeDeclarations, procedures };
+    return { name, ...body };
+  }
+
+  /**
+   * Канон БЛОК 3, пункт 1: **файл = модуль**.
+   *
+   * Шапки `модуль имя` нет — модуль это весь файл, имя берётся из имени файла
+   * ({@link moduleNameFromFilename}). Закрывать нечего: конец файла и есть конец
+   * модуля, поэтому `конец_модуля` здесь — ошибка, а не закрытие.
+   *
+   * Различие между `конец_модуля` и одиночным `конец` намеренное, и оно не
+   * косметическое: `конец_модуля` **называет** модуль, то есть утверждает «модуль
+   * объявлен шапкой» — в файле-модуле это утверждение ложно. Одиночный `конец`
+   * имени не называет и остаётся принимаемым legacy-закрытием (как и везде после
+   * БЛОК 1 v2).
+   */
+  function parseFileAsModule(): Module | null {
+    const name = moduleNameFromFilename(options.filename);
+    const body = parseModuleBody();
+
+    // Смешение форм: закрытие без открытия. Причина называется точно — и что
+    // не так, и оба способа починить.
+    if (isAtCloser(MODULE_CLOSER) && peek().kind === KIND_КОНЕЦ_МОДУЛЯ) {
+      const t = peek();
+      errors.push({
+        message:
+          "'конец_модуля' без шапки 'модуль имя': закрывать нечего — файл сам является модулем; " +
+          "уберите 'конец_модуля' либо объявите модуль шапкой 'модуль <имя>'",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["конец_файла"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      advance();
+      skipNewlines();
+      return null;
+    }
+
+    if (isAtCloser(MODULE_CLOSER)) {
+      warnLegacyCloser(MODULE_CLOSER);
+      advance();
+      skipNewlines();
+    }
+    return { name, ...body };
   }
 
   function parseImportDeclaration(): ImportDeclaration | null {
@@ -1548,44 +1687,70 @@ export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult 
 
   skipNewlines();
   const modules: Module[] = [];
-  while (peek().kind !== "конец_файла") {
-    if (!isAt("модуль")) {
+  // Канон БЛОК 3, пункт 1: файл = модуль. Шапки `модуль имя` может не быть —
+  // тогда модуль это весь файл, и имя берётся из имени файла. Если шапка есть,
+  // работает прежний путь: разбор модулей (в файле их по-прежнему может быть
+  // несколько, и это не «смешение»: шапка и закрытие — разные вещи).
+  const fileIsModule = peek().kind !== "конец_файла" && !isAt("модуль");
+  if (fileIsModule) {
+    const mod = parseFileAsModule();
+    if (mod) modules.push(mod);
+    skipNewlines();
+    if (peek().kind !== "конец_файла") {
       const t = peek();
       errors.push({
-        message: "Ожидается 'модуль'",
+        message: "Ожидается конец файла: файл является модулем целиком",
         line: t.line,
         column: t.column,
         context: "module",
-        expected: ["модуль"],
+        expected: ["конец_файла"],
         actualKind: t.kind,
         actualLexeme: t.lexeme,
       });
-      advance();
-      syncToTopLevel();
-      skipNewlines();
-      continue;
+      // Восстанавливаться некуда: второго модуля в файле-модуле быть не может,
+      // поэтому поток дочитывается до конца, а не синхронизируется по шапке.
+      while (peek().kind !== "конец_файла" && pos < tokens.length) advance();
     }
-    const mod = parseModule();
-    if (mod) {
-      modules.push(mod);
-      if (peek().kind !== "модуль" && peek().kind !== "конец_файла") {
+  } else {
+    while (peek().kind !== "конец_файла") {
+      if (!isAt("модуль")) {
         const t = peek();
         errors.push({
-          message: "Ожидается начало следующего модуля или конец файла",
+          message: "Ожидается 'модуль'",
           line: t.line,
           column: t.column,
           context: "module",
-          expected: ["модуль", "конец_файла"],
+          expected: ["модуль"],
           actualKind: t.kind,
           actualLexeme: t.lexeme,
         });
         advance();
         syncToTopLevel();
+        skipNewlines();
+        continue;
       }
-    } else {
-      syncToTopLevel();
+      const mod = parseModule();
+      if (mod) {
+        modules.push(mod);
+        if (peek().kind !== "модуль" && peek().kind !== "конец_файла") {
+          const t = peek();
+          errors.push({
+            message: "Ожидается начало следующего модуля или конец файла",
+            line: t.line,
+            column: t.column,
+            context: "module",
+            expected: ["модуль", "конец_файла"],
+            actualKind: t.kind,
+            actualLexeme: t.lexeme,
+          });
+          advance();
+          syncToTopLevel();
+        }
+      } else {
+        syncToTopLevel();
+      }
+      skipNewlines();
     }
-    skipNewlines();
   }
   const ast = modules.length > 0
     ? ({

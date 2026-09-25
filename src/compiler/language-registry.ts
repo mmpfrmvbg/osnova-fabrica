@@ -199,10 +199,16 @@ const KEYWORDS_V01: KeywordSpec[] = [
 const CONSTRUCTS_V01: ConstructSpec[] = [
   {
     id: "module",
-    syntax: "модуль <имя>",
+    // Канон БЛОК 3, пункт 1: модуль — сам файл, имя берётся из имени файла.
+    // Шапка `модуль <имя>` остаётся legacy-формой и принимается; закрытие
+    // (`конец_модуля`/`конец`) при шапке по-прежнему необязательно.
+    syntax: "файл = модуль (legacy: модуль <имя> … конец_модуля)",
     astNode: { kind: "Module", fields: [{ name: "name", type: "string" }, { name: "procedures", type: "Procedure[]" }] },
     since: "0.1.0",
     implemented: true,
+    description:
+      "Один файл — один модуль; имя модуля берётся из имени файла (привет.osnova → «привет»). " +
+      "Шапка `модуль <имя>` не обязательна; `конец_модуля` без шапки — ошибка",
   },
   {
     id: "procedure",

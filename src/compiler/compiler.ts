@@ -343,7 +343,9 @@ function getFirstModuleOrThrow(program: Program | null): Module {
 
 function parseModuleOrThrow(source: string, file: string): Module {
   const { tokens, errors: lexerErrors } = tokenize(source);
-  const { ast: program, errors: parserErrors } = parse(tokens);
+  // Импортируемый файл — такой же файл-модуль (БЛОК 3, пункт 1): имя модуля
+  // берётся из имени ЭТОГО файла, а не из имени входного.
+  const { ast: program, errors: parserErrors } = parse(tokens, { filename: file });
   if (lexerErrors.length > 0) {
     const e = lexerErrors[0]!;
     throw new ImportExpandError(e.message, { file, line: e.line, column: e.column });
@@ -1284,6 +1286,9 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
   const { tokens, errors: lexerErrors } = tokenize(source);
   const { ast: program, errors: parserErrors, warnings } = parse(tokens, {
     warnDeprecated: options.warnDeprecated === true,
+    // Файл = модуль (БЛОК 3, пункт 1): когда шапки `модуль имя` нет, имя модуля
+    // берётся из имени файла — без него разбор назвал бы модуль «вход».
+    filename: options.filename,
   });
 
   // Логирование ошибок лексера
