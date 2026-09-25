@@ -31,7 +31,14 @@ function sha256(text: string): string {
 
 /** Сборка исходника ровно в той сериализации, что пишет `osnova compile`. */
 function build(sourcePath: string): string {
-  const compiled = compileSource(fs.readFileSync(sourcePath, "utf-8"));
+  // Имя файла передаётся намеренно: `osnova compile` зовёт компилятор с
+  // `filename: path.basename(inputPath)`, и после БЛОК 3 (пункт 1, «файл =
+  // модуль») это уже не деталь диагностики, а ИСТОЧНИК имени модуля. Без имени
+  // файла исходник без шапки `модуль имя` собрался бы под именем «вход», и
+  // артефакт разошёлся бы с тем, что пишет CLI, — причём молча.
+  const compiled = compileSource(fs.readFileSync(sourcePath, "utf-8"), {
+    filename: path.basename(sourcePath),
+  });
   if (!compiled.module) {
     const errors = [
       ...compiled.lexerErrors,
