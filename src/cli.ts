@@ -243,7 +243,21 @@ function runCompileMode(cliArgs: string[]): number {
     return 1;
   }
   const source = fs.readFileSync(inputPath, 'utf-8');
-  const result = compileSource(source);
+  // Имя файла и его каталог передаются ЯВНО — как это делает `src/compiler/cli.ts`.
+  //
+  // Без `filename` канон «файл = модуль» даёт модулю имя `вход` (умолчание из
+  // parser.ts) вместо имени файла: файл без шапки `модуль имя` собирался с чужим
+  // именем, и артефакт расходился со сторожем `src/runtime/artifactDrift.test.ts`,
+  // который собирает с `filename: basename`. Разница была незаметна, пока шапки
+  // стояли: шапка сильнее имени файла и маскировала расхождение двух путей сборки.
+  //
+  // Без `baseDir` импорты `использовать модуль X из "y.osnova"` разрешались от
+  // текущего каталога, а не от каталога исходника: сборка приложения из другого
+  // каталога падала на «Модуль не найден».
+  const result = compileSource(source, {
+    baseDir: path.dirname(inputPath),
+    filename: path.basename(inputPath),
+  });
   if (result.lexerErrors.length > 0) {
     for (const e of result.lexerErrors) {
       console.error(`Лексер ${e.line}:${e.column}: ${e.message}`);
