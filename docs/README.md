@@ -5,13 +5,13 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (21). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (20). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
 - [docs/bytecode-v1.md](bytecode-v1.md) ⚠
 - [docs/coding-with-osnova-v2.md](coding-with-osnova-v2.md)
-- [docs/golden-app-chat.md](golden-app-chat.md) ⚠
+- [docs/golden-app-chat.md](golden-app-chat.md)
 - [docs/golden-app-game-rounds.md](golden-app-game-rounds.md)
 - [docs/golden-app-micro-crm.md](golden-app-micro-crm.md)
 - [docs/golden-app-notepad.md](golden-app-notepad.md)
