@@ -24,6 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * |---|---|
  * | `src/e2k/e2kQemuExec.test.ts` | запускает `qemu-e2k` с шимом и **исполняет** наши байты |
  * | `src/scripts/e2kQemuRun.audit.test.ts` | пробует живой прогон и сверяет с ним документ |
+ * | `src/scripts/examplesE2k.audit.test.ts` | исполняет на цели примеры корпуса, объявленные исполняемыми, и сверяет с тем же `expected.txt`, что и VM |
  *
  * # Чего шлюз НЕ делает
  *
@@ -59,6 +60,9 @@ export default defineConfig({
       'src/e2k/e2kCallWindowQemu.test.ts',
       'src/e2k/e2kMathQemu.test.ts',
       'src/e2k/e2kConvolutionQemu.test.ts',
+      // Корпус примеров на цели: примеры, объявленные исполняемыми на e2k,
+      // сверяются с тем же expected.txt, что и VM (сквозная проверка).
+      'src/scripts/examplesE2k.audit.test.ts',
     ],
   },
 });

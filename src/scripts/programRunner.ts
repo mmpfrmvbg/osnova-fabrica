@@ -21,10 +21,23 @@ import * as path from "path";
 import { compileSource } from "../compiler/compiler";
 import { VM, createDefaultInvokeHandler } from "../runtime/vm/interpreter";
 
-/** Результат прогона: строки вывода и ошибка (если программа не дошла до конца). */
+/** Результат прогона: строки вывода, значение точки входа и ошибка. */
 export interface ProgramRun {
   output: string[];
+  /**
+   * Что вернула точка входа. Нужно там, где программа НЕ печатает: у примера
+   * корпуса результат может быть возвратом (`expected.via: "возврат"`), и
+   * сравнивать тогда надо значение, а не вывод.
+   */
+  value: unknown;
   error: string | null;
+}
+
+/** Значение точки входа строкой — так, как его напечатал бы `вывести`. */
+export function formatValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "пусто";
+  return JSON.stringify(value) ?? String(value);
 }
 
 /** Имена точки входа — те же, что ищет CLI. */
@@ -56,12 +69,18 @@ export async function runProgramOnVm(
     };
     try {
       const source = sources.get(entry);
-      if (source === undefined) return { output: out, error: `нет точки входа ${entry}` };
+      if (source === undefined) return { output: out, value: undefined, error: `нет точки входа ${entry}` };
       const r = compileSource(source, { baseDir: dir, filename: entry });
-      if (r.lexerErrors.length > 0) return { output: out, error: `лексер: ${r.lexerErrors[0]!.message}` };
-      if (r.parserErrors.length > 0) return { output: out, error: `парсер: ${r.parserErrors[0]!.message}` };
-      if (r.semanticErrors.length > 0) return { output: out, error: `семантика: ${r.semanticErrors[0]!.message}` };
-      if (!r.module || !r.compilerSuccess) return { output: out, error: "модуль не собран" };
+      if (r.lexerErrors.length > 0) {
+        return { output: out, value: undefined, error: `лексер: ${r.lexerErrors[0]!.message}` };
+      }
+      if (r.parserErrors.length > 0) {
+        return { output: out, value: undefined, error: `парсер: ${r.parserErrors[0]!.message}` };
+      }
+      if (r.semanticErrors.length > 0) {
+        return { output: out, value: undefined, error: `семантика: ${r.semanticErrors[0]!.message}` };
+      }
+      if (!r.module || !r.compilerSuccess) return { output: out, value: undefined, error: "модуль не собран" };
       const vm = new VM(r.module, { invoke: createDefaultInvokeHandler(), maxSteps });
       const index = (() => {
         for (const name of ENTRY_NAMES) {
@@ -73,10 +92,10 @@ export async function runProgramOnVm(
         }
         return 0;
       })();
-      await vm.runProcedure(index, []);
-      return { output: out, error: null };
+      const value = await vm.runProcedure(index, []);
+      return { output: out, value, error: null };
     } catch (e) {
-      return { output: out, error: e instanceof Error ? e.message : String(e) };
+      return { output: out, value: undefined, error: e instanceof Error ? e.message : String(e) };
     } finally {
       console.log = originalLog;
     }

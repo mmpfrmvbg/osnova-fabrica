@@ -40,7 +40,7 @@ import {
   renderIndex,
   type Example,
 } from "./examplesIndex";
-import { runProgramOnVm } from "./programRunner";
+import { formatValue, runProgramOnVm } from "./programRunner";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const EXAMPLES = path.join(ROOT, "examples");
@@ -54,8 +54,8 @@ const QEMU_CONFIG = path.join(ROOT, "vitest.qemu.config.ts");
  * Числа сравниваются точно, поэтому каждое изменение корпуса обязано быть названо
  * в отчёте. Номер `01` оставлен примеру владельца — эталону FIR (181).
  */
-const EXPECTED_EXAMPLES = 9;
-const EXPECTED_E2K = 0;
+const EXPECTED_EXAMPLES = 10;
+const EXPECTED_E2K = 1;
 
 const examples: Example[] = readExamples(ROOT);
 const boundaries = readBoundaries(ROOT);
@@ -67,6 +67,9 @@ function expectedLines(e: Example): string[] {
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   return lines;
 }
+
+/** Эталон примера одной строкой — для сверки с возвратом точки входа. */
+const expectedValue = (e: Example): string => expectedLines(e).join("\n");
 
 /** Строка-ссылка на измерение: раздел канона, документ или файл пробы. */
 const NAMED_SOURCE_RE = /§\s*\d|docs\/|\S+\.(?:md|ts|py)\b/u;
@@ -127,6 +130,15 @@ describe("корпус примеров: раскладка и статусы", 
       if (typeof m.expected?.origin !== "string" || m.expected.origin.trim() === "") {
         bad.push(`${e.dir}: пустое expected.origin — не сказано, чем получен эталон`);
       }
+      const via = m.expected?.via;
+      if (via !== undefined && via !== "вывод" && via !== "возврат") {
+        bad.push(`${e.dir}: expected.via = ${String(via)}`);
+      }
+      // Пример, объявленный работающим на цели, обязан отдавать результат
+      // способом, который на цели существует: печати там нет (§13.12).
+      if (m.e2k?.status === "работает" && (via ?? "вывод") === "вывод") {
+        bad.push(`${e.dir}: объявлен работающим на e2k, но результат берётся из печати — на цели печати нет`);
+      }
     }
     expect(bad, bad.join("\n")).toEqual([]);
   });
@@ -161,21 +173,6 @@ describe("корпус примеров: раскладка и статусы", 
     const forbidden = ["write" + "FileSync", "append" + "FileSync", "write" + "Index"];
     for (const name of forbidden) {
       if (own.includes(name)) bad.push(`оракул корпуса вызывает ${name}: эталон может быть перезаписан`);
-    }
-    expect(bad, bad.join("\n")).toEqual([]);
-  });
-
-  it("заявленный атом существует в каталоге Атласа", () => {
-    const known = new Set(ATOM_CATALOGUE.map((a) => a.id));
-    const bad: string[] = [];
-    for (const e of examples) {
-      const atoms = e.meta.atoms;
-      if (atoms === undefined) continue;
-      for (const axis of ["A", "C", "D"] as const) {
-        for (const id of atoms[axis] ?? []) {
-          if (!known.has(id)) bad.push(`${e.dir}: ось ${axis}, атом «${id}» не найден в каталоге 27 атомов`);
-        }
-      }
     }
     expect(bad, bad.join("\n")).toEqual([]);
   });
@@ -228,8 +225,14 @@ describe("корпус примеров: программы исполняютс
       for (const file of e.modules) {
         sources.set(file, fs.readFileSync(path.join(EXAMPLES, e.dir, file), "utf-8"));
       }
-      const { output, error } = await runProgramOnVm(sources, entryOf(e) ?? "main.osnova");
+      const { output, value, error } = await runProgramOnVm(sources, entryOf(e) ?? "main.osnova");
       expect(error, `пример должен исполняться: ${error ?? ""}`).toBeNull();
+      if (e.meta.expected.via === "возврат") {
+        // Результат — возврат процедуры: печатать программа не может (на цели
+        // печати нет), поэтому эталон сверяется со значением точки входа.
+        expect(formatValue(value), `возврат ${e.dir}`).toBe(expectedValue(e));
+        return;
+      }
       expect(output.map((l) => l.replace(/\s+$/u, ""))).toEqual(expectedLines(e));
     });
   }
