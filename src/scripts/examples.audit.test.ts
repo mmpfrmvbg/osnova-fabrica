@@ -71,6 +71,19 @@ function expectedLines(e: Example): string[] {
 /** Строка-ссылка на измерение: раздел канона, документ или файл пробы. */
 const NAMED_SOURCE_RE = /§\s*\d|docs\/|\S+\.(?:md|ts|py)\b/u;
 
+/**
+ * Точка входа примера.
+ *
+ * По раскладке это `main.osnova`. Но если программа в каталоге одна и названа
+ * иначе (`fir.osnova`), это не дефект: в каноне имя файла = имя модуля, и
+ * единственный файл однозначен. Неоднозначность (несколько файлов без
+ * `main.osnova`) — дефект, и она называется.
+ */
+function entryOf(e: Example): string | null {
+  if (e.modules.includes("main.osnova")) return "main.osnova";
+  return e.modules.length === 1 ? e.modules[0]! : null;
+}
+
 /** Каталоги в `examples/`, которые не являются примерами по имени. */
 function strayDirs(): string[] {
   if (!fs.existsSync(EXAMPLES)) return [];
@@ -87,13 +100,16 @@ describe("корпус примеров: раскладка и статусы", 
     expect(strayDirs(), "каталоги вне шаблона NN-имя").toEqual([]);
   });
 
-  it("у каждого примера есть main.osnova, expected.txt и meta.json", () => {
+  it("у каждого примера есть программа, expected.txt и meta.json", () => {
     const bad: string[] = [];
     for (const e of examples) {
-      for (const file of ["main.osnova", "expected.txt", "meta.json"]) {
+      for (const file of ["expected.txt", "meta.json"]) {
         if (!fs.existsSync(path.join(EXAMPLES, e.dir, file))) bad.push(`${e.dir}: нет ${file}`);
       }
       if (e.modules.length === 0) bad.push(`${e.dir}: нет ни одного .osnova`);
+      else if (entryOf(e) === null) {
+        bad.push(`${e.dir}: нет main.osnova, а файлов несколько — точка входа неоднозначна`);
+      }
     }
     expect(bad, bad.join("\n")).toEqual([]);
   });
@@ -212,7 +228,7 @@ describe("корпус примеров: программы исполняютс
       for (const file of e.modules) {
         sources.set(file, fs.readFileSync(path.join(EXAMPLES, e.dir, file), "utf-8"));
       }
-      const { output, error } = await runProgramOnVm(sources, "main.osnova");
+      const { output, error } = await runProgramOnVm(sources, entryOf(e) ?? "main.osnova");
       expect(error, `пример должен исполняться: ${error ?? ""}`).toBeNull();
       expect(output.map((l) => l.replace(/\s+$/u, ""))).toEqual(expectedLines(e));
     });
