@@ -32,6 +32,7 @@ npx tsx src/cli/index.ts run привет.osvbc.json
 
 ## Первая программа
 
+<!-- legacy-form -->
 ```osnova
 модуль привет
 

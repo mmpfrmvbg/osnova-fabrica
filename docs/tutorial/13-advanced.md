@@ -60,6 +60,7 @@ npx tsx src/cli.ts schedule ядро.osvbc.json
 
 Вот файл `ядро.osnova`, на котором всё это видно. Он считает `3*3 + 4*4`:
 
+<!-- legacy-form -->
 ```osnova
 модуль ядро
 

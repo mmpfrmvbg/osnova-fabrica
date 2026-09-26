@@ -46,7 +46,22 @@ interface Block {
   fileName: string | null;
   /** Подстрока из `/* ожидается ошибка: … *​/` — пример обязан упасть. */
   expectError: string | null;
+  /** В блоке есть шапка `модуль имя` — legacy-форма (канон: файл = модуль). */
+  hasModuleHeader: boolean;
+  /** Перед ограждением стоит метка `<!-- legacy-form -->`. */
+  legacyMark: boolean;
 }
+
+/**
+ * Метка legacy-формы. Ставится ПЕРЕД ограждением — вне самого блока, поэтому
+ * разбор блоков ею не сбивается.
+ *
+ * Зачем метка, а не просто запрет: шапок в учебнике 73, и мгновенный запрет
+ * оставил бы прогон красным на всё время конвертации. Метка делает промежуточное
+ * состояние СОГЛАСОВАННЫМ (блок с шапкой обязан её нести), а счётчик работы —
+ * видимым числом: сколько меток осталось, столько блоков ещё не в каноне.
+ */
+const LEGACY_MARK = "<!-- legacy-form -->";
 
 /** Разобрать markdown: блоки ```osnova и (необязательный) следующий ```вывод. */
 export function blocksOf(markdown: string, file: string): Block[] {
@@ -55,6 +70,7 @@ export function blocksOf(markdown: string, file: string): Block[] {
   let i = 0;
   while (i < lines.length) {
     if (lines[i]!.trim() === "```osnova") {
+      const marked = i > 0 && lines[i - 1]!.trim() === LEGACY_MARK;
       const start = ++i;
       while (i < lines.length && lines[i]!.trim() !== "```") i++;
       const source = lines.slice(start, i).join("\n");
@@ -82,6 +98,11 @@ export function blocksOf(markdown: string, file: string): Block[] {
         expected,
         fileName: match ? match[1]! : null,
         expectError: errMatch ? errMatch[1]! : null,
+        // Якорь — начало СТРОКИ (флаг `m`): в четырёх блоках перед шапкой стоит
+        // строка-директива (`/* ожидается ошибка: … */`, `/* файл: … */`),
+        // а сама шапка всё равно открывает модуль. Без `m` счёт падал до 69.
+        hasModuleHeader: /^[ \t]*модуль\s/mu.test(source),
+        legacyMark: marked,
       });
       continue;
     }
@@ -97,6 +118,18 @@ const LEGACY: Array<{ name: string; re: RegExp }> = [
   { name: "одиночный конец (канон — конец_X)", re: /(^|[^А-Яа-я_])конец(?!_)(?![А-Яа-я_])/ },
   { name: "// (комментарий: деление — div)", re: /\/\// },
 ];
+
+/**
+ * СЧЁТЧИК РАБОТЫ: сколько блоков учебника ещё в legacy-форме (шапка `модуль имя`
+ * с парным `конец_модуля`). Число только УМЕНЬШАЕТСЯ, и каждое уменьшение —
+ * отдельная правка конвертации: проверка сравнивает точное значение, поэтому
+ * забыть обновить счётчик нельзя.
+ *
+ * Было 73 (замер `.tmp/tutorial-blocks.ts`, разбором ограждений: греб по строкам
+ * путает ограждения и блоки). Цель — 1: единственный помеченный legacy-блок в
+ * `10-modules.md` как «принимается, но не нужно».
+ */
+const EXPECTED_LEGACY_BLOCKS = 73;
 
 function tutorialFiles(): string[] {
   if (!fs.existsSync(TUTORIAL)) return [];
@@ -314,5 +347,52 @@ describe("учебник: команды из раздела 02 работают
     expect(run.status, `run: ${run.stderr ?? ""}`).toBe(0);
     expect((run.stdout ?? "").trim().split("\n")).toEqual(first.expected);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+/**
+ * ФОРМА ПРИМЕРОВ — отдельно от их исполнения.
+ *
+ * Канон: файл = модуль, шапка `модуль имя` не нужна (§4, §13.3). Учебник должен
+ * учить канону, иначе он разъедется с языком — как разъелся до §13, где шапок не
+ * было ни в одном примере, а канон их уже не требовал.
+ *
+ * Пока идёт конвертация, состояние СОГЛАСОВАНО меткой: блок с шапкой обязан её
+ * нести, и число меток названо счётчиком. Прогон от этого не краснеет, а работа
+ * видна числом.
+ */
+describe("учебник: форма примеров", () => {
+  const legacyBlocks = (): Block[] => allBlocks().filter((b) => b.hasModuleHeader);
+
+  it("счётчик работы: блоков в legacy-форме ровно EXPECTED_LEGACY_BLOCKS", () => {
+    // Число обязано уменьшаться вместе с конвертацией: сравнивается ТОЧНОЕ
+    // значение, поэтому забыть обновить счётчик нельзя.
+    expect(
+      legacyBlocks().length,
+      "блоков с шапкой «модуль имя» (счётчик только уменьшается)",
+    ).toBe(EXPECTED_LEGACY_BLOCKS);
+  });
+
+  it("каждый блок с шапкой несёт метку legacy-form", () => {
+    const unmarked = legacyBlocks()
+      .filter((b) => !b.legacyMark)
+      .map((b) => `${b.file}: блок ${String(b.index)}`);
+    expect(unmarked, "блоки с шапкой без метки — форма не названа").toEqual([]);
+  });
+
+  it("метка без legacy-блока — красное: нет устаревших исключений", () => {
+    const stale = allBlocks()
+      .filter((b) => b.legacyMark && !b.hasModuleHeader)
+      .map((b) => `${b.file}: блок ${String(b.index)}`);
+    expect(stale, "метка стоит там, где legacy-формы уже нет").toEqual([]);
+  });
+
+  it("в канонических блоках шапки и конец_модуля не встречаются", () => {
+    // Обратная сторона метки: если блок НЕ помечен, он обязан быть в каноне
+    // целиком — ни шапки, ни парного ей `конец_модуля`.
+    const notCanonical = allBlocks()
+      .filter((b) => !b.legacyMark && /^\s*конец_модуля\s*$/mu.test(b.source))
+      .map((b) => `${b.file}: блок ${String(b.index)}`);
+    expect(notCanonical, "конец_модуля в непомеченном блоке").toEqual([]);
   });
 });
