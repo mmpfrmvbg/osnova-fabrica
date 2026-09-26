@@ -27,8 +27,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { spawnSync } from "child_process";
-import { compileSource } from "../compiler/compiler";
-import { VM, createDefaultInvokeHandler } from "../runtime/vm/interpreter";
+import { runProgramOnVm } from "./programRunner";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const TUTORIAL = path.join(ROOT, "docs", "tutorial");
@@ -201,42 +200,11 @@ function runsOf(blocks: Block[]): Run[] {
   return runs;
 }
 
-async function runProgram(sources: Map<string, string>, entry: string): Promise<{ output: string[]; error: string | null }> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "osnova-tutorial-"));
-  try {
-    for (const [name, text] of sources) fs.writeFileSync(path.join(dir, name), text, "utf-8");
-    const out: string[] = [];
-    const spy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-      out.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
-    });
-    try {
-      const r = compileSource(sources.get(entry)!, { baseDir: dir, filename: entry });
-      if (r.lexerErrors.length > 0) return { output: out, error: `лексер: ${r.lexerErrors[0]!.message}` };
-      if (r.parserErrors.length > 0) return { output: out, error: `парсер: ${r.parserErrors[0]!.message}` };
-      if (r.semanticErrors.length > 0) return { output: out, error: `семантика: ${r.semanticErrors[0]!.message}` };
-      if (!r.module || !r.compilerSuccess) return { output: out, error: "модуль не собран" };
-      const vm = new VM(r.module, { invoke: createDefaultInvokeHandler(), maxSteps: 200_000 });
-      const index = (() => {
-        for (const name of ["главная", "старт", "main"]) {
-          try {
-            return vm.findProcedureIndex(name);
-          } catch {
-            /* пробуем следующее имя */
-          }
-        }
-        return 0;
-      })();
-      await vm.runProcedure(index, []);
-      return { output: out, error: null };
-    } catch (e) {
-      return { output: out, error: e instanceof Error ? e.message : String(e) };
-    } finally {
-      spy.mockRestore();
-    }
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
+/*
+ * Запуск программы на VM живёт в `./programRunner` — ОДИН на учебник и корпус
+ * примеров. Раньше он был здесь копией: две копии разошлись бы при первой правке
+ * компилятора или VM, и «пример работает» означало бы разное в двух местах.
+ */
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -297,7 +265,7 @@ describe("учебник: примеры работают", () => {
 
   for (const run of runs) {
     it(run.name, async () => {
-      const { output, error } = await runProgram(run.sources, run.entry);
+      const { output, error } = await runProgramOnVm(run.sources, run.entry);
       if (run.expectError !== null) {
         expect(error, `пример обязан упасть с ошибкой «${run.expectError}»`).not.toBeNull();
         expect(error!).toContain(run.expectError);
