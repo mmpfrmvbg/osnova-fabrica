@@ -129,7 +129,7 @@ const LEGACY: Array<{ name: string; re: RegExp }> = [
  * путает ограждения и блоки). Цель — 1: единственный помеченный legacy-блок в
  * `10-modules.md` как «принимается, но не нужно».
  */
-const EXPECTED_LEGACY_BLOCKS = 73;
+const EXPECTED_LEGACY_BLOCKS = 65;
 
 function tutorialFiles(): string[] {
   if (!fs.existsSync(TUTORIAL)) return [];
@@ -267,12 +267,21 @@ describe("учебник: разметка и устаревшие формы", 
     expect(problems, problems.join("\n")).toEqual([]);
   });
 
-  it("каждый исполняемый пример — полный модуль", () => {
+  it("помеченный legacy-блок — полная legacy-форма: шапка и парный конец_модуля", () => {
+    // Проверка была «каждый пример — полный модуль» и требовала шапку от ВСЕХ
+    // блоков: это предположение канона до «файл = модуль». Теперь полнота модуля
+    // следует из канона (модуль — сам файл), а шапка осталась обещанием метки:
+    // если блок назван legacy, он обязан показывать legacy-форму целиком.
     const bad: string[] = [];
     for (const block of allBlocks()) {
+      if (!block.legacyMark) continue;
       const body = bodyOf(block);
-      if (!/^\s*модуль\s+\S/.test(body)) bad.push(`${block.file} пример ${block.index}: нет «модуль …»`);
-      if (!/^\s*конец_модуля\s*$/m.test(body)) bad.push(`${block.file} пример ${block.index}: нет «конец_модуля»`);
+      if (!/^[ \t]*модуль\s+\S/mu.test(body)) {
+        bad.push(`${block.file} пример ${block.index}: метка legacy-form без «модуль …»`);
+      }
+      if (!/^\s*конец_модуля\s*$/mu.test(body)) {
+        bad.push(`${block.file} пример ${block.index}: метка legacy-form без «конец_модуля»`);
+      }
     }
     expect(bad, bad.join("\n")).toEqual([]);
   });
