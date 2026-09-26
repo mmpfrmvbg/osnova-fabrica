@@ -15,5 +15,6 @@
   "expected": {
     "origin": "независимо: tests/dsp/reference.json (референс на Python)",
     "via": "возврат"
-  }
+  },
+  "hardware": "весь путь кодирования: ELF грузится, exit возвращает 181 — эталон линии e2k"
 }

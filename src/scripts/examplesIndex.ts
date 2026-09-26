@@ -85,6 +85,12 @@ export interface ExampleMeta {
    * («обеспечивает», «гарантирует», …): поле говорит только «это ядро атома».
    */
   core?: { atom: string; what: string; note?: string };
+  /**
+   * Что пример доказывает НА ЖЕЛЕЗЕ — одной строкой. Обязательно для примеров,
+   * объявленных исполняемыми на e2k: сессия на живой машине должна проверять
+   * заготовленное утверждение, а не придумывать его на месте.
+   */
+  hardware?: string;
 }
 
 /** Пример корпуса: каталог, его номер и мета. */
@@ -185,6 +191,24 @@ export function renderIndex(examples: Example[], boundaries: Boundary[]): string
     lines.push(
       `| \`${cell(b.path)}\` | ${cell(b.what)} | ${b.e2k.status} | ${cell(b.e2k.reason ?? "")} |`,
     );
+  }
+  lines.push("");
+  // Список «на железо не поедет» собирается из тех же данных, что и статусы:
+  // границы плюс примеры, у которых на цели стоит «нет». Первая сессия на живой
+  // машине не должна тратиться на то, что заведомо не понижается.
+  const notOnTarget = examples.filter((e) => e.meta.e2k.status === "нет");
+  lines.push("## Что на железо не поедет");
+  lines.push("");
+  lines.push("Список собран из статусов, а не написан руками: границы плюс примеры");
+  lines.push("корпуса, объявленные неисполняемыми на цели. Причина у каждого названа.");
+  lines.push("");
+  lines.push("| Что | Причина |");
+  lines.push("|---|---|");
+  for (const e of notOnTarget) {
+    lines.push(`| пример \`${cell(e.dir)}\` | ${cell(e.meta.e2k.reason ?? "")} |`);
+  }
+  for (const b of boundaries) {
+    lines.push(`| \`${cell(b.path)}\` | ${cell(b.e2k.reason ?? "")} |`);
   }
   lines.push("");
   return lines.join("\n");
