@@ -56,8 +56,8 @@ const QEMU_CONFIG = path.join(ROOT, "vitest.qemu.config.ts");
  * Числа сравниваются точно, поэтому каждое изменение корпуса обязано быть названо
  * в отчёте. Номер `01` оставлен примеру владельца — эталону FIR (181).
  */
-const EXPECTED_EXAMPLES = 27;
-const EXPECTED_E2K = 14;
+const EXPECTED_EXAMPLES = 31;
+const EXPECTED_E2K = 17;
 
 /**
  * СЧЁТЧИК ЛЕГАСИ-ЗАКРЫТИЙ: сколько в корпусе закрытий одиночным `конец`.
@@ -318,6 +318,36 @@ describe("корпус примеров: раскладка и статусы", 
       }
     }
     expect(problems, `на e2k объявлены: ${declared.join(", ")}\n${problems.join("\n")}`).toEqual([]);
+  });
+
+  it("кит для машины не отстал от корпуса", () => {
+    // Кит собирается ИЗ корпуса (`npx tsx src/scripts/e2kHardwareKit.ts`), а его
+    // таблица эталонов плоская — чтобы читаться на машине, где может не быть ни
+    // python, ни jq, зато есть awk. Если добавить целевой пример и не пересобрать
+    // кит, машина прогонит старый набор: это обязано быть видно здесь, а не на
+    // железе за неделю доступа.
+    const ready = examples.filter((e) => e.meta.e2k.status === "работает").length;
+    const kitReadme = path.join(ROOT, "tools", "e2k-hardware", "README.md");
+    const kit = path.join(ROOT, "tools", "e2k-hardware", "expected.tsv");
+    const problems: string[] = [];
+    if (!fs.existsSync(kitReadme)) {
+      problems.push("нет tools/e2k-hardware/README.md — порядок прогонов негде смотреть");
+    }
+    if (!fs.existsSync(kit)) {
+      problems.push("нет tools/e2k-hardware/expected.tsv — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts");
+    } else {
+      const rows = fs
+        .readFileSync(kit, "utf-8")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l !== "").length;
+      if (rows !== ready) {
+        problems.push(
+          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
+        );
+      }
+    }
+    expect(problems, problems.join("\n")).toEqual([]);
   });
 
   it("счётчик корпуса: примеров ровно EXPECTED_EXAMPLES, из них на e2k EXPECTED_E2K", () => {

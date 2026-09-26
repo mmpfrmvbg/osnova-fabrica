@@ -180,6 +180,15 @@ export function renderIndex(examples: Example[], boundaries: Boundary[]): string
     examples.filter((e) => e.meta.e2k.status === "работает").length,
   )}**.`);
   lines.push("");
+  // Порядок прогонов на живой машине живёт в ките, а не здесь: индекс называет
+  // только число готовых примеров и указывает, где смотреть порядок.
+  const ready = examples.filter((e) => e.meta.e2k.status === "работает");
+  lines.push("## Готово к железу");
+  lines.push("");
+  lines.push(`Примеров, объявленных исполняемыми на цели: **${String(ready.length)}**. Что каждый`);
+  lines.push("доказывает на машине — в его `meta.hardware`; состав кита и ПОРЯДОК прогонов —");
+  lines.push("в `tools/e2k-hardware/README.md` (здесь не дублируется).");
+  lines.push("");
   lines.push("## Границы, названные честно");
   lines.push("");
   lines.push("Сюда попадают программы дерева, которые в корпус не входят: они делают то,");
