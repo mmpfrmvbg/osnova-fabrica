@@ -33,6 +33,8 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { ATOM_CATALOGUE } from "../compiler/atomRegions";
+import { compileSource } from "../compiler/compiler";
+import { deprecatedClosingsOf } from "./deprecatedEnds";
 import {
   EXAMPLE_DIR_RE,
   readBoundaries,
@@ -56,6 +58,17 @@ const QEMU_CONFIG = path.join(ROOT, "vitest.qemu.config.ts");
  */
 const EXPECTED_EXAMPLES = 13;
 const EXPECTED_E2K = 4;
+
+/**
+ * СЧЁТЧИК ЛЕГАСИ-ЗАКРЫТИЙ: сколько в корпусе закрытий одиночным `конец`.
+ *
+ * Считает тот же механизм, что отчёт корпуса (`src/scripts/deprecatedEnds.ts`) —
+ * предупреждения компилятора вида `deprecated_closer`. Пример №1 пришёл из линии
+ * e2k текстом без изменения, и три его `конец` здесь названы числом: это долг, а
+ * не образец. Новые примеры пишутся каноном, поэтому число может только
+ * уменьшаться — как 73 → 1 в учебнике.
+ */
+const EXPECTED_LEGACY_CLOSERS = 3;
 
 const examples: Example[] = readExamples(ROOT);
 const boundaries = readBoundaries(ROOT);
@@ -198,6 +211,77 @@ describe("корпус примеров: раскладка и статусы", 
       }
     }
     expect(bad, bad.join("\n")).toEqual([]);
+  });
+
+  it("поле core — это ядро атома, и слов-притязаний на гарантию в нём нет", () => {
+    // `core` говорит только «пример есть вычислительное ядро атома». Как только в
+    // тексте появляется «обеспечивает» или «гарантирует», поле превращается в
+    // заявку на гарантию — а для неё нужно поле `atoms` с проверкой гарантии.
+    // Отрицание — не притязание: «гарантии не обеспечивает» это ровно то, что
+    // поле обязано говорить, поэтому `не обеспечивает` из проверки исключено.
+    // Границы слова `\b` здесь не годятся: в JS она ASCII-ная, а перед кириллицей
+    // не срабатывает — проверено прогоном (отрицание не снималось).
+    const known = new Set(ATOM_CATALOGUE.map((a) => a.id));
+    const CLAIM_WORDS = ["обеспечива", "гарантиру", "гарантирует", "реализует гарантию"];
+    const NEGATED = /(^|\s)не\s+(?:обеспечива|гарантиру|гарантирует)\S*/gu;
+    const bad: string[] = [];
+    for (const e of examples) {
+      const core = e.meta.core;
+      if (core === undefined) continue;
+      if (!known.has(core.atom)) {
+        bad.push(`${e.dir}: ядро атома «${core.atom}» не найдено в каталоге 27 атомов`);
+      }
+      if (core.what.trim().length < 10) bad.push(`${e.dir}: core.what не назван — «${core.what}»`);
+      const text = `${core.what} ${core.note ?? ""}`.toLowerCase().replace(NEGATED, "");
+      for (const word of CLAIM_WORDS) {
+        if (text.includes(word)) {
+          bad.push(`${e.dir}: core притязает на гарантию словами «${word}» — для гарантии нужно поле atoms с проверкой`);
+        }
+      }
+    }
+    expect(bad, bad.join("\n")).toEqual([]);
+  });
+
+  it("устаревшие закрытия `конец` в корпусе — счётчик, который может только уменьшаться", () => {
+    // Правило счёта — метка компилятора `deprecated_closer`, тот же, которым
+    // считает отчёт корпуса (`src/scripts/deprecatedEnds.ts`). Своё правило
+    // разошлось бы с их числом, и оба стали бы врать по-разному.
+    //
+    // Компилируется КАЖДЫЙ пример в своём каталоге: многомодульный пример
+    // (глава 10) склейкой текстов не разбирается — импорт ищется на диске.
+    const counts: Array<{ dir: string; count: number }> = [];
+    const bad: string[] = [];
+    const singleFile: Array<{ file: string; text: string }> = [];
+    for (const e of examples) {
+      const sources = e.modules.map((m) => fs.readFileSync(path.join(EXAMPLES, e.dir, m), "utf-8"));
+      const entry = entryOf(e) ?? e.modules[0]!;
+      const r = compileSource(sources[e.modules.indexOf(entry)]!, {
+        filename: entry,
+        baseDir: path.join(EXAMPLES, e.dir),
+        warnDeprecated: true,
+      });
+      const failed = r.lexerErrors.length > 0 || r.parserErrors.length > 0 || r.module === null;
+      if (failed) bad.push(`${e.dir}: пример не разбирается — счёт закрытий невозможен`);
+      counts.push({ dir: e.dir, count: failed ? 0 : r.warnings.filter((w) => w.kind === "deprecated_closer").length });
+      if (e.modules.length === 1) singleFile.push({ file: e.dir, text: sources[0]! });
+    }
+    expect(bad, bad.join("\n")).toEqual([]);
+
+    // Сверка механизмов: на однофайльных примерах мой счёт обязан совпасть со
+    // счётом отчёта корпуса — иначе это два разных правила под одним именем.
+    const theirs = deprecatedClosingsOf(singleFile).reduce((sum, r) => sum + r.count, 0);
+    const mineSingle = counts
+      .filter((c) => examples.find((e) => e.dir === c.dir)!.modules.length === 1)
+      .reduce((sum, c) => sum + c.count, 0);
+    expect(mineSingle, "мой счёт против счёта отчёта корпуса (однофайльные)").toBe(theirs);
+
+    // Пример №1 пришёл из линии e2k текстом без изменения — три его `конец`
+    // законны и названы числом. Новые примеры пишутся каноном, поэтому число
+    // может только уменьшаться — как 73 → 1 в учебнике.
+    expect(
+      counts.reduce((sum, c) => sum + c.count, 0),
+      "устаревших закрытий `конец` в корпусе",
+    ).toBe(EXPECTED_LEGACY_CLOSERS);
   });
 
   it("индекс examples/README.md совпадает с корпусом", () => {

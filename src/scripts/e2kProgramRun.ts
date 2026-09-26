@@ -68,8 +68,7 @@ export interface E2kImage {
 }
 
 /** Собрать образ программы для цели. Бросает, если программа не компилируется или раскладка отказала. */
-export function buildE2kImage(source: string): E2kImage {
-  const built = regModuleOf(source);
+export function buildE2kImage(source: string): E2kImage {  const built = regModuleOf(source);
   if (built === null) throw new Error("программа не компилируется в регистровый IR");
   const annotated = annotateAtomRegions(built.module, [
     { atom: "A5", procedures: built.module.procedures.map((procedure) => procedure.name) },
@@ -164,6 +163,21 @@ export interface E2kRun {
 }
 
 /**
+ * БАЙТЫ ОБРАЗА ELF — ровно тем же вызовом, что у оракула цели владельца
+ * (`src/e2k/e2kArraysQemu.test.ts`: `buildElfFromCode(bytes, MINIMAL_BASE,
+ * { writable: true, extraMemory: HEAP_OFFSET })`).
+ *
+ * Нужно для страховки от расхождения ДВУХ конвейеров: пока конвейер живёт копией,
+ * оракул сверяет образ, собранный здесь, с образом, собранным оракулом владельца
+ * (хеш снят с их артефакта `.tmp/e2k-heap-fir.elf`). Расхождение образов —
+ * красное: тихое расхождение двух путей сборки мы уже проходили.
+ */
+export function buildElfImage(source: string): Uint8Array {
+  const image = buildE2kImage(source);
+  return buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes;
+}
+
+/**
  * Исполнить программу из корпуса на цели.
  *
  * @param source текст программы (канон: файл = модуль)
@@ -172,7 +186,7 @@ export interface E2kRun {
 export function runOnE2k(source: string, fileName: string): E2kRun {
   const image = buildE2kImage(source);
   const elf = path.join(ROOT, ".tmp", fileName);
-  fs.writeFileSync(elf, buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes);
+  fs.writeFileSync(elf, buildElfImage(source));
   const status = runInQemu(elf, { shim: true, timeoutMs: 20_000 })?.status ?? undefined;
   return { status, refused: image.refused, used: image.used, file: elf };
 }
