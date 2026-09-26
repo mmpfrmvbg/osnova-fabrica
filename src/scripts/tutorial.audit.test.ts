@@ -129,7 +129,7 @@ const LEGACY: Array<{ name: string; re: RegExp }> = [
  * путает ограждения и блоки). Цель — 1: единственный помеченный legacy-блок в
  * `10-modules.md` как «принимается, но не нужно».
  */
-const EXPECTED_LEGACY_BLOCKS = 5;
+const EXPECTED_LEGACY_BLOCKS = 4;
 
 function tutorialFiles(): string[] {
   if (!fs.existsSync(TUTORIAL)) return [];
