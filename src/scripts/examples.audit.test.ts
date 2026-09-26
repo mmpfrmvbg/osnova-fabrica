@@ -177,6 +177,29 @@ describe("корпус примеров: раскладка и статусы", 
     expect(bad, bad.join("\n")).toEqual([]);
   });
 
+  it("заявка на атом — с гарантией и существующей проверкой, и атом есть в каталоге", () => {
+    // Правило подписи: «реализует» — слишком сильно, «демонстрирует» — слишком
+    // слабо. Подпись заявляет атом ВМЕСТЕ с текстом гарантии и указателем на
+    // проверку; нет проверки — заявить нельзя. Пустая подпись у языкового
+    // примера — норма, а не пробел.
+    const known = new Set(ATOM_CATALOGUE.map((a) => a.id));
+    const bad: string[] = [];
+    for (const e of examples) {
+      for (const claim of e.meta.atoms ?? []) {
+        if (!known.has(claim.atom)) {
+          bad.push(`${e.dir}: атом «${claim.atom}» не найден в каталоге 27 атомов`);
+        }
+        if (claim.guarantee.trim().length < 15) {
+          bad.push(`${e.dir}: у атома ${claim.atom} гарантия не названа — «${claim.guarantee}»`);
+        }
+        if (claim.check.trim() === "" || !fs.existsSync(path.join(ROOT, claim.check))) {
+          bad.push(`${e.dir}: у атома ${claim.atom} проверки нет в дереве — «${claim.check}»`);
+        }
+      }
+    }
+    expect(bad, bad.join("\n")).toEqual([]);
+  });
+
   it("индекс examples/README.md совпадает с корпусом", () => {
     // Индекс — чистая функция от каталогов; расхождение означает, что его
     // правили руками или забыли пересобрать.
