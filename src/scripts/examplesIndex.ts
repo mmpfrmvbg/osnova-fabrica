@@ -29,7 +29,16 @@ export type Status = "работает" | "нет";
 export interface E2kStatus {
   status: Status;
   reason?: string;
+  /**
+   * СЛОЙ, в котором живёт расхождение. Правило: расхождение, найденное через
+   * обвязку, обязано быть разложено по слоям прежде, чем называться дефектом
+   * модели — иначе счётчик «дефектов модели» врёт.
+   */
+  layer?: "обвязка" | "понижение" | "кодировка" | "модель" | "не установлено";
 }
+
+/** Слои, в которых разрешено называть расхождение. */
+export const E2K_LAYERS = ["обвязка", "понижение", "кодировка", "модель", "не установлено"] as const;
 
 /**
  * Заявка на атом Атласа.
@@ -209,15 +218,17 @@ export function renderIndex(examples: Example[], boundaries: Boundary[]): string
   lines.push("## Что на железо не поедет");
   lines.push("");
   lines.push("Список собран из статусов, а не написан руками: границы плюс примеры");
-  lines.push("корпуса, объявленные неисполняемыми на цели. Причина у каждого названа.");
+  lines.push("корпуса, объявленные неисполняемыми на цели. У каждого названа причина и");
+  lines.push("**слой**: обвязка (наш раннер), понижение, кодировка, модель — или «не");
+  lines.push("установлено». «Дефект модели» без такого разложения не доказательство.");
   lines.push("");
-  lines.push("| Что | Причина |");
-  lines.push("|---|---|");
+  lines.push("| Что | Слой | Причина |");
+  lines.push("|---|---|---|");
   for (const e of notOnTarget) {
-    lines.push(`| пример \`${cell(e.dir)}\` | ${cell(e.meta.e2k.reason ?? "")} |`);
+    lines.push(`| пример \`${cell(e.dir)}\` | ${cell(e.meta.e2k.layer ?? "не назван")} | ${cell(e.meta.e2k.reason ?? "")} |`);
   }
   for (const b of boundaries) {
-    lines.push(`| \`${cell(b.path)}\` | ${cell(b.e2k.reason ?? "")} |`);
+    lines.push(`| \`${cell(b.path)}\` | ${cell(b.e2k.layer ?? "не назван")} | ${cell(b.e2k.reason ?? "")} |`);
   }
   lines.push("");
   return lines.join("\n");

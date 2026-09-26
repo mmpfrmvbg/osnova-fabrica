@@ -67,6 +67,39 @@ export interface E2kImage {
   used: number;
 }
 
+/**
+ * ОТКАЗ ОБВЯЗКИ: в программе больше одного возврата со значением.
+ *
+ * # Почему отказ, а не попытка
+ *
+ * `IR.ret` в e2k-бэкенде **не понижается вовсе** — возврата процедуры там ещё
+ * нет. Обвязка обходила это так: запоминала регистр возврата и отдавала его в
+ * `exit(<результат>)`. Обход верен ровно тогда, когда возврат в программе ОДИН:
+ * при двух возвратах исполнение после первого **проваливается** в запасной путь,
+ * тот пишет в тот же регистр — и `exit` отдаёт значение неисполненной ветви.
+ *
+ * Замер (`.tmp/dump-carriers-two-returns.ts`, программа `если 1 > 0 → вернуть 7`,
+ * затем `вернуть 0`): носители `IR.ret [1, r0]` в индексах 5 и 7, оба — в `r0`,
+ * между ними `IR.const r0 = …` запасного пути; исполняется ветвь, но провал в
+ * запасной путь перезаписывает `r0`, и модель честно отдаёт 0.
+ *
+ * Канонический регистр результата (каждый `IR.ret` перекладывает значение в
+ * фиксированный регистр, `exit` читает его) этого НЕ лечит: провал перезапишет и
+ * канонический регистр. Нужен поток управления — переход к блоку выхода или
+ * выход прямо в точке возврата, — а он сдвигает байтовые расстояния, уже
+ * посчитанные раскладкой (`layoutOf`/`secondPass`) до понижения. Поэтому здесь
+ * **названный отказ**, и «дефектом модели» это больше не называется.
+ */
+export class MultiReturnRefusal extends Error {
+  constructor(readonly returns: number) {
+    super(
+      `обвязка не умеет возврат из середины процедуры: возвратов со значением ${String(returns)}, ` +
+        "а в e2k-бэкенде возврата процедуры нет — обход через регистр верен только при одном возврате",
+    );
+    this.name = "MultiReturnRefusal";
+  }
+}
+
 /** Собрать образ программы для цели. Бросает, если программа не компилируется или раскладка отказала. */
 export function buildE2kImage(source: string): E2kImage {  const built = regModuleOf(source);
   if (built === null) throw new Error("программа не компилируется в регистровый IR");
@@ -99,6 +132,8 @@ function imageOfCarriers(
   const body: AsmInstruction[] = [];
   const refused: string[] = [];
   let returnRegister: number | undefined;
+  /** Сколько возвратов несут значение: их число решает, годится ли обход через регистр. */
+  let valueReturns = 0;
   for (let index = 0; index < code.length; index++) {
     const carrier = code[index]!;
     const problem =
@@ -112,8 +147,9 @@ function imageOfCarriers(
     if (carrier.mnemonic === "IR.ret") {
       const flag = carrier.operands[0];
       const value = carrier.operands[1];
-      if (returnRegister === undefined && flag?.kind === "imm" && flag.value === 1 && value?.kind === "reg") {
-        returnRegister = value.index;
+      if (flag?.kind === "imm" && flag.value === 1 && value?.kind === "reg") {
+        valueReturns++;
+        if (returnRegister === undefined) returnRegister = value.index;
       }
       continue;
     }
@@ -130,6 +166,10 @@ function imageOfCarriers(
     body.push(...lowered.instructions);
   }
   if (returnRegister === undefined) throw new Error("в программе нет возврата значения");
+  // Возвратов со значением может быть несколько — и тогда обход через регистр
+  // неверен (см. MultiReturnRefusal). Отказываем ДО сборки образа: тихое
+  // неверное число хуже названного отказа.
+  if (valueReturns > 1) throw new MultiReturnRefusal(valueReturns);
 
   const instructions: AsmInstruction[] = [
     ...arrayPrologue(MINIMAL_BASE + HEAP_OFFSET),

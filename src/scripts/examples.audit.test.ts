@@ -36,6 +36,7 @@ import { ATOM_CATALOGUE } from "../compiler/atomRegions";
 import { compileSource } from "../compiler/compiler";
 import { deprecatedClosingsOf } from "./deprecatedEnds";
 import {
+  E2K_LAYERS,
   EXAMPLE_DIR_RE,
   readBoundaries,
   readExamples,
@@ -56,8 +57,8 @@ const QEMU_CONFIG = path.join(ROOT, "vitest.qemu.config.ts");
  * Числа сравниваются точно, поэтому каждое изменение корпуса обязано быть названо
  * в отчёте. Номер `01` оставлен примеру владельца — эталону FIR (181).
  */
-const EXPECTED_EXAMPLES = 31;
-const EXPECTED_E2K = 17;
+const EXPECTED_EXAMPLES = 34;
+const EXPECTED_E2K = 18;
 
 /**
  * СЧЁТЧИК ЛЕГАСИ-ЗАКРЫТИЙ: сколько в корпусе закрытий одиночным `конец`.
@@ -170,11 +171,21 @@ describe("корпус примеров: раскладка и статусы", 
       else if (!NAMED_SOURCE_RE.test(reason)) {
         bad.push(`${e.dir}: причина без ссылки на измерение или канон — «${reason}»`);
       }
+      // Расхождение обязано быть разложено по слоям: «дефект модели» без
+      // разложения не доказательство (правило владельца после класса 3).
+      const layer = e.meta.e2k.layer;
+      if (layer === undefined || !(E2K_LAYERS as readonly string[]).includes(layer)) {
+        bad.push(`${e.dir}: слой не назван или назван неверно — «${String(layer)}»`);
+      }
     }
     for (const b of boundaries) {
       const reason = (b.e2k.reason ?? "").trim();
       if (reason.length < 15 || !NAMED_SOURCE_RE.test(reason)) {
         bad.push(`граница ${b.path}: причина не названа — «${reason}»`);
+      }
+      const layer = b.e2k.layer;
+      if (layer === undefined || !(E2K_LAYERS as readonly string[]).includes(layer)) {
+        bad.push(`граница ${b.path}: слой не назван или назван неверно — «${String(layer)}»`);
       }
     }
     expect(bad, bad.join("\n")).toEqual([]);
