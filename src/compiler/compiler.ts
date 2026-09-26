@@ -427,6 +427,10 @@ function expandModuleImports(
         pure: p.pure,
         body: p.body,
         exported: undefined, // импортированные процедуры не экспортируются из текущего модуля
+        // Файл, откуда процедура пришла: без него диагностика внутри встроенной
+        // процедуры называла бы сборкой ГЛАВНОГО модуля. Ровно так терялась
+        // ошибка `модуль 'ЗадачиПриоритеты' не найден` из tasks_core.osnova.
+        origin: p.origin ?? importDisplay,
       };
       rewriteProcedureCalls(inlinedProc, (callee) => nameMap.get(callee) ?? callee);
       inlinedProcedures.push(inlinedProc);
@@ -469,7 +473,14 @@ function expandModuleImports(
     name: ast.name,
     imports: [],
     typeDeclarations: mergedTypeDeclarations,
-    procedures: [...ast.procedures, ...inlinedProcedures],
+    // Каждой процедуре проставляется ФАЙЛ, из которого она пришла. Свои —
+    // входной файл, встроенные — тот, откуда их принесли. Иначе диагностика
+    // (semantic.ts) называла бы сборкой главного ошибку, возникшую в чужом
+    // модуле: так и было с `модуль 'X' не найден` из `tasks_core.osnova`.
+    procedures: [
+      ...ast.procedures.map((p) => ({ ...p, origin: p.origin ?? currentFile })),
+      ...inlinedProcedures.map((p) => ({ ...p, origin: p.origin ?? currentFile })),
+    ],
   };
 }
 
@@ -1384,18 +1395,19 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
 
   const semanticErrors = analyzeProgram(
     { modules: [expandedAst] },
-    { extraSyscalls: options.extraSyscalls },
+    { extraSyscalls: options.extraSyscalls, filename: entryFile },
   ).errors;
   const semanticAsCompiler = semanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
 
   // Логирование семантических ошибок
   for (const err of semanticErrors) {
-    addLog(logs, 'warn', 'semantic', err.message, start, toCompileError({ message: err.message }, err.line, undefined, err.kind));
+    addLog(logs, 'warn', 'semantic', err.message, start, toCompileError({ message: err.message, file: err.file }, err.line, undefined, err.kind));
   }
 
   if (program.modules.length > 1) {
     const programSemanticErrors = analyzeProgram(program, {
       extraSyscalls: options.extraSyscalls,
+      filename: entryFile,
     }).errors;
     const programSemanticAsCompiler = programSemanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
     try {
