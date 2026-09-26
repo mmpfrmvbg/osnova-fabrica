@@ -86,6 +86,12 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     reason: 'то же: проба живого прогона QEMU, не в полном прогоне',
   },
   {
+    match: 'qemuModelIdentity.test.ts',
+    reason:
+      'паспорт модели: спрашивает версию и sha256 у живой сборки qemu-e2k в WSL, ' +
+      'вынесен в gate:qemu по случаю 12',
+  },
+  {
     match: 'e2kWideQemu.test.ts',
     reason: 'исполняет широкие команды в QEMU (exit-коды), вынесен в gate:qemu по случаю 12',
   },

@@ -58,6 +58,9 @@ export default defineConfig({
       'src/e2k/e2kMemoryQemu.test.ts',
       'src/e2k/e2kArraysQemu.test.ts',
       'src/e2k/e2kCallWindowQemu.test.ts',
+      // Паспорт модели: та ли это сборка порта, на которой измерены все числа выше.
+      // Сверяет версию и sha256 у ЖИВОЙ сборки, а не константу из исходника.
+      'src/e2k/qemuModelIdentity.test.ts',
       'src/e2k/e2kMathQemu.test.ts',
       'src/e2k/e2kConvolutionQemu.test.ts',
       // Корпус примеров на цели: примеры, объявленные исполняемыми на e2k,
