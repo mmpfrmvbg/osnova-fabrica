@@ -54,8 +54,8 @@ const QEMU_CONFIG = path.join(ROOT, "vitest.qemu.config.ts");
  * Числа сравниваются точно, поэтому каждое изменение корпуса обязано быть названо
  * в отчёте. Номер `01` оставлен примеру владельца — эталону FIR (181).
  */
-const EXPECTED_EXAMPLES = 10;
-const EXPECTED_E2K = 1;
+const EXPECTED_EXAMPLES = 13;
+const EXPECTED_E2K = 4;
 
 const examples: Example[] = readExamples(ROOT);
 const boundaries = readBoundaries(ROOT);
