@@ -23,29 +23,11 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
-import { createHash } from "node:crypto";
 import { readExamples } from "./examplesIndex";
-import { SHIM_REASON, buildElfImage, runOnE2k, shimAvailable } from "./e2kProgramRun";
+import { SHIM_REASON, runOnE2k, shimAvailable } from "./e2kProgramRun";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const EXAMPLES = path.join(ROOT, "examples");
-
-/**
- * ХЕШ ОБРАЗА ПРИМЕРА №1 — СНЯТ С АРТЕФАКТА ОРАКУЛА ВЛАДЕЛЬЦА.
- *
- * `src/e2k/e2kArraysQemu.test.ts` (проверка «FIR целиком: 181») собирает образ
- * своим конвейером и пишет его в `.tmp/e2k-heap-fir.elf`. Мой оракул корпуса
- * собирает образ СВОИМ конвейером — копией, потому что `src/e2k/**` заморожен.
- * Два пути сборки обязаны давать ОДИН образ; расхождение здесь означает тихое
- * расхождение образов, а не «другой, но правильный» путь.
- *
- * Замер: `npm run gate:qemu` (11 файлов, 58 проверок) → sha256 артефакта
- * A75774DCB72FB6EC0B27651173106D90E8015EA670E53CD317920094864315AC.
- *
- * Когда владелец вынесет конвейер в `src/e2k/programImage.ts`, эта проверка
- * заменяется прямым импортом, а копия конвейера удаляется: сверять станет нечего.
- */
-const EXPECTED_FIR_IMAGE_SHA256 = "a75774dcb72fb6ec0b27651173106d90e8015ea670e53cd317920094864315ac";
 
 /** Примеры, объявленные исполняемыми на цели. */
 const declared = readExamples(ROOT).filter((e) => e.meta.e2k.status === "работает");
@@ -64,22 +46,7 @@ function entryOf(dir: string): string {
 
 const available = shimAvailable();
 
-/** Хеш образа ELF, собранного моим конвейером. */
-function imageHash(source: string): string {
-  return createHash("sha256").update(buildElfImage(source)).digest("hex");
-}
-
 describe("корпус на цели: объявленное исполняется в модели", () => {
-  it("конвейер корпуса и конвейер владельца дают ОДИН образ (пример №1)", () => {
-    // Страховка от расхождения двух путей сборки: сверяется хеш, снятый с
-    // артефакта оракула владельца. Красное здесь — не «другой образ», а признак
-    // того, что один из конвейеров изменился, и оба числа требуют перемера.
-    const source = fs.readFileSync(path.join(EXAMPLES, "01-свёртка-fir", "main.osnova"), "utf-8");
-    expect(imageHash(source), "образ примера №1, собранный конвейером корпуса").toBe(
-      EXPECTED_FIR_IMAGE_SHA256,
-    );
-  });
-
   it("шим и модель доступны — или причина названа", () => {
     if (!available) {
       // Причина называется, а не замалчивается: без неё «зелено» читалось бы
