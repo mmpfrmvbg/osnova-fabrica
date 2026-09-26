@@ -72,6 +72,12 @@ const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window
  * `IR.ret` в понижении **не участвует** (возврата процедуры в e2k-бэкенде ещё нет): его регистр
  * читается, и значение уходит в код возврата `exit` — так результат виден снаружи. Отсюда
  * ограничение: обход верен только при ОДНОМ возврате со значением.
+ *
+ * Возврата со значением может **не быть вовсе** — у печатающей программы результат наружу отдаёт
+ * `write`, а не код возврата. Тогда последовательность выхода не добавляется: программу завершает
+ * её собственный `exit` (`src/e2k/printRuntime.ts`), а общий `exit(<регистр>)` отдал бы наружу
+ * значение несуществующего возврата. Это не послабление, а то же правило с другой стороны:
+ * код возврата — ВЫРАЖЕНИЕ возврата, и без возврата его нет.
  */
 export function programBytes(
   source: string,
@@ -108,22 +114,24 @@ export function programBytes(
     }
     body.push(...lowered.instructions);
   }
-  if (returnRegister === undefined) throw new Error('в программе нет возврата значения');
-
   const instructions: AsmInstruction[] = [
     // Пролог сам ставит окно нужного размера (`ARRAY_WINDOW_RSZ`): без него верхние регистры
     // рантайма не адресуются — измерено (`.tmp/rsz-sweep.ts`).
     ...arrayPrologue(heapAddress),
     ...body,
     // Результат — в оконный r1 (код возврата `exit`): сложение с зарезервированным нулём.
-    {
-      mnemonic: 'adds',
-      channel: 0,
-      operands: [base(returnRegister), base(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 1)],
-    },
-    { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
-    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
-    { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+    ...(returnRegister === undefined
+      ? []
+      : [
+          {
+            mnemonic: 'adds',
+            channel: 0,
+            operands: [base(returnRegister), base(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 1)],
+          } satisfies AsmInstruction,
+          { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
+          { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+          { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+        ]),
   ];
 
   const chunks = instructions.map((instruction) => encoder.encode(instruction));
@@ -169,6 +177,7 @@ export function imageOfCarriers(
   code: readonly AsmInstruction[],
   constants: readonly unknown[],
   invokeNames: readonly string[],
+  options: { readonly heapAddress?: number } = {},
 ): { bytes: Uint8Array; refused: readonly string[] } {
   const context = { constants, invokeNames };
   const layout = layoutOf(code, { invokeNames, constants });
@@ -213,19 +222,25 @@ export function imageOfCarriers(
     }
     body.push(...lowered.instructions);
   }
-  if (returnRegister === undefined) throw new Error('в программе нет возврата значения');
 
   const instructions: AsmInstruction[] = [
-    ...arrayPrologue(MINIMAL_BASE + HEAP_OFFSET),
+    ...arrayPrologue(options.heapAddress ?? MINIMAL_BASE + HEAP_OFFSET),
     ...body,
-    {
-      mnemonic: 'adds',
-      channel: 0,
-      operands: [base(returnRegister), base(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 1)],
-    },
-    { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
-    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
-    { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+    // Выход по регистру возврата добавляется ТОЛЬКО тогда, когда возврат со значением в программе
+    // есть (см. {@link programBytes}): без него программу завершает её собственный `exit`
+    // (печатающая программа — `src/e2k/printRuntime.ts`).
+    ...(returnRegister === undefined
+      ? []
+      : [
+          {
+            mnemonic: 'adds',
+            channel: 0,
+            operands: [base(returnRegister), base(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 1)],
+          } satisfies AsmInstruction,
+          { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
+          { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+          { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+        ]),
   ];
 
   const chunks = instructions.map((instruction) => encoder.encode(instruction));
