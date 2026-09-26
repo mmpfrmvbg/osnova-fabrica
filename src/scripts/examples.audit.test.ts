@@ -43,6 +43,7 @@ import {
   renderIndex,
   type Example,
 } from "./examplesIndex";
+import { MultiReturnRefusal, buildE2kImage } from "./e2kProgramRun";
 import { formatValue, runProgramOnVm } from "./programRunner";
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -58,7 +59,7 @@ const QEMU_CONFIG = path.join(ROOT, "vitest.qemu.config.ts");
  * в отчёте. Номер `01` оставлен примеру владельца — эталону FIR (181).
  */
 const EXPECTED_EXAMPLES = 34;
-const EXPECTED_E2K = 18;
+const EXPECTED_E2K = 20;
 
 /**
  * СЧЁТЧИК ЛЕГАСИ-ЗАКРЫТИЙ: сколько в корпусе закрытий одиночным `конец`.
@@ -359,6 +360,29 @@ describe("корпус примеров: раскладка и статусы", 
       }
     }
     expect(problems, problems.join("\n")).toEqual([]);
+  });
+
+  it("границы со слоем «обвязка» действительно отклоняются обвязкой", () => {
+    // Граница — не запись в списке, а работающее утверждение. Для слоя «обвязка»
+    // это значит: программа обязана быть ОТКЛОНЕНА раннером с названной причиной.
+    // Если обвязку «починят», а граница останется, тест покраснеет — и это
+    // правильно: список границ обязан совпадать с поведением, а не с памятью.
+    const bad: string[] = [];
+    for (const b of boundaries.filter((x) => x.e2k.layer === "обвязка")) {
+      const source = fs.readFileSync(path.join(ROOT, b.path), "utf-8");
+      // Граница обязана быть ГРАНИЦЕЙ: образ не собирается, причина названа. А
+      // если граница про возвраты — отказ обязан быть именно тем, что заявлен.
+      const aboutReturns = /возврат/iu.test(b.e2k.reason ?? "");
+      try {
+        buildE2kImage(source);
+        bad.push(`${b.path}: обвязка СОБРАЛА образ, хотя граница утверждает отказ — обновить границу`);
+      } catch (e) {
+        if (aboutReturns && !(e instanceof MultiReturnRefusal)) {
+          bad.push(`${b.path}: отказ не тот, что заявлен: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+    expect(bad, bad.join("\n")).toEqual([]);
   });
 
   it("счётчик корпуса: примеров ровно EXPECTED_EXAMPLES, из них на e2k EXPECTED_E2K", () => {
