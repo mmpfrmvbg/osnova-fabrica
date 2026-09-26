@@ -73,6 +73,9 @@ docs/vliw-phases-plan.md: {status: active}
 # --- Видение и стратегия (active) ---
 docs/osnova-vision.md: {status: active}
 
+# --- Ландшафт внешней платформы e2k (active; сверка по дате в шапке) ---
+docs/e2k-landscape.md: {status: active}
+
 # --- e2k: подтверждённые/текущие (active) ---
 docs/e2k-backend.md: {status: active, source-files: [src/e2k/backend.ts]}
 # --- e2k: извлечение семантики из чужих источников (scratch: разведка, не замер) ---

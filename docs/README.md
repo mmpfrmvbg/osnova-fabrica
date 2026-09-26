@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (64)
+## Фронтир и замеры (65)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -42,6 +42,7 @@
 - [docs/e2k-encoding.md](e2k-encoding.md) ⚠
 - [docs/e2k-external-as.md](e2k-external-as.md)
 - [docs/e2k-external-validation.md](e2k-external-validation.md)
+- [docs/e2k-landscape.md](e2k-landscape.md)
 - [docs/e2k-minimal-elf.md](e2k-minimal-elf.md) ⚠
 - [docs/e2k-opcodes-real.md](e2k-opcodes-real.md)
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
