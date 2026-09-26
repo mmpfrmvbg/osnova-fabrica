@@ -42,15 +42,31 @@ const EXAMPLES = path.join(ROOT, 'examples');
 const shellEncoder = getEncoder('internal-shell');
 
 /** Примеры с результатом-возвратом: у них значение сверяемо и без печати. */
-const CASES = [
-  '01-свёртка-fir',
-  '11-минимум-массива',
-  '12-скалярное-произведение',
-  '13-сумма-квадратов',
-  '15-проверка-отсортированности',
-  '16-накопление-по-двум-массивам',
-  '17-ранжирование-выбором',
-];
+const CASES = corpusReturnExamples();
+
+/**
+ * Список примеров **читается из корпуса**, а не переписывается сюда руками.
+ *
+ * Так было не сразу: первая версия держала жёсткий список из семи имён и отстала от
+ * корпуса на семь примеров (14, 18–23) — то есть покрытие корпуса стало шире покрытия
+ * оракула. Список, который надо синхронизировать вручную, рано или поздно разойдётся,
+ * поэтому берём ровно то, что корпус объявил сам: `expected.via == "возврат"`.
+ */
+function corpusReturnExamples(): string[] {
+  return fs
+    .readdirSync(EXAMPLES, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((dir) => {
+      const meta = path.join(EXAMPLES, dir, 'meta.json');
+      if (!fs.existsSync(meta)) return false;
+      const parsed = JSON.parse(fs.readFileSync(meta, 'utf-8')) as {
+        expected?: { via?: string };
+      };
+      return parsed.expected?.via === 'возврат';
+    })
+    .sort();
+}
 
 async function vmValue(source: string): Promise<unknown> {
   const built = regModuleOf(source);
@@ -73,7 +89,8 @@ async function shellValue(source: string): Promise<unknown> {
 }
 
 describe('путь оболочки верен для примеров, объявленных исполняемыми', () => {
-  it('примеры корпуса найдены', () => {
+  it('корпус объявил примеры с результатом-возвратом', () => {
+    expect(CASES.length, 'примеров с expected.via = «возврат»').toBeGreaterThan(0);
     for (const dir of CASES) {
       expect(fs.existsSync(path.join(EXAMPLES, dir, 'main.osnova')), `${dir} на месте`).toBe(true);
     }
