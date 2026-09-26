@@ -173,6 +173,6 @@ export function runOnE2k(source: string, fileName: string): E2kRun {
   const image = buildE2kImage(source);
   const elf = path.join(ROOT, ".tmp", fileName);
   fs.writeFileSync(elf, buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes);
-  const status = runInQemu(elf, { shim: true, timeoutMs: 20_000 })?.status;
+  const status = runInQemu(elf, { shim: true, timeoutMs: 20_000 })?.status ?? undefined;
   return { status, refused: image.refused, used: image.used, file: elf };
 }
