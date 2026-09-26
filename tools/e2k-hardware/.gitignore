@@ -5,3 +5,4 @@ bin/
 # Отчёты, которые пишутся на живой машине (machine.txt рядом с ними).
 report.txt
 machine.txt
+probes-report.txt
