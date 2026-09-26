@@ -75,6 +75,8 @@ docs/osnova-vision.md: {status: active}
 
 # --- Ландшафт внешней платформы e2k (active; сверка по дате в шапке) ---
 docs/e2k-landscape.md: {status: active}
+# --- Доступ к живой машине: зарегистрированные вопросы до получения ключа ---
+docs/e2k-hardware-access.md: {status: active}
 
 # --- e2k: подтверждённые/текущие (active) ---
 docs/e2k-backend.md: {status: active, source-files: [src/e2k/backend.ts]}
