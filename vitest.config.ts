@@ -52,6 +52,9 @@ export default defineConfig({
       // шлюз `npm run gate:qemu` (docs/verification-debt.md, случай 12).
       '**/e2kQemuExec.test.ts',
       '**/e2kQemuRun.audit.test.ts',
+      // Корпус примеров на цели: тот же внешний ресурс, что у оракулов выше, —
+      // исполняет объявленные на e2k примеры в модели. Живёт в `gate:qemu`.
+      '**/examplesE2k.audit.test.ts',
       // Исполняет QEMU так же, как два предыдущих: ресурсозависимый (случай 12).
       '**/e2kSyscallRuntime.test.ts',
       // Пакеты широких команд: прогон в QEMU — внешний ресурс, тот же случай 12.
