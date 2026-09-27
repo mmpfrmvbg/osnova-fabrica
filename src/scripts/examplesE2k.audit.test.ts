@@ -46,6 +46,39 @@ function entryOf(dir: string): string {
 
 const available = shimAvailable();
 
+/**
+ * ПРЕДЕЛ КАНАЛА НАБЛЮДЕНИЯ: код возврата процесса несёт **только младший байт**.
+ *
+ * Измерено 2026-09-27: тело `70000 div 10 = 7000` даёт код возврата **88** = 7000 mod 256
+ * (`docs/hardware-debt.md` §3.31). Значит эталон ≥ 256 через этот оракул пройти **не может**:
+ * он сравнивает `run.status` (то, что вернул WEXITSTATUS) с числом из `expected.txt` напрямую.
+ *
+ * Почему это отказ, а не тихое сравнение: сегодня таких записей в списке исполняемых нет, но
+ * появиться они могут — и тогда `expected.txt` со значением 2350 «пройдёт» при коде возврата 46,
+ * если 2350 ≡ 46 (mod 256) не выполнится... а если выполнится, пройдёт ложно. Оба исхода —
+ * сравнение 8-битного канала с 24-битным эталоном, и оно обязано быть названо отказом, а не
+ * зелёным. Настоящий канал для широких чисел — печать (`write`), пример `42` (978).
+ */
+class ObservationChannelRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ObservationChannelRefusal';
+  }
+}
+
+/** Проверить, что эталон наблюдаем через канал возврата; иначе — названный отказ. */
+function checkObservable(dir: string, expected: string): void {
+  const value = Number(expected);
+  if (!Number.isInteger(value)) return; // нечисловой эталон сверяется как текст
+  if (value >= 0 && value <= 255) return;
+  throw new ObservationChannelRefusal(
+    `«${dir}»: эталон ${String(value)} не наблюдается через код возврата — канал несёт только младший ` +
+      `байт, и ${String(value)} неотличимо от ${String(value % 256)}. Нужен канал, отдающий число целиком ` +
+      `(печать, \`write\`), либо статус записи обязан остаться «нет» ` +
+      `(docs/hardware-debt.md §3.31: тело \`70000 div 10\` даёт код 88)`,
+  );
+}
+
 describe("корпус на цели: объявленное исполняется в модели", () => {
   it("шим и модель доступны — или причина названа", () => {
     if (!available) {
@@ -57,15 +90,29 @@ describe("корпус на цели: объявленное исполняет�
     expect(available).toBe(true);
   });
 
+  it("сторож канала наблюдения: широкий эталон через код возврата отвергается с причиной", () => {
+    // НЕГАТИВНЫЙ КОНТРОЛЬ сторожа: если бы он молчал, запись с эталоном 2350 однажды «прошла» бы
+    // по младшему байту. Проверяются обе стороны: широкий эталон отвергается, узкий — пропускается.
+    expect(() => checkObservable("проба-широкая", "2350"), "эталон ≥ 256 обязан быть отвергнут").toThrow(
+      ObservationChannelRefusal,
+    );
+    expect(() => checkObservable("проба-широкая", "2350")).toThrow(/младший байт/u);
+    expect(() => checkObservable("проба-узкая", "181")).not.toThrow();
+    expect(() => checkObservable("проба-граница", "255")).not.toThrow();
+    expect(() => checkObservable("проба-за-границей", "256")).toThrow(ObservationChannelRefusal);
+  });
+
   for (const e of declared) {
     it(`цель: ${e.dir} — ${expectedOf(e.dir)}`, () => {
       if (!available) return;
       const source = fs.readFileSync(path.join(EXAMPLES, e.dir, entryOf(e.dir)), "utf-8");
       const run = runOnE2k(source, `e2k-corpus-${e.dir}.elf`);
       expect(run.refused, `непонижённые носители: ${run.refused.join("; ")}`).toEqual([]);
-      expect(run.status, `код возврата ${e.dir} (эталон ${expectedOf(e.dir)})`).toBe(
-        Number(expectedOf(e.dir)),
-      );
+      const expected = expectedOf(e.dir);
+      // Отказ идёт ПЕРВЫМ: сравнение 8-битного канала с широким эталоном не должно доходить до
+      // сверки, иначе оно либо ложно пройдёт (совпадение по модулю 256), либо упадёт без причины.
+      checkObservable(e.dir, expected);
+      expect(run.status, `код возврата ${e.dir} (эталон ${expected})`).toBe(Number(expected));
     });
   }
 });
