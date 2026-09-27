@@ -123,11 +123,13 @@ export const ANCHORS: readonly Anchor[] = [
   // наш кодировщик
   { file: "src/e2k/e2k-real.ts", from: 266, to: 266, contains: "movts", claim: "movts есть в кодировщике" },
   { file: "src/e2k/e2k-real.ts", from: 267, to: 267, contains: "movtd", claim: "movtd есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 947, to: 949, contains: "0xd8", claim: "поля F16/F32/F64" },
+  { file: "src/e2k/e2k-real.ts", from: 979, to: 981, contains: "0xd8", claim: "поля F16/F32/F64" },
   // Числа пересчитаны 2026-09-20: короткая непосредственная форма (`encodeShortImm`, коммит соседней
   // работы) добавила строки выше, и прежние 942-944 / 933-966 указывали мимо. Якоря — это ФАКТ о
   // файле, поэтому они пересчитываются замером, а не «подгоняются» под проходящий тест.
-  { file: "src/e2k/e2k-real.ts", from: 1009, to: 1046, contains: "encodeImm64", claim: "форма 0xdc реализована (encodeImm64)" },
+  // Пересчитаны 2026-09-27 (сдвиг +32): в таблицу опкодов добавлено семейство CMPAND* (слитая форма
+  // сравнения, восемь записей) и названо в `limitation` паспорта — обе правки выше якоря.
+  { file: "src/e2k/e2k-real.ts", from: 1041, to: 1077, contains: "encodeImm64", claim: "форма 0xdc реализована (encodeImm64)" },
 ];
 
 /**

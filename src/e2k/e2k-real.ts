@@ -278,6 +278,35 @@ export const REAL_OPCODES: readonly RealOpcodeEntry[] = [
   { mnemonic: "cmplsb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1019 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x6, implicitNops: 2, source: "opcodes/e2k-opc.h:1019", formSource: ALF7_SOURCE },
   { mnemonic: "cmplesb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1024 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x7, implicitNops: 2, source: "opcodes/e2k-opc.h:1024", formSource: ALF7_SOURCE },
   { mnemonic: "cmpesb", opc: 0x20, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:999 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x2, implicitNops: 2, source: "opcodes/e2k-opc.h:999", formSource: ALF7_SOURCE },
+  // ── CMPAND* — СЛИТАЯ ФОРМА: логическое И источников, затем сравнение ────────────────────────
+  //
+  // **Это ТА ЖЕ форма ALF7, а не отдельная раскладка слога.** Семейство отличается только кодом
+  // операции: `0x22` — одиночные источники (`ARGS_SS`), `0x23` — двойные (`ARGS_DD`); условие
+  // сравнения по-прежнему в `cmpopce[7:5]`, приёмник — `pdst[4:0]`. Измерено ассемблером МЦСТ
+  // (`as-new -mcpu=elbrus-v5`):
+  //
+  // ```
+  // cmpesb,0    %b[1], %b[2], %pred0  →  01 01 00 04 40 02 01 20
+  // cmpandesb,0 %b[1], %b[2], %pred0  →  01 01 00 04 40 02 01 22
+  // ```
+  //
+  // Восемь байт, **без управляющего слога**: байт кода операции — единственное отличие от
+  // `cmp*` с тем же условием. Это и есть замер, отменяющий чтение §3.25 реестра долга о
+  // «предикате-источнике из SS»: источник «И» у CMPAND — **второй регистровый операнд**, а не
+  // предикат (`qemu/target/e2k/tcg/translate-al-c2.c:683-720`: `res = zf = (src1 & src2) == 0`).
+  //
+  // **Набор условий усечён**: таблица МЦСТ даёт для CMPAND только `2` (равно), `4` (знак),
+  // `5` (чётность) и `7` (меньше-или-равно) — условий `0`, `1`, `3` там `UNDEF`, а «меньше» (`6`)
+  // в семействе **отсутствует вовсе** (`qemu/target/e2k/opcode-tables.c:1320-1341`). Поэтому
+  // `cmplsb` слитой формы не имеет: замена пары возможна для `cmpesb`/`cmplesb`, но не для `cmplsb`.
+  { mnemonic: "cmpandesb", opc: 0x22, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1069 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x2, implicitNops: 2, source: "opcodes/e2k-opc.h:1069", formSource: ALF7_SOURCE },
+  { mnemonic: "cmpandssb", opc: 0x22, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1074 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x4, implicitNops: 2, source: "opcodes/e2k-opc.h:1074", formSource: ALF7_SOURCE },
+  { mnemonic: "cmpandpsb", opc: 0x22, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1079 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x5, implicitNops: 2, source: "opcodes/e2k-opc.h:1079", formSource: ALF7_SOURCE },
+  { mnemonic: "cmpandlesb", opc: 0x22, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["S", "S", "P"], argsSource: "opcodes/e2k-opc.h:1084 (ARGS_SS; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x7, implicitNops: 2, source: "opcodes/e2k-opc.h:1084", formSource: ALF7_SOURCE },
+  { mnemonic: "cmpandedb", opc: 0x23, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["D", "D", "P"], argsSource: "opcodes/e2k-opc.h:1089 (ARGS_DD; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x2, implicitNops: 2, source: "opcodes/e2k-opc.h:1089", formSource: ALF7_SOURCE },
+  { mnemonic: "cmpandsdb", opc: 0x23, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["D", "D", "P"], argsSource: "opcodes/e2k-opc.h:1094 (ARGS_DD; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x4, implicitNops: 2, source: "opcodes/e2k-opc.h:1094", formSource: ALF7_SOURCE },
+  { mnemonic: "cmpandpdb", opc: 0x23, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["D", "D", "P"], argsSource: "opcodes/e2k-opc.h:1099 (ARGS_DD; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x5, implicitNops: 2, source: "opcodes/e2k-opc.h:1099", formSource: ALF7_SOURCE },
+  { mnemonic: "cmpandledb", opc: 0x23, form: "ALF7", operands: ["src1", "src2", "pdst"], argFormats: ["D", "D", "P"], argsSource: "opcodes/e2k-opc.h:1104 (ARGS_DD; приёмник — pdst формы ALF7)", channels: LONG_CHANNELS, cmpOpce: 0x7, implicitNops: 2, source: "opcodes/e2k-opc.h:1104", formSource: ALF7_SOURCE },
   // ── ПАМЯТЬ (`ld*`/`st*`) ────────────────────────────────────────────────────────────────────
   //
   // Адрес — **сумма двух регистров**: `src1 + src2` (`qemu/target/e2k/tcg/translate-al-c11.c:26-34`,
@@ -376,13 +405,16 @@ export const REAL_E2K_DESCRIPTION: EncoderDescription = {
     "(раскладка полей), gas/config/tc-e2k.c:8921-8934,9366,9392-9399 + qemu/target/e2k/instr-bits.h:41-45,127-148 " +
     "(заголовочный слог и длина); сырые данные — docs/e2k-sources-raw.md, извлечение — docs/e2k-opcodes-real.md",
   limitation:
-    "реализованы формы: короткая (слог ALS, 8 байт) — ALF1, ALF2 и ALF7 (сравнения с предикатом-приёмником `pdst`), " +
+    "реализованы формы: короткая (слог ALS, 8 байт) — ALF1, ALF2 и ALF7 (сравнения `cmp*` с предикатом-приёмником `pdst` " +
+    "и слитое семейство `cmpand*`: те же восемь байт ALF7 с кодом операции 0x22 (одиночные источники) и 0x23 (двойные), " +
+    "логическое И источников выполняет сама команда), " +
     "и длинная (слог ALS + полуслог ALES, 16 байт) — ALF11; по одной операции на команду; " +
     "операции без слога ALS (AAS-адресация MOVAB…MOVAQ, управление ct/call/return, " +
     "SS/CS/CDS/PLS/LTS-слоги) НЕ реализованы и отвергаются; поле instructionSize заявляет короткую форму — " +
     "длинная форма занимает 16 байт (REAL_LONG_FORM_SIZE), шлюз auditEncoder рассчитан на одну длину; " +
-    "у сравнений ALF7 поле `nop` заголовочного слога равно 2 (implicit_nops шаблона, gas/config/tc-e2k.c:5923), " +
-    "и это воспроизводится, а не игнорируется; байты не сверены с MCST-objdump или QEMU: " +
+    "у сравнений ALF7 (включая `cmpand*`) поле `nop` заголовочного слога равно 2 (implicit_nops шаблона, gas/config/tc-e2k.c:5923), " +
+    "и это воспроизводится, а не игнорируется; " +
+    "байты `cmpand*` сверены с MCST-`as` и `objdump` (src/e2k/e2kCmpand.test.ts), остальные — по-прежнему нет: " +
     "в окружении нет компилятора C (docs/e2k-qemu-build.md §2)",
 };
 
