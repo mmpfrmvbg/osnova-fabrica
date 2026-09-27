@@ -19,6 +19,7 @@ import {
   PREDICATE_FILE,
   REGISTER_FILE,
   UNITS,
+  channelCanRun,
   channelsFor,
   latencyFor,
   opClassOf,
@@ -66,6 +67,33 @@ describe("e2kDevices: состав устройств (стр. 54–56)", () => 
     for (const alu of ["alu0", "alu1", "alu3", "alu4"] as const) {
       expect(UNITS[alu].store, `${alu} не должен уметь запись`).toBe(false);
     }
+  });
+
+  it("комбинированные операции: у АЛУ2/АЛУ5 их нет, а у АЛУ1/АЛУ4 — только целочисленные (стр. 56)", () => {
+    // Документ: «Вещественные устройства в АЛУ0, АЛУ1, АЛУ3 и АЛУ4, а также целочисленные
+    // устройства в АЛУ1 и АЛУ4 позволяют исполнять две последовательно зацепленные … операции
+    // в качестве одной трехаргументной … Такие операции называют комбинированными.»
+    // Отсюда: комбинирование есть у 0/1/3/4 и НЕТ у 2/5; у 1/4 комбинированные целочисленные.
+    for (const alu of ["alu2", "alu5"] as const) {
+      expect(UNITS[alu].intCombined, `${alu}: комбинированных в документе нет`).toBe(false);
+      expect(UNITS[alu].fpCombined, `${alu}: комбинированных в документе нет`).toBe(false);
+    }
+    for (const alu of ["alu1", "alu4"] as const) {
+      expect(UNITS[alu].intCombined, `${alu}: целочисленные комбинированные разрешены`).toBe(true);
+      expect(UNITS[alu].fpCombined, `${alu}: вещественных комбинированных документ не даёт`).toBe(false);
+    }
+    for (const alu of ["alu0", "alu3"] as const) {
+      expect(UNITS[alu].intCombined, `${alu}: целочисленные комбинированные разрешены`).toBe(true);
+      expect(UNITS[alu].fpCombined, `${alu}: вещественные комбинированные разрешены`).toBe(true);
+    }
+    // И то же самое через маршрутизацию классов: она и решает, куда сядет операция.
+    expect(channelCanRun("alu1", "int_combined"), "АЛУ1 обязан уметь целочисленное комбинирование").toBe(true);
+    expect(channelCanRun("alu1", "fp_combined"), "АЛУ1 вещественным комбинированием не владеет").toBe(false);
+    expect(channelCanRun("alu4", "fp_combined"), "АЛУ4 вещественным комбинированием не владеет").toBe(false);
+    expect(channelCanRun("alu2", "int_combined"), "в АЛУ2 комбинированных нет").toBe(false);
+    expect(channelCanRun("alu5", "int_combined"), "в АЛУ5 комбинированных нет").toBe(false);
+    expect(channelCanRun("alu0", "fp_combined"), "АЛУ0 умеет вещественное комбинирование").toBe(true);
+    expect(channelCanRun("alu3", "fp_combined"), "АЛУ3 умеет вещественное комбинирование").toBe(true);
   });
 
   it("регистровый и предикатный файлы (стр. 57)", () => {

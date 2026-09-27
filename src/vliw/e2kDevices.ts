@@ -184,6 +184,24 @@ export interface UnitCapability {
   vect: boolean;
   /** Деление и квадратный корень (Div/Sqrt). */
   divsqrt: boolean;
+  /**
+   * Комбинированные **целочисленные** операции (`shl_addd`, `xor_and`; класс `int_combined`).
+   *
+   * Отдельная способность, а не следствие `int`: стр. 56 называет комбинирование у АЛУ0, АЛУ1,
+   * АЛУ3 и АЛУ4 — но у АЛУ2 и АЛУ5 его **нет**, хотя целочисленное устройство там есть. Пока
+   * способность не была отдельной, `int_combined` садился и на АЛУ2/АЛУ5, которых для
+   * комбинированных операций в документе нет.
+   */
+  intCombined: boolean;
+  /**
+   * Комбинированные **вещественные** операции (`fmul_subs`, `fadd_sub`; класс `fp_combined`).
+   *
+   * Отдельная способность по той же причине, и с ещё одним различением: стр. 56 даёт
+   * комбинирование «вещественных устройств в АЛУ0, АЛУ1, АЛУ3 и АЛУ4, **а также целочисленных
+   * устройств в АЛУ1 и АЛУ4**». То есть у АЛУ1/АЛУ4 комбинированные — целочисленные, у АЛУ0/АЛУ3 —
+   * и целочисленные, и вещественные; сажать `fp_combined` на АЛУ1/АЛУ4 документ оснований не даёт.
+   */
+  fpCombined: boolean;
 }
 
 const NO_CAPS: UnitCapability = {
@@ -194,6 +212,8 @@ const NO_CAPS: UnitCapability = {
   store: false,
   vect: false,
   divsqrt: false,
+  intCombined: false,
+  fpCombined: false,
 };
 
 /**
@@ -215,17 +235,28 @@ const NO_CAPS: UnitCapability = {
  *   обращения к памяти по чтению/записи.»
  * - «Также в АЛУ5 присутствуют устройство вещественного и целочисленного деления
  *   и устройство извлечения квадратного корня.»
+ * - «Вещественные устройства в АЛУ0, АЛУ1, АЛУ3 и АЛУ4, **а также целочисленные
+ *   устройства в АЛУ1 и АЛУ4** позволяют исполнять две последовательно зацепленные
+ *   друг за друга операции в качестве одной трехаргументной операции, например,
+ *   `shl_addd (a << 2 + 7)` или `fmul_subs (x * y + z)`. Промежуточный результат
+ *   первой операции не записывается в регистр, а используется только в качестве
+ *   аргумента второй операции. Такие операции называют **комбинированными**.»
+ *
+ * Из последней цитаты — два различения, которых не было, пока комбинирование считалось
+ * следствием `int`/`fp`: у АЛУ2 и АЛУ5 комбинированных нет вовсе, а у АЛУ1/АЛУ4
+ * комбинированные **целочисленные** (вещественные — нет). Отсюда `intCombined`/`fpCombined`.
  *
  * ВАЖНО: в тексте стр. 56 указано «В процессорах Е4С/Е8С имеется шесть АЛУ с
  * номерами 0-5». Для других версий e2k состав может отличаться.
  */
 /** UNITS — ИСТОЧНИК: руководство МЦСТ, стр. 56 (состав каждого АЛУ). */
 export const UNITS: Readonly<Record<AluId, UnitCapability>> = {
-  alu0: { ...NO_CAPS, int: true, fp: true, cmp: true, load: true, vect: true },
-  alu1: { ...NO_CAPS, int: true, fp: true, cmp: true, vect: true },
+  // Комбинированные есть у АЛУ0/3 (int и fp) и у АЛУ1/4 (только int) — стр. 56.
+  alu0: { ...NO_CAPS, int: true, fp: true, cmp: true, load: true, vect: true, intCombined: true, fpCombined: true },
+  alu1: { ...NO_CAPS, int: true, fp: true, cmp: true, vect: true, intCombined: true },
   alu2: { ...NO_CAPS, int: true, load: true, store: true },
-  alu3: { ...NO_CAPS, int: true, fp: true, cmp: true, load: true, vect: true },
-  alu4: { ...NO_CAPS, int: true, fp: true, cmp: true, vect: true },
+  alu3: { ...NO_CAPS, int: true, fp: true, cmp: true, load: true, vect: true, intCombined: true, fpCombined: true },
+  alu4: { ...NO_CAPS, int: true, fp: true, cmp: true, vect: true, intCombined: true },
   alu5: { ...NO_CAPS, int: true, load: true, store: true, divsqrt: true },
 };
 
@@ -511,14 +542,20 @@ export function channelCanRun(ch: ChannelId, cls: OpClass): boolean {
   }
   switch (cls) {
     case "int":
-    case "int_combined":
       return alu.int;
+    case "int_combined":
+      // Стр. 56: комбинированные есть у АЛУ0/1/3/4 и НЕТ у АЛУ2/АЛУ5 — при том, что
+      // целочисленное устройство есть у всех шести. Поэтому не `alu.int`.
+      return alu.intCombined;
     case "store":
       // Стр. 56: запись в память — только АЛУ2 и АЛУ5.
       return alu.store;
     case "fp":
-    case "fp_combined":
       return alu.fp;
+    case "fp_combined":
+      // Стр. 56: комбинированные вещественные — АЛУ0 и АЛУ3; у АЛУ1/АЛУ4 комбинированные
+      // только целочисленные, поэтому `fp_combined` туда не садится.
+      return alu.fpCombined;
     case "fdiv32":
     case "fdiv64":
       // Стр. 56: деление и корень — только в АЛУ5.
