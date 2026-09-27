@@ -66,14 +66,19 @@ export type RegisterFile = "base" | "window";
  * (`#N`) и **предикат** (`%predN`). Предикат — отдельный вид намеренно, а не регистр с пометкой
  * файла: `%pred0` и `%b[0]` лежат в **разных** файлах, и молчаливая подстановка одного вместо
  * другого была бы подменой поля. Пробел «предикат нечем выразить» записан долгом
- * (`docs/hardware-debt.md` §3.7); поля предикатов — `pdst[4:0]` формы ALF7 и `psrc[4:0]`
- * слога SS (`qemu/target/e2k/syllab-format.h:61,196`).
+ * (`docs/hardware-debt.md` §3.7); поля предикатов — `pdst[4:0]` формы ALF7 (приёмник сравнения)
+ * и слог-условие ALU-команды (`CDS`, формат `CDF1_RLP`: `pred[6:0]` — номер, биты 9:7 — отрицание).
+ * `%pred0` и `%pcnt0` — **разные** записи одного поля, и это различие кодируется битами `pred[6:5]`.
+ *
+ * `negated` относится только к предикату-условию (`psrc`): ассемблер пишет его `? ~%predN`, и
+ * раскладка поля от этого меняется. У предиката-приёмника (`pdst`) отрицания не бывает — там оно
+ * отвергается источником («negated predicate is irrelevant in dst2», `gas/config/tc-e2k.c:5134`).
  */
 export type Operand =
   | { readonly kind: "reg"; readonly index: number; readonly file?: RegisterFile }
   | { readonly kind: "imm"; readonly value: number }
   | { readonly kind: "imm64"; readonly value: bigint }
-  | { readonly kind: "pred"; readonly index: number };
+  | { readonly kind: "pred"; readonly index: number; readonly negated?: boolean };
 
 /** Файл регистров операнда; явно не названный — базовый (так поле читалось до этой правки). */
 export function registerFileOf(operand: Extract<Operand, { kind: "reg" }>): RegisterFile {
@@ -206,8 +211,12 @@ function sameOperand(a: Operand, b: Operand): boolean {
   if (a.kind === "imm" && b.kind === "imm") return a.value === b.value;
   // 64-битный литерал сравнивается как bigint: в number он не представим.
   if (a.kind === "imm64" && b.kind === "imm64") return a.value === b.value;
-  // Предикат сравнивается по номеру; смешать его с регистром не даёт уже проверка вида.
-  if (a.kind === "pred" && b.kind === "pred") return a.index === b.index;
+  // Предикат сравнивается по номеру И по отрицанию; смешать его с регистром не даёт проверка вида.
+  // Отрицание — не украшение: `? %pred1` и `? ~%pred1` дают разные байты (бит 7 поля `pred`),
+  // и разбор, забывший его сверить, вернул бы другую инструкцию под тем же именем.
+  if (a.kind === "pred" && b.kind === "pred") {
+    return a.index === b.index && (a.negated ?? false) === (b.negated ?? false);
+  }
   return false;
 }
 

@@ -330,3 +330,249 @@ describe('CMPAND*: 6. источник семейства читается в т
     expect(text, 'в таблице МЦСТ нашлась запись cmpandlsb').not.toMatch(/"cmpandlsb"/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ПРЕДИКАТ-УСЛОВИЕ (`psrc`) — СЛОГ `CDS`, ФОРМАТ `CDF1_RLP`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Условие `? [~]%predN` у ALU-команды лежит в слоге **`CDS`** (формат `CDF1_RLP`) в последнем
+ * слове команды, а не в `SS`: поле `SS.ctcond.psrc`, на которое ссылается §3.25, принадлежит
+ * передаче управления (`ct`). Число слогов считает `HS.cd[1:0]`, и это измерено:
+ *
+ * | текст МЦСТ | байты |
+ * |---|---|
+ * | `cmpandesb,0 %b[1], %b[2], %pred0 ? %pred1` | `11 01 01 04 40 02 01 22 00 00 00 00 00 00 61 04` |
+ * | `cmpandesb,1 … ? %pred1` | `11 01 01 08 40 02 01 22 00 00 00 00 00 00 61 08` |
+ * | `cmpandesb,1 … ? %pred5` | `11 01 01 08 40 02 01 22 00 00 00 00 00 00 65 08` |
+ * | `cmpandesb,3 … ? %pred5` | `11 01 01 20 40 02 01 22 00 00 00 00 00 00 65 44` |
+ * | `cmpandesb,4 … ? %pred5` | `11 01 01 40 40 02 01 22 00 00 00 00 00 00 65 48` |
+ * | `cmpandesb,4 … ? ~%pred5` | `11 01 01 40 40 02 01 22 00 00 00 00 00 00 65 49` |
+ * | `cmplsb,0 … ? %pred1` | `11 01 01 04 c0 02 01 20 00 00 00 00 00 00 61 04` |
+ *
+ * Поля последнего слова: `opc[15:14]` (0 для каналов 0..2 и 1 для 3..5), `mask[13:10]` и
+ * `neg[9:7]` — `1 << b` (номер канала внутри тройки), `pred[6:0]` — `0x60 | N` для `%predN`.
+ */
+
+const predNeg = (index: number): Operand => ({ kind: 'pred', index, negated: true });
+
+interface ConditionSample {
+  readonly key: string;
+  readonly mnemonic: string;
+  readonly channel: number;
+  readonly operands: readonly Operand[];
+  readonly asText: string;
+  readonly hex: string;
+}
+
+/** Измеренные ассемблером МЦСТ образцы с предикатом-условием. */
+const CONDITIONED: readonly ConditionSample[] = [
+  {
+    key: 'cmpandesb-ch0-pred1',
+    mnemonic: 'cmpandesb',
+    channel: 0,
+    operands: [reg(1), reg(2), pred(0), pred(1)],
+    asText: 'cmpandesb,0 %b[1], %b[2], %pred0 ? %pred1',
+    hex: '11 01 01 04 40 02 01 22 00 00 00 00 00 00 61 04',
+  },
+  {
+    key: 'cmpandesb-ch1-pred1',
+    mnemonic: 'cmpandesb',
+    channel: 1,
+    operands: [reg(1), reg(2), pred(0), pred(1)],
+    asText: 'cmpandesb,1 %b[1], %b[2], %pred0 ? %pred1',
+    hex: '11 01 01 08 40 02 01 22 00 00 00 00 00 00 61 08',
+  },
+  {
+    key: 'cmpandesb-ch1-pred5',
+    mnemonic: 'cmpandesb',
+    channel: 1,
+    operands: [reg(1), reg(2), pred(0), pred(5)],
+    asText: 'cmpandesb,1 %b[1], %b[2], %pred0 ? %pred5',
+    hex: '11 01 01 08 40 02 01 22 00 00 00 00 00 00 65 08',
+  },
+  {
+    key: 'cmpandesb-ch3-pred5',
+    mnemonic: 'cmpandesb',
+    channel: 3,
+    operands: [reg(1), reg(2), pred(0), pred(5)],
+    asText: 'cmpandesb,3 %b[1], %b[2], %pred0 ? %pred5',
+    hex: '11 01 01 20 40 02 01 22 00 00 00 00 00 00 65 44',
+  },
+  {
+    key: 'cmpandesb-ch4-pred5',
+    mnemonic: 'cmpandesb',
+    channel: 4,
+    operands: [reg(1), reg(2), pred(0), pred(5)],
+    asText: 'cmpandesb,4 %b[1], %b[2], %pred0 ? %pred5',
+    hex: '11 01 01 40 40 02 01 22 00 00 00 00 00 00 65 48',
+  },
+  {
+    key: 'cmpandesb-ch4-neg-pred5',
+    mnemonic: 'cmpandesb',
+    channel: 4,
+    operands: [reg(1), reg(2), pred(0), predNeg(5)],
+    asText: 'cmpandesb,4 %b[1], %b[2], %pred0 ? ~%pred5',
+    hex: '11 01 01 40 40 02 01 22 00 00 00 00 00 00 65 49',
+  },
+  {
+    key: 'cmplsb-ch0-pred1',
+    mnemonic: 'cmplsb',
+    channel: 0,
+    operands: [reg(1), reg(2), pred(0), pred(1)],
+    asText: 'cmplsb,0 %b[1], %b[2], %pred0 ? %pred1',
+    hex: '11 01 01 04 c0 02 01 20 00 00 00 00 00 00 61 04',
+  },
+];
+
+const conditionInstruction = (item: ConditionSample): AsmInstruction => ({
+  mnemonic: item.mnemonic,
+  channel: item.channel,
+  operands: item.operands,
+});
+
+describe('CMPAND*: 7. предикат-условие (`psrc`) — слог CDS', () => {
+  it('байты совпадают с измеренными ассемблером МЦСТ (каналы 0/1/3/4, обе полярности)', () => {
+    for (const item of CONDITIONED) {
+      expect(toHex(encoder.encode(conditionInstruction(item))), item.asText).toBe(item.hex);
+    }
+  });
+
+  it('условие — это слог CDS: HS.cd = 1, полуслога ALES нет, длина 16 байт', () => {
+    const bytes = encoder.encode(conditionInstruction(CONDITIONED[0]!));
+    const hs = bytes[0]! | (bytes[1]! << 8) | (bytes[2]! << 16) | (bytes[3]! << 24);
+    expect(bytes.length).toBe(16);
+    expect((hs >>> 16) & 0x3, 'HS.cd — число слогов-условий').toBe(1);
+    expect((hs >>> 20) & 0x3f, 'HS.ale — полуслога ALES нет').toBe(0);
+    expect((hs >>> 12) & 0x1, 'HS.s — слога SS нет (условие ALU-команды живёт в CDS)').toBe(0);
+    expect((hs >>> 4) & 0x7, 'HS.lng — 16 байт').toBe(1);
+    // Слог CDS — последнее слово; младшая половина нулевая (измерено).
+    expect(bytes[12]! | (bytes[13]! << 8)).toBe(0);
+    expect(bytes[8]! | (bytes[9]! << 8) | (bytes[10]! << 16) | (bytes[11]! << 24), 'слово 2 — LTS0').toBe(0);
+  });
+
+  it('снятие условия меняет байты: восемь против шестнадцати', () => {
+    const withCondition = encoder.encode(conditionInstruction(CONDITIONED[0]!));
+    const without = encoder.encode(
+      asm('cmpandesb', [reg(1), reg(2), pred(0)]),
+    );
+    expect(without.length).toBe(8);
+    expect(withCondition.length).toBe(16);
+    // Слог ALS (байты 4..7) — тот же; расходятся заголовок (длина и признак слога-условия) и,
+    // разумеется, появление самого слога. Иначе «условие» подменяло бы и команду.
+    expect(toHex(withCondition.slice(4, 8)), 'слог ALS не изменился от условия').toBe(toHex(without.slice(4, 8)));
+    expect(toHex(withCondition.slice(0, 4)), 'заголовок обязан отличаться').not.toBe(toHex(without.slice(0, 4)));
+    expect(toHex(withCondition)).not.toBe(toHex(without));
+  });
+
+  it('круг сохраняет номер предиката и отрицание', () => {
+    for (const item of CONDITIONED) {
+      const back = encoder.decode(encoder.encode(conditionInstruction(item)));
+      expect(sameInstruction(back, conditionInstruction(item)), `${item.key}: разбор разошёлся`).toBe(true);
+      expect(back.operands.length, `${item.key}: операндов`).toBe(4);
+      expect(back.mnemonic, `${item.key}: мнемоника`).toBe(item.mnemonic);
+    }
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: подмена номера предиката, отрицания и признака условия ловится разбором', () => {
+    const key = CONDITIONED[0]!;
+    const bytes = encoder.encode(conditionInstruction(key));
+    // 1) номер предиката: байт 14, младшие пять бит.
+    const otherPredicate = Uint8Array.from(bytes);
+    otherPredicate[14] = (otherPredicate[14]! & 0xe0) | 7;
+    expect(toHex(otherPredicate)).not.toBe(toHex(bytes));
+    const backPredicate = encoder.decode(otherPredicate);
+    expect(backPredicate.operands.at(-1), 'номер предиката не читается из байтов').toEqual(pred(7));
+    // 2) отрицание: байт 14, бит 7.
+    const negated = Uint8Array.from(bytes);
+    negated[14] = negated[14]! | 0x80;
+    expect(toHex(negated)).not.toBe(toHex(bytes));
+    expect(encoder.decode(negated).operands.at(-1), 'отрицание не читается из байтов').toEqual(predNeg(1));
+    // 3) снятие признака условия: HS.cd = 0 — разбор обязан заметить, что слог остался.
+    const noCondition = Uint8Array.from(bytes);
+    noCondition[2] = noCondition[2]! & 0xfc;
+    expect(toHex(noCondition)).not.toBe(toHex(bytes));
+    expect(() => encoder.decode(noCondition), 'снятый HS.cd без снятия слога').toThrow(/форма не сходится|условие/);
+    // 4) бит 6 поля «это %predN, а не %pcntN» — снят: разбор обязан отказать, а не выдумать предикат.
+    const asPcnt = Uint8Array.from(bytes);
+    asPcnt[14] = asPcnt[14]! & 0x9f;
+    expect(() => encoder.decode(asPcnt), 'поле без признака %predN').toThrow(/pcnt|предикат/);
+  });
+
+  it('условие принимает только объявившая его форма, и только предикат', () => {
+    // `adds` форму условия не объявляла: операнд — отказ с причиной, а не молчаливая запись.
+    expect(() => encoder.encode(asm('adds', [reg(1), reg(2), reg(3), pred(1)]))).toThrow(/операнд|psrc/);
+    // Регистр на месте условия — отказ: поле `pred` несёт признак %predN/%pcntN, а не номер регистра.
+    expect(() => encoder.encode(asm('cmplsb', [reg(1), reg(2), pred(0), reg(1)]))).toThrow(/операнд|предикат/);
+    // Предикат вне 0..31 — отказ.
+    expect(() => encoder.encode(asm('cmplsb', [reg(1), reg(2), pred(0), pred(32)]))).toThrow(/предикат/);
+  });
+});
+
+describe('CMPAND*: 8. внешняя сверка формы с условием', () => {
+  it('ассемблер МЦСТ собирает те же шестнадцать байт', () => {
+    const samples: AsSample[] = CONDITIONED.map((item) => ({
+      key: item.key,
+      mnemonic: item.mnemonic,
+      channel: item.channel,
+      form: 'ALF7 + CDS',
+      asText: item.asText,
+      instruction: conditionInstruction(item),
+      source: 'qemu/target/e2k/syllab-format.h:125-128 (CDF1_RLP)',
+    }));
+    const results = assembleAll(samples);
+    const problems: string[] = [];
+    CONDITIONED.forEach((item, index) => {
+      const result = results[index]!;
+      if (!result.ok) {
+        problems.push(`${item.key}: ассемблер отверг — ${result.error}`);
+        return;
+      }
+      const ours = toHex(encoder.encode(conditionInstruction(item)));
+      const theirs = toHex(result.bytes);
+      if (ours !== theirs) problems.push(`${item.key}: у нас ${ours}, у as ${theirs}`);
+    });
+    expect(problems, `сверено ${CONDITIONED.length} образцов с условием`).toEqual([]);
+  });
+
+  it('дизассемблер МЦСТ печатает условие `? %predN` по адресу команды', () => {
+    const { tool, reason } = findExternalTool();
+    if (tool === undefined) {
+      expect(reason, 'причина ненайденности дизассемблера не названа').toBeDefined();
+      return;
+    }
+    const samples: E2kSample[] = CONDITIONED.map((item) => ({
+      mnemonic: item.mnemonic,
+      form: 'ALF7' as RealForm,
+      opc: `0x${realOpcode(item.mnemonic)!.opc.toString(16)}`,
+      channel: item.channel,
+      operands: item.operands,
+      bytes: '',
+      hex: toHex(encoder.encode(conditionInstruction(item))),
+      size: 16,
+      assembly: item.asText,
+      source: 'qemu/target/e2k/syllab-format.h:125-128 (CDF1_RLP)',
+    }));
+    const elf = buildE2kElf(samples);
+    const result = disassembleElf(elf, path.join(ROOT, '.tmp', 'e2k-cmpand-condition.elf'));
+    if (result === undefined) return;
+    const byAddress = new Map(parseObjdumpOutput(result.text).map((line) => [line.address, line.text]));
+    const problems: string[] = [];
+    elf.layout.forEach((entry, index) => {
+      const item = CONDITIONED[index]!;
+      const text = byAddress.get(entry.address);
+      if (text === undefined) {
+        problems.push(`0x${entry.address.toString(16)}: дизассемблер не напечатал строку`);
+        return;
+      }
+      // Условие печатается суффиксом `? %predN` (с `~`, если предикат отрицательный).
+      const expected = item.operands.at(-1)!.kind === 'pred' && (item.operands.at(-1) as { negated?: boolean }).negated === true
+        ? `? ~%pred${(item.operands.at(-1) as { index: number }).index}`
+        : `? %pred${(item.operands.at(-1) as { index: number }).index}`;
+      if (!text.includes(item.mnemonic) || !text.includes(expected)) {
+        problems.push(`0x${entry.address.toString(16)} (${item.key}): ждали «${item.mnemonic} … ${expected}», напечатано «${text}»`);
+      }
+    });
+    expect(problems, `сверено по адресам: ${elf.layout.length}`).toEqual([]);
+  });
+});
