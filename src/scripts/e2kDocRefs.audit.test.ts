@@ -60,6 +60,39 @@ export function readDoc(file: string): string {
   return fs.readFileSync(path.join(ROOT, file), "utf-8");
 }
 
+/** Все файлы оракулов репозитория (пути от корня). */
+export function testFiles(dir = path.join(ROOT, "src")): string[] {
+  const found: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...testFiles(full));
+    else if (/\.test\.ts$/.test(entry.name)) found.push(path.relative(ROOT, full).replace(/\\/g, "/"));
+  }
+  return found.sort();
+}
+
+/**
+ * Утверждения вида `expect(…).toContain('…src/что-то.ts:12…')`.
+ *
+ * Такой тест держит **номер строки** в себе: переезд цели красит проверку при неизменном коде.
+ * Измерено 2026-09-27: ровно одна такая проверка была в репозитории
+ * (`src/scripts/e2kQemuRun.audit.test.ts`, `src/e2k/emitterOracle.ts:49`).
+ *
+ * **Названное ограничение:** строки, целиком занятые комментарием, пропускаются — иначе сторож
+ * краснел бы на прозе, объясняющей сам дефект (проверено: он покраснел на первом же прогоне).
+ * Комментарий в хвосте строки кода при этом не отсекается.
+ */
+export function pinnedLineAssertions(text: string): string[] {
+  const found: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) continue;
+    for (const match of line.matchAll(/(?:toContain|toEqual|toBe)\(\s*(`[^`]*`|'[^']*'|"[^"]*")/g)) {
+      found.push(...findRawLineRefs(match[1]!));
+    }
+  }
+  return found;
+}
+
 describe("ссылки документов линии e2k на код: цель — имя, а не номер строки", () => {
   const docs = e2kDocs();
   const texts = new Map(docs.map((file) => [file, readDoc(file)]));
@@ -98,6 +131,16 @@ describe("ссылки документов линии e2k на код: цель
     expect(problems, problems.join("; ")).toEqual([]);
   });
 
+  it("ни один оракул не держит ссылку «файл:строка» на файл репозитория", () => {
+    const problems: string[] = [];
+    for (const file of testFiles()) {
+      for (const raw of pinnedLineAssertions(fs.readFileSync(path.join(ROOT, file), "utf-8"))) {
+        problems.push(`${file}: проверка держит гниющий номер строки ${raw}`);
+      }
+    }
+    expect(problems, problems.join("; ")).toEqual([]);
+  });
+
   it("негативный контроль: сторож способен краснеть", () => {
     // 1. Запрет ловит наш файл с номером строки…
     expect(findRawLineRefs("см. `src/e2k/e2k-real.ts:266-267`")).toEqual(["src/e2k/e2k-real.ts:266"]);
@@ -130,5 +173,13 @@ describe("ссылки документов линии e2k на код: цель
     expect(regionAfter.from, "цель сдвинулась на строку").toBe(regionBefore.from + 1);
     expect(verifyCodeRefs(sample, () => `// вставка\n${source}`).join(" "), "ссылка сломалась от вставки").toBe("");
     expect(shifted.startsWith("// временная вставка")).toBe(true);
+
+    // 6. Сторож оракулов ловит ТУ САМУЮ проверку, что стояла в репозитории, и не трогает
+    //    законную цитату из чужого артефакта. Строка собирается из частей намеренно: иначе сторож
+    //    поймал бы сам себя — и это уже наблюдалось на первом прогоне.
+    const planted = `expect(doc).toContain('src/e2k/emitterOracle` + `.ts:49');`;
+    expect(pinnedLineAssertions(planted)).toEqual(["src/e2k/emitterOracle.ts:49"]);
+    expect(pinnedLineAssertions("expect(doc).toContain('src/e2k/emitterOracle.ts#SHELL_IMAGE_FORMAT');")).toEqual([]);
+    expect(pinnedLineAssertions("expect(doc).toContain('elbrus-docs/README.md:461');")).toEqual([]);
   });
 });
