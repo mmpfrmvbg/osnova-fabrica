@@ -110,4 +110,34 @@ describe('граф зависимостей: WAR от каждого читат�
     expect(withoutWar, 'до записи #9 WAR-ребра 6→9 не существует — инвариант проверяет именно её').toBe(true);
     expect(warViolations(code.slice(0, 9)), 'без записи инвариант держится: нарушать нечего').toEqual([]);
   });
+
+  /**
+   * СТОРОЖ КЛАССА, А НЕ СЛУЧАЯ: каждая бинарная операция обязана объявлять ЧТЕНИЕ обоих операндов.
+   *
+   * Зачем отдельная проверка. 2026-09-27 измерено (`.tmp/amplifier-control.ts`): `978 div 10`
+   * литералами даёт **97**, а `(1000 - 22) div 10` — **0**. Причина: в перечне `regInstructionUses`
+   * знали `div` и `rem`, но не знали `idiv` — операция понижения целочисленного деления
+   * (`src/compiler/codegen.ts:25` — `"div": "idiv"`). Узел `idiv` получал **ноль предшественников**,
+   * и `sdivs` выдавался раньше записи делимого и делителя. Тот же пропуск уже был в
+   * `emitterRoundtrip.ts`, поэтому проверка идёт **по списку операций IR**, а не по одному случаю:
+   * следующая добавленная операция обязана попасть в перечень или покраснеть здесь.
+   */
+  it('каждая бинарная операция IR объявляет чтение обоих операндов (иначе узел без предшественников)', () => {
+    const binaryOps = [
+      'add', 'sub', 'mul', 'div', 'idiv', 'rem',
+      'eq', 'ne', 'lt', 'le', 'gt', 'ge',
+      'and', 'or',
+    ] as const;
+    const silent: string[] = [];
+    for (const op of binaryOps) {
+      const instruction = { op, dst: 0, a: 5, b: 7 } as unknown as RegInstruction;
+      const uses = regInstructionUses(instruction);
+      if (uses.length !== 2 || !uses.includes(5) || !uses.includes(7)) silent.push(op);
+    }
+    expect(silent, `операции, не объявившие чтения a и b: ${silent.join(', ')}`).toEqual([]);
+
+    // Различающий случай — тот самый: делимое и делитель приходят из регистров, а не из литералов.
+    const idiv = { op: 'idiv', dst: 0, a: 5, b: 7 } as unknown as RegInstruction;
+    expect(regInstructionUses(idiv), 'у `idiv` обязаны быть оба чтения').toEqual([5, 7]);
+  });
 });

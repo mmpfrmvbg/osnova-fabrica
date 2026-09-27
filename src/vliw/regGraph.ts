@@ -145,6 +145,7 @@ export function regInstructionUses(ins: RegInstruction): number[] {
     case "sub":
     case "mul":
     case "div":
+    case "idiv":
     case "rem":
     case "eq":
     case "ne":
