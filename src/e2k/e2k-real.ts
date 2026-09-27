@@ -31,9 +31,10 @@
  * # Чего здесь НЕТ и почему
  *
  * 1. **Не весь e2k.** Реализованы только короткая (ALF1/ALF2 — слог ALS) и длинная
- *    (ALOPF11 — слог ALS + полуслог ALES) формы, по одной операции на команду. Команда с
- *    несколькими слогами, SS-слогом, CS-слогом, литералами, предикатами, MAS — **не
- *    реализована** и отвергается с названной причиной, а не кодируется наугад.
+ *    (ALOPF11 — слог ALS + полуслог ALES) формы, по одной операции на команду, плюс слоги
+ *    управления SS/CS0/CS1 (в том числе `setmas`, §3.29/§3.32). Команда с **несколькими
+ *    слогами ALS сразу** и команда, где слог управления стоит **вместе** с операцией ALS,
+ *    — **не реализована** и отвергается с названной причиной, а не кодируется наугад.
  * 2. **Не выдумано.** Мнемоники, которых нет в таблице опкодов, отвергаются
  *    `EncodingRefusedError` с текстом «НЕТ В ИСТОЧНИКЕ».
  * 3. **Не проверено инструментом.** Ни MCST-objdump, ни QEMU-e2k в этом окружении не собраны
@@ -739,7 +740,21 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
 
 /** Поле инструкции управления: `ctpr` — номер регистра подготовки, `cond` — код условия `ct`,
  * `disp` — смещение перехода в восьмибайтовых словах, `wbs` — параметр `call`. */
-export type RealControlSlot = "ctpr" | "cond" | "disp" | "sdisp" | "wbs" | "rsz" | "rbs" | "rcur" | "wsz" | "dbl";
+export type RealControlSlot =
+  | "ctpr"
+  | "cond"
+  | "disp"
+  | "sdisp"
+  | "wbs"
+  | "rsz"
+  | "rbs"
+  | "rcur"
+  | "wsz"
+  | "dbl"
+  | "mas0"
+  | "mas2"
+  | "mas3"
+  | "mas5";
 
 /**
  * Инструкция, которая кодируется **слогами управления**, а не слогом ALS.
@@ -752,7 +767,15 @@ export type RealControlSlot = "ctpr" | "cond" | "disp" | "sdisp" | "wbs" | "rsz"
 export interface RealControlEntry {
   /** Мнемоника — копия из ассемблера МЦСТ посимвольно (`as` принимает именно эти имена). */
   readonly mnemonic: string;
-  readonly form: "SS" | "CS0_DISP" | "CS0_SDISP" | "CS0_RETURN" | "CS1_SETBN" | "CS1_SETWD" | "CS1_CALL";
+  readonly form:
+    | "SS"
+    | "CS0_DISP"
+    | "CS0_SDISP"
+    | "CS0_RETURN"
+    | "CS1_SETBN"
+    | "CS1_SETWD"
+    | "CS1_SETMAS"
+    | "CS1_CALL";
   readonly operands: readonly RealControlSlot[];
   readonly size: number;
   /** Источник полей слога. */
@@ -843,6 +866,25 @@ export const REAL_CONTROL_OPCODES: readonly RealControlEntry[] = [
       "qemu/target/e2k/opcode-tables.h:60-68 (CS1 opc: SETR0 = 0); " +
       "gas/config/tc-e2k.c:6257-6301 (имена параметров: setwd wsz=, nfx=, dbl=); " +
       "измерено ассемблером: `setwd wsz=16, nfx=0, dbl=0` → `11 80 00 00 00 00 00 00 00 00 00 00 00 02 00 00`",
+  },
+  {
+    mnemonic: "setmas",
+    form: "CS1_SETMAS",
+    operands: ["mas0", "mas2", "mas3", "mas5"],
+    size: 8,
+    formSource: CS1_SOURCE,
+    source:
+      "qemu/target/e2k/syllab-format.h:107-110 (C1F1_PARAM: mas0[27:21], mas2[20:14], mas3[13:7], mas5[6:0]); " +
+      "qemu/target/e2k/opcode-tables.h:66 (E2K_CS1_OPC_MAS = 6); " +
+      "qemu/target/e2k/decoder.c:1009-1016 (слог CS1 с opc MAS: mas_valid и четыре значения по каналам 0/2/3/5); " +
+      "opcodes/e2k-dis.c:2046-2056 (MAS_OPC = 6 в перечислении CS1), :2238-2241 (печать `mas 0x%x` — сырой 28-битный param), " +
+      ":1325-1329 (`shift[chn] = {21, -1, 14, 7, -1, 0}` — те же поля для команды памяти); " +
+      "gas/config/tc-e2k.c:3339-3395 (разбор `mas=` у команды памяти — единственная форма, которую знает ассемблер; " +
+      "отдельной мнемоники `setmas` у него нет, измерено: `unknown instruction 'setmas'`); " +
+      "измерено ассемблером МЦСТ (форма `mas=` у команды памяти, отдельной мнемоники у `as` нет): " +
+      "`ldd,2 %db[1], %db[2], %db[3], mas=0x7` → слог `00 c0 01 60` (0x6001c000 = opc 6 | 7<<14), " +
+      "`ldd,5 … mas=0x7` → `07 00 00 60`, `ldd,0 … mas=0x7` → `00 00 e0 60`, `ldd,3 … mas=0x7` → `80 03 00 60`, " +
+      "`ldd,2 … mas=0x55` → `00 40 15 60`",
   },
   {
     mnemonic: "call",
@@ -1075,6 +1117,36 @@ function cs1CallWord(wbs: number): number {
   return ((5 << 28) | (wbs & 0x0fffffff)) >>> 0;
 }
 
+/**
+ * Слог CS1 команды `setmas`: `opc=6` (`E2K_CS1_OPC_MAS`), четыре семибитных значения по каналам
+ * 0, 2, 3, 5 — `mas0[27:21]`, `mas2[20:14]`, `mas3[13:7]`, `mas5[6:0]`.
+ *
+ * Поля прочитаны в двух местах порта (декодер и формат слога) и **измерены ассемблером МЦСТ**:
+ * у `as` отдельной мнемоники `setmas` нет, но форма `mas=` у команды памяти даёт тот же слог CS1,
+ * и положение значения для каждого канала видно в байтах — `ldd,2 … mas=0x7` → `0x6001c000`
+ * (7 << 14), `ldd,0 …` → `0x60e00000` (7 << 21), `ldd,3 …` → `0x60000380` (7 << 7),
+ * `ldd,5 …` → `0x60000007` (7 << 0). То есть `opc = 6` и четыре поля — не наше предположение.
+ *
+ * Чего эта команда НЕ делает сама по себе: `mas` действует на команду памяти **той же широкой
+ * команды** (`qemu/target/e2k/tcg/translate-mem.c:1081`: значение берётся из
+ * `instr_decoded->mas[ch]`, а `mas_valid` сбрасывается на каждой команде — `decoder.c:41`).
+ * Отдельная 8-байтовая команда `setmas` ничего последующему `ld` не задаёт.
+ */
+function cs1SetmasWord(mas0: number, mas2: number, mas3: number, mas5: number): number {
+  const values: readonly (readonly [string, number])[] = [
+    ["mas0", mas0],
+    ["mas2", mas2],
+    ["mas3", mas3],
+    ["mas5", mas5],
+  ];
+  for (const [name, value] of values) {
+    if (!Number.isInteger(value) || value < 0 || value > 0x7f) {
+      throw new EncodingError(`setmas: ${name} = ${String(value)} вне 0..127 (поле 7 бит)`);
+    }
+  }
+  return (((6 << 28) | (mas0 << 21) | (mas2 << 14) | (mas3 << 7) | mas5) >>> 0);
+}
+
 function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Uint8Array {
   if (instruction.operands.length !== entry.operands.length) {
     throw new EncodingError(
@@ -1128,6 +1200,18 @@ function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Ui
       writeWord(bytes, 0, 0x00008011);
       writeWord(bytes, 4, 0);
       writeWord(bytes, 12, ((values.get("wsz")! & 0x7f) << 5) | ((values.get("dbl")! & 1) << 3));
+      return bytes;
+    }
+    case "CS1_SETMAS": {
+      // HS тот же, что у `setbn`: CS1 присутствует (бит 15), mdl = 1, lng = 0 → 8 байт.
+      // У ассемблера МЦСТ отдельной мнемоники нет (проверено: «unknown instruction `setmas`»),
+      // поэтому HS берётся из единственного измеренного образца CS1-без-ALS — `setbn`.
+      writeWord(bytes, 0, 0x00008001);
+      writeWord(
+        bytes,
+        4,
+        cs1SetmasWord(values.get("mas0")!, values.get("mas2")!, values.get("mas3")!, values.get("mas5")!),
+      );
       return bytes;
     }
     case "CS1_CALL": {

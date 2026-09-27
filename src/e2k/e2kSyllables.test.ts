@@ -191,9 +191,11 @@ describe('литералы и слоги управления: отказы на
   });
 
   it('у каждой формы управления назван источник', () => {
-    // Четыре прежние формы (ct/disp/return/call), затем sdisp и setbn (без них exit(42) недостижим)
-    // и setwd — размер окна регистров (`src/e2k/e2kWindow.test.ts`: байты сверены с ассемблером).
-    expect(REAL_CONTROL_OPCODES.length).toBe(7);
+    // Четыре прежние формы (ct/disp/return/call), затем sdisp и setbn (без них exit(42) недостижим),
+    // setwd — размер окна регистров (`src/e2k/e2kWindow.test.ts`: байты сверены с ассемблером),
+    // и setmas — четыре значения `mas` по каналам 0/2/3/5 (`docs/hardware-debt.md` §3.29/§3.32;
+    // байты слога сверены с ассемблером формой `mas=` — `src/e2k/e2kSetmas.test.ts`).
+    expect(REAL_CONTROL_OPCODES.length).toBe(8);
     expect(REAL_CONTROL_OPCODES.map((entry) => entry.mnemonic).sort()).toEqual([
       'call',
       'ct',
@@ -201,6 +203,7 @@ describe('литералы и слоги управления: отказы на
       'return',
       'sdisp',
       'setbn',
+      'setmas',
       'setwd',
     ]);
     for (const entry of REAL_CONTROL_OPCODES) {
