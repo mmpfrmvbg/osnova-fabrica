@@ -31,8 +31,10 @@
  * | `%b[12]` | 0 — нулевое смещение для адреса |
  * | `%b[11]`, `%b[10]` | временные (рантайм их **портит**) |
  *
- * Умножение на 8 сделано **удвоением** (`adds`), а не `shls`: форма `adds` уже проверена в модели
- * (`src/e2k/e2kWideQemu.test.ts`), а `shls` — нет. Это выбор в пользу проверенного.
+ * Умножение на 8 сделано **удвоением** (`addd`), а не `shls`: форма `addd` уже проверена в модели
+ * (`.tmp/osnova-addd-probe.ts`), а `shls` — нет. Это выбор в пользу проверенного. Адрес считает
+ * именно `addd` (формат `D`, регистр целиком), а не `adds` (формат `S`, младшая половина) —
+ * причина и замер: `docs/hardware-debt.md` §3.27 и §3.30.
  *
  * # Чего рантайм НЕ делает (названные границы)
  *
@@ -74,7 +76,7 @@ describe('рантайм массивов: последовательности 
 
   it('создать: взять указатель кучи, обнулить длину, сдвинуть кучу на заголовок', () => {
     const sequence = lowerArrayCall('система.массив.создать', [], 3);
-    expect(mnemonics(sequence)).toEqual(['adds', 'std', 'adds']);
+    expect(mnemonics(sequence)).toEqual(['addd', 'std', 'addd']);
     // Первая команда кладёт указатель кучи в приёмник, вторая пишет нулевую длину, третья
     // двигает указатель кучи на слово заголовка.
     expect(sequence[0]!.operands[0]).toEqual(reg(ARRAY_REGISTERS.heap));
@@ -85,7 +87,7 @@ describe('рантайм массивов: последовательности 
   it('получить: индекс без сдвигов — удвоением, затем адрес и чтение', () => {
     const sequence = lowerArrayCall('система.массив.получить', [reg(4), reg(5)], 6);
     // Три удвоения (×2, ×4, ×8), плюс заголовок, плюс база, затем чтение.
-    expect(mnemonics(sequence)).toEqual(['adds', 'adds', 'adds', 'adds', 'adds', 'ldd']);
+    expect(mnemonics(sequence)).toEqual(['addd', 'addd', 'addd', 'addd', 'addd', 'ldd']);
     expect(sequence.at(-1)!.operands[2], 'приёмник чтения').toEqual(reg(6));
   });
 
@@ -94,7 +96,7 @@ describe('рантайм массивов: последовательности 
     // чтение длины, +1, запись новой длины, три удвоения, заголовок, база, запись значения и сдвиг
     // указателя кучи на элемент (последняя команда — она и разводит блоки двух массивов).
     expect(mnemonics(sequence)).toEqual([
-      'ldd', 'adds', 'std', 'adds', 'adds', 'adds', 'adds', 'adds', 'std', 'adds',
+      'ldd', 'addd', 'std', 'addd', 'addd', 'addd', 'addd', 'addd', 'std', 'addd',
     ]);
     expect(sequence.at(-2)!.operands[0], 'записывается значение').toEqual(reg(8));
     // Сдвиг кучи: приёмник — сам указатель кучи, и он не перепутан с адресом записи (тот лежит в
@@ -113,7 +115,7 @@ describe('рантайм массивов: последовательности 
     const advances = (sequence: readonly AsmInstruction[]): number =>
       sequence.filter(
         (instruction) =>
-          instruction.mnemonic === 'adds' &&
+          instruction.mnemonic === 'addd' &&
           instruction.operands[2]?.kind === 'reg' &&
           (instruction.operands[2] as { index: number }).index === ARRAY_REGISTERS.heap,
       ).length;

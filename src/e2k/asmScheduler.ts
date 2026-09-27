@@ -56,6 +56,7 @@ export function classOfMnemonic(mnemonic: string): OpClass {
       return 'cmp_to_logic';
     case 'movts':
     case 'adds':
+    case 'addd':
     case 'subs':
     case 'ands':
     case 'ors':

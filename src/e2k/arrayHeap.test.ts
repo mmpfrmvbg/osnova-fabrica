@@ -47,7 +47,7 @@ const HEAP = 0x102000;
 /**
  * Модель понижённых команд: регистры и память по адресам.
  *
- * Порядок операндов взят из источника и из `arrayRuntime.ts`: `adds src1, src2, dst`,
+ * Порядок операндов взят из источника и из `arrayRuntime.ts`: `addd src1, src2, dst`,
  * `ldd база, смещение, приёмник`, `std значение, база, смещение`.
  */
 class Machine {
@@ -83,7 +83,10 @@ class Machine {
         return operand.index;
       };
       switch (instruction.mnemonic) {
-        case 'adds':
+        case 'addd':
+          // Адресная арифметика — форма `D` (регистр целиком). `adds` в модели НЕ описывается
+          // намеренно: рантайм им больше не считает (docs/hardware-debt.md §3.27, §3.30), и
+          // если он вернётся, модель обязана отказать, а не посчитать «как раньше».
           this.registers.set(index(2), this.at(index(0)) + this.at(index(1)));
           break;
         case 'ldd':

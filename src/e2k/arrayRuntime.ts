@@ -29,10 +29,33 @@
  * Чужой код в эти регистры не пишет: операция массива, у которой операнд попал в зарезервированную
  * область, **отказывает** ({@link RESERVED_FROM} и ниже) — иначе она затрёт указатель кучи.
  *
+ * # Адресная арифметика — `addd` (форма `D`), а не `adds` (форма `S`)
+ *
+ * `adds` — операция над **младшей половиной** 64-битного регистра, и это не догадка: порт модели
+ * реализует её как `TRANS(ADDS, e2k_sss, tcg_gen_add_i32)`, тогда как `addd` —
+ * `TRANS(ADDD, e2k_ddd, tcg_gen_add_i64)` (`qemu/target/e2k/tcg/translate-al-c2.c:59-60`). То есть
+ * команда, которой мы считаем **адрес**, теряла бы старшие 32 разряда — молча, потому что ни одна
+ * проверка этого не требует. До 2026-09-27 адреса считались `adds`, и держалось это на инварианте
+ * «старшая половина нулевая» (`docs/hardware-debt.md` §3.27): `movts` пишет ноль в старшую половину,
+ * а все наши адреса малы. Первый адрес ≥ 4 ГиБ ломал бы адресацию так же тихо.
+ *
+ * Поэтому адреса считает `addd` — форма `D`, операнды `%db`, регистр **целиком**. Байты сверены
+ * дизассемблером МЦСТ раздела §3.27 (`adds` — `…10`, `addd` — `…11`), форма равной длины (8 байт),
+ * поэтому закреплённые числа не двигаются. Замер исполнением — `.tmp/osnova-addd-probe.ts`,
+ * разложение по слоям — §3.30.
+ *
  * # Умножение на 8 — удвоением, а не `shls`
  *
  * `shls` есть в таблице МЦСТ (ALOPF1, `0x18`, `opcodes/e2k-opc.h:139`), но **не проверен прогоном**;
- * `adds` проверен (`src/e2k/e2kWideQemu.test.ts`). Выбор в пользу проверенного: три `adds` дают ×8.
+ * удвоение `addd` прогоном проверено (`.tmp/osnova-addd-probe.ts`). Выбор в пользу проверенного: три
+ * `addd` дают ×8.
+ *
+ * # Величины 0, 1 и 8 материализуются `movts` — и это НЕ послабление
+ *
+ * `%b[N]` и `%db[N]` — один и тот же регистр с окном (`opcodes/e2k-dis.c:417,454`), а `movts` пишет
+ * ноль в **старшую** половину. Значит после `movts 8, %b[14]` 64-битный `%db[14]` содержит ровно
+ * `8` — и `addd` с ним считает полноценную 64-битную сумму. Замена `movts` на `movtd` здесь ничего
+ * не добавила бы; проверено пробой (случай «малый адрес, `addd`»).
  *
  * # Чего рантайм НЕ делает
  *
@@ -132,9 +155,20 @@ function checkOperand(operand: Operand, name: string, role: string): void {
   }
 }
 
-/** `adds src1, src2, dst` — форма ALF1: адрес/арифметика (`opcodes/e2k-opc.h:19`). */
-const adds = (src1: number, src2: number, dst: number): AsmInstruction => ({
-  mnemonic: 'adds',
+/**
+ * `addd src1, src2, dst` — форма ALF1, операнды `%db` (формат `D`, `opcodes/e2k-opc.h:24`).
+ *
+ * **Почему не `adds`** (`opcodes/e2k-opc.h:19`, формат `S`): у `S`-форм результат — младшая половина
+ * 64-битного регистра, у `D`-форм — регистр целиком (`docs/hardware-debt.md` §3.27, справка по
+ * кодировке; порт: `TRANS(ADDS, e2k_sss, tcg_gen_add_i32)` против
+ * `TRANS(ADDD, e2k_ddd, tcg_gen_add_i64)` — `qemu/target/e2k/tcg/translate-al-c2.c:59-60`).
+ *
+ * Здесь считаются **адреса**, а адрес — величина 64-битная: первый адрес ≥ 4 ГиБ (или значение,
+ * пришедшее из `ldd`, который пишет регистр целиком) сломал бы `adds`-арифметику молча. Форма `D`
+ * снимает это по построению, а не сторожем.
+ */
+const addd = (src1: number, src2: number, dst: number): AsmInstruction => ({
+  mnemonic: 'addd',
   channel: 0,
   operands: [reg(src1), reg(src2), reg(dst)],
 });
@@ -251,11 +285,11 @@ const std = (value: number, src1: number, src2: number): AsmInstruction => ({
 });
 
 /**
- * `×8` удвоением: три `adds` (проверенная форма), результат — в `dst`.
+ * `×8` удвоением: три `addd` (форма `D`, проверена пробой), результат — в `dst`.
  * Требует, чтобы `src` и `dst` были разными регистрами (иначе первое удвоение затрёт вход).
  */
 function timesEight(src: number, dst: number): AsmInstruction[] {
-  return [adds(src, src, dst), adds(dst, dst, dst), adds(dst, dst, dst)];
+  return [addd(src, src, dst), addd(dst, dst, dst), addd(dst, dst, dst)];
 }
 
 /**
@@ -292,14 +326,14 @@ export function lowerArrayCall(name: string, args: readonly Operand[], dst: numb
       return [ldd(registers[0]!, zero, dst!)];
     case 'система.массив.создать':
       // Указатель кучи — в приёмник, длина = 0, куча сдвинута на слово заголовка.
-      return [adds(heap, zero, dst!), std(zero, dst!, zero), adds(heap, eight, heap)];
+      return [addd(heap, zero, dst!), std(zero, dst!, zero), addd(heap, eight, heap)];
     case 'система.массив.получить': {
       // Адрес элемента = массив + 8 + индекс*8.
       const steps = timesEight(registers[1]!, scratch);
       return [
         ...steps,
-        adds(scratch, eight, scratch),
-        adds(scratch, registers[0]!, scratch),
+        addd(scratch, eight, scratch),
+        addd(scratch, registers[0]!, scratch),
         ldd(scratch, zero, dst!),
       ];
     }
@@ -309,18 +343,18 @@ export function lowerArrayCall(name: string, args: readonly Operand[], dst: numb
       const steps = timesEight(scratch, scratch2);
       return [
         ldd(registers[0]!, zero, scratch),
-        adds(scratch, one, scratch2),
+        addd(scratch, one, scratch2),
         std(scratch2, registers[0]!, zero),
         ...steps.map((instruction) => instruction),
-        adds(scratch2, eight, scratch2),
-        adds(scratch2, registers[0]!, scratch2),
+        addd(scratch2, eight, scratch2),
+        addd(scratch2, registers[0]!, scratch2),
         std(registers[1]!, scratch2, zero),
         // Указатель кучи двигается на элемент: без этого блок СЛЕДУЮЩЕГО массива ляжет на первый
         // элемент этого (замер: `вход` и `коэффициенты` в FIR перекрывались, `получить(вход, i)` при
         // i = 0…7 давал `[длина(коэф), коэф[0..3], вход[5..7]]`, FIR давал 177 вместо 181 —
         // docs/e2k-regalloc-debt.md §12). Адресация выше считается от ДЛИНЫ массива, поэтому сдвиг
         // кучи на неё не влияет — он нужен следующему `создать`.
-        adds(heap, eight, heap),
+        addd(heap, eight, heap),
       ];
     }
     default:
@@ -371,7 +405,7 @@ export function checkArraySequence(name: string, instructions: readonly AsmInstr
   const kinds = instructions.map((instruction) => instruction.mnemonic);
 
   /**
-   * Сдвигает ли последовательность указатель кучи на месте (`adds …, %b[heap]` в приёмник).
+   * Сдвигает ли последовательность указатель кучи на месте (`addd …, %b[heap]` в приёмник).
    *
    * Проверяются ОБЕ операции, выделяющие память: `создать` (заголовок) и `добавить` (элемент).
    * Общий сторож нужен потому, что снятие сдвига в любой из них даёт один и тот же дефект —
@@ -380,7 +414,7 @@ export function checkArraySequence(name: string, instructions: readonly AsmInstr
   function advancesHeap(sequence: readonly AsmInstruction[]): boolean {
     return sequence.some(
       (instruction) =>
-        instruction.mnemonic === 'adds' &&
+        instruction.mnemonic === 'addd' &&
         instruction.operands.some(
           (operand) => operand.kind === 'reg' && operand.index === ARRAY_REGISTERS.heap,
         ) &&
@@ -403,7 +437,7 @@ export function checkArraySequence(name: string, instructions: readonly AsmInstr
       if (kinds.filter((kind) => kind === 'std').length < 2) {
         problems.push('«добавить»: длина не записана или значение не записано — нужны обе записи');
       }
-      if (kinds.filter((kind) => kind === 'adds').length < 6) {
+      if (kinds.filter((kind) => kind === 'addd').length < 6) {
         problems.push('«добавить»: адрес элемента не досчитан (нужны ×8, заголовок, база и сдвиг кучи)');
       }
       // Указатель кучи обязан сдвинуться и здесь: `создать` выделяет только заголовок, а элементы
@@ -415,7 +449,7 @@ export function checkArraySequence(name: string, instructions: readonly AsmInstr
       break;
     }
     case 'система.массив.получить': {
-      if (kinds.filter((kind) => kind === 'adds').length < 5) {
+      if (kinds.filter((kind) => kind === 'addd').length < 5) {
         problems.push('«получить»: адрес элемента не досчитан (нужны ×8, заголовок и база)');
       }
       if (kinds.at(-1) !== 'ldd') problems.push('«получить»: последним шагом должно быть чтение');

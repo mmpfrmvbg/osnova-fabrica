@@ -124,6 +124,10 @@ function runProgram(commands: readonly AsmInstruction[], resultRegister: number)
     const operands = instruction.operands;
     switch (instruction.mnemonic) {
       case 'adds':
+      // `adds` приходит от понижения `IR.add` (`src/e2k/e2kRealRun.ts`), `addd` — от адресной
+      // арифметики рантайма массивов (§3.27 `docs/hardware-debt.md`). Обе формы модель считает
+      // одинаково: здесь проверяется раскладка и вытеснение, а не ширина регистра.
+      case 'addd':
         registers.set(indexOf(operands[2]), value(operands[0]) + value(operands[1]));
         break;
       case 'movtd':

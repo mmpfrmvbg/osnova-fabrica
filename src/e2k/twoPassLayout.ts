@@ -252,14 +252,27 @@ export function carrierForm(carrier: string): CarrierForm | undefined {
 }
 
 /**
- * Формы команд рантайма массивов: `adds`, `ldd`, `std` — все ALF1, по 8 байт.
+ * Формы команд рантайма массивов: `addd`, `ldd`, `std` — все ALF1, по 8 байт.
  *
  * Рантайм выражает вызовы массивов **только** этими командами и только регистрами (литералов в них
- * нет: `src/e2k/arrayRuntime.ts`, `timesEight` — три `adds`). Размеры всё равно берутся из формы, а не
+ * нет: `src/e2k/arrayRuntime.ts`, `timesEight` — три `addd`). Размеры всё равно берутся из формы, а не
  * из арифметики «сколько байт мне кажется»: оракул сверяет их с кодировщиком.
+ *
+ * `addd` (формат `D`, `opcodes/e2k-opc.h:24`) стоит здесь вместо `adds` с 2026-09-27: адрес —
+ * величина 64-битная, а `S`-формы пишут только младшую половину регистра (§3.27 `docs/hardware-debt.md`).
+ * Длина та же — 8 байт (ALF1), поэтому раскладка и закреплённые числа не двигаются; проверено
+ * прогоном (`.tmp/osnova-addd-probe.ts`) и сверкой байт дизассемблером МЦСТ.
  */
 const ARRAY_COMMAND_FORMS: ReadonlyMap<string, CommandForm> = new Map([
-  ['adds', { mnemonic: 'adds', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  [
+    'addd',
+    {
+      mnemonic: 'addd',
+      form: 'ALF1',
+      size: REAL_SHORT_FORM_SIZE,
+      source: 'opcodes/e2k-opc.h:24 (ARGS_DDD, формат D — %db) — ALF1, REAL_SHORT_FORM_SIZE; байты сверены дизассемблером МЦСТ (docs/hardware-debt.md §3.27: …11)',
+    },
+  ],
   // Математика (рантайм остатка): `smodx` — ALF1, канал только пятый, 8 байт. Форма из таблицы МЦСТ
   // (`src/e2k/e2k-real.ts`, `opcodes/e2k-opc.h:54`), длина — короткая форма REAL_SHORT_FORM_SIZE.
   ['smodx', { mnemonic: 'smodx', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: 'opcodes/e2k-opc.h:54 (ARGS_DSS, канал 5)' }],
