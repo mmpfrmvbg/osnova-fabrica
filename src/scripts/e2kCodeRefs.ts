@@ -97,12 +97,88 @@ export function findRawLineRefs(text: string): string[] {
   return [...text.matchAll(RAW_LINE_PATTERN)].map((match) => `${match[1]!}:${match[2]!}`);
 }
 
-/** Шаблон объявления символа: переменная, функция, класс, тип, метод, поле или импорт. */
+/** Каталоги, в которые индекс имён не заглядывает: чужой код и служебные каталоги git. */
+const BARE_SKIP = new Set(["node_modules", ".git"]);
+
+/**
+ * Ссылка вида `` `compiler.ts:480` `` — имя без пути.
+ *
+ * Отрицательный просмотр отсекает уже названный путь: в `src/e2k/e2k-real.ts:97` перед именем
+ * стоит `/`, и совпадения здесь не будет — такие ссылки ловит {@link findRawLineRefs}.
+ */
+const BARE_LINE_PATTERN = /(?<![\w./-])([A-Za-z0-9_-]+\.(?:ts|tsx|md)):(\d+)/g;
+
+/** Индекс «имя файла → пути в репозитории»; строится один раз на прогон. */
+let bareIndex: Map<string, string[]> | undefined;
+
+function buildBareIndex(dir = ROOT, out = new Map<string, string[]>()): Map<string, string[]> {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (BARE_SKIP.has(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    // Ссылки и junction'ы пропускаются: обход по ним может зациклиться (в этом дереве они есть).
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) buildBareIndex(full, out);
+    else {
+      const list = out.get(entry.name) ?? out.set(entry.name, []).get(entry.name)!;
+      list.push(path.relative(ROOT, full).replace(/\\/g, "/"));
+    }
+  }
+  return out;
+}
+
+/** Все файлы репозитория с таким именем (пути от корня). */
+export function repoFileMatches(name: string): string[] {
+  bareIndex ??= buildBareIndex();
+  return bareIndex.get(name) ?? [];
+}
+
+/**
+ * Названо ли голое имя **ровно одним** файлом репозитория.
+ *
+ * Однозначность требуется потому, что имя без пути нередко указывает на **чужой** артефакт, а не на
+ * наш файл: измерено 2026-09-27 — `elbrus-docs README.md:225-227` в `docs/e2k-opcodes-real.md`
+ * ссылается на руководство МЦСТ, и при этом имя `README.md` соответствует **73** файлам дерева.
+ * Поэтому `compiler.ts` (единственный файл — `src/compiler/compiler.ts`) под запрет попадает, а
+ * `README.md` и `interpreter.ts` (два файла: `src/runtime/vm/interpreter.ts` и
+ * `src/runtime/interpreter.ts`) — нет. **Названное ограничение:** неоднозначное имя проверкой не
+ * покрыто намеренно — лучше пропустить, чем покрасить честную цитату.
+ */
+export function isUniquelyOurs(name: string): boolean {
+  return repoFileMatches(name).length === 1;
+}
+
+/**
+ * Найти ссылки «имя:номер» **без пути**, которые разрешаются в **единственный** файл репозитория.
+ *
+ * `compiler.ts:480` — та же гниющая ссылка, что `src/compiler/compiler.ts:480`, только имя короче,
+ * и прежний запрет её не видел: измерено 2026-09-27 — она стояла в каноне
+ * (`docs/language-v2.md:636`), а по `docs/brainstorm/**` таких ссылок 167.
+ *
+ * Параметр `ours` вынесен, чтобы негативный контроль проверял **свой** прогон, а не только данные.
+ */
+export function findBareLineRefs(text: string, ours: (file: string) => boolean = isUniquelyOurs): string[] {
+  const found: string[] = [];
+  for (const match of text.matchAll(BARE_LINE_PATTERN)) {
+    if (!ours(match[1]!)) continue;
+    found.push(`${match[1]!}:${match[2]!}`);
+  }
+  return found;
+}
+
+/**
+ * Шаблон объявления символа: переменная, функция, класс, тип, метод, поле или импорт.
+ *
+ * **Случай, ради которого список модификаторов стал общим:** `export async function loadModule(`
+ * не ловилось ни одним из шаблонов — первый знал `export`, но не знал `async`, второй знал `async`,
+ * но не знал `export`. Измерено 2026-09-27 на `src/runtime/vm/interpreter.ts#loadModule` и
+ * `src/runtime/goldenApps.ts#runGoldenCheck`: цель «не найдена» при живом объявлении. Порядок и
+ * число модификаторов объявлению не важны, поэтому они берутся одним списком в любом порядке.
+ */
 export function declarationPattern(symbol: string): RegExp {
   const s = escapeRegExp(symbol);
   return new RegExp(
     [
-      `^[ \\t]*(?:export[ \\t]+)?(?:declare[ \\t]+)?(?:const|let|var|function|class|interface|type|enum)[ \\t]+${s}\\b`,
+      `^[ \\t]*(?:(?:export|declare|async|default)[ \\t]+)*(?:const|let|var|function|class|interface|type|enum)[ \\t]+${s}\\b`,
       `^[ \\t]*(?:(?:private|public|protected|static|async|override|readonly|abstract)[ \\t]+)*${s}[ \\t]*[(<]`,
       `^[ \\t]*(?:readonly[ \\t]+)?${s}[ \\t]*\\??[ \\t]*:`,
       `^[ \\t]*import[ \\t]+(?:type[ \\t]+)?\\{[^}]*\\b${s}\\b[^}]*\\}`,

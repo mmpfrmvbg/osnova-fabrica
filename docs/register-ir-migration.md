@@ -132,8 +132,8 @@ stages продолжают работать на v1, диффы остаютс�
 
 | Файл | Изменение |
 |---|---|
-| `src/compiler/compiler.ts:1259` `compileSource` | опция `target: 'stack' \| 'reg'`, возвращает соответствующий артефакт |
-| `src/runtime/goldenApps.ts:27` `runGoldenCheck` | параметр выбора VM **и вынос invoke-фабрики** (см. шаг 0) |
+| `src/compiler/compiler.ts#compileSource` | опция `target: 'stack' \| 'reg'`, возвращает соответствующий артефакт |
+| `src/runtime/goldenApps.ts#runGoldenCheck` | параметр выбора VM **и вынос invoke-фабрики** (см. шаг 0) |
 | `src/runtime/vm.ts` `OsVbcVM`, `createGoldenCheckVm` | умеет оба бэкенда |
 | `src/runtime/interpreter.ts` (фасад) | реэкспорт регистровой VM |
 | `src/pipeline/orchestrator.ts`, `pipeline.ts`, `loop.ts` | флаг `OSNOVA_BACKEND=stack\|reg`, по умолчанию `stack` до полного паритета |

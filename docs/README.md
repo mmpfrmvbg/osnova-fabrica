@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (18). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (17). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -68,7 +68,7 @@
 - [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md) ⚠
 - [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md)
 - [docs/osnova-vision.md](osnova-vision.md)
-- [docs/register-ir-migration.md](register-ir-migration.md) ⚠
+- [docs/register-ir-migration.md](register-ir-migration.md)
 - [docs/rfc/RFC-001-try-catch-avoidance.md](rfc/RFC-001-try-catch-avoidance.md)
 - [docs/rfc/RFC-002-sentinel-pattern.md](rfc/RFC-002-sentinel-pattern.md)
 - [docs/rfc/RFC-003-invented-syntax.md](rfc/RFC-003-invented-syntax.md)
