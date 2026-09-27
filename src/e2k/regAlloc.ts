@@ -374,13 +374,27 @@ export function allocateProgram(
       }
     }
     const stream = materialization.instructions;
-    const liveness = liveIntervalsOf(stream);
+    // ВИД ПОТОКА ДЛЯ АНАЛИЗА: цели переходов — индексы ЭТОГО потока, а не модуля.
+    //
+    // Цели в носителях записаны индексами потока МОДУЛЯ (`remapJumpTargets` ниже), а живость, граф и
+    // отрезки — величины ЭТОГО потока. Пока пересчёт стоял только в самом конце, анализ шёл по
+    // НЕПЕРЕСЧИТАННЫМ целям: снятие копии сдвигало индексы на единицу, ребро вело на соседнюю
+    // команду, и значение, переносимое через это ребро, переставало быть живым. Измерено на примере
+    // `17-ранжирование-выбором`: выход из внутреннего цикла уезжал на команду, отрезок жизни
+    // `контроль` рассыпался на точечные (4 отрезка, 3 разных регистра вместо одного), и `exit`
+    // отдавал `индекс` (4) вместо `контроль` (23) — docs/hardware-debt.md §3.35.
+    //
+    // Сам поток остаётся в индексах модуля: по ним работает пересчёт в конце, а `applySegments` цели
+    // не трогает (они не регистры). Поэтому вид — ОТДЕЛЬНЫЙ массив, а не замена потока: иначе карта
+    // «модуль → поток» перестала бы совпадать с тем, что лежит в потоке.
+    const analysisView = remapJumpTargets(stream, streamIndexOf);
+    const liveness = liveIntervalsOf(analysisView.instructions);
     const incoming = incomingRegisters(stream);
     // Отрезки жизни — по ГРАФУ потока управления (`src/vliw/cfg.ts`), а не по линейному порядку:
     // в цикле значение, определённое в теле, живо в заголовке следующего витка, и линейная модель
     // этого не видит. Граф даёт точный пик (`docs/e2k-regalloc-debt.md` §13: у `фильтр` линейный
     // пик 11 против CFG-занятых 10 и CFG-точных 9).
-    const cfg = cfgSegmentsOf(stream);
+    const cfg = cfgSegmentsOf(analysisView.instructions);
     // Но одной точной живости не хватает, и вот почему. Отрезки позиционные: `applySegments`
     // отдаёт команде регистр того отрезка, который её НАКРЫВАЕТ. Значение, определённое в теле
     // цикла и прочитанное в заголовке следующего витка, накрывается ДВУМЯ разными отрезками
@@ -390,7 +404,8 @@ export function allocateProgram(
     // переиспользованием регистра) и **0** при снятии слияния с итоговой конфигурации
     // (`.tmp/negative-cfg.ts`, контроль B). Отрезков у `фильтр` при этом 37, после слияния — 24.
     // Слияние соединяет такие отрезки ОДНОГО vreg в один — и только их.
-    const segments = mergeLoopCarriedSegments(cfg.segments, stream, from);
+    // Смещение среза здесь 0: `analysisView` уже в координатах потока (см. выше), а не модуля.
+    const segments = mergeLoopCarriedSegments(cfg.segments, analysisView.instructions, 0);
     // Переносимые через дугу — те, у кого слияние соединило отрезки: у них было БОЛЬШЕ отрезков,
     // чем стало. Их вытеснение дороже: добавленные обращения к памяти исполняются на каждом витке,
     // и цена это учитывает (`src/vliw/spill.ts`, `LOOP_CARRIED_PENALTY`).
@@ -444,6 +459,13 @@ export function allocateProgram(
       result.push(...stream);
       for (const [moduleIndex, streamIndex] of streamIndexOf) movedTo.set(moduleIndex, base + streamIndex);
     };
+    // Цель перехода, которой не нашлось места в потоке, — отказ, а не молчаливый сдвиг на соседнюю
+    // команду (`remapJumpTargets` такие цели не сдвигает, а называет). Проверка стоит здесь, а не
+    // раньше, только потому, что отказ оформляется общим `fail`.
+    if (analysisView.problems.length > 0) {
+      fail(`цели переходов не пересчитаны: ${analysisView.problems.join('; ')}`, [], [], []);
+      return;
+    }
     if (!allocation.ok) {
       fail(allocation.reason, allocation.conflicts, [], []);
       return;

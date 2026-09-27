@@ -113,32 +113,38 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   // добавляет `movtd`, который управляющей командой не является, но поток стал длиннее), у
   // `correlation` — 196 команд вместо 155. Литералов на ядрах не прибавилось: вытеснение кладёт
   // адрес слота в `movtd` (`imm64`), а не в `movts`.
-  // ВНИМАНИЕ: у `fir` ожидается ВТОРОЙ сдвиг не отсюда — незакоммиченная правка раскладки регистров
-  // (task-4) добавляет ему четыре команды (259 → 263), и с ними поедут `packets`/`emptySlots`;
-  // перемеряет автор той правки.
-  { name: 'fir', commands: 259, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 203, emptySlots: 959 },
+  // ВНИМАНИЕ (снято): у `fir` ожидался ВТОРОЙ сдвиг от правки раскладки регистров (task-4, команд
+  // 259 → 263). Перемер сделан её автором 2026-09-27 — см. ниже.
+  // Перемер 2026-09-27 (task-4, `src/e2k/regAlloc.ts`: цели переходов пересчитываются ДО анализа
+  // живости, `docs/hardware-debt.md` §3.35/§3.37). Сдвинулись `commands`, `packets`, `emptySlots`:
+  // `fir` +4 команды (процедура `фильтр` вытесняет два значения вместо одного),
+  // `convolution` 232 → 218 и `correlation` 199 → 197 (вытеснений наоборот меньше: 4 → 2),
+  // `iir` и `fft` по командам те же. Литеральные колонки (`literals`, `tinyLiterals`, `control`,
+  // `longForm`) НЕ двигались — правка меняет решения раскладки, а не состав операций.
+  // Замер: `.tmp/osnova-fix-remer.ts` (тот же путь, что у `kernelStreamOf` + `wideStats`).
+  { name: 'fir', commands: 263, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 205, emptySlots: 967 },
   // Перемер 2026-09-25: у `iir` 158 команд (было 161) — трюк `(a - a % b) / b` заменён на `div`.
-  { name: 'iir', commands: 158, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 120, emptySlots: 562 },
-  { name: 'fft', commands: 228, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 187, emptySlots: 894 },
+  { name: 'iir', commands: 158, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 118, emptySlots: 550 },
+  { name: 'fft', commands: 228, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 185, emptySlots: 882 },
   {
     name: 'convolution',
-    commands: 232,
+    commands: 218,
     literals: 16,
     tinyLiterals: 16,
     control: 26,
     longForm: 1,
-    packets: 191,
-    emptySlots: 914,
+    packets: 170,
+    emptySlots: 802,
   },
   {
     name: 'correlation',
-    commands: 199,
+    commands: 197,
     literals: 14,
     tinyLiterals: 14,
     control: 22,
     longForm: 1,
-    packets: 154,
-    emptySlots: 725,
+    packets: 153,
+    emptySlots: 721,
   },
 ];
 
@@ -232,34 +238,36 @@ describe('LTS-барьеры: что именно разрывает пакет�
     expect(problems, 'короткая непосредственная форма').toEqual([]);
   });
 
-  it('1.5 итог: 78 литеральных из 1076 команд, управляющих 106', () => {
+  it('1.5 итог: 78 литеральных из 1064 команд, управляющих 106', () => {
     const sum = (pick: (row: LiteralBarrierRow) => number): number => LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
-    // Перемер 2026-09-25 (`.tmp/measure-literal-imm.ts`) после замены трюка на `div`: команд 1076
-    // (было 1079 — у `iir` ушли вызов остатка и вычитание), литеральных 78 и «малых» 74 не изменились.
-    expect(sum((row) => row.commands), 'команд').toBe(1076);
+    // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): раскладка регистров исправлена,
+    // команды 1076 → 1064 (`fir` +4, `convolution` −14, `correlation` −2). Литеральных 78 и «малых»
+    // 74, управляющих 106, длинных форм 5 — НЕ двигались: правка меняет решения раскладки, а не
+    // состав операций. Прежде (2026-09-25, замена трюка на `div`): команд 1076 (было 1079).
+    expect(sum((row) => row.commands), 'команд').toBe(1064);
     expect(sum((row) => row.literals), 'литеральных').toBe(78);
     expect(sum((row) => row.tinyLiterals), 'со значением 0..15').toBe(74);
     expect(sum((row) => row.control), 'управляющих').toBe(106);
     expect(sum((row) => row.longForm), 'длинных форм').toBe(5);
   });
 
-  it('1.6 пустые слоты: 4054 из 5130 — пакетов стало меньше, слогов тоже', () => {
+  it('1.6 пустые слоты: 3922 из 4986 — пакетов стало меньше, слогов тоже', () => {
     const packets = LITERAL_BARRIERS.reduce((sum, row) => sum + row.packets, 0);
     const empty = LITERAL_BARRIERS.reduce((sum, row) => sum + row.emptySlots, 0);
-    // Перемер 2026-09-27 (task-5, литеральная ПАРА едет в одной команде): пакетов 857 → 855
-    // (у `iir` 122 → 120), пустых слотов 4066 → 4054, слогов всего 5142 → 5130. Занятых слотов
-    // по-прежнему 1076 — это ровно число команд, и оно не двигалось: слияние меняет упаковку, а не
-    // состав потока. Суммы сходятся с формулой «прежняя сумма плюс дельта `iir`» (−2 пакета,
-    // −12 пустых слотов = −12 слогов), а не подогнаны: замер — `.tmp/osnova-literal-pair-measure.ts`.
-    // Прежде (литерал включён в упаковщик): 857 / 4066 / 5142, до этого 924 / 4468 / 5544
-    // (поток с вытеснением и трюком через остаток у `iir`); 783 / 3759 / 4698 — поток до вытеснения.
-    // ВНИМАНИЕ: у `fir` ожидается ВТОРОЙ сдвиг не отсюда (правка раскладки регистров, task-4:
-    // команд 259 → 263) — он сдвинет пакеты и пустые слоты ещё раз, перемеряет автор той правки.
-    expect(packets, 'пакетов').toBe(855);
-    expect(empty, 'пустых слотов').toBe(4054);
-    expect(packets * 6, 'слогов всего').toBe(5130);
-    expect(packets * 6 - empty, 'занятых слотов').toBe(1076);
-    expect(packets, 'пакетов на потоке интеграции').toBe(855);
+    // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): раскладка регистров исправлена,
+    // пакетов 855 → 831 (по ядрам: `fir` 203 → 205, `iir` 120 → 118, `fft` 187 → 185,
+    // `convolution` 191 → 170, `correlation` 154 → 153), пустых слотов 4054 → 3922, слогов всего
+    // 5130 → 4986. Занятых слотов 1064 — ровно число команд, и оно сходится: 831 · 6 − 3922 = 1064.
+    // Замер: `.tmp/osnova-fix-remer.ts`.
+    // Прежде (task-5, литеральная ПАРА едет в одной команде): пакетов 857 → 855, пустых 4066 → 4054,
+    // слогов 5142 → 5130, занятых 1076. До этого (литерал включён в упаковщик): 857 / 4066 / 5142,
+    // ещё раньше 924 / 4468 / 5544 (поток с вытеснением и трюком через остаток у `iir`),
+    // 783 / 3759 / 4698 — поток до вытеснения.
+    expect(packets, 'пакетов').toBe(831);
+    expect(empty, 'пустых слотов').toBe(3922);
+    expect(packets * 6, 'слогов всего').toBe(4986);
+    expect(packets * 6 - empty, 'занятых слотов').toBe(1064);
+    expect(packets, 'пакетов на потоке интеграции').toBe(831);
   });
 });
 
