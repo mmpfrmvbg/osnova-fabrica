@@ -121,8 +121,12 @@ export const ANCHORS: readonly Anchor[] = [
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 520, to: 520, contains: "movtd", claim: "MOVTD в LLVM" },
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 950, to: 950, contains: "movtq", claim: "MOVTQ в LLVM" },
   // наш кодировщик
-  { file: "src/e2k/e2k-real.ts", from: 266, to: 266, contains: "movts", claim: "movts есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 267, to: 267, contains: "movtd", claim: "movtd есть в кодировщике" },
+  { file: "src/e2k/e2k-real.ts", from: 288, to: 288, contains: "movts", claim: "movts есть в кодировщике" },
+  { file: "src/e2k/e2k-real.ts", from: 289, to: 289, contains: "movtd", claim: "movtd есть в кодировщике" },
+  // Все четыре якоря на src/e2k/e2k-real.ts пересчитаны 2026-09-27 замером: обе правки того дня
+  // (сначала семейство CMPAND* в таблице, затем слот `psrc` с полем `acceptsPsrc` и разделом CDS)
+  // добавлены ВЫШЕ них и сдвинули номера дважды. Якорь — факт о файле, поэтому он измеряется, а не
+  // подгоняется под проходящий тест.
   { file: "src/e2k/e2k-real.ts", from: 1187, to: 1189, contains: "0xd8", claim: "поля F16/F32/F64" },
   // Числа пересчитаны 2026-09-20: короткая непосредственная форма (`encodeShortImm`, коммит соседней
   // работы) добавила строки выше, и прежние 942-944 / 933-966 указывали мимо. Якоря — это ФАКТ о
