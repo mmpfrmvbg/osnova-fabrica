@@ -28,8 +28,10 @@
  * 1. Что так поведёт себя железо: сверка идёт с ассемблером и дизассемблером МЦСТ, а не с машиной.
  * 2. Что путь `SPECIAL_MMU_AAU` в порте работает: он остаётся заглушкой (`translate-mem.c:1086-1089`),
  *    и проба модели — отдельный опыт (`.tmp/osnova-setmas-pair.ts`), а не этот оракул.
- * 3. Что в одной команде с ALS кладутся **другие** управляющие формы (`call` несёт `SS`, `setwd` —
- *    литерал): такие пары названным отказом отвергаются, а не кодируются наугад.
+ * 3. Что в одной команде с ALS кладутся **другие** управляющие формы. `call`/`ct` (слог `SS`) и
+ *    `disp`/`sdisp` (слог `CS0`) с 2026-09-27 **измерены и кладутся** — их оракул
+ *    `src/e2k/e2kWideSsLts.test.ts`, замер — `docs/hardware-debt.md` §3.34. Здесь по-прежнему
+ *    отвергаются непарные формы: `return` и `setwd` (его `wsz` живёт в литерале).
  */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -298,16 +300,20 @@ describe('широкая команда ALS + CS1: 4. НЕГАТИВНЫЙ КО�
     expect(packedBytes([load(setmas(0, 0x7, 0, 0))])).not.toBe(packedBytes([load(setmas(0, 0x55, 0, 0))]));
   });
 
-  it('значение шире семи бит и чужая форма управления — отказ с причиной', () => {
+  it('значение шире семи бит и непарная форма управления — отказ с причиной', () => {
     expect(() => encoder.encode(load(setmas(0x80, 0, 0, 0)))).toThrow(EncodingError);
     expect(() => encoder.encode(load(setmas(0x80, 0, 0, 0)))).toThrow(/mas0 = 128 вне 0\.\.127/u);
-    // `call` несёт слог SS, `setwd` — литерал: в пару с ALS они не кладутся, и это названо.
-    expect(() => encoder.encode({ ...load(), control: { mnemonic: 'call', channel: 0, operands: [imm(1), imm(16)] } }))
+    // `call` и `ct` в пару с ALS теперь КЛАДУТСЯ (измерено 2026-09-27, `docs/hardware-debt.md` §3.34,
+    // оракул — `src/e2k/e2kWideSsLts.test.ts`). Непарными остаются `return` (измеренная форма несёт
+    // CS0 без слога ALS) и `setwd` (его `wsz` живёт в литерале): их отказ назван, а не выдуман.
+    expect(() => encoder.encode({ ...load(), control: { mnemonic: 'setwd', channel: 0, operands: [imm(16), imm(0)] } }))
       .toThrow(EncodingRefusedError);
-    expect(() => encoder.encode({ ...load(), control: { mnemonic: 'call', channel: 0, operands: [imm(1), imm(16)] } }))
-      .toThrow(/в одну широкую команду с операцией ALS не кладётся/u);
-    const refusal = packWide([{ ...load(), control: { mnemonic: 'call', channel: 0, operands: [imm(1), imm(16)] } }]);
-    expect(refusal[0]!.refusal, 'отказ упаковки называет причину, а не молчит').toMatch(/call/u);
+    expect(() => encoder.encode({ ...load(), control: { mnemonic: 'setwd', channel: 0, operands: [imm(16), imm(0)] } }))
+      .toThrow(/setwd/u);
+    const refusal = packWide([
+      { ...load(), control: { mnemonic: 'setwd', channel: 0, operands: [imm(16), imm(0)] } },
+    ]);
+    expect(refusal[0]!.refusal, 'отказ упаковки называет причину, а не молчит').toMatch(/setwd/u);
   });
 
   it('две инструкции с управляющим слогом не сливаются в одну команду', () => {

@@ -698,33 +698,18 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
   const entry = BY_MNEMONIC.get(instruction.mnemonic);
   if (entry === undefined) throw new EncodingRefusedError(realRefusalReason(instruction.mnemonic));
   const channel = channelOf(entry, instruction.channel);
-  // Пара «операция ALS + управляющий слог» — одна широкая команда из двух слогов (измерено,
-  // `.tmp/osnova-wide-control-probe.ts`). Слог ALS берётся тем же разбором, что у одиночной
-  // команды (`alsSyllableOf`), а слог управления — `wideControlSyllableOf`: второй раскладки нет.
+  // Пара «операция ALS + слоги SS/CS/LTS» — одна широкая команда (измерено, `.tmp/osnova-ss-lts-probe*.ts`).
+  // Слог ALS берётся тем же разбором, что у одиночной команды (`wideAlsSlotOf` → `alsSyllableOf`),
+  // а слоги SS/CS — `wideSyllablesOf`: второй раскладки нет.
   if (instruction.control !== undefined) {
     if (instruction.operands.some((operand) => operand.kind === "imm64")) {
       throw new EncodingRefusedError(
         `«${instruction.mnemonic}»: 64-битный литерал вместе с управляющим слогом в одной команде не ` +
-          "реализован — раскладка «ALS + два слова LTS + управляющий слог» ассемблером не измерялась",
+          "реализован — форма 0xdc несёт ДВА слова LTS, и раскладка «ALS + два LTS + управляющий слог» " +
+          "ассемблером МЦСТ не измерялась (измерено одно слово LTS, docs/hardware-debt.md §3.34)",
       );
     }
-    if (literalOperand(entry, instruction.operands) !== undefined) {
-      throw new EncodingRefusedError(
-        `«${instruction.mnemonic}»: литерал вместе с управляющим слогом в одной команде не реализован — ` +
-          "литерал занимает слово LTS, и порядок «ALS + LTS + управляющий слог» ассемблером МЦСТ не измерялся",
-      );
-    }
-    const syllable = alsSyllableOf(instruction);
-    return wideCommandBytes(
-      [
-        {
-          channel: syllable.channel,
-          als: syllable.als,
-          ...(syllable.ales === undefined ? {} : { ales: syllable.ales }),
-        },
-      ],
-      wideControlSyllableOf(instruction.control),
-    );
+    return wideCommandBytes([wideAlsSlotOf(instruction)], wideSyllablesOf(instruction.control));
   }
   // Команда с предикатом-условием (`psrc`) — отдельная ветвь: она длиннее (16 байт) и несёт слог
   // `CDS`, которого нет ни у короткой формы, ни у длинной (там на его месте полуслог `ALES`).
@@ -1306,56 +1291,154 @@ export interface WideControlSyllable {
 }
 
 /**
- * Разложить инструкцию управления в слог **широкой команды** — для пары «ALS + управляющий слог».
+ * Слоги широкой команды, которые несёт не операция ALS: `SS`, `CS0`/`CS1` и `LTS`.
  *
- * Годятся формы, чей слог занимает ровно одно слово и не тянет за собой ни `SS`, ни литерал:
- * `setbn` и `setmas` (обе — CS1, бит 15). Остальные названы отказом, а не разложены наугад:
- * `setwd` несёт литерал (`wsz` живёт в LTS0 — `qemu/target/e2k/tcg/translate-misc.c:585-610`),
- * `call`/`ct` несут `SS` (`opcodes/e2k-dis.c:1896-1902`), `disp`/`sdisp` — `CS0`. Порядок `SS` и
- * литерала относительно слогов ALS ассемблером не измерялся, поэтому и не выдумывается.
+ * Порядок **измерен** ассемблером МЦСТ 2026-09-27 (`.tmp/osnova-ss-lts-probe*.ts`), разбор —
+ * `docs/hardware-debt.md` §3.34. Слова команды идут так:
+ *
+ * ```
+ * HS, [SS], ALS…, [CS0|CS1], [ALES…], [добивка], [LTS]
+ * ```
+ *
+ * | слог | где стоит | чем измерено |
+ * |---|---|---|
+ * | `SS` (`ct`, `call`) | **первым**, до слогов ALS | `{ adds,0; ct }` → `SS, ALS, 0` |
+ * | `CS0`/`CS1` | после слогов ALS | `{ adds,0; sdisp }` → `ALS, CS0, 0` |
+ * | `LTS` (литерал) | **последним**; добивка встаёт ПЕРЕД ним | `{ adds,0; movts,1 42 }` → `ALS, ALS, LTS` |
  */
-export function wideControlSyllableOf(instruction: AsmInstruction): WideControlSyllable {
+export interface WideCommandSyllables {
+  /** Слово слога `SS`. */
+  readonly ss?: number;
+  /** Слог `CS0`/`CS1`. */
+  readonly cs?: WideControlSyllable;
+}
+
+/**
+ * Разложить инструкцию управления в слоги **широкой команды**.
+ *
+ * Формы, годные в пару с операцией ALS, измерены ассемблером МЦСТ 2026-09-27
+ * (`.tmp/osnova-ss-lts-probe.ts`, `.tmp/osnova-ss-lts-probe2.ts`, `.tmp/osnova-ss-lts-probe3.ts`;
+ * разбор — `docs/hardware-debt.md` §3.34). До этого замера здесь стоял отказ: «порядок SS/LTS
+ * относительно слогов ALS ассемблером не измерялся» — теперь измерен.
+ *
+ * | мнемоника | слоги | чем измерено |
+ * |---|---|---|
+ * | `ct %ctprN` | только `SS` (поле `cs` нулевое) | `{ adds,0 …; ct %ctpr1 }` → `SS, ALS, добивка` |
+ * | `disp` / `sdisp %ctprN, K` | `CS0` | `{ adds,0 …; sdisp %ctpr1, 3 }` → `ALS, CS0` |
+ * | `call %ctprN, wbs=W` | `SS` **и** `CS1` | `{ adds,0 …; call %ctpr1, wbs=4 }` → `SS, ALS, CS1` |
+ * | `setbn`, `setmas` | `CS1` | §3.33 |
+ *
+ * Отказ назван там, где форма в пару не кладётся: `return` (измеренная форма несёт CS0 без ALS) и
+ * `setwd` (его `wsz` живёт в литерале — раскладка «ALS + CS1 + LTS» для `setwd` не проверялась).
+ */
+export function wideSyllablesOf(instruction: AsmInstruction): WideCommandSyllables {
   const entry = realControlOpcode(instruction.mnemonic);
   if (entry === undefined) throw new EncodingRefusedError(realRefusalReason(instruction.mnemonic));
   const values = controlValuesOf(entry, instruction);
   switch (entry.form) {
+    case "SS":
+      // У `ct` слога управления нет вовсе: измерено `{ adds,0; ct %ctpr1 }` → HS с `cs = 0`, `ss = 1`.
+      return { ss: ssWord(values.get("ctpr")!, values.get("cond")!) };
+    case "CS0_DISP":
+      return { cs: { form: entry.form, word: cs0DispWord(values.get("ctpr")!, values.get("disp")!), csBit: 1 } };
+    case "CS0_SDISP":
+      return { cs: { form: entry.form, word: cs0SdispWord(values.get("ctpr")!, values.get("sdisp")!), csBit: 1 } };
     case "CS1_SETBN":
       return {
-        form: entry.form,
-        word: cs1SetbnWord(values.get("rsz")!, values.get("rbs")!, values.get("rcur")!),
-        csBit: 2,
+        cs: {
+          form: entry.form,
+          word: cs1SetbnWord(values.get("rsz")!, values.get("rbs")!, values.get("rcur")!),
+          csBit: 2,
+        },
       };
     case "CS1_SETMAS":
       return {
-        form: entry.form,
-        word: cs1SetmasWord(values.get("mas0")!, values.get("mas2")!, values.get("mas3")!, values.get("mas5")!),
-        csBit: 2,
+        cs: {
+          form: entry.form,
+          word: cs1SetmasWord(values.get("mas0")!, values.get("mas2")!, values.get("mas3")!, values.get("mas5")!),
+          csBit: 2,
+        },
       };
-    default:
+    case "CS1_CALL":
+      // `call` несёт ОБА слога сразу: измерено `{ adds,0 …; call %ctpr1, wbs=4 }` →
+      // `13 90 00 04 | SS | ALS | CS1`, то есть `ss = 1` И `cs = 2` в одном HS.
+      return {
+        ss: ssWord(values.get("ctpr")!, CT_COND_ALWAYS),
+        cs: { form: entry.form, word: cs1CallWord(values.get("wbs")!), csBit: 2 },
+      };
+    case "CS0_RETURN":
       throw new EncodingRefusedError(
-        `«${entry.mnemonic}»: форма ${entry.form} в одну широкую команду с операцией ALS не кладётся — ` +
-          "слог CS1 без SS и без литерала измерен только у setbn и setmas; порядок SS/LTS относительно " +
-          "слогов ALS ассемблером МЦСТ не измерялся (docs/e2k-wide-commands.md §2.4)",
+        "«return»: в пару с операцией ALS не кладётся — измеренная форма `return %ctpr3` несёт CS0 " +
+          "без слога ALS, а пара «ALS + return» ассемблером МЦСТ не проверялась",
       );
+    case "CS1_SETWD":
+      throw new EncodingRefusedError(
+        "«setwd»: несёт литерал (`wsz` живёт в LTS0) — раскладка «ALS + CS1 + LTS» проверена для " +
+          "литерала САМОЙ операции ALS, но не для `setwd` (docs/hardware-debt.md §3.34)",
+      );
+    default: {
+      const unknown = entry as { form?: string };
+      throw new EncodingRefusedError(`форма управления «${unknown.form}» в широкую команду не кладётся`);
+    }
   }
 }
 
-/** Слог ALS широкой команды: канал, слово и (у длинной формы ALF11) полуслог ALES. */
+/** Слот ALS широкой команды: канал, слово, полуслог ALES (форма ALF11) и слово литерала. */
 export interface WideAlsSlot {
   readonly channel: number;
+  /** Разрешённые каналы операции — по ним группировщик ищет свободный. */
+  readonly channels: readonly number[];
   readonly als: number;
   readonly ales?: number;
+  /** Слово `LTS`, если операция несёт литеральный операнд. */
+  readonly lts?: number;
 }
 
 /**
- * Байты широкой команды: HS + слоги ALS по возрастанию канала + управляющий слог + полуслоги
- * ALES + добивка до чётного числа 4-байтовых слогов.
+ * Разложить инструкцию в слот широкой команды — **вместе с литералом**, если он у неё есть.
+ *
+ * Отличие от {@link alsSyllableOf} ровно одно: там литерал — названный отказ (у одиночной команды
+ * своя ветвь кодирования), здесь он возвращается словом `LTS`, которое `wideCommandBytes` кладёт
+ * последним. Раскладка полей берётся из общей {@link literalLayoutOf}, а не считается заново.
+ */
+export function wideAlsSlotOf(instruction: AsmInstruction): WideAlsSlot {
+  const entry = BY_MNEMONIC.get(instruction.mnemonic);
+  if (entry === undefined) throw new EncodingRefusedError(realRefusalReason(instruction.mnemonic));
+  const literal = literalOperand(entry, instruction.operands);
+  if (literal === undefined) {
+    const syllable = alsSyllableOf(instruction);
+    return {
+      channel: syllable.channel,
+      channels: syllable.channels,
+      als: syllable.als,
+      ...(syllable.ales === undefined ? {} : { ales: syllable.ales }),
+    };
+  }
+  const channel = channelOf(entry, instruction.channel);
+  const { als, lts } = literalLayoutOf(entry, instruction.operands, literal);
+  return { channel, channels: entry.channels, als, lts };
+}
+
+/**
+ * Байты широкой команды в **измеренном** порядке слогов:
+ * `HS, [SS], ALS…, [CS0|CS1], [ALES…], [добивка], [LTS]`.
  *
  * Один источник раскладки для обеих сторон: так собирает команду и одиночный кодировщик (пара
- * «ALS + управляющий слог»), и группировщик (`src/e2k/widePacker.ts`, несколько слогов ALS).
- * Второй реализации раскладки быть не должно — расхождение между ними не поймал бы ни один оракул.
+ * «ALS + слоги»), и группировщик (`src/e2k/widePacker.ts`, несколько слогов ALS). Второй реализации
+ * раскладки быть не должно — расхождение между ними не поймал бы ни один оракул.
+ *
+ * Три правила, которых у команды без литерала не было (все измерены, `docs/hardware-debt.md` §3.34):
+ *
+ * 1. `SS` идёт **первым**, до слогов ALS (`{ adds,0; ct %ctpr1 }` → `SS, ALS, добивка`);
+ * 2. `LTS` идёт **последним**, а добивка до чётного числа 4-байтовых слогов встаёт **перед** ним —
+ *    поэтому наличие литерала меняет чётность: без него число слов чётное, с ним нечётное до LTS;
+ * 3. `mdl` считает слоги до средней точки вместе с `SS` и слогом управления, но **без** ALES,
+ *    добивки и `LTS`.
  */
-export function wideCommandBytes(slots: readonly WideAlsSlot[], control?: WideControlSyllable): Uint8Array {
+export function wideCommandBytes(
+  slots: readonly WideAlsSlot[],
+  syllables: WideCommandSyllables = {},
+): Uint8Array {
   if (slots.length === 0) {
     throw new EncodingError(
       "широкая команда без слога ALS: команду из одного слога управления собирает encodeControl",
@@ -1370,33 +1453,50 @@ export function wideCommandBytes(slots: readonly WideAlsSlot[], control?: WideCo
   if (new Set(ordered.map((slot) => slot.channel)).size !== ordered.length) {
     throw new EncodingError("две операции в один канал: ассемблер МЦСТ отказывает (gas/config/tc-e2k.c:8667-8668)");
   }
+  const withLiteral = ordered.filter((slot) => slot.lts !== undefined);
+  if (withLiteral.length > 1) {
+    throw new EncodingRefusedError(
+      "две операции с литералами в одной широкой команде: измерены формы с ОДНИМ словом LTS " +
+        "(docs/hardware-debt.md §3.34), раскладка двух слов не проверялась",
+    );
+  }
   const al = ordered.reduce((mask, slot) => mask | (1 << slot.channel), 0);
   const long = ordered.filter((slot) => slot.ales !== undefined);
   const ale = long.reduce((mask, slot) => mask | (1 << slot.channel), 0);
 
   const words: number[] = [0]; // HS: его поля считаются по числу слогов, поэтому заполняется в конце
+  if (syllables.ss !== undefined) words.push(syllables.ss);
   for (const slot of ordered) words.push(slot.als);
-  if (control !== undefined) words.push(control.word);
-  // «Средняя точка» — после HS, слогов ALS и слога управления: полуслоги ALES0/1/3/4 начинаются со
-  // слова, на которое она указывает (`docs/e2k-wide-commands.md` §2.4).
+  if (syllables.cs !== undefined) words.push(syllables.cs.word);
+  // «Средняя точка» — после HS, SS, слогов ALS и слога управления: полуслоги ALES0/1/3/4
+  // начинаются со слова, на которое она указывает (`docs/e2k-wide-commands.md` §2.4).
   const middle = words.length;
   for (let index = 0; index < long.length; index += 2) {
     const first = long[index]!.ales!;
     const second = long[index + 1]?.ales ?? 0;
     words.push(((first & 0xffff) << 16) | (second & 0xffff));
   }
-  // Добивка до чётного числа 4-байтовых слогов (`gas/config/tc-e2k.c:9488-9492`).
-  if (words.length % 2 !== 0) words.push(0);
+  // Добивка до чётного числа 4-байтовых слогов (`gas/config/tc-e2k.c:9488-9492`). Литерал занимает
+  // ПОСЛЕДНЕЕ слово и сам входит в этот счёт: с ним до LTS число слов обязано быть нечётным.
+  const lts = withLiteral[0]?.lts;
+  if (lts !== undefined) {
+    if (words.length % 2 === 0) words.push(0);
+    words.push(lts);
+  } else if (words.length % 2 !== 0) {
+    words.push(0);
+  }
 
   const mdl = middle - 1;
   const lng = words.length / 2 - 1;
-  const cs = control?.csBit ?? 0;
+  const cs = syllables.cs?.csBit ?? 0;
+  const ss = syllables.ss === undefined ? 0 : 1;
   words[0] =
     (((lng & HS.lng.mask) << HS.lng.shift) |
       ((mdl & HS.mdl.mask) << HS.mdl.shift) |
       ((al & HS.al.mask) << HS.al.shift) |
       ((ale & HS.ale.mask) << HS.ale.shift) |
-      ((cs & HS.cs.mask) << HS.cs.shift)) >>>
+      ((cs & HS.cs.mask) << HS.cs.shift) |
+      ((ss & HS.ss.mask) << HS.ss.shift)) >>>
     0;
 
   const bytes = new Uint8Array(words.length * 4);
@@ -1544,12 +1644,23 @@ function encodeImm64(
   return bytes;
 }
 
-function encodeWithLiteral(
+/**
+ * Раскладка команды с литеральным операндом: слово ALS и слово LTS.
+ *
+ * **Одна раскладка на оба пути** — одиночную команду (`encodeWithLiteral`) и слог широкой команды
+ * (`wideAlsSlotOf`): вторая реализация разошлась бы с первой, и расхождение не поймал бы ни один
+ * оракул. Именно так было бы, если бы `wideCommandBytes` считал литерал сам.
+ *
+ * Литерал читается **с конца** команды (`qemu/target/e2k/instr-bits.h:211-221`): у 16-битного
+ * занята старшая половина последнего слова, у 32-битного — слово целиком. Измерено ассемблером
+ * МЦСТ: `movts,0 42, %b[1]` → последнее слово `00 00 2a 00`, `movts,0 _f32 0x100000, %b[1]` →
+ * `00 00 10 00`.
+ */
+function literalLayoutOf(
   entry: RealOpcodeEntry,
-  channel: number,
   operands: readonly Operand[],
   literal: LiteralOperand,
-): Uint8Array {
+): { readonly als: number; readonly lts: number } {
   if (!Number.isInteger(literal.value)) {
     throw new EncodingError(`«${entry.mnemonic}»: литерал ${literal.value} — не целое`);
   }
@@ -1582,13 +1693,31 @@ function encodeWithLiteral(
       throw new EncodingError(`«${entry.mnemonic}»: регистр ${value} вне 0..${REAL_MAX_REGISTER}`);
     }
   }
+  return {
+    als: alsWord(entry, {
+      src1: values.src1!,
+      src2: values.src2!,
+      src3: values.src3 ?? 0,
+      dst: values.dst!,
+      pdst: 0,
+    }),
+    lts: fits16 ? (((literal.value & 0xffff) << 16) >>> 0) : literal.value >>> 0,
+  };
+}
+
+function encodeWithLiteral(
+  entry: RealOpcodeEntry,
+  channel: number,
+  operands: readonly Operand[],
+  literal: LiteralOperand,
+): Uint8Array {
+  const { als, lts } = literalLayoutOf(entry, operands, literal);
   const bytes = new Uint8Array(REAL_LONG_FORM_SIZE);
   // HS: mdl = 1, lng = 1 (16 байт), присутствует слог ALS.
   writeWord(bytes, 0, ((1 << 4) | 1 | ((1 << channel) << HS.al.shift)) >>> 0);
-  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, src3: values.src3 ?? 0, dst: values.dst!, pdst: 0 }));
+  writeWord(bytes, 4, als);
   // Слово 2 — пустое; слово 3 — литерал (LTS читаются с конца: qemu/target/e2k/instr-bits.h:211-221).
-  if (fits16) writeHalf(bytes, 14, literal.value & 0xffff);
-  else writeWord(bytes, 12, literal.value >>> 0);
+  writeWord(bytes, 12, lts);
   return bytes;
 }
 

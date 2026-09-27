@@ -41,11 +41,12 @@ import {
   realControlOpcode,
   realOpcode,
   realRefusalReason,
+  wideAlsSlotOf,
   wideCommandBytes,
-  wideControlSyllableOf,
+  wideSyllablesOf,
   E2K_ALS_NUM,
-  type AlsSyllable,
-  type WideControlSyllable,
+  type WideAlsSlot,
+  type WideCommandSyllables,
 } from './e2k-real';
 
 /** Сколько слогов ALS допускает форма: `E2K_ALS_NUM = 6` (`qemu/target/e2k/syllab-format.h:219`). */
@@ -113,19 +114,36 @@ export function packetableRefusal(instruction: AsmInstruction): string | undefin
   if ((entry.implicitNops ?? 0) !== 0) {
     return `«${instruction.mnemonic}»: поле nop = ${String(entry.implicitNops)} живёт в HS и было бы общим для всей команды`;
   }
-  if (!instruction.operands.every((operand) => operand.kind === 'reg')) {
-    return `«${instruction.mnemonic}»: не все операнды — регистры (литералы кодируются слогами LTS)`;
+  // Литерал в широкой команде: раскладка ИЗМЕРЕНА и кодируется (`wideAlsSlotOf`,
+  // `src/e2k/e2kWideSsLts.test.ts`, `docs/hardware-debt.md` §3.34), но в упаковщик НЕ включена —
+  // причина названа, а не спрятана. Замер 2026-09-27: с ней литерал перестаёт быть барьером
+  // пакетов, и закреплённые числа корпуса сдвигаются (пакетов 220 → 210, «литеральных с отказом»
+  // 20 → 0, отказы по `movts` исчезают). По правилу проекта сдвинутое число — отдельный коммит с
+  // датой (`AGENTS.md`, «Инварианты правок в `src/e2k/**`»), поэтому включение — следующий шаг.
+  const nonRegister = instruction.operands.filter((operand) => operand.kind !== 'reg');
+  if (nonRegister.length > 0) {
+    const kind = nonRegister[0]!.kind;
+    if (kind === 'imm' || kind === 'imm64') {
+      return (
+        `«${instruction.mnemonic}»: не все операнды — регистры; литерал (${kind}) — раскладка ` +
+        "«ALS + LTS» измерена и кодируется (`docs/hardware-debt.md` §3.34, оракул " +
+        "`src/e2k/e2kWideSsLts.test.ts`), но в упаковщик не включена: литерал перестаёт быть " +
+        "барьером пакетов и закреплённые числа корпуса сдвигаются (пакетов 220 → 210); сдвинутое " +
+        "число — отдельный коммит с датой"
+      );
+    }
+    return `«${instruction.mnemonic}»: операнд вида ${kind} в широкую команду не кладётся`;
   }
   try {
-    alsSyllableOf(instruction);
+    wideAlsSlotOf(instruction);
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
-  // Управляющий слог пары раскладывается ли в слог широкой команды вообще (`setbn`, `setmas`) —
-  // иначе инструкция станет командой из одного слота, и причина отказа будет названа.
+  // Слоги управления пары раскладываются ли в слог широкой команды вообще (`ct`, `sdisp`, `call`,
+  // `setbn`, `setmas`) — иначе инструкция станет командой из одного слота, и причина будет названа.
   if (instruction.control !== undefined) {
     try {
-      wideControlSyllableOf(instruction.control);
+      wideSyllablesOf(instruction.control);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       return `«${instruction.mnemonic}» + «${instruction.control.mnemonic}»: ${reason}`;
@@ -156,17 +174,19 @@ function dependent(a: { reads: string[]; writes: string[] }, b: { reads: string[
  * оракул.
  */
 export function encodeWideGroup(
-  group: readonly { instruction: AsmInstruction; syllable: AlsSyllable }[],
-  control?: WideControlSyllable,
+  group: readonly { instruction: AsmInstruction; syllable: WideAlsSlot }[],
+  syllables: WideCommandSyllables = {},
 ): Uint8Array {
   const ordered = [...group].sort((a, b) => a.syllable.channel - b.syllable.channel);
   return wideCommandBytes(
     ordered.map((slot) => ({
       channel: slot.syllable.channel,
+      channels: slot.syllable.channels,
       als: slot.syllable.als,
       ...(slot.syllable.ales === undefined ? {} : { ales: slot.syllable.ales }),
+      ...(slot.syllable.lts === undefined ? {} : { lts: slot.syllable.lts }),
     })),
-    control,
+    syllables,
   );
 }
 
@@ -199,31 +219,31 @@ function singlePacket(instruction: AsmInstruction, refusal: string | undefined):
  */
 export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] {
   const packets: WidePacket[] = [];
-  let group: { instruction: AsmInstruction; syllable: AlsSyllable; registers: { reads: string[]; writes: string[] } }[] =
+  let group: { instruction: AsmInstruction; syllable: WideAlsSlot; registers: { reads: string[]; writes: string[] } }[] =
     [];
   const usedChannels = new Set<number>();
   let groupReads: string[] = [];
   let groupWrites: string[] = [];
-  /** Управляющий слог пакета: у инструкций с полем `control` он едет в той же команде. */
-  let groupControl: WideControlSyllable | undefined;
+  /** Слоги SS/CS пакета: у инструкции с полем `control` они едут в той же команде. */
+  let groupSyllables: WideCommandSyllables = {};
 
   const flush = (): void => {
     if (group.length === 0) return;
     if (group.length === 1) {
       // Одиночный слот — байты у одиночного кодировщика: один источник раскладки (он же собирает
-      // пару «ALS + управляющий слог», если она у инструкции есть).
+      // пару «ALS + слоги SS/CS/LTS», если она у инструкции есть).
       packets.push(singlePacket(group[0]!.instruction, undefined));
     } else {
       packets.push({
         slots: group.map((slot) => ({ instruction: slot.instruction, channel: slot.syllable.channel })),
-        bytes: encodeWideGroup(group, groupControl),
+        bytes: encodeWideGroup(group, groupSyllables),
       });
     }
     group = [];
     usedChannels.clear();
     groupReads = [];
     groupWrites = [];
-    groupControl = undefined;
+    groupSyllables = {};
   };
 
   for (const instruction of instructions) {
@@ -233,10 +253,14 @@ export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] 
       packets.push(singlePacket(instruction, refusal));
       continue;
     }
-    const syllable = alsSyllableOf(instruction);
+    const syllable = wideAlsSlotOf(instruction);
     const registers = registersOf(instruction);
-    // Слог управления пары: раскладка уже проверена `packetableRefusal`, здесь он нужен для пакета.
-    const control = instruction.control === undefined ? undefined : wideControlSyllableOf(instruction.control);
+    // Слоги SS/CS пары: раскладка уже проверена `packetableRefusal`, здесь они нужны для пакета.
+    const syllables = instruction.control === undefined ? {} : wideSyllablesOf(instruction.control);
+    const hasSs = syllables.ss !== undefined;
+    const hasCs = syllables.cs !== undefined;
+    const alreadySs = groupSyllables.ss !== undefined;
+    const alreadyCs = groupSyllables.cs !== undefined;
     // Канал: первый разрешённый, которого нет в пакете. Занят — инструкция ждёт следующей команды.
     const channel = syllable.channels.find((candidate) => !usedChannels.has(candidate));
     const conflict =
@@ -244,8 +268,10 @@ export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] 
         ? undefined
         : dependent({ reads: groupReads, writes: groupWrites }, registers) ??
           (group.length >= MAX_SLOTS ? `в пакете уже ${group.length} слогов (предел ${MAX_SLOTS})` : undefined) ??
-          (control !== undefined && groupControl !== undefined
-            ? `в пакете уже есть управляющий слог «${groupControl.form}»: слог управления в команде один`
+          (hasSs && alreadySs ? 'в пакете уже есть слог SS: слог SS в команде один' : undefined) ??
+          (hasCs && alreadyCs ? `в пакете уже есть управляющий слог «${groupSyllables.cs!.form}»` : undefined) ??
+          (syllable.lts !== undefined && group.some((slot) => slot.syllable.lts !== undefined)
+            ? 'в пакете уже есть литерал: измерены формы с одним словом LTS'
             : undefined);
     if (channel === undefined || conflict !== undefined) {
       flush();
@@ -260,14 +286,14 @@ export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] 
       usedChannels.add(retry);
       groupReads = [...groupReads, ...registers.reads];
       groupWrites = [...groupWrites, ...registers.writes];
-      groupControl = control ?? groupControl;
+      groupSyllables = { ...groupSyllables, ...syllables };
       continue;
     }
     group.push({ instruction, syllable: { ...syllable, channel }, registers });
     usedChannels.add(channel);
     groupReads = [...groupReads, ...registers.reads];
     groupWrites = [...groupWrites, ...registers.writes];
-    groupControl = control ?? groupControl;
+    groupSyllables = { ...groupSyllables, ...syllables };
   }
   flush();
   return packets;
