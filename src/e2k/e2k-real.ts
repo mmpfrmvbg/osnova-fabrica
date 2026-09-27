@@ -1398,8 +1398,10 @@ export interface WideAlsSlot {
  * Разложить инструкцию в слот широкой команды — **вместе с литералом**, если он у неё есть.
  *
  * Отличие от {@link alsSyllableOf} ровно одно: там литерал — названный отказ (у одиночной команды
- * своя ветвь кодирования), здесь он возвращается словом `LTS`, которое `wideCommandBytes` кладёт
- * последним. Раскладка полей берётся из общей {@link literalLayoutOf}, а не считается заново.
+ * своя ветвь кодирования), здесь он выражается слогом: литеральный (0…15 не помещается) —
+ * словом `LTS`, которое `wideCommandBytes` кладёт последним, а **малый** (0…15) — короткой
+ * непосредственной формой прямо в слове ALS, без `LTS`. Раскладка полей берётся из общих
+ * {@link literalLayoutOf} и {@link shortImmediateAlsWord}, а не считается заново.
  */
 export function wideAlsSlotOf(instruction: AsmInstruction): WideAlsSlot {
   const entry = BY_MNEMONIC.get(instruction.mnemonic);
@@ -1415,6 +1417,13 @@ export function wideAlsSlotOf(instruction: AsmInstruction): WideAlsSlot {
     };
   }
   const channel = channelOf(entry, instruction.channel);
+  // Малый литерал (0…15) — короткая непосредственная форма: поле `0xc0 | N` прямо в слог ALS,
+  // слова `LTS` нет вовсе. Замерено 2026-09-27 (`.tmp/osnova-lts-short-probe.ts`): в широкой команде
+  // `{ adds,0; movts,1 5 }` ассемблер даёт 16 байт БЕЗ `LTS`, и `mdl` считает этот слог обычным.
+  // Без этой ветви 74 литерала из 78 в пяти ядрах кодировались бы не тем, что даёт `as`.
+  if (isShortImmediate(literal.value, entry.form)) {
+    return { channel, channels: entry.channels, als: shortImmediateAlsWord(entry, instruction.operands, literal) };
+  }
   const { als, lts } = literalLayoutOf(entry, instruction.operands, literal);
   return { channel, channels: entry.channels, als, lts };
 }
@@ -1456,8 +1465,11 @@ export function wideCommandBytes(
   const withLiteral = ordered.filter((slot) => slot.lts !== undefined);
   if (withLiteral.length > 1) {
     throw new EncodingRefusedError(
-      "две операции с литералами в одной широкой команде: измерены формы с ОДНИМ словом LTS " +
-        "(docs/hardware-debt.md §3.34), раскладка двух слов не проверялась",
+      "две операции с литералами в одной широкой команде: ассемблер МЦСТ такую команду ПРИНИМАЕТ " +
+        "(замер 2026-09-27: `{ movts,0 42, %b[1]; movts,1 43, %b[2] }` → одно слово `0x002a002b`, " +
+        "оба 16-битных литерала в нём), но наш кодировщик её не реализует — слова литералов " +
+        "складываются в общие слова по ширине, и раскладка смешанных ширин не выведена " +
+        "(docs/hardware-debt.md §3.34)",
     );
   }
   const al = ordered.reduce((mask, slot) => mask | (1 << slot.channel), 0);
@@ -1571,6 +1583,40 @@ export function isShortImmediate(value: number, form: RealForm): boolean {
 }
 
 /**
+ * Слово ALS короткой непосредственной формы: поле `0xc0 | N` в слоте литерала.
+ *
+ * **Одна раскладка на два пути** — одиночную короткую команду ({@link encodeShortImm}) и слог
+ * широкой команды ({@link wideAlsSlotOf}): вторая реализация разошлась бы с первой, и расхождение
+ * не поймал бы ни один оракул. Именно так и было до 2026-09-27: `wideAlsSlotOf` для **любого**
+ * литерала давал слово `LTS`, тогда как малый литерал (0…15) ассемблер МЦСТ кладёт короткой формой —
+ * **без** слова `LTS`. Замер (`.tmp/osnova-lts-short-probe.ts`, `as-new 2.41`):
+ * `{ adds,0 %b[2], %b[3], %b[4]; movts,1 5, %b[1] }` → `12 00 00 0c 04 03 02 10 01 c5 c0 60 00 00 00 00`,
+ * то есть слово литерала `0x60c0c501` (поле `0xc5` = `0xc0 | 5`) и 16 байт **без** `LTS`.
+ */
+function shortImmediateAlsWord(
+  entry: RealOpcodeEntry,
+  operands: readonly Operand[],
+  literal: LiteralOperand,
+): number {
+  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0 };
+  entry.operands.forEach((slot, index) => {
+    if (index === literal.index) return;
+    values[slot] = registerField(operands[index], slot, entry.mnemonic);
+  });
+  const literalSlot = entry.operands[literal.index]!;
+  values[literalSlot] = IMM_SHORT_BASE | literal.value;
+  // У ALF2 на месте src1 лежит расширение opce = NONE (`include/opcode/e2k.h:93`) — как и у литерала.
+  if (entry.form === "ALF2") values.src1 = ALES_OPCE_NONE;
+  return alsWord(entry, {
+    src1: values.src1!,
+    src2: values.src2!,
+    src3: values.src3 ?? 0,
+    dst: values.dst!,
+    pdst: 0,
+  });
+}
+
+/**
  * Собрать инструкцию короткой непосредственной формы: **8 байт**, поле `0xc0 | N` в слоте литерала.
  *
  * Форма слова ALS — та же, что у литеральной (`alsWord`), меняется только поле слота и длина:
@@ -1582,18 +1628,9 @@ function encodeShortImm(
   operands: readonly Operand[],
   literal: LiteralOperand,
 ): Uint8Array {
-  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0 };
-  entry.operands.forEach((slot, index) => {
-    if (index === literal.index) return;
-    values[slot] = registerField(operands[index], slot, entry.mnemonic);
-  });
-  const literalSlot = entry.operands[literal.index]!;
-  values[literalSlot] = IMM_SHORT_BASE | literal.value;
-  // У ALF2 на месте src1 лежит расширение opce = NONE (`include/opcode/e2k.h:93`) — как и у литерала.
-  if (entry.form === "ALF2") values.src1 = ALES_OPCE_NONE;
   const bytes = new Uint8Array(REAL_SHORT_FORM_SIZE);
   writeWord(bytes, 0, headerWord(entry, channel, false));
-  writeWord(bytes, 4, alsWord(entry, { src1: values.src1!, src2: values.src2!, src3: values.src3 ?? 0, dst: values.dst!, pdst: 0 }));
+  writeWord(bytes, 4, shortImmediateAlsWord(entry, operands, literal));
   return bytes;
 }
 

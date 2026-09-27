@@ -66,9 +66,18 @@ describe('планировщик AsmInstruction: структура входов
     const movtsEntry = realOpcode('movts');
     expect(adds?.channels, 'каналы adds').toBeDefined();
     expect(movtsEntry?.channels, 'каналы movts').toBeDefined();
-    // Команда, которую нельзя группировать, обязана называть причину — по ней планировщик и решает.
+    // У `movts` каналов 2 и 5 НЕТ (`opcodes/e2k-opc.h:644`), и это проверено снаружи: `as` отвергает
+    // `{ movts,2 5, %b[1] }` словами «`movts' cannot be encoded in ALC2» (замер 2026-09-27).
+    expect(movtsEntry?.channels, 'каналы movts — без 2 и 5').toEqual([0, 1, 3, 4]);
+    // Команда, которую группировать нельзя, обязана называть причину — по ней планировщик и решает.
+    // С 2026-09-27 литерал в это множество НЕ входит: раскладка измерена, упаковщик его берёт.
+    // Признак показывается на команде управления: у неё нет слога ALS вовсе.
     const literal = { mnemonic: 'movts', channel: 0, operands: [imm(5), reg(1)] } as const;
-    expect(packetableRefusal(literal), 'причина отказа для литерала').toContain('не все операнды — регистры');
+    expect(packetableRefusal(literal), 'литерал больше не барьер').toBeUndefined();
+    expect(
+      packetableRefusal({ mnemonic: 'ct', channel: 0, operands: [imm(1), imm(0x20)] }),
+      'управляющая команда — барьер с причиной',
+    ).toContain('команда управления');
   });
 
   it('1.3 длительности берутся из модели устройств', () => {
@@ -148,13 +157,20 @@ describe('шаг 2.1: def-use граф по командам e2k', () => {
   });
 
   it('2.1.4 цепочка эффектов упорядочена даже без общих регистров', () => {
-    // Литеральные пересылки не группируются (packetableRefusal), значит обязаны упорядочиться.
+    // С 2026-09-27 литеральные пересылки упаковщик БЕРЁТ (раскладка измерена, `e2kWideSsLts.test.ts`),
+    // поэтому барьером-эффектом они больше не считаются, и упорядочивать их не нужно: три пересылки в
+    // РАЗНЫЕ регистры ложатся в одну команду — измерено (`{ movts,0 5; movts,1 7; movts,3 9 }`).
     const literal = (value: number, dst: number): AsmInstruction => ({
       mnemonic: 'movts',
       channel: 0,
       operands: [imm(value), reg(dst)],
     });
-    const graph = buildAsmDependencyGraph([literal(1, 10), literal(2, 11), literal(3, 12)]);
+    const literals = buildAsmDependencyGraph([literal(1, 10), literal(2, 11), literal(3, 12)]);
+    expect(literals.edges.map(([from, to]) => `${from}→${to}`), 'литерал больше не барьер').toEqual([]);
+    // А команда, которую упаковщик по-прежнему не берёт (у неё нет слога ALS — `call`), эффектом
+    // остаётся и обязана упорядочиться, даже если регистры не общие.
+    const call = (): AsmInstruction => ({ mnemonic: 'call', channel: 0, operands: [imm(1), imm(4)] });
+    const graph = buildAsmDependencyGraph([call(), call(), call()]);
     const pairs = graph.edges.map(([from, to]) => `${from}→${to}`);
     expect(pairs, 'эффект 0→1').toContain('0→1');
     expect(pairs, 'эффект 1→2').toContain('1→2');

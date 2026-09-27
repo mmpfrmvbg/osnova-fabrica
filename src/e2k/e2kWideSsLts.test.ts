@@ -33,29 +33,49 @@
  *
  * # Главная проверка — внешняя, побайтовая
  *
- * Эталон — **14 форм**, собранных ассемблером МЦСТ; наш кодировщик обязан дать те же байты **той же
+ * Эталон — **27 форм**, собранных ассемблером МЦСТ; наш кодировщик обязан дать те же байты **той же
  * длины**. Таблица закреплена ниже, живая сверка с `as` идёт отдельной проверкой.
+ *
+ * # Что изменилось 2026-09-27: литерал ВКЛЮЧЁН в упаковщик, и таблица выросла с 14 форм до 27
+ *
+ * До этого дня `packetableRefusal` отвергал литерал, и оракул проверял раскладку **в обход**
+ * упаковщика (`wideCommandBytes` напрямую). Теперь литерал упаковщиком берётся, и `ourBytes` идёт
+ * **через `packWide`** — проверяется то, что действительно кодируется.
+ *
+ * Перемер перед включением нашёл **дыру, из-за которой включать «как есть» было нельзя**: прежние
+ * 14 форм несли литерал **42** или **0x100000**, то есть литеральную форму (`LTS`). А в пяти ядрах
+ * **74 литерала из 78** имеют значение 0…15, и ассемблер кладёт их **короткой непосредственной
+ * формой** — полем `0xc0 | N` прямо в слово ALS, **без слова `LTS`**. `wideAlsSlotOf` же давал
+ * `LTS` для любого литерала, то есть на 74 литералах из 78 наш кодировщик разошёлся бы с `as`.
+ *
+ * Поэтому таблица дополнена 13 формами; каждая закрывает то, что упаковщик теперь может выдать:
+ * малый литерал (N, O, P, Q, R, S), два и четыре малых в одной команде (T, V), малый вместе с
+ * большим — одно слово `LTS` (U, X), и **до шести** слогов ALS вместе с `LTS` (Y, Z).
+ * Замеры: `.tmp/osnova-lts-short-probe.ts`, `-multi-probe.ts`, `-multi2-probe.ts`, `-many-probe.ts`.
  *
  * # Чего этот оракул НЕ доказывает
  *
  * 1. Что так поведёт себя железо: сверка идёт с ассемблером МЦСТ, а не с машиной.
  * 2. Что кладутся **все** формы: `return` и `setwd` остаются названным отказом; `setwd` несёт
- *    литерал, и раскладка «ALS + CS1 + LTS» именно для него не проверялась. **Два** литерала в
- *    одной команде тоже отказ: измерены формы с одним словом `LTS`.
- * 3. Что 64-битный литерал (`imm64`, форма `0xdc`, ДВА слова) ложится в широкую команду: его
+ *    литерал, и раскладка «ALS + CS1 + LTS» именно для него не проверялась.
+ * 3. Что **два литеральных** (`LTS`) слова ложатся в одну команду. Ассемблер такую команду
+ *    ПРИНИМАЕТ — измерено 2026-09-27: `{ movts,0 42, %b[1]; movts,1 43, %b[2] }` → одно слово
+ *    `0x002a002b`, оба 16-битных литерала в нём, — но наш кодировщик её **отвергает**: слова
+ *    литералов складываются по ширине, и раскладка смешанных ширин не выведена. Малый литерал слова
+ *    `LTS` не несёт, поэтому запрет двух `LTS` двух малых не касается (T, V) и «малый + большой»
+ *    тоже проходит (U, X).
+ * 4. Что 64-битный литерал (`imm64`, форма `0xdc`, ДВА слова) ложится в широкую команду: его
  *    раскладка не измерялась и отвергается.
- * 4. Что литерал ложится в команду **через упаковщик**. Раскладка «ALS + LTS» измерена и
- *    кодируется (`wideCommandBytes`), но `packWide` её пока не включает: с ней литерал перестаёт
- *    быть барьером пакетов и закреплённые числа корпуса сдвигаются (пакетов 220 → 210,
- *    «литеральных с отказом» 20 → 0). По правилу проекта сдвинутое число — отдельный коммит с
- *    датой, поэтому включение — следующий шаг, а не побочный эффект этого.
  * 5. Что выбор канала — наш: `packWide` берёт **первый свободный** канал, а ассемблер чтит
  *    записанный. Поэтому байты сравнимы только при совпадающем выборе канала (см. `CASES`).
+ * 6. Что литерал ложится в **любой** канал: `movts` кодируется только в ALC0/1/3/4 — это
+ *    `LONG_CHANNELS` из `opcodes/e2k-opc.h:644`, и проверено снаружи (`{ movts,2 5, %b[1] }` →
+ *    «`movts' cannot be encoded in ALC2»).
  */
 import { describe, expect, it } from 'vitest';
 import { getEncoder, toHex, type AsmInstruction, type Operand } from './backend';
 import { EncodingRefusedError } from './encoding';
-import { wideAlsSlotOf, wideCommandBytes, wideSyllablesOf } from './e2k-real';
+import { wideAlsSlotOf, wideCommandBytes } from './e2k-real';
 import { packWide, packetableRefusal } from './widePacker';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 
@@ -70,10 +90,15 @@ const add = (channel: number, base = 1): AsmInstruction => ({
   channel,
   operands: [reg(base), reg(base + 1), reg(base + 2)],
 });
-const literal = (channel: number, value: number, control?: AsmInstruction): AsmInstruction => ({
+/**
+ * Литеральная пересылка. `dst` назван параметром, потому что с 2026-09-27 в одной команде может
+ * стоять **несколько** литералов, и у них обязаны быть разные приёмники — иначе RAW/WAW разведёт их
+ * по разным пакетам и форма не соберётся.
+ */
+const literal = (channel: number, value: number, control?: AsmInstruction, dst = 1): AsmInstruction => ({
   mnemonic: 'movts',
   channel,
-  operands: [imm(value), reg(1)],
+  operands: [imm(value), reg(dst)],
   ...(control === undefined ? {} : { control }),
 });
 const ct = (ctpr = 1): AsmInstruction => ({ mnemonic: 'ct', channel: 0, operands: [imm(ctpr), imm(CT_ALWAYS)] });
@@ -192,24 +217,122 @@ export const CASES: readonly WideForm[] = [
     instructions: [{ mnemonic: 'muls', channel: 0, operands: [reg(2), reg(3), reg(4)] }, literal(1, 42, ct())],
     hex: '23 10 10 0c 20 04 00 c0 04 03 02 20 01 d4 c0 60 00 00 c0 01 00 00 2a 00',
   },
+  // ── Дополнено 2026-09-27 вместе с включением литерала в упаковщик: малый литерал ──────────────
+  // Значение 0…15 ассемблер кладёт КОРОТКОЙ формой — поле `0xc0 | N` в слове ALS, слова LTS нет.
+  {
+    key: 'N adds,0 + movts,1 5 (МАЛЫЙ литерал, короткая форма — без LTS)',
+    asText: '{ adds,0 %b[2], %b[3], %b[4]; movts,1 5, %b[1] }',
+    instructions: [add(0, 2), literal(1, 5)],
+    hex: '12 00 00 0c 04 03 02 10 01 c5 c0 60 00 00 00 00',
+  },
+  {
+    key: 'O adds,0 + adds,2 + movts,1 5 (два ALS + малый литерал)',
+    asText: '{ adds,0 %b[2], %b[3], %b[4]; adds,2 %b[5], %b[6], %b[7]; movts,1 5, %b[1] }',
+    instructions: [add(0, 2), literal(1, 5), add(2, 5)],
+    hex: '13 00 00 1c 04 03 02 10 01 c5 c0 60 07 06 05 10',
+  },
+  {
+    key: 'P movts,1 5 + ct (малый литерал + SS)',
+    asText: '{ movts,1 5, %b[1]; ct %ctpr1 }',
+    instructions: [{ ...literal(1, 5), control: ct() }],
+    hex: '12 10 00 08 20 04 00 c0 01 c5 c0 60 00 00 00 00',
+  },
+  {
+    key: 'Q adds,0 + movts,1 5 + ct (ALS + малый литерал + SS)',
+    asText: '{ adds,0 %b[2], %b[3], %b[4]; movts,1 5, %b[1]; ct %ctpr1 }',
+    instructions: [add(0, 2), { ...literal(1, 5), control: ct() }],
+    hex: '13 10 00 0c 20 04 00 c0 04 03 02 10 01 c5 c0 60',
+  },
+  {
+    key: 'R movts,1 5 + sdisp (малый литерал + CS0)',
+    asText: '{ movts,1 5, %b[1]; sdisp %ctpr1, 3 }',
+    instructions: [{ ...literal(1, 5), control: sdisp() }],
+    hex: '12 40 00 08 01 c5 c0 60 03 00 00 60 00 00 00 00',
+  },
+  {
+    key: 'S movts,1 5 + call (малый литерал + SS + CS1)',
+    asText: '{ movts,1 5, %b[1]; call %ctpr1, wbs=4 }',
+    instructions: [{ ...literal(1, 5), control: call() }],
+    hex: '13 90 00 08 20 04 00 c0 01 c5 c0 60 04 00 00 50',
+  },
+  // ── Несколько литералов: малые слова LTS не несут, поэтому их может быть больше одного ────────
+  {
+    key: 'T movts,0 5 + movts,1 7 (ДВА малых литерала, ни одного слова LTS)',
+    asText: '{ movts,0 5, %b[1]; movts,1 7, %b[2] }',
+    instructions: [literal(0, 5, undefined, 1), literal(1, 7, undefined, 2)],
+    hex: '12 00 00 0c 01 c5 c0 60 02 c7 c0 60 00 00 00 00',
+  },
+  {
+    key: 'U movts,0 5 + movts,1 42 (малый + большой: слово LTS одно)',
+    asText: '{ movts,0 5, %b[1]; movts,1 42, %b[2] }',
+    instructions: [literal(0, 5, undefined, 1), literal(1, 42, undefined, 2)],
+    hex: '12 00 00 0c 01 c5 c0 60 02 d4 c0 60 00 00 2a 00',
+  },
+  {
+    key: 'V movts,0 5 + movts,1 7 + movts,3 9 + movts,4 11 (ЧЕТЫРЕ малых литерала)',
+    asText: '{ movts,0 5, %b[1]; movts,1 7, %b[2]; movts,3 9, %b[3]; movts,4 11, %b[4] }',
+    instructions: [
+      literal(0, 5, undefined, 1),
+      literal(1, 7, undefined, 2),
+      literal(3, 9, undefined, 3),
+      literal(4, 11, undefined, 4),
+    ],
+    hex: '24 00 00 6c 01 c5 c0 60 02 c7 c0 60 03 c9 c0 60 04 cb c0 60 00 00 00 00',
+  },
+  {
+    key: 'W adds,2 + movts,0 5 + movts,1 7 + movts,3 9 + movts,4 11 (ALS + четыре малых)',
+    asText:
+      '{ adds,2 %b[2], %b[3], %b[4]; movts,0 5, %b[1]; movts,1 7, %b[5]; movts,3 9, %b[6]; ' +
+      'movts,4 11, %b[7] }',
+    instructions: [
+      literal(0, 5, undefined, 1),
+      literal(1, 7, undefined, 5),
+      add(2, 2),
+      literal(3, 9, undefined, 6),
+      literal(4, 11, undefined, 7),
+    ],
+    hex: '25 00 00 7c 01 c5 c0 60 05 c7 c0 60 04 03 02 10 06 c9 c0 60 07 cb c0 60',
+  },
+  {
+    key: 'X adds,2 + movts,0 5 + movts,1 7 + movts,3 42 (ALS + два малых + большой)',
+    asText: '{ adds,2 %b[2], %b[3], %b[4]; movts,0 5, %b[1]; movts,1 7, %b[5]; movts,3 42, %b[6] }',
+    instructions: [literal(0, 5, undefined, 1), literal(1, 7, undefined, 5), add(2, 2), literal(3, 42, undefined, 6)],
+    hex: '24 00 00 3c 01 c5 c0 60 05 c7 c0 60 04 03 02 10 06 d4 c0 60 00 00 2a 00',
+  },
+  // ── Предел пачки: до ШЕСТИ слогов ALS вместе с LTS (было измерено три) ────────────────────────
+  {
+    key: 'Y adds,0 + movts,1 42 + adds,2 + adds,3 + adds,4 (ПЯТЬ слогов с LTS)',
+    asText:
+      '{ adds,0 %b[2], %b[3], %b[4]; movts,1 42, %b[1]; adds,2 %b[5], %b[6], %b[7]; ' +
+      'adds,3 %b[8], %b[9], %b[10]; adds,4 %b[11], %b[12], %b[13] }',
+    instructions: [add(0, 2), literal(1, 42), add(2, 5), add(3, 8), add(4, 11)],
+    hex: '35 00 00 7c 04 03 02 10 01 d4 c0 60 07 06 05 10 0a 09 08 10 0d 0c 0b 10 00 00 00 00 00 00 2a 00',
+  },
+  {
+    key: 'Z adds,0 + movts,1 42 + adds,2 + adds,3 + adds,4 + adds,5 (ШЕСТЬ слогов — предел формы)',
+    asText:
+      '{ adds,0 %b[2], %b[3], %b[4]; movts,1 42, %b[1]; adds,2 %b[5], %b[6], %b[7]; ' +
+      'adds,3 %b[8], %b[9], %b[10]; adds,4 %b[11], %b[12], %b[13]; adds,5 %b[14], %b[15], %b[16] }',
+    instructions: [add(0, 2), literal(1, 42), add(2, 5), add(3, 8), add(4, 11), add(5, 14)],
+    hex: '36 00 00 fc 04 03 02 10 01 d4 c0 60 07 06 05 10 0a 09 08 10 0d 0c 0b 10 10 0f 0e 10 00 00 2a 00',
+  },
 ];
 
 /**
- * Наши байты: одна инструкция — одиночным кодировщиком, несколько — **раскладкой напрямую**
- * (`wideCommandBytes`).
+ * Наши байты: **через упаковщик** — то, что действительно кодируется.
  *
- * Почему не упаковщиком: `packWide` литералы в широкую команду **не берёт** — это названная
- * граница (`packetableRefusal`), и причина в ней: с литералом в паре закреплённые числа корпуса
- * сдвигаются (пакетов 220 → 210), а сдвинутое число по правилу проекта — отдельный коммит с датой.
- * Здесь проверяется **раскладка**, а не упаковка; упаковку пар `SS`/`CS0` проверяет ветвь с одной
- * инструкцией — она идёт через `encodeReal` и потому упаковщиком не отменяется.
+ * До 2026-09-27 здесь стоял обход: одна инструкция — одиночным кодировщиком, несколько —
+ * **раскладкой напрямую** (`wideCommandBytes`), потому что `packWide` литералы не брал. С включением
+ * литерала обход стал вреден: он проверял бы путь, которого в проде нет. Теперь весь набор идёт
+ * `packWide`, а форма обязана собраться в **одну** команду — иначе это уже не та форма, что
+ * записана у `as`.
  */
 export function ourBytes(instructions: readonly AsmInstruction[]): string {
-  if (instructions.length === 1) return toHex(encoder.encode(instructions[0]!)).replace(/\s+/g, ' ').trim();
-  const slots = instructions.map((instruction) => wideAlsSlotOf(instruction));
-  const control = instructions.find((instruction) => instruction.control !== undefined)?.control;
-  const syllables = control === undefined ? {} : wideSyllablesOf(control);
-  return toHex(wideCommandBytes(slots, syllables)).replace(/\s+/g, ' ').trim();
+  const packets = packWide(instructions);
+  if (packets.length !== 1) {
+    throw new Error(`форма собралась в ${String(packets.length)} команд, а измерялась одна`);
+  }
+  return toHex(packets[0]!.bytes).replace(/\s+/g, ' ').trim();
 }
 
 /** Разбор слова заголовка: `lng`, `mdl`, `al`, `ale`, `cs`, `ss` — по полям `HS`. */
@@ -267,7 +390,7 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
     }
   });
 
-  it('непарные формы и лишние литералы отвергаются С ПРИЧИНОЙ, а не кодируются наугад', () => {
+  it('непарные формы и два слова LTS отвергаются С ПРИЧИНОЙ; литерал же в упаковщик включён', () => {
     const calls: { readonly what: string; readonly run: () => unknown; readonly match: RegExp }[] = [
       {
         what: 'return в пару с ALS',
@@ -296,24 +419,34 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
       expect(item.run, `${item.what}: не отвергнуто`).toThrow(EncodingRefusedError);
       expect(item.run, `${item.what}: причина не названа`).toThrow(item.match);
     }
-    // Два литерала в одной команде: измерены формы с ОДНИМ словом LTS — раскладка отвергает.
+    // Два литеральных (LTS) слова в одной команде. Причина отказа с 2026-09-27 называет измеренное
+    // честно: ассемблер МЦСТ такую команду ПРИНИМАЕТ, не реализует её наш кодировщик.
     expect(() =>
       wideCommandBytes([wideAlsSlotOf(literal(0, 42)), wideAlsSlotOf(literal(1, 43))]),
     ).toThrow(EncodingRefusedError);
     expect(() =>
       wideCommandBytes([wideAlsSlotOf(literal(0, 42)), wideAlsSlotOf(literal(1, 43))]),
-    ).toThrow(/два слова|одним словом|две операции с литералами/u);
-    // А упаковщик литералы не берёт вовсе — причина названа и называет закреплённые числа.
-    // Проверяется `packetableRefusal`, а не поле `refusal` пакета: `packWide` кладёт отказ в пакет
-    // только тогда, когда и одиночный кодировщик отказал, — литерал же одиночной командой кодируется.
-    const refusal = packetableRefusal(literal(1, 42));
-    expect(refusal, 'упаковщик обязан назвать причину, а не молчать').toBeDefined();
-    expect(refusal).toMatch(/не все операнды — регистры/u);
-    expect(refusal).toMatch(/§3\.34/u);
-    expect(refusal).toMatch(/220 → 210/u);
-    // И как барьер пакетов литерал по-прежнему разделяет группу: он едет отдельной командой.
+    ).toThrow(/две операции с литералами/u);
+    expect(() =>
+      wideCommandBytes([wideAlsSlotOf(literal(0, 42)), wideAlsSlotOf(literal(1, 43))]),
+    ).toThrow(/ПРИНИМАЕТ/u);
+    // Литерал в упаковщике ВКЛЮЧЁН 2026-09-27: `packetableRefusal` его больше не отвергает —
+    // ни большой, ни малый. Проверяется `packetableRefusal`, а не поле `refusal` пакета: отказ был
+    // «по решению», а не по форме, и именно поэтому он снимается здесь, а не в `packWide`.
+    expect(packetableRefusal(literal(1, 42)), 'большой литерал больше не барьер').toBeUndefined();
+    expect(packetableRefusal(literal(1, 5)), 'малый литерал тоже').toBeUndefined();
+    // 64-битный литерал барьером ОСТАЁТСЯ: его раскладка (два слова LTS) не измерялась.
+    expect(
+      packetableRefusal({ mnemonic: 'movtd', channel: 1, operands: [{ kind: 'imm64', value: 0x100000n }, reg(1)] }),
+      '64-битный литерал обязан называть причину',
+    ).toMatch(/64-битный литерал/u);
+    // И литерал больше НЕ разделяет группу: три инструкции собираются в одну команду — ровно та
+    // форма, что записана у `as` (форма H). Прежде здесь стояло «пакетов 3».
     const packets = packWide([add(0, 2), literal(1, 42), add(2, 5)]);
-    expect(packets.length, 'литерал разделяет пакеты — прежнее поведение сохранено').toBe(3);
+    expect(packets.length, 'литерал собирается вместе с соседями, а не разделяет их').toBe(1);
+    expect(toHex(packets[0]!.bytes).replace(/\s+/g, ' ').trim(), 'байты наши — байты формы H').toBe(
+      CASES.find((item) => item.key.startsWith('H '))!.hex,
+    );
   });
 
   it('негативный контроль: подмена слога или порядка ломает байты', () => {
