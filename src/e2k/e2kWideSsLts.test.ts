@@ -102,8 +102,8 @@
 import { describe, expect, it } from 'vitest';
 import { getEncoder, toHex, type AsmInstruction, type Operand } from './backend';
 import { EncodingRefusedError } from './encoding';
-import { wideAlsSlotOf, wideCommandBytes, wideSyllablesOf } from './e2k-real';
-import { packWide, packetableRefusal } from './widePacker';
+import { wideAlsSlotOf, wideCommandBytes } from './e2k-real';
+import { packWide, packetableRefusal, wideStats } from './widePacker';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 
 const encoder = getEncoder('e2k');
@@ -154,9 +154,10 @@ interface WideForm {
 }
 
 /**
- * Сколько в форме **больших** литералов (значение > 15, то есть со словом `LTS`): упаковщик пока
- * сливает в одну команду не больше одного такого — причина названа в `packWide` и измерена
- * (`.tmp/osnova-literal-pair-measure.ts`).
+ * Сколько в форме **больших** литералов (значение > 15, то есть со словом `LTS`).
+ *
+ * Оставлено как счётчик для сторожа слияния: пара больших литералов с 2026-09-27 (task-5) едет в
+ * одной команде, и число литералов — то, что эта проверка называет вслух.
  */
 export function bigLiteralsOf(instructions: readonly AsmInstruction[]): number {
   return instructions.reduce(
@@ -512,9 +513,9 @@ export const CASES: readonly WideForm[] = [
  *
  * До 2026-09-27 здесь стоял обход: одна инструкция — одиночным кодировщиком, несколько —
  * **раскладкой напрямую** (`wideCommandBytes`), потому что `packWide` литералы не брал. С включением
- * литерала обход стал вреден: он проверял бы путь, которого в проде нет. Теперь весь набор идёт
- * `packWide`, а форма обязана собраться в **одну** команду — иначе это уже не та форма, что
- * записана у `as`.
+ * литерала обход стал вреден: он проверял бы путь, которого в проде нет. Теперь **весь** набор идёт
+ * `packWide` — включая формы с двумя и более большими литералами: с 2026-09-27 (task-5) упаковщик
+ * сливает их в одну команду, и обходного пути `layoutBytes` больше нет.
  */
 export function ourBytes(instructions: readonly AsmInstruction[]): string {
   const packets = packWide(instructions);
@@ -524,26 +525,9 @@ export function ourBytes(instructions: readonly AsmInstruction[]): string {
   return toHex(packets[0]!.bytes).replace(/\s+/g, ' ').trim();
 }
 
-/**
- * Наши байты **раскладкой напрямую** (`wideCommandBytes`) — тот же код, которым команду собирает
- * упаковщик (`encodeWideGroup`), но без его решения о границах пакета.
- *
- * Нужен формам с двумя и более большими литералами: упаковщик пару пока НЕ сливает, и причина
- * названа (`packWide`): включение сдвигает закреплённые числа пяти ядер — пакетов 857 → 855
- * (у `iir` 122 → 120), пустых слотов 4066 → 4054 (замер `.tmp/osnova-literal-pair-measure.ts`).
- * Сдвинутое число по правилу проекта — отдельный коммит с перемером таблицы `literalBarriers`.
- */
-export function layoutBytes(instructions: readonly AsmInstruction[]): string {
-  const control = instructions.find((instruction) => instruction.control !== undefined)?.control;
-  const syllables = control === undefined ? {} : wideSyllablesOf(control);
-  return toHex(wideCommandBytes(instructions.map((instruction) => wideAlsSlotOf(instruction)), syllables))
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** Байты формы: пара больших литералов идёт раскладкой напрямую (см. `layoutBytes`). */
+/** Байты формы — через упаковщик: он и есть прод-путь (`ourBytes`). */
 export function bytesOf(item: WideForm): string {
-  return bigLiteralsOf(item.instructions) > 1 ? layoutBytes(item.instructions) : ourBytes(item.instructions);
+  return ourBytes(item.instructions);
 }
 
 /** Разбор слова заголовка: `lng`, `mdl`, `al`, `ale`, `cs`, `ss` — по полям `HS`. */
@@ -671,30 +655,38 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
     expect(toHex(packets[0]!.bytes).replace(/\s+/g, ' ').trim(), 'байты наши — байты формы H').toBe(
       CASES.find((item) => item.key.startsWith('H '))!.hex,
     );
-    // ГРАНИЦА НАЗВАНА И СТОРОЖИТ: пару больших литералов упаковщик пока НЕ сливает. Причина —
-    // измеренная: включение сдвигает закреплённые числа пяти ядер (пакетов 857 → 855, у `iir`
-    // 122 → 120, пустых слотов 4066 → 4054; `.tmp/osnova-literal-pair-measure.ts`), а сдвинутое
-    // число по правилу проекта — отдельный коммит с перемером таблицы `literalBarriers`.
-    // Если границу снимут, не перемерив числа, ЭТОТ тест покраснеет — и в причине сказано, что двигать.
+    // СЛИЯНИЕ ПАРЫ ВКЛЮЧЕНО 2026-09-27 (task-5): два больших литерала едут в ОДНОЙ команде, и это
+    // проверяется через упаковщик — то есть через прод-путь, а не в обход. Байты пары сверены с `as`
+    // побайтово формой AA; числа упаковки, сдвинувшиеся от слияния, перемерены отдельным коммитом
+    // (пакетов пяти ядер 857 → 855, у `iir` 122 → 120, пустых слотов 4066 → 4054).
     const pairPackets = packWide([literal(0, 42, undefined, 1), literal(1, 43, undefined, 2)]);
-    expect(pairPackets.length, 'пара больших литералов пока разделена: причина названа в `packWide`').toBe(2);
-    // Раскладка при этом пару СОБИРАЕТ — и байты её сверены с `as` побайтово (форма AA).
-    expect(layoutBytes([literal(0, 42, undefined, 1), literal(1, 43, undefined, 2)]), 'раскладка пару собирает').toBe(
+    expect(pairPackets.length, 'пара больших литералов едет в одной команде').toBe(1);
+    expect(pairPackets[0]!.slots.length, 'слогов в паре').toBe(2);
+    expect(toHex(pairPackets[0]!.bytes).replace(/\s+/g, ' ').trim(), 'байты наши — байты формы AA').toBe(
       CASES.find((item) => item.key.startsWith('AA '))!.hex,
     );
+    // Слияние видно и в статистике: два больших литерала — один пакет, а не два.
+    expect(wideStats([literal(0, 42, undefined, 1), literal(1, 43, undefined, 2)]).packets, 'пакетов').toBe(1);
   });
 
-  it('негативный контроль: снятие второго литерала, подмена значения и зеркало полуслогов различимы', () => {
+  it('негативный контроль: снятие слияния, снятие литерала и подмена значения различимы', () => {
     const pair = CASES.find((item) => item.key.startsWith('AA '))!;
-    const ours = layoutBytes(pair.instructions);
+    const ours = ourBytes(pair.instructions);
+    // (0) СНЯТИЕ СЛИЯНИЯ: если бы пара снова разошлась по пакетам (прежнее правило), байты были бы
+    //     такими — каждая литеральная пересылка отдельной командой по 16 байт. Различие обязательно:
+    //     иначе проверка слияния ничего не доказывала бы.
+    const split = `${ourBytes([literal(0, 42, undefined, 1)])} ${ourBytes([literal(1, 43, undefined, 2)])}`;
+    expect(ours).not.toBe(split);
+    expect(ours.length < split.length, 'слитая пара короче двух отдельных команд').toBe(true);
+    expect(packWide(pair.instructions).length, 'слитая пара — одна команда').toBe(1);
     // (1) Второй литерал снят: слово LTS остаётся одно, и младшая его половина пуста — байты
     //     обязаны разойтись (в паре младшая половина несёт 43).
-    const single = layoutBytes([literal(0, 42, undefined, 1), add(2, 3)]);
+    const single = ourBytes([literal(0, 42, undefined, 1), add(2, 3)]);
     expect(ours).not.toBe(single);
     expect(single.endsWith('00 00 2a 00'), 'одиночный литерал 42 — старшая половина слова').toBe(true);
     expect(ours.endsWith('2b 00 2a 00'), 'в паре младшая половина несёт 43').toBe(true);
     // (2) Значение второго литерала подменено — различимо в слове LTS.
-    const changed = layoutBytes([literal(0, 42, undefined, 1), literal(1, 44, undefined, 2)]);
+    const changed = ourBytes([literal(0, 42, undefined, 1), literal(1, 44, undefined, 2)]);
     expect(ours).not.toBe(changed);
     // (3) ЗЕРКАЛО: если бы полуслоги раздавались наоборот (старший — старшему каналу), байты были бы
     //     такими. Замер говорит другое — значит таблица различает, а не «сходится всегда».
@@ -703,7 +695,7 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
     // (4) РАВНЫЕ значения делят полуслог: «каждому литералу своя половина» дало бы слово 0x002a002a —
     //     замер говорит 0x002a0000, и это различие закреплено (AC).
     const shared = CASES.find((item) => item.key.startsWith('AC '))!;
-    expect(layoutBytes(shared.instructions)).toBe(shared.hex);
+    expect(ourBytes(shared.instructions)).toBe(shared.hex);
     expect(shared.hex.endsWith('00 00 2a 00'), 'равные литералы — одно слово, а не две половины').toBe(true);
   });
 
@@ -731,7 +723,7 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
     // ЗЕРКАЛО байтов `as`. Различие ожидаемо и названо; эмиттер выдаёт инструкции по каналу, поэтому
     // для него значим наш порядок.
     const asByText = '12 00 00 0c 01 d0 c0 60 02 d4 c0 60 2b 00 2a 00';
-    const ours = layoutBytes([literal(0, 43, undefined, 1), literal(1, 42, undefined, 2)]);
+    const ours = ourBytes([literal(0, 43, undefined, 1), literal(1, 42, undefined, 2)]);
     expect(ours, 'наш порядок — по каналу (форма AB)').toBe(CASES.find((item) => item.key.startsWith('AB '))!.hex);
     expect(ours, 'это зеркало байтов `as` для того же набора').not.toBe(asByText);
     // Живая сверка: тот же расклад слогов, записанный в тексте ПО КАНАЛУ, у `as` даёт наши байты, а
