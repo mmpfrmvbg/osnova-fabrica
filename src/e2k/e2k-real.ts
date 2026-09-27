@@ -1383,15 +1383,30 @@ export function wideSyllablesOf(instruction: AsmInstruction): WideCommandSyllabl
   }
 }
 
-/** Слот ALS широкой команды: канал, слово, полуслог ALES (форма ALF11) и слово литерала. */
+/** Литеральный операнд слота широкой команды: значение и ширина. */
+export interface WideSlotLiteral {
+  readonly value: number;
+  /** 32-битный литерал (`0xd8`) занимает слово `LTS` целиком; 16-битный — полуслог (`0xd0…0xd7`). */
+  readonly wide32: boolean;
+  /** Где в слове ALS лежит поле ссылки на литерал — сдвиг в битах (`src2` → 8). */
+  readonly fieldShift: number;
+}
+
+/** Слот ALS широкой команды: канал, слово, полуслог ALES (форма ALF11) и литерал. */
 export interface WideAlsSlot {
   readonly channel: number;
   /** Разрешённые каналы операции — по ним группировщик ищет свободный. */
   readonly channels: readonly number[];
+  /**
+   * Слово ALS. У слота с литералом поле ссылки **обнулено**: окончательное значение поля зависит от
+   * места литерала среди слов `LTS`, а место выбирает раскладка команды
+   * ({@link wideCommandBytes} → `placeLiterals`). Это то же решение, что в `as`: поле собирается
+   * один раз, вместе с расстановкой (gas/config/tc-e2k.c:8360-8390, `encode_long_lit_in_src23`).
+   */
   readonly als: number;
   readonly ales?: number;
-  /** Слово `LTS`, если операция несёт литеральный операнд. */
-  readonly lts?: number;
+  /** Литеральный операнд — если он у операции есть и **не** выражается короткой формой (0…15). */
+  readonly literal?: WideSlotLiteral;
 }
 
 /**
@@ -1401,7 +1416,11 @@ export interface WideAlsSlot {
  * своя ветвь кодирования), здесь он выражается слогом: литеральный (0…15 не помещается) —
  * словом `LTS`, которое `wideCommandBytes` кладёт последним, а **малый** (0…15) — короткой
  * непосредственной формой прямо в слове ALS, без `LTS`. Раскладка полей берётся из общих
- * {@link literalLayoutOf} и {@link shortImmediateAlsWord}, а не считается заново.
+ * {@link literalLayoutFor} и {@link shortImmediateAlsWord}, а не считается заново.
+ *
+ * Место литерала в словах `LTS` слот **не** выбирает: он называет значение и ширину, а расстановку
+ * (номер слова от конца команды и полуслог) делает `placeLiterals` — иначе у двух литералов в одной
+ * команде не было бы согласованного места (измерено 2026-09-27, `.tmp/osnova-two-lts-probe.ts`).
  */
 export function wideAlsSlotOf(instruction: AsmInstruction): WideAlsSlot {
   const entry = BY_MNEMONIC.get(instruction.mnemonic);
@@ -1424,25 +1443,205 @@ export function wideAlsSlotOf(instruction: AsmInstruction): WideAlsSlot {
   if (isShortImmediate(literal.value, entry.form)) {
     return { channel, channels: entry.channels, als: shortImmediateAlsWord(entry, instruction.operands, literal) };
   }
-  const { als, lts } = literalLayoutOf(entry, instruction.operands, literal);
-  return { channel, channels: entry.channels, als, lts };
+  const layout = literalLayoutFor(entry, instruction.operands, literal);
+  return {
+    channel,
+    channels: entry.channels,
+    als: layout.als,
+    literal: { value: layout.value, wide32: layout.wide32, fieldShift: layout.fieldShift },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// РАССТАНОВКА ЛИТЕРАЛОВ (LTS) В ШИРОКОЙ КОМАНДЕ
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Полуслог слова `LTS`; 32-битный литерал занимает слово целиком (`full`). */
+type LtsHalf = "hi" | "lo";
+
+/** Место литерала: номер слова `LTS` **от конца** команды (0 — последнее слово) и полуслог. */
+interface LtsPlacement {
+  readonly word: number;
+  readonly half: LtsHalf | "full";
+}
+
+/** Заявка на литерал: индекс слота в команде, значение и ширина. */
+interface LiteralRequest {
+  readonly slot: number;
+  readonly value: number;
+  readonly wide32: boolean;
+}
+
+/**
+ * Полуслоги слова `LTS` в порядке предпочтения — **измеренный** порядок ассемблера МЦСТ.
+ *
+ * `as` перебирает места литералов и берёт расстановку с наименьшей маской занятых полуслогов
+ * (`gas/config/tc-e2k.c:8266-8345`, критерий `busy_lts`); при равных кандидатах годится первая
+ * найденная. Список кандидатов 16-битного литерала — старший полуслог нулевого слова, затем
+ * младший, затем то же у первого слова (`gas/config/tc-e2k.c:2257-2272`, таблица
+ * `conv = {1, 0, 3, 2, …}`: «let one prefer the `hi` part for a 16-bit literal»), и он **ограничен
+ * двумя словами** — дизассемблер МЦСТ называет `_f16s,_lts2/3` недопустимыми
+ * (`opcodes/e2k-dis.c:462-466`: `if (lit_num > 1) … <illegal _f16s,_lts%d%s>`).
+ */
+const LTS_HALF_ORDER: readonly LtsPlacement[] = [
+  { word: 0, half: "hi" },
+  { word: 0, half: "lo" },
+  { word: 1, half: "hi" },
+  { word: 1, half: "lo" },
+];
+
+/** Сколько слов `LTS` допускает форма: `unsigned int lts[4]` (`opcodes/e2k-dis.c:59,289`). */
+const LTS_WORD_LIMIT = 4;
+
+/** Кандидаты места литерала: 32-битный занимает слово целиком, слова считаются от конца команды. */
+function ltsCandidates(request: LiteralRequest): LtsPlacement[] {
+  if (request.wide32) {
+    return Array.from({ length: LTS_WORD_LIMIT }, (_, word): LtsPlacement => ({ word, half: "full" }));
+  }
+  return [...LTS_HALF_ORDER];
+}
+
+/** Маска занятых полуслогов: бит `2·слово` — старший полуслог, `2·слово + 1` — младший. */
+function ltsMask(placement: LtsPlacement): number {
+  if (placement.half === "full") return (1 << (placement.word * 2)) | (1 << (placement.word * 2 + 1));
+  return 1 << (placement.word * 2 + (placement.half === "hi" ? 0 : 1));
+}
+
+/** Что уже лежит в слове `LTS`: 32-битный литерал целиком или 16-битные половинки. */
+interface LtsWordState {
+  wide?: number;
+  hi?: number;
+  lo?: number;
+}
+
+/** Значение полуслога слова — с учётом того, что 32-битный литерал занимает слово целиком. */
+function ltsHalfValue(state: LtsWordState, half: LtsHalf): number | undefined {
+  if (state.wide !== undefined) return half === "hi" ? (state.wide >>> 16) & 0xffff : state.wide & 0xffff;
+  return state[half];
+}
+
+/**
+ * Попытаться положить литерал: вернуть маску занятых полуслогов или `undefined`, если место занято
+ * **другим** значением.
+ *
+ * Одинаковое значение переиспользует полуслог — так делает `as` (`hsyll_same_expr`,
+ * `gas/config/tc-e2k.c:8225-8240`). Измерено 2026-09-27 (`.tmp/osnova-two-lts-probe.ts`):
+ * `{ movts,0 42; movts,1 42 }` → оба поля `0xd4`, слово `0x002a0000` (одно слово на два слота),
+ * `{ movts,0 _f32 0x100000; movts,1 _f32 0x100000 }` → оба поля `0xd8`, одно слово `0x00100000`.
+ */
+function placeLiteral(words: LtsWordState[], request: LiteralRequest, placement: LtsPlacement): number | undefined {
+  const state = (words[placement.word] ??= {});
+  if (request.wide32) {
+    if (state.wide !== undefined && state.wide !== request.value) return undefined;
+    for (const half of ["hi", "lo"] as const) {
+      const existing = ltsHalfValue(state, half);
+      const wanted = half === "hi" ? (request.value >>> 16) & 0xffff : request.value & 0xffff;
+      if (existing !== undefined && existing !== wanted) return undefined;
+    }
+    state.wide = request.value >>> 0;
+    state.hi = (request.value >>> 16) & 0xffff;
+    state.lo = request.value & 0xffff;
+    return ltsMask(placement);
+  }
+  const half = placement.half === "full" ? "lo" : placement.half;
+  const existing = ltsHalfValue(state, half);
+  if (existing !== undefined && existing !== request.value) return undefined;
+  state[half] = request.value & 0xffff;
+  return ltsMask(placement);
+}
+
+/**
+ * Разложить литералы по словам `LTS`: **тот же перебор, что у `as`** — расстановка с наименьшей
+ * маской занятых полуслогов, при равенстве первая найденная (`gas/config/tc-e2k.c:8266-8345`).
+ *
+ * Порядок разбора заявок — **сначала 32-битные, потом 16-битные** (`compare_literal_placements`
+ * ставит впереди литералы большего размера, `gas/config/tc-e2k.c:8400-8430`), внутри одной ширины —
+ * порядок слогов команды. Именно поэтому в измеренных формах 32-битный литерал оказывается в слове
+ * `lts0`, а 16-битные — в освободившихся полуслогах слова `lts1`: `{ movts,0 42; movts,1 _f32 0x100000 }`
+ * → поля `0xd5` и `0xd8`, слово литерала `0x00100000` последним, `0x002a0000` перед ним.
+ */
+function placeLiterals(requests: readonly LiteralRequest[]): {
+  readonly placements: ReadonlyMap<number, LtsPlacement>;
+  readonly wordCount: number;
+} {
+  if (requests.length === 0) return { placements: new Map(), wordCount: 0 };
+  const ordered = [...requests.filter((request) => request.wide32), ...requests.filter((request) => !request.wide32)];
+  const candidates = ordered.map((request) => ltsCandidates(request));
+  const current = ordered.map(() => 0);
+  let best: { readonly mask: number; readonly indexes: readonly number[] } | undefined;
+  let firstIncrement = 0;
+  for (;;) {
+    const words: LtsWordState[] = [];
+    let mask = 0;
+    let index = 0;
+    for (; index < ordered.length; index++) {
+      const placed = placeLiteral(words, ordered[index]!, candidates[index]![current[index]!]!);
+      if (placed === undefined) break;
+      mask |= placed;
+    }
+    if (index === ordered.length) {
+      firstIncrement = ordered.length - 1;
+      if (best === undefined || mask < best.mask) best = { mask, indexes: [...current] };
+    } else {
+      firstIncrement = index;
+    }
+    for (let i = ordered.length - 1; i > firstIncrement; i--) current[i] = 0;
+    let i = firstIncrement;
+    for (; i >= 0; i--) {
+      current[i] = current[i]! + 1;
+      if (current[i]! < candidates[i]!.length) break;
+      current[i] = 0;
+    }
+    if (i < 0) break;
+    firstIncrement = i;
+  }
+  if (best === undefined) {
+    throw new EncodingRefusedError(
+      `литералов в одной широкой команде ${String(requests.length)} — в словах LTS места не хватает ` +
+        `(полуслогов четыре в двух словах, слов ${String(LTS_WORD_LIMIT)}; у ` +
+        '`as` тот же отказ: «literals cannot be packed into a wide command», gas/config/tc-e2k.c:8336)',
+    );
+  }
+  const words: LtsWordState[] = [];
+  const placements = new Map<number, LtsPlacement>();
+  ordered.forEach((request, index) => {
+    const placement = candidates[index]![best!.indexes[index]!]!;
+    placeLiteral(words, request, placement);
+    placements.set(request.slot, placement);
+  });
+  // Слова обязаны идти подряд от конца команды: пропуск слова — раскладка, ассемблером не измеренная.
+  const distinct = [...new Set([...placements.values()].map((placement) => placement.word))].sort((a, b) => a - b);
+  const wordCount = distinct.length === 0 ? 0 : distinct[distinct.length - 1]! + 1;
+  if (distinct.some((word, index) => word !== index)) {
+    throw new EncodingRefusedError(
+      `раскладка литералов с пропуском слова LTS (заняты слова ${distinct.join(", ")}) не измерена: ` +
+        "в измеренных формах слова литералов идут подряд от конца команды (docs/hardware-debt.md §3.34)",
+    );
+  }
+  return { placements, wordCount };
 }
 
 /**
  * Байты широкой команды в **измеренном** порядке слогов:
- * `HS, [SS], ALS…, [CS0|CS1], [ALES…], [добивка], [LTS]`.
+ * `HS, [SS], ALS…, [CS0|CS1], [ALES…], [добивка], [LTS…]`.
  *
  * Один источник раскладки для обеих сторон: так собирает команду и одиночный кодировщик (пара
  * «ALS + слоги»), и группировщик (`src/e2k/widePacker.ts`, несколько слогов ALS). Второй реализации
  * раскладки быть не должно — расхождение между ними не поймал бы ни один оракул.
  *
- * Три правила, которых у команды без литерала не было (все измерены, `docs/hardware-debt.md` §3.34):
+ * Четыре правила, все измерены (`docs/hardware-debt.md` §3.34, `.tmp/osnova-two-lts-probe.ts`):
  *
  * 1. `SS` идёт **первым**, до слогов ALS (`{ adds,0; ct %ctpr1 }` → `SS, ALS, добивка`);
- * 2. `LTS` идёт **последним**, а добивка до чётного числа 4-байтовых слогов встаёт **перед** ним —
- *    поэтому наличие литерала меняет чётность: без него число слов чётное, с ним нечётное до LTS;
+ * 2. `LTS` идёт **последним** (слова считаются от конца команды: `lts0` — последнее слово), а
+ *    добивка до чётного числа 4-байтовых слогов встаёт **перед** словами литералов — поэтому
+ *    наличие литерала меняет чётность: слов до литералов должно быть столько же по чётности,
+ *    сколько слов `LTS` (1 слово → нечётно, 2 слова → чётно: `{ movts,0 42; movts,1 43 }` → без
+ *    добивки, `{ movts,0 _f32 …; movts,1 43 }` → слово добивки перед литералами);
  * 3. `mdl` считает слоги до средней точки вместе с `SS` и слогом управления, но **без** ALES,
- *    добивки и `LTS`.
+ *    добивки и слов `LTS`;
+ * 4. **литералов в команде может быть несколько** — их места разбирает `placeLiterals` тем же
+ *    перебором, что `as`, а поле ссылки вписывается в слово ALS уже здесь, потому что зависит от
+ *    места.
  */
 export function wideCommandBytes(
   slots: readonly WideAlsSlot[],
@@ -1462,23 +1661,37 @@ export function wideCommandBytes(
   if (new Set(ordered.map((slot) => slot.channel)).size !== ordered.length) {
     throw new EncodingError("две операции в один канал: ассемблер МЦСТ отказывает (gas/config/tc-e2k.c:8667-8668)");
   }
-  const withLiteral = ordered.filter((slot) => slot.lts !== undefined);
-  if (withLiteral.length > 1) {
-    throw new EncodingRefusedError(
-      "две операции с литералами в одной широкой команде: ассемблер МЦСТ такую команду ПРИНИМАЕТ " +
-        "(замер 2026-09-27: `{ movts,0 42, %b[1]; movts,1 43, %b[2] }` → одно слово `0x002a002b`, " +
-        "оба 16-битных литерала в нём), но наш кодировщик её не реализует — слова литералов " +
-        "складываются в общие слова по ширине, и раскладка смешанных ширин не выведена " +
-        "(docs/hardware-debt.md §3.34)",
-    );
-  }
+  // Литералы: место в словах `LTS` выбирает расстановка (у слота поле ссылки обнулено), затем поле
+  // вписывается в слово ALS и собираются сами слова литералов — от конца команды.
+  const requests: LiteralRequest[] = [];
+  ordered.forEach((slot, index) => {
+    if (slot.literal !== undefined) {
+      requests.push({ slot: index, value: slot.literal.value, wide32: slot.literal.wide32 });
+    }
+  });
+  const { placements, wordCount } = placeLiterals(requests);
+  const ltsWords: number[] = Array.from({ length: wordCount }, () => 0);
+  const alsWords = ordered.map((slot, index) => {
+    const placement = placements.get(index);
+    if (placement === undefined || slot.literal === undefined) return slot.als;
+    const field = slot.literal.wide32
+      ? LITERAL_FIELD_F32_BASE | placement.word
+      : LITERAL_FIELD_F16_BASE | placement.word | (placement.half === "hi" ? 0x4 : 0);
+    if (slot.literal.wide32) {
+      ltsWords[placement.word] = slot.literal.value >>> 0;
+    } else if (placement.half !== "full") {
+      ltsWords[placement.word] =
+        (ltsWords[placement.word]! | ((slot.literal.value & 0xffff) << (placement.half === "hi" ? 16 : 0))) >>> 0;
+    }
+    return (slot.als | ((field & 0xff) << slot.literal.fieldShift)) >>> 0;
+  });
   const al = ordered.reduce((mask, slot) => mask | (1 << slot.channel), 0);
   const long = ordered.filter((slot) => slot.ales !== undefined);
   const ale = long.reduce((mask, slot) => mask | (1 << slot.channel), 0);
 
   const words: number[] = [0]; // HS: его поля считаются по числу слогов, поэтому заполняется в конце
   if (syllables.ss !== undefined) words.push(syllables.ss);
-  for (const slot of ordered) words.push(slot.als);
+  for (const word of alsWords) words.push(word);
   if (syllables.cs !== undefined) words.push(syllables.cs.word);
   // «Средняя точка» — после HS, SS, слогов ALS и слога управления: полуслоги ALES0/1/3/4
   // начинаются со слова, на которое она указывает (`docs/e2k-wide-commands.md` §2.4).
@@ -1488,15 +1701,12 @@ export function wideCommandBytes(
     const second = long[index + 1]?.ales ?? 0;
     words.push(((first & 0xffff) << 16) | (second & 0xffff));
   }
-  // Добивка до чётного числа 4-байтовых слогов (`gas/config/tc-e2k.c:9488-9492`). Литерал занимает
-  // ПОСЛЕДНЕЕ слово и сам входит в этот счёт: с ним до LTS число слов обязано быть нечётным.
-  const lts = withLiteral[0]?.lts;
-  if (lts !== undefined) {
-    if (words.length % 2 === 0) words.push(0);
-    words.push(lts);
-  } else if (words.length % 2 !== 0) {
-    words.push(0);
-  }
+  // Добивка до чётного числа 4-байтовых слогов (`gas/config/tc-e2k.c:9488-9492`). Слова литералов
+  // занимают конец команды и сами входят в этот счёт: измерено — с одним словом `LTS` число слов до
+  // него обязано быть нечётным, с двумя чётным (`{ movts,0 42; movts,1 43 }` — 4 слова без добивки,
+  // `{ movts,0 42; movts,1 _f32 0x100000 }` — 6 слов с добивкой).
+  if ((words.length + ltsWords.length) % 2 !== 0) words.push(0);
+  for (let index = ltsWords.length - 1; index >= 0; index--) words.push(ltsWords[index]!);
 
   const mdl = middle - 1;
   const lng = words.length / 2 - 1;
@@ -1559,6 +1769,128 @@ function literalOperand(entry: RealOpcodeEntry, operands: readonly Operand[]): L
 export const LITERAL_FIELD_F16 = 0xd4;
 export const LITERAL_FIELD_F32 = 0xd8;
 export const LITERAL_FIELD_F64 = 0xdc;
+
+/**
+ * База поля ссылки на **16-битный** литерал: `0xd0 | lit_num | (старший полуслог ? 4 : 0)`
+ * (`opcodes/e2k-dis.c:462-479`: `lit_num = v & 3`, `shift = (v & 4) ? 16 : 0`), где `lit_num` —
+ * номер слова `LTS` **от конца** команды. У одиночной команды слово одно и полуслог старший,
+ * поэтому там поле — `0xd4` ({@link LITERAL_FIELD_F16}).
+ */
+export const LITERAL_FIELD_F16_BASE = 0xd0;
+
+/** База поля ссылки на **32-битный** литерал: `0xd8 | lit_num` — слово `LTS` целиком. */
+export const LITERAL_FIELD_F32_BASE = 0xd8;
+
+/**
+ * Сдвиг поля ссылки на литерал в слове ALS: раскладка ALF1/ALF2 — `opc[31:24] | src1[23:16] |
+ * src2[15:8] | dst[7:0]` (`qemu/target/e2k/syllab-format.h:59-63`).
+ *
+ * Измерено: у `movts` (ALF2, операнды `src2`, `dst`) поле литерала стоит в `src2` —
+ * `movts,0 42, %b[1]` → `01 d4 c0 60`. Другие слоты для литерала замером не подтверждены, поэтому
+ * называются отказом, а не догадкой.
+ */
+function alsLiteralFieldShift(slot: RealSlot, mnemonic: string): number {
+  if (slot === "src1") return 16;
+  if (slot === "src2") return 8;
+  if (slot === "dst") return 0;
+  throw new EncodingRefusedError(
+    `«${mnemonic}»: литерал в слоте ${slot} — поле ссылки живёт в src1/src2/dst, и раскладка этого ` +
+      "слота ассемблером МЦСТ не измерялась",
+  );
+}
+
+/** Раскладка литерала до выбора места: слово ALS с **обнулённым** полем ссылки, сдвиг поля, ширина. */
+interface LiteralLayout {
+  readonly als: number;
+  readonly fieldShift: number;
+  readonly value: number;
+  readonly wide32: boolean;
+}
+
+/**
+ * Разложить литеральный операнд: проверить ширину, собрать слово ALS **без** поля ссылки.
+ *
+ * Поле ссылки обнуляется намеренно: у одиночной команды оно известно сразу (`0xd4`/`0xd8` — слово
+ * `LTS` одно), а в широкой команде зависит от места литерала среди слов `LTS`, и место выбирает
+ * {@link wideCommandBytes}. Так раскладка полей остаётся **одной** на оба пути: слово собирает
+ * `alsWord`, а вписывает поле тот, кто знает место.
+ */
+function literalLayoutFor(
+  entry: RealOpcodeEntry,
+  operands: readonly Operand[],
+  literal: LiteralOperand,
+): LiteralLayout {
+  if (!Number.isInteger(literal.value)) {
+    throw new EncodingError(`«${entry.mnemonic}»: литерал ${literal.value} — не целое`);
+  }
+  const fits16 = literal.value >= -32768 && literal.value <= 32767;
+  const fits32 = literal.value >= -2147483648 && literal.value <= 2147483647;
+  if (!fits16 && !fits32) {
+    throw new EncodingRefusedError(
+      `«${entry.mnemonic}»: литерал ${literal.value} не влезает в 32 бита; 64-битная форма (0xdc, ` +
+        "два слова литералов) не реализована",
+    );
+  }
+  // Поля регистров: литеральный операнд занимает поле своего слота, остальные — как обычно.
+  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0 };
+  entry.operands.forEach((slot, index) => {
+    if (index === literal.index) return;
+    values[slot] = registerField(operands[index], slot, entry.mnemonic);
+  });
+  const literalSlot = entry.operands[literal.index]!;
+  values[literalSlot] = fits16 ? LITERAL_FIELD_F16 : LITERAL_FIELD_F32;
+  // У ALF2 на месте src1 лежит расширение opce = NONE, а не регистр
+  // (include/opcode/e2k.h:93); без этого байт 6 отличается от байтов ассемблера.
+  if (entry.form === "ALF2") values.src1 = ALES_OPCE_NONE;
+  // Проверяются только регистровые слоты: в слоте литерала лежит поле ссылки (0xd4/0xd8).
+  // Верхняя граница — 0x80 | 63 (оконный файл): поле слота восьмибитное, 0xc0+ занято литералами.
+  for (const slot of entry.operands) {
+    if (slot === literalSlot || (entry.form === "ALF2" && slot === "src1")) continue;
+    const value = values[slot]!;
+    if (value > (REGISTER_FILE_WINDOW | REAL_MAX_REGISTER)) {
+      throw new EncodingError(`«${entry.mnemonic}»: регистр ${value} вне 0..${REAL_MAX_REGISTER}`);
+    }
+  }
+  const fieldShift = alsLiteralFieldShift(literalSlot, entry.mnemonic);
+  const word = alsWord(entry, {
+    src1: values.src1!,
+    src2: values.src2!,
+    src3: values.src3 ?? 0,
+    dst: values.dst!,
+    pdst: 0,
+  });
+  return {
+    als: (word & ~(0xff << fieldShift)) >>> 0,
+    fieldShift,
+    value: literal.value,
+    wide32: !fits16,
+  };
+}
+
+/**
+ * Раскладка команды с литеральным операндом: слово ALS и слово LTS.
+ *
+ * Случай **одного** слова `LTS` — тот, что у одиночной команды: место известно заранее (слово одно,
+ * полуслог старший), поэтому поле ссылки вписывается здесь же. Многолитеральные раскладки идут
+ * через {@link wideCommandBytes}.
+ *
+ * Литерал читается **с конца** команды (`qemu/target/e2k/instr-bits.h:211-221`): у 16-битного
+ * занята старшая половина последнего слова, у 32-битного — слово целиком. Измерено ассемблером
+ * МЦСТ: `movts,0 42, %b[1]` → последнее слово `00 00 2a 00`, `movts,0 _f32 0x100000, %b[1]` →
+ * `00 00 10 00`.
+ */
+function literalLayoutOf(
+  entry: RealOpcodeEntry,
+  operands: readonly Operand[],
+  literal: LiteralOperand,
+): { readonly als: number; readonly lts: number } {
+  const layout = literalLayoutFor(entry, operands, literal);
+  const field = layout.wide32 ? LITERAL_FIELD_F32 : LITERAL_FIELD_F16;
+  return {
+    als: (layout.als | ((field & 0xff) << layout.fieldShift)) >>> 0,
+    lts: layout.wide32 ? layout.value >>> 0 : (((layout.value & 0xffff) << 16) >>> 0),
+  };
+}
 
 /**
  * Поле короткой непосредственной формы: `0xc0 | N` для N = 0…15.
@@ -1679,67 +2011,6 @@ function encodeImm64(
   writeWord(bytes, 8, Number(bits >> 32n) >>> 0);
   writeWord(bytes, 12, Number(bits & 0xffffffffn) >>> 0);
   return bytes;
-}
-
-/**
- * Раскладка команды с литеральным операндом: слово ALS и слово LTS.
- *
- * **Одна раскладка на оба пути** — одиночную команду (`encodeWithLiteral`) и слог широкой команды
- * (`wideAlsSlotOf`): вторая реализация разошлась бы с первой, и расхождение не поймал бы ни один
- * оракул. Именно так было бы, если бы `wideCommandBytes` считал литерал сам.
- *
- * Литерал читается **с конца** команды (`qemu/target/e2k/instr-bits.h:211-221`): у 16-битного
- * занята старшая половина последнего слова, у 32-битного — слово целиком. Измерено ассемблером
- * МЦСТ: `movts,0 42, %b[1]` → последнее слово `00 00 2a 00`, `movts,0 _f32 0x100000, %b[1]` →
- * `00 00 10 00`.
- */
-function literalLayoutOf(
-  entry: RealOpcodeEntry,
-  operands: readonly Operand[],
-  literal: LiteralOperand,
-): { readonly als: number; readonly lts: number } {
-  if (!Number.isInteger(literal.value)) {
-    throw new EncodingError(`«${entry.mnemonic}»: литерал ${literal.value} — не целое`);
-  }
-  const fits16 = literal.value >= -32768 && literal.value <= 32767;
-  const fits32 = literal.value >= -2147483648 && literal.value <= 2147483647;
-  if (!fits16 && !fits32) {
-    throw new EncodingRefusedError(
-      `«${entry.mnemonic}»: литерал ${literal.value} не влезает в 32 бита; 64-битная форма (0xdc, ` +
-        "два слова литералов) не реализована",
-    );
-  }
-  const field = fits16 ? LITERAL_FIELD_F16 : LITERAL_FIELD_F32;
-  // Поля регистров: литеральный операнд занимает поле своего слота, остальные — как обычно.
-  const values: Record<string, number> = { src1: 0, src2: 0, dst: 0 };
-  entry.operands.forEach((slot, index) => {
-    if (index === literal.index) return;
-    values[slot] = registerField(operands[index], slot, entry.mnemonic);
-  });
-  const literalSlot = entry.operands[literal.index]!;
-  values[literalSlot] = field;
-  // У ALF2 на месте src1 лежит расширение opce = NONE, а не регистр
-  // (include/opcode/e2k.h:93); без этого байт 6 отличается от байтов ассемблера.
-  if (entry.form === "ALF2") values.src1 = ALES_OPCE_NONE;
-  // Проверяются только регистровые слоты: в слоте литерала лежит поле ссылки (0xd4/0xd8).
-  // Верхняя граница — 0x80 | 63 (оконный файл): поле слота восьмибитное, 0xc0+ занято литералами.
-  for (const slot of entry.operands) {
-    if (slot === literalSlot || (entry.form === "ALF2" && slot === "src1")) continue;
-    const value = values[slot]!;
-    if (value > (REGISTER_FILE_WINDOW | REAL_MAX_REGISTER)) {
-      throw new EncodingError(`«${entry.mnemonic}»: регистр ${value} вне 0..${REAL_MAX_REGISTER}`);
-    }
-  }
-  return {
-    als: alsWord(entry, {
-      src1: values.src1!,
-      src2: values.src2!,
-      src3: values.src3 ?? 0,
-      dst: values.dst!,
-      pdst: 0,
-    }),
-    lts: fits16 ? (((literal.value & 0xffff) << 16) >>> 0) : literal.value >>> 0,
-  };
 }
 
 function encodeWithLiteral(

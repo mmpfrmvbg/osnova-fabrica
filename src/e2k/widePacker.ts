@@ -34,10 +34,17 @@
  * | литерал | как едет | чем измерено |
  * |---|---|---|
  * | значение 0…15 | обычный слог ALS короткой формы (`0xc0 \| N`), слова `LTS` нет | `.tmp/osnova-lts-short-probe.ts`, 6 форм |
- * | значение ≥ 16 | слог ALS + слово `LTS` последним, добивка встаёт перед ним | `src/e2k/e2kWideSsLts.test.ts`, 14 форм |
+ * | значение ≥ 16 | слог ALS + слово `LTS` последним, добивка встаёт перед ним | `src/e2k/e2kWideSsLts.test.ts`, 46 форм |
  *
- * В одной команде — не больше одного `LTS` (измерены формы с одним словом); два малых литерала
- * допустимы, потому что слова `LTS` они не несут вовсе.
+ * **Литералов в одной команде может быть несколько** — раскладка это умеет с 2026-09-27: место в
+ * словах `LTS` разбирает расстановка (`placeLiterals`, `src/e2k/e2k-real.ts`), тем же перебором, что
+ * `as`. Измерено (`.tmp/osnova-two-lts-probe.ts`): два 16-битных литерала делят одно слово
+ * (`{ movts,0 42; movts,1 43 }` → `0x002a002b`), 32-битный занимает слово целиком, равные значения
+ * переиспользуют одно место. Но **упаковщик пару пока не сливает**: включение сдвигает закреплённые
+ * числа пяти ядер (пакетов 857 → 855, у `iir` 122 → 120, пустых слотов 4066 → 4054 — измерено
+ * 2026-09-27, `.tmp/osnova-literal-pair-measure.ts`), а сдвинутое число по правилу проекта — отдельный
+ * коммит с перемером таблицы (`src/e2k/literalBarriers.test.ts`, не в этой области записи).
+ * Причина названа в `packWide` на месте правила, а не спрятана.
  *
  * # Что модуль умеет с управляющим слогом
  *
@@ -129,11 +136,9 @@ export function packetableRefusal(instruction: AsmInstruction): string | undefin
     return `«${instruction.mnemonic}»: поле nop = ${String(entry.implicitNops)} живёт в HS и было бы общим для всей команды`;
   }
   // Литерал в широкой команде: раскладка ИЗМЕРЕНА и кодируется (`wideAlsSlotOf`,
-  // `src/e2k/e2kWideSsLts.test.ts`, `docs/hardware-debt.md` §3.34), но в упаковщик НЕ включена —
-  // причина названа, а не спрятана. Замер 2026-09-27: с ней литерал перестаёт быть барьером
-  // пакетов, и закреплённые числа корпуса сдвигаются (пакетов 220 → 210, «литеральных с отказом»
-  // 20 → 0, отказы по `movts` исчезают). По правилу проекта сдвинутое число — отдельный коммит с
-  // датой (`AGENTS.md`, «Инварианты правок в `src/e2k/**`»), поэтому включение — следующий шаг.
+  // `src/e2k/e2kWideSsLts.test.ts`, `docs/hardware-debt.md` §3.34), включая НЕСКОЛЬКО литералов в
+  // одной команде: место в словах `LTS` разбирает `wideCommandBytes` (`placeLiterals`). Ширина
+  // литерала выбирается значением: 0…15 — короткая форма без `LTS`, больше — слово `LTS`.
   const nonRegister = instruction.operands.filter((operand) => operand.kind !== 'reg');
   if (nonRegister.length > 0) {
     const kind = nonRegister[0]!.kind;
@@ -150,10 +155,11 @@ export function packetableRefusal(instruction: AsmInstruction): string | undefin
       return `«${instruction.mnemonic}»: операнд вида ${kind} в широкую команду не кладётся`;
     }
     // Литерал (`imm`) в упаковщик ВКЛЮЧЁН 2026-09-27. Раскладка измерена: `HS, [SS], ALS…,
-    // [CS0|CS1], [ALES…], [добивка], [LTS]` — литерал входит в счёт добивки (`src/e2k/e2kWideSsLts.test.ts`,
-    // 14 форм сверены с `as` побайтово), а малый литерал (0…15) и вовсе идёт короткой формой без
-    // слова LTS (замер 2026-09-27, `.tmp/osnova-lts-short-probe.ts`). Дальше решение принимает
-    // `wideAlsSlotOf`: если форма литерал не выражает (длинная форма ALF11), причина вернётся оттуда.
+    // [CS0|CS1], [ALES…], [добивка], [LTS…]` — литерал входит в счёт добивки, а слов `LTS` может быть
+    // несколько (`src/e2k/e2kWideSsLts.test.ts`, 46 форм сверены с `as` побайтово); малый литерал
+    // (0…15) и вовсе идёт короткой формой без слова LTS (замер 2026-09-27,
+    // `.tmp/osnova-lts-short-probe.ts`). Дальше решение принимает `wideAlsSlotOf`: если форма литерал
+    // не выражает (длинная форма ALF11 или слот вне src1/src2/dst), причина вернётся оттуда.
   }
   try {
     wideAlsSlotOf(instruction);
@@ -205,7 +211,7 @@ export function encodeWideGroup(
       channels: slot.syllable.channels,
       als: slot.syllable.als,
       ...(slot.syllable.ales === undefined ? {} : { ales: slot.syllable.ales }),
-      ...(slot.syllable.lts === undefined ? {} : { lts: slot.syllable.lts }),
+      ...(slot.syllable.literal === undefined ? {} : { literal: slot.syllable.literal }),
     })),
     syllables,
   );
@@ -300,8 +306,14 @@ export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] 
           (group.length >= MAX_SLOTS ? `в пакете уже ${group.length} слогов (предел ${MAX_SLOTS})` : undefined) ??
           (hasSs && alreadySs ? 'в пакете уже есть слог SS: слог SS в команде один' : undefined) ??
           (hasCs && alreadyCs ? `в пакете уже есть управляющий слог «${groupSyllables.cs!.form}»` : undefined) ??
-          (syllable.lts !== undefined && group.some((slot) => slot.syllable.lts !== undefined)
-            ? 'в пакете уже есть литерал: измерены формы с одним словом LTS'
+          // Граница НАЗВАНА и измерена: раскладка двух литералов в одной команде реализована
+          // (`wideCommandBytes` → `placeLiterals`, 46 форм сверены с `as` побайтово), но упаковщик
+          // пару пока НЕ сливает — включение сдвигает закреплённые числа пяти ядер: пакетов 857 → 855
+          // (у `iir` 122 → 120: два пакета несут по два больших литерала), пустых слотов 4066 → 4054.
+          // По правилу проекта сдвинутое число — отдельный коммит с объяснением и перемером таблицы
+          // (`src/e2k/literalBarriers.test.ts`), поэтому включение — следующий шаг.
+          (syllable.literal !== undefined && group.some((slot) => slot.syllable.literal !== undefined)
+            ? 'в пакете уже есть литерал: раскладка пары измерена, но включение сдвигает закреплённые числа пяти ядер (пакетов 857 → 855, у `iir` 122 → 120)'
             : undefined);
     if (channel === undefined || conflict !== undefined) {
       flush();

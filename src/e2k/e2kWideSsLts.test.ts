@@ -33,7 +33,7 @@
  *
  * # Главная проверка — внешняя, побайтовая
  *
- * Эталон — **27 форм**, собранных ассемблером МЦСТ; наш кодировщик обязан дать те же байты **той же
+ * Эталон — **46 форм**, собранных ассемблером МЦСТ; наш кодировщик обязан дать те же байты **той же
  * длины**. Таблица закреплена ниже, живая сверка с `as` идёт отдельной проверкой.
  *
  * # Что изменилось 2026-09-27: литерал ВКЛЮЧЁН в упаковщик, и таблица выросла с 14 форм до 27
@@ -53,17 +53,41 @@
  * большим — одно слово `LTS` (U, X), и **до шести** слогов ALS вместе с `LTS` (Y, Z).
  * Замеры: `.tmp/osnova-lts-short-probe.ts`, `-multi-probe.ts`, `-multi2-probe.ts`, `-many-probe.ts`.
  *
+ * # Что изменилось 2026-09-27 (шаг 3): ДВА И БОЛЬШЕ БОЛЬШИХ ЛИТЕРАЛА в одной команде
+ *
+ * Прежде пара больших литералов была названным отказом с причиной «не измерялось». Замер
+ * (`.tmp/osnova-two-lts-probe.ts`, `.tmp/osnova-share-probe.ts`, `.tmp/osnova-share2-probe.ts` —
+ * сборка `as-new -mcpu=elbrus-v5` и разбор дизассемблера **по адресам**) дал правило раскладки, и
+ * отказ снят: форма AA — ровно тот вход, что назван в задаче: `{ movts,0 42; movts,1 43 }` → `0x002a002b`.
+ *
+ * Измеренные правила (все — в таблице ниже):
+ *
+ * | правило | замер |
+ * |---|---|
+ * | место литерала выбирает **расстановка** с наименьшей маской занятых полуслогов (как `as`) | AD, AE: hi и lo слова `lts0`, затем hi слова `lts1` |
+ * | 16-битные литералы делят **одно** слово, старший полуслог — литералу младшего канала | AA, AB |
+ * | **равные** значения делят одно место (32-битные — слово целиком) | AC, AM |
+ * | 32-битный литерал занимает слово **целиком**, остальные уходят в другое слово | AJ, AK, AL, AO, AP, AR |
+ * | 16-битный литерал делит полуслог с 32-битным, если их значения совпали | AN, AS, AT |
+ * | добивка встаёт перед словами `LTS`, и её наличие зависит от **числа** этих слов | AE (два слова → добивка), AA (одно слово → нет) |
+ *
+ * **Чего наш интерфейс не выражает:** у `as` ширину литерала задаёт спецификатор (`_f16s`/`_f32s`),
+ * у нас её выбирает **значение** (`imm` в пределах 16 бит → 16 бит, дальше 32). Поэтому форма
+ * `{ movts,0 42; movts,1 _f32 42 }` (равные значения, но разной ширины) в таблицу не входит: наш
+ * `imm(42)` — всегда 16-битный, и байты `as` для неё воспроизвести нечем. Это названная граница
+ * представления, а не расхождение раскладки.
+ *
  * # Чего этот оракул НЕ доказывает
  *
  * 1. Что так поведёт себя железо: сверка идёт с ассемблером МЦСТ, а не с машиной.
  * 2. Что кладутся **все** формы: `return` и `setwd` остаются названным отказом; `setwd` несёт
  *    литерал, и раскладка «ALS + CS1 + LTS» именно для него не проверялась.
- * 3. Что **два литеральных** (`LTS`) слова ложатся в одну команду. Ассемблер такую команду
- *    ПРИНИМАЕТ — измерено 2026-09-27: `{ movts,0 42, %b[1]; movts,1 43, %b[2] }` → одно слово
- *    `0x002a002b`, оба 16-битных литерала в нём, — но наш кодировщик её **отвергает**: слова
- *    литералов складываются по ширине, и раскладка смешанных ширин не выведена. Малый литерал слова
- *    `LTS` не несёт, поэтому запрет двух `LTS` двух малых не касается (T, V) и «малый + большой»
- *    тоже проходит (U, X).
+ * 3. Что наш порядок литералов совпадает с `as` при **любом** порядке текста. Ассемблер раздаёт
+ *    места литералам в порядке **текста**, мы — в порядке **слогов команды** (по каналу): измерено
+ *    `{ movts,1 42; movts,0 43 }` → у `as` старшая половина слова несёт 42 (первый в тексте), тогда
+ *    как наш эмиттер выдаёт инструкции по возрастанию канала, и первым для него идёт `movts,0 43`.
+ *    Во всех формах таблицы порядок текста у `as` и порядок слогов у нас совпадают, поэтому байты
+ *    сравнимы; само различие закреплено отдельной проверкой ниже.
  * 4. Что 64-битный литерал (`imm64`, форма `0xdc`, ДВА слова) ложится в широкую команду: его
  *    раскладка не измерялась и отвергается.
  * 5. Что выбор канала — наш: `packWide` берёт **первый свободный** канал, а ассемблер чтит
@@ -71,11 +95,13 @@
  * 6. Что литерал ложится в **любой** канал: `movts` кодируется только в ALC0/1/3/4 — это
  *    `LONG_CHANNELS` из `opcodes/e2k-opc.h:644`, и проверено снаружи (`{ movts,2 5, %b[1] }` →
  *    «`movts' cannot be encoded in ALC2»).
+ * 7. Что литерал кладётся в слот, отличный от `src2`: поле ссылки живёт в `src1`/`src2`/`dst`, но
+ *    измерен только `src2` (`movts`, ALF2) — остальные слоты называются отказом.
  */
 import { describe, expect, it } from 'vitest';
 import { getEncoder, toHex, type AsmInstruction, type Operand } from './backend';
 import { EncodingRefusedError } from './encoding';
-import { wideAlsSlotOf, wideCommandBytes } from './e2k-real';
+import { wideAlsSlotOf, wideCommandBytes, wideSyllablesOf } from './e2k-real';
 import { packWide, packetableRefusal } from './widePacker';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 
@@ -124,6 +150,19 @@ interface WideForm {
   readonly asText: string;
   readonly instructions: readonly AsmInstruction[];
   readonly hex: string;
+}
+
+/**
+ * Сколько в форме **больших** литералов (значение > 15, то есть со словом `LTS`): упаковщик пока
+ * сливает в одну команду не больше одного такого — причина названа в `packWide` и измерена
+ * (`.tmp/osnova-literal-pair-measure.ts`).
+ */
+export function bigLiteralsOf(instructions: readonly AsmInstruction[]): number {
+  return instructions.reduce(
+    (count, instruction) =>
+      count + instruction.operands.filter((operand) => operand.kind === 'imm' && operand.value > 15).length,
+    0,
+  );
 }
 
 /**
@@ -316,6 +355,155 @@ export const CASES: readonly WideForm[] = [
     instructions: [add(0, 2), literal(1, 42), add(2, 5), add(3, 8), add(4, 11), add(5, 14)],
     hex: '36 00 00 fc 04 03 02 10 01 d4 c0 60 07 06 05 10 0a 09 08 10 0d 0c 0b 10 10 0f 0e 10 00 00 2a 00',
   },
+  // ── ДВА И БОЛЬШЕ БОЛЬШИХ ЛИТЕРАЛА В ОДНОЙ КОМАНДЕ (2026-09-27, `.tmp/osnova-two-lts-probe.ts`) ──
+  // Место литерала в словах LTS выбирает расстановка: `as` минимизирует маску занятых полуслогов
+  // (`busy_lts`, gas/config/tc-e2k.c:8266-8345). Отсюда измеренные правила: 16-битные литералы делят
+  // полуслоги слов `lts0`/`lts1` (старший полуслог предпочитается младшему), 32-битный занимает слово
+  // целиком, одинаковые значения переиспользуют одно место.
+  {
+    key: 'AA movts,0 42 + movts,1 43 (ДВА больших литерала в ОДНОМ слове LTS)',
+    asText: '{ movts,0 42, %b[1]; movts,1 43, %b[2] }',
+    instructions: [literal(0, 42, undefined, 1), literal(1, 43, undefined, 2)],
+    hex: '12 00 00 0c 01 d4 c0 60 02 d0 c0 60 2b 00 2a 00',
+  },
+  {
+    key: 'AB movts,0 43 + movts,1 42 (значения переставлены: место решает КАНАЛ, не значение)',
+    asText: '{ movts,0 43, %b[1]; movts,1 42, %b[2] }',
+    instructions: [literal(0, 43, undefined, 1), literal(1, 42, undefined, 2)],
+    hex: '12 00 00 0c 01 d4 c0 60 02 d0 c0 60 2a 00 2b 00',
+  },
+  {
+    key: 'AC movts,0 42 + movts,1 42 (РАВНЫЕ значения делят один полуслог: слово одно)',
+    asText: '{ movts,0 42, %b[1]; movts,1 42, %b[2] }',
+    instructions: [literal(0, 42, undefined, 1), literal(1, 42, undefined, 2)],
+    hex: '12 00 00 0c 01 d4 c0 60 02 d4 c0 60 00 00 2a 00',
+  },
+  {
+    key: 'AD movts,0 42 + movts,1 43 + movts,3 44 (ТРИ больших: hi и lo слова lts0, hi слова lts1)',
+    asText: '{ movts,0 42, %b[1]; movts,1 43, %b[2]; movts,3 44, %b[3] }',
+    instructions: [literal(0, 42, undefined, 1), literal(1, 43, undefined, 2), literal(3, 44, undefined, 3)],
+    hex: '23 00 00 2c 01 d4 c0 60 02 d0 c0 60 03 d5 c0 60 00 00 2c 00 2b 00 2a 00',
+  },
+  {
+    key: 'AE movts,0 42 + movts,1 43 + movts,3 44 + movts,4 45 (ЧЕТЫРЕ больших: два слова LTS + добивка)',
+    asText: '{ movts,0 42, %b[1]; movts,1 43, %b[2]; movts,3 44, %b[3]; movts,4 45, %b[4] }',
+    instructions: [
+      literal(0, 42, undefined, 1),
+      literal(1, 43, undefined, 2),
+      literal(3, 44, undefined, 3),
+      literal(4, 45, undefined, 4),
+    ],
+    hex: '34 00 00 6c 01 d4 c0 60 02 d0 c0 60 03 d5 c0 60 04 d1 c0 60 00 00 00 00 2d 00 2c 00 2b 00 2a 00',
+  },
+  {
+    key: 'AF adds,0 + movts,1 42 + movts,3 43 (ALS + два больших)',
+    asText: '{ adds,0 %b[2], %b[3], %b[4]; movts,1 42, %b[1]; movts,3 43, %b[5] }',
+    instructions: [add(0, 2), literal(1, 42, undefined, 1), literal(3, 43, undefined, 5)],
+    hex: '23 00 00 2c 04 03 02 10 01 d4 c0 60 05 d0 c0 60 00 00 00 00 2b 00 2a 00',
+  },
+  {
+    key: 'AG movts,0 42 + movts,1 43 + ct (SS + два больших)',
+    asText: '{ movts,0 42, %b[1]; movts,1 43, %b[2]; ct %ctpr1 }',
+    instructions: [literal(0, 42, undefined, 1), { ...literal(1, 43, undefined, 2), control: ct() }],
+    hex: '23 10 00 0c 20 04 00 c0 01 d4 c0 60 02 d0 c0 60 00 00 00 00 2b 00 2a 00',
+  },
+  {
+    key: 'AH adds,0 + movts,1 42 + movts,3 43 + ct %ctpr2 (ALS + SS + два больших)',
+    asText: '{ adds,0 %b[2], %b[3], %b[4]; movts,1 42, %b[1]; movts,3 43, %b[5]; ct %ctpr2 }',
+    instructions: [add(0, 2), literal(1, 42, undefined, 1), { ...literal(3, 43, undefined, 5), control: ct(2) }],
+    hex: '24 10 00 2c 20 08 00 c0 04 03 02 10 01 d4 c0 60 05 d0 c0 60 2b 00 2a 00',
+  },
+  {
+    key: 'AI adds,0 + movts,1 42 + movts,3 43 + sdisp (CS0 + два больших)',
+    asText: '{ adds,0 %b[2], %b[3], %b[4]; movts,1 42, %b[1]; movts,3 43, %b[5]; sdisp %ctpr1, 3 }',
+    instructions: [add(0, 2), literal(1, 42, undefined, 1), { ...literal(3, 43, undefined, 5), control: sdisp() }],
+    hex: '24 40 00 2c 04 03 02 10 01 d4 c0 60 05 d0 c0 60 03 00 00 60 2b 00 2a 00',
+  },
+  {
+    key: 'AJ movts,0 42 + movts,1 _f32 0x100000 (16 + 32: слово lts0 занято 32-битным, 16-битный — в lts1 hi)',
+    asText: '{ movts,0 42, %b[1]; movts,1 _f32 0x100000, %b[2] }',
+    instructions: [literal(0, 42, undefined, 1), literal(1, 0x100000, undefined, 2)],
+    hex: '22 00 00 0c 01 d5 c0 60 02 d8 c0 60 00 00 00 00 00 00 2a 00 00 00 10 00',
+  },
+  {
+    key: 'AK movts,0 _f32 0x100000 + movts,1 43 (32 + 16: порядок слогов другой, раскладка та же)',
+    asText: '{ movts,0 _f32 0x100000, %b[1]; movts,1 43, %b[2] }',
+    instructions: [literal(0, 0x100000, undefined, 1), literal(1, 43, undefined, 2)],
+    hex: '22 00 00 0c 01 d8 c0 60 02 d5 c0 60 00 00 00 00 00 00 2b 00 00 00 10 00',
+  },
+  {
+    key: 'AL movts,0 _f32 0x100000 + movts,1 _f32 0x200000 (два 32-битных: по слову каждому)',
+    asText: '{ movts,0 _f32 0x100000, %b[1]; movts,1 _f32 0x200000, %b[2] }',
+    instructions: [literal(0, 0x100000, undefined, 1), literal(1, 0x200000, undefined, 2)],
+    hex: '22 00 00 0c 01 d8 c0 60 02 d9 c0 60 00 00 00 00 00 00 20 00 00 00 10 00',
+  },
+  {
+    key: 'AM movts,0 _f32 0x100000 + movts,1 _f32 0x100000 (РАВНЫЕ 32-битные делят слово)',
+    asText: '{ movts,0 _f32 0x100000, %b[1]; movts,1 _f32 0x100000, %b[2] }',
+    instructions: [literal(0, 0x100000, undefined, 1), literal(1, 0x100000, undefined, 2)],
+    hex: '12 00 00 0c 01 d8 c0 60 02 d8 c0 60 00 00 10 00',
+  },
+  {
+    key: 'AN movts,0 _f32 0x100000 + movts,1 16 (16-битный литерал равен СТАРШЕЙ половине 32-битного)',
+    asText: '{ movts,0 _f32 0x100000, %b[1]; movts,1 16, %b[2] }',
+    instructions: [literal(0, 0x100000, undefined, 1), literal(1, 16, undefined, 2)],
+    hex: '12 00 00 0c 01 d8 c0 60 02 d4 c0 60 00 00 10 00',
+  },
+  {
+    key: 'AO movts,0 _f32 0x100000 + movts,1 43 + movts,3 _f32 0x200000 (32, 16, 32: 16-битный уходит в lts1)',
+    asText: '{ movts,0 _f32 0x100000, %b[1]; movts,1 43, %b[2]; movts,3 _f32 0x200000, %b[3] }',
+    instructions: [
+      literal(0, 0x100000, undefined, 1),
+      literal(1, 43, undefined, 2),
+      literal(3, 0x200000, undefined, 3),
+    ],
+    hex: '33 00 00 2c 01 d8 c0 60 02 d5 c0 60 03 da c0 60 00 00 00 00 00 00 20 00 00 00 2b 00 00 00 10 00',
+  },
+  {
+    key: 'AS movts,0 42 + movts,1 _f32 0x2a0000 (16-битный литерал равен СТАРШЕЙ половине 32-битного)',
+    asText: '{ movts,0 42, %b[1]; movts,1 _f32 0x2a0000, %b[2] }',
+    instructions: [literal(0, 42, undefined, 1), literal(1, 0x2a0000, undefined, 2)],
+    hex: '12 00 00 0c 01 d4 c0 60 02 d8 c0 60 00 00 2a 00',
+  },
+  {
+    key: 'AT movts,0 _f32 0x10002b + movts,1 43 (16-битный литерал равен МЛАДШЕЙ половине 32-битного)',
+    asText: '{ movts,0 _f32 0x10002b, %b[1]; movts,1 43, %b[2] }',
+    instructions: [literal(0, 0x10002b, undefined, 1), literal(1, 43, undefined, 2)],
+    hex: '12 00 00 0c 01 d8 c0 60 02 d0 c0 60 2b 00 10 00',
+  },
+  {
+    key: 'AP movts,0 _f32 0x100000 + movts,1 _f32 0x200000 + movts,3 43 (два 32-битных и 16-битный после них)',
+    asText: '{ movts,0 _f32 0x100000, %b[1]; movts,1 _f32 0x200000, %b[2]; movts,3 43, %b[3] }',
+    instructions: [
+      literal(0, 0x100000, undefined, 1),
+      literal(1, 0x200000, undefined, 2),
+      literal(3, 43, undefined, 3),
+    ],
+    hex: '33 00 00 2c 01 d8 c0 60 02 da c0 60 03 d5 c0 60 00 00 00 00 00 00 20 00 00 00 2b 00 00 00 10 00',
+  },
+  {
+    key: 'AQ movts,0 42 + movts,1 _f32 0x100000 + movts,3 44 (16, 32, 16: два 16-битных делят слово lts1)',
+    asText: '{ movts,0 42, %b[1]; movts,1 _f32 0x100000, %b[2]; movts,3 44, %b[3] }',
+    instructions: [
+      literal(0, 42, undefined, 1),
+      literal(1, 0x100000, undefined, 2),
+      literal(3, 44, undefined, 3),
+    ],
+    hex: '23 00 00 2c 01 d5 c0 60 02 d8 c0 60 03 d1 c0 60 2c 00 2a 00 00 00 10 00',
+  },
+  {
+    key: 'AR movts,0 _f32 0x100000 + movts,1 _f32 0x200000 + movts,3 44 + movts,4 45 (ТРИ слова LTS)',
+    asText:
+      '{ movts,0 _f32 0x100000, %b[1]; movts,1 _f32 0x200000, %b[2]; movts,3 44, %b[3]; ' +
+      'movts,4 45, %b[4] }',
+    instructions: [
+      literal(0, 0x100000, undefined, 1),
+      literal(1, 0x200000, undefined, 2),
+      literal(3, 44, undefined, 3),
+      literal(4, 45, undefined, 4),
+    ],
+    hex: '34 00 00 6c 01 d8 c0 60 02 da c0 60 03 d5 c0 60 04 d1 c0 60 00 00 20 00 2d 00 2c 00 00 00 10 00',
+  },
 ];
 
 /**
@@ -335,6 +523,28 @@ export function ourBytes(instructions: readonly AsmInstruction[]): string {
   return toHex(packets[0]!.bytes).replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Наши байты **раскладкой напрямую** (`wideCommandBytes`) — тот же код, которым команду собирает
+ * упаковщик (`encodeWideGroup`), но без его решения о границах пакета.
+ *
+ * Нужен формам с двумя и более большими литералами: упаковщик пару пока НЕ сливает, и причина
+ * названа (`packWide`): включение сдвигает закреплённые числа пяти ядер — пакетов 857 → 855
+ * (у `iir` 122 → 120), пустых слотов 4066 → 4054 (замер `.tmp/osnova-literal-pair-measure.ts`).
+ * Сдвинутое число по правилу проекта — отдельный коммит с перемером таблицы `literalBarriers`.
+ */
+export function layoutBytes(instructions: readonly AsmInstruction[]): string {
+  const control = instructions.find((instruction) => instruction.control !== undefined)?.control;
+  const syllables = control === undefined ? {} : wideSyllablesOf(control);
+  return toHex(wideCommandBytes(instructions.map((instruction) => wideAlsSlotOf(instruction)), syllables))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Байты формы: пара больших литералов идёт раскладкой напрямую (см. `layoutBytes`). */
+export function bytesOf(item: WideForm): string {
+  return bigLiteralsOf(item.instructions) > 1 ? layoutBytes(item.instructions) : ourBytes(item.instructions);
+}
+
 /** Разбор слова заголовка: `lng`, `mdl`, `al`, `ale`, `cs`, `ss` — по полям `HS`. */
 export function headerOf(hex: string): { lng: number; mdl: number; al: number; ale: number; cs: number; ss: number } {
   const bytes = hex.trim().split(/\s+/).map((byte) => Number.parseInt(byte, 16));
@@ -350,12 +560,12 @@ export function headerOf(hex: string): { lng: number; mdl: number; al: number; a
 }
 
 describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + LTS»', () => {
-  it('наши байты совпадают с измеренными байтами ассемблера — все 14 форм', () => {
+  it('наши байты совпадают с измеренными байтами ассемблера — вся таблица', () => {
     const problems: string[] = [];
     for (const item of CASES) {
       let ours: string;
       try {
-        ours = ourBytes(item.instructions);
+        ours = bytesOf(item);
       } catch (error) {
         problems.push(`${item.key}: наш отказ — ${error instanceof Error ? error.message : String(error)}`);
         continue;
@@ -381,16 +591,23 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
     });
   });
 
-  it('литерал всегда занимает ПОСЛЕДНЕЕ слово, а добивка — слово перед ним', () => {
+  it('литерал занимает ПОСЛЕДНЕЕ слово, а добивка — слово перед ним', () => {
     for (const item of CASES) {
-      if (!item.hex.includes('2a 00')) continue; // формы без литерала 42 пропускаются
+      // Формы с одним большим литералом 42: последнее слово — слово этого литерала.
+      const bigs = item.instructions.flatMap((instruction) =>
+        instruction.operands.filter((operand) => operand.kind === 'imm' && operand.value > 15),
+      );
+      if (bigs.length !== 1 || bigs[0]!.kind !== 'imm' || bigs[0]!.value !== 42) continue;
       const words = item.hex.trim().split(/\s+/);
       const last = words.slice(-4).join(' ');
       expect(last, `${item.key}: последнее слово — не литерал 42`).toBe('00 00 2a 00');
     }
+    // Два литерала 42 и 43 делят ПОСЛЕДНЕЕ слово: старшая половина — литерал младшего канала.
+    const pair = CASES.find((item) => item.key.startsWith('AA '))!;
+    expect(pair.hex.trim().split(/\s+/).slice(-4).join(' ')).toBe('2b 00 2a 00');
   });
 
-  it('непарные формы и два слова LTS отвергаются С ПРИЧИНОЙ; литерал же в упаковщик включён', () => {
+  it('непарные формы и 64-битный литерал отвергаются С ПРИЧИНОЙ; литерал же в упаковщик включён', () => {
     const calls: { readonly what: string; readonly run: () => unknown; readonly match: RegExp }[] = [
       {
         what: 'return в пару с ALS',
@@ -419,17 +636,17 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
       expect(item.run, `${item.what}: не отвергнуто`).toThrow(EncodingRefusedError);
       expect(item.run, `${item.what}: причина не названа`).toThrow(item.match);
     }
-    // Два литеральных (LTS) слова в одной команде. Причина отказа с 2026-09-27 называет измеренное
-    // честно: ассемблер МЦСТ такую команду ПРИНИМАЕТ, не реализует её наш кодировщик.
+    // Два больших литерала в одной команде с 2026-09-27 КОДИРУЮТСЯ (форма AA) — отказ снят вместе
+    // с замером. Проверяется, что отказ действительно снят, а не спрятан: раскладка из двух слотов
+    // даёт ровно те байты, что у `as`. Приёмники разные — иначе литералы связаны по регистру.
     expect(() =>
-      wideCommandBytes([wideAlsSlotOf(literal(0, 42)), wideAlsSlotOf(literal(1, 43))]),
-    ).toThrow(EncodingRefusedError);
-    expect(() =>
-      wideCommandBytes([wideAlsSlotOf(literal(0, 42)), wideAlsSlotOf(literal(1, 43))]),
-    ).toThrow(/две операции с литералами/u);
-    expect(() =>
-      wideCommandBytes([wideAlsSlotOf(literal(0, 42)), wideAlsSlotOf(literal(1, 43))]),
-    ).toThrow(/ПРИНИМАЕТ/u);
+      wideCommandBytes([wideAlsSlotOf(literal(0, 42, undefined, 1)), wideAlsSlotOf(literal(1, 43, undefined, 2))]),
+    ).not.toThrow();
+    expect(
+      toHex(
+        wideCommandBytes([wideAlsSlotOf(literal(0, 42, undefined, 1)), wideAlsSlotOf(literal(1, 43, undefined, 2))]),
+      ),
+    ).toBe(CASES.find((item) => item.key.startsWith('AA '))!.hex);
     // Литерал в упаковщике ВКЛЮЧЁН 2026-09-27: `packetableRefusal` его больше не отвергает —
     // ни большой, ни малый. Проверяется `packetableRefusal`, а не поле `refusal` пакета: отказ был
     // «по решению», а не по форме, и именно поэтому он снимается здесь, а не в `packWide`.
@@ -447,6 +664,40 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
     expect(toHex(packets[0]!.bytes).replace(/\s+/g, ' ').trim(), 'байты наши — байты формы H').toBe(
       CASES.find((item) => item.key.startsWith('H '))!.hex,
     );
+    // ГРАНИЦА НАЗВАНА И СТОРОЖИТ: пару больших литералов упаковщик пока НЕ сливает. Причина —
+    // измеренная: включение сдвигает закреплённые числа пяти ядер (пакетов 857 → 855, у `iir`
+    // 122 → 120, пустых слотов 4066 → 4054; `.tmp/osnova-literal-pair-measure.ts`), а сдвинутое
+    // число по правилу проекта — отдельный коммит с перемером таблицы `literalBarriers`.
+    // Если границу снимут, не перемерив числа, ЭТОТ тест покраснеет — и в причине сказано, что двигать.
+    const pairPackets = packWide([literal(0, 42, undefined, 1), literal(1, 43, undefined, 2)]);
+    expect(pairPackets.length, 'пара больших литералов пока разделена: причина названа в `packWide`').toBe(2);
+    // Раскладка при этом пару СОБИРАЕТ — и байты её сверены с `as` побайтово (форма AA).
+    expect(layoutBytes([literal(0, 42, undefined, 1), literal(1, 43, undefined, 2)]), 'раскладка пару собирает').toBe(
+      CASES.find((item) => item.key.startsWith('AA '))!.hex,
+    );
+  });
+
+  it('негативный контроль: снятие второго литерала, подмена значения и зеркало полуслогов различимы', () => {
+    const pair = CASES.find((item) => item.key.startsWith('AA '))!;
+    const ours = layoutBytes(pair.instructions);
+    // (1) Второй литерал снят: слово LTS остаётся одно, и младшая его половина пуста — байты
+    //     обязаны разойтись (в паре младшая половина несёт 43).
+    const single = layoutBytes([literal(0, 42, undefined, 1), add(2, 3)]);
+    expect(ours).not.toBe(single);
+    expect(single.endsWith('00 00 2a 00'), 'одиночный литерал 42 — старшая половина слова').toBe(true);
+    expect(ours.endsWith('2b 00 2a 00'), 'в паре младшая половина несёт 43').toBe(true);
+    // (2) Значение второго литерала подменено — различимо в слове LTS.
+    const changed = layoutBytes([literal(0, 42, undefined, 1), literal(1, 44, undefined, 2)]);
+    expect(ours).not.toBe(changed);
+    // (3) ЗЕРКАЛО: если бы полуслоги раздавались наоборот (старший — старшему каналу), байты были бы
+    //     такими. Замер говорит другое — значит таблица различает, а не «сходится всегда».
+    const mirrored = '12 00 00 0c 01 d0 c0 60 02 d4 c0 60 2b 00 2a 00';
+    expect(ours).not.toBe(mirrored);
+    // (4) РАВНЫЕ значения делят полуслог: «каждому литералу своя половина» дало бы слово 0x002a002a —
+    //     замер говорит 0x002a0000, и это различие закреплено (AC).
+    const shared = CASES.find((item) => item.key.startsWith('AC '))!;
+    expect(layoutBytes(shared.instructions)).toBe(shared.hex);
+    expect(shared.hex.endsWith('00 00 2a 00'), 'равные литералы — одно слово, а не две половины').toBe(true);
   });
 
   it('негативный контроль: подмена слога или порядка ломает байты', () => {
@@ -463,6 +714,43 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
     );
     // Литерал 42 против 43 различим в последнем слове.
     expect(ourBytes([add(0, 2), literal(1, 42)])).not.toBe(ourBytes([add(0, 2), literal(1, 43)]));
+  });
+
+  it('различие названо: места литералов `as` раздаёт по ТЕКСТУ, а мы — по слогам (каналу)', () => {
+    // Измерено (`.tmp/osnova-two-lts-probe.ts`, K5): `{ movts,1 42; movts,0 43 }` — текст идёт НЕ по
+    // возрастанию канала. `as` отдаёт старшую половину слова первому литералу ТЕКСТА (42), младшую —
+    // второму (43), и поле `0xd4` достаётся КАНАЛУ 1. Наш вход — тот же набор инструкций, но слоги
+    // команды идут по каналу, поэтому первым литералом становится литерал канала 0 (43) — это
+    // ЗЕРКАЛО байтов `as`. Различие ожидаемо и названо; эмиттер выдаёт инструкции по каналу, поэтому
+    // для него значим наш порядок.
+    const asByText = '12 00 00 0c 01 d0 c0 60 02 d4 c0 60 2b 00 2a 00';
+    const ours = layoutBytes([literal(0, 43, undefined, 1), literal(1, 42, undefined, 2)]);
+    expect(ours, 'наш порядок — по каналу (форма AB)').toBe(CASES.find((item) => item.key.startsWith('AB '))!.hex);
+    expect(ours, 'это зеркало байтов `as` для того же набора').not.toBe(asByText);
+    // Живая сверка: тот же расклад слогов, записанный в тексте ПО КАНАЛУ, у `as` даёт наши байты, а
+    // текст против канала — зеркало. Значит различие именно в порядке текста, а не в раскладке.
+    const { tool } = findExternalAs();
+    if (tool === undefined) return;
+    const sample = (key: string, asText: string, instruction: AsmInstruction): AsSample => ({
+      key,
+      mnemonic: 'movts',
+      channel: 0,
+      form: 'ALF2',
+      asText,
+      instruction,
+      source: 'src/e2k/e2kWideSsLts.test.ts',
+    });
+    const results = assembleAll([
+      sample('текст по каналу', '{ movts,0 43, %b[1]; movts,1 42, %b[2] }', literal(0, 43, undefined, 1)),
+      sample('текст против канала', '{ movts,1 42, %b[2]; movts,0 43, %b[1] }', literal(1, 42, undefined, 2)),
+    ]);
+    const hexOf = (index: number): string => {
+      const result = results[index]!;
+      if (!result.ok) throw new Error(`ассемблер отказал: ${result.error}`);
+      return toHex(result.bytes).replace(/\s+/g, ' ').trim();
+    };
+    expect(hexOf(0), 'текст по каналу — наши байты').toBe(ours);
+    expect(hexOf(1), 'текст против канала — зеркало').toBe(asByText);
   });
 
   it('живая сверка с ассемблером МЦСТ: те же тексты, те же байты', () => {
@@ -491,7 +779,7 @@ describe('широкая команда «ALS + SS», «ALS + CS0» и «ALS + L
       }
       const theirs = toHex(result.bytes).replace(/\s+/g, ' ').trim();
       if (theirs !== item.hex) problems.push(`${item.key}: ассемблер дал ${theirs}, закреплено ${item.hex}`);
-      const ours = ourBytes(item.instructions);
+      const ours = bytesOf(item);
       if (ours !== theirs) problems.push(`${item.key}: наши ${ours}, ассемблер ${theirs}`);
     });
     expect(problems, problems.join('; ')).toEqual([]);
