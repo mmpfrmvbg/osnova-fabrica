@@ -21,15 +21,35 @@
  *
  * Не планирует и не переставляет: порядок инструкций сохраняется, меняется только упаковка. Не
  * packает то, что не является короткой операцией ALS: литералы, сравнения (`nop = 2` живёт в HS
- * и был бы общим для всей команды), управляющие слоги. Такие инструкции становятся командой из
- * одного слота **и разделяют пакеты** — они остаются барьером порядка.
+ * и был бы общим для всей команды), команды управления отдельной инструкцией (`setbn`, `setmas`,
+ * `call`). Такие инструкции становятся командой из одного слота **и разделяют пакеты** — они
+ * остаются барьером порядка.
+ *
+ * # Что модуль умеет с управляющим слогом
+ *
+ * Команду управления он паковать не начал: её по-прежнему нельзя положить в широкую команду
+ * **отдельной инструкцией**. Но пара «операция ALS + управляющий слог» — это одна инструкция с
+ * полем `control` (`src/e2k/backend.ts`), и такая инструкция пакуется: слог CS1 встаёт после
+ * слогов ALS и до полуслогов ALES, а признаки идут в поля `cs`/`mdl` заголовочного слога
+ * (`src/e2k/e2k-real.ts`, раздел «ШИРОКАЯ КОМАНДА «ОПЕРАЦИЯ ALS + УПРАВЛЯЮЩИЙ СЛОГ»»).
+ * В одной команде управляющий слог **один** — вторая такая инструкция начинает новый пакет.
  */
 
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
-import { alsSyllableOf, realOpcode, realRefusalReason, type AlsSyllable } from './e2k-real';
+import {
+  alsSyllableOf,
+  realControlOpcode,
+  realOpcode,
+  realRefusalReason,
+  wideCommandBytes,
+  wideControlSyllableOf,
+  E2K_ALS_NUM,
+  type AlsSyllable,
+  type WideControlSyllable,
+} from './e2k-real';
 
 /** Сколько слогов ALS допускает форма: `E2K_ALS_NUM = 6` (`qemu/target/e2k/syllab-format.h:219`). */
-export const MAX_SLOTS = 6;
+export const MAX_SLOTS = E2K_ALS_NUM;
 
 /** Слот широкой команды: инструкция и канал, в который её положил группировщик. */
 export interface PackedSlot {
@@ -79,7 +99,17 @@ export function registersOf(instruction: AsmInstruction): { reads: string[]; wri
  */
 export function packetableRefusal(instruction: AsmInstruction): string | undefined {
   const entry = realOpcode(instruction.mnemonic);
-  if (entry === undefined) return realRefusalReason(instruction.mnemonic);
+  if (entry === undefined) {
+    // Команда управления **отдельной инструкцией** в широкую команду не идёт: у неё нет слога ALS.
+    // В паре с операцией ALS тот же слог несёт поле `control` (см. `wideControlSyllableOf`).
+    if (realControlOpcode(instruction.mnemonic) !== undefined) {
+      return (
+        `«${instruction.mnemonic}»: команда управления — идёт отдельной командой; ` +
+        'в одной широкой команде с операцией ALS её несёт поле control'
+      );
+    }
+    return realRefusalReason(instruction.mnemonic);
+  }
   if ((entry.implicitNops ?? 0) !== 0) {
     return `«${instruction.mnemonic}»: поле nop = ${String(entry.implicitNops)} живёт в HS и было бы общим для всей команды`;
   }
@@ -90,6 +120,16 @@ export function packetableRefusal(instruction: AsmInstruction): string | undefin
     alsSyllableOf(instruction);
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
+  }
+  // Управляющий слог пары раскладывается ли в слог широкой команды вообще (`setbn`, `setmas`) —
+  // иначе инструкция станет командой из одного слота, и причина отказа будет названа.
+  if (instruction.control !== undefined) {
+    try {
+      wideControlSyllableOf(instruction.control);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return `«${instruction.mnemonic}» + «${instruction.control.mnemonic}»: ${reason}`;
+    }
   }
   return undefined;
 }
@@ -107,40 +147,27 @@ function dependent(a: { reads: string[]; writes: string[] }, b: { reads: string[
   return undefined;
 }
 
-/** Байты широкой команды из слогов: HS + ALS по каналам + полуслоги ALES + добивка. */
-export function encodeWideGroup(group: readonly { instruction: AsmInstruction; syllable: AlsSyllable }[]): Uint8Array {
+/**
+ * Байты широкой команды из слогов: HS + ALS по каналам + управляющий слог + полуслоги ALES +
+ * добивка.
+ *
+ * Раскладка живёт в `src/e2k/e2k-real.ts` (`wideCommandBytes`) — одна на одиночный кодировщик и
+ * на группировщик: вторая реализация разошлась бы с первой, и расхождение не поймал бы ни один
+ * оракул.
+ */
+export function encodeWideGroup(
+  group: readonly { instruction: AsmInstruction; syllable: AlsSyllable }[],
+  control?: WideControlSyllable,
+): Uint8Array {
   const ordered = [...group].sort((a, b) => a.syllable.channel - b.syllable.channel);
-  const ales = ordered.filter((slot) => slot.syllable.ales !== undefined);
-  const al = ordered.reduce((mask, slot) => mask | (1 << slot.syllable.channel), 0);
-  const ale = ales.reduce((mask, slot) => mask | (1 << slot.syllable.channel), 0);
-
-  const words: number[] = [];
-  // Длину и «среднюю точку» считаем после добивки, поэтому сначала набираем слоги.
-  words.push(0); // HS — заполним ниже
-  for (const slot of ordered) words.push(slot.syllable.als);
-  // Полуслоги ALES идут **после** «средней точки» и делят слово по двое: первый — в старшую
-  // половину (`docs/e2k-wide-commands.md` §2.4; `gas/config/tc-e2k.c:9392-9399`).
-  for (let index = 0; index < ales.length; index += 2) {
-    const first = ales[index]!.syllable.ales!;
-    const second = ales[index + 1]?.syllable.ales ?? 0;
-    words.push(((first & 0xffff) << 16) | (second & 0xffff));
-  }
-  // Добивка до чётного числа 4-байтовых слогов (`gas/config/tc-e2k.c:9488-9492`).
-  if (words.length % 2 !== 0) words.push(0);
-
-  const mdl = ordered.length; // HS + N слогов ALS = N + 1 слово до «средней точки», минус один
-  const lng = words.length / 2 - 1;
-  const hs = ((lng & 0x7) << 4) | (mdl & 0xf) | ((al & 0x3f) << 26) | ((ale & 0x3f) << 20);
-  words[0] = hs >>> 0;
-
-  const bytes = new Uint8Array(words.length * 4);
-  words.forEach((word, index) => {
-    bytes[index * 4] = word & 0xff;
-    bytes[index * 4 + 1] = (word >>> 8) & 0xff;
-    bytes[index * 4 + 2] = (word >>> 16) & 0xff;
-    bytes[index * 4 + 3] = (word >>> 24) & 0xff;
-  });
-  return bytes;
+  return wideCommandBytes(
+    ordered.map((slot) => ({
+      channel: slot.syllable.channel,
+      als: slot.syllable.als,
+      ...(slot.syllable.ales === undefined ? {} : { ales: slot.syllable.ales }),
+    })),
+    control,
+  );
 }
 
 /** Команда из одного слота: байты берутся у одиночного кодировщика — один источник раскладки. */
@@ -166,7 +193,9 @@ function singlePacket(instruction: AsmInstruction, refusal: string | undefined):
  *
  * Порядок инструкций сохраняется; в один пакет попадают только те, что не связаны по регистрам
  * (RAW/WAR/WAW) и не совпадают по каналу. Всё, что не является короткой операцией ALS, становится
- * командой из одного слота и границей пакета.
+ * командой из одного слота и границей пакета. Инструкция с управляющим слогом (`control`) пакуется
+ * как обычная операция ALS, но таких в одной команде не больше одной: слог управления в команде
+ * один (`qemu/target/e2k/syllab-format.h:24-25`).
  */
 export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] {
   const packets: WidePacket[] = [];
@@ -175,21 +204,26 @@ export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] 
   const usedChannels = new Set<number>();
   let groupReads: string[] = [];
   let groupWrites: string[] = [];
+  /** Управляющий слог пакета: у инструкций с полем `control` он едет в той же команде. */
+  let groupControl: WideControlSyllable | undefined;
 
   const flush = (): void => {
     if (group.length === 0) return;
     if (group.length === 1) {
+      // Одиночный слот — байты у одиночного кодировщика: один источник раскладки (он же собирает
+      // пару «ALS + управляющий слог», если она у инструкции есть).
       packets.push(singlePacket(group[0]!.instruction, undefined));
     } else {
       packets.push({
         slots: group.map((slot) => ({ instruction: slot.instruction, channel: slot.syllable.channel })),
-        bytes: encodeWideGroup(group),
+        bytes: encodeWideGroup(group, groupControl),
       });
     }
     group = [];
     usedChannels.clear();
     groupReads = [];
     groupWrites = [];
+    groupControl = undefined;
   };
 
   for (const instruction of instructions) {
@@ -201,13 +235,18 @@ export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] 
     }
     const syllable = alsSyllableOf(instruction);
     const registers = registersOf(instruction);
+    // Слог управления пары: раскладка уже проверена `packetableRefusal`, здесь он нужен для пакета.
+    const control = instruction.control === undefined ? undefined : wideControlSyllableOf(instruction.control);
     // Канал: первый разрешённый, которого нет в пакете. Занят — инструкция ждёт следующей команды.
     const channel = syllable.channels.find((candidate) => !usedChannels.has(candidate));
     const conflict =
       group.length === 0
         ? undefined
         : dependent({ reads: groupReads, writes: groupWrites }, registers) ??
-          (group.length >= MAX_SLOTS ? `в пакете уже ${group.length} слогов (предел ${MAX_SLOTS})` : undefined);
+          (group.length >= MAX_SLOTS ? `в пакете уже ${group.length} слогов (предел ${MAX_SLOTS})` : undefined) ??
+          (control !== undefined && groupControl !== undefined
+            ? `в пакете уже есть управляющий слог «${groupControl.form}»: слог управления в команде один`
+            : undefined);
     if (channel === undefined || conflict !== undefined) {
       flush();
       const retry = syllable.channels.find((candidate) => !usedChannels.has(candidate));
@@ -221,12 +260,14 @@ export function packWide(instructions: readonly AsmInstruction[]): WidePacket[] 
       usedChannels.add(retry);
       groupReads = [...groupReads, ...registers.reads];
       groupWrites = [...groupWrites, ...registers.writes];
+      groupControl = control ?? groupControl;
       continue;
     }
     group.push({ instruction, syllable: { ...syllable, channel }, registers });
     usedChannels.add(channel);
     groupReads = [...groupReads, ...registers.reads];
     groupWrites = [...groupWrites, ...registers.writes];
+    groupControl = control ?? groupControl;
   }
   flush();
   return packets;

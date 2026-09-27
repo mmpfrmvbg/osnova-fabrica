@@ -687,10 +687,45 @@ function writeHalf(target: Uint8Array, offset: number, half: number): void {
 
 function encodeReal(instruction: AsmInstruction): Uint8Array {
   const control = REAL_CONTROL_OPCODES.find((candidate) => candidate.mnemonic === instruction.mnemonic);
-  if (control !== undefined) return encodeControl(control, instruction);
+  if (control !== undefined) {
+    if (instruction.control !== undefined) {
+      throw new EncodingError(
+        `«${instruction.mnemonic}»: слог управления в широкой команде один — у команды управления своего управляющего слога быть не может`,
+      );
+    }
+    return encodeControl(control, instruction);
+  }
   const entry = BY_MNEMONIC.get(instruction.mnemonic);
   if (entry === undefined) throw new EncodingRefusedError(realRefusalReason(instruction.mnemonic));
   const channel = channelOf(entry, instruction.channel);
+  // Пара «операция ALS + управляющий слог» — одна широкая команда из двух слогов (измерено,
+  // `.tmp/osnova-wide-control-probe.ts`). Слог ALS берётся тем же разбором, что у одиночной
+  // команды (`alsSyllableOf`), а слог управления — `wideControlSyllableOf`: второй раскладки нет.
+  if (instruction.control !== undefined) {
+    if (instruction.operands.some((operand) => operand.kind === "imm64")) {
+      throw new EncodingRefusedError(
+        `«${instruction.mnemonic}»: 64-битный литерал вместе с управляющим слогом в одной команде не ` +
+          "реализован — раскладка «ALS + два слова LTS + управляющий слог» ассемблером не измерялась",
+      );
+    }
+    if (literalOperand(entry, instruction.operands) !== undefined) {
+      throw new EncodingRefusedError(
+        `«${instruction.mnemonic}»: литерал вместе с управляющим слогом в одной команде не реализован — ` +
+          "литерал занимает слово LTS, и порядок «ALS + LTS + управляющий слог» ассемблером МЦСТ не измерялся",
+      );
+    }
+    const syllable = alsSyllableOf(instruction);
+    return wideCommandBytes(
+      [
+        {
+          channel: syllable.channel,
+          als: syllable.als,
+          ...(syllable.ales === undefined ? {} : { ales: syllable.ales }),
+        },
+      ],
+      wideControlSyllableOf(instruction.control),
+    );
+  }
   // Команда с предикатом-условием (`psrc`) — отдельная ветвь: она длиннее (16 байт) и несёт слог
   // `CDS`, которого нет ни у короткой формы, ни у длинной (там на его месте полуслог `ALES`).
   const condition = psrcOf(entry, instruction.operands);
@@ -1147,7 +1182,8 @@ function cs1SetmasWord(mas0: number, mas2: number, mas3: number, mas5: number): 
   return (((6 << 28) | (mas0 << 21) | (mas2 << 14) | (mas3 << 7) | mas5) >>> 0);
 }
 
-function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Uint8Array {
+/** Числовые операнды команды управления по слотам формы — один разбор на все способы сборки. */
+function controlValuesOf(entry: RealControlEntry, instruction: AsmInstruction): Map<RealControlSlot, number> {
   if (instruction.operands.length !== entry.operands.length) {
     throw new EncodingError(
       `«${entry.mnemonic}»: операндов ${instruction.operands.length}, форма ${entry.form} несёт ${entry.operands.length}`,
@@ -1160,6 +1196,11 @@ function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Ui
   entry.operands.forEach((slot, index) => {
     values.set(slot, immediateOf(instruction, index, slot));
   });
+  return values;
+}
+
+function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Uint8Array {
+  const values = controlValuesOf(entry, instruction);
   const bytes = new Uint8Array(entry.size);
   switch (entry.form) {
     case "SS": {
@@ -1226,6 +1267,141 @@ function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Ui
       throw new EncodingError(`форма управления «${unknown.form}» не реализована`);
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ШИРОКАЯ КОМАНДА «ОПЕРАЦИЯ ALS + УПРАВЛЯЮЩИЙ СЛОГ» — ИЗМЕРЕНО АССЕМБЛЕРОМ МЦСТ
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// До этого раздела кодировщик выпускал либо команду из одного слога ALS, либо команду из одних
+// слогов управления: `mas` у команды памяти (`mas=` у `as`) и `write` вместе с арифметикой — это
+// **одна** широкая команда с двумя слогами, а не две команды. Форма измерена
+// `as-new -mcpu=elbrus-v5` (`.tmp/osnova-wide-control-probe.ts`):
+//
+// | текст МЦСТ | байты | HS: lng / mdl / al / cs |
+// |---|---|---|
+// | `ldw,2 %db[14], %db[12], %db[10]` | `01 00 00 10 0a 0c 0e 66` (8) | 0 / 1 / 4 / 0 |
+// | `ldw,2 … , mas=0x7` | `12 80 00 10 0a 0c 0e 66 00 c0 01 60 00 00 00 00` (16) | 1 / 2 / 4 / 2 |
+// | `{ adds,0 …; ldw,2 … mas=0x7 }` | `13 80 00 14 03 02 01 10 0a 0c 0e 66 00 c0 01 60` (16) | 1 / 3 / 5 / 2 |
+// | `{ adds,0; adds,1; ldw,2 … mas=0x7 }` | `… 00 c0 01 60 00 00 00 00` (24) | 2 / 4 / 7 / 2 |
+// | `{ muls,0 …; ldw,2 … mas=0x7 }` | `23 80 10 14 … 00 c0 01 60 00 00 c0 01 00 00 00 00` (24) | 2 / 3 / 5 / 2 |
+//
+// Отсюда три правила, которых у одиночной команды не было:
+//
+//   1. слог управления идёт **после** всех слогов ALS и **до** полуслогов ALES0/1/3/4 (последняя
+//      строка таблицы: `muls` даёт ALES0 уже **за** слогом `mas`, а не перед ним);
+//   2. `mdl` считает слова до средней точки **вместе** со слогом управления;
+//   3. присутствие слога отмечает поле `cs` заголовочного слога (CS1 — бит 15), а не отдельное поле.
+
+/** Сколько слогов ALS допускает форма: `E2K_ALS_NUM = 6` (`qemu/target/e2k/syllab-format.h:219`). */
+export const E2K_ALS_NUM = 6;
+
+/** Управляющий слог широкой команды: слово и его бит присутствия в поле `cs` заголовочного слога. */
+export interface WideControlSyllable {
+  readonly form: RealControlEntry["form"];
+  /** Слово слога (4 байта). */
+  readonly word: number;
+  /** Значение поля `HS.cs`: CS0 — 1, CS1 — 2 (`qemu/target/e2k/syllab-format.h:24-25`). */
+  readonly csBit: number;
+}
+
+/**
+ * Разложить инструкцию управления в слог **широкой команды** — для пары «ALS + управляющий слог».
+ *
+ * Годятся формы, чей слог занимает ровно одно слово и не тянет за собой ни `SS`, ни литерал:
+ * `setbn` и `setmas` (обе — CS1, бит 15). Остальные названы отказом, а не разложены наугад:
+ * `setwd` несёт литерал (`wsz` живёт в LTS0 — `qemu/target/e2k/tcg/translate-misc.c:585-610`),
+ * `call`/`ct` несут `SS` (`opcodes/e2k-dis.c:1896-1902`), `disp`/`sdisp` — `CS0`. Порядок `SS` и
+ * литерала относительно слогов ALS ассемблером не измерялся, поэтому и не выдумывается.
+ */
+export function wideControlSyllableOf(instruction: AsmInstruction): WideControlSyllable {
+  const entry = realControlOpcode(instruction.mnemonic);
+  if (entry === undefined) throw new EncodingRefusedError(realRefusalReason(instruction.mnemonic));
+  const values = controlValuesOf(entry, instruction);
+  switch (entry.form) {
+    case "CS1_SETBN":
+      return {
+        form: entry.form,
+        word: cs1SetbnWord(values.get("rsz")!, values.get("rbs")!, values.get("rcur")!),
+        csBit: 2,
+      };
+    case "CS1_SETMAS":
+      return {
+        form: entry.form,
+        word: cs1SetmasWord(values.get("mas0")!, values.get("mas2")!, values.get("mas3")!, values.get("mas5")!),
+        csBit: 2,
+      };
+    default:
+      throw new EncodingRefusedError(
+        `«${entry.mnemonic}»: форма ${entry.form} в одну широкую команду с операцией ALS не кладётся — ` +
+          "слог CS1 без SS и без литерала измерен только у setbn и setmas; порядок SS/LTS относительно " +
+          "слогов ALS ассемблером МЦСТ не измерялся (docs/e2k-wide-commands.md §2.4)",
+      );
+  }
+}
+
+/** Слог ALS широкой команды: канал, слово и (у длинной формы ALF11) полуслог ALES. */
+export interface WideAlsSlot {
+  readonly channel: number;
+  readonly als: number;
+  readonly ales?: number;
+}
+
+/**
+ * Байты широкой команды: HS + слоги ALS по возрастанию канала + управляющий слог + полуслоги
+ * ALES + добивка до чётного числа 4-байтовых слогов.
+ *
+ * Один источник раскладки для обеих сторон: так собирает команду и одиночный кодировщик (пара
+ * «ALS + управляющий слог»), и группировщик (`src/e2k/widePacker.ts`, несколько слогов ALS).
+ * Второй реализации раскладки быть не должно — расхождение между ними не поймал бы ни один оракул.
+ */
+export function wideCommandBytes(slots: readonly WideAlsSlot[], control?: WideControlSyllable): Uint8Array {
+  if (slots.length === 0) {
+    throw new EncodingError(
+      "широкая команда без слога ALS: команду из одного слога управления собирает encodeControl",
+    );
+  }
+  if (slots.length > E2K_ALS_NUM) {
+    throw new EncodingError(
+      `слогов ALS ${slots.length} — форма допускает ${E2K_ALS_NUM} (E2K_ALS_NUM, qemu/target/e2k/syllab-format.h:219)`,
+    );
+  }
+  const ordered = [...slots].sort((left, right) => left.channel - right.channel);
+  if (new Set(ordered.map((slot) => slot.channel)).size !== ordered.length) {
+    throw new EncodingError("две операции в один канал: ассемблер МЦСТ отказывает (gas/config/tc-e2k.c:8667-8668)");
+  }
+  const al = ordered.reduce((mask, slot) => mask | (1 << slot.channel), 0);
+  const long = ordered.filter((slot) => slot.ales !== undefined);
+  const ale = long.reduce((mask, slot) => mask | (1 << slot.channel), 0);
+
+  const words: number[] = [0]; // HS: его поля считаются по числу слогов, поэтому заполняется в конце
+  for (const slot of ordered) words.push(slot.als);
+  if (control !== undefined) words.push(control.word);
+  // «Средняя точка» — после HS, слогов ALS и слога управления: полуслоги ALES0/1/3/4 начинаются со
+  // слова, на которое она указывает (`docs/e2k-wide-commands.md` §2.4).
+  const middle = words.length;
+  for (let index = 0; index < long.length; index += 2) {
+    const first = long[index]!.ales!;
+    const second = long[index + 1]?.ales ?? 0;
+    words.push(((first & 0xffff) << 16) | (second & 0xffff));
+  }
+  // Добивка до чётного числа 4-байтовых слогов (`gas/config/tc-e2k.c:9488-9492`).
+  if (words.length % 2 !== 0) words.push(0);
+
+  const mdl = middle - 1;
+  const lng = words.length / 2 - 1;
+  const cs = control?.csBit ?? 0;
+  words[0] =
+    (((lng & HS.lng.mask) << HS.lng.shift) |
+      ((mdl & HS.mdl.mask) << HS.mdl.shift) |
+      ((al & HS.al.mask) << HS.al.shift) |
+      ((ale & HS.ale.mask) << HS.ale.shift) |
+      ((cs & HS.cs.mask) << HS.cs.shift)) >>>
+    0;
+
+  const bytes = new Uint8Array(words.length * 4);
+  words.forEach((word, index) => writeWord(bytes, index * 4, word));
+  return bytes;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
