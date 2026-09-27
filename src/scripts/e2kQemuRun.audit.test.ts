@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SHELL_IMAGE_FORMAT } from '../e2k/emitterOracle';
 import { toWslPath } from './e2kExternalObjdump';
+import { collectCodeRefs, verifyCodeRefs } from './e2kCodeRefs';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const DOC = path.join(ROOT, 'docs', 'e2k-qemu-run.md');
@@ -235,7 +236,18 @@ describe('QEMU-прогон: причина записана и подтверж
     // Это и есть «нечего запускать»: формат артефакта наш, а не ELF.
     expect(SHELL_IMAGE_FORMAT).toBe('osnova-shell-image');
     expect(doc).toContain('osnova-shell-image');
-    expect(doc).toContain('src/e2k/emitterOracle.ts:49');
+    // Ссылка на код — ИМЕНЕМ, а не номером строки. Здесь стояло
+    // `expect(doc).toContain('src/e2k/emitterOracle.ts:49')` — и это была ЕДИНСТВЕННАЯ проверка во
+    // всём репозитории, державшая гниющий номер строки: переезд константы на другую строку красил
+    // бы проверку при неизменном коде. Замер 2026-09-27: из 25 таких ссылок в `docs/e2k-*.md`
+    // **17** указывали на посторонний код, и эта проверка держала ту же мину.
+    expect(doc, 'ссылка на константу формата не названа именем').toContain(
+      'src/e2k/emitterOracle.ts#SHELL_IMAGE_FORMAT',
+    );
+    // И сама цель обязана существовать: имя без цели — украшение, а не проверка.
+    const refs = collectCodeRefs(doc).filter((ref) => ref.file === 'src/e2k/emitterOracle.ts');
+    expect(refs.length, 'ссылка на emitterOracle.ts не найдена в документе').toBeGreaterThan(0);
+    expect(verifyCodeRefs(refs), 'имя цели не разрешается в файле').toEqual([]);
   });
 
   it('число машины ELF, класс и таблица системных вызовов подтверждены источником', () => {

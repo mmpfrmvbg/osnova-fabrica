@@ -14,9 +14,9 @@
 
 | факт | источник |
 |---|---|
-| перестановка делается **эмиттером**, и только для регионов с `optimizable: true` | `src/e2k/emitterShell.ts:396` (`scheduleRegWithReorder`), условие — `:394` (`if (region.optimizable)`) |
-| ядра используют именно оптимизируемые атомы: `A5` и `A6` | `src/compiler/atomRegions.ts:55-56` (`{ id: "A5", optimizable: true }`, `A6` — то же) |
-| в `e2kRealRun` планировщика нет **и быть не может**: его вход — `RegInstruction` | `src/vliw/reorderScheduler.ts:37` — единственный импорт типа `RegInstruction`; из `../e2k` не импортируется ничего |
+| перестановка делается **эмиттером**, и только для регионов с `optimizable: true` | `src/vliw/reorderScheduler.ts#scheduleRegWithReorder`, условие — `src/e2k/emitterShell.ts#emitShell:optimizable` |
+| ядра используют именно оптимизируемые атомы: `A5` и `A6` | `src/compiler/atomRegions.ts#ATOM_CATALOGUE:A5`, `src/compiler/atomRegions.ts#ATOM_CATALOGUE:A6` (`{ id: "A5", optimizable: true }`, `A6` — то же) |
+| в `e2kRealRun` планировщика нет **и быть не может**: его вход — `RegInstruction` | `src/vliw/reorderScheduler.ts#RegInstruction` — единственный импорт типа `RegInstruction`; из `../e2k` не импортируется ничего |
 
 **Порядок действительно меняется:** сравнение потока носителей при `A5/A6` и при `A1`
 (`optimizable: false`) даёт разные последовательности, и это проверка `1.3` оракула. То есть
@@ -79,5 +79,5 @@
 ## 6. Чего в этом замере нет
 
 **НЕТ В ИСТОЧНИКЕ** ни одного реального такта: все числа — модель оболочки, не железо
-(`docs/hardware-debt.md:9`). **НЕ ИЗВЛЕЧЕНО**: дал бы порядок команд другой результат при
+(`docs/hardware-debt.md#3.8`). **НЕ ИЗВЛЕЧЕНО**: дал бы порядок команд другой результат при
 **упаковке** — этого замера нет, потому что упаковка в ветвь не подключена.

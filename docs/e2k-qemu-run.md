@@ -289,7 +289,7 @@ $ LD_PRELOAD=<шим> qemu-e2k .tmp/e2k-minimal.elf ; echo $?
 
 | чего не хватает | подтверждение |
 |---|---|
-| **ELF-обёртки** | артефакт конвейера — `format: "osnova-shell-image"` (`src/e2k/emitterOracle.ts:49`), это не ELF. Для внешней проверки ELF писать пришлось — `src/scripts/e2kExternalObjdump.ts` (только код), и **минимальный ELF** — `src/e2k/elfMinimal.ts` (`docs/e2k-minimal-elf.md`) |
+| **ELF-обёртки** | артефакт конвейера — `format: "osnova-shell-image"` (`src/e2k/emitterOracle.ts#SHELL_IMAGE_FORMAT`), это не ELF. Для внешней проверки ELF писать пришлось — `src/scripts/e2kExternalObjdump.ts` (только код), и **минимальный ELF** — `src/e2k/elfMinimal.ts` (`docs/e2k-minimal-elf.md`) |
 | **машины ELF для e2k** | **сделано**: `e_machine = 175` — `EM_E2K` (`qemu/include/elf.h:195`) = `EM_MCST_ELBRUS` (`binutils-gdb/include/elf/common.h:295`), машина `8c` в `e_flags` (`include/elf/e2k.h:114-115`) |
 | **класса ELF** | **сделано**: `ELFCLASS64` + `EM_E2K`, как ждёт загрузчик (`qemu/linux-user/e2k/target_elf.h:10-11`) |
 | **стартового кода, libc и системных вызовов** | **сделано для двух вызовов**: `_start` без libc пишет строку через `write` и завершается (§2.10), `exit(42)` возвращает 42 (§2.9). libc нет, таблица вызовов — **446** номеров (`qemu/linux-user/e2k/syscall_nr.h`), из них реализовано два |

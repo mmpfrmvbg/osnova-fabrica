@@ -9,8 +9,9 @@
  *
  * 1. **Структура документа** (всегда): есть разделы 4.1–4.5, есть кандидаты К1–К5, есть пометки
  *    «НЕТ В ИСТОЧНИКЕ» и «НЕ ПРОВЕРЕНО ИСПОЛНЕНИЕМ», нет утверждения «выполняется без оговорок».
- * 2. **Ссылки «файл:строка»** (когда есть `.tmp/e2k-sources/`): каждая из них указывает на
- *    существующий файл и существующую строку, а якоря — на настоящий фрагмент.
+ * 2. **Ссылки документа** (когда есть `.tmp/e2k-sources/`): каждая из них указывает на
+ *    существующий файл и существующую строку. Якоря на НАШ код проверяются **по имени**
+ *    (`CODE_ANCHORS`), а не по номеру строки, — см. ниже, раздел «Слабое место названо прямо».
  * 3. **Байты, полученные ассемблером** (когда есть `.tmp/addr-probe/`): hex из документа
  *    совпадает с `.bin`, который оставил `as-new`, а ассемблерный текст — с `.s`.
  * 4. **Негативный контроль**: испорченный вход обязан ловиться, иначе оракул ничего не проверяет.
@@ -21,11 +22,21 @@
  * уровни 2 и 3 выполнить нечем, и тест **сообщает об этом**, а не выдаёт «проверок не было» за
  * «проверки пройдены». Каталог проб можно переопределить переменной `E2K_ADDR_PROBE_DIR` —
  * иначе слабый режим никто бы не проверил.
+ *
+ * # Почему якоря на наш код больше не держат номера строк
+ *
+ * До 2026-09-27 здесь стояли четыре якоря с абсолютными номерами (`289`, `290`, `1447-1449`,
+ * `1509-1545`). Они пересчитывались **четыре раза** (+32, +208, +84, +176), и каждый раз по одной и
+ * той же причине: чужая правка **выше** якоря. Измерено: вставка одной строки в начало
+ * `src/e2k/e2k-real.ts` краснила этот файл, хотя кодировщик не менялся. Теперь цель — имя
+ * (`REAL_OPCODES`, `LITERAL_FIELD_F16/F32/F64`, `encodeImm64`), и вставка её не двигает.
+ * Правило то же, что у сторожа документов: `src/scripts/e2kDocRefs.audit.test.ts`.
  */
 
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
+import { escapeRegExp, readRepoFile, symbolRegion, type FileReader } from "./e2kCodeRefs";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const DOC = path.join(ROOT, "docs", "e2k-address-loading.md");
@@ -120,26 +131,51 @@ export const ANCHORS: readonly Anchor[] = [
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 513, to: 513, contains: "movts", claim: "MOVTS в LLVM" },
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 520, to: 520, contains: "movtd", claim: "MOVTD в LLVM" },
   { file: "llvm-project/llvm/lib/Target/E2K/E2KInstrInfo.td", from: 950, to: 950, contains: "movtq", claim: "MOVTQ в LLVM" },
-  // наш кодировщик
-  { file: "src/e2k/e2k-real.ts", from: 289, to: 289, contains: "movts", claim: "movts есть в кодировщике" },
-  { file: "src/e2k/e2k-real.ts", from: 290, to: 290, contains: "movtd", claim: "movtd есть в кодировщике" },
-  // Все четыре якоря на src/e2k/e2k-real.ts пересчитаны 2026-09-27 замером: правки того дня
-  // (сначала семейство CMPAND* в таблице, затем слот `psrc` с полем `acceptsPsrc` и разделом CDS,
-  // затем команда `setmas` — форма CS1_SETMAS со своим слотом и записью в таблице управления)
-  // добавлены ВЫШЕ них и сдвинули номера трижды. Якорь — факт о файле, поэтому он измеряется, а не
-  // подгоняется под проходящий тест.
-  // Пересчитаны 2026-09-27 в четвёртый раз (+176): пара «операция ALS + управляющий слог CS1»
-  // (поле `control`, раскладка `wideCommandBytes`, docs/hardware-debt.md §3.33) добавлена ВЫШЕ
-  // обоих якорей и сдвинула их вместе. Числа измерены (`Select-String` по файлу), а не подобраны.
-  { file: "src/e2k/e2k-real.ts", from: 1447, to: 1449, contains: "0xd8", claim: "поля F16/F32/F64" },
-  // Числа пересчитаны 2026-09-20: короткая непосредственная форма (`encodeShortImm`, коммит соседней
-  // работы) добавила строки выше, и прежние 942-944 / 933-966 указывали мимо. Якоря — это ФАКТ о
-  // файле, поэтому они пересчитываются замером, а не «подгоняются» под проходящий тест.
-  // Пересчитаны 2026-09-27 трижды: +32 (семейство CMPAND* в таблице опкодов), затем +208 (тип слота
-  // `psrc`, поле `acceptsPsrc` и раздел слога-условия CDS), затем +84 (команда `setmas`: запись
-  // управления, слоты `mas0/2/3/5`, слог CS1_SETMAS и ссылка на разбор `mas=` в ассемблере).
-  // Все правки — выше якоря, поэтому он сдвигался трижды по одной и той же причине.
-  { file: "src/e2k/e2k-real.ts", from: 1509, to: 1545, contains: "encodeImm64", claim: "форма 0xdc реализована (encodeImm64)" },
+  // Якоря на НАШ код здесь БОЛЬШЕ НЕ ЖИВУТ номерами строк — они переехали в CODE_ANCHORS ниже и
+  // ищутся по ИМЕНИ. Причина измерена 2026-09-27: вставка ОДНОЙ строки в начало `e2k-real.ts`
+  // краснила этот файл («src/e2k/e2k-real.ts:289-289 не содержит «movts»»), хотя кодировщик не
+  // менялся, — то есть агент, добавивший строку, ломал прогон не по своей вине. Прежние четыре
+  // якоря пересчитывались замером четыре раза (+32, +208, +84, +176), и каждый раз по одной и той
+  // же причине: правка ВЫШЕ якоря. Номер строки не имя.
+  //
+  // Здесь остаются только якоря на ЧУЖИЕ пришпиленные источники (`.tmp/e2k-sources/**`, в git их
+  // нет): там номер строки — часть цитаты из неизменяемого артефакта, и от нашей правки он
+  // сдвинуться не может. Проверяются они тем же способом, что и раньше, — совпадением содержимого.
+];
+
+/**
+ * Якорь на **наш** код: цель названа именем, а не номером строки.
+ *
+ * `symbol` — объявление (переменная, функция, константа), `entry` — запись внутри него. Границы
+ * цели считает {@link symbolRegion}, поэтому вставка строк выше якоря ссылку не ломает.
+ */
+export interface CodeAnchor {
+  readonly file: string;
+  readonly symbol: string;
+  readonly entry?: string;
+  readonly claim: string;
+}
+
+/**
+ * Утверждения о **нашем** кодировщике, привязанные к именам.
+ *
+ * Здесь стояли номера строк (`289`, `1447-1449`, `1509-1545`); они пересчитывались четыре раза и
+ * всё равно врали между пересчётами. Теперь цель — имя: `REAL_OPCODES`, `LITERAL_FIELD_*`,
+ * `encodeImm64`. Правило то же, что у сторожа документов (`src/scripts/e2kDocRefs.audit.test.ts`):
+ * **номер строки в якоре на наш код не допускается**.
+ */
+export const CODE_ANCHORS: readonly CodeAnchor[] = [
+  { file: "src/e2k/e2k-real.ts", symbol: "REAL_OPCODES", entry: "movts", claim: "movts есть в кодировщике" },
+  { file: "src/e2k/e2k-real.ts", symbol: "REAL_OPCODES", entry: "movtd", claim: "movtd есть в кодировщике" },
+  { file: "src/e2k/e2k-real.ts", symbol: "LITERAL_FIELD_F16", entry: "0xd4", claim: "поле литерала 16 бит" },
+  { file: "src/e2k/e2k-real.ts", symbol: "LITERAL_FIELD_F32", entry: "0xd8", claim: "поле литерала 32 бита" },
+  { file: "src/e2k/e2k-real.ts", symbol: "LITERAL_FIELD_F64", entry: "0xdc", claim: "поле литерала 64 бита" },
+  {
+    file: "src/e2k/e2k-real.ts",
+    symbol: "encodeImm64",
+    entry: "0xdc",
+    claim: "форма 0xdc реализована (encodeImm64)",
+  },
 ];
 
 /**
@@ -250,6 +286,47 @@ export function verifyAnchors(anchors: readonly Anchor[], resolve: (raw: string)
 }
 
 /**
+ * Проверить якоря на **наш** код: цель ищется по имени, а не по номеру строки.
+ *
+ * Проблема называется вместе с утверждением, а не только с координатой: иначе непонятно, что
+ * именно перестало быть верным.
+ */
+export function verifyCodeAnchors(anchors: readonly CodeAnchor[], read: FileReader = readRepoFile): string[] {
+  const problems: string[] = [];
+  const cache = new Map<string, string | undefined>();
+  for (const anchor of anchors) {
+    if (!cache.has(anchor.file)) cache.set(anchor.file, read(anchor.file));
+    const text = cache.get(anchor.file);
+    if (text === undefined) {
+      problems.push(`нет файла ${anchor.file} (утверждение: ${anchor.claim})`);
+      continue;
+    }
+    const region = symbolRegion(text, anchor.symbol, anchor.file.endsWith(".md"));
+    if (region === undefined) {
+      problems.push(`${anchor.file}#${anchor.symbol}: цели нет (утверждение: ${anchor.claim})`);
+      continue;
+    }
+    if (anchor.entry === undefined) continue;
+    const word = new RegExp(`(?<![\\w$])${escapeRegExp(anchor.entry)}(?![\\w$])`, "u");
+    const lines = text.split(/\r?\n/);
+    let found = false;
+    for (let line = region.from; line <= region.to; line++) {
+      if (word.test(lines[line - 1] ?? "")) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      problems.push(
+        `${anchor.file}#${anchor.symbol} (строки ${region.from}-${region.to}) не содержит «${anchor.entry}» ` +
+          `(утверждение: ${anchor.claim})`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
  * Сверить зафиксированные в документе байты с артефактами прогона ассемблера.
  *
  * Для приёмки: `.s` существует и содержит инструкцию, `.bin` существует и его hex совпадает
@@ -346,16 +423,50 @@ describe("документ о загрузке 64-битного адреса в
     expect(problems, problems.join("; ")).toEqual([]);
   });
 
-  it("якоря совпадают с источником", () => {
+  it("якоря на пришпиленные источники совпадают с источником", () => {
     if (!haveSources) {
       expect(haveSources).toBe(false);
       return;
     }
-    expect(ANCHORS.length).toBeGreaterThanOrEqual(35);
+    // Внешних якорей 35; порог ниже с запасом, чтобы добавление нового не требовало правки числа.
+    expect(ANCHORS.length).toBeGreaterThanOrEqual(30);
     const problems = verifyAnchors(ANCHORS);
     expect(problems, problems.join("; ")).toEqual([]);
     const mentioned = ANCHORS.map((anchor) => anchor.file).filter((file) => !doc.includes(file));
     expect(mentioned, `якоря не упомянуты в документе: ${mentioned.join(", ")}`).toEqual([]);
+  });
+
+  it("якоря на наш код ищутся по имени и переживают вставку строки выше цели", () => {
+    expect(CODE_ANCHORS.length).toBeGreaterThanOrEqual(5);
+    const problems = verifyCodeAnchors(CODE_ANCHORS);
+    expect(problems, problems.join("; ")).toEqual([]);
+
+    // Якоря обязаны быть про наш кодировщик и обязаны быть упомянуты в документе.
+    const mentioned = CODE_ANCHORS.map((anchor) => anchor.file).filter((file) => !doc.includes(file));
+    expect(mentioned, `якоря не упомянуты в документе: ${mentioned.join(", ")}`).toEqual([]);
+
+    // ГЛАВНОЕ: тот самый сдвиг, из-за которого файл краснел дважды. Вставка строки в НАЧАЛО
+    // источника сдвигает номера, но не имена — якоря обязаны остаться верными.
+    const source = readRepoFile("src/e2k/e2k-real.ts")!;
+    const shifted: FileReader = (file) =>
+      file === "src/e2k/e2k-real.ts" ? `// вставка выше всех целей\n${source}` : readRepoFile(file);
+    expect(verifyCodeAnchors(CODE_ANCHORS, shifted), "вставка строки сломала якоря").toEqual([]);
+    const region = symbolRegion(`// вставка выше всех целей\n${source}`, "REAL_OPCODES", false)!;
+    const plain = symbolRegion(source, "REAL_OPCODES", false)!;
+    expect(region.from, "цель сдвинулась ровно на вставку").toBe(plain.from + 1);
+  });
+
+  it("негативный контроль якорей на наш код: чужая цель и чужая запись названы", () => {
+    const noTarget = verifyCodeAnchors([
+      { file: "src/e2k/e2k-real.ts", symbol: "НЕТ_ТАКОГО_СИМВОЛА", claim: "порча цели" },
+    ]);
+    expect(noTarget.join(" ")).toMatch(/цели нет/);
+    expect(noTarget.join(" ")).toMatch(/порча цели/);
+
+    const noEntry = verifyCodeAnchors([
+      { file: "src/e2k/e2k-real.ts", symbol: "REAL_OPCODES", entry: "нетТакойМнемоники", claim: "порча записи" },
+    ]);
+    expect(noEntry.join(" ")).toMatch(/не содержит/);
   });
 
   it("байты ассемблера зафиксированы в документе и совпадают с пробами", () => {
@@ -392,8 +503,10 @@ describe("документ о загрузке 64-битного адреса в
       }
       const text = fs.readFileSync(docPath, "utf-8");
       const references = new Set<string>();
-      for (const match of text.matchAll(/`((?:docs|src)\/[^`]+?)(?::\d+(?:-\d+)?)?`/g)) {
-        references.add(match[1]!);
+      // Ссылка может нести именованную цель (`src/e2k/e2k-real.ts#REAL_OPCODES:movts`) или прежний
+      // номер строки. Проверяется существование ФАЙЛА, поэтому и `#…`, и `:номер` отбрасываются.
+      for (const match of text.matchAll(/`((?:docs|src|tools)\/[^`]*?)`/g)) {
+        references.add(match[1]!.replace(/#.*$/, "").replace(/:\d+(?:-\d+)?$/, ""));
       }
       for (const reference of references) {
         if (/[<>*]/.test(reference)) continue;

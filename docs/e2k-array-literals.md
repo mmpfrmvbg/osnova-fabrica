@@ -65,7 +65,7 @@
 
 ## 3. Почему граф зависимостей это позволил (замер)
 
-`buildRegDependencyGraph` (`src/vliw/regGraph.ts:203-257`) ведёт по одному «последнему читателю» на
+`buildRegDependencyGraph` (`src/vliw/regGraph.ts#buildRegDependencyGraph`) ведёт по одному «последнему читателю» на
 регистр (`lastUse`, строка 214) и строит WAR-ребро **только от него** (строки 240-244):
 
 ```
