@@ -87,3 +87,8 @@ apps/osiris/.env
 .qwen/oauth_creds.json
 
 .qwen/oauth_creds*.json
+
+# Проектные навыки DSH: .dsh/skills — junction на .cursor/skills.
+# Игнорируем только связь, чтобы .dsh остался доступен для версионируемой
+# конфигурации (например, .dsh/roles/*.yml).
+.dsh/skills
