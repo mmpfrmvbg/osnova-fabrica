@@ -263,16 +263,12 @@ export function carrierForm(carrier: string): CarrierForm | undefined {
  * Длина та же — 8 байт (ALF1), поэтому раскладка и закреплённые числа не двигаются; проверено
  * прогоном (`.tmp/osnova-addd-probe.ts`) и сверкой байт дизассемблером МЦСТ.
  */
+const ADDD_COMMAND_SOURCE =
+  'opcodes/e2k-opc.h:24 (ARGS_DDD, формат D — %db) — ALF1, REAL_SHORT_FORM_SIZE; байты сверены ' +
+  'дизассемблером МЦСТ (docs/hardware-debt.md §3.27: …11)';
+
 const ARRAY_COMMAND_FORMS: ReadonlyMap<string, CommandForm> = new Map([
-  [
-    'addd',
-    {
-      mnemonic: 'addd',
-      form: 'ALF1',
-      size: REAL_SHORT_FORM_SIZE,
-      source: 'opcodes/e2k-opc.h:24 (ARGS_DDD, формат D — %db) — ALF1, REAL_SHORT_FORM_SIZE; байты сверены дизассемблером МЦСТ (docs/hardware-debt.md §3.27: …11)',
-    },
-  ],
+  ['addd', { mnemonic: 'addd', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: ADDD_COMMAND_SOURCE }],
   // Математика (рантайм остатка): `smodx` — ALF1, канал только пятый, 8 байт. Форма из таблицы МЦСТ
   // (`src/e2k/e2k-real.ts`, `opcodes/e2k-opc.h:54`), длина — короткая форма REAL_SHORT_FORM_SIZE.
   ['smodx', { mnemonic: 'smodx', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: 'opcodes/e2k-opc.h:54 (ARGS_DSS, канал 5)' }],

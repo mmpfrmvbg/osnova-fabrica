@@ -487,12 +487,14 @@ export const DEFECTS_INVOKE: readonly Defect[] = [
   },
   {
     // Размеры команд рантайма объявлены длинной формой: раскладка считает адреса по 16 байт, а
-    // кодировщик выдаёт 8 — расхождение обязано поймать сверка «раскладка и кодирование не расходятся».
+    // кодировщик выдаёт 8 — расхождение обязан поймать сверка «раскладка и кодирование не расходятся».
+    // Якорь — команда адресной арифметики рантайма; с 2026-09-27 это `addd` (форма `D`), а не `adds`:
+    // адрес 64-битный (docs/hardware-debt.md §3.27, §3.30). Дефект тот же — объявленная длина вдвое больше.
     id: '10.3',
     title: 'размер команд рантайма объявлен вдвое больше — раскладка расходится с кодированием',
     file: 'src/e2k/twoPassLayout.ts',
-    from: "  ['adds', { mnemonic: 'adds', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],",
-    to: "  ['adds', { mnemonic: 'adds', form: 'ALF1', size: REAL_LONG_FORM_SIZE, source: SHORT_SOURCE }], // ДЕФЕКТ 10.3",
+    from: "  ['addd', { mnemonic: 'addd', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: ADDD_COMMAND_SOURCE }],",
+    to: "  ['addd', { mnemonic: 'addd', form: 'ALF1', size: REAL_LONG_FORM_SIZE, source: ADDD_COMMAND_SOURCE }], // ДЕФЕКТ 10.3",
     tests: ['src/e2k/twoPassLayout.test.ts', 'src/e2k/e2kRealRun.test.ts'],
   },
 ];
