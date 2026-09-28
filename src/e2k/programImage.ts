@@ -29,7 +29,7 @@ import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
 import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
-import { IMAGE_TEXT_OFFSET, MINIMAL_BASE, SYSCALL_WBS, spillBaseOf } from './elfMinimal';
+import { MINIMAL_BASE, SYSCALL_WBS, spillBaseOf } from './elfMinimal';
 import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
