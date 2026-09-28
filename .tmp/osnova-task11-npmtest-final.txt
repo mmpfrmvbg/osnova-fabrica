@@ -1,0 +1,956 @@
+
+> osnova-fabrica@0.1.1 test
+> tsx src/scripts/testChain.ts
+
+
+ RUN  v4.1.2 D:/PROJECTS/OSNOVA-FABRIKA
+
+ ✓ src/e2k/e2kWideControl.test.ts (14 tests) 16330ms
+     ✓ наши байты совпадают с ассемблером побайтово — или причина названа  6462ms
+     ✓ эталон задания подтверждён замером: `mas=0x7` даёт ровно 16 байт  5999ms
+     ✓ наши байты читаются как та же команда, а длина признана  3850ms
+ ✓ src/e2k/e2kSyllables.test.ts (11 tests) 17164ms
+     ✓ ассемблер МЦСТ собирает те же байты  9507ms
+     ✓ пара «подготовка + передача управления» у ассемблера — те же две команды по 8 байт  4323ms
+     ✓ дизассемблер МЦСТ разбирает новые формы  3320ms
+ ✓ src/e2k/e2kCmpand.test.ts (21 tests) 21178ms
+     ✓ ассемблер собирает те же восемь байт  5169ms
+     ✓ по адресу каждой нашей команды дизассемблер печатает CMPAND, а не nop и не мусор  5023ms
+     ✓ ассемблер МЦСТ собирает те же шестнадцать байт  6206ms
+     ✓ дизассемблер МЦСТ печатает условие `? %predN` по адресу команды  4754ms
+ ✓ src/e2k/immShortEffect.test.ts (21 tests) 19754ms
+     ✓ 1.1 измеренное число команд совпадает с таблицей  1135ms
+     ✓ 1.2 литеральные команды — это `movts` с непосредственным операндом; отказа упаковщика у них НЕТ  2255ms
+     ✓ 1.3 барьеры различены: управляющие команды и длинная форма — не литералы  2037ms
+     ✓ 1.4 значения литералов: почти все влезают в короткую непосредственную форму  2246ms
+     ✓ каждое ядро дало хотя бы один литерал и хотя бы одну управляющую команду  2277ms
+     ✓ отказы упаковщика непусты, распределены по мнемоникам — и литерала среди них больше НЕТ  515ms
+     ✓ 1.2 измеренное число коротких форм совпадает с таблицей и с числом малых литералов  2305ms
+     ✓ 1.3 каждая короткая форма действительно 8 байт, а остальные — 16  2353ms
+     ✓ 1.4 барьер с литерала снят — но снят НЕ короткой формой  2245ms
+     ✓ 1.6 в потоке нет коротких форм, не являющихся литеральными movts  2358ms
+ ✓ src/e2k/simulatorShell.test.ts (22 tests) 22235ms
+     ✓ байты разбираются в носители: инструкций столько же, сколько записей карты размещения  1103ms
+     ✓ семантика не зависит от порядка: линейный прогон даёт те же числа  1601ms
+     ✓ ядра детерминированы: два прогона дают одни и те же числа и такты  3527ms
+     ✓ тактов не меньше, чем исполненных инструкций, и число положительно  1724ms
+     ✓ числа тактов совпадают с артефактом tests/e2k/shell-ticks.json  3343ms
+     ✓ зависимости учитываются: снятие учёта меняет такты, но не числа ядер  3617ms
+     ✓ отчёт называет классы задержек и покрывает все исполненные инструкции  390ms
+     ✓ НАЙДЕНО: перестановка эмиттера на пяти ядрах тактов оболочки не меняет  2863ms
+     ✓ 4.1 снятие учёта зависимостей уменьшает такты, числа ядер остаются  656ms
+     ✓ 4.2 подмена класса задержки (ALU → MEM) меняет такты  690ms
+     ✓ 4.4 подмена семантики (add → sub) меняет числа  956ms
+     ✓ simulateShellImage возвращает значение и отчёт с обязательными полями  422ms
+ ✓ src/e2k/e2kWideSsLts.test.ts (9 tests) 24004ms
+     ✓ различие названо: места литералов `as` раздаёт по ТЕКСТУ, а мы — по слогам (каналу)  5349ms
+     ✓ живая сверка с ассемблером МЦСТ: те же тексты, те же байты  18630ms
+ ✓ src/cli/index.test.ts (5 tests) 30367ms
+     ✓ `compile` пишет байткод  2814ms
+     ✓ `parity` сверяет стековую и регистровую VM  6750ms
+     ✓ `schedule` печатает модуль версии 2 — с пакетами  6437ms
+     ✓ `reorder` сообщает эквивалентность и счётчики  6329ms
+     ✓ неизвестная команда печатает подсказку и выходит с кодом 1  8034ms
+ ✓ src/e2k/e2kPredicates.test.ts (12 tests) 10374ms
+     ✓ ассемблер МЦСТ собирает те же байты  4997ms
+     ✓ дизассемблер МЦСТ печатает наши предикаты  5355ms
+ ✓ src/e2k/printPrimitivesQemu.test.ts (12 tests) 35008ms
+     ✓ запись 39 (эталон 31 30 0a): в stdout ровно 31 30 0a, код возврата 0  1823ms
+     ✓ запись 40 (эталон 30 0a): в stdout ровно 30 0a, код возврата 0  2050ms
+     ✓ запись 41 (эталон 2d 37 0a): в stdout ровно 2d 37 0a, код возврата 0  2736ms
+     ✓ запись 42 (эталон 39 37 38 0a): в stdout ровно 39 37 38 0a, код возврата 0  2171ms
+     ✓ запись 44 (эталон 31 30 30 0a): в stdout ровно 31 30 30 0a, код возврата 0  3025ms
+     ✓ два вызова подряд: буфер переиспользуется, каждая печать даёт свою строку  2712ms
+     ✓ ГРАНИЦА ИЗМЕРЕНА: три печати ПОДРЯД упираются в площадку — код доходит до неё  2398ms
+     ✓ НЕГАТИВНЫЙ КОНТРОЛЬ: подмена числа меняет байты вывода  7599ms
+     ✓ перевод строки входит в длину: без него `write` отдал бы на байт меньше  2477ms
+     ✓ глубина знака: отрицательное печатается с минусом и без минуса у положительного  5179ms
+     ✓ модель доступна как модель: причина отказа видна словами, а не только кодом  2831ms
+ ✓ src/e2k/literalBarriers.test.ts (14 tests) 11830ms
+     ✓ 1.1 измеренное число команд совпадает с таблицей  1271ms
+     ✓ 1.2 литеральные команды — это `movts` с непосредственным операндом; отказа упаковщика у них НЕТ  2220ms
+     ✓ 1.3 барьеры различены: управляющие команды и длинная форма — не литералы  2409ms
+     ✓ 1.4 значения литералов: почти все влезают в короткую непосредственную форму  2714ms
+     ✓ каждое ядро дало хотя бы один литерал и хотя бы одну управляющую команду  2695ms
+     ✓ отказы упаковщика непусты, распределены по мнемоникам — и литерала среди них больше НЕТ  507ms
+ ✓ src/e2k/e2kMemory.test.ts (6 tests) 14566ms
+     ✓ байты совпадают с ассемблером МЦСТ побайтово — или причина названа  8357ms
+     ✓ негативный контроль: неизвестная мнемоника памяти — отказ, а разница форм литерала названа  6199ms
+ ✓ src/e2k/reorderE2k.test.ts (6 tests) 10907ms
+     ✓ 1.3 порядок носителей при optimizable-атоме отличается от неоптимизируемого  2719ms
+     ✓ 1.4 такты модели с перестановкой равны тактам без неё  1563ms
+     ✓ 1.5 состав образа от перестановки не меняется: инструкций и байт столько же  4749ms
+     ✓ каждое ядро собралось с обоими атомами и дало положительные такты  1870ms
+ ✓ src/e2k/e2kSetmas.test.ts (7 tests) 10192ms
+     ✓ слог CS1 наш и слог ассемблера — одно и то же слово  6709ms
+     ✓ наши команды читаются как команды по 8 байт, а опкод слога различается  3472ms
+ ✓ src/e2k/layoutWideCrossCheck.test.ts (12 tests) 8011ms
+     ✓ 3.1 layout.totalBytes равен сумме размеров размещённых записей  1491ms
+     ✓ 3.2 расхождение «раскладка − линейные байты» равно размеру отвергнутых носителей  4124ms
+     ✓ 3.3 упаковка не увеличивает образ: bytesWide не больше линейных и не больше раскладки  2382ms
+ ✓ src/e2k/emitterRoundtrip.test.ts (12 tests) 10538ms
+     ✓ fir (FIR-фильтр, атом A5): круг сохраняет семантику и совпадает с эталоном  543ms
+     ✓ fft (БПФ radix-2, атом A5): круг сохраняет семантику и совпадает с эталоном  408ms
+     ✓ convolution (свёртка, атом A6): круг сохраняет семантику и совпадает с эталоном  395ms
+     ✓ байты несут ровно столько слов, сколько инструкций, и карта совпадает с потоком  1458ms
+     ✓ все пять ядер детерминированы: два круга дают одно и то же  3968ms
+     ✓ перестановка внутри участков изменила порядок хотя бы у одного ядра  2164ms
+     ✓ НАЙДЕНО: перестановка сохраняет семантику ядер (иначе круг расходится с эталоном)  589ms
+     ✓ 4.4 подстановка вместо разбора ломает круг  471ms
+ ✓ src/scripts/e2kRunOutput.test.ts (4 tests) 8675ms
+     ✓ программа с возвратом: код 24 и вывод модели пуст (падения нет)  2487ms
+     ✓ вывод модели доходит наружу: у падения есть СЛОВА, а не только код  2071ms
+     ✓ НЕГАТИВНЫЙ КОНТРОЛЬ канала: у рабочего прогона вывод пуст, у падения — нет  4113ms
+ ✓ src/scripts/e2kExternalAs.test.ts (17 tests) 44303ms
+     ✓ все программы совпали с ассемблером побайтово, и адрес метки совпал с адресом цели  8219ms
+     ✓ ассемблер либо найден, либо причина названа  1890ms
+     ✓ все образцы совпали с ассемблером МЦСТ побайтово  20521ms
+     ✓ ассемблер отвергает канал, которого нет в таблице МЦСТ  4078ms
+     ✓ образцы совпали с ассемблером МЦСТ побайтово  5402ms
+     ✓ НЕГАТИВНЫЙ КОНТРОЛЬ: перестановка слов литерала расходится с ассемблером  4173ms
+ ✓ src/e2k/e2kDivisionForms.test.ts (5 tests) 7743ms
+     ✓ ассемблер МЦСТ собирает те же тексты — и его байты те же (живая сверка)  7732ms
+ ✓ src/scripts/tutorial.audit.test.ts (84 tests) 28606ms
+     ✓ `run <файл.osnova>` — одна команда: компилирует и исполняет  8651ms
+     ✓ `compile` + `run <файл.osvbc.json>` по-прежнему работают  19658ms
+ ✓ src/e2k/mathRuntime.test.ts (5 tests) 5480ms
+     ✓ ассемблер МЦСТ собирает ту же команду — и байты те же (живая сверка)  5471ms
+ ✓ src/e2k/widePackets.test.ts (15 tests) 6973ms
+     ✓ байты группировщика совпадают с ассемблером побайтово — или причина названа  6959ms
+ ✓ src/e2k/regAllocCoverage.test.ts (31 tests) 4202ms
+     ✓ 01-свёртка-fir: значение после раскладки совпадает с VM  395ms
+ ✓ src/compiler/buildPaths.test.ts (5 tests) 34759ms
+     ✓ apps/chat/chat.osnova: компиляторный CLI и подкоманда дают один байт-в-байт артефакт  12573ms
+     ✓ apps/task-manager/main.osnova: компиляторный CLI и подкоманда дают один байт-в-байт артефакт  10295ms
+     ✓ src/runtime/fixtures/todo.osnova: компиляторный CLI и подкоманда дают один байт-в-байт артефакт  11882ms
+ ✓ src/scripts/e2kExternalObjdump.test.ts (13 tests) 3484ms
+     ✓ каждый образец либо совпал с дизассемблером, либо помечен «НЕ ПРОВЕРЕНО»  3470ms
+ ✓ src/e2k/e2kWindow.test.ts (6 tests) 7235ms
+     ✓ байты совпадают с живым ассемблером — или причина названа  7227ms
+ ✓ src/scripts/checkCompilerExplorer.test.ts (5 tests) 683ms
+     ✓ сервис опрошен: результат совпадает с записанным фактом  595ms
+ ✓ src/scripts/e2kQemuBuild.audit.test.ts (6 tests) 5929ms
+     ✓ развилка «собран / не собран» разрешена: путь, версия или точная причина  1546ms
+     ✓ причина не устарела: инструментов сборки в PATH Windows по-прежнему нет  4293ms
+ ✓ src/scripts/emitterShell.audit.test.ts (9 tests) 2581ms
+     ✓ паспорт выхода несёт идентификатор бэкенда и статус ДОПУЩЕНИЕ  346ms
+     ✓ optimizable читается из module.atoms, а не из разметки вызывающего  302ms
+     ✓ пять DSP-ядер проходят круг до независимого эталона  1915ms
+ ✓ src/runtime/logOutput.test.ts (8 tests) 40912ms
+     ✓ `src/self-host/run.ts` печатает истина/ложь, а не true/false  17521ms
+     ✓ `compile` + `run` печатают истина/ложь, а не true/false  23366ms
+ ✓ src/e2k/immShort.test.ts (10 tests) 6751ms
+     ✓ 1.7 байты совпадают с ассемблером МЦСТ побайтово — или причина названа  6740ms
+ ✓ src/scripts/e2kAddressLoading.audit.test.ts (10 tests) 1013ms
+     ✓ якоря на пришпиленные источники совпадают с источником  407ms
+ ✓ src/vliw/packGate.test.ts (12 tests) 1430ms
+     ✓ каждый дефект по отдельности краснит gate  413ms
+stdout | src/oracle/parity-status.test.ts > oracle/parity: статус — часть оракула, а не украшение > storage_demo.osnova: внешний возврат совпадает (null, а не undefined)
+ok
+
+stdout | src/oracle/parity-status.test.ts > oracle/parity: статус — часть оракула, а не украшение > storage_demo.osnova: внешний возврат совпадает (null, а не undefined)
+ok
+
+stdout | src/oracle/parity-status.test.ts > oracle/parity: статус — часть оракула, а не украшение > блокнот.osnova: внешний возврат совпадает (null, а не undefined)
+Привет из Основа
+
+stdout | src/oracle/parity-status.test.ts > oracle/parity: статус — часть оракула, а не украшение > блокнот.osnova: внешний возврат совпадает (null, а не undefined)
+Привет из Основа
+
+stdout | src/oracle/parity-status.test.ts > oracle/parity: статус — часть оракула, а не украшение > ни одна готовая фикстура не «проходит» на взаимном падении
+ok
+
+stdout | src/oracle/parity-status.test.ts > oracle/parity: статус — часть оракула, а не украшение > ни одна готовая фикстура не «проходит» на взаимном падении
+ok
+
+ ✓ src/e2k/shellPathFaithfulness.test.ts (30 tests) 4762ms
+     ✓ 01-свёртка-fir: путь оболочки совпадает с регистровой VM  307ms
+ ✓ src/pipeline/orchestrator.partial.test.ts (6 tests) 1245ms
+     ✓ при non-blocking semanticErrors + golden passed → status=success  1241ms
+stdout | src/oracle/parity-status.test.ts > oracle/parity: статус — часть оракула, а не украшение > ни одна готовая фикстура не «проходит» на взаимном падении
+Привет из Основа
+
+stdout | src/oracle/parity-status.test.ts > oracle/parity: статус — часть оракула, а не украшение > ни одна готовая фикстура не «проходит» на взаимном падении
+Привет из Основа
+
+ ✓ src/oracle/parity-status.test.ts (6 tests) 1031ms
+     ✓ ни одна готовая фикстура не «проходит» на взаимном падении  540ms
+ ✓ src/vliw/regOracle.test.ts (28 tests) 982ms
+     ✓ todo.osnova: трасса и результат совпадают  751ms
+ ✓ src/scripts/e2kDocRefs.audit.test.ts (9 tests) 4433ms
+     ✓ во всём docs/** нет ссылок «файл:строка» вне названных исключений  3828ms
+     ✓ каждая именованная ссылка указывает на существующую цель  305ms
+ ✓ src/scripts/validateE2kExternal.test.ts (4 tests) 594ms
+     ✓ конвейер запроса к Compiler Explorer проверен на доступном компиляторе  586ms
+ ✓ src/scripts/e2kSources.audit.test.ts (4 tests) 574ms
+     ✓ локальная копия совпадает с описью: коммиты, sha256 архива, строки якорей  566ms
+ ✓ src/scripts/e2kSyscalls.audit.test.ts (9 tests) 328ms
+ ✓ src/scripts/simulatorShell.audit.test.ts (10 tests) 2128ms
+     ✓ пять ядер дают числа эталона и зафиксированные такты  1979ms
+stderr | src/env.test.ts > validateEnv > проходит при qwen-cli (default)
+[env] OSNOVA_MODEL не задан, будет использован: qwen-coder-plus
+
+ ✓ src/e2k/emitterOracle.test.ts (11 tests) 1122ms
+stderr | src/env.test.ts > validateEnv > проходит при deepseek с DEEPSEEK_API_KEY
+[env] OSNOVA_MODEL не задан, будет использован: deepseek-flash
+
+ ✓ src/e2k/e2kReal.test.ts (14 tests) 631ms
+     ✓ короткая форма проходит контракт: готов, ни одного замечания  473ms
+stdout | src/trace/traceStore.test.ts > обратная совместимость с живым runs/traces.jsonl > разбирается новой схемой: новых классов отказа нет, числа — в выводе теста
+[traceStore] живой журнал: строк 7258, разобрано 7234, отклонено 24 (записей с diagnostics: 105, битый JSON: 0, строка в полёте: 0)
+[traceStore]   отказ схемы ×17: intent.appType: Invalid option: expected one of "утилита"|"хранилище"|"ui_приложение"|"актор"|"смешанный"
+[traceStore]   отказ схемы ×7: status: Invalid option: expected one of "success"|"partial"|"repair_exhausted"|"error"
+
+ ✓ src/trace/traceStore.test.ts (28 tests) 1656ms
+     ✓ round-trip для каждого вида: запись сохраняется и читается обратно  575ms
+     ✓ разбирается новой схемой: новых классов отказа нет, числа — в выводе теста  675ms
+ ✓ src/scripts/brainstorm.audit.test.ts (25 tests) 1824ms
+     ✓ у каждой ссылки документ резолвится в файл репозитория  1639ms
+stderr | src/env.test.ts > validateEnv > проходит при deepseek с DEEPSEEK_API_KEY
+[env] LLM provider unavailable: HTTP 401
+
+stderr | src/env.test.ts > validateEnv > завершает с exit(1) при deepseek без DEEPSEEK_API_KEY
+[env] DEEPSEEK_API_KEY не задан. Обязателен при OSNOVA_PROVIDER=deepseek
+
+stderr | src/env.test.ts > validateEnv > завершает с exit(1) при неверном OSNOVA_PROVIDER
+[env] OSNOVA_PROVIDER="invalid-provider" неверный. Допустимые: ollama, deepseek, qwen-cli
+
+stderr | src/env.test.ts > validateEnv > применяет LOG_LEVEL при допустимом значении
+[env] OSNOVA_MODEL не задан, будет использован: qwen-coder-plus
+
+ ✓ src/env.test.ts (7 tests) 571ms
+     ✓ проходит при deepseek с DEEPSEEK_API_KEY  512ms
+ ✓ src/self-host/bootstrap-hash.test.ts (21 tests) 390ms
+stdout | src/vliw/reorderEquivalence.test.ts > reorderEquivalence: регрессия на барьер возврата > storage_demo: вывод в лог происходит, а не теряется
+ok
+
+stdout | src/vliw/reorderEquivalence.test.ts > reorderEquivalence: регрессия на барьер возврата > storage_demo: вывод в лог происходит, а не теряется
+ok
+
+stdout | src/vliw/reorderEquivalence.test.ts > reorderEquivalence: корпус проекта > storage_demo.osnova: эквивалентность доказана
+ok
+
+stdout | src/vliw/reorderEquivalence.test.ts > reorderEquivalence: корпус проекта > storage_demo.osnova: эквивалентность доказана
+ok
+
+stdout | src/vliw/reorderEquivalence.test.ts > reorderEquivalence: корпус проекта > блокнот.osnova: эквивалентность доказана
+Привет из Основа
+
+stdout | src/vliw/reorderEquivalence.test.ts > reorderEquivalence: корпус проекта > блокнот.osnova: эквивалентность доказана
+Привет из Основа
+
+ ✓ src/vliw/reorderEquivalence.test.ts (23 tests) 317ms
+ ✓ src/e2k/backend.test.ts (18 tests) 319ms
+ ✓ src/scripts/examples.audit.test.ts (58 tests) 350ms
+ ✓ src/vliw/moduleSchedule.test.ts (12 tests) 385ms
+stderr | src/runtime/appRunner.test.ts > app-runner: `для_каждого` через `система.итератор.из` (регресс 7853a50) > Micro-CRM: считает по четырём клиентам, а не по нулю
+[osnova-runtime] app id: osnova.micro_crm
+
+stderr | src/runtime/appRunner.test.ts > app-runner: `для_каждого` через `система.итератор.из` (регресс 7853a50) > Micro-CRM: считает по четырём клиентам, а не по нулю
+[osnova-runtime] package loaded: 23 file(s)
+[osnova-runtime] sandbox: network outbound disabled
+
+stderr | src/runtime/appRunner.test.ts > app-runner: `для_каждого` через `система.итератор.из` (регресс 7853a50) > Game Rounds: считает по трём раундам
+[osnova-runtime] app id: osnova.game_rounds
+
+stderr | src/runtime/appRunner.test.ts > app-runner: `для_каждого` через `система.итератор.из` (регресс 7853a50) > Game Rounds: считает по трём раундам
+[osnova-runtime] package loaded: 23 file(s)
+[osnova-runtime] sandbox: network outbound disabled
+
+ ✓ src/runtime/appRunner.test.ts (2 tests) 215ms
+stdout | src/pipeline/pipeline.test.ts > оркестрация — успешный прогон (инварианты) > оба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[pipeline] phase: intake
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — успешный прогон (инварианты) > оба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — успешный прогон (инварианты) > оба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — успешный прогон (инварианты) > оба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+ ✓ src/e2k/printPipeline.test.ts (17 tests) 413ms
+stdout | src/pipeline/pipeline.test.ts > оркестрация — успешный прогон (инварианты) > оба фасада: success, totalDurationMs > 0, shadow_hits — массив
+[pipeline] gate G3 passed — pipeline complete
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run — полный пайплайн (оркестратор + repair) > intake → spec → codegen → build → golden, success
+[pipeline] phase: intake
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run — полный пайплайн (оркестратор + repair) > intake → spec → codegen → build → golden, success
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run — полный пайплайн (оркестратор + repair) > intake → spec → codegen → build → golden, success
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run — полный пайплайн (оркестратор + repair) > intake → spec → codegen → build → golden, success
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run — полный пайплайн (оркестратор + repair) > intake → spec → codegen → build → golden, success
+[pipeline] gate G3 passed — pipeline complete
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: IntakeAgent.parseIntent отклоняется → error
+[pipeline] phase: intake
+
+stderr | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: IntakeAgent.parseIntent отклоняется → error
+[pipeline] unhandled error LLM недоступен
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: OsnovaCodegenAgent.generate отклоняется → error
+[pipeline] phase: intake
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: OsnovaCodegenAgent.generate отклоняется → error
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: OsnovaCodegenAgent.generate отклоняется → error
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stderr | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: OsnovaCodegenAgent.generate отклоняется → error
+[pipeline] unhandled error codegen fail
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: G1 (пустые features у intent) → error
+[pipeline] phase: intake
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: G1 (пустые features у intent) → error
+[pipeline] phase: spec_generation
+
+stderr | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run: G1 (пустые features у intent) → error
+[pipeline] gate G1 FAIL [
+  'g1_features_present: no features → ask_user_what_program_should_do'
+]
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run и runPipelineWithExecAgent: generateSpec отклоняется → error
+[pipeline] phase: intake
+
+stdout | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run и runPipelineWithExecAgent: generateSpec отклоняется → error
+[pipeline] phase: spec_generation
+
+stderr | src/pipeline/pipeline.test.ts > оркестрация — ошибки агентов и gates (фасады pipeline.ts) > Pipeline.run и runPipelineWithExecAgent: generateSpec отклоняется → error
+[pipeline] unhandled error spec gen fail
+
+ ✓ src/scripts/stepChain.test.ts (7 tests) 2845ms
+     ✓ красный процесс не мешает следующему записать файл  2838ms
+stdout | src/pipeline/pipeline.test.ts > partial: qualityScore ∈ [SPEC_QUALITY_PARTIAL, SPEC_QUALITY_PASS) без регрессии фасадов > Pipeline.run (оркестратор) → status partial, repairAttempts = 0
+[pipeline] phase: intake
+
+stdout | src/pipeline/pipeline.test.ts > partial: qualityScore ∈ [SPEC_QUALITY_PARTIAL, SPEC_QUALITY_PASS) без регрессии фасадов > Pipeline.run (оркестратор) → status partial, repairAttempts = 0
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/pipeline.test.ts > partial: qualityScore ∈ [SPEC_QUALITY_PARTIAL, SPEC_QUALITY_PASS) без регрессии фасадов > Pipeline.run (оркестратор) → status partial, repairAttempts = 0
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stdout | src/pipeline/pipeline.test.ts > partial: qualityScore ∈ [SPEC_QUALITY_PARTIAL, SPEC_QUALITY_PASS) без регрессии фасадов > Pipeline.run (оркестратор) → status partial, repairAttempts = 0
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stdout | src/pipeline/pipeline.test.ts > partial: qualityScore ∈ [SPEC_QUALITY_PARTIAL, SPEC_QUALITY_PASS) без регрессии фасадов > Pipeline.run (оркестратор) → status partial, repairAttempts = 0
+[pipeline] qualityScore in [0.5, 0.7) — partial, no repair
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run (оркестратор) + ReviewAgent — тот же стек, что ExecAgent-фасад > intake → … → build → golden через orchestrator; контекст проходит ReviewAgent
+[pipeline] phase: intake
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run (оркестратор) + ReviewAgent — тот же стек, что ExecAgent-фасад > intake → … → build → golden через orchestrator; контекст проходит ReviewAgent
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run (оркестратор) + ReviewAgent — тот же стек, что ExecAgent-фасад > intake → … → build → golden через orchestrator; контекст проходит ReviewAgent
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run (оркестратор) + ReviewAgent — тот же стек, что ExecAgent-фасад > intake → … → build → golden через orchestrator; контекст проходит ReviewAgent
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stdout | src/pipeline/pipeline.test.ts > Pipeline.run (оркестратор) + ReviewAgent — тот же стек, что ExecAgent-фасад > intake → … → build → golden через orchestrator; контекст проходит ReviewAgent
+[pipeline] gate G3 passed — pipeline complete
+
+ ✓ src/vliw/vliwPipeline.test.ts (12 tests) 196ms
+ ✓ src/pipeline/pipeline.test.ts (25 tests) 361ms
+ ✓ src/compiler/compiler.test.ts (153 tests) 663ms
+ ✓ src/scripts/e2kExtraction.audit.test.ts (12 tests) 1042ms
+     ✓ все ссылки разворачиваются в существующие строки источников  1006ms
+ ✓ src/runtime/vm/eval.test.ts (6 tests) 74ms
+ ✓ src/vliw/spill.test.ts (5 tests) 293ms
+ ✓ src/e2k/formLengths.test.ts (4 tests) 223ms
+stdout | src/compiler/golden-runner.test.ts > golden-tests.json — компиляция MVP-кейсов > [throw_inside_if] выбросить внутри если внутри попробовать
+превышен лимит
+
+ ✓ src/compiler/golden-runner.test.ts (79 tests) 128ms
+ ✓ src/compiler/fileAsModule.test.ts (42 tests) 50ms
+ ✓ src/scripts/doc-guardian.test.ts (19 tests) 287ms
+ ✓ src/scripts/e2kSyllables.audit.test.ts (6 tests) 50ms
+ ✓ src/oracle/parity.test.ts (35 tests) 86ms
+ ✓ src/vliw/packetPacker.audit.test.ts (4 tests) 352ms
+ ✓ src/intelligence/planner.test.ts (20 tests) 202ms
+ ✓ src/runtime/artifactDrift.test.ts (32 tests) 209ms
+ ✓ src/self-host/stage16.test.ts (1 test) 132ms
+ ✓ src/self-improve/core.test.ts (4 tests) 11038ms
+     ✓ сходится к success при зелёном гейте  11020ms
+ ✓ scripts/blocker-resolver.test.ts (39 tests) 50ms
+ ✓ src/scripts/dspKernels.test.ts (8 tests) 92ms
+ ✓ src/scripts/e2kOpcodesReal.audit.test.ts (5 tests) 136ms
+ ✓ src/compiler/deprecatedCloser.test.ts (10 tests) 157ms
+stderr | src/agents/agents.test.ts > IntakeAgent — валидация входа parseIntent > отклоняет пустой текст
+[intake-agent] parseIntent: invalid input { field: 'text' }
+
+stderr | src/agents/agents.test.ts > IntakeAgent — валидация входа parseIntent > отклоняет пустой текст
+[intake-agent] parseIntent: invalid input { field: 'text' }
+
+stderr | src/agents/agents.test.ts > IntakeAgent — валидация входа parseIntent > отклоняет текст из одних пробелов
+[intake-agent] parseIntent: invalid input { field: 'text' }
+
+stderr | src/agents/agents.test.ts > IntakeAgent — валидация входа parseIntent > отклоняет не-строковый text
+[intake-agent] parseIntent: invalid input { field: 'text' }
+
+stderr | src/agents/agents.test.ts > IntakeAgent — валидация входа generateSpec > отклоняет пустой intentId
+[intake-agent] generateSpec: invalid intent { field: 'intentId' }
+
+stderr | src/agents/agents.test.ts > IntakeAgent — валидация входа generateSpec > отклоняет пустое description
+[intake-agent] generateSpec: invalid intent { field: 'description' }
+
+stderr | src/agents/agents.test.ts > IntakeAgent — валидация входа generateSpec > отклоняет features не-массив
+[intake-agent] generateSpec: invalid intent { field: 'features' }
+
+ ✓ src/runtime/vm.test.ts (20 tests) 111ms
+stdout | src/agents/agents.test.ts > ExecAgent — createPipelineVmFromExecContext (runtime/vm) > создаёт VM с applyPipelineSpecToVm: globals и успешный execute
+55
+
+stdout | src/agents/agents.test.ts > ExecAgent — safeExecutePipelineVmFromExecContext (ATM-EPK-260328-017-003) > успешный прогон главной процедуры через контекст после build
+55
+
+ ✓ src/agents/agents.test.ts (103 tests) 116ms
+Записано: D:\PROJECTS\OSNOVA-FABRIKA\src\vliw\fixtures\linear-sum.scheduled.osvbc.json
+ ✓ src/vliw/scheduler.test.ts (13 tests) 24603ms
+     ✓ CLI: linear-sum.osvbc.json → schedule → VM returns 2  24592ms
+ ✓ src/vliw/reorderScheduler.test.ts (22 tests) 58ms
+stdout | src/scripts/dspBoundarySufficiency.test.ts > достаточность процедурной разметки для пяти DSP-ядер > ИЗМЕРЕНИЕ: сколько процедур в каждом ядре и как они называются
+процедуры по ядрам: fir=3 (фильтр, сумма, главная); iir=4 (целое_деление, фильтр, сумма, главная); fft=3 (бпф4, сумма, главная); convolution=3 (свёртка, сумма, главная); correlation=3 (корреляция, сумма, главная)
+
+stdout | src/compiler/llm-ergonomics.test.ts > LLM ergonomics: синонимы системных вызовов (пункт 1.5, 41 случай) > система.окно.вывод разрешается как система.лог.вывести
+привет
+
+ ✓ src/compiler/llm-ergonomics.test.ts (53 tests) 49ms
+ ✓ src/scripts/e2kBackend.audit.test.ts (17 tests) 214ms
+ ✓ src/scripts/dspBoundarySufficiency.test.ts (6 tests) 81ms
+ ✓ src/e2k/encoding.test.ts (7 tests) 49ms
+ ✓ src/compiler/blockClosers.test.ts (32 tests) 61ms
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: task → success with mock LLM
+[pipeline] phase: intake
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: task → success with mock LLM
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: task → success with mock LLM
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: task → success with mock LLM
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: task → success with mock LLM
+[pipeline] gate G3 passed — pipeline complete
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: partial — qualityScore в [0.5, 0.7)
+[pipeline] phase: intake
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: partial — qualityScore в [0.5, 0.7)
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: partial — qualityScore в [0.5, 0.7)
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: partial — qualityScore в [0.5, 0.7)
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: partial — qualityScore в [0.5, 0.7)
+[pipeline] qualityScore in [0.5, 0.7) — partial, no repair
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] phase: intake
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stderr | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] gate G3 FAIL (attempt 1) [
+  'g3_no_vm_errors: 1 VM error(s) → route_to_repair',
+  'g3_golden_or_quality: qualityScore < 0.7 → route_to_repair',
+  'g3_output_diff_acceptable: diff present AND qualityScore < 0.5 → route_to_repair'
+]
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] phase: build (attempt 2)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stderr | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] gate G3 FAIL (attempt 2) [
+  'g3_no_vm_errors: 1 VM error(s) → route_to_repair',
+  'g3_golden_or_quality: qualityScore < 0.7 → route_to_repair',
+  'g3_output_diff_acceptable: diff present AND qualityScore < 0.5 → route_to_repair'
+]
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] phase: build (attempt 3)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] repair→Pro после 3 неудач подряд
+
+stderr | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] gate G3 FAIL (attempt 3) [
+  'g3_no_vm_errors: 1 VM error(s) → route_to_repair',
+  'g3_golden_or_quality: qualityScore < 0.7 → route_to_repair',
+  'g3_output_diff_acceptable: diff present AND qualityScore < 0.5 → route_to_repair'
+]
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] phase: build (attempt 4)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stderr | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: repair_exhausted — G3 всегда падает
+[pipeline] gate G3 FAIL (attempt 4) [
+  'g3_no_vm_errors: 1 VM error(s) → route_to_repair',
+  'g3_golden_or_quality: qualityScore < 0.7 → route_to_repair',
+  'g3_output_diff_acceptable: diff present AND qualityScore < 0.5 → route_to_repair'
+]
+[pipeline] repair loop exhausted { repairAttempts: 3, lastErrorKind: 'vm_error' }
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: error — G1 падает при пустых features
+[pipeline] phase: intake
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: error — G1 падает при пустых features
+[pipeline] phase: spec_generation
+
+stderr | src/pipeline/orchestrator.test.ts > Pipeline integration (mock LLM) > runPipeline: error — G1 падает при пустых features
+[pipeline] gate G1 FAIL [
+  'g1_features_present: no features → ask_user_what_program_should_do'
+]
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: partial (alternate LLM stub) > при qualityScore в [0.5, 0.7) возвращает status partial без repair
+[pipeline] phase: intake
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: partial (alternate LLM stub) > при qualityScore в [0.5, 0.7) возвращает status partial без repair
+[pipeline] phase: spec_generation
+
+stderr | src/pipeline/orchestrator.test.ts > Pipeline: partial (alternate LLM stub) > при qualityScore в [0.5, 0.7) возвращает status partial без repair
+[intake-agent] generateSpec: JSON parse failed, using fallback
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: partial (alternate LLM stub) > при qualityScore в [0.5, 0.7) возвращает status partial без repair
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: partial (alternate LLM stub) > при qualityScore в [0.5, 0.7) возвращает status partial без repair
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: partial (alternate LLM stub) > при qualityScore в [0.5, 0.7) возвращает status partial без repair
+[pipeline] qualityScore in [0.5, 0.7) — partial, no repair
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: repair cycle > при ошибке компиляции запускает RepairEngineer и завершаетcя не в error
+[pipeline] phase: intake
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: repair cycle > при ошибке компиляции запускает RepairEngineer и завершаетcя не в error
+[pipeline] phase: spec_generation
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: repair cycle > при ошибке компиляции запускает RepairEngineer и завершаетcя не в error
+[pipeline] gate G1 passed
+[pipeline] phase: codegen
+
+stderr | src/pipeline/orchestrator.test.ts > Pipeline: repair cycle > при ошибке компиляции запускает RepairEngineer и завершаетcя не в error
+[pipeline] gate G2 FAIL (attempt 1) [
+  'g2_parser_clean: 1 parser error(s) → route_to_repair',
+  'g2_compiler_success: no bytecode → route_to_repair'
+]
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: repair cycle > при ошибке компиляции запускает RepairEngineer и завершаетcя не в error
+[pipeline] shadow mode { rfc002: 0, rfc003: 0 }
+[pipeline] phase: build (attempt 1)
+[pipeline] parser error: 1:1 Ожидается конец файла: файл является модулем целиком
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: repair cycle > при ошибке компиляции запускает RepairEngineer и завершаетcя не в error
+[pipeline] phase: build (attempt 2)
+[pipeline] gate G2 passed
+[pipeline] phase: golden_check
+
+stdout | src/pipeline/orchestrator.test.ts > Pipeline: repair cycle > при ошибке компиляции запускает RepairEngineer и завершаетcя не в error
+[pipeline] qualityScore in [0.5, 0.7) — partial, no repair
+
+ ✓ src/pipeline/orchestrator.test.ts (27 tests) 93ms
+ ✓ src/vliw/crdtKernel.test.ts (4 tests) 124ms
+ ✓ src/runtime/vm/interpreter.test.ts (65 tests) 83ms
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > сходится к success и пишет трейс итераций
+[loop] loop: routing {
+  tier: 'auto',
+  level: 'med',
+  phases: [
+    'intake=deepseek-flash/high',
+    'spec=deepseek-flash/no-think',
+    'codegen=deepseek-flash/high',
+    'repair=deepseek-flash/high'
+  ]
+}
+[loop] loop: intake
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > сходится к success и пишет трейс итераций
+[loop] loop: codegen
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > сходится к success и пишет трейс итераций
+[loop] loop: build (итерация 1)
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > сходится к success и пишет трейс итераций
+[loop] loop: готово — success (итерация 1)
+
+ ✓ src/self-host/stage15.test.ts (1 test) 105ms
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > останавливается по лимиту итераций при постоянно падающем golden
+[loop] loop: routing {
+  tier: 'auto',
+  level: 'med',
+  phases: [
+    'intake=deepseek-flash/high',
+    'spec=deepseek-flash/no-think',
+    'codegen=deepseek-flash/high',
+    'repair=deepseek-flash/high'
+  ]
+}
+[loop] loop: intake
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > останавливается по лимиту итераций при постоянно падающем golden
+[loop] loop: codegen
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > останавливается по лимиту итераций при постоянно падающем golden
+[loop] loop: build (итерация 1)
+
+stderr | src/pipeline/loop.test.ts > runLoop (mock LLM) > останавливается по лимиту итераций при постоянно падающем golden
+[loop] loop: golden FAIL (итерация 1) vm_error
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > останавливается по лимиту итераций при постоянно падающем golden
+[loop] loop: build (итерация 2)
+
+stderr | src/pipeline/loop.test.ts > runLoop (mock LLM) > останавливается по лимиту итераций при постоянно падающем golden
+[loop] loop: golden FAIL (итерация 2) vm_error
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > останавливается по лимиту итераций при постоянно падающем golden
+[loop] loop: build (итерация 3)
+
+stderr | src/pipeline/loop.test.ts > runLoop (mock LLM) > останавливается по лимиту итераций при постоянно падающем golden
+[loop] loop: golden FAIL (итерация 3) vm_error
+[loop] loop: лимит итераций исчерпан { maxIterations: 3, lastErrorKind: 'vm_error' }
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > возвращает partial при qualityScore в [0.5, 0.7)
+[loop] loop: routing {
+  tier: 'auto',
+  level: 'med',
+  phases: [
+    'intake=deepseek-flash/high',
+    'spec=deepseek-flash/no-think',
+    'codegen=deepseek-flash/high',
+    'repair=deepseek-flash/high'
+  ]
+}
+[loop] loop: intake
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > возвращает partial при qualityScore в [0.5, 0.7)
+[loop] loop: codegen
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > возвращает partial при qualityScore в [0.5, 0.7)
+[loop] loop: build (итерация 1)
+
+stdout | src/pipeline/loop.test.ts > runLoop (mock LLM) > возвращает partial при qualityScore в [0.5, 0.7)
+[loop] loop: golden partial (0.60) — остановка
+
+ ✓ src/pipeline/loop.test.ts (3 tests) 50ms
+ ✓ src/scripts/e2kWideCommands.audit.test.ts (8 tests) 1224ms
+     ✓ ссылки «файл:строка» документа указывают на существующие строки  591ms
+     ✓ каждый якорь формы лежит там, где назван  365ms
+stdout | src/vliw/reorderGate.test.ts > gate: зелёный на совпадении, красный на расхождении > завершающаяся программа доказывает эквивалентность
+значение
+
+stdout | src/vliw/reorderGate.test.ts > gate: зелёный на совпадении, красный на расхождении > завершающаяся программа доказывает эквивалентность
+значение
+
+stdout | src/vliw/reorderGate.test.ts > gate: чувствительность к порядку зависимостей > программа с наблюдаемыми эффектами участвует в сверке трасс
+значение
+
+stdout | src/vliw/reorderGate.test.ts > gate: чувствительность к порядку зависимостей > программа с наблюдаемыми эффектами участвует в сверке трасс
+значение
+
+ ✓ src/vliw/reorderGate.test.ts (16 tests) 84ms
+ ✓ src/compiler/diagnosticCatalogue.test.ts (41 tests) 56ms
+ ✓ src/runtime/runtimeCodes.test.ts (37 tests) 54ms
+ ✓ src/scripts/dspSubset.audit.test.ts (13 tests) 45ms
+ ✓ src/vliw/pipelineCounters.test.ts (12 tests) 45ms
+ ✓ src/compiler/canon.test.ts (52 tests) 43ms
+ ✓ src/runtime/goldenApps.test.ts (4 tests) 315ms
+stderr | src/agents/intake-agent.test.ts > IntakeAgent.parseIntent (mock LLM) > возвращает fallback при невалидном JSON от LLM
+[intake-agent] parseIntent: JSON parse failed, using fallback
+
+stderr | src/agents/intake-agent.test.ts > IntakeAgent.parseIntent (mock LLM) > Issues #2–4: пустой content от LLM → fallbackIntent (confidence 0.5), валидный OsnovaIntent
+[intake-agent] parseIntent: JSON parse failed, using fallback
+
+stderr | src/agents/intake-agent.test.ts > IntakeAgent.parseIntent (mock LLM) > Issues #2–4: только пробелы в content → fallbackIntent
+[intake-agent] parseIntent: JSON parse failed, using fallback
+
+stderr | src/agents/intake-agent.test.ts > IntakeAgent.parseIntent (mock LLM) > fallback учитывает префикс Алгоритм: и фиксирует низкую confidence 0.5 (fallbackIntent)
+[intake-agent] parseIntent: JSON parse failed, using fallback
+
+stderr | src/agents/intake-agent.test.ts > IntakeAgent.generateSpec (mock LLM) > при невалидном JSON от LLM возвращает fallback spec
+[intake-agent] generateSpec: JSON parse failed, using fallback
+
+stderr | src/agents/intake-agent.test.ts > IntakeAgent.generateSpec (mock LLM) > Issues #2–4: низкая confidence у intent + пустой content LLM → fallbackSpec
+[intake-agent] generateSpec: JSON parse failed, using fallback
+
+stderr | src/agents/intake-agent.test.ts > IntakeAgent.generateSpec (mock LLM) > Issues #2–4: низкая confidence + не-JSON от LLM → fallbackSpec (как при сбое разбора)
+[intake-agent] generateSpec: JSON parse failed, using fallback
+
+ ✓ src/agents/intake-agent.test.ts (51 tests) 37ms
+ ✓ src/runtime/index.test.ts (21 tests) 37ms
+ ✓ src/scripts/e2kLayoutNegativeControl.test.ts (7 tests) 30ms
+ ✓ src/scripts/diagnosticsJournalReport.test.ts (8 tests) 107ms
+ ✓ src/trace/diagnosticsProjection.test.ts (26 tests) 100ms
+ ✓ src/compiler/semanticAttribution.test.ts (5 tests) 31ms
+ ✓ src/runtime/syscallAliases.test.ts (33 tests) 32ms
+ ✓ src/compiler/regcodegen.test.ts (21 tests) 36ms
+ ✓ src/compiler/semanticKinds.test.ts (10 tests) 10ms
+ ✓ src/vliw/unroll.test.ts (9 tests) 37ms
+ ✓ src/scripts/vliwReadiness.audit.test.ts (20 tests) 74ms
+ ✓ src/e2k/asmSchedulerFixture.test.ts (12 tests) 75ms
+ ✓ src/compiler/integerDivision.test.ts (10 tests) 31ms
+ ✓ src/compiler/semantic.test.ts (21 tests) 28ms
+ ✓ src/compiler/parser-robustness.test.ts (22 tests) 28ms
+ ✓ src/compiler/variant-types.test.ts (11 tests) 30ms
+ ✓ src/compiler/vm.test.ts (20 tests) 28ms
+ ✓ src/e2k/printPrimitives.test.ts (18 tests) 23ms
+ ✓ src/vliw/e2kDevices.test.ts (33 tests) 28ms
+ ✓ src/compiler/registryConsistency.test.ts (18 tests) 26ms
+ ✓ src/vliw/sourceAudit.test.ts (20 tests) 20ms
+stderr | src/agents/DiagnosticAgent.test.ts > DiagnosticAgent > autofix > применяет правила к fixable ошибкам
+[diagnostic-agent] repair engineer failed {
+  error: Error: DEEPSEEK_API_KEY не задан или пуст. Обязателен при OSNOVA_PROVIDER=deepseek
+      at createProvider (D:/PROJECTS/OSNOVA-FABRIKA/src/llm/index.ts:65:15)
+      at getLLMProvider (D:/PROJECTS/OSNOVA-FABRIKA/src/llm/index.ts:91:31)
+      at RepairEngineerAgent.fix (D:/PROJECTS/OSNOVA-FABRIKA/src/agents/RepairEngineer.ts:116:22)
+      at DiagnosticAgent.autofixWithRepairEngineer (D:/PROJECTS/OSNOVA-FABRIKA/src/agents/DiagnosticAgent.ts:283:56)
+      at Object.apply (D:/PROJECTS/OSNOVA-FABRIKA/src/agents/DiagnosticAgent.ts:372:27)
+      at DiagnosticAgent.autofix (D:/PROJECTS/OSNOVA-FABRIKA/src/agents/DiagnosticAgent.ts:243:38)
+      at D:/PROJECTS/OSNOVA-FABRIKA/src/agents/DiagnosticAgent.test.ts:319:35
+      at file:///D:/PROJECTS/OSNOVA-FABRIKA/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+      at file:///D:/PROJECTS/OSNOVA-FABRIKA/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:26
+      at file:///D:/PROJECTS/OSNOVA-FABRIKA/node_modules/@vitest/runner/dist/chunk-artifact.js:2316:20
+}
+
+ ✓ src/agents/DiagnosticAgent.test.ts (27 tests) 24ms
+ ✓ src/llm/stripMarkdownFence.test.ts (100 tests) 15ms
+ ✓ scripts/pipeline-metrics.test.ts (3 tests) 22ms
+ ✓ src/vliw/regGraphMemory.test.ts (8 tests) 29ms
+ ✓ src/compiler/lexer.test.ts (15 tests) 19ms
+ ✓ src/compiler/parser.test.ts (28 tests) 28ms
+ ✓ src/compiler/codegen.test.ts (20 tests) 17ms
+ ✓ src/compiler/index.test.ts (10 tests) 21ms
+ ✓ src/e2k/asmScheduler.test.ts (15 tests) 16ms
+ ✓ src/vliw/regGraphWar.test.ts (4 tests) 20ms
+ ✓ src/e2k/latencyMap.test.ts (14 tests) 19ms
+ ✓ src/runtime/appRegistry.test.ts (15 tests) 24ms
+ ✓ src/scripts/decisionB.audit.test.ts (7 tests) 19ms
+ ✓ src/agents/RepairEngineer.test.ts (10 tests) 18ms
+ ✓ src/llm/routing.test.ts (24 tests) 15ms
+ ✓ src/resident/adapters.test.ts (2 tests) 18ms
+ ✓ src/scripts/shellTicks.audit.test.ts (8 tests) 16ms
+ ✓ src/vliw/cfgLiveness.test.ts (6 tests) 19ms
+ ✓ src/agents/plan-agent.test.ts (19 tests) 22ms
+ ✓ src/runtime/interpreter.test.ts (29 tests) 18ms
+ ✓ src/llm/QwenCliProvider.test.ts (4 tests) 18ms
+ ✓ src/pipeline/types.test.ts (54 tests) 17ms
+ ✓ src/scripts/languageV2Requirements.audit.test.ts (15 tests) 13ms
+ ✓ src/compiler/atomRegions.test.ts (12 tests) 16ms
+ ✓ src/pipeline-llm/buildOsnovaPrompt.test.ts (5 tests) 18ms
+stdout | src/scripts/trace-viewer.test.ts
+
+═══ СТАТИСТИКА ТРЕЙСОВ ═══
+Всего трейсов : 6800
+  ❓ failure              6 (0.1%)
+  ✅ success              3565 (52.4%)
+  ❌ repair_exhausted     102 (1.5%)
+  ⚠️  partial              765 (11.3%)
+  ❓ error                2362 (34.7%)
+Repair-попыток: 528 (avg 0.08 на трейс)
+Golden passed : 3565/4385 (81.3%)
+
+═══ SUCCESS RATE ПО МОДЕЛЯМ ═══
+  deepseek-flash            42.8% success  (1441/3365)  avg repairs: 0.00
+  qwen-coder-plus           58.1% success  (1745/3003)  avg repairs: 0.11
+  unknown                   87.7% success  (379/432)  avg repairs: 0.46
+
+═══ ТОП ОШИБОК КОМПИЛЯТОРА ═══
+    52x  [semantic] 'X' ожидает N аргументов, передано N
+    52x  'X' ожидает N аргументов, передано N
+    47x  Ожидается выражение, получено: =
+    40x  [semantic] повторное объявление 'X' через пусть — используй просто 'X'
+    40x  повторное объявление 'X' через пусть — используй просто 'X'
+    25x  Ожидается конец файла или процедура
+    19x  Неизвестный символ: ":"
+     7x  [semantic] переменная 'X' используется без объявления через пусть
+     7x  переменная 'X' используется без объявления через пусть
+     6x  Ожидается выражение, получено: процедура
+
+═══ ПОСЛЕДНИЕ 20 из 6800 трейсов ═══
+
+✅ [28.09.2026, 16:09:34] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (93943e39)
+❓ [28.09.2026, 16:09:34] задача                                               (ec90f575)
+❓ [28.09.2026, 16:09:34] посчитай сумму от 1 до 10                            (bf5f19af)
+❓ [28.09.2026, 16:09:34] задача                                               (047df62e)
+⚠️  [28.09.2026, 16:09:34] посчитай сумму от 1 до 10                          🔨ok Q=0.60 (8efb4879)
+✅ [28.09.2026, 16:09:34] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (86a97699)
+✅ [28.09.2026, 16:17:24] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (e7cfb756)
+✅ [28.09.2026, 16:17:24] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (2b3056a9)
+❓ [28.09.2026, 16:17:24] задача                                               (14e366b2)
+❓ [28.09.2026, 16:17:24] посчитай сумму от 1 до 10                            (1bc8bbfe)
+❓ [28.09.2026, 16:17:24] задача                                               (ba197721)
+⚠️  [28.09.2026, 16:17:25] посчитай сумму от 1 до 10                          🔨ok Q=0.60 (eccf9afa)
+✅ [28.09.2026, 16:17:25] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (f90ce3e4)
+✅ [28.09.2026, 16:20:55] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (2e665a98)
+✅ [28.09.2026, 16:20:55] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (1d68d408)
+❓ [28.09.2026, 16:20:55] задача                                               (4d93058d)
+❓ [28.09.2026, 16:20:55] посчитай сумму от 1 до 10                            (f79553ab)
+❓ [28.09.2026, 16:20:55] задача                                               (8682b5f0)
+⚠️  [28.09.2026, 16:20:55] посчитай сумму от 1 до 10                          🔨ok Q=0.60 (0b975f0c)
+✅ [28.09.2026, 16:20:55] посчитай сумму от 1 до 10                          🔨ok Q=1.00 (9cbe23ac)
+
+⚠️  исключено тестовых/stale трейсов: 465
+
+stdout | src/scripts/trace-viewer.test.ts > printRepairStats > считает распределение repair-попыток корректно
+
+═══ REPAIR EFFECTIVENESS ═══
+Всего прогонов: 0
+
+Попытки | Прогонов | Success | Partial | Success rate
+--------|----------|---------|---------|-------------
+
+
+ ✓ src/scripts/trace-viewer.test.ts (8 tests) 37ms
+ ✓ src/vliw/opcodeAudit.test.ts (43 tests) 13ms
+ ✓ src/vliw/packetPacker.test.ts (21 tests) 17ms
+ ✓ src/runtime/vm/reginterpreter.test.ts (19 tests) 17ms
+ ✓ src/scripts/dspInstructions.audit.test.ts (7 tests) 29ms
+ ✓ src/e2k/e2kArrays.test.ts (12 tests) 13ms
+ ✓ src/scripts/e2kEncoding.audit.test.ts (9 tests) 12ms
+ ✓ src/e2k/packetSize.test.ts (17 tests) 15ms
+ ✓ src/e2k/asmSchedulerProperties.test.ts (10 tests) 14ms
+ ✓ src/e2k/e2kCallLowering.test.ts (10 tests) 14ms
+ ✓ src/scripts/extractE2kSamples.test.ts (6 tests) 15ms
+ ✓ src/scripts/testFiles.audit.test.ts (11 tests) 12ms
+ ✓ src/steward/decision-journal.test.ts (5 tests) 12ms
+ ✓ src/agents/index.test.ts (25 tests) 12ms
+ ✓ src/vliw/packetVerifier.test.ts (22 tests) 12ms
+ ✓ src/pipeline/shadowMode.test.ts (22 tests) 13ms
+ ✓ src/scripts/analyze-language-health.test.ts (25 tests) 12ms
+ ✓ src/pipeline/failureKind.test.ts (20 tests) 11ms
+ ✓ src/resident/core.test.ts (3 tests) 12ms
+ ✓ src/scripts/export-dataset.test.ts (20 tests) 13ms
+ ✓ src/pipeline-llm/repairTarget.test.ts (17 tests) 13ms
+ ✓ src/pipeline/gateChecker.test.ts (22 tests) 13ms
+ ✓ src/compiler/registryAgreement.test.ts (7 tests) 10ms
+ ✓ src/e2k/encoding.negative.test.ts (9 tests) 10ms
+ ✓ src/llm/OllamaProvider.test.ts (4 tests) 10ms
+ ✓ src/e2k/e2kImm64.test.ts (6 tests) 11ms
+ ✓ src/llm/DeepSeekProvider.test.ts (5 tests) 11ms
+ ✓ src/intelligence/sources/rss-generic.test.ts (5 tests) 9ms
+ ✓ src/vliw/e2kMachineModel.test.ts (7 tests) 9ms
+ ✓ src/steward/auto-approve.test.ts (6 tests) 10ms
+ ✓ src/lib/fixtureTasks.test.ts (10 tests) 9ms
+ ✓ src/scripts/findE2kDisassembler.test.ts (5 tests) 8ms
+ ✓ src/scripts/analyze-dataset-health.test.ts (9 tests) 9ms
+ ✓ src/pipeline/healthScore.test.ts (17 tests) 8ms
+ ✓ src/tools/health-diff.test.ts (8 tests) 8ms
+ ✓ package.test.ts (3 tests) 8ms
+ ✓ src/steward/rfc.test.ts (7 tests) 6ms
+ ✓ src/vliw/oracle.test.ts (2 tests) 8ms
+ ✓ src/e2k/arrayHeap.test.ts (5 tests) 8ms
+ ✓ src/intelligence/intelligence.test.ts (2 tests) 9ms
+ ✓ tsconfig.test.ts (3 tests) 5ms
+ ✓ src/vliw/dependencyGraph.test.ts (4 tests) 6ms
+ ✓ src/llm/qwen-stdout-parser.test.ts (3 tests) 5ms
+ ✓ src/pipeline/index.test.ts (7 tests) 7ms
+ ✓ src/e2k/e2kWideFir.test.ts (6 tests) 11ms
+ ✓ src/compiler/compileDiagnostics.test.ts (29 tests) 106603ms
+     ✓ семантическая ошибка: код 1 и причина в stderr  5822ms
+     ✓ рабочая программа: код 0 и ни одной строки диагностики  10667ms
+     ✓ битый файл: код 1, stdout — только JSONL, stderr пуст  8973ms
+     ✓ рабочая программа: код 0 и ни строки ни в одном потоке  7654ms
+     ✓ установленный `osnova` (src/cli.ts compile) понимает тот же флаг  12119ms
+     ✓ установленный `osnova`: рабочая программа в JSON-режиме молчит  14782ms
+     ✓ три точки входа дают ОДНУ И ТУ ЖЕ запись, а не три похожие  42689ms
+     ✓ человеческий режим: файла нет — прежняя строка, stdout пуст  2017ms
+     ✓ `-o` вместе с `--diagnostics=json`: байткод записан, stdout пуст  1842ms
+stdout | src/scripts/errorChannel.audit.test.ts > журнал runs/traces.jsonl против текущей схемы src/trace/** > схема читает журнал: отказов по причине, которой раньше не было, нет
+[аудит журнала] строк=7272 разобрано=7248 отказов=24 записей с diagnostics=119
+
+ ✓ src/scripts/errorChannel.audit.test.ts (27 tests) 114676ms
+     ✓ на семантической ошибке ни одна проверяемая точка не молчит  20809ms
+     ✓ на ошибке парсера ни одна проверяемая точка не молчит  36761ms
+     ✓ рабочая программа молчит и выходит нулём — негативный контроль  46325ms
+     ✓ на битом исходнике stdout — чистый JSONL с кодами формы OSN-*  5575ms
+     ✓ на рабочей программе машинный режим молчит, но байткод записан  4659ms
+     ✓ схема читает журнал: отказов по причине, которой раньше не было, нет  324ms
+
+ Test Files  190 passed (190)
+      Tests  3255 passed (3255)
+   Start at  16:19:48
+   Duration  116.39s (transform 84.09s, setup 0ms, import 155.72s, tests 766.95s, environment 167ms)
+
+JSON report written to D:/PROJECTS/OSNOVA-FABRIKA/.tmp/vitest-report.json
+[шаги] 1/3 vitest run --reporter=default --reporter=json --outputFile=.tmp/vitest-report.json — OK
+
+> osnova-fabrica@0.1.1 check:test-files
+> tsx src/scripts/testFiles.audit.ts
+
+сторож счёта файлов: ROOT=D:\PROJECTS\OSNOVA-FABRIKA
+сторож счёта файлов: cwd=D:\PROJECTS\OSNOVA-FABRIKA
+сторож счёта файлов: отчёт=D:\PROJECTS\OSNOVA-FABRIKA\.tmp\vitest-report.json (есть: да)
+сторож счёта файлов: tracked(-z)=222 tracked(перевод строки)=222
+сторож счёта файлов: tracked=222, onDisk=222, collected=190
+  ДОКАЗАТЕЛЬСТВО: src/e2k/printPipeline.test.ts — tracked=нет onDisk=да collected=да путь=D:\PROJECTS\OSNOVA-FABRIKA\src\e2k\printPipeline.test.ts
+  КРАСНО: проверка вне репозитория: src/e2k/printPipeline.test.ts — исполнилась в прогоне, но в коммит не попадёт (docs/verification-debt.md, случай 7)
+итого расхождений: 1
+[шаги] 2/3 npm run check:test-files — КРАСНО (код 1)
+
+> osnova-fabrica@0.1.1 check:language-schema
+> tsx scripts/check-language-schema.ts
+
+[check:language-schema] OK
+[шаги] 3/3 npm run check:language-schema — OK
+[шаги] ИТОГ: красных 1 из 3 — npm run check:test-files
+[шаги] остальные шаги всё равно выполнены: цепочка не обрывается
