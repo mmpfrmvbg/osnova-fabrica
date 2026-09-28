@@ -307,12 +307,13 @@ const adds = (src1: number, src2: number, dst: number): AsmInstruction => ({
   operands: [reg(src1), reg(src2), reg(dst)],
 });
 
-/** `ldd база, смещение, приёмник` — адрес = сумма двух регистров. */
-const ldd = (src1: number, src2: number, dst: number): AsmInstruction => ({
-  mnemonic: 'ldd',
-  channel: 0,
-  operands: [reg(src1), reg(src2), reg(dst)],
-});
+/**
+ * `ldd база, смещение, приёмник` — адрес = сумма двух регистров.
+ *
+ * СНЯТО 2026-09-27: определение не использовалось ни в этом файле, ни вне него (проверено
+ * поиском по дереву), а линтер считал его мёртвым. Действующая раскладка литералов живёт в
+ * `src/e2k/printPrimitives.ts`, и дублировать её здесь незачем.
+ */
 
 const subs = (src1: number, src2: number, dst: number): AsmInstruction => ({
   mnemonic: 'subs',
@@ -341,12 +342,11 @@ const std = (value: number, src1: number, src2: number): AsmInstruction => ({
   operands: [reg(value), reg(src1), reg(src2)],
 });
 
-/** Сравнение: результат идёт в предикат `%pred0`, который читает наш же переход. */
-const cmp = (mnemonic: string, left: number, right: number): AsmInstruction => ({
-  mnemonic,
-  channel: 0,
-  operands: [reg(left), reg(right), { kind: 'pred', index: PREDICATE_FOR_PAIRS }],
-});
+/**
+ * СНЯТО 2026-09-27: определение сравнения не использовалось ни в этом файле, ни вне него
+ * (проверено поиском по дереву). Условные переходы печати не нужны: развёртка прямая,
+ * без циклов, и предикат для пар читается не здесь.
+ */
 
 const encoder = getEncoder('e2k');
 
@@ -699,10 +699,11 @@ function writeTail(assembly: PrintAssembly, buffer: number): void {
  *
  * @param argument физический регистр значения (его выдала раскладка)
  * @param heapAddress адрес кучи образа — от него считается область печати
- * @param negative известно ли **на сборке**, что число отрицательное: знак решает сама развёртка,
- *   а этот параметр нужен оракулу — им проверяются обе ветви длины
+ * @param _negative известно ли **на сборке**, что число отрицательное: знак решает сама развёртка,
+ *   а этот параметр нужен оракулу — им проверяются обе ветви длины. В теле не читается намеренно,
+ *   поэтому имя с подчёркиванием: контракт для вызывающих сохранён, а линтер не считает его мёртвым.
  */
-export function printSequence(argument: number, heapAddress: number, negative = false): AsmInstruction[] {
+export function printSequence(argument: number, heapAddress: number, _negative = false): AsmInstruction[] {
   const { value, accumulator, base } = PRINT_REGISTERS;
   if (argument === value || argument === accumulator || argument === base) {
     throw new PrintRuntimeRefusal(
