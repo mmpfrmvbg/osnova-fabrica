@@ -7,8 +7,11 @@ import {
 import { DIAGNOSTIC_KINDS } from './diagnosticCatalogue';
 
 describe('BLOCKING_SEMANTIC_KINDS', () => {
-  it('содержит ровно 6 kinds', () => {
-    expect(BLOCKING_SEMANTIC_KINDS).toHaveLength(6);
+  it('содержит ровно 8 kinds', () => {
+    // 6 «канонных» + `break_outside_loop`/`continue_outside_loop`, переведённые
+    // сюда 2026-09-28 по замеру: программа с ними не собирается. Число — замер
+    // (`BuildReport.success = false`), а не удобство списка.
+    expect(BLOCKING_SEMANTIC_KINDS).toHaveLength(8);
   });
 
   it('содержит все ожидаемые kinds', () => {
@@ -19,6 +22,8 @@ describe('BLOCKING_SEMANTIC_KINDS', () => {
       'syscall_argc',
       'redeclare_var',
       'invented_syntax',
+      'break_outside_loop',
+      'continue_outside_loop',
     ];
     for (const kind of expected) {
       expect(BLOCKING_SEMANTIC_KINDS as readonly string[]).toContain(kind);

@@ -24,17 +24,25 @@
  * каталоге заводится вид, которого язык не знает;
  * (д) `BLOCKING_SEMANTIC_KINDS` в точности равен множеству `blocking: true`,
  * неблокирующий список — множеству «не блокирует **и** долга нет», а
- * `ALL_SEMANTIC_KINDS` — их сумме.
+ * `ALL_SEMANTIC_KINDS` — их сумме;
+ * (е) **класс: признак обязан совпадать с поведением компилятора** — для каждого
+ * вида с пробой `blocking` ⟺ сборка не проходит, а `buildRefused` заполнен ⟺
+ * замер показывает отказ. Перечня «известных расхождений» и исключений здесь
+ * нет: расхождение — это красное, а не запись. Замер 2026-09-28: расхождений
+ * ноль (`break_outside_loop`/`continue_outside_loop` переведены в блокирующие —
+ * программа с ними не собирается), а `chained_compare` объявлен недостижимым,
+ * потому что канон §2.1 разворачивает цепочку в парсере.
  *
  * # Негативный контроль
  *
- * Двенадцать мутаций **копии** каталога: файл на диске не трогается — вердикт
- * `catalogueFindings` принимает каталог параметром. Каждая мутация обязана
- * покраснеть, и проверка называет, ЧТО покраснело: без этого «контроль прошёл»
- * неотличимо от «сторож слеп». Среди мутаций две несущие: снятие долга с
- * `arg_count_mismatch` расширяет неблокирующий список с 3 видов до 4, а снятие
- * всех шести долгов — до 9, и это уже поведение `DiagnosticAgent`,
- * `RepairEngineer` и схемы записей журнала, а не текст.
+ * Мутации **копии** каталога: файл на диске не трогается — вердикты
+ * (`catalogueFindings`, `behaviourFindings`) принимают каталог параметром.
+ * Каждая мутация обязана покраснеть, и проверка называет, ЧТО покраснело: без
+ * этого «контроль прошёл» неотличимо от «сторож слеп». Среди мутаций несущие:
+ * снятие долга с `arg_count_mismatch` расширяет неблокирующий список, снятие
+ * всех шести долгов — до семи видов, а подмена `blocking` у вида с пробой и
+ * снятый `buildRefused` краснят класс (е) — это и есть контроль на «вид из
+ * каталога перестал соответствовать компилятору».
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -72,8 +80,10 @@ function producedKinds(source: string): string[] {
   return [...source.matchAll(KIND_SITE)].map((m) => m[1]!);
 }
 
-/** Замер 2026-09-28: 25 площадок `kind: "..."`, 15 уникальных видов. */
-const SITES_MEASURED = 25;
+/** Замер 2026-09-28: 24 площадки `kind: "..."` в семантике, 14 уникальных видов. */
+const SITES_MEASURED = 24;
+const PRODUCED_KINDS_MEASURED = 14;
+/** Видов в каталоге — пятнадцатый (`chained_compare`) живёт ради кода: порождать его нечем. */
 const KINDS_MEASURED = 15;
 
 // ─────────────────── вердикт: чистая функция от каталога ───────────────────
@@ -86,7 +96,9 @@ type CheckId =
   | 'порождённый вид вне каталога'
   | 'вид каталога без порождения и без долга'
   | 'блокирующий список'
-  | 'неблокирующий список';
+  | 'неблокирующий список'
+  | 'признак против сборки'
+  | 'замер buildRefused';
 
 interface Finding {
   check: CheckId;
@@ -103,6 +115,7 @@ interface EntryLike {
   blocking: boolean;
   description: string;
   debt?: string;
+  buildRefused?: string;
 }
 
 /** Долг назван — значит вид имеет право не порождаться и стоять вне списков. */
@@ -216,6 +229,56 @@ function checksOf(findings: readonly Finding[]): CheckId[] {
   return [...new Set(findings.map((finding) => finding.check))];
 }
 
+/**
+ * КЛАСС (е): каталог против **поведения компилятора**, выведенный из замера.
+ *
+ * Отличие от `catalogueFindings` принципиальное. Тот сверяет каталог с каталогом
+ * же и с текстом семантики; этот берёт **исполняемую** таблицу замеров (проба
+ * компилируется ниже, в том же файле) и требует, чтобы признак и замер совпали:
+ * вид, при котором сборка не проходит, обязан быть в блокирующем списке, а
+ * `buildRefused` — стоять там, где замер показывает отказ. Перечня известных
+ * расхождений здесь нет намеренно: он превращал бы дефект в запись.
+ *
+ * Принимает замеры параметром — поэтому негативный контроль подсовывает сюда и
+ * мутированный каталог, и сдвинутый замер, не трогая файл на диске.
+ */
+function behaviourFindings(
+  entries: readonly EntryLike[],
+  measured: Record<string, { builds: boolean }>,
+): Finding[] {
+  const findings: Finding[] = [];
+  for (const entry of entries) {
+    const m = measured[entry.kind];
+    // Вид без пробы классом не судится: его достижимость держит отдельная
+    // проверка с названной причиной (`UNPROBED`).
+    if (m === undefined) continue;
+    const refused = !m.builds;
+    if (entry.blocking !== refused) {
+      findings.push({
+        check: 'признак против сборки',
+        detail:
+          `«${entry.kind}»: в каталоге blocking=${entry.blocking}, а замер ` +
+          (refused ? 'показывает отказ сборки (success=false)' : 'показывает успешную сборку'),
+      });
+    }
+    const filled = typeof entry.buildRefused === 'string' && entry.buildRefused.trim() !== '';
+    // `buildRefused` — имя расхождения, а не общий замер: заполнено ⟺ «сборка не
+    // проходит, а в блокирующем списке вида нет». Сегодня таких нет ни одного.
+    const diverges = refused && !entry.blocking;
+    if (filled !== diverges) {
+      findings.push({
+        check: 'замер buildRefused',
+        detail:
+          `«${entry.kind}»: buildRefused ${filled ? 'заполнен' : 'пуст'}, а расхождение ` +
+          (diverges
+            ? 'есть: сборка не проходит, а признак `blocking` равен false'
+            : 'отсутствует: признак и судьба сборки согласованы'),
+      });
+    }
+  }
+  return findings;
+}
+
 /** Снимок каталога на момент загрузки: мутации не имеют права его сдвинуть. */
 const CATALOGUE_SNAPSHOT = JSON.stringify(DIAGNOSTIC_KINDS);
 
@@ -258,12 +321,13 @@ describe('каталог видов: один источник правды', ()
     expect(silent, 'виды каталога без порождения и без долга').toEqual([]);
   });
 
-  it('скан исходника не слеп: 25 площадок порождения, 15 видов', () => {
+  it('скан исходника не слеп: 24 площадки порождения, 14 видов', () => {
     // Число площадок — замер, а не украшение: если сканер ослепнет (переписали
     // кавычки, сломали регулярку), проверка (г) покраснеет вслед за этой, и
     // причина будет названа, а не выдана за находку в каталоге.
     expect(PRODUCED).toHaveLength(SITES_MEASURED);
-    expect(new Set(PRODUCED).size).toBe(KINDS_MEASURED);
+    expect(new Set(PRODUCED).size).toBe(PRODUCED_KINDS_MEASURED);
+    expect(new Set(PRODUCED).size).toBeLessThan(KINDS_MEASURED);
   });
 });
 
@@ -273,7 +337,7 @@ describe('списки выводятся из каталога, а не пиш�
   it('(д) BLOCKING_SEMANTIC_KINDS в точности равен множеству `blocking: true`', () => {
     const derived = DIAGNOSTIC_KINDS.filter((entry) => entry.blocking).map((entry) => entry.kind);
     expect([...BLOCKING_SEMANTIC_KINDS]).toEqual(derived);
-    expect(derived, 'блокирующих видов').toHaveLength(6);
+    expect(derived, 'блокирующих видов').toHaveLength(8);
   });
 
   it('(д) NON_BLOCKING_SEMANTIC_KINDS в точности равен множеству «не блокирует и без долга»', () => {
@@ -281,7 +345,7 @@ describe('списки выводятся из каталога, а не пиш�
       (entry) => !entry.blocking && entry.debt === undefined,
     ).map((entry) => entry.kind);
     expect([...NON_BLOCKING_SEMANTIC_KINDS]).toEqual(derived);
-    expect(derived, 'неблокирующих видов').toHaveLength(3);
+    expect(derived, 'неблокирующих видов').toHaveLength(1);
   });
 
   it('шесть видов с долгом не входят ни в один список — названы, а не спрятаны', () => {
@@ -312,12 +376,13 @@ describe('списки выводятся из каталога, а не пиш�
     expect(ALL_SEMANTIC_KINDS.length).toBeLessThan(DIAGNOSTIC_KINDS.length);
   });
 
-  it('значения списков заморожены: 6 блокирующих и 3 неблокирующих, как до каталога', () => {
+  it('значения списков: 8 блокирующих и 1 неблокирующий (сдвиг 2026-09-28 по замеру)', () => {
     // Эти два перечня импортируют ~15 файлов, включая замороженный пайплайн и
-    // `src/agents/**`. Порядок неблокирующих стал каталожным (прежде —
-    // `break_outside_loop`, `continue_outside_loop`, `keyword_as_identifier`):
-    // поведение не меняется — потребители строят `Set` или спрашивают `includes`,
-    // — но перестановка названа вслух, чтобы не была тихой.
+    // `src/agents/**`. Сдвиг назван вслух, а не сделан тихо: `break_outside_loop`
+    // и `continue_outside_loop` перешли в блокирующие, потому что программа с
+    // ними НЕ собирается (замер — таблица ниже) — иначе отказ не маршрутизируется
+    // в repair-цикл и печатается «советом». Проверка класса (е) держит это
+    // правило выведенным, а не записанным руками.
     expect([...BLOCKING_SEMANTIC_KINDS]).toEqual([
       'unknown_syscall',
       'undeclared_var',
@@ -325,12 +390,10 @@ describe('списки выводятся из каталога, а не пиш�
       'syscall_argc',
       'redeclare_var',
       'invented_syntax',
-    ]);
-    expect([...NON_BLOCKING_SEMANTIC_KINDS]).toEqual([
-      'keyword_as_identifier',
       'break_outside_loop',
       'continue_outside_loop',
     ]);
+    expect([...NON_BLOCKING_SEMANTIC_KINDS]).toEqual(['keyword_as_identifier']);
   });
 });
 
@@ -482,13 +545,13 @@ describe('(е) негативный контроль: мутация копии 
     ]);
   });
 
-  it('снятие всех шести долгов расширяет неблокирующий список с 3 до 9 — красное', () => {
+  it('снятие всех шести долгов расширяет неблокирующий список с 1 до 7 — красное', () => {
     const mutated = clearAllDebts(copy());
     const findings = catalogueFindings(mutated, PRODUCED_AS_CATALOGUED);
     expect(checksOf(findings)).toEqual(['неблокирующий список']);
     expect(findings, 'виды, которые молча вошли бы в список').toHaveLength(6);
     const wouldJoin = mutated.filter((entry) => !entry.blocking).map((entry) => entry.kind);
-    expect(wouldJoin, 'неблокирующих стало бы').toHaveLength(9);
+    expect(wouldJoin, 'неблокирующих стало бы').toHaveLength(7);
   });
 
   it('подмена признака blocking краснит обе проверки (д)', () => {
@@ -507,18 +570,77 @@ describe('(е) негативный контроль: мутация копии 
   });
 });
 
+// ─────────── (е) класс: вид каталога против ПОВЕДЕНИЯ компилятора ───────────
+
+/**
+ * Здесь проверяется не «совпал ли каталог сам с собой», а **совпал ли он с
+ * компилятором**. Замеры — те же, что в таблице ниже (проба компилируется
+ * `compileSource` + `compileToBuildReport`), но проверка выведена правилом:
+ * «вид, при котором сборка не проходит, обязан быть в блокирующем списке, а
+ * `buildRefused` — стоять там, где замер показывает отказ». Никакого перечня
+ * известных расхождений: он был бы записью о дефекте вместо красного.
+ *
+ * Повод — замер 2026-09-28. До него расхождений было ровно два
+ * (`break_outside_loop`, `continue_outside_loop`: каталог `blocking: false`, а
+ * сборка падала), и они были закреплены списком «известных». Список снят:
+ * признак переведён по замеру, а проверка стала классом.
+ */
+describe('(е) класс: признак и замер совпадают с поведением компилятора', () => {
+  it('чистый каталог против чистых замеров — находок нет', () => {
+    expect(behaviourFindings(DIAGNOSTIC_KINDS, MEASURED)).toEqual([]);
+  });
+
+  it('сдвиг признака у вида с пробой краснит класс — негативный контроль', () => {
+    const mutated = setBlocking(copy(), 'break_outside_loop', false);
+    const findings = behaviourFindings(mutated, MEASURED);
+    // Две стороны одной мутации: признак разошёлся со сборкой — и имя расхождения
+    // (`buildRefused`) обязано появиться. Ровно это прежде прикрывал перечень
+    // «известных двух»; теперь это красное.
+    expect(checksOf(findings)).toEqual(['признак против сборки', 'замер buildRefused']);
+    expect(findings).toHaveLength(2);
+  });
+
+  it('`buildRefused` на виде, который собирается, краснит класс — обратная сторона', () => {
+    const mutated = copy().map((entry) =>
+      entry.kind === 'sentinel_pattern'
+        ? { ...entry, buildRefused: 'отписка там, где сборка проходит' }
+        : { ...entry },
+    );
+    expect(behaviourFindings(mutated, MEASURED).map((f) => f.check)).toEqual(['замер buildRefused']);
+  });
+
+  it('сдвиг ЗАМЕРА (а не каталога) краснит класс — сторож не читает только каталог', () => {
+    const shifted = { ...MEASURED, unknown_syscall: { builds: true } };
+    expect(behaviourFindings(copy(), shifted).map((f) => f.check)).toEqual(['признак против сборки']);
+  });
+
+  it('вид без пробы классом не судится — за него отвечает названная причина', () => {
+    // Иначе «нет пробы» молча означало бы «нет проверки»: `keyword_param` и
+    // `chained_compare` (недостижимы) обязаны быть в `UNPROBED`, и это отдельная
+    // проверка ниже. Здесь — что класс их не выдумывает.
+    const measuredKinds = Object.keys(MEASURED);
+    expect(measuredKinds).not.toContain('keyword_param');
+    expect(measuredKinds).not.toContain('chained_compare');
+    expect(Object.keys(UNPROBED).sort()).toEqual(['chained_compare', 'export_collision', 'keyword_param']);
+  });
+});
+
 // ═══════════ таблица замеров: достижимость вида и судьба сборки ═══════════
 
 /**
- * ТАБЛИЦА ЗАМЕРА (2026-09-28). По каждому виду: можно ли написать программу,
- * которая порождает **его одного**, и собирается ли такая программа.
+ * ТАБЛИЦА ЗАМЕРА (2026-09-28, перемер 2026-09-28). По каждому виду: можно ли
+ * написать программу, которая порождает **его одного**, и собирается ли такая
+ * программа.
  *
  * # Зачем это отдельно от `blocking`
  *
- * Поле `blocking` отвечает только за вхождение в блокирующий список. Судьбу
- * сборки решает ещё и кодоген, поэтому «неблокирующий» ≠ «собирается»: замер
- * показал два расхождения (`прервать`/`продолжить` вне цикла), и они закреплены
- * здесь, чтобы третье или тихое исчезновение известного краснело.
+ * Поле `blocking` отвечает за вхождение в блокирующий список, а судьбу сборки
+ * решает ещё и кодоген. Раньше эти две вещи расходились (два вида), и расхождение
+ * было закреплено перечнем «известных». Теперь правило обратное: **признак и
+ * замер обязаны совпадать** — разошлись, значит красное (`behaviourFindings`
+ * выше). Перечень снят вместе с расхождением: `break_outside_loop` и
+ * `continue_outside_loop` переведены в блокирующие, потому что программы с ними
+ * не собираются.
  *
  * # Это не проза
  *
@@ -560,13 +682,6 @@ const MEASURED: Record<string, Measurement> = {
   syscall_argc: { probe: wrap(`  ${SYSCALL_WITH_ARGS}()`), builds: false },
   redeclare_var: { probe: wrap('  пусть икс = 1\n  пусть икс = 2\n  вернуть икс'), builds: false },
   invented_syntax: { probe: wrap('  пусть с = структура(1)'), builds: false },
-  // Проба намеренно берёт ЛОЖНОЕ срабатывание: настоящая цепочка `1 < 2 < 3` вид не
-  // будит вовсе (см. отдельную проверку ниже). Вид при этом порождён — и это
-  // свойство проверки, закреплённое каноном §12.1.
-  chained_compare: {
-    probe: wrap('  если (1 < 2) = истина тогда\n    вернуть 1\n  конец\n  вернуть 0'),
-    builds: true,
-  },
   keyword_as_identifier: { probe: wrap(`  пусть ${KEYWORD_LEXEME} = 1\n  вернуть 1`), builds: true },
   sentinel_pattern: { probe: wrap('  пусть с = пусто\n  вернуть 1'), builds: true },
   unknown_module: { probe: wrap('  вернуть НетТакогоМодуля.функция()'), builds: true },
@@ -588,6 +703,7 @@ const MEASURED: Record<string, Measurement> = {
     builds: true,
   },
   // Расхождение с ожиданием «blocking: false — значит собирается»: см. buildRefused.
+  // С 2026-09-28 признак переведён в `true` — замер и классификация совпали.
   break_outside_loop: { probe: wrap('  прервать'), builds: false },
   continue_outside_loop: { probe: wrap('  продолжить'), builds: false },
 };
@@ -600,6 +716,11 @@ const UNPROBED: Record<string, string> = {
   keyword_param:
     'недостижим из исходного текста: парсер отвергает ключевое слово в позиции параметра — ' +
     '33 из 33 неблочных (замер перемеряется ниже), до семантики дело не доходит',
+  chained_compare:
+    'недостижим из исходного текста с 2026-09-28: цепочку `a < b < c` разворачивает в `(a < b) и ' +
+    '(b < c)` ПАРСЕР (канон §2.1 объявляет её сахаром), поэтому площадки в семантике нет — ' +
+    'прежняя проверка била только по законным программам (`(1 < 2) = истина`) и снята; замер ' +
+    'перемеряется ниже',
   export_collision:
     'из исходного текста не построить: загрузчик сводит провайдеров к одному — два файловых ' +
     'варианта собираются молча (перемеряется ниже); достижим только через API: `analyzeProgram` ' +
@@ -645,36 +766,46 @@ describe(`таблица замеров (${MEASURED_AT}): достижимост
     expect(wrong, `таблица разошлась с фактом:\n  ${wrong.join('\n  ')}`).toEqual([]);
   });
 
-  it('расхождения «список против факта сборки» — ровно известные два', () => {
-    // Две стороны одного вопроса, и обе закреплены: расхождение в любую сторону —
-    // повод перемерить каталог, а не «поправить число».
-    const notListedButRefused: string[] = []; // не в блокирующем списке, а программа не собирается
-    const listedButBuilds: string[] = []; // в блокирующем списке, а программа собирается
-    for (const [kind, m] of Object.entries(MEASURED)) {
-      const entry = DIAGNOSTIC_KINDS.find((e) => e.kind === kind)!;
-      if (!entry.blocking && !m.builds) notListedButRefused.push(kind);
-      if (entry.blocking && m.builds) listedButBuilds.push(kind);
-    }
-    expect(notListedButRefused.sort()).toEqual(['break_outside_loop', 'continue_outside_loop']);
-    expect(listedButBuilds, 'вид в блокирующем списке, а сборка проходит — это новый факт').toEqual([]);
+  it('расхождений «список против факта сборки» нет ни одного — и это выведено, а не закреплено', () => {
+    // Прежде здесь стоял перечень «известных двух» расхождений
+    // (`break_outside_loop`, `continue_outside_loop`): каталог говорил
+    // `blocking: false`, а программа не собиралась. Перечень был честной записью
+    // о дефекте — и оставался бы ею, пока признак не привели к замеру. Теперь
+    // проверка выведена (класс (е)), а не сверяется со списком: любой сдвиг —
+    // красное, а не строка «известное».
+    expect(behaviourFindings(DIAGNOSTIC_KINDS, MEASURED)).toEqual([]);
+    const blocking = DIAGNOSTIC_KINDS.filter((e) => e.blocking).map((e) => e.kind).sort();
+    const refuses = Object.entries(MEASURED)
+      .filter(([, m]) => !m.builds)
+      .map(([kind]) => kind)
+      .sort();
+    expect(blocking, 'блокирующие виды обязаны совпасть с видами, где сборка не проходит').toEqual(
+      refuses,
+    );
   });
 
-  it('поле buildRefused заполнено ровно там, где замер расходится с блокировкой', () => {
-    // Поле — замер, а не украшение: заполнено ⟺ «в блокирующем списке вида нет,
-    // а программа с ним не собирается». Где не мерено — молчит.
+  it('поле buildRefused пусто у всех: расхождений «признак против сборки» нет', () => {
+    // Поле — имя расхождения, а не украшение: заполнено ⟺ «сборка не проходит, а
+    // в блокирующем списке вида нет». Проверка выведена из таблицы, поэтому
+    // краснеют обе стороны — расхождение без записи и запись без расхождения.
     const wrong: string[] = [];
     for (const entry of DIAGNOSTIC_KINDS) {
       const measured = MEASURED[entry.kind];
-      const diverges = measured !== undefined && !entry.blocking && !measured.builds;
-      const filled = entry.buildRefused !== undefined;
+      const diverges = measured !== undefined && !measured.builds && !entry.blocking;
+      const filled = typeof entry.buildRefused === 'string' && entry.buildRefused.trim() !== '';
       if (diverges !== filled) {
         wrong.push(
-          `${entry.kind}: buildRefused ${filled ? 'заполнен' : 'пуст'}, а замер ` +
-            `${measured === undefined ? 'не делался' : `blocking=${entry.blocking}, builds=${measured.builds}`}`,
+          `${entry.kind}: buildRefused ${filled ? 'заполнен' : 'пуст'}, а расхождение ` +
+            (diverges ? 'есть' : 'отсутствует'),
         );
       }
     }
     expect(wrong, `buildRefused не там, где нужно:\n  ${wrong.join('\n  ')}`).toEqual([]);
+    // И именно поэтому поле пусто: два прежних его носителя
+    // (`break_outside_loop`, `continue_outside_loop`) переведены в блокирующие —
+    // замер судьбы сборки и классификация сходятся.
+    const filled = DIAGNOSTIC_KINDS.filter((e) => e.buildRefused !== undefined).map((e) => e.kind);
+    expect(filled, 'виды с названным расхождением').toEqual([]);
   });
 
   it('keyword_param недостижим: парсер отвергает все 33 неблочных ключевых слова', () => {
@@ -783,18 +914,35 @@ describe(`таблица замеров (${MEASURED_AT}): достижимост
     ]);
   });
 
-  it('chained_compare: настоящая цепочка молчит и собирается, ложное срабатывание — названо', () => {
-    const real = compileSource(wrap('  пусть б = 1 < 2 < 3\n  вернуть б'), { filename: 'цепочка.osnova' });
-    const realReport = compileToBuildReport(real);
-    // Канон §12.1 держит это же: `1 < 2 < 3` собирается молча, вид не порождён.
-    expect(new Set(real.semanticErrors.map((e) => e.kind)).has('chained_compare'), 'настоящая цепочка названа').toBe(false);
-    expect(realReport.success, 'настоящая цепочка обязана собираться').toBe(true);
-    // А проба в таблице держится на ложном срабатывании — и это закреплено явно.
-    const falsePositive = compileSource(MEASURED.chained_compare!.probe, { filename: 'скобки.osnova' });
-    expect(
-      falsePositive.semanticErrors.some((e) => e.kind === 'chained_compare'),
-      '`(1 < 2) = истина` названо цепочкой — иначе проба таблицы мертва',
-    ).toBe(true);
+  it('chained_compare недостижим: цепочка — сахар парсера, законное сравнение собирается', () => {
+    // Прежде эта проверка закрепляла ИНВЕРСИЮ: «настоящая цепочка молчит, а
+    // ложное срабатывание названо». Замер 2026-09-28 показал, что названное —
+    // это и был весь эффект проверки: цепочку разворачивает парсер (канон §2.1),
+    // а вид бил по законной программе. Проверка снята, вид объявлен недостижимым,
+    // и здесь закреплено ИМЕННО ЭТО:
+    //
+    // (1) площадки в семантике нет — скан исходника, а не мнение;
+    // (2) законная программа `(1 < 2) = истина` собирается БЕЗ диагностик
+    //     (была ложная ошибка — стала тишина, и это правильная тишина);
+    // (3) цепочка собирается и считается — число меряется на VM в независимом
+    //     аудите (`src/scripts/errorChannel.audit.test.ts`), потому что здесь
+    //     проверяется каталог, а не арифметика.
+    expect(PRODUCED, 'chained_compare снова порождается семантикой').not.toContain(
+      'chained_compare',
+    );
+    const legal = compileSource(
+      wrap('  если (1 < 2) = истина тогда\n    вернуть 1\n  конец\n  вернуть 0'),
+      { filename: 'скобки.osnova' },
+    );
+    expect(legal.semanticErrors, 'сравнение результата сравнения с `истина` — законная программа').toEqual(
+      [],
+    );
+    expect(compileToBuildReport(legal).success, 'законная программа обязана собираться').toBe(true);
+    const chain = compileSource(wrap('  пусть б = 1 < 2 < 3\n  вернуть б'), {
+      filename: 'цепочка.osnova',
+    });
+    expect(chain.semanticErrors, 'цепочка — сахар канона §2.1, а не ошибка').toEqual([]);
+    expect(compileToBuildReport(chain).success, 'цепочка обязана собираться').toBe(true);
   });
 });
 

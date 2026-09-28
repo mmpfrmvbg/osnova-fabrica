@@ -42,12 +42,6 @@ export interface SemanticOptions {
   filename?: string;
 }
 
-const COMPARE_OPS = new Set(["==", "!=", "<", "<=", ">", ">="]);
-
-function isCompareExpr(expr: Expr): boolean {
-  return expr.kind === "бинарное" && COMPARE_OPS.has(expr.op);
-}
-
 interface ModuleSemanticContext {
   knownProcedures?: Set<string>;
   procedureArity?: Map<string, number>;
@@ -371,13 +365,31 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
       case "бинарное":
         checkExpr(expr.left, declared);
         checkExpr(expr.right, declared);
-        if (COMPARE_OPS.has(expr.op) && (isCompareExpr(expr.left) || isCompareExpr(expr.right))) {
-          errors.push({
-            kind: "chained_compare",
-            file: currentFile,
-            message: "цепочечные сравнения не поддерживаются, используй 'и'",
-          });
-        }
+        // Цепочечное сравнение здесь НЕ проверяется — и это не забытая строка.
+        //
+        // Здесь стоял вид `chained_compare` («цепочки не поддерживаются,
+        // используй 'и'»), и он был **инвертирован**. Замер 2026-09-28
+        // (`.tmp/diag-chain-number.osnova`, `.tmp/diag-paren-bool.osnova`):
+        //
+        //   • настоящая цепочка разворачивается в ПАРСЕРЕ (`parser.ts`,
+        //     `parseCompare`: `a < b < c` → `(a < b) и (b < c)`) — то есть
+        //     считается, и число верное: дискриминатор `1 < 5 < 3` /
+        //     `1 < 2 < 3` / `5 < 2 < 9` даёт **10**, а не «истина на всё».
+        //     Канон §2.1 объявляет эту запись сахаром языка, так что отказом
+        //     она быть не может;
+        //   • а сюда доходило только ЗАКОННОЕ сравнение результата сравнения
+        //     (`(1 < 2) = истина`), и оно называлось ошибкой **ложно**: вид
+        //     `chained_compare` не порождался ничем, кроме верной программы.
+        //
+        // Подгонять условие нечем: после разворота `(a < b) и (b < c)`
+        // неотличимо от написанного руками `и`, поэтому на форме AST сахар и
+        // ошибка неразличимы. Вид объявлен недостижимым из исходного текста
+        // (`diagnosticCatalogue.ts`, поле `debt`), а не «починен» вслепую.
+        //
+        // Сторожа: `diagnosticCatalogue.test.ts` — таблица замеров и класс
+        // «`blocking` ⟺ сборка не проходит»; независимый аудит —
+        // `src/scripts/errorChannel.audit.test.ts` (значение цепочки меряется
+        // на VM, а не выводится из сборки).
         return;
       case "поле":
         checkExpr(expr.object, declared);

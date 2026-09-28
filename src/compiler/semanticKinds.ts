@@ -28,11 +28,16 @@ import {
  * `orchestrator.ts`). Теперь оба списка выводятся из каталога, а расхождение с
  * ним ловит `diagnosticCatalogue.test.ts`.
  *
- * **Значения и имена не сдвинулись.** Блокирующих по-прежнему 6, неблокирующих —
- * 3: виды с долгом каталога (`debt`) не попадают ни в один список, потому что
- * отнесены не были. Расширить неблокирующий список — значит изменить поведение
- * `DiagnosticAgent`, `RepairEngineer` и схемы записей журнала: это решение
- * владельца, а не следствие уборки перечней.
+ * **Значения сдвинулись один раз, и по замеру (2026-09-28).** Блокирующих стало
+ * **8**, неблокирующих — **1**: `break_outside_loop` и `continue_outside_loop`
+ * перешли в блокирующие, потому что программа с ними **не собирается**
+ * (`BuildReport.success = false`, `compilerSuccess = false`, модуля нет — замер
+ * `.tmp/diag-break.osnova`, `.tmp/diag-continue.osnova`). Признак обязан
+ * совпадать с судьбой сборки: иначе отказ печатался «советом» и не уходил в
+ * repair-цикл. Сдвиг меняет поведение `DiagnosticAgent` (вид — ошибка, а не
+ * совет) и маршрутизацию в repair; это и было целью правки, а не её побочным
+ * эффектом. Виды с долгом каталога (`debt`) по-прежнему не попадают ни в один
+ * список, потому что отнесены не были.
  */
 
 /** Запись каталога блокирует сборку — вид идёт в блокирующий список. */
@@ -47,13 +52,13 @@ function isNonBlockingEntry(entry: DiagnosticKindInfo): entry is NonBlockingEntr
 
 /**
  * Вид, блокирующий сборку: `BuildReport.success = false` и маршрут в repair-цикл.
- * Множество выведено из каталога — 6 видов.
+ * Множество выведено из каталога — 8 видов.
  */
 export type BlockingSemanticKind = BlockingDiagnosticKind;
 
 /**
  * Вид-диагностика: попадает в отчёты, но сборку не останавливает. Множество
- * выведено из каталога — 3 вида.
+ * выведено из каталога — 1 вид.
  */
 export type NonBlockingSemanticKind = NonBlockingDiagnosticKind;
 
@@ -80,10 +85,12 @@ export const BLOCKING_SEMANTIC_KINDS: readonly BlockingSemanticKind[] = DIAGNOST
  * Non-blocking semantic diagnostics.
  * Не запускают repair-цикл, но должны попадать в отчеты.
  *
- * Порядок — каталожный (порядок выдачи кодов): прежний рукописный
- * (`break_outside_loop`, `continue_outside_loop`, `keyword_as_identifier`) на
- * поведение не влиял — все потребители строят из списка `Set` или спрашивают
- * `includes`, — но перестановку сторож называет вслух, чтобы она не была тихой.
+ * Порядок — каталожный (порядок выдачи кодов). Прежний рукописный перечень был
+ * (`break_outside_loop`, `continue_outside_loop`, `keyword_as_identifier`); с
+ * 2026-09-28 первые два ушли в блокирующий список по замеру судьбы сборки,
+ * поэтому список сузился до одного вида. На поведение порядок не влияет — все
+ * потребители строят из списка `Set` или спрашивают `includes`, — но перемену
+ * сторож называет вслух, чтобы она не была тихой.
  */
 export const NON_BLOCKING_SEMANTIC_KINDS: readonly NonBlockingSemanticKind[] = DIAGNOSTIC_KINDS
   .filter(isNonBlockingEntry)

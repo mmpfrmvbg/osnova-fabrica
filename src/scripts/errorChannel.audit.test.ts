@@ -25,7 +25,8 @@
  * | машинный режим `--diagnostics=json` | в stdout попало что-то, кроме JSONL; код вне формы `OSN-*`; тихий успех без артефакта |
  * | каталог: покрытие | вид порождается `semantic.ts`, но не каталогизирован (и наоборот) |
  * | каталог: коды | код переиспользован, дублируется или пересекается с `OSN-RT-*` |
- * | `blocking` против факта | расхождение каталога и сборки появилось/исчезло — набор закреплён |
+ * | **`blocking` против факта** | **класс:** вид каталога перестал соответствовать поведению компилятора — признак разошёлся с судьбой сборки (перечня «известных расхождений» больше нет: их ноль, и это выведено) |
+ * | цепочка сравнений | число цепочки стало неверным (меряется на VM: дискриминатор даёт 10), вид снова начал стрелять по законным программам |
  * | ключевые слова | вид перестал быть достижим/недостижим — закреплено замером |
  * | журнал против схемы | отказ на записи по причине, которой раньше не было |
  * | утечки в журнале | проекция `diagnostics` понесла текст исходника |
@@ -59,6 +60,7 @@ import { spawnSync } from "child_process";
 import { compileSource, compileToBuildReport, type CompileResult } from "../compiler/compiler";
 import { collectCompileDiagnostics } from "../compiler/compileDiagnostics";
 import { DIAGNOSTIC_KINDS, INTERNAL_CODES } from "../compiler/diagnosticCatalogue";
+import { VM } from "../runtime/vm/interpreter";
 import { RUNTIME_CODE_TABLE } from "../runtime/runtimeCodes";
 import { TraceEntrySchema } from "../trace/traceStore";
 import { projectEntryDiagnostics } from "../trace/diagnosticsProjection";
@@ -427,12 +429,23 @@ describe("каталог видов: покрытие, уникальность 
     expect(produced.size, "semantic.ts обязан порождать виды").toBeGreaterThan(0);
   });
 
-  it("в каталоге нет вида, которого никто не порождает", () => {
+  it("вид каталога без производителя обязан быть назван долгом, а не выдуман", () => {
     const produced = kindsProducedBySource();
-    const orphan = DIAGNOSTIC_KINDS.map((k) => k.kind)
-      .filter((k) => !produced.has(k))
-      .sort();
-    expect(orphan, "запись каталога без производителя — выдуманный вид").toEqual([]);
+    const orphans = DIAGNOSTIC_KINDS.filter((k) => !produced.has(k.kind));
+    const unnamed = orphans.filter((k) => {
+      const debt = "debt" in k ? k.debt : undefined;
+      return typeof debt !== "string" || debt.trim() === "";
+    });
+    expect(
+      unnamed.map((k) => k.kind),
+      "запись каталога без производителя и без названной причины — выдуманный вид",
+    ).toEqual([]);
+    // Сегодня такой ровно один — `chained_compare`: цепочку `a < b < c`
+    // разворачивает в `(a < b) и (b < c)` ПАРСЕР (канон §2.1), поэтому площадки в
+    // семантике нет, а прежняя проверка била только по законным программам
+    // (`(1 < 2) = истина`) и снята. Число закреплено: тихое возвращение
+    // производителя или второй «осиротевший» вид видно сразу.
+    expect(orphans.map((k) => k.kind)).toEqual(["chained_compare"]);
   });
 
   it("коды не переиспользованы и не дублируются", () => {
@@ -496,11 +509,9 @@ describe("каталог против факта: блокирует ли вид
       "конец",
       "",
     ].join("\n"),
-    // Проба НАМЕРЕННО берёт ложное срабатывание: настоящая цепочка `1 < 2 < 3`
-    // проверку не будит (см. отдельный сторож ниже). Вид всё равно порождён.
-    chained_compare: wrap(
-      "  если (1 < 2) = истина тогда\n    вернуть 1\n  конец\n  вернуть 0",
-    ),
+    // Вида `chained_compare` здесь нет намеренно: цепочка `1 < 2 < 3` — сахар
+    // канона §2.1, её разворачивает парсер, и вид ею не порождается. Проба вида —
+    // в `UNPROBED` ниже, с названной причиной недостижимости.
     unknown_module: wrap("  вернуть НетТакогоМодуля.функция()"),
   };
 
@@ -512,6 +523,11 @@ describe("каталог против факта: блокирует ли вид
     keyword_param:
       "недостижим из исходного текста: парсер отвергает любое ключевое слово в позиции " +
       "параметра (замер: 33 из 33) — до семантики дело не доходит",
+    chained_compare:
+      "недостижим из исходного текста с 2026-09-28: цепочку `a < b < c` разворачивает в " +
+      "`(a < b) и (b < c)` ПАРСЕР (канон §2.1 объявляет её сахаром), поэтому проверка в " +
+      "семантике била только по законным программам (`(1 < 2) = истина`) и снята; замер — " +
+      "отдельной проверкой ниже",
     export_collision:
       "проба из исходного текста не построена: загрузчик модулей не даёт двух провайдеров " +
       "с одним именем (проверено тремя вариантами) — ветка достижима только через " +
@@ -519,19 +535,42 @@ describe("каталог против факта: блокирует ли вид
   };
 
   /**
-   * РАСХОЖДЕНИЕ КАТАЛОГА И ФАКТА, закреплённое замером.
+   * РАСХОЖДЕНИЯ «каталог против факта сборки» — выведены, а не перечислены.
    *
-   * `blocking` в каталоге описывает вхождение вида в список блокирующих. Но у этих
-   * двух видов сборка останавливается **другой** дверью — отказом кодогена
-   * (`compilerSuccess = false`, `module = null`): программа с единственным
-   * `прервать` вне цикла не собирается, хотя вид «неблокирующий». Названо, не
-   * исправлено: набор закреплён, чтобы третье расхождение или тихое исчезновение
-   * известного краснело.
+   * Замер 2026-09-28: прежде их было ровно два (`break_outside_loop`,
+   * `continue_outside_loop` — в блокирующем списке вида нет, а программа не
+   * собирается), и аудит держал их списком «известных». Список снят: признак
+   * переведён по замеру, потому что вид, при котором сборка не проходит, обязан
+   * идти в repair-цикл, а не печататься «советом». Проверка выведена правилом —
+   * поэтому третий вид с расхождением, сдвиг признака и тихое возвращение
+   * прежнего краснеют одинаково.
+   *
+   * Каталог принимается **параметром**: негативный контроль подсовывает сюда
+   * мутированную копию, не трогая файл на диске.
    */
-  const KNOWN_BLOCKING_DIVERGENCES: Record<string, string> = {
-    break_outside_loop: "каталог: blocking=false; факт: module=null, compilerSuccess=false",
-    continue_outside_loop: "каталог: blocking=false; факт: module=null, compilerSuccess=false",
-  };
+  function blockingDivergences(
+    entries: readonly { kind: string; blocking: boolean }[],
+    triggers: Record<string, string>,
+  ): string[] {
+    const divergences: string[] = [];
+    for (const [kind, source] of Object.entries(triggers)) {
+      const info = entries.find((k) => k.kind === kind);
+      if (info === undefined) {
+        divergences.push(`${kind}: вида нет в каталоге`);
+        continue;
+      }
+      const report = compileToBuildReport(compileSource(source, { filename: "проба-вида.osnova" }));
+      const blocksInFact = report.success === false;
+      if (info.blocking !== blocksInFact) {
+        divergences.push(
+          `${kind}: каталог blocking=${info.blocking}, факт success=${report.success}` +
+            `, module=${report.bytecode === null ? "null" : "есть"}` +
+            `, compilerSuccess=${report.compilerSuccess}`,
+        );
+      }
+    }
+    return divergences;
+  }
 
   it("у каждого вида каталога есть либо проба, либо названная причина её отсутствия", () => {
     const covered = [...Object.keys(TRIGGERS), ...Object.keys(UNPROBED)].sort();
@@ -551,25 +590,33 @@ describe("каталог против факта: блокирует ли вид
     expect(lifeless, `пробы, не породившие свой вид:\n  ${lifeless.join("\n  ")}`).toEqual([]);
   });
 
-  it("расхождений «blocking в каталоге против сборки» ровно два — известные", () => {
-    const divergences: string[] = [];
-    for (const [kind, source] of Object.entries(TRIGGERS)) {
-      const info = DIAGNOSTIC_KINDS.find((k) => k.kind === kind);
-      expect(info, `вид ${kind} обязан быть в каталоге`).toBeDefined();
-      const report = compileToBuildReport(compileSource(source, { filename: "проба-вида.osnova" }));
-      const blocksInFact = report.success === false;
-      if (info!.blocking !== blocksInFact) {
-        divergences.push(
-          `${kind}: каталог blocking=${info!.blocking}, факт success=${report.success}` +
-            `, module=${report.bytecode === null ? "null" : "есть"}` +
-            `, compilerSuccess=${report.compilerSuccess}`,
-        );
-      }
-    }
+  it("blocking против факта сборки: расхождений нет ни одного — класс, а не перечень", () => {
+    const divergences = blockingDivergences(DIAGNOSTIC_KINDS, TRIGGERS);
     expect(
-      divergences.map((d) => d.split(":")[0]).sort(),
-      `расхождения каталога и факта:\n  ${divergences.join("\n  ")}`,
-    ).toEqual(Object.keys(KNOWN_BLOCKING_DIVERGENCES).sort());
+      divergences,
+      `расхождения каталога и факта (каждое — повод перемерить, а не дописать в список):\n  ${divergences.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  it("негативный контроль: сдвинутый признак краснит класс — сторож не слеп", () => {
+    // Тот же код, что и в проверке выше, но на мутированной КОПИИ каталога: без
+    // этого «расхождений нет» неотличимо от «проверка ничего не проверяет».
+    const mutated = DIAGNOSTIC_KINDS.map((entry) => ({ ...entry }));
+    mutated.find((entry) => entry.kind === "break_outside_loop")!.blocking = false;
+    const divergences = blockingDivergences(mutated, TRIGGERS);
+    expect(divergences.map((d) => d.split(":")[0])).toEqual(["break_outside_loop"]);
+  });
+
+  it("негативный контроль: сдвинутый ЗАМЕР тоже краснит класс — вторая сторона", () => {
+    // Обратная мутация: каталог чист, а проба вида из блокирующего списка
+    // начинает собираться. Проверка обязана заметить это, а не только правку
+    // каталога.
+    const aliased: Record<string, string> = {
+      ...TRIGGERS,
+      unknown_syscall: wrap("  вернуть 1"),
+    };
+    const divergences = blockingDivergences(DIAGNOSTIC_KINDS, aliased);
+    expect(divergences.map((d) => d.split(":")[0])).toEqual(["unknown_syscall"]);
   });
 
   it("виды без пробы названы: keyword_param недостижим, export_collision — только через API", () => {
@@ -640,7 +687,7 @@ describe("достижимость видов: замер вместо замы�
     expect(reached.length, "тем же механизмом обязан ловиться соседний вид").toBeGreaterThan(0);
   });
 
-  it("chained_compare: молчит на настоящей цепочке и стреляет на законном сравнении", () => {
+  it("chained_compare: цепочка СЧИТАЕТСЯ (число мерено), а законное сравнение больше не названо", () => {
     const chain = (body: string): string =>
       ["модуль ПробаВида", "", "процедура главная()", body, "конец", "", "конец", ""].join("\n");
     const real = compileSource(chain("  пусть б = 1 < 2 < 3\n  вернуть 1"), {
@@ -650,17 +697,49 @@ describe("достижимость видов: замер вместо замы�
       chain("  если (1 < 2) = истина тогда\n    вернуть 1\n  конец\n  вернуть 0"),
       { filename: "скобки.osnova" },
     );
-    const realKinds = real.semanticErrors.map((e) => e.kind);
-    const parenKinds = paren.semanticErrors.map((e) => e.kind);
-    // Оба факта закреплены вместе: пропуск настоящей цепочки и ложное срабатывание
-    // на законном `(1 < 2) = истина` — это одно и то же свойство проверки.
-    expect(realKinds.includes("chained_compare"), "настоящая цепочка `1 < 2 < 3` не названа").toBe(
-      false,
-    );
+    // Замер 2026-09-28. Прежде здесь было закреплено ОБРАТНОЕ («настоящая цепочка
+    // не названа, а законное сравнение названо ложно»): проверка в семантике
+    // стреляла только по верным программам, и это был её единственный эффект.
+    // Правка сняла её, а вид объявлен недостижимым.
     expect(
-      parenKinds.includes("chained_compare"),
-      "`(1 < 2) = истина` названо цепочкой ложно",
-    ).toBe(true);
+      [...real.semanticErrors, ...paren.semanticErrors].map((e) => e.kind),
+      "вид chained_compare не порождается ничем — оба случая законны",
+    ).toEqual([]);
+    expect(compileToBuildReport(real).success, "цепочка обязана собираться").toBe(true);
+    expect(compileToBuildReport(paren).success, "`(1 < 2) = истина` обязано собираться").toBe(true);
+  });
+
+  it("chained_compare: число цепочки ВЕРНОЕ — «тихая ложь» меряется на VM, а не выводится из сборки", async () => {
+    // Худший наш класс — «программа собирается, а число неверное». Для цепочки он
+    // снят замером: дискриминатор, где истинна ровно одна из трёх цепочек, даёт
+    // 10, а не «истина на всё» и не левоассоциативное `(1 < 5) < 3` (оно дало бы
+    // 101: `истина < 3` — истина). Сборка об этом не говорит ничего, поэтому
+    // значение читается с VM.
+    const source = [
+      "модуль ПробаЧислаЦепочки",
+      "",
+      "процедура главная()",
+      "  пусть а = 0",
+      "  если 1 < 5 < 3",
+      "    а = а + 100",
+      "  конец",
+      "  если 1 < 2 < 3",
+      "    а = а + 10",
+      "  конец",
+      "  если 5 < 2 < 9",
+      "    а = а + 1",
+      "  конец",
+      "  вернуть а",
+      "конец",
+      "",
+      "конец",
+      "",
+    ].join("\n");
+    const result = compileSource(source, { filename: "число-цепочки.osnova" });
+    expect(result.compilerSuccess, "программа обязана собираться").toBe(true);
+    const vm = new VM(result.module!, { maxSteps: 5000 });
+    const value = await vm.runProcedure(vm.findProcedureIndex("главная"), []);
+    expect(value, `дискриминатор цепочки: ожидалось 10 (только средняя истинна)`).toBe(10);
   });
 });
 
