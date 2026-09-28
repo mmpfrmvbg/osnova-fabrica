@@ -30,6 +30,7 @@ import { run as runRuntime } from './runtime/run';
 import { runParity } from './oracle/parity';
 import { regModuleOf } from './vliw/regOracle';
 import { compareReorders, formatComparison } from './vliw/reorderEquivalence';
+import { checkCompileTarget, parseTargetArgument, TARGET_USAGE } from './cli/target';
 
 const args = process.argv.slice(2);
 
@@ -61,6 +62,7 @@ function printUsage(): void {
   console.error('  osnova resident "старт" [--rounds N]  Автономный резидент (сам ставит цели)');
   console.error('  osnova new-app --task "описание"     Генерация + сохранение + регистрация');
   console.error('  osnova compile file.osnova [-o out]  Компиляция .osnova → .osvbc');
+  console.error(TARGET_USAGE);
   console.error('  osnova run --manifest path           Запуск приложения по манифесту');
   console.error('  osnova schedule file.osvbc.json      VLIW-планирование (линейный код)');
   console.error('  osnova parity file.osnova            Оракул: стековая VM vs регистровая (сверка трасс)');
@@ -240,9 +242,18 @@ function runCompileMode(cliArgs: string[]): number {
   // Стоки объявлены до разбора аргументов: отказы ДО компиляции печатаются теми
   // же двумя потоками (человеку — stderr, машине — stdout).
   const io = { out: (line: string) => console.log(line), err: (line: string) => console.error(line) };
+  // ЦЕЛЬ — до поиска входного файла: значение `--target` иначе попадает в позиционные
+  // аргументы, и команда ищет файл с именем «e2k» (замер до правки). Отказ разбора цели —
+  // названный отказ команды, а не тихое умолчание.
+  const targetRequest = parseTargetArgument(cliArgs);
+  if (targetRequest.problem !== undefined) {
+    io.err(targetRequest.problem);
+    return 1;
+  }
   let input: string | null = null;
   let output: string | null = null;
   for (let i = 0; i < cliArgs.length; i++) {
+    if (targetRequest.consumed.includes(i)) continue;
     if (cliArgs[i] === '-o' || cliArgs[i] === '--output') {
       output = cliArgs[++i] ?? null;
     } else if (!cliArgs[i].startsWith('-')) {
@@ -299,6 +310,12 @@ function runCompileMode(cliArgs: string[]): number {
   fs.writeFileSync(path.resolve(outPath), json, 'utf-8');
   // В JSON-режиме stdout несёт только JSONL (успех виден по коду 0 и файлу).
   if (format !== 'json') console.log('Скомпилировано:', outPath);
+  // ЦЕЛЬ: компиляция уже сделана и артефакт записан — флаг ничего в ней не меняет. Он добавляет
+  // ответ на другой вопрос: соберётся ли ЭТА программа НА ЦЕЛИ. Отказы понижения печатает
+  // наблюдатель (`src/scripts/e2kLoweringDiagnostics.ts`), он же даёт код: 0 — отказов нет.
+  if (targetRequest.target !== undefined) {
+    return checkCompileTarget({ file: inputPath, format, io });
+  }
   return 0;
 }
 

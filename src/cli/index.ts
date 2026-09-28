@@ -22,10 +22,12 @@ import type { OsVbcModule } from "../runtime/vm/bytecode";
 import { runParity } from "../oracle/parity";
 import { regModuleOf } from "../vliw/regOracle";
 import { compareReorders, formatComparison } from "../vliw/reorderEquivalence";
+import { checkCompileTarget, parseTargetArgument, TARGET_USAGE } from "./target";
 
 function usage(): void {
   console.error("Использование:");
   console.error("  osnova compile <файл.osnova> [-o <файл.osvbc.json>] [--warn-deprecated] [--diagnostics=json]");
+  console.error(TARGET_USAGE);
   console.error("  osnova run <файл.osnova>            скомпилировать и сразу запустить");
   console.error("  osnova run <файл.osvbc.json>        запустить готовый байткод");
   console.error("  osnova parity <файл.osnova>         сверка стековой и регистровой VM");
@@ -80,7 +82,14 @@ function cmdCompile(args: string[]): void {
     process.exit(1);
   }
   const io = { out: (line: string) => console.log(line), err: (line: string) => console.error(line) };
-  const inputIdx = args.findIndex((a) => !a.startsWith("-"));
+  // Цель — тот же флаг, что у установленной команды (`src/cli.ts`): разбор общий, чтобы точка
+  // входа не разошлась с точкой входа. Значение флага исключается из поиска входного файла.
+  const targetRequest = parseTargetArgument(args);
+  if (targetRequest.problem !== undefined) {
+    console.error(targetRequest.problem);
+    process.exit(1);
+  }
+  const inputIdx = args.findIndex((a, i) => !a.startsWith("-") && !targetRequest.consumed.includes(i));
   if (inputIdx === -1) {
     // Человеческий вывод — прежний: строка + подсказка (usage() выходит сам);
     // машинный — одна запись `OSN-CLI-001`, без человеческих строк.
@@ -131,6 +140,11 @@ function cmdCompile(args: string[]): void {
   fs.writeFileSync(outputFile, JSON.stringify(result.module, null, 2), "utf-8");
   // В JSON-режиме stdout несёт только JSONL (успех виден по коду 0 и файлу).
   if (format !== "json") console.log(`Скомпилировано: ${inputFile} → ${outputFile}`);
+  // Цель: компиляция и артефакт не меняются — флаг отвечает на вопрос «соберётся ли НА ЦЕЛИ»
+  // и выходит кодом 1, если конвейер цели выбросил носитель (иначе — тихая ложь).
+  if (targetRequest.target !== undefined) {
+    process.exit(checkCompileTarget({ file: path.resolve(inputFile), format, io }));
+  }
 }
 
 async function cmdRun(args: string[]): Promise<void> {
