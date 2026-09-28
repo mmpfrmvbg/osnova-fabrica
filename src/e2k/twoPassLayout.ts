@@ -55,9 +55,21 @@
  */
 
 import type { AsmInstruction, Operand, WideGroupShape } from "./backend";
-import { CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
-import { lowerArrayCall } from "./arrayRuntime";
-import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
+import {
+  STRING_CALLS,
+  stringConcatInstructions,
+  stringLengthInstructions,
+  stringWriteInstructions,
+} from "./stringRuntime";
+import { isStringPrint, stringMarksOf } from "./stringPlan";
+import {
+} from "./stringRuntime";
+import {
+  CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
+import {
+  lowerArrayCall } from "./arrayRuntime";
+import {
+  SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import {
   EXIT_CARRIER,
   PRINT_HEAP_BY_CONVENTION,
@@ -75,7 +87,8 @@ import {
   printTextInstructions,
   printWriteInstructions,
 } from "./printCall";
-import { LOWERING_CODES, failureOf, type LoweringFailure, type LoweringRefusalCode } from "./loweringRefusal";
+import {
+  LOWERING_CODES, failureOf, type LoweringFailure, type LoweringRefusalCode } from "./loweringRefusal";
 
 const imm = (value: number): Operand => ({ kind: "imm", value });
 
@@ -517,6 +530,16 @@ function constForm(instruction: AsmInstruction, context: CarrierFormContext): Ca
   };
 }
 
+/** Форма сохранения живых регистров вокруг сайта печати: `movtd`+`std` … `movtd`+`ldd`. */
+function saveForm(saveCount: number): CommandForm {
+  return {
+    mnemonic: 'movtd+std / movtd+ldd',
+    form: 'вытеснение вокруг печати',
+    size: saveCount * PRINT_SAVE_BYTES_PER_REGISTER,
+    source: PRINT_SAVE_SOURCE,
+  };
+}
+
 function carrierFormWithReason(
   instruction: AsmInstruction,
   context: CarrierFormContext,
@@ -600,6 +623,44 @@ function carrierFormWithReason(
         failure: failureOf(LOWERING_CODES.print, `«${name}»: значение не в регистре — развёртка печати берёт его из регистра`),
       };
     }
+    // ── ПЕЧАТЬ СТРОКИ ────────────────────────────────────────────────────────────────────────────
+    // У строки нет развёртки: байты уже лежат в образе, длина известна, и команды — «адрес и длина в
+    // аргументы `write`, затем перевод строки вторым вызовом» (`src/e2k/stringRuntime.ts`). Признак —
+    // вторая пометка носителя (у печати ЧИСЛА её нет: там шестой операнд — число сохраняемых регистров,
+    // и он один). Команды берутся из ТОГО ЖЕ модуля, что и у понижения: разойтись нечем.
+    if (isStringPrint(instruction)) {
+      const marks = stringMarksOf(instruction);
+      const [byteLength, newlineAddress, saveCount = 0] = marks;
+      if (byteLength === undefined || newlineAddress === undefined) {
+        return {
+          failure: failureOf(
+            LOWERING_CODES.print,
+            `«${name}»: печать строки без длины или без адреса перевода строки — пометки ставит конвейер ` +
+              '(src/e2k/stringPlan.ts)',
+          ),
+        };
+      }
+      const commands = stringWriteInstructions({
+        address: argument.index,
+        byteLength,
+        newlineAddress,
+      });
+      const forms: CommandForm[] = [];
+      for (const command of commands) {
+        const form = printCommandForm(command);
+        if (form === undefined) {
+          return {
+            failure: failureOf(
+              LOWERING_CODES.print,
+              `«${name}»: у команды вывода строки «${command.mnemonic}» нет формы — длину взять негде`,
+            ),
+          };
+        }
+        forms.push({ mnemonic: form.mnemonic, form: form.form, size: form.size, source: form.source });
+      }
+      if (saveCount > 0) forms.push(saveForm(saveCount));
+      return { form: { carrier: 'IR.invoke', commands: forms } };
+    }
     const saveCount = printSaveCountOf(instruction);
     if (saveCount === undefined) {
       return {
@@ -625,15 +686,77 @@ function carrierFormWithReason(
       }
       printing.push({ mnemonic: form.mnemonic, form: form.form, size: form.size, source: form.source });
     }
-    if (saveCount > 0) {
-      printing.push({
-        mnemonic: 'movtd+std / movtd+ldd',
-        form: 'вытеснение вокруг печати',
-        size: saveCount * PRINT_SAVE_BYTES_PER_REGISTER,
-        source: PRINT_SAVE_SOURCE,
+    if (saveCount > 0) printing.push(saveForm(saveCount));
+    return { form: { carrier: 'IR.invoke', commands: printing } };
+  }
+  // ── СТРОКИ: `длина` и `объединить` ─────────────────────────────────────────────────────────────
+  //
+  // Строковый рантайм (`src/e2k/stringRuntime.ts`) — третий, и он тоже разворачивается в десятки
+  // команд: проход по байтам за длиной в кодпоинтах и копирование байтов при склейке. Длину
+  // раскладка берёт из ТОЙ ЖЕ функции, что и понижение, а числа (сколько байт у строки, где таблица,
+  // где буфер) — из пометок носителя, которые ставит конвейер ДО раскладки (`src/e2k/stringPlan.ts`).
+  if (name === STRING_CALLS.length || name === STRING_CALLS.concat) {
+    const marks = stringMarksOf(instruction);
+    const destinationRegister = hasDestination && destination?.kind === 'reg' ? destination.index : undefined;
+    const argumentRegister = instruction.operands[1];
+    if (argumentRegister === undefined || argumentRegister.kind !== 'reg' || destinationRegister === undefined) {
+      return {
+        failure: failureOf(LOWERING_CODES.runtime, `«${name}»: строковая операция требует регистров аргумента и приёмника`),
+      };
+    }
+    let commands: readonly AsmInstruction[];
+    if (name === STRING_CALLS.length) {
+      const [byteLength, tableAddress] = marks;
+      if (byteLength === undefined || tableAddress === undefined) {
+        return {
+          failure: failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: носитель не несёт длину строки в байтах или адрес таблицы продолжений — их ставит ` +
+              'конвейер (src/e2k/stringPlan.ts)',
+          ),
+        };
+      }
+      commands = stringLengthInstructions({
+        base: argumentRegister.index,
+        byteLength,
+        destination: destinationRegister,
+        tableAddress,
+      });
+    } else {
+      const [firstBytes, secondBytes, bufferAddress] = marks;
+      const second = instruction.operands[2];
+      if (firstBytes === undefined || secondBytes === undefined || bufferAddress === undefined || second?.kind !== 'reg') {
+        return {
+          failure: failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: носитель не несёт длины склеиваемых строк или адрес буфера — их ставит конвейер ` +
+              '(src/e2k/stringPlan.ts)',
+          ),
+        };
+      }
+      commands = stringConcatInstructions({
+        first: argumentRegister.index,
+        second: second.index,
+        destination: destinationRegister,
+        bufferAddress,
+        firstBytes,
+        secondBytes,
       });
     }
-    return { form: { carrier: 'IR.invoke', commands: printing } };
+    const forms: CommandForm[] = [];
+    for (const command of commands) {
+      const form = printCommandForm(command);
+      if (form === undefined) {
+        return {
+          failure: failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: у команды строкового рантайма «${command.mnemonic}» нет формы в таблице — длину взять негде`,
+          ),
+        };
+      }
+      forms.push({ mnemonic: form.mnemonic, form: form.form, size: form.size, source: form.source });
+    }
+    return { form: { carrier: 'IR.invoke', commands: forms } };
   }
   const lowered = ((): readonly AsmInstruction[] | string => {
     try {

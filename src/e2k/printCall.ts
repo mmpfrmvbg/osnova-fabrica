@@ -429,7 +429,11 @@ export function printCommandForm(instruction: AsmInstruction): PrintCommandForm 
       return short('ALF3');
     case 'std':
     case 'ldd':
-      return short('ALF3 (ldd — ALF1)');
+    case 'ldb':
+      // `ldb` — та же форма загрузки, что `ldd`, но байтом: `opcodes/e2k-opc.h:604` (ALF1, ARGS_DDD).
+      // Нужна строковому рантайму: проход по байтам за длиной в кодпоинтах и копирование при склейке
+      // (`src/e2k/stringRuntime.ts`).
+      return short('ALF3 (ldd/ldb — ALF1)');
     case 'setbn':
       return short('ALF2');
     case 'sdisp':

@@ -78,9 +78,14 @@ const GUEST_OUTPUT_GUARD = "guestOutputMatches";
  * (`src/e2k/twoPassLayout.ts`). Сторож поведения — сверка байтов вывода в оракуле цели
  * (`src/scripts/examplesE2k.audit.test.ts`), устройство пути — `src/e2k/printPipeline.test.ts`,
  * разбор — `docs/hardware-debt.md` §3.43.
+ *
+ * Сдвиг 2026-09-28 (второй за день): `EXPECTED_E2K` 31 → **34** — записи `02-переменные` и
+ * `04-строки` переведены в «работает»: строки понижаются статическими байтами, длина считается
+ * в КОДОВЫХ ТОЧКАХ, склейка идёт в статический буфер 20 байт (`src/e2k/stringRuntime.ts` +
+ * `src/e2k/stringPlan.ts`). Сторож тот же — сверка байтов вывода; разбор — §3.48.
  */
 const EXPECTED_EXAMPLES = 44;
-const EXPECTED_E2K = 32;
+const EXPECTED_E2K = 34;
 
 /**
  * СЧЁТЧИК ЛЕГАСИ-ЗАКРЫТИЙ: сколько в корпусе закрытий одиночным `конец`.

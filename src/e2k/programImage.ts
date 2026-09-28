@@ -35,6 +35,14 @@ import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
 import { exitPrimitives, printAreaOf } from './printPrimitives';
 import { LOWERING_CODES, LoweringRefusalError, refusalOf, type LoweringRefusal } from './loweringRefusal';
+import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringMarksOf } from './stringPlan';
+import { STRING_CALLS } from './stringRuntime';
+import {
+  STRING_PRINT_CLOBBERS,
+  stringConcatInstructions,
+  stringLengthInstructions,
+  stringWriteInstructions,
+} from './stringRuntime';
 import {
   callAddresses,
   entryProcedureIndex,
@@ -158,7 +166,10 @@ function sharePrintSites(
   procedureCount: number,
 ): { readonly groupAt: ReadonlyMap<number, readonly AsmInstruction[]>; readonly problems: readonly LoweringRefusal[] } {
   const indexes = code
-    .map((carrier, index) => (isPrintCarrier(carrier, invokeNames) ? index : -1))
+    // ДЕЛЯТСЯ только сайты ЧИСЛА: у строки нет развёртки, делить нечего — её байты и так лежат в образе
+    // один раз. Печать строки в этот список попасть не должна: иначе строка ушла бы в «число → текст»
+    // и напечатался бы АДРЕС её байтов (измерено: «1056442» вместо «Аня»).
+    .map((carrier, index) => (isPrintCarrier(carrier, invokeNames) && !isStringPrint(carrier) ? index : -1))
     .filter((index) => index >= 0);
   if (indexes.length < 2) return { groupAt: new Map(), problems: [] };
   const liveOut = cfgLiveSets(code, { defUse: defUseOf }).liveOut;
@@ -251,6 +262,42 @@ function sharedTextCarriers(): AsmInstruction[] {
 }
 
 /**
+ * ПЛАН ВЫВОДА СТРОК: кого сохранить вокруг `write` и сколько это байт.
+ *
+ * Строку не преобразуют — её байты уже в образе, — поэтому портится меньше регистров, чем у печати
+ * числа (`STRING_PRINT_CLOBBERS`), и сохранять надо только живое из них. Число сохранённых уезжает
+ * в сам носитель (пометка), иначе раскладке неоткуда взять длину сайта.
+ */
+function planStringPrintSites(
+  code: readonly AsmInstruction[],
+  invokeNames: readonly string[],
+  heapAddress: number,
+  spilledAddresses: readonly number[],
+): ReadonlyMap<number, PrintSitePlan> {
+  const indexes = code
+    .map((carrier, index) => (isPrintCarrier(carrier, invokeNames) && isStringPrint(carrier) ? index : -1))
+    .filter((index) => index >= 0);
+  if (indexes.length === 0) return new Map();
+  const liveOut = cfgLiveSets(code, { defUse: defUseOf }).liveOut;
+  const plans = new Map<number, PrintSitePlan>();
+  for (const index of indexes) {
+    const argument = printArgumentOf(code[index]!);
+    if (argument === undefined) continue;
+    plans.set(
+      index,
+      planPrintSite({
+        argument,
+        heapAddress,
+        liveAfter: liveOut[index] ?? [],
+        occupied: spilledAddresses,
+        clobbered: STRING_PRINT_CLOBBERS,
+      }),
+    );
+  }
+  return plans;
+}
+
+/**
  * САЙТЫ ПЕЧАТИ: план на каждый печатающий носитель — кого сохранить, чем адресовать, что печатать.
  *
  * План считается **до раскладки** и по ней же: длину сайта раскладка обязана знать заранее
@@ -266,7 +313,9 @@ function planPrintSites(
   spilledAddresses: readonly number[],
 ): ReadonlyMap<number, PrintSitePlan> {
   const indexes = code
-    .map((carrier, index) => (isPrintCarrier(carrier, invokeNames) ? index : -1))
+    // Печать СТРОКИ — не этот путь: у неё нет развёртки «число → текст», её байты уже лежат в образе
+    // (пометка носителя — длина строки в байтах, `src/e2k/stringPlan.ts`).
+    .map((carrier, index) => (isPrintCarrier(carrier, invokeNames) && !isStringPrint(carrier) ? index : -1))
     .filter((index) => index >= 0);
   if (indexes.length === 0) return new Map();
   const liveOut = cfgLiveSets(code, { defUse: defUseOf }).liveOut;
@@ -457,8 +506,15 @@ export function imageOfCarriers(
     readonly procedures?: readonly ProcedureOffset[];
   } = {},
 ): { bytes: Uint8Array; refused: readonly LoweringRefusal[] } {
-  const context = { constants, invokeNames };
   const heapAddress = options.heapAddress ?? MINIMAL_BASE + HEAP_OFFSET;
+  // СТРОКИ: литералы становятся адресами статических байтов, `длина`/`объединить` — пометками,
+  // по которым ОДНИ И ТЕ ЖЕ команды считают и раскладка (форма), и понижение (байты). Планирование
+  // идёт ДО всего остального: адреса блобов сдвигают сторож места, а пул констант — длину `IR.const`.
+  const strings = planStrings(code, constants, invokeNames, heapAddress);
+  const stringContext = { constants: strings.constants, invokeNames: strings.invokeNames };
+  // Дальше весь конвейер работает с ПЕРЕПИСАННЫМ потоком и РАСШИРЕННЫМ пулом: строковый литерал —
+  // это уже адрес, а не строка (`src/e2k/stringPlan.ts`).
+  const context = stringContext;
   // ПРОЦЕДУРЫ: если их не назвали, поток считается ОДНОЙ процедурой — и она ТОЧКА ВХОДА. Без этой
   // записи разделённая печать (она дописывает в поток свою процедуру) оставила бы носители точки
   // входа «ничьими»: принадлежность считается как «последняя процедура, чьё смещение ≤ индекса»,
@@ -471,14 +527,15 @@ export function imageOfCarriers(
   // выносится в листовую процедуру, а у сайта остаётся вызов и `write` (см. `src/e2k/printCall.ts`).
   // Тогда площадка печати перестаёт быть потолком: десять печатей стоят ≈2900 байт вместо 14320.
   const sharing = sharePrintSites(
-    code,
+    strings.code,
     invokeNames,
     heapAddress,
     options.spilledAddresses ?? [],
     baseProcedures.length,
   );
-  const expanded = sharing.groupAt.size === 0 ? undefined : expandCarriers(code, sharing.groupAt, baseProcedures);
-  const sharedCode = expanded?.code ?? code;
+  const expanded =
+    sharing.groupAt.size === 0 ? undefined : expandCarriers(strings.code, sharing.groupAt, baseProcedures);
+  const sharedCode = expanded?.code ?? strings.code;
   const sharedProcedures = expanded?.procedures ?? baseProcedures;
   // Листовая процедура «число → текст» встаёт В КОНЕЦ потока: её тело — развёртка, её вызов — у сайтов.
   const withText = sharing.groupAt.size === 0 ? sharedCode : [...sharedCode, ...sharedTextCarriers()];
@@ -496,7 +553,8 @@ export function imageOfCarriers(
   // за ними уезжали (класс дефекта §3.35). Выход без значения ставится только ПЕЧАТАЮЩЕЙ программе:
   // у прочих поведение прежнее и измеренное («без возврата — код 134», §3.39).
   const prepared = prepareImage(withText, proceduresWithText, {
-    exitOnVoidReturn: sharing.groupAt.size > 0 || countPrintSites(code, invokeNames) > 0,
+    exitOnVoidReturn:
+      sharing.groupAt.size > 0 || countPrintSites(strings.code, invokeNames) > 0 || strings.counts.prints > 0,
   });
   const plannedCode = prepared.code;
   const procedures = prepared.procedures;
@@ -505,21 +563,32 @@ export function imageOfCarriers(
   // смещение перехода, пересекающего печать, считается по нулю — docs/hardware-debt.md §3.43).
   // Число сохраняемых регистров уезжает в сам носитель: другого канала к раскладке нет.
   // При разделённой печати инлайновых сайтов не остаётся вовсе — планы пусты, и это не «не нашли».
-  const printPlans = planPrintSites(plannedCode, invokeNames, heapAddress, options.spilledAddresses ?? []);
-  const planned =
-    printPlans.size === 0
-      ? plannedCode
-      : plannedCode.map((carrier, index) => {
-          const plan = printPlans.get(index);
-          return plan === undefined ? carrier : withPrintSaveCount(carrier, plan.saved.length);
-        });
+  const printPlans = planPrintSites(plannedCode, strings.invokeNames, heapAddress, options.spilledAddresses ?? []);
+  // СТРОКИ: свой план вывода (портится меньше регистров) — тот же механизм и тот же канал к раскладке.
+  const stringPrintPlans = planStringPrintSites(
+    plannedCode,
+    strings.invokeNames,
+    heapAddress,
+    options.spilledAddresses ?? [],
+  );
+  const planned = plannedCode.map((carrier, index) => {
+    const numberPlan = printPlans.get(index);
+    if (numberPlan !== undefined) return withPrintSaveCount(carrier, numberPlan.saved.length);
+    const stringPlan = stringPrintPlans.get(index);
+    if (stringPlan === undefined) return carrier;
+    // Число сохранённых — СЕДЬМОЙ пометкой носителя: шестая занята длиной строки, седьмая — адресом
+    // перевода строки (`src/e2k/stringPlan.ts`), и раскладка читает их по порядку.
+    const operands = [...carrier.operands];
+    operands[STRING_MARK_OPERAND + 2] = imm(stringPlan.saved.length);
+    return { ...carrier, operands };
+  });
   // Возвраты, оставшиеся в потоке после подготовки, принадлежат ВЫЗЫВАЕМЫМ процедурам — значит
   // они ИСПОЛНЯЮТСЯ, и форма обязана считать пару (`procedureReturn`). Возвраты точки входа
   // помечены нулевыми (`zeroSize`): их место занимает её `exit`.
   const zeroSize = new Set(prepared.zeroSize);
   const layout = layoutOf(planned, {
-    invokeNames,
-    constants,
+    invokeNames: strings.invokeNames,
+    constants: strings.constants,
     heapAddress,
     procedureReturn: true,
     zeroSize: prepared.zeroSize,
@@ -532,7 +601,11 @@ export function imageOfCarriers(
     procedures,
     addresses: layout.addresses,
     dispOffsetOf: (index) => {
-      const form = carrierFormOf(planned[index]!, { invokeNames, constants, heapAddress });
+      const form = carrierFormOf(planned[index]!, {
+        invokeNames: strings.invokeNames,
+        constants: strings.constants,
+        heapAddress,
+      });
       if (form === undefined) return undefined;
       let offset = 0;
       for (const command of form.commands) {
@@ -553,7 +626,12 @@ export function imageOfCarriers(
   const entryEndsAt = prepared.entryEndsAt;
 
   const body: AsmInstruction[] = [];
-  const refused: LoweringRefusal[] = [...sharing.problems];
+  // Отказы ПЛАНИРОВАНИЯ СТРОК идут первыми: у переполнения буфера причина — оно, а не отсутствие пометок,
+  // которое видит раскладка следом (обе записи верны, но причина обязана стоять первой).
+  const refused: LoweringRefusal[] = [
+    ...strings.problems.map((reason) => refusalOf(LOWERING_CODES.runtime, reason)),
+    ...sharing.problems,
+  ];
   let exitEmitted = false;
   /** Печатает ли образ: инлайновые сайты ИЛИ разделённая печать (её хвост `write`). */
   const prints = printPlans.size > 0 || sharing.groupAt.size > 0;
@@ -650,6 +728,107 @@ export function imageOfCarriers(
       body.push(...printSiteInstructions(plan));
       continue;
     }
+    // ── СТРОКИ: вывод и две операции ─────────────────────────────────────────────────────────────
+    if (carrier.mnemonic === 'IR.invoke') {
+      const marks = stringMarksOf(carrier);
+      const name = ((): string | undefined => {
+        const payload = carrier.operands[3];
+        return payload !== undefined && payload.kind === 'imm' ? strings.invokeNames[payload.value] : undefined;
+      })();
+      const stringPrint = stringPrintPlans.get(index);
+      if (stringPrint !== undefined) {
+        if (inCallee) {
+          refused.push(
+            refusalOf(
+              LOWERING_CODES.print,
+              `#${index} ${String(name)}: печать строки из вызываемой процедуры невозможна — она делает ` +
+                'системный вызов `write`, а номер вызова идёт в %r8, которого у вызываемой нет',
+            ),
+          );
+          continue;
+        }
+        const argument = printArgumentOf(carrier);
+        const [byteLength, newlineAddress] = marks;
+        if (argument === undefined || byteLength === undefined || newlineAddress === undefined) {
+          refused.push(
+            refusalOf(
+              LOWERING_CODES.print,
+              `#${index} ${String(name)}: у печати строки нет регистра, длины или адреса перевода строки`,
+            ),
+          );
+          continue;
+        }
+        for (const item of stringPrint.saved) {
+          body.push(
+            { mnemonic: 'movtd', channel: 0, operands: [imm(item.address), base(stringPrint.scratch)] },
+            { mnemonic: 'std', channel: 2, operands: [base(item.register), base(stringPrint.scratch), base(ARRAY_REGISTERS.zero)] },
+          );
+        }
+        body.push(...stringWriteInstructions({ address: argument, byteLength, newlineAddress }));
+        for (const item of stringPrint.saved) {
+          body.push(
+            { mnemonic: 'movtd', channel: 0, operands: [imm(item.address), base(stringPrint.scratch)] },
+            { mnemonic: 'ldd', channel: 0, operands: [base(stringPrint.scratch), base(ARRAY_REGISTERS.zero), base(item.register)] },
+          );
+        }
+        continue;
+      }
+      if (name === STRING_CALLS.length || name === STRING_CALLS.concat) {
+        if (inCallee) {
+          refused.push(
+            refusalOf(
+              LOWERING_CODES.runtime,
+              `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — её рантайм держит ` +
+                'состояние в %b[10..13], а окно вызываемой — %b[0..7]',
+            ),
+          );
+          continue;
+        }
+        const destination = carrier.operands[4];
+        const first = carrier.operands[1];
+        const second = carrier.operands[2];
+        if (destination?.kind !== 'reg' || first?.kind !== 'reg') {
+          refused.push(refusalOf(LOWERING_CODES.runtime, `#${index} ${String(name)}: строковая операция без регистров`));
+          continue;
+        }
+        if (name === STRING_CALLS.length) {
+          const [byteLength, tableAddress] = marks;
+          if (byteLength === undefined || tableAddress === undefined) {
+            refused.push(
+              refusalOf(LOWERING_CODES.runtime, `#${index} ${name}: нет длины строки или адреса таблицы продолжений`),
+            );
+            continue;
+          }
+          body.push(
+            ...stringLengthInstructions({
+              base: first.index,
+              byteLength,
+              destination: destination.index,
+              tableAddress,
+            }),
+          );
+          continue;
+        }
+        const [firstBytes, secondBytes, bufferAddress] = marks;
+        if (firstBytes === undefined || secondBytes === undefined || bufferAddress === undefined || second?.kind !== 'reg') {
+          refused.push(
+            refusalOf(LOWERING_CODES.runtime, `#${index} ${name}: нет длин склеиваемых строк или адреса буфера`),
+          );
+          continue;
+        }
+        body.push(
+          ...stringConcatInstructions({
+            first: first.index,
+            second: second.index,
+            destination: destination.index,
+            bufferAddress,
+            firstBytes,
+            secondBytes,
+          }),
+        );
+        continue;
+      }
+    }
     if (carrier.mnemonic === PRINT_TEXT_CARRIER) {
       // ТЕЛО ЛИСТОВОЙ ПРОЦЕДУРЫ: развёртка «число → текст». Она живёт в вызываемой, поэтому все её
       // регистры — оконные (измерено: базовая форма в вызываемой даёт исключение на первой команде).
@@ -742,6 +921,33 @@ export function imageOfCarriers(
           '(там куча), а печатать в цикле — можно (docs/hardware-debt.md §3.40.6)',
       );
     }
+  }
+  // ── СТАТИЧЕСКИЕ БАЙТЫ СТРОК: дописать в образ там, где их ждут адреса ──────────────────────────
+  //
+  // Адреса блобов выведены из конца образа (`printArea − размер`), поэтому байты обязаны лежать
+  // РОВНО по этим адресам: между кодом и блобом — нули. Если код дорос до блоба, это НАЗВАННЫЙ ОТКАЗ
+  // с числами: молчаливая порча строк (или команд) — ровно тот класс, который здесь недопустим.
+  //
+  // ГДЕ ОБРАЗ В ПАМЯТИ — ИЗМЕРЕНО, и это `MINIMAL_BASE`, а не `+ 0x1000`: `0x1000` — смещение `.text`
+  // в ФАЙЛЕ (`IMAGE_TEXT_OFFSET`), а `PT_LOAD` кладёт его по `vaddr = base`. Проба с дампом памяти
+  // (`.tmp/osnova-image-dump.ts`): по `0x101000` гость видит нули, а по `0x100000` — первые байты
+  // своей программы (`01 ff fd …` = `setbn`). Поэтому смещение статики считается от `MINIMAL_BASE`.
+  if (strings.blobs.length > 0) {
+    const staticOffset = strings.staticStart - MINIMAL_BASE;
+    if (staticOffset < bytes.length) {
+      throw new PrintCallRefusal(
+        `строки: код образа — ${String(bytes.length)} байт, а статические байты строк начинаются на смещении ` +
+          `${String(staticOffset)} (адрес ${strings.staticStart.toString(16)}): код дорос до них. ` +
+          'Статическая область лежит под площадкой печати, и сдвинуть её некуда — там куча; ' +
+          'строки придётся укоротить или печатать их иначе (docs/hardware-debt.md §3.48)',
+      );
+    }
+    const withStatics = new Uint8Array(staticOffset + staticBytesOf(strings));
+    withStatics.set(bytes, 0);
+    for (const blob of strings.blobs) {
+      withStatics.set(Uint8Array.from(blob.bytes), blob.address - MINIMAL_BASE);
+    }
+    return { bytes: withStatics, refused };
   }
   return { bytes, refused };
 }

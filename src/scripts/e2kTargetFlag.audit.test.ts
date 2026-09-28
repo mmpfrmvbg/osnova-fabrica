@@ -19,7 +19,7 @@
  * - **класс берётся из данных, а не из константы:** вторая проба (строка в пул констант) обязана
  *   напечатать ДРУГОЙ класс (`константа-невыразима`), а не тот же самый;
  * - **класс следует за КОДОМ, а не за текстом причины:** две пробы одного вида с разными значениями
- *   дают разные тексты (`= привет` против `= пока`) и один класс; незнакомый код даёт
+ *   дают разные тексты (`= 1.5` против `= 2.25`) и один класс; незнакомый код даёт
  *   `код-вне-контракта`, а не «похоже на…»;
  * - **значение флага не становится входным файлом:** `compile проба.osnova --target e2k` до правки
  *   искал файл с именем `e2k` — опыт ставит флаг и ПОСЛЕ файла, и ПЕРЕД ним.
@@ -62,8 +62,8 @@ const OTHER_CLASS_TWIN = path.join(dir, 'другой-класс-близнец.
 
 fs.writeFileSync(REFUSED, source('  вернуть 17 % 5'), 'utf-8');
 fs.writeFileSync(CLEAN, source('  вернуть 17 - 5'), 'utf-8');
-fs.writeFileSync(OTHER_CLASS, source('  система.лог.вывести("привет")'), 'utf-8');
-fs.writeFileSync(OTHER_CLASS_TWIN, source('  система.лог.вывести("пока")'), 'utf-8');
+fs.writeFileSync(OTHER_CLASS, source('  пусть х = 1.5\n  вернуть х'), 'utf-8');
+fs.writeFileSync(OTHER_CLASS_TWIN, source('  пусть х = 2.25\n  вернуть х'), 'utf-8');
 
 /** Прогон настоящей команды — тем же способом, что и человек из терминала. */
 function cli(entry: string, args: readonly string[]): { code: number; out: string; err: string } {
@@ -121,12 +121,12 @@ describe('флаг цели: человек узнаёт, что на e2k про
     );
     expect(other.out).toContain(WARNING);
     // Вторая проба ТОГО ЖЕ вида, но с другим значением в тексте: класс тот же, текст другой —
-    // значит класс не следует за строкой (в строке лежит значение: `константа пула #0 = привет`).
+    // значит класс не следует за строкой (в строке лежит значение: `константа пула #0 = 1.5`).
     const twin = cli(MAIN_ENTRY, [OTHER_CLASS_TWIN, '--target', 'e2k']);
     expect(twin.code).toBe(1);
     expect(twin.out).toContain('[константа-невыразима]');
-    expect(twin.out).toContain('пока');
-    expect(other.out).toContain('привет');
+    expect(twin.out).toContain('2.25');
+    expect(other.out).toContain('1.5');
     expect(twin.out, 'тексты причин обязаны различаться — иначе контроль пуст').not.toBe(other.out);
   });
 
@@ -153,13 +153,13 @@ describe('флаг цели: человек узнаёт, что на e2k про
   });
 
   it('(ж) НЕГАТИВНЫЙ КОНТРОЛЬ: класс следует за КОДОМ, а не за текстом причины', () => {
-    // Текст отказа несёт ЗНАЧЕНИЕ (`константа пула #0 = привет`), поэтому строка как ключ негодна:
+    // Текст отказа несёт ЗНАЧЕНИЕ (`константа пула #0 = 1.5`), поэтому строка как ключ негодна:
     // две пробы одного вида дают разные строки. Класс обязан совпасть — он читается из кода.
-    const first = loweringDiagnosticsOf(source('  система.лог.вывести("привет")'), 'первая.osnova').diagnostics[0]!;
-    const second = loweringDiagnosticsOf(source('  система.лог.вывести("пока")'), 'вторая.osnova').diagnostics[0]!;
+    const first = loweringDiagnosticsOf(source('  пусть х = 1.5\n  вернуть х'), 'первая.osnova').diagnostics[0]!;
+    const second = loweringDiagnosticsOf(source('  пусть х = 2.25\n  вернуть х'), 'вторая.osnova').diagnostics[0]!;
     expect(first.message, 'тексты причин обязаны различаться — иначе контроль пуст').not.toBe(second.message);
-    expect(first.message).toContain('привет');
-    expect(second.message).toContain('пока');
+    expect(first.message).toContain('1.5');
+    expect(second.message).toContain('2.25');
     expect(second.code).toBe(first.code);
     expect(second.class).toBe(first.class);
     expect(first.class).toBe('константа-невыразима');

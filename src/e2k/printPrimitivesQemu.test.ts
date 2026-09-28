@@ -297,3 +297,69 @@ describe('РАЗДЕЛЁННАЯ ПЕЧАТЬ: «число → текст» в 
     expect(run.stderr.match(/write\(1,/g)?.length, 'в журнале обязаны быть ДЕСЯТЬ вызовов write').toBe(values.length);
   });
 });
+
+/**
+ * СТРОКИ НА ЦЕЛИ: приёмка владельца — `длина("🙂")` = 1 (кодпоинт, не 2 и не 4), склейка и вывод.
+ *
+ * Записи корпуса `02` и `04` сверяет оракул корпуса (тот же шлюз, байты против эталона). Здесь —
+ * то, чего в корпусе нет: трёх- и четырёхбайтовые кодпоинты и склейка знаком `+`.
+ */
+describe('СТРОКИ НА ЦЕЛИ: кодпоинты, склейка, вывод', () => {
+  const runSource = (source: string, name: string): { stdout: Buffer; stderr: string; status: number | null } => {
+    const image = loweredProgram(source);
+    expect(image.refused, `строковая программа «${name}» обязана понижаться без отказов`).toEqual([]);
+    return runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes, name);
+  };
+  const wrapped = (body: string): string => `процедура главная()\n${body}\nконец_процедуры\n`;
+
+  it('ПРИЁМКА: длина("🙂") на цели = 1 — кодпоинт, а не 2 и не 4', () => {
+    if (shim === undefined) return;
+    const run = runSource(wrapped('  система.лог.вывести(система.строка.длина("🙂"))'), 'string-emoji');
+    expect(hex(run.stdout), 'один кодпоинт → «1» и перевод строки').toBe('31 0a');
+    expect(run.status).toBe(0);
+  });
+
+  it('длина по алфавитам: ASCII 6, двухбайтовые 3, склейка 04 даёт 11', () => {
+    if (shim === undefined) return;
+    const ascii = runSource(wrapped('  система.лог.вывести(система.строка.длина("привет"))'), 'string-ascii');
+    expect(hex(ascii.stdout)).toBe('36 0a');
+    const cyrillic = runSource(wrapped('  система.лог.вывести(система.строка.длина("Аня"))'), 'string-cyr');
+    expect(hex(cyrillic.stdout)).toBe('33 0a');
+    const joined = runSource(
+      wrapped('  система.лог.вывести(система.строка.длина(система.строка.объединить("Привет, ", "мир")))'),
+      'string-joined-length',
+    );
+    expect(hex(joined.stdout), '20 байт, но 11 КОДООПИНТОВ — эталон записи 04').toBe('31 31 0a');
+  });
+
+  it('вывод строки: байты наружу как есть, склейка знаком `+` — тем же путём (канон §2.1)', () => {
+    if (shim === undefined) return;
+    const text = runSource(wrapped('  система.лог.вывести("Привет, мир")'), 'string-print');
+    const expected = Buffer.from('Привет, мир\n', 'utf-8');
+    expect(hex(text.stdout)).toBe([...expected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '));
+    expect(text.status).toBe(0);
+    const plus = runSource(wrapped('  система.лог.вывести("а" + "б")'), 'string-plus');
+    const plusExpected = Buffer.from('аб\n', 'utf-8');
+    expect(hex(plus.stdout), '`+` склеивает строки, а не складывает адреса').toBe(
+      [...plusExpected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '),
+    );
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: другой литерал — другие байты вывода', () => {
+    if (shim === undefined) return;
+    const first = runSource(wrapped('  система.лог.вывести("Аня")'), 'string-neg-anya');
+    const second = runSource(wrapped('  система.лог.вывести("Боря")'), 'string-neg-borya');
+    expect(hex(first.stdout)).not.toBe(hex(second.stdout));
+    expect(hex(first.stdout), 'первый байт «Аня» — d0 90').toBe('d0 90 d0 bd d1 8f 0a');
+  });
+
+  it('ГРАНИЦА: переполнение статического буфера (20 байт) — названный отказ, а не тихая порча', () => {
+    const image = loweredProgram(
+      wrapped('  система.лог.вывести(система.строка.объединить("012345678901234567890", "х"))'),
+    );
+    expect(image.refused.length, 'переполнение обязано быть отказом').toBeGreaterThan(0);
+    const overflow = image.refused.find((item) => item.reason.includes('склейка строк'));
+    expect(overflow, 'причина обязана называть переполнение, а не отсутствие пометок').toBeDefined();
+    expect(overflow?.reason, 'числа обязаны быть названы').toMatch(/2[0-9]/u);
+  });
+});
