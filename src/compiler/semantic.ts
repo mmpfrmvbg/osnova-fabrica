@@ -1,4 +1,5 @@
 import type { Expr, Program, Module, Stmt } from "./ast";
+import type { SemanticKind } from "./semanticKinds";
 import { unknownSyscallMessage } from "../runtime/vm/invokeRegistry";
 import { LANGUAGE_REGISTRY } from "./language-registry";
 
@@ -11,22 +12,13 @@ export interface SemanticError {
    * сборкой главного (`Procedure.origin`, `expandModuleImports`).
    */
   file?: string;
-  kind:
-    | "undeclared_var"
-    | "syscall_argc"
-    | "chained_compare"
-    | "unknown_syscall"
-    | "unknown_procedure"
-    | "arg_count_mismatch"
-    | "redeclare_var"
-    | "keyword_param"
-    | "keyword_as_identifier"
-    | "invented_syntax"
-    | "sentinel_pattern"
-    | "unknown_module"
-    | "export_collision"
-    | "break_outside_loop"
-    | "continue_outside_loop";
+  /**
+   * Вид ошибки. Объединение имён — из единого каталога
+   * (`src/compiler/diagnosticCatalogue.ts`), а не свой список здесь: прежде
+   * inline-union из 15 видов жил отдельно от списков `semanticKinds.ts` (9), и
+   * шесть видов не видела ни одна проверка «блокирует ли это сборку».
+   */
+  kind: SemanticKind;
 }
 
 export interface SemanticResult {

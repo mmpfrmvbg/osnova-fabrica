@@ -4,6 +4,7 @@ import {
   NON_BLOCKING_SEMANTIC_KINDS,
   ALL_SEMANTIC_KINDS,
 } from './semanticKinds';
+import { DIAGNOSTIC_KINDS } from './diagnosticCatalogue';
 
 describe('BLOCKING_SEMANTIC_KINDS', () => {
   it('содержит ровно 6 kinds', () => {
@@ -62,5 +63,36 @@ describe('ALL_SEMANTIC_KINDS', () => {
     expect(ALL_SEMANTIC_KINDS).toHaveLength(
       BLOCKING_SEMANTIC_KINDS.length + NON_BLOCKING_SEMANTIC_KINDS.length,
     );
+  });
+});
+
+// ============================================================
+// Связь со каталогом. Вывод списков из каталога и сторожа дрейфа
+// (уникальность имён и кодов, скан `semantic.ts`, негативный контроль)
+// живут в `diagnosticCatalogue.test.ts` — здесь только то, что видно
+// со стороны самих списков, без повторов.
+// ============================================================
+
+describe('списки и каталог', () => {
+  const catalogueKinds = DIAGNOSTIC_KINDS.map((entry) => entry.kind);
+
+  it('ни один список не несёт вида, которого нет в каталоге', () => {
+    for (const kind of ALL_SEMANTIC_KINDS) {
+      expect(catalogueKinds, `вид «${kind}» объявлен списком`).toContain(kind);
+    }
+  });
+
+  it('ALL_SEMANTIC_KINDS — только ОТНЕСЁННЫЕ виды, а не весь каталог', () => {
+    // Различие, которое легко перепутать: «все виды языка» — это каталог (15),
+    // а `ALL_SEMANTIC_KINDS` — списки потребителей (9). Шесть видов с долгом
+    // стоят вне обоих списков, и это названо в каталоге, а не забыто.
+    expect(ALL_SEMANTIC_KINDS.length).toBeLessThan(DIAGNOSTIC_KINDS.length);
+    const listed = new Set<string>(ALL_SEMANTIC_KINDS);
+    const unlisted = catalogueKinds.filter((kind) => !listed.has(kind));
+    expect(unlisted, 'виды каталога вне списков').toHaveLength(6);
+    for (const kind of unlisted) {
+      const entry = DIAGNOSTIC_KINDS.find((e) => e.kind === kind)!;
+      expect(entry.debt, `«${kind}» вне списков обязан быть назван долгом`).toBeTruthy();
+    }
   });
 });
