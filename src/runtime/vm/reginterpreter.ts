@@ -31,6 +31,9 @@ import type {
 } from "./regcode";
 import { isRegPacket } from "./regcode";
 import { getInvokeArgCount, isKnownInvoke } from "./invokeRegistry";
+// Порядок строк — по кодовым точкам, тем же компаратором, что у стековой VM: иначе два
+// исполнителя языка разошлись бы на «🙂» против «\uFFFD» (см. `stringUnits.ts`).
+import { orderedCompare } from "./stringUnits";
 import type { InvokeHandler, StackValue } from "./interpreter";
 // Формат значения — один на все VM: своя копия здесь разошлась бы с общей, и
 // склейка строк в регистровой машине печатала бы логическое иначе, чем в стековой.
@@ -348,16 +351,16 @@ export class RegVM {
         this.write(ins.d, this.read(ins.a) !== this.read(ins.b));
         return next;
       case "lt":
-        this.write(ins.d, (this.read(ins.a) as number) < (this.read(ins.b) as number));
+        this.write(ins.d, orderedCompare(this.read(ins.a), this.read(ins.b), "<"));
         return next;
       case "le":
-        this.write(ins.d, (this.read(ins.a) as number) <= (this.read(ins.b) as number));
+        this.write(ins.d, orderedCompare(this.read(ins.a), this.read(ins.b), "<="));
         return next;
       case "gt":
-        this.write(ins.d, (this.read(ins.a) as number) > (this.read(ins.b) as number));
+        this.write(ins.d, orderedCompare(this.read(ins.a), this.read(ins.b), ">"));
         return next;
       case "ge":
-        this.write(ins.d, (this.read(ins.a) as number) >= (this.read(ins.b) as number));
+        this.write(ins.d, orderedCompare(this.read(ins.a), this.read(ins.b), ">="));
         return next;
       case "and":
         this.write(ins.d, Boolean(this.read(ins.a) && this.read(ins.b)));

@@ -8,6 +8,7 @@ import * as path from "path";
 import type { OsVbcModule, RawInstruction, CodeElement } from "./bytecode";
 import { getInvokeArgCount, isKnownInvoke } from "./invokeRegistry";
 import { isVliwPacket } from "./bytecode";
+import { codePointIndexOf, codePointLength, codePointSlice, orderedCompare } from "./stringUnits";
 import { RUNTIME_CODES, type RuntimeErrorCode } from "../runtimeCodes";
 
 export type StackValue =
@@ -83,7 +84,9 @@ export function createDefaultInvokeHandler(): InvokeHandler {
     }
     case "система.строка.длина": {
       const s = String(args[0] ?? "");
-      return s.length;
+      // ЕДИНИЦА — КОДОВАЯ ТОЧКА (решение владельца 2026-09-28): `s.length` здесь давало единицы
+      // UTF-16, из-за чего «🙂» отвечало 2 вместо 1, а «👨‍👩‍👧» — 8 вместо 5.
+      return codePointLength(s);
     }
     case "система.строка.содержит": {
       const haystack = String(args[0] ?? "");
@@ -103,8 +106,16 @@ export function createDefaultInvokeHandler(): InvokeHandler {
     case "система.строка.подстрока": {
       const s = String(args[0] ?? "");
       const start = Number(args[1] ?? 0);
-      const end = Number(args[2] ?? s.length);
-      return s.slice(start, end);
+      // Край по умолчанию — длина по КОДОВЫМ ТОЧКАМ: прежде здесь стояло `s.length` (единицы
+      // UTF-16), и это была вторая половина той же ошибки, что у `длина`. Пропущенный третий
+      // аргумент приходит и как `undefined`, и как `null` (так его кладёт вызов с двумя
+      // аргументами), поэтому проверяются оба — иначе двухаргументная форма давала бы пустую
+      // строку (`Number(null)` = 0) вместо «до конца».
+      const rawEnd = args[2];
+      const end = rawEnd === undefined || rawEnd === null ? undefined : Number(rawEnd);
+      // Срез по кодовым точкам: суррогатная пара не разрезается (`s.slice` её резал — «🙂» с
+      // границами (0,1) давало половину пары, то есть невалидный текст).
+      return codePointSlice(s, start, end);
     }
     case "система.строка.в_верхний": {
       return String(args[0] ?? "").toUpperCase();
@@ -130,7 +141,9 @@ export function createDefaultInvokeHandler(): InvokeHandler {
     case "система.строка.найти": {
       const s = String(args[0] ?? "");
       const sub = String(args[1] ?? "");
-      return s.indexOf(sub);
+      // Индекс — в КОДОВЫХ ТОЧКАХ: `indexOf` отвечает единицами UTF-16, и на «🙂x» поиск «x»
+      // давал 2 вместо 1. Так же отвечает Python `str.find`.
+      return codePointIndexOf(s, sub);
     }
     case "система.хранилище.записать": {
       const key = String(args[0] ?? "");
@@ -656,27 +669,30 @@ export class VM {
         this.stack.push(this.stack.pop() !== this.stack.pop());
         return next;
       case "lt": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a < b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        // Порядок строк — по КОДОВЫМ ТОЧКАМ (см. `stringUnits`): у UTF-16 суррогаты стоят ниже
+        // 0xE000, у кодовых точек астральные символы — выше, поэтому «🙂» и «\uFFFD» меняются
+        // местами. Числа и прочее сравниваются как раньше.
+        this.stack.push(orderedCompare(a, b, "<"));
         return next;
       }
       case "le": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a <= b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        this.stack.push(orderedCompare(a, b, "<="));
         return next;
       }
       case "gt": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a > b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        this.stack.push(orderedCompare(a, b, ">"));
         return next;
       }
       case "ge": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a >= b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        this.stack.push(orderedCompare(a, b, ">="));
         return next;
       }
       case "and": {
