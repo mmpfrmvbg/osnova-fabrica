@@ -80,7 +80,7 @@ const GUEST_OUTPUT_GUARD = "guestOutputMatches";
  * разбор — `docs/hardware-debt.md` §3.43.
  */
 const EXPECTED_EXAMPLES = 44;
-const EXPECTED_E2K = 31;
+const EXPECTED_E2K = 32;
 
 /**
  * СЧЁТЧИК ЛЕГАСИ-ЗАКРЫТИЙ: сколько в корпусе закрытий одиночным `конец`.
