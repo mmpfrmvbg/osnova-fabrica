@@ -58,6 +58,16 @@ import type { AsmInstruction, Operand, WideGroupShape } from "./backend";
 import { CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
 import { lowerArrayCall } from "./arrayRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
+import {
+  PRINT_HEAP_BY_CONVENTION,
+  PRINT_SAVE_BYTES_PER_REGISTER,
+  PRINT_SAVE_COUNT_OPERAND,
+  PRINT_SAVE_SOURCE,
+  isPrintCallName,
+  printCallInstructions,
+  printCommandForm,
+  printSaveCountOf,
+} from "./printCall";
 
 const imm = (value: number): Operand => ({ kind: "imm", value });
 
@@ -309,6 +319,12 @@ export interface CarrierFormContext {
    * короткой непосредственной формой, 8 байт; остальные — литеральной, 16 байт).
    */
   readonly constants?: readonly unknown[];
+  /**
+   * Адрес кучи образа. Нужен единственному носителю — печатающему `IR.invoke`: раскладка выводит из
+   * него команды развёртки, чтобы сложить их длины. На ЗНАЧЕНИЯ адрес не влияет (площадка кладётся
+   * `movtd` — всегда 16 байт), поэтому без него берётся конвенция образа.
+   */
+  readonly heapAddress?: number;
 }
 
 /**
@@ -456,6 +472,54 @@ function carrierFormWithReason(
   const hasDestination = (flags.value & 1) === 1;
   const destination = instruction.operands[4];
   const args = [instruction.operands[1], instruction.operands[2]].slice(0, argc) as readonly Operand[];
+  // ── ПЕЧАТЬ: третий рантайм, и он единственный, чья длина — СОТНИ байт ──────────────────────────
+  //
+  // Развёртка «число → текст → `write`» (`src/e2k/printPrimitives.ts`, измерена: docs/hardware-debt.md
+  // §3.40) понижается не парой команд, а ~150. Раскладка обязана знать эту длину: иначе смещение
+  // перехода, пересекающего печать, считается по нулю и уводит поток — измерено на записи
+  // `43-печать-в-цикле`, у которой печать стоит В ТЕЛЕ цикла и её пересекают оба перехода.
+  //
+  // Длину сайта раскладка собирает из той же таблицы форм, что и у рантаймов массивов и математики
+  // ({@link printCommandForm}), плюс сохранение живых регистров вокруг печати: развёртка занимает
+  // `%b[0..11]` целиком, поэтому вызывающий сохраняет то, что ему нужно после неё, носителями
+  // вытеснения (по 48 байт на регистр — `movtd`+`std` и `movtd`+`ldd`). Число сохранённых несёт сам
+  // носитель (`printSaveCountOf`): раскладка видит только его.
+  if (isPrintCallName(name)) {
+    const argument = instruction.operands[1];
+    if (argument === undefined || argument.kind !== 'reg') {
+      return { reason: `«${name}»: значение не в регистре — развёртка печати берёт его из регистра` };
+    }
+    const saveCount = printSaveCountOf(instruction);
+    if (saveCount === undefined) {
+      return {
+        reason:
+          `«${name}»: носитель не несёт число сохраняемых через печать регистров (операнд ` +
+          `${String(PRINT_SAVE_COUNT_OPERAND)}) — его ставит конвейер (src/e2k/programImage.ts), и без него ` +
+          'длину сайта печати взять негде',
+      };
+    }
+    const printing: CommandForm[] = [];
+    for (const command of printCallInstructions(argument.index, context.heapAddress ?? PRINT_HEAP_BY_CONVENTION)) {
+      const form = printCommandForm(command);
+      if (form === undefined) {
+        return {
+          reason:
+            `«${name}»: у команды развёртки «${command.mnemonic}» нет формы в таблице раскладки — ` +
+            'длину взять негде (таблица — src/e2k/printCall.ts:printCommandForm)',
+        };
+      }
+      printing.push({ mnemonic: form.mnemonic, form: form.form, size: form.size, source: form.source });
+    }
+    if (saveCount > 0) {
+      printing.push({
+        mnemonic: 'movtd+std / movtd+ldd',
+        form: 'вытеснение вокруг печати',
+        size: saveCount * PRINT_SAVE_BYTES_PER_REGISTER,
+        source: PRINT_SAVE_SOURCE,
+      });
+    }
+    return { form: { carrier: 'IR.invoke', commands: printing } };
+  }
   const lowered = ((): readonly AsmInstruction[] | string => {
     try {
       // Два рантайма по имени вызова — так же, как в понижении (`src/e2k/e2kRealRun.ts`): массивы

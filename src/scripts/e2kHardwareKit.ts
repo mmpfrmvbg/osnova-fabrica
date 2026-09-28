@@ -36,6 +36,15 @@ interface KitEntry {
   elfSha256: string;
   elfBytes: number;
   expected: string;
+  /**
+   * КАНАЛ ЭТАЛОНА: чем программа отдаёт результат наружу.
+   *
+   * `возврат` — кодом возврата процесса (его и сверяет `run.sh`); `вывод` — БАЙТАМИ stdout
+   * (печать `система.лог.вывести`). Без этого поля кит врал бы на записях с печатью: эталон «10»
+   * сравнивался бы с кодом возврата 0, и машина отчитывалась бы о расхождении там, где всё верно
+   * (`docs/hardware-debt.md` §3.43).
+   */
+  via: string;
   expectedOrigin: string;
   shows: string;
   hardware: string;
@@ -73,13 +82,18 @@ function main(): void {
     const elfPath = path.join(BIN, `${dir}.elf`);
     const elf = buildElfImage(fs.readFileSync(mainFile, 'utf-8'));
     fs.writeFileSync(elfPath, elf);
+    const via = meta.expected?.via ?? 'возврат';
+    // Эталон канала «вывод» едет ЭКРАНИРОВАННЫМ (`10\n`, `1\n2\n3\n`): в таблице `awk`-строку
+    // перевести нечем, а `run.sh` разворачивает `\n` через `printf '%b'` и сверяет БАЙТЫ (`cmp`).
+    const expectedText = fs.readFileSync(path.join(dirPath, 'expected.txt'), 'utf-8');
     entries.push({
       example: dir,
       name: meta.name ?? dir,
       elf: path.relative(KIT, elfPath).replace(/\\/g, '/'),
       elfSha256: crypto.createHash('sha256').update(elf).digest('hex'),
       elfBytes: elf.length,
-      expected: fs.readFileSync(path.join(dirPath, 'expected.txt'), 'utf-8').trim(),
+      via,
+      expected: via === 'вывод' ? expectedText.replace(/\\/g, '\\\\').replace(/\n/g, '\\n') : expectedText.trim(),
       expectedOrigin: meta.expected?.origin ?? 'не назван',
       shows: meta.shows ?? '',
       hardware: meta.hardware ?? '',
@@ -97,14 +111,16 @@ function main(): void {
   };
   fs.writeFileSync(path.join(KIT, 'expected.json'), `${JSON.stringify(kit, null, 2)}\n`, 'utf-8');
   // Плоская таблица рядом: на машине может не быть ни python, ни jq, а `awk`/`cut` есть всегда.
+  // Три столбца — `бинарь`, канал эталона (`возврат`/`вывод`) и сам эталон; канал нужен потому, что
+  // у печатающих записей результат наружу отдаёт `write`, а не код возврата (см. {@link KitEntry.via}).
   fs.writeFileSync(
     path.join(KIT, 'expected.tsv'),
-    entries.map((entry) => `${entry.elf}\t${entry.expected}`).join('\n') + '\n',
+    entries.map((entry) => `${entry.elf}\t${entry.via}\t${entry.expected}`).join('\n') + '\n',
     'utf-8',
   );
   console.log(`кит собран: ${String(entries.length)} бинарей в ${path.relative(ROOT, BIN)}`);
   for (const entry of entries) {
-    console.log(`  ${entry.elf}  sha256=${entry.elfSha256.slice(0, 16)}…  ожидается ${entry.expected}`);
+    console.log(`  ${entry.elf}  sha256=${entry.elfSha256.slice(0, 16)}…  ${entry.via}: ${entry.expected}`);
   }
   for (const note of skipped) console.log(`  пропущено — ${note}`);
 }

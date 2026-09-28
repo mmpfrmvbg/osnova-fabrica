@@ -79,6 +79,54 @@ function checkObservable(dir: string, expected: string): void {
   );
 }
 
+/**
+ * Отказ канала вывода: текст гостя дошёл, но прочитать его побайтово нечем.
+ *
+ * Так называется ОДИН случай: в выводе есть байты, не выразимые UTF-8 (признак — символ замены
+ * `U+FFFD`). Сравнение байтов тогда было бы ложным в любую сторону, и это отказ, а не «не совпало».
+ */
+class GuestOutputRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GuestOutputRefusal';
+  }
+}
+
+/**
+ * СТОРОЖ ПОВЕДЕНИЯ: вывод гостя против `expected.txt` ПОБАЙТОВО.
+ *
+ * # Почему именно побайтово и почему это не украшение
+ *
+ * Единственная прежняя проверка печати в дереве искала подстроку (`output.includes('hello')`,
+ * `src/e2k/e2kSyscallRuntime.test.ts`) и **не различала «10» и «100»** — а эталоны корпуса
+ * различают именно это (`39` = `31 30 0a` против `44` = `31 30 30 0a`). Поэтому здесь сравниваются
+ * БАЙТЫ целиком: ни `includes`, ни `trim`, ни построчное сравнение — перевод строки, который
+ * заканчивает эталон, тоже часть эталона (§3.42.1).
+ *
+ * # Канал
+ *
+ * `E2kRun.output` — stdout модели: гостевой `write` приходит в stdout хоста, а причина отказа
+ * пишется в stderr. На **успешном** прогоне модель молчит, и это закреплено сторожем канала
+ * (`src/scripts/e2kRunOutput.test.ts`: у рабочего прогона вывод пуст, у падения — нет). Значит на
+ * зелёном прогоне `output` и есть вывод гостя.
+ *
+ * Канал текстовый, поэтому байты восстанавливаются обратным кодированием UTF-8: для ASCII
+ * (цифры, минус, перевод строки — всё, что дают эталоны) это тождественно. Случай невыразимых
+ * байтов назван отказом, а не тихим «не совпало».
+ */
+export function guestOutputMatches(output: string, expected: Buffer): boolean {
+  if (output.includes('\uFFFD')) {
+    throw new GuestOutputRefusal(
+      'вывод гостя не выражается UTF-8 (в нём символ замены U+FFFD) — побайтовое сравнение через ' +
+        'этот канал невозможно; нужен двоичный канал (bytes, а не строка)',
+    );
+  }
+  return Buffer.from(output, 'utf8').equals(expected);
+}
+
+/** Байты строкой — для сообщения сторожа: по ней видно и лишний разряд, и потерянный `\\n`. */
+const hex = (bytes: Buffer): string => [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join(' ');
+
 describe("корпус на цели: объявленное исполняется в модели", () => {
   it("шим и модель доступны — или причина названа", () => {
     if (!available) {
@@ -109,10 +157,40 @@ describe("корпус на цели: объявленное исполняет�
       const run = runOnE2k(source, `e2k-corpus-${e.dir}.elf`);
       expect(run.refused, `непонижённые носители: ${run.refused.join("; ")}`).toEqual([]);
       const expected = expectedOf(e.dir);
+      // ЗАПИСЬ С ВЫВОДОМ: результат наружу отдаёт печать, а не код возврата, поэтому сверяются
+      // ДВА утверждения (§3.42.1): байты вывода против эталона целиком и код 0. Ноль против 134 —
+      // разница между «напечатала и вышла» и «напечатала и провалилась» (§3.39).
+      if (e.meta.expected?.via === "вывод") {
+        const bytes = fs.readFileSync(path.join(EXAMPLES, e.dir, "expected.txt"));
+        expect(
+          guestOutputMatches(run.output, bytes),
+          `вывод гостя «${e.dir}» обязан совпасть с эталоном ПОБАЙТОВО: эталон ${hex(bytes)}, ` +
+            `а гость отдал ${hex(Buffer.from(run.output, "utf-8"))}`,
+        ).toBe(true);
+        expect(
+          run.status,
+          `код возврата ${e.dir}: печатающая программа завершается своим exit(0), а не падением 134`,
+        ).toBe(0);
+        return;
+      }
       // Отказ идёт ПЕРВЫМ: сравнение 8-битного канала с широким эталоном не должно доходить до
       // сверки, иначе оно либо ложно пройдёт (совпадение по модулю 256), либо упадёт без причины.
       checkObservable(e.dir, expected);
       expect(run.status, `код возврата ${e.dir} (эталон ${expected})`).toBe(Number(expected));
     });
   }
+
+  it("СТОРОЖ ВЫВОДА: сверка байтов различает «10» и «100» и видит потерянный перевод строки", () => {
+    // НЕГАТИВНЫЙ КОНТРОЛЬ сторожа: если бы он сравнивал подстроку или срезал пробелы, запись `39`
+    // («10») проходила бы по выводу «100» — ровно тот класс, ради которого эталон сверяется байтами.
+    const ten = Buffer.from("10\n", "latin1");
+    expect(guestOutputMatches("10\n", ten), "точное совпадение обязано проходить").toBe(true);
+    expect(guestOutputMatches("100\n", ten), "лишний разряд обязан быть виден").toBe(false);
+    expect(guestOutputMatches("10", ten), "потерянный перевод строки обязан быть виден").toBe(false);
+    expect(guestOutputMatches(" 10\n", ten), "срезание пробелов тут недопустимо").toBe(false);
+    const three = Buffer.from("1\n2\n3\n", "latin1");
+    expect(guestOutputMatches("1\n2\n3\n", three)).toBe(true);
+    expect(guestOutputMatches("123\n", three), "слипание строк обязано быть видно").toBe(false);
+    expect(guestOutputMatches("-7\n", Buffer.from("-7\n", "latin1")), "знак — часть эталона").toBe(true);
+  });
 });

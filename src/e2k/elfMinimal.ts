@@ -42,6 +42,16 @@ const ROOT = path.resolve(__dirname, "..", "..");
 export const MINIMAL_BASE = 0x100000;
 
 /**
+ * Где в памяти лежит КОД образа: `base + 0x1000`.
+ *
+ * Это не «заголовочная» величина, а измеренная: три печати подряд (432 команды, 4208 байт) доходят
+ * до `0x102070`, а площадка печати стоит на `0x101EC0` — значит код начинается на `0x101000`
+ * (`docs/hardware-debt.md` §3.40.6). Той же границей считается сторож печати
+ * (`src/e2k/programImage.ts`: код не имеет права дорасти до площадки).
+ */
+export const IMAGE_TEXT_OFFSET = 0x1000;
+
+/**
  * Хвост образа: `extraMemory` сегмента кода, байт. В его начале встаёт **куча** рантайма массивов
  * (`src/e2k/arrayRuntime.ts`: `%b[15]` = `MINIMAL_BASE + IMAGE_TAIL_OFFSET`).
  *
@@ -226,7 +236,7 @@ export function buildElfFromCode(
   base = MINIMAL_BASE,
   options: { readonly writable?: boolean; readonly extraMemory?: number } = {},
 ): Omit<MinimalElf, 'program'> {
-  const textOffset = 0x1000;
+  const textOffset = IMAGE_TEXT_OFFSET;
   const sections: { name: string; offset: number; size: number }[] = [];
 
   // .text

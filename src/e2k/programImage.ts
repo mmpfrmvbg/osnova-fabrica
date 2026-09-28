@@ -29,8 +29,21 @@ import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
 import { layoutOf, secondPass } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
-import { MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
+import { IMAGE_TEXT_OFFSET, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
 import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
+import { defUseOf } from './liveness';
+import { cfgLiveSets } from '../vliw/cfg';
+import { exitPrimitives, printAreaOf } from './printPrimitives';
+import {
+  PRINT_CALL,
+  PrintCallRefusal,
+  isPrintCarrier,
+  planPrintSite,
+  printArgumentOf,
+  printSiteInstructions,
+  withPrintSaveCount,
+  type PrintSitePlan,
+} from './printCall';
 
 const encoder = getEncoder('e2k');
 const shellEncoder = getEncoder('internal-shell');
@@ -61,6 +74,48 @@ export function valueReturnsOf(source: string): number {
     const flag = carrier.operands[0];
     return flag?.kind === 'imm' && flag.value === 1;
   }).length;
+}
+
+/**
+ * САЙТЫ ПЕЧАТИ: план на каждый печатающий носитель — кого сохранить, чем адресовать, что печатать.
+ *
+ * План считается **до раскладки** и по ней же: длину сайта раскладка обязана знать заранее
+ * (`src/e2k/printCall.ts`), иначе смещение перехода, пересекающего печать, считается по нулю.
+ * Живость берётся по графу потока управления — тем же анализатором, что у раскладки регистров
+ * (`src/e2k/liveness.ts` + `src/vliw/cfg.ts`), и на том же потоке: носители здесь уже несут
+ * **физические** регистры (их выдала `allocateProgram`).
+ */
+function planPrintSites(
+  code: readonly AsmInstruction[],
+  invokeNames: readonly string[],
+  heapAddress: number,
+  spilledAddresses: readonly number[],
+): ReadonlyMap<number, PrintSitePlan> {
+  const indexes = code
+    .map((carrier, index) => (isPrintCarrier(carrier, invokeNames) ? index : -1))
+    .filter((index) => index >= 0);
+  if (indexes.length === 0) return new Map();
+  const liveOut = cfgLiveSets(code, { defUse: defUseOf }).liveOut;
+  const plans = new Map<number, PrintSitePlan>();
+  for (const index of indexes) {
+    const carrier = code[index]!;
+    const argument = printArgumentOf(carrier);
+    if (argument === undefined) {
+      throw new PrintCallRefusal(
+        `#${String(index)} «${PRINT_CALL}»: значение не в регистре — развёртка печати берёт его из регистра`,
+      );
+    }
+    plans.set(
+      index,
+      planPrintSite({
+        argument,
+        heapAddress,
+        liveAfter: liveOut[index] ?? [],
+        occupied: spilledAddresses,
+      }),
+    );
+  }
+  return plans;
 }
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const base = (index: number): Operand => ({ kind: 'reg', index });
@@ -160,7 +215,11 @@ export function loweredProgram(source: string): { bytes: Uint8Array; refused: re
   const report = allocation.report[0]!;
   if (!report.ok) throw new Error(`раскладка отказала: ${report.reason ?? 'причина не названа'}`);
   return {
-    ...imageOfCarriers(allocation.instructions, emitted.scheduled.constants, emitted.image.invokeNames),
+    ...imageOfCarriers(allocation.instructions, emitted.scheduled.constants, emitted.image.invokeNames, {
+      // Адреса слотов вытеснения — своим ходом: сайты печати кладут сохранённое в ВЕРХ области
+      // слотов, и пересечение обязано быть названным отказом, а не порчей значения.
+      spilledAddresses: allocation.report.flatMap((item) => item.spilled.map((spilled) => spilled.address)),
+    }),
     used: report.used,
   };
 }
@@ -177,12 +236,24 @@ export function imageOfCarriers(
   code: readonly AsmInstruction[],
   constants: readonly unknown[],
   invokeNames: readonly string[],
-  options: { readonly heapAddress?: number } = {},
+  options: { readonly heapAddress?: number; readonly spilledAddresses?: readonly number[] } = {},
 ): { bytes: Uint8Array; refused: readonly string[] } {
   const context = { constants, invokeNames };
-  const layout = layoutOf(code, { invokeNames, constants });
-  const resolved = secondPass(code, layout.addresses);
-  const pairing = pairPredicates(code);
+  const heapAddress = options.heapAddress ?? MINIMAL_BASE + HEAP_OFFSET;
+  // ПЕЧАТЬ: план сайта — ДО раскладки, потому что её длину раскладка обязана знать (иначе
+  // смещение перехода, пересекающего печать, считается по нулю — docs/hardware-debt.md §3.43).
+  // Число сохраняемых регистров уезжает в сам носитель: другого канала к раскладке нет.
+  const printPlans = planPrintSites(code, invokeNames, heapAddress, options.spilledAddresses ?? []);
+  const planned =
+    printPlans.size === 0
+      ? code
+      : code.map((carrier, index) => {
+          const plan = printPlans.get(index);
+          return plan === undefined ? carrier : withPrintSaveCount(carrier, plan.saved.length);
+        });
+  const layout = layoutOf(planned, { invokeNames, constants, heapAddress });
+  const resolved = secondPass(planned, layout.addresses);
+  const pairing = pairPredicates(planned);
   const predicateAt = new Map(
     pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),
   );
@@ -192,14 +263,22 @@ export function imageOfCarriers(
   const body: AsmInstruction[] = [];
   const refused: string[] = [];
   let returnRegister: number | undefined;
-  for (let index = 0; index < code.length; index++) {
-    const carrier = code[index]!;
+  for (let index = 0; index < planned.length; index++) {
+    const carrier = planned[index]!;
     const problem =
       layout.unplaced.find((item) => item.index === index) ??
       resolved.refusals.find((item) => item.index === index) ??
       pairing.refusals.find((item) => item.index === index);
     if (problem !== undefined) {
       refused.push(`#${index} ${carrier.mnemonic}: ${problem.reason}`);
+      continue;
+    }
+    const plan = printPlans.get(index);
+    if (plan !== undefined) {
+      // Развёртка целиком: сохранение живых → число в текст и `write` → восстановление. Выхода
+      // здесь НЕТ: печатающая программа завершается один раз в конце образа (§3.39, запись `43`
+      // печатает в цикле).
+      body.push(...printSiteInstructions(plan));
       continue;
     }
     if (carrier.mnemonic === 'IR.ret') {
@@ -224,13 +303,17 @@ export function imageOfCarriers(
   }
 
   const instructions: AsmInstruction[] = [
-    ...arrayPrologue(options.heapAddress ?? MINIMAL_BASE + HEAP_OFFSET),
+    ...arrayPrologue(heapAddress),
     ...body,
     // Выход по регистру возврата добавляется ТОЛЬКО тогда, когда возврат со значением в программе
     // есть (см. {@link programBytes}): без него программу завершает её собственный `exit`
     // (печатающая программа — `src/e2k/printRuntime.ts`).
     ...(returnRegister === undefined
-      ? []
+      ? printPlans.size === 0
+        ? []
+        : // ПЕЧАТАЮЩАЯ программа без возврата значения: результат отдан `write`, и завершить её
+          // обязан свой `exit(0)` — иначе поток уходит за свой код и падает кодом 134 (§3.39).
+          exitPrimitives(0)
       : [
           {
             mnemonic: 'adds',
@@ -249,6 +332,21 @@ export function imageOfCarriers(
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.length;
+  }
+  // СТОРОЖ МЕСТА (§3.40.6): код не имеет права дорасти до площадки печати — иначе развёртка пишет
+  // разряды поверх собственных команд, и это кончается отказом (измерено: три печати подряд,
+  // 432 команды, код 139). Отказ называется ЧИСЛАМИ, а не «что-то пошло не так».
+  if (printPlans.size > 0) {
+    const codeEnd = MINIMAL_BASE + IMAGE_TEXT_OFFSET + bytes.length;
+    const area = printAreaOf(heapAddress);
+    if (codeEnd > area) {
+      throw new PrintCallRefusal(
+        `печать: код образа доходит до ${codeEnd.toString(16)}, а площадка печати стоит на ${area.toString(16)} ` +
+          `(кода ${String(bytes.length)} байт) — развёртка писала бы разряды поверх своих команд. ` +
+          'Место кончается: площадку нельзя двигать выше (там куча), а печатать в цикле — можно ' +
+          '(docs/hardware-debt.md §3.40.6)',
+      );
+    }
   }
   return { bytes, refused };
 }
