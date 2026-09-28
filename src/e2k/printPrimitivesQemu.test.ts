@@ -48,8 +48,6 @@ const HEAP = MINIMAL_BASE + HEAP_OFFSET;
 const AREA = printAreaOf(HEAP);
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
-const win = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
-const f64 = (value: number): Operand => ({ kind: 'imm64', value: BigInt(value) } as unknown as Operand);
 
 /** Регистр аргумента пробы: последовательность копирует его в свой рабочий сама. */
 const ARGUMENT = PRINT_PRIMITIVE_REGISTERS.input + 1;

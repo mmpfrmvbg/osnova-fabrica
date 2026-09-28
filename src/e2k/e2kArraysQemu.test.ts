@@ -24,18 +24,10 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getEncoder, type AsmInstruction, type Operand } from './backend';
+import { type Operand } from './backend';
 import { HEAP_OFFSET, imageOfCarriers, loweredProgram, programBytes } from './programImage';
-import { emitShell } from './emitterShell';
-import { annotateAtomRegions } from '../compiler/atomRegions';
-import { regModuleOf } from '../vliw/regOracle';
-import { lowerCarrier } from './e2kRealRun';
-import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
-import { layoutOf, secondPass } from './twoPassLayout';
-import { pairPredicates } from './predicatePairing';
-import { buildElfFromCode, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
-import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
+import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import {
   FIR_REFERENCE_COEFFICIENTS,
@@ -44,13 +36,10 @@ import {
 } from './firReference';
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const encoder = getEncoder('e2k');
-const shellEncoder = getEncoder('internal-shell');
 
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const base = (index: number): Operand => ({ kind: 'reg', index });
-const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
 
 /** Программа на Основе: одна процедура, массивы, результат — элемент массива. */
 function sourceOf(first: number, second: number): string {

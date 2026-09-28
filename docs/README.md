@@ -36,7 +36,7 @@
 - [OSNOVA-CLI.md](../OSNOVA-CLI.md)
 - [OSNOVA.md](../OSNOVA.md)
 - [README.md](../README.md)
-- [docs/diagnostics-v1.md](diagnostics-v1.md) ⚠
+- [docs/diagnostics-v1.md](diagnostics-v1.md)
 - [docs/e2k-array-literals.md](e2k-array-literals.md)
 - [docs/e2k-backend.md](e2k-backend.md) ⚠
 - [docs/e2k-dsp-instructions.md](e2k-dsp-instructions.md) ⚠
@@ -69,7 +69,7 @@
 - [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md) ⚠
 - [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md)
 - [docs/osnova-vision.md](osnova-vision.md)
-- [docs/register-ir-migration.md](register-ir-migration.md)
+- [docs/register-ir-migration.md](register-ir-migration.md) ⚠
 - [docs/rfc/RFC-001-try-catch-avoidance.md](rfc/RFC-001-try-catch-avoidance.md)
 - [docs/rfc/RFC-002-sentinel-pattern.md](rfc/RFC-002-sentinel-pattern.md)
 - [docs/rfc/RFC-003-invented-syntax.md](rfc/RFC-003-invented-syntax.md)
