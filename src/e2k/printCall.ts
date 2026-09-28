@@ -68,9 +68,12 @@ import { LOWERING_CODES } from './loweringRefusal';
 import { IMM_SHORT_MAX, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from './e2k-real';
 import {
   PRINT_PRIMITIVE_CLOBBERS,
+  exitPrimitives,
+  numberToTextLeanPrimitives,
   numberToTextPrimitives,
   writeTextPrimitives,
 } from './printPrimitives';
+import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 
 /** Каноническое имя вызова печати (алиасы сводит парсер). */
 export const PRINT_CALL = 'система.лог.вывести';
@@ -110,6 +113,12 @@ export class PrintCallRefusal extends Error {
 /** Во что носитель понижения кладёт байты: `movtd` адреса слота + `std` / `ldd`. */
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 const imm = (value: number): Operand => ({ kind: 'imm', value });
+const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
+const a = (mnemonic: string, operands: readonly Operand[], channel = 0): AsmInstruction => ({
+  mnemonic,
+  channel,
+  operands,
+});
 const slotLiteral = (address: number): Operand => ({ kind: 'imm64', value: BigInt(address) } as unknown as Operand);
 
 const movtd = (address: number, destination: number): AsmInstruction => ({
@@ -210,14 +219,21 @@ export function planPrintSite(options: {
   readonly heapAddress: number;
   readonly liveAfter: readonly number[];
   readonly occupied?: readonly number[];
+  /**
+   * Какие регистры сайт портит. По умолчанию — вся развёртка (`%b[0..11]`); у РАЗДЕЛЁННОГО сайта
+   * набор свой и МЕНЬШЕ ({@link SHARED_SITE_CLOBBERS}): там развёртка живёт в вызываемой, а у
+   * вызывающего портятся только её окно и хвост `write`. Один планировщик на оба случая — чтобы
+   * «кого сохранять» не разошлось с тем, «что портится».
+   */
+  readonly clobbered?: readonly number[];
 }): PrintSitePlan {
   const { argument, heapAddress } = options;
-  const clobbered = new Set<number>(PRINT_PRIMITIVE_CLOBBERS);
+  const clobbered = new Set<number>(options.clobbered ?? PRINT_PRIMITIVE_CLOBBERS);
   const saved = [...new Set(options.liveAfter)].filter((register) => clobbered.has(register)).sort((a, b) => a - b);
   // Регистр адреса слота обязан быть мёртв через печать (иначе `movtd` затрёт живое значение) и не
   // быть регистром значения (значение читается развёрткой ПОСЛЕ сохранения).
   const busy = new Set<number>([...saved, argument]);
-  const scratch = PRINT_PRIMITIVE_CLOBBERS.find((register) => !busy.has(register));
+  const scratch = (options.clobbered ?? PRINT_PRIMITIVE_CLOBBERS).find((register) => !busy.has(register));
   if (scratch === undefined) {
     throw new PrintCallRefusal(
       `«${PRINT_CALL}»: сохранить надо ${String(saved.length)} регистров (${saved.map((r) => `%b[${String(r)}]`).join(', ')}), ` +
@@ -266,8 +282,91 @@ export function printSiteInstructions(plan: PrintSitePlan): AsmInstruction[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ТАБЛИЦА ФОРМ — ОБЪЯВЛЕНИЕ РАЗМЕРОВ, А НЕ ВОПРОС К КОДИРОВЩИКУ
+// РАЗДЕЛЁННАЯ ПЕЧАТЬ: «ЧИСЛО → ТЕКСТ» В ЛИСТОВОЙ ПРОЦЕДУРЕ, `write` У ВЫЗЫВАЮЩЕГО
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Носитель ЛИСТОВОЙ процедуры «число → текст»: вход — свой `%r0`, выход — слова площадки.
+ *
+ * Зачем отдельный носитель, а не вызов обычной процедуры: тело процедуры — не носитель IR, а
+ * ГОТОВЫЕ команды (развёртка), и раскладке нужна её длина. Носитель даёт и то, и другое: форму
+ * (сумма форм команд развёртки) и понижение (сами команды, в оконной форме — процедура листовая).
+ */
+export const PRINT_TEXT_CARRIER = 'IR.print_text';
+
+/** Носитель хвоста `write` у ВЫЗЫВАЮЩЕГО: читает слова площадки и делает системный вызов. */
+export const PRINT_WRITE_CARRIER = 'IR.print_write';
+
+/**
+ * НОСИТЕЛЬ ВЫХОДА ПРОГРАММЫ: `exit(код)` или `exit(значение)`.
+ *
+ * Зачем отдельный носитель, а не «выход в конце образа»: выход — это КОМАНДЫ, и они занимают
+ * байты. Пока он приписывался к образу мимо раскладки, адреса всего, что стояло за ним, уезжали —
+ * и это вылезло ровно тогда, когда за точкой входа появилась процедура (разделённая печать):
+ * вызов разделённой печати прыгал на 40 байт выше своего тела. Правило то же, что в §3.35:
+ * раскладка обязана видеть каждый байт образа.
+ *
+ * Операнды: `[код, регистр?]` — с регистром выходим ЗНАЧЕНИЕМ (код возврата программы), без него —
+ * кодом. Первый возврат точки входа становится выходом, остальные — нулевыми (`prepareImage`).
+ */
+export const EXIT_CARRIER = 'IR.exit';
+
+/** Команды выхода: значением (если дан регистр) или кодом. */
+export function exitCarrierInstructions(code: number, valueRegister?: number): AsmInstruction[] {
+  if (valueRegister === undefined) return [...exitPrimitives(code)];
+  const zero = ARRAY_REGISTERS.zero;
+  return [
+    // Значение уезжает в оконный `%r9` (аргумент выхода) через ноль рантайма: форма измерена на
+    // выходе всех программ корпуса (`src/e2k/programImage.ts`), и она же стоит в `e2kProgramRun`.
+    a('adds', [reg(valueRegister), reg(zero), window_(WINDOW_NUMBER_REGISTER + 1)]),
+    a('movts', [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)]),
+    a('sdisp', [imm(1), imm(0)]),
+    a('call', [imm(1), imm(4)]),
+  ];
+}
+
+/** Имя скрытой процедуры: в модуле такой нет, её ставит конвейер (в отчётах видно по имени). */
+export const SHARED_PRINT_PROCEDURE = '⟨печать числа⟩';
+
+/**
+ * РЕГИСТРЫ, КОТОРЫЕ РАЗДЕЛЁННЫЙ САЙТ ПОРТИТ У ВЫЗЫВАЮЩЕГО.
+ *
+ * Их два источника, и оба названы замером:
+ *
+ * | источник | регистры | почему |
+ * |---|---|---|
+ * | вызываемая | `%r8..%r15` вызывающего | её окно — это они: `call wbs = 4` сдвигает окно на восемь регистров |
+ * | хвост `write` | `%b[2]`, `%b[4]`, `%b[6]`, `%b[9]` | хвост читает слова площадки и кладёт аргументы вызова (`r.value`, `r.scratch`, `r.offset`, `r.zero`) |
+ *
+ * Из раскладываемых (`%b[0..9]`) отсюда выходят `%b[2]`, `%b[4]`, `%b[6]`, `%b[8]`, `%b[9]` —
+ * их и надо сохранить, если через сайт они живы. Регистры `%b[10..15]` не трогаются вовсе: они
+ * зарезервированы рантаймом массивов. Это МЕНЬШЕ, чем у инлайновой печати (та занимает `%b[0..11]`
+ * целиком), и это ещё одна плата, которую разделение снимает.
+ */
+export const SHARED_SITE_CLOBBERS: readonly number[] = [2, 4, 6, 8, 9];
+
+/** Команды листовой процедуры «число → текст» (вход — свой `%r0`). */
+export function printTextInstructions(heapAddress: number): AsmInstruction[] {
+  return [...numberToTextLeanPrimitives(heapAddress).instructions];
+}
+
+/** Команды хвоста `write` у вызывающего (слова площадки → системный вызов). */
+export function printWriteInstructions(heapAddress: number): AsmInstruction[] {
+  return [...writeTextPrimitives(heapAddress)];
+}
+
+/** Формы команд носителя печати — тем же объявлением, что у развёртки (проверяет оракул). */
+export function printCarrierForms(instructions: readonly AsmInstruction[]): PrintCommandForm[] | string {
+  const forms: PrintCommandForm[] = [];
+  for (const instruction of instructions) {
+    const form = printCommandForm(instruction);
+    if (form === undefined) {
+      return `у команды «${instruction.mnemonic}» нет формы в таблице — длину взять негде (src/e2k/printCall.ts:printCommandForm)`;
+    }
+    forms.push(form);
+  }
+  return forms;
+}
 
 /** Форма команды развёртки: размер объявлен здесь, совпадение с кодировщиком проверяет оракул. */
 export interface PrintCommandForm {

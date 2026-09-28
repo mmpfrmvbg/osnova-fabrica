@@ -29,7 +29,7 @@ import { spawnSync } from 'node:child_process';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
 import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
-import { HEAP_OFFSET } from './programImage';
+import { HEAP_OFFSET, loweredProgram } from './programImage';
 import {
   ASCII_NEWLINE,
   PRINT_AREA_LAYOUT,
@@ -39,6 +39,7 @@ import {
   writeTextPrimitives,
   exitPrimitives,
   printAreaOf,
+  numberToTextLeanPrimitives,
 } from './printPrimitives';
 import { buildShim, toWslPath } from '../scripts/e2kQemuExec';
 
@@ -239,5 +240,60 @@ describe('печать на цели: число → текст, сверка б
     const run = runWithJournal(printProgram(1), 'channel-guard');
     expect(run.status).toBe(0);
     expect(run.stderr).toContain('write');
+  });
+});
+
+/** Прогон ГОТОВОГО образа (конвейер целиком) — тем же способом, что ручные программы выше. */
+function runImage(bytes: Uint8Array, name: string): { stdout: Buffer; stderr: string; status: number | null } {
+  const elf = path.join(ROOT, '.tmp', `print-image-${name}.elf`);
+  fs.writeFileSync(elf, bytes);
+  const result = spawnSync(
+    'wsl',
+    ['-d', 'e2k', '--', ...(shim === undefined ? [] : ['env', `LD_PRELOAD=${toWslPath(shim)}`]),
+      '/root/qemu-build/qemu-e2k', '-d', 'strace', toWslPath(elf)],
+    { maxBuffer: 8 * 1024 * 1024 },
+  );
+  return { stdout: result.stdout ?? Buffer.alloc(0), stderr: (result.stderr ?? Buffer.alloc(0)).toString('utf-8'), status: result.status };
+}
+
+describe('РАЗДЕЛЁННАЯ ПЕЧАТЬ: «число → текст» в листовой процедуре, `write` у вызывающего', () => {
+  /** Программа с ЛИСТОВОЙ последовательностью: вход — свой `%b[0]` (окно вызываемой). */
+  const leanProgram = (value: number): AsmInstruction[] => [
+    ...arrayPrologue(HEAP),
+    ...valueInto(PRINT_PRIMITIVE_REGISTERS.input, value),
+    ...numberToTextLeanPrimitives(HEAP).instructions,
+    ...writeTextPrimitives(HEAP),
+    ...exitPrimitives(0),
+  ];
+
+  for (const item of RECORDS.slice(0, 4)) {
+    it(`листовая последовательность (8 регистров): ${String(item.value)} → ${item.bytes}`, () => {
+      if (shim === undefined) return;
+      const run = runWithJournal(leanProgram(item.value), `lean-${String(item.value).replace('-', 'min')}`);
+      expect(hex(run.stdout), 'листовая последовательность обязана печатать те же байты, что полная').toBe(item.bytes);
+      expect(run.status).toBe(0);
+    });
+  }
+
+  it('ДЕСЯТЬ ПЕЧАТЕЙ в одной программе: конвейер делит развёртку, вывод совпадает побайтово', () => {
+    if (shim === undefined) return;
+    const values = [0, 1, 7, 10, 42, 100, 978, -7, 12345, 999999];
+    const source = `процедура главная()\n${values
+      .map((value) => `  система.лог.вывести(${String(value)})`)
+      .join('\n')}\nконец_процедуры\n`;
+    const image = loweredProgram(source);
+    expect(image.refused, 'разделённая печать обязана понижаться без отказов').toEqual([]);
+    // Без разделения десять развёрток весили бы ≈14320 байт — это заведомо больше площадки (3776).
+    const inline = values.length * pack(numberToTextPrimitives(PRINT_PRIMITIVE_REGISTERS.input, HEAP).instructions).length;
+    expect(MINIMAL_BASE + 0x1000 + inline, 'без разделения десять печатей НЕ влезают').toBeGreaterThan(AREA);
+    expect(MINIMAL_BASE + 0x1000 + image.bytes.length, 'с разделением — влезают').toBeLessThan(AREA);
+    // `loweredProgram` даёт БАЙТЫ КОДА: обёртка в ELF — тем же вызовом, что у ручных программ выше.
+    const run = runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes, 'shared-ten');
+    const expected = Buffer.from(values.map((value) => `${String(value)}\n`).join(''), 'utf-8');
+    expect(hex(run.stdout), 'десять печатей обязаны дать десять строк побайтово').toBe(
+      [...expected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '),
+    );
+    expect(run.status, 'печатающая программа завершается своим exit(0)').toBe(0);
+    expect(run.stderr.match(/write\(1,/g)?.length, 'в журнале обязаны быть ДЕСЯТЬ вызовов write').toBe(values.length);
   });
 });

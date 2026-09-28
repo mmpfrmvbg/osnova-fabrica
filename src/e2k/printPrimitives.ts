@@ -361,6 +361,157 @@ export function numberToTextPrimitives(argument: number, heapAddress: number): N
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ЛИСТОВАЯ (ВОСЬМИРЕГИСТРОВАЯ) ПОСЛЕДОВАТЕЛЬНОСТЬ: ТО ЖЕ ЧИСЛО → ТЕКСТ, НО В ОКНЕ ВЫЗЫВАЕМОЙ
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Регистры ЛИСТОВОЙ последовательности — ровно `%b[0..7]`, окно вызываемой.
+ *
+ * Вызываемая получает восемь регистров (`call wbs = 4` уменьшает `size_q`; измерено
+ * `src/e2k/e2kCallWindowQemu.test.ts`), поэтому печать целиком в процедуру не выносится: системный
+ * вызов из неё невозможен — номер идёт в `%r8`, которого у неё нет. А вот «число → текст» —
+ * операция БЕЗ системного вызова, и её можно вынести в листовую процедуру: тогда развёртка (≈1400
+ * байт) стоит в образе ОДИН раз, а каждый сайт печати платит за вызов и за `write` у вызывающего.
+ *
+ * Восемь регистров — тесно, и вот чем платим за двоих недостающих:
+ *
+ * | было (12 регистров) | стало | чем платим |
+ * |---|---|---|
+ * | `%b[8]` — счёт разрядов | `%b[0]` после модуля | вход мёртв после `muls` — его регистр и берёт счёт |
+ * | `%b[9]` — постоянный ноль | `%b[2]` после разбора | значение обнуляется: `movts 0` (+8 байт) |
+ * | `%b[10]` — постоянная 1 | `%b[6]` дважды по ходу | `movts 1` перед `1 − 2·знак` и перед адресом байта (−1) |
+ * | `%b[11]` — постоянная 9 | `%b[4]` в каждом разряде | `movts 9` на разряд: +10 команд (+80 байт) |
+ *
+ * Итог: на **11 команд длиннее** полной последовательности (те же формы, те же слоты), но влезает
+ * в окно вызываемой — а это и есть то, ради чего она существует.
+ */
+export const LEAN_PRINT_REGISTERS = {
+  /** Значение, затем **счёт разрядов**: вход мёртв после взятия модуля. */
+  input: 0,
+  /** Признак знака: 1 — отрицательное, 0 — нет. */
+  negative: 1,
+  /** Модуль, затем частные; после разбора — **постоянный ноль** (нулевое смещение адресации). */
+  value: 2,
+  /** Частное, затем **адрес первого байта текста**. */
+  quotient: 3,
+  /** Временный: произведение, разряд, признак порога, адрес знака. */
+  scratch: 4,
+  /** Постоянная 10, затем **код минуса**. */
+  ten: 5,
+  /** Смещение слота разряда, затем **адрес слова-границы**. */
+  offset: 6,
+  /** Адрес площадки — основание адресации. */
+  buffer: 7,
+} as const;
+
+/** Что листовая последовательность портит: ровно окно вызываемой — `%b[0..7]`. */
+export const LEAN_PRINT_CLOBBERS: readonly number[] = Object.values(LEAN_PRINT_REGISTERS);
+
+/**
+ * ЧИСЛО → ТЕКСТ В ВОСЬМИ РЕГИСТРАХ: вход — `%b[0]`, выход — те же слова площадки.
+ *
+ * Результат тот же, что у {@link numberToTextPrimitives}: разряды, минус и `\n` в площадке плюс
+ * слова «адрес текста» и «длина» — поэтому хвост {@link writeTextPrimitives} (он делается
+ * ВЫЗЫВАЮЩИМ, где системный вызов возможен) сюда подходит без изменений.
+ *
+ * **Вход берётся из `%b[0]`**: у вызываемой это её `%r0` — то место, куда соглашение кладёт первый
+ * аргумент (`%r(2*wbs)` вызывающего). Копировать значение не нужно — и это не мелочь: лишняя
+ * команда в вызываемой означала бы лишний регистр.
+ *
+ * @param heapAddress адрес кучи образа — от него считается площадка
+ */
+export function numberToTextLeanPrimitives(heapAddress: number): NumberToText {
+  const r = LEAN_PRINT_REGISTERS;
+  const area = printAreaOf(heapAddress);
+  const digitsBase = area + PRINT_AREA_LAYOUT.digits;
+  const startWord = area + PRINT_AREA_LAYOUT.startWord;
+  const lengthWord = area + PRINT_AREA_LAYOUT.lengthWord;
+  const instructions: AsmInstruction[] = [];
+
+  // 1. Константы — первыми (порядок обязателен: `1 − 2·знак` читает единицу; §3.40).
+  instructions.push(movts(PRINT_BASE, r.ten), movtd(area, r.buffer), movts(1, r.offset));
+
+  // 2. Знак и модуль. `shrs` логический, поэтому признак 1/0, а не −1/0.
+  instructions.push(
+    shrs(r.input, 31, r.negative),
+    adds(r.negative, r.negative, r.scratch), // 2·знак
+    subs(r.offset, r.scratch, r.scratch), // 1 − 2·знак
+    muls(r.input, r.scratch, r.value), // модуль
+    // Вход мёртв — его регистр берёт СЧЁТ разрядов (в полной последовательности это был `%b[8]`).
+    movts(1, r.input),
+  );
+
+  // 3. Десять разрядов — прямыми шагами, без цикла и сравнений.
+  for (let index = 0; index < PRINT_DIGITS; index++) {
+    instructions.push(
+      sdivs(r.value, r.ten, r.quotient),
+      muls(r.quotient, r.ten, r.scratch),
+      subs(r.value, r.scratch, r.scratch), // разряд
+      addsImm(r.scratch, ASCII_ZERO, r.scratch), // код разряда
+      movts(PRINT_AREA_LAYOUT.digits + PRINT_DIGITS - 1 - index, r.offset),
+      stb(r.scratch, r.buffer, r.offset), // байтом в свой слот
+      // Постоянной 9 у нас нет — материализуем её в освободившийся `scratch` (разряд уже в памяти).
+      movts(PRINT_DIGITS - 1, r.scratch),
+      subs(r.scratch, r.value, r.scratch), // 9 − v
+      shrs(r.scratch, 31, r.scratch), // 1, если v ≥ 10
+      adds(r.input, r.scratch, r.input), // счёт +=
+      movtsReg(r.quotient, r.value), // v ← q
+    );
+  }
+
+  // 4. Адрес текста, длина, знак и перевод строки — прямой арифметикой.
+  instructions.push(
+    movts(0, r.value), // постоянный ноль: значение больше не нужно, а нулевое смещение — нужно
+    movts(PRINT_AREA_LAYOUT.digits + PRINT_DIGITS, r.scratch), // 12
+    subs(r.scratch, r.input, r.scratch), // 10 − разряды
+    subs(r.scratch, r.negative, r.scratch), // минус сдвигает текст на байт влево
+    adds(r.buffer, r.scratch, r.quotient), // адрес текста
+    movts(1, r.offset), // единица: адрес байта перед текстом
+    subs(r.quotient, r.offset, r.scratch),
+    adds(r.scratch, r.negative, r.scratch),
+    movts(ASCII_MINUS, r.ten), // код минуса: `ten` после разбора свободен
+    stb(r.ten, r.scratch, r.value), // минус байтом; у неотрицательного — вне текста
+    adds(r.input, r.negative, r.input), // длина = разряды + знак
+    addsImm(r.input, 1, r.input), // + перевод строки
+    movts(ASCII_NEWLINE, r.ten),
+    movts(PRINT_AREA_LAYOUT.newline, r.offset),
+    stb(r.ten, r.buffer, r.offset),
+    movtd(startWord, r.offset),
+    std(r.quotient, r.offset, r.value),
+    movtd(lengthWord, r.offset),
+    std(r.input, r.offset, r.value),
+  );
+
+  return { instructions, area, digitsBase, signByte: digitsBase - 1, startWord, lengthWord };
+}
+
+/**
+ * СТОРОЖ ЛИСТОВОЙ ПОСЛЕДОВАТЕЛЬНОСТИ: трогает ли она что-нибудь вне `%b[0..7]`.
+ *
+ * Проверяется ИМЯ регистра, а не замысел: у вызываемой окно восемь регистров, и обращение к
+ * `%b[8]` там — ловушка на первой же команде тела (измерено, `.tmp/osnova-call-enter.ts`).
+ * Оконные пересылки (`%rN`, `file: 'window'`) листовой последовательности запрещены по той же
+ * причине: она не делает системных вызовов, а окно вызываемой — восемь регистров.
+ */
+export function leanSequenceProblems(instructions: readonly AsmInstruction[]): string[] {
+  const allowed = new Set<number>(LEAN_PRINT_CLOBBERS);
+  const problems: string[] = [];
+  instructions.forEach((instruction, index) => {
+    for (const operand of instruction.operands) {
+      if (operand.kind !== 'reg') continue;
+      if (operand.file === 'window') {
+        problems.push(`#${String(index)} ${instruction.mnemonic}: оконный %r${String(operand.index)} — листовой последовательности нельзя`);
+        continue;
+      }
+      if (!allowed.has(operand.index)) {
+        problems.push(`#${String(index)} ${instruction.mnemonic}: %b[${String(operand.index)}] вне окна вызываемой (0…7)`);
+      }
+    }
+  });
+  return problems;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ХВОСТ: ОТДАТЬ ТЕКСТ НАРУЖУ
 // ─────────────────────────────────────────────────────────────────────────────
 

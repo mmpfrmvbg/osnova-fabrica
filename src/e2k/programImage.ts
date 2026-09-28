@@ -29,7 +29,7 @@ import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
 import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
-import { IMAGE_TEXT_OFFSET, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
+import { IMAGE_TEXT_OFFSET, MINIMAL_BASE, SYSCALL_WBS, spillBaseOf } from './elfMinimal';
 import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
@@ -38,17 +38,26 @@ import { LOWERING_CODES, LoweringRefusalError, refusalOf, type LoweringRefusal }
 import {
   callAddresses,
   entryProcedureIndex,
+  expandCarriers,
   prepareImage,
   procedureAt,
   type ProcedureOffset,
 } from './procedureCall';
 import {
+  EXIT_CARRIER,
   PRINT_CALL,
+  PRINT_TEXT_CARRIER,
+  PRINT_WRITE_CARRIER,
+  SHARED_PRINT_PROCEDURE,
+  SHARED_SITE_CLOBBERS,
   PrintCallRefusal,
+  exitCarrierInstructions,
   isPrintCarrier,
   planPrintSite,
   printArgumentOf,
   printSiteInstructions,
+  printTextInstructions,
+  printWriteInstructions,
   withPrintSaveCount,
   type PrintSitePlan,
 } from './printCall';
@@ -123,6 +132,122 @@ export function entryValueReturnsOf(source: string): number {
       .filter((offset) => offset > entry.codeOffset)
       .sort((a, b) => a - b)[0] ?? shell.instructions.length;
   return shell.instructions.slice(entry.codeOffset, next).filter(isValueReturn).length;
+}
+
+/** Сколько в потоке сайтов печати (по именам вызовов, а не по тексту программы). */
+function countPrintSites(code: readonly AsmInstruction[], invokeNames: readonly string[]): number {
+  return code.filter((carrier) => isPrintCarrier(carrier, invokeNames)).length;
+}
+
+/**
+ * РАЗДЕЛЁННАЯ ПЕЧАТЬ: заменить каждый сайт группой «сохранение → вызов листовой процедуры → `write` → восстановление».
+ *
+ * Зачем: развёртка «число → текст» — ≈1400 байт НА КАЖДЫЙ сайт, и площадка печати (≈3776 байт кода)
+ * кончалась на третьем сайте. В листовой процедуре она стоит один раз, а сайт платит за вызов и за
+ * `write` у вызывающего (системный вызов из вызываемой невозможен: номер идёт в `%r8`, которого у её
+ * восьмирегистрового окна нет — измерено `src/e2k/e2kCallWindowQemu.test.ts`).
+ *
+ * Порог — ДВА сайта: делить выгодно уже с двух (≈2900 против 2864 байт), и порог назван числом,
+ * а не «когда станет много». Печать одного числа остаётся инлайновой: там делить нечего.
+ */
+function sharePrintSites(
+  code: readonly AsmInstruction[],
+  invokeNames: readonly string[],
+  heapAddress: number,
+  spilledAddresses: readonly number[],
+  procedureCount: number,
+): { readonly groupAt: ReadonlyMap<number, readonly AsmInstruction[]>; readonly problems: readonly LoweringRefusal[] } {
+  const indexes = code
+    .map((carrier, index) => (isPrintCarrier(carrier, invokeNames) ? index : -1))
+    .filter((index) => index >= 0);
+  if (indexes.length < 2) return { groupAt: new Map(), problems: [] };
+  const liveOut = cfgLiveSets(code, { defUse: defUseOf }).liveOut;
+  const groupAt = new Map<number, readonly AsmInstruction[]>();
+  const problems: LoweringRefusal[] = [];
+  const occupied = spilledAddresses.map((address) => address - spillBaseOf(heapAddress)).filter((offset) => offset >= 0);
+  for (const index of indexes) {
+    const carrier = code[index]!;
+    const argument = carrier.operands[1];
+    if (argument === undefined || argument.kind !== 'reg') {
+      problems.push(
+        refusalOf(
+          LOWERING_CODES.print,
+          `#${index} ${carrier.mnemonic}: у печати нет регистра значения — разделённому сайту нечего передать вызовом`,
+        ),
+      );
+      continue;
+    }
+    try {
+      const plan = planPrintSite({
+        argument: argument.index,
+        heapAddress,
+        liveAfter: liveOut[index] ?? [],
+        occupied,
+        clobbered: SHARED_SITE_CLOBBERS,
+      });
+      // НОЛЬ САЙТА — НИЗКИЙ регистр (см. `IR.zero` в раскладке). Почему не ноль рантайма `%b[12]`:
+      // он измеренно недоступен после возврата из вызываемой — окно вызывающего сужается до
+      // `%b[0..11]` (`.tmp/osnova-after-call-window.ts`), а вытеснение сайта идёт вокруг вызова.
+      // Берём регистр, которого не касается НИКТО вокруг сайта: ни вызываемая (её окно `%b[8..15]`),
+      // ни хвост `write` (`%b[2]`, `%b[4]`, `%b[6]`, `%b[9]`).
+      const busy = new Set<number>([...plan.saved.map((item) => item.register), argument.index, plan.scratch]);
+      const zero = [0, 1, 3, 5, 7].find((register) => !busy.has(register));
+      if (zero === undefined) {
+        problems.push(
+          refusalOf(
+            LOWERING_CODES.print,
+            `#${index} ${carrier.mnemonic}: разделённому сайту нужен НИЗКИЙ регистр под ноль ` +
+              `(ноль рантайма %b[12] после вызова недоступен), а свободных в %b[0,1,3,5,7] нет: ` +
+              `заняты ${[...busy].sort((a, b) => a - b).map((r) => `%b[${String(r)}]`).join(', ')}`,
+          ),
+        );
+        continue;
+      }
+      const group: AsmInstruction[] = [];
+      // Ноль кладётся ПЕРЕД сохранением: им адресуется смещение слота, и он переживает и вызов,
+      // и хвост (низкие регистры не трогает ни вызываемая, ни хвост).
+      group.push({ mnemonic: 'IR.zero', channel: 0, operands: [base(zero)] });
+      for (const item of plan.saved) {
+        group.push({
+          mnemonic: 'IR.spill_st',
+          channel: 0,
+          operands: [base(item.register), base(plan.scratch), imm(item.address), base(zero)],
+        });
+      }
+      // Вызов листовой процедуры: один аргумент, без приёмника (`flags = аргументов << 1`).
+      group.push({
+        mnemonic: 'IR.call',
+        channel: 0,
+        operands: [imm(2), base(argument.index), base(0), imm(procedureCount), base(0)],
+      });
+      group.push({ mnemonic: PRINT_WRITE_CARRIER, channel: 0, operands: [] });
+      for (const item of plan.saved) {
+        group.push({
+          mnemonic: 'IR.spill_ld',
+          channel: 0,
+          operands: [base(plan.scratch), base(item.register), imm(item.address), base(zero)],
+        });
+      }
+      groupAt.set(index, group);
+    } catch (error) {
+      problems.push(
+        refusalOf(
+          LOWERING_CODES.print,
+          `#${index} ${carrier.mnemonic}: разделённый сайт не спланирован — ` +
+            (error instanceof Error ? error.message : String(error)),
+        ),
+      );
+    }
+  }
+  return { groupAt, problems };
+}
+
+/** Тело листовой процедуры «число → текст»: развёртка и возврат (пара `return` + `ct` — как у всех вызываемых). */
+function sharedTextCarriers(): AsmInstruction[] {
+  return [
+    { mnemonic: PRINT_TEXT_CARRIER, channel: 0, operands: [] },
+    { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), base(0)] },
+  ];
 }
 
 /**
@@ -334,17 +459,52 @@ export function imageOfCarriers(
 ): { bytes: Uint8Array; refused: readonly LoweringRefusal[] } {
   const context = { constants, invokeNames };
   const heapAddress = options.heapAddress ?? MINIMAL_BASE + HEAP_OFFSET;
-  // ПОДГОТОВКА ПОТОКА: возвраты точки входа убираются (их место — её `exit`), а если точка входа
-  // стоит не первой, в начало встаёт переход к ней. Так раскладка видит РОВНО тот поток, который
-  // соберётся: раньше она резервировала байты под неисполняемые возвраты, и адреса процедур за ними
-  // уезжали (класс дефекта §3.35).
-  const prepared = prepareImage(code, options.procedures ?? []);
+  // ПРОЦЕДУРЫ: если их не назвали, поток считается ОДНОЙ процедурой — и она ТОЧКА ВХОДА. Без этой
+  // записи разделённая печать (она дописывает в поток свою процедуру) оставила бы носители точки
+  // входа «ничьими»: принадлежность считается как «последняя процедура, чьё смещение ≤ индекса»,
+  // и её отсутствие значило бы «вызываемая» — то есть системный вызов и вызов в вызываемой.
+  const baseProcedures: readonly ProcedureOffset[] =
+    options.procedures === undefined || options.procedures.length === 0
+      ? [{ name: 'главная', codeOffset: 0 }]
+      : options.procedures;
+  // РАЗДЕЛЁННАЯ ПЕЧАТЬ: если сайтов печати больше одного, развёртка (≈1400 байт на КАЖДЫЙ сайт)
+  // выносится в листовую процедуру, а у сайта остаётся вызов и `write` (см. `src/e2k/printCall.ts`).
+  // Тогда площадка печати перестаёт быть потолком: десять печатей стоят ≈2900 байт вместо 14320.
+  const sharing = sharePrintSites(
+    code,
+    invokeNames,
+    heapAddress,
+    options.spilledAddresses ?? [],
+    baseProcedures.length,
+  );
+  const expanded = sharing.groupAt.size === 0 ? undefined : expandCarriers(code, sharing.groupAt, baseProcedures);
+  const sharedCode = expanded?.code ?? code;
+  const sharedProcedures = expanded?.procedures ?? baseProcedures;
+  // Листовая процедура «число → текст» встаёт В КОНЕЦ потока: её тело — развёртка, её вызов — у сайтов.
+  const withText = sharing.groupAt.size === 0 ? sharedCode : [...sharedCode, ...sharedTextCarriers()];
+  const proceduresWithText =
+    sharing.groupAt.size === 0
+      ? sharedProcedures
+      : [
+          ...sharedProcedures,
+          // Индекс процедуры в списке — то, чем адресуется вызов; смещение — индекс первого носителя тела.
+          { name: SHARED_PRINT_PROCEDURE, codeOffset: sharedCode.length },
+        ];
+  // ПОДГОТОВКА ПОТОКА: возвраты точки входа называются нулевыми (их место — её `exit`), а если точка
+  // входа стоит не первой, в начало встаёт переход к ней. Так раскладка видит РОВНО тот поток,
+  // который соберётся: раньше она резервировала байты под неисполняемые возвраты, и адреса процедур
+  // за ними уезжали (класс дефекта §3.35). Выход без значения ставится только ПЕЧАТАЮЩЕЙ программе:
+  // у прочих поведение прежнее и измеренное («без возврата — код 134», §3.39).
+  const prepared = prepareImage(withText, proceduresWithText, {
+    exitOnVoidReturn: sharing.groupAt.size > 0 || countPrintSites(code, invokeNames) > 0,
+  });
   const plannedCode = prepared.code;
   const procedures = prepared.procedures;
   const entryAt = procedures.length === 0 ? 0 : entryProcedureIndex(procedures);
   // ПЕЧАТЬ: план сайта — ДО раскладки, потому что её длину раскладка обязана знать (иначе
   // смещение перехода, пересекающего печать, считается по нулю — docs/hardware-debt.md §3.43).
   // Число сохраняемых регистров уезжает в сам носитель: другого канала к раскладке нет.
+  // При разделённой печати инлайновых сайтов не остаётся вовсе — планы пусты, и это не «не нашли».
   const printPlans = planPrintSites(plannedCode, invokeNames, heapAddress, options.spilledAddresses ?? []);
   const planned =
     printPlans.size === 0
@@ -393,26 +553,17 @@ export function imageOfCarriers(
   const entryEndsAt = prepared.entryEndsAt;
 
   const body: AsmInstruction[] = [];
-  const refused: LoweringRefusal[] = [];
-  const returnRegister = prepared.entryReturnRegister;
-  let entryExitEmitted = false;
-  const entryExit = (): AsmInstruction[] =>
-    returnRegister === undefined
-      ? printPlans.size === 0
-        ? []
-        : // ПЕЧАТАЮЩАЯ программа без возврата значения: результат отдан `write`, и завершить её
-          // обязан свой `exit(0)` — иначе поток уходит за свой код и падает кодом 134 (§3.39).
-          exitPrimitives(0)
-      : [
-          {
-            mnemonic: 'adds',
-            channel: 0,
-            operands: [base(returnRegister), base(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 1)],
-          } satisfies AsmInstruction,
-          { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
-          { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
-          { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
-        ];
+  const refused: LoweringRefusal[] = [...sharing.problems];
+  let exitEmitted = false;
+  /** Печатает ли образ: инлайновые сайты ИЛИ разделённая печать (её хвост `write`). */
+  const prints = printPlans.size > 0 || sharing.groupAt.size > 0;
+  // ВЫХОД — ТЕПЕРЬ НОСИТЕЛЬ (`IR.exit`), а не приписка в конце: подготовка потока превращает в него
+  // первый возврат точки входа (`src/e2k/procedureCall.ts#prepareImage`). Байты выхода раскладка
+  // видит, поэтому адреса процедур за ним не уезжают. Запасной путь — для образа БЕЗ возврата
+  // (бесконечный цикл): тогда выход ставится там, где кончается процедура точки входа, — но только
+  // если программа печатает: без печати потоку есть куда деться, а без выхода печатающая программа
+  // уходит за свой код и падает кодом 134 (§3.39).
+  const fallbackExit = (): AsmInstruction[] => (prints ? exitPrimitives(0) : []);
 
   /**
    * ГРАНИЦЫ ВЫЗЫВАЕМОЙ ПРОЦЕДУРЫ, названные числом регистров.
@@ -459,9 +610,9 @@ export function imageOfCarriers(
 
   for (let index = 0; index < planned.length; index++) {
     const carrier = planned[index]!;
-    if (index === entryEndsAt && !entryExitEmitted) {
-      body.push(...entryExit());
-      entryExitEmitted = true;
+    if (index === entryEndsAt && !exitEmitted) {
+      body.push(...fallbackExit());
+      exitEmitted = true;
     }
     // Источники отказа, и КОД у каждого свой — он и есть личность причины:
     //   1. носитель не размещён (`layout.unplaced`) — код у причины своя (нет формы / печать / контракт);
@@ -499,6 +650,44 @@ export function imageOfCarriers(
       body.push(...printSiteInstructions(plan));
       continue;
     }
+    if (carrier.mnemonic === PRINT_TEXT_CARRIER) {
+      // ТЕЛО ЛИСТОВОЙ ПРОЦЕДУРЫ: развёртка «число → текст». Она живёт в вызываемой, поэтому все её
+      // регистры — оконные (измерено: базовая форма в вызываемой даёт исключение на первой команде).
+      if (!inCallee) {
+        refused.push(
+          refusalOf(
+            LOWERING_CODES.print,
+            `#${index} ${PRINT_TEXT_CARRIER}: тело разделённой печати стоит ВНЕ вызываемой процедуры — ` +
+              'это дефект разделения (src/e2k/programImage.ts:sharePrintSites), а не программы',
+          ),
+        );
+        continue;
+      }
+      body.push(...withWindowRegisters(printTextInstructions(heapAddress)));
+      continue;
+    }
+    if (carrier.mnemonic === PRINT_WRITE_CARRIER) {
+      // ХВОСТ `write` — у ВЫЗЫВАЮЩЕГО: только у него есть `%r8` под номер системного вызова.
+      if (inCallee) {
+        refused.push(
+          refusalOf(
+            LOWERING_CODES.print,
+            `#${index} ${PRINT_WRITE_CARRIER}: хвост write попал в вызываемую процедуру — системный вызов ` +
+              'из неё невозможен (номер идёт в %r8, измерено: src/e2k/e2kCallWindowQemu.test.ts)',
+          ),
+        );
+        continue;
+      }
+      body.push(...printWriteInstructions(heapAddress));
+      continue;
+    }
+    if (carrier.mnemonic === EXIT_CARRIER) {
+      // ВЫХОД ПРОГРАММЫ: носитель, а не приписка — его байты раскладка посчитала заранее.
+      const value = carrier.operands[1];
+      body.push(...exitCarrierInstructions(0, value?.kind === 'reg' ? value.index : undefined));
+      exitEmitted = true;
+      continue;
+    }
     if (carrier.mnemonic === 'IR.ret' && zeroSize.has(index)) {
       // Возврат точки входа: в образ не попадает, её выход — `exit(значение)` в конце процедуры.
       continue;
@@ -525,7 +714,7 @@ export function imageOfCarriers(
     // второй список мест разошёлся бы с первым (правило «один путь»).
     body.push(...(inCallee ? withWindowRegisters(lowered.instructions) : lowered.instructions));
   }
-  if (!entryExitEmitted) body.push(...entryExit());
+  if (!exitEmitted) body.push(...fallbackExit());
 
   const instructions: AsmInstruction[] = [...arrayPrologue(heapAddress), ...body];
 
@@ -542,7 +731,7 @@ export function imageOfCarriers(
   // площадка печати лежит В СТРАНИЦЕ КОДА (`.tmp/osnova-three-fault.ts`). Тот же сдвиг виден у
   // дизассемблера МЦСТ (§3.40.5) и у адреса ловушки порта: адреса порта и дизассемблера на 0x1000
   // НИЖЕ настоящих адресов кода — это несогласованность заголовков ELF, а не наша арифметика.
-  if (printPlans.size > 0) {
+  if (prints) {
     const codeEnd = MINIMAL_BASE + IMAGE_TEXT_OFFSET + bytes.length;
     const area = printAreaOf(heapAddress);
     if (codeEnd > area) {

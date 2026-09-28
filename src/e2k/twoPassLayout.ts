@@ -59,14 +59,21 @@ import { CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmed
 import { lowerArrayCall } from "./arrayRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import {
+  EXIT_CARRIER,
   PRINT_HEAP_BY_CONVENTION,
   PRINT_SAVE_BYTES_PER_REGISTER,
   PRINT_SAVE_COUNT_OPERAND,
   PRINT_SAVE_SOURCE,
+  PRINT_TEXT_CARRIER,
+  PRINT_WRITE_CARRIER,
+  exitCarrierInstructions,
   isPrintCallName,
   printCallInstructions,
+  printCarrierForms,
   printCommandForm,
   printSaveCountOf,
+  printTextInstructions,
+  printWriteInstructions,
 } from "./printCall";
 import { LOWERING_CODES, failureOf, type LoweringFailure, type LoweringRefusalCode } from "./loweringRefusal";
 
@@ -160,6 +167,20 @@ export const CARRIER_FORMS: readonly CarrierForm[] = [
   },
   {
     carrier: "IR.move",
+    commands: [{ mnemonic: "movts", form: "ALF2", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  },
+  {
+    /**
+     * `IR.zero [регистр]` — положить НОЛЬ в регистр (одна короткая пересылка).
+     *
+     * Нужен разделённой печати: её сохранение/восстановление адресуют слот парой «основание + смещение»,
+     * и смещение обязано быть нулём в РЕГИСТРЕ. Ноль рантайма (`%b[12]`) для этого не годится: после
+     * возврата из вызываемой окно вызывающего сужено до `%b[0..11]` — измерено, `%b[12]` недоступен,
+     * а `%b[11]` ещё доступен (`.tmp/osnova-after-call-window.ts`). Поэтому ноль кладётся в НИЗКИЙ
+     * регистр, которого не касаются ни вызываемая (её окно — `%b[8..15]`), ни хвост `write`
+     * (`%b[2]`, `%b[4]`, `%b[6]`, `%b[9]` и оконные `%r8..%r11`).
+     */
+    carrier: "IR.zero",
     commands: [{ mnemonic: "movts", form: "ALF2", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
   },
   {
@@ -500,6 +521,27 @@ function carrierFormWithReason(
   instruction: AsmInstruction,
   context: CarrierFormContext,
 ): CarrierFormOutcome {
+  // РАЗДЕЛЁННАЯ ПЕЧАТЬ: два носителя, чьи команды — развёртка «число → текст» и хвост `write`
+  // (`src/e2k/printCall.ts`). Длины берутся из той же таблицы форм, что у сайта печати: объявление
+  // и понижение обязаны считать одни байты, иначе адреса уезжают (§3.35), и это стережёт оракул.
+  if (instruction.mnemonic === PRINT_TEXT_CARRIER) {
+    const forms = printCarrierForms(printTextInstructions(context.heapAddress ?? PRINT_HEAP_BY_CONVENTION));
+    if (typeof forms === 'string') return { failure: failureOf(LOWERING_CODES.print, forms) };
+    return { form: { carrier: PRINT_TEXT_CARRIER, commands: forms } };
+  }
+  if (instruction.mnemonic === EXIT_CARRIER) {
+    const value = instruction.operands[1];
+    const forms = printCarrierForms(
+      exitCarrierInstructions(0, value?.kind === 'reg' ? value.index : undefined),
+    );
+    if (typeof forms === 'string') return { failure: failureOf(LOWERING_CODES.print, forms) };
+    return { form: { carrier: EXIT_CARRIER, commands: forms } };
+  }
+  if (instruction.mnemonic === PRINT_WRITE_CARRIER) {
+    const forms = printCarrierForms(printWriteInstructions(context.heapAddress ?? PRINT_HEAP_BY_CONVENTION));
+    if (typeof forms === 'string') return { failure: failureOf(LOWERING_CODES.print, forms) };
+    return { form: { carrier: PRINT_WRITE_CARRIER, commands: forms } };
+  }
   // `IR.const` — единственный носитель, чья длина зависит от ЗНАЧЕНИЯ (литерал из пула), поэтому
   // форма берётся отдельной ветвью, а не из статической таблицы CARRIER_FORMS.
   if (instruction.mnemonic === 'IR.const') return { form: constForm(instruction, context) };

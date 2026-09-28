@@ -483,6 +483,20 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     return { ok: true, instructions };
   }
 
+  if (instruction.mnemonic === "IR.zero") {
+    // Ноль в регистр — одна короткая пересылка. Нужен разделённой печати: её вытеснение адресует
+    // слот парой «основание + ноль», а ноль рантайма (`%b[12]`) после возврата из вызываемой
+    // недоступен (окно вызывающего сужено до `%b[0..11]`, измерено `.tmp/osnova-after-call-window.ts`).
+    const destination = instruction.operands[0];
+    if (destination === undefined || destination.kind !== "reg") {
+      return failureOf(LOWERING_CODES.carrier, '«IR.zero»: ожидался регистр-приёмник');
+    }
+    return {
+      ok: true,
+      instructions: [{ mnemonic: "movts", channel: 0, operands: [imm(0), reg(destination.index)] }],
+    };
+  }
+
   if (instruction.mnemonic === "IR.ret") {
     const flag = instruction.operands[0];
     if (flag === undefined || flag.kind !== "imm") {
@@ -593,13 +607,20 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       );
     }
     const literal: Operand = { kind: "imm64", value: BigInt(slot.value) } as Operand;
+    // НУЛЕВОЙ РЕГИСТР — четвёртым операндом, если он дан. По умолчанию ноль рантайма массивов
+    // (`%b[12]`), и это верно для вытеснения раскладки и рантайма. Но у РАЗДЕЛЁННОГО сайта печати
+    // вытеснение идёт ПОСЛЕ вызова процедуры, а возврат из вызываемой оставляет окно уже: `%b[12]`
+    // в нём недоступен — измерено, `ldd %b[4], %b[12], %b[2]` сразу после вызова даёт ловушку
+    // (`.tmp/osnova-ten-trap2.ts`). Поэтому конвейер называет свой ноль в самом носителе.
+    const zeroOperand = instruction.operands[3];
+    const zeroRegister = zeroOperand !== undefined && zeroOperand.kind === "reg" ? zeroOperand.index : ARRAY_REGISTERS.zero;
     if (instruction.mnemonic === SPILL_LOAD) {
       // `[регистр-адреса, регистр-приёмника, слот]` → `movtd адрес, #слот` + `ldd адрес, ноль, приёмник`.
       return {
         ok: true,
         instructions: [
           { mnemonic: "movtd", channel: 0, operands: [literal, reg(first.index)] },
-          ldd(first.index, ARRAY_REGISTERS.zero, second.index),
+          ldd(first.index, zeroRegister, second.index),
         ],
       };
     }
@@ -608,7 +629,7 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       ok: true,
       instructions: [
         { mnemonic: "movtd", channel: 0, operands: [literal, reg(second.index)] },
-        std(first.index, second.index, ARRAY_REGISTERS.zero),
+        std(first.index, second.index, zeroRegister),
       ],
     };
   }

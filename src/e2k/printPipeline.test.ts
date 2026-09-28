@@ -215,18 +215,27 @@ describe('печать: шесть записей корпуса собираю�
   }
 
   it('СТОРОЖ МЕСТА: образ, код которого дорастает до площадки, отклоняется с числами', () => {
-    // Три развёртки подряд — ровно тот опыт, которым граница измерена (§3.40.6: 432 команды, код 139).
+    // Двадцать сайтов печати. С разделением (≥2 сайтов развёртка стоит ОДИН раз, сайт платит
+    // вызов и `write`) это уже не «три развёртки», а двадцать сайтов по ~180 байт: граница
+    // сместилась, но не исчезла — площадку по-прежнему нельзя перерасти (§3.40.6, §3.45.5).
     const many: AsmInstruction[] = [
-      printingCarrier(2),
-      printingCarrier(2),
-      printingCarrier(2),
+      ...Array.from({ length: 20 }, () => printingCarrier(2)),
       { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] },
     ];
     expect(() => imageOfCarriers(many, [], [PRINT_CALL])).toThrow(PrintCallRefusal);
     expect(() => imageOfCarriers(many, [], [PRINT_CALL])).toThrow(/площадк/iu);
-    // Положительный контроль: та же программа с ОДНОЙ печатью проходит.
+    // Положительный контроль: та же программа с ОДНОЙ печатью проходит — и она инлановая
+    // (делить нечего: развёртка одна).
     const one = imageOfCarriers([printingCarrier(2), { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] }], [], [PRINT_CALL]);
     expect(one.refused).toEqual([]);
     expect(one.bytes.length).toBeGreaterThan(1000);
+    // Десять сайтов — тот же случай, что в приёмке: делятся, влезают, отказов нет.
+    const ten = imageOfCarriers(
+      [...Array.from({ length: 10 }, () => printingCarrier(2)), { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] }],
+      [],
+      [PRINT_CALL],
+    );
+    expect(ten.refused, 'разделённая печать обязана собираться').toEqual([]);
+    expect(MINIMAL_BASE + 0x1000 + ten.bytes.length, 'и влезать в площадку').toBeLessThan(AREA);
   });
 });

@@ -44,6 +44,7 @@
  */
 import type { AsmInstruction, Operand } from './backend';
 import { isJumpCarrier } from './twoPassLayout';
+import { EXIT_CARRIER } from './printCall';
 import { LOWERING_CODES, type LoweringRefusalCode } from './loweringRefusal';
 import { resolveEntryIndex } from '../oracle/parity';
 
@@ -116,12 +117,47 @@ export interface CallProblem {
   readonly reason: string;
 }
 
+/**
+ * РАЗВЕРНУТЬ НОСИТЕЛИ: заменить некоторые из них ГРУППОЙ носителей, пересчитав цели переходов.
+ *
+ * Зачем: разделённая печать заменяет один печатающий носитель группой «сохранение → вызов листовой
+ * процедуры → `write` → восстановление» (`src/e2k/printCall.ts`). Группа длиннее одного носителя,
+ * поэтому индексы за ней сдвигаются — и цели переходов вместе с ними. Считать их по СТАРОМУ потоку
+ * значило бы повторить дефект §3.35 (цели не пересчитаны после сдвига) на новом месте.
+ */
+export function expandCarriers(
+  code: readonly AsmInstruction[],
+  groupAt: ReadonlyMap<number, readonly AsmInstruction[]>,
+  procedures: readonly ProcedureOffset[] = [],
+): { readonly code: readonly AsmInstruction[]; readonly procedures: readonly ProcedureOffset[] } {
+  const expanded: AsmInstruction[] = [];
+  const map = new Map<number, number>();
+  code.forEach((carrier, index) => {
+    const group = groupAt.get(index);
+    map.set(index, expanded.length);
+    if (group === undefined) expanded.push(carrier);
+    else expanded.push(...group);
+  });
+  const relocated = (index: number): number => map.get(index) ?? index;
+  const remapped = expanded.map((carrier) => {
+    if (!isJumpCarrier(carrier.mnemonic)) return carrier;
+    const targetAt = carrier.mnemonic === 'IR.jmp' ? 0 : 1;
+    const target = carrier.operands[targetAt];
+    if (target === undefined || target.kind !== 'imm') return carrier;
+    const operands = [...carrier.operands];
+    operands[targetAt] = imm(relocated(target.value));
+    return { ...carrier, operands };
+  });
+  return {
+    code: remapped,
+    procedures: procedures.map((procedure) => ({ ...procedure, codeOffset: relocated(procedure.codeOffset) })),
+  };
+}
+
 /** Что осталось от подготовки потока: носители, процедуры и выход точки входа. */
 export interface PreparedImage {
   readonly code: readonly AsmInstruction[];
   readonly procedures: readonly ProcedureOffset[];
-  /** Регистр значения возврата точки входа: её выход — `exit(значение)`, а не `return`. */
-  readonly entryReturnRegister?: number;
   /**
    * Индексы носителей, которые в образ НЕ ПОПАДАЮТ: возвраты точки входа.
    *
@@ -149,29 +185,45 @@ export interface PreparedImage {
 export function prepareImage(
   code: readonly AsmInstruction[],
   procedures: readonly ProcedureOffset[],
+  options: {
+    /**
+     * Ставить ли выход и там, где возврат БЕЗ значения.
+     *
+     * Да — печатающей программе: её выход отдан `write`, и без своего `exit` она уходит за свой код
+     * (код 134, §3.39). Нет — прочим: там поведение прежнее и измеренное («программа без возврата
+     * падает кодом 134»), и менять его эта работа не вправе (`src/scripts/e2kRunOutput.test.ts`).
+     */
+    readonly exitOnVoidReturn?: boolean;
+  } = {},
 ): PreparedImage {
   const entryAt = procedures.length === 0 ? 0 : entryProcedureIndex(procedures);
   const entry = procedures[entryAt];
 
-  // 1. Возвраты точки входа — нулевые; её значение запоминается (первое со значением).
-  let entryReturnRegister: number | undefined;
+  // 1. Возвраты точки входа: ПЕРВЫЙ СО ЗНАЧЕНИЕМ становится ВЫХОДОМ (`IR.exit` — реальные байты,
+  //    раскладка их видит), остальные — нулевыми: их не исполняет никто, и места они не занимают.
+  let exitSeen = false;
   const zeroSizeBeforeJump: number[] = [];
-  code.forEach((carrier, index) => {
-    if (carrier.mnemonic !== 'IR.ret') return;
-    if (procedures.length > 0 && (procedureAt(procedures, index) ?? 0) !== entryAt) return;
+  const replaced = code.map((carrier, index) => {
+    if (carrier.mnemonic !== 'IR.ret') return carrier;
+    if (procedures.length > 0 && (procedureAt(procedures, index) ?? 0) !== entryAt) return carrier;
     const flag = carrier.operands[0];
     const value = carrier.operands[1];
-    if (entryReturnRegister === undefined && flag?.kind === 'imm' && flag.value === 1 && value?.kind === 'reg') {
-      entryReturnRegister = value.index;
+    const valued = flag?.kind === 'imm' && flag.value === 1 && value?.kind === 'reg';
+    if (!exitSeen && (valued || options.exitOnVoidReturn === true)) {
+      exitSeen = true;
+      const operands: Operand[] = [imm(0)];
+      if (valued) operands.push(value as Operand);
+      return { ...carrier, mnemonic: EXIT_CARRIER, operands };
     }
     zeroSizeBeforeJump.push(index);
+    return carrier;
   });
 
   // 2. Переход к точке входа, если та стоит не первой (она может стоять где угодно в модуле).
   const entryOffset = entry?.codeOffset ?? 0;
   const addJump = procedures.length > 1 && entryOffset !== 0;
   const shift = addJump ? 1 : 0;
-  const remapped: AsmInstruction[] = code.map((carrier) => {
+  const remapped: AsmInstruction[] = replaced.map((carrier) => {
     if (!isJumpCarrier(carrier.mnemonic)) return carrier;
     const targetAt = carrier.mnemonic === 'IR.jmp' ? 0 : 1;
     const target = carrier.operands[targetAt];
@@ -194,7 +246,6 @@ export function prepareImage(
   return {
     code: finalCode,
     procedures: finalProcedures,
-    ...(entryReturnRegister === undefined ? {} : { entryReturnRegister }),
     zeroSize: zeroSizeBeforeJump.map((index) => index + shift),
     entryEndsAt: nextProcedure ?? finalCode.length,
     addedEntryJump: addJump,

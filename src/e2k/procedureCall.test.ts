@@ -29,6 +29,7 @@ import { lowerCarrier } from './e2kRealRun';
 import { carrierFormOf, layoutOf } from './twoPassLayout';
 import { imageOfCarriers, loweredProgram, shellCarriers } from './programImage';
 import { LOWERING_CODES } from './loweringRefusal';
+import { EXIT_CARRIER } from './printCall';
 import { callAddresses, entryProcedureIndex, prepareImage, procedureAt } from './procedureCall';
 
 const encoder = getEncoder('e2k');
@@ -136,14 +137,22 @@ describe('вызов процедуры и возврат: адрес, форм�
     expect(emittedBytes, 'а понижение возврата процедуры длиннее — расхождение обязано быть видно').not.toBe(declared);
   });
 
-  it('возвраты точки входа не занимают места: раскладка считает их нулевыми', () => {
-    const code: AsmInstruction[] = [carrier('IR.add', [reg(1), reg(2), reg(3)]), carrier('IR.ret', [imm(1), reg(1)])];
+  it('первый возврат точки входа становится ВЫХОДОМ, остальные не занимают места', () => {
+    const code: AsmInstruction[] = [
+      carrier('IR.add', [reg(1), reg(2), reg(3)]),
+      carrier('IR.ret', [imm(1), reg(1)]),
+      carrier('IR.ret', [imm(0), reg(0)]),
+    ];
     const prepared = prepareImage(code, [{ name: 'главная', codeOffset: 0 }]);
-    expect(prepared.zeroSize).toEqual([1]);
-    expect(prepared.entryReturnRegister).toBe(1);
+    // Первый возврат — носитель ВЫХОДА (реальные байты: 4 команды = 40), второй — нулевой.
+    expect(prepared.code[1]!.mnemonic).toBe(EXIT_CARRIER);
+    expect(prepared.code[1]!.operands[1], 'выход значением — из регистра возврата').toEqual(reg(1));
+    expect(prepared.zeroSize).toEqual([2]);
     const layout = layoutOf(prepared.code, { procedureReturn: true, zeroSize: prepared.zeroSize });
-    expect(layout.addresses.get(1), 'нулевой носитель стоит по адресу следующего').toBe(8);
-    expect(layout.totalBytes, 'и в размер образа не входит').toBe(8);
+    const exitBytes = layout.entries.find((entry) => entry.index === 1)!.size;
+    expect(exitBytes, 'выход — не приписка, а байты, которые раскладка видит').toBe(40);
+    expect(layout.addresses.get(2), 'нулевой носитель стоит по адресу следующего').toBe(8 + exitBytes);
+    expect(layout.totalBytes, 'и в размер образа не входит').toBe(8 + exitBytes);
   });
 
   it('точка входа не первая: в начало встаёт переход к ней, цели пересчитываются', () => {
