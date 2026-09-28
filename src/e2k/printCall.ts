@@ -64,6 +64,7 @@
 import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_REGISTERS } from './arrayRuntime';
 import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SPILL_AREA_BYTES, spillBaseOf } from './elfMinimal';
+import { LOWERING_CODES } from './loweringRefusal';
 import { IMM_SHORT_MAX, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from './e2k-real';
 import {
   PRINT_PRIMITIVE_CLOBBERS,
@@ -92,6 +93,14 @@ export const PRINT_HEAP_BY_CONVENTION = MINIMAL_BASE + IMAGE_TAIL_OFFSET;
 
 /** Отказ подключения печати: причина называется, а не замалчивается. */
 export class PrintCallRefusal extends Error {
+  /**
+   * Код контракта отказа понижения (`OSN-LOW-005`): у печати своя личность.
+   *
+   * Код несёт САМ отказ, а не выводится читателем из имени класса или текста: наблюдатель
+   * (`src/scripts/e2kLoweringDiagnostics.ts`) читает поле `code` — то же правило, что у отказа
+   * записью (`src/e2k/loweringRefusal.ts`).
+   */
+  readonly code = LOWERING_CODES.print;
   constructor(message: string) {
     super(message);
     this.name = 'PrintCallRefusal';

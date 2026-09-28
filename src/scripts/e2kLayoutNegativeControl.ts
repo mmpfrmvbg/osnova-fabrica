@@ -72,6 +72,7 @@ export const DEFECTS: readonly Defect[] = [
     from: 'const disp = delta / DISP_UNITS;',
     to: 'const disp = 0; // ДЕФЕКТ 4.1: второй проход снят',
     tests: ['src/e2k/twoPassLayout.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '4.2',
@@ -80,6 +81,7 @@ export const DEFECTS: readonly Defect[] = [
     from: '{ mnemonic: "muls", form: "ALF11", size: REAL_LONG_FORM_SIZE, source: LONG_SOURCE }',
     to: '{ mnemonic: "muls", form: "ALF11", size: REAL_SHORT_FORM_SIZE, source: LONG_SOURCE /* ДЕФЕКТ 4.2 */ }',
     tests: ['src/e2k/twoPassLayout.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '4.3',
@@ -88,6 +90,7 @@ export const DEFECTS: readonly Defect[] = [
     from: 'const disp = delta / DISP_UNITS;',
     to: 'const disp = delta; // ДЕФЕКТ 4.3: байты вместо единиц',
     tests: ['src/e2k/twoPassLayout.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '4.4',
@@ -96,6 +99,7 @@ export const DEFECTS: readonly Defect[] = [
     from: '  return raw >= 2 ** (DISP_BITS - 1) ? raw - 2 ** DISP_BITS : raw;',
     to: '  return raw; // ДЕФЕКТ 4.4: поле прочитано беззнаково',
     tests: ['src/e2k/twoPassLayout.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   // ── Дефекты СОПОСТАВЛЕНИЯ ПАРЫ «сравнение → условный переход» (шаг 3) ───────
   {
@@ -105,6 +109,7 @@ export const DEFECTS: readonly Defect[] = [
     from: '  return { pairs, refusals };',
     to: '  return { pairs: [], refusals }; // ДЕФЕКТ 5.1: сопоставление снято',
     tests: ['src/e2k/e2kPredicatePairs.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '5.2',
@@ -113,6 +118,7 @@ export const DEFECTS: readonly Defect[] = [
     from: 'const inverted = (jump.mnemonic === "IR.jmp_if_not") !== comparison.flipped;',
     to: 'const inverted = (jump.mnemonic === "IR.jmp_if_not") === comparison.flipped; // ДЕФЕКТ 5.2',
     tests: ['src/e2k/e2kPredicatePairs.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '5.3',
@@ -121,6 +127,7 @@ export const DEFECTS: readonly Defect[] = [
     from: '      predicate: PREDICATE_FOR_PAIRS,',
     to: '      predicate: PREDICATE_FOR_PAIRS + 1, // ДЕФЕКТ 5.3: предикат пары разошёлся с условием',
     tests: ['src/e2k/e2kPredicatePairs.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '5.4',
@@ -129,6 +136,7 @@ export const DEFECTS: readonly Defect[] = [
     from: '    if (readers.length > 1) {',
     to: '    if (readers.length > 2) { // ДЕФЕКТ 5.4: лишний читатель пропущен',
     tests: ['src/e2k/e2kPredicatePairs.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
 ];
 
@@ -390,6 +398,7 @@ export const DEFECTS_REGALLOC: readonly Defect[] = [
     from: '    end: lastUse.get(vreg) ?? start,',
     to: '    end: Math.max(0, instructions.length - 1), // ДЕФЕКТ 8.1: значение живёт до конца потока',
     tests: ['src/e2k/regAlloc.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '8.2',
@@ -398,6 +407,7 @@ export const DEFECTS_REGALLOC: readonly Defect[] = [
     from: '    const taken = new Set(active.map((entry) => entry.register));',
     to: '    const taken = new Set<number>(); // ДЕФЕКТ 8.2: интерференция не проверяется',
     tests: ['src/e2k/regAlloc.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '8.3',
@@ -406,6 +416,7 @@ export const DEFECTS_REGALLOC: readonly Defect[] = [
     from: 'export const ALLOCATABLE_REGISTERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];',
     to: 'export const ALLOCATABLE_REGISTERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; // ДЕФЕКТ 8.3',
     tests: ['src/e2k/regAlloc.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '8.4',
@@ -414,6 +425,7 @@ export const DEFECTS_REGALLOC: readonly Defect[] = [
     from: '    end: lastUse.get(vreg) ?? start,',
     to: '    end: start, // ДЕФЕКТ 8.4: интервал схлопнут в точку определения',
     tests: ['src/e2k/regAlloc.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
 ];
 
@@ -435,6 +447,7 @@ export const DEFECTS_WIRING: readonly Defect[] = [
     from: '    const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));',
     to: '    const free = [...ALLOCATABLE_REGISTERS]; // ДЕФЕКТ 9.1: закрепление входящих снято',
     tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     // Цели переходов не пересчитаны после укорочения потока: смещения считаются по сдвинутым индексам,
@@ -445,6 +458,7 @@ export const DEFECTS_WIRING: readonly Defect[] = [
     from: '  const remapped = remapJumpTargets(result, movedTo);',
     to: '  const remapped = { instructions: result, problems: [] as string[] }; // ДЕФЕКТ 9.2: цели не пересчитаны',
     tests: ['src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     // «Занято» снова считается по активным отрезкам: число врёт (2 при десяти выданных), и оракул
@@ -455,6 +469,7 @@ export const DEFECTS_WIRING: readonly Defect[] = [
     from: '        active.splice(index, 1);\n      }\n    }',
     to: '        used.delete(active[index]!.register); // ДЕФЕКТ 9.3: выданные регистры вычёркиваются\n        active.splice(index, 1);\n      }\n    }',
     tests: ['src/e2k/regAlloc.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
 ];
 
@@ -474,6 +489,7 @@ export const DEFECTS_INVOKE: readonly Defect[] = [
     from: '  return { form: { carrier: \'IR.invoke\', commands } };',
     to: '  return { form: { carrier: \'IR.invoke\', commands: [commands[0]!] } }; // ДЕФЕКТ 10.1: длина фиксирована',
     tests: ['src/e2k/twoPassLayout.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     // Контекст (`invokeNames`) не передаётся: `IR.invoke` снова не размещается — то есть шаг 2 отменён
@@ -481,9 +497,13 @@ export const DEFECTS_INVOKE: readonly Defect[] = [
     id: '10.2',
     title: 'контекст с именами хост-вызовов не передаётся — IR.invoke не размещается',
     file: 'src/e2k/twoPassLayout.ts',
-    from: '    const { form, reason } = carrierFormWithReason(instruction, context);',
-    to: '    const { form, reason } = carrierFormWithReason(instruction, {}); // ДЕФЕКТ 10.2: контекст потерян',
+    // Якорь обновлён 2026-09-28 вместе с кодом: раскладка теперь берёт ИТОГ формы
+    // (`const outcome = …`), а не пару «форма + причина» — смысл дефекта тот же (контекст потерян),
+    // и это тот же класс, что «сдвинулся якорь — правь таблицу тем же коммитом».
+    from: '    const outcome = carrierFormWithReason(instruction, context);',
+    to: '    const outcome = carrierFormWithReason(instruction, {}); // ДЕФЕКТ 10.2: контекст потерян',
     tests: ['src/e2k/twoPassLayout.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     // Размеры команд рантайма объявлены длинной формой: раскладка считает адреса по 16 байт, а
@@ -496,6 +516,7 @@ export const DEFECTS_INVOKE: readonly Defect[] = [
     from: "  ['addd', { mnemonic: 'addd', form: 'ALF1', size: REAL_SHORT_FORM_SIZE, source: ADDD_COMMAND_SOURCE }],",
     to: "  ['addd', { mnemonic: 'addd', form: 'ALF1', size: REAL_LONG_FORM_SIZE, source: ADDD_COMMAND_SOURCE }], // ДЕФЕКТ 10.3",
     tests: ['src/e2k/twoPassLayout.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
 ];
 
@@ -514,6 +535,7 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     from: 'export const WINDOW_REGISTERS_CALLEE = 8;',
     to: 'export const WINDOW_REGISTERS_CALLEE = 16; // ДЕФЕКТ 11.1: окно вызываемой равно вызывающему',
     tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '11.2',
@@ -522,6 +544,7 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     from: '    const windowRegistersNeeded = pinned.length + allocation.allocation.used.length;',
     to: '    const windowRegistersNeeded = allocation.allocation.used.length; // ДЕФЕКТ 11.2: закреплённые забыты',
     tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
 ];
 
@@ -581,6 +604,7 @@ export const DEFECTS_REMATERIALIZE: readonly Defect[] = [
     from: '    if (starts.some((start) => start > index && start <= last)) {',
     to: '    if (false && starts.some((start) => start > index && start <= last)) { // ДЕФЕКТ 13.1: граница не проверяется',
     tests: ['src/e2k/rematerialize.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '13.2',
@@ -589,6 +613,7 @@ export const DEFECTS_REMATERIALIZE: readonly Defect[] = [
     from: '    if (reads.length < 2) {',
     to: '    if (reads.length < 1) { // ДЕФЕКТ 13.2: хватит и одного чтения',
     tests: ['src/e2k/rematerialize.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
   {
     id: '13.3',
@@ -597,6 +622,7 @@ export const DEFECTS_REMATERIALIZE: readonly Defect[] = [
     from: '    fullIndexOf[index] = result.length;',
     to: '    fullIndexOf[index] = index; // ДЕФЕКТ 13.3: вставки не учтены',
     tests: ['src/e2k/rematerialize.test.ts'],
+    config: 'vitest.e2k.config.ts',
   },
 ];
 

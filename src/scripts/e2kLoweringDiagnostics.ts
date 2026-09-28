@@ -21,22 +21,22 @@
  *
  * # Что делает этот модуль
  *
- * Превращает `refused: string[]` в **записи с классом**: класс выводится из причины и
- * носителя, а не из сравнения строк. Строки для этого негодны по замеру: текст отказа несёт
- * ЗНАЧЕНИЕ (`константа пула #0 = Аня`), поэтому два одинаковых по причине отказа дают разные
- * строки, а два разных — могут совпасть по префиксу.
+ * Читает отказ понижения как **запись с КОДОМ** (`src/e2k/loweringRefusal.ts`): код — личность
+ * причины, текст — для человека. Таблицы «текст → класс» здесь больше НЕТ и быть не должно: она
+ * была обходным путём, пока кода не существовало, и держалась на формулировках. Теперь класс
+ * берётся из кода ({@link LOWERING_CODE_CLASSES}), поэтому переписанная причина наблюдателя
+ * не ослепляет, а неизвестный код виден как `код-вне-контракта`, а не как «похоже на…».
  *
- * **Кода у класса пока нет — и это намеренно.** Пространство кодов `OSN-LOW-*` принадлежит
- * плоскости `src/e2k/**` (контракт описан в отчёте); выдумывать чужие коды здесь запрещено
- * тем же правилом, что и в каталоге видов («выдумывать код нельзя»). Когда коды появятся,
- * читатель берёт `code`, а класс остаётся как расшифровка для человека.
+ * # Два канала отказа — один код
+ *
+ * Отказ приходит либо ЗАПИСЬЮ (`refused: {code, reason}[]`), либо ИСКЛЮЧЕНИЕМ (раскладка не удалась,
+ * несколько возвратов, отказ печати). Канал разный, личность одна: исключения несут то же поле
+ * `code`, и {@link codeOfThrown} читает именно его — имени класса и текста не спрашивает.
  *
  * # Два режима
  *
  * - `e2kLoweringDiagnostics <файл.osnova> [--json]` — что будет с ЭТОЙ программой на цели;
- * - `e2kLoweringDiagnostics --corpus [--json]` — объявление корпуса против факта: расхождение
- *   «объявлено, но не проверено» называется вслух (замер: `06-циклы-пока` объявлен «нет»
- *   с причиной про печать, а понижение печати проходит — 0 отказов).
+ * - `e2kLoweringDiagnostics --corpus [--json]` — объявление корпуса против факта.
  *
  * Код возврата: 0 — образ собран без отказов; 1 — есть отказы или образ не собран; 2 — вызов.
  */
@@ -45,29 +45,32 @@ import * as path from "path";
 import { collectCompileDiagnostics } from "../compiler/compileDiagnostics";
 import { compileSource } from "../compiler/compiler";
 import { buildE2kImage } from "./e2kProgramRun";
+import {
+  LOWERING_CODES,
+  LOWERING_CODE_CLASSES,
+  codeOfThrown,
+  isLoweringRefusalCode,
+  type LoweringRefusalCode,
+} from "../e2k/loweringRefusal";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 
 /**
- * Класс отказа понижения — «личность до кода».
+ * Класс отказа понижения — с 2026-09-28 это ИМЯ КОДА, а не вывод из текста.
  *
- * Разделение по ПРИЧИНЕ, а не по носителю: один и тот же `IR.invoke` отказывает и за
- * отсутствие операции в рантайме, и за неподъёмную константу — это разные классы.
+ * `язык` и `сборка-упала` остаются вне контракта понижения: первый приходит из компилятора
+ * со своими кодами (`OSN-PAR-*`), второй — не названный отказ сборки (признак дефекта обвязки).
  */
 export type LoweringClass =
   | "язык"
-  | "носитель-без-формы"
-  | "константа-невыразима"
-  | "вызов-вне-рантайма"
-  | "раскладка"
-  | "печать"
-  | "обвязка"
   | "сборка-упала"
-  | "класс-не-назван";
+  | "код-вне-контракта"
+  | (typeof LOWERING_CODE_CLASSES)[LoweringRefusalCode];
 
-/** Одна запись об отказе цели. `code` появится, когда плоскость e2k назовёт коды (§отчёт). */
+/** Одна запись об отказе цели: КОД — личность причины, текст — для человека. */
 export interface LoweringDiagnostic {
   class: LoweringClass;
+  /** Код контракта `OSN-LOW-*`; пусто только у отказов ВНЕ контракта понижения (`язык`, `сборка-упала`). */
   code?: string;
   /** Мнемоника носителя IR, если отказ по носителю. */
   carrier?: string;
@@ -86,20 +89,14 @@ export interface LoweringReport {
 }
 
 /**
- * Таблица «причина → класс». Исчерпывающая по замеру: тест требует, чтобы отказы корпуса
- * и проб разбирались ЦЕЛИКОМ, иначе появляется `класс-не-назван` и сторож краснеет.
+ * Класс по КОДУ. Текста причины не спрашивает вовсе — в этом и смысл контракта.
+ *
+ * Неизвестный код — `код-вне-контракта`: читатель обязан заметить, что производитель назвал
+ * код, которого нет в таблице, а не «подобрать похожий».
  */
-const MESSAGE_CLASSES: ReadonlyArray<{ match: RegExp; cls: LoweringClass }> = [
-  { match: /формы понижения нет/, cls: "носитель-без-формы" },
-  { match: /константа пула .* литералом e2k кодируются только целые/, cls: "константа-невыразима" },
-  { match: /у рантайма массивов нет такой операции/, cls: "вызов-вне-рантайма" },
-  { match: /цели переходов не пересчитаны|раскладка/, cls: "раскладка" },
-];
-
-/** Класс по дословной причине. Не назвался — `класс-не-назван`, а не «похоже на…». */
-export function classifyReason(reason: string): LoweringClass {
-  for (const row of MESSAGE_CLASSES) if (row.match.test(reason)) return row.cls;
-  return "класс-не-назван";
+export function classOfCode(code: string | undefined): LoweringClass {
+  if (code === undefined) return "сборка-упала";
+  return isLoweringRefusalCode(code) ? LOWERING_CODE_CLASSES[code] : "код-вне-контракта";
 }
 
 /** Разбор строки отказа вида `#2 IR.rem: «IR.rem»: формы понижения нет — …`. */
@@ -119,13 +116,16 @@ function languageDiagnostics(source: string, filename: string): LoweringDiagnost
   }));
 }
 
-/** Класс исключения конвейера цели: имя и текст известны по замеру. */
-function classifyThrown(error: unknown): LoweringClass {
-  const name = error instanceof Error ? error.name : "";
+/**
+ * Класс БРОШЕННОГО отказа: читается из кода исключения, а не из имени класса и не из текста.
+ *
+ * Порядок именно такой: сначала КОД (`codeOfThrown`), и только если его нет — два случая вне
+ * контракта понижения: программа не компилируется (`язык`) и всё прочее (`сборка-упала`).
+ * Таблицы «имя класса → класс отказа» здесь нет намеренно: она была бы тем же выводом по тексту.
+ */
+function classOfThrown(error: unknown): LoweringClass {
+  if (codeOfThrown(error) !== undefined) return classOfCode(codeOfThrown(error));
   const message = error instanceof Error ? error.message : String(error);
-  if (name === "PrintCallRefusal" || /печать:/.test(message)) return "печать";
-  if (name === "MultiReturnRefusal") return "обвязка";
-  if (/раскладка отказала/.test(message)) return "раскладка";
   if (/программа не компилируется/.test(message)) return "язык";
   return "сборка-упала";
 }
@@ -138,9 +138,11 @@ export function loweringDiagnosticsOf(source: string, filename = "вход.osnov
   try {
     const image = buildE2kImage(source);
     const diagnostics: LoweringDiagnostic[] = image.refused.map((refused) => {
-      const parsed = parseRefusalText(refused);
+      const parsed = parseRefusalText(refused.reason);
       return {
-        class: classifyReason(parsed.reason),
+        // Класс — ИЗ КОДА. Текст используется только для места (`#N IR.x`) и для человека.
+        class: classOfCode(refused.code),
+        code: refused.code,
         ...(parsed.carrier === undefined ? {} : { carrier: parsed.carrier }),
         ...(parsed.index === undefined ? {} : { index: parsed.index }),
         message: parsed.reason,
@@ -154,10 +156,13 @@ export function loweringDiagnosticsOf(source: string, filename = "вход.osnov
       diagnostics,
     };
   } catch (error) {
-    const cls = classifyThrown(error);
+    const cls = classOfThrown(error);
+    const code = codeOfThrown(error);
     const message = error instanceof Error ? error.message : String(error);
     const diagnostics: LoweringDiagnostic[] =
-      cls === "язык" ? languageDiagnostics(source, filename) : [{ class: cls, message }];
+      cls === "язык"
+        ? languageDiagnostics(source, filename)
+        : [{ class: cls, ...(code === undefined ? {} : { code }), message }];
     return { built: false, refusedTotal: diagnostics.length, diagnostics };
   }
 }
@@ -179,13 +184,32 @@ export type CorpusVerdict =
   | "РАСХОЖДЕНИЕ: объявлено «работает», а понижение отказывает"
   | "вне понижения: причина называет другой слой";
 
+/**
+ * Все вердикты списком — их проверяет оракул наблюдателя.
+ *
+ * Список здесь, а не в тесте: иначе оракул держал бы ВТОРУЮ копию набора, и новый вердикт,
+ * добавленный в код, проходил бы мимо него.
+ */
+export const CORPUS_VERDICTS: readonly CorpusVerdict[] = [
+  "совпадает",
+  "ОБЪЯВЛЕНИЕ УСТАРЕЛО: «нет» с причиной про понижение, а понижение проходит",
+  "РАСХОЖДЕНИЕ: объявлено «работает», а понижение отказывает",
+  "вне понижения: причина называет другой слой",
+];
+
 export interface CorpusRow {
   dir: string;
   declared: string;
   layer: string;
   refused: number;
   built: boolean;
-  /** Сколько отказов не подошло ни под одну строку таблицы причин (должно быть 0). */
+  /**
+   * Сколько отказов пришло БЕЗ кода контракта (должно быть 0).
+   *
+   * Было «сколько не подошло под таблицу причин»: с контрактом код есть у каждого отказа
+   * понижения, поэтому ненулевое значение здесь значит, что производитель назвал код вне
+   * таблицы (`код-вне-контракта`) — то есть контракт нарушен, а не «формулировка изменилась».
+   */
   unnamed: number;
   verdict: CorpusVerdict;
 }
@@ -230,7 +254,8 @@ export function corpusLoweringRows(examplesDir = path.join(ROOT, "examples")): C
       layer,
       refused: report.refusedTotal,
       built: report.built,
-      unnamed: report.diagnostics.filter((d) => d.class === "класс-не-назван").length,
+      // Отказ без кода — нарушение контракта, а не «незнакомая формулировка»: так это и читается.
+      unnamed: report.diagnostics.filter((d) => d.class === "код-вне-контракта").length,
       verdict,
     });
   }
@@ -290,5 +315,13 @@ if (require.main === module) {
   process.exit(runLoweringDiagnosticsCli(process.argv.slice(2)));
 }
 
-/** Коды диагностик языка в записи — для тех, кто читает `--json`: заготовка для `OSN-LOW-*`. */
-export const LOWERING_CODE_CONTRACT = "OSN-LOW-<NNN>: коды выдаёт плоскость src/e2k/** (см. отчёт Lead'а)";
+/**
+ * КОНТРАКТ КОДОВ ОТКАЗА ПОНИЖЕНИЯ — переизлучение для читателей наблюдателя.
+ *
+ * Единственный источник истины живёт в плоскости `src/e2k/**` (`src/e2k/loweringRefusal.ts`):
+ * здесь он только виден тем, кто читает наблюдателя, и НЕ дублируется таблицей.
+ */
+export { LOWERING_CODES, LOWERING_CODE_CLASSES, LOWERING_CODE_MEANINGS } from "../e2k/loweringRefusal";
+
+/** Пространство кодов одной строкой — для справки и для читателей `--json`. */
+export const LOWERING_CODE_SPACE = `OSN-LOW-<NNN>: ${Object.values(LOWERING_CODES).join(", ")}`;

@@ -34,6 +34,7 @@ import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
 import { exitPrimitives, printAreaOf } from './printPrimitives';
+import { LOWERING_CODES, LoweringRefusalError, refusalOf, type LoweringRefusal } from './loweringRefusal';
 import {
   PRINT_CALL,
   PrintCallRefusal,
@@ -137,7 +138,7 @@ const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window
 export function programBytes(
   source: string,
   heapAddress: number,
-): { bytes: Uint8Array; carriers: number; refused: string[] } {
+): { bytes: Uint8Array; carriers: number; refused: LoweringRefusal[] } {
   const built = regModuleOf(source);
   if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
@@ -147,7 +148,7 @@ export function programBytes(
   const context = { constants: emitted.scheduled.constants, invokeNames: emitted.image.invokeNames };
 
   const body: AsmInstruction[] = [];
-  const refused: string[] = [];
+  const refused: LoweringRefusal[] = [];
   let returnRegister: number | undefined;
   for (let index = 0; index < emitted.instructions.length; index++) {
     const carrier = emitted.instructions[index]!;
@@ -164,7 +165,8 @@ export function programBytes(
     }
     const lowered = lowerCarrier(carrier, context);
     if (!lowered.ok) {
-      refused.push(`${carrier.mnemonic}: ${lowered.reason}`);
+      // Код берётся у ПОНИЖЕНИЯ, а не выводится из текста: причина отказа — личность.
+      refused.push(refusalOf(lowered.code, `${carrier.mnemonic}: ${lowered.reason}`));
       continue;
     }
     body.push(...lowered.instructions);
@@ -204,7 +206,7 @@ export function programBytes(
  * что в `e2kConvolutionQemu.test.ts`. Нужен там, где в программе есть ЦИКЛЫ: без раскладки адресов
  * у переходов нет смещений.
  */
-export function loweredProgram(source: string): { bytes: Uint8Array; refused: readonly string[]; used: number } {
+export function loweredProgram(source: string): { bytes: Uint8Array; refused: readonly LoweringRefusal[]; used: number } {
   const built = regModuleOf(source);
   if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
@@ -213,7 +215,14 @@ export function loweredProgram(source: string): { bytes: Uint8Array; refused: re
   const emitted = emitShell(annotated, shellEncoder);
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
   const report = allocation.report[0]!;
-  if (!report.ok) throw new Error(`раскладка отказала: ${report.reason ?? 'причина не названа'}`);
+  if (!report.ok) {
+    // Отказ раскладки — тот же контракт, но канал другой: образ не собирается вовсе, поэтому
+    // это ИСКЛЮЧЕНИЕ с кодом `OSN-LOW-004`, а не запись в `refused` (личность одна — канал разный).
+    throw new LoweringRefusalError(
+      LOWERING_CODES.layout,
+      `раскладка отказала: ${report.reason ?? 'причина не названа'}`,
+    );
+  }
   return {
     ...imageOfCarriers(allocation.instructions, emitted.scheduled.constants, emitted.image.invokeNames, {
       // Адреса слотов вытеснения — своим ходом: сайты печати кладут сохранённое в ВЕРХ области
@@ -237,7 +246,7 @@ export function imageOfCarriers(
   constants: readonly unknown[],
   invokeNames: readonly string[],
   options: { readonly heapAddress?: number; readonly spilledAddresses?: readonly number[] } = {},
-): { bytes: Uint8Array; refused: readonly string[] } {
+): { bytes: Uint8Array; refused: readonly LoweringRefusal[] } {
   const context = { constants, invokeNames };
   const heapAddress = options.heapAddress ?? MINIMAL_BASE + HEAP_OFFSET;
   // ПЕЧАТЬ: план сайта — ДО раскладки, потому что её длину раскладка обязана знать (иначе
@@ -261,16 +270,20 @@ export function imageOfCarriers(
   const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
 
   const body: AsmInstruction[] = [];
-  const refused: string[] = [];
+  const refused: LoweringRefusal[] = [];
   let returnRegister: number | undefined;
   for (let index = 0; index < planned.length; index++) {
     const carrier = planned[index]!;
+    // Три источника отказа, и КОД у каждого свой — он и есть личность причины:
+    //   1. носитель не размещён (`layout.unplaced`) — код у причины своя (нет формы / печать / контракт);
+    //   2. переходу не хватило смещения (`secondPass`) — код ставит второй проход;
+    //   3. пара предикатов не составилась (`pairPredicates`) — код у сопоставления.
     const problem =
       layout.unplaced.find((item) => item.index === index) ??
       resolved.refusals.find((item) => item.index === index) ??
       pairing.refusals.find((item) => item.index === index);
     if (problem !== undefined) {
-      refused.push(`#${index} ${carrier.mnemonic}: ${problem.reason}`);
+      refused.push(refusalOf(problem.code, `#${index} ${carrier.mnemonic}: ${problem.reason}`));
       continue;
     }
     const plan = printPlans.get(index);
@@ -296,7 +309,7 @@ export function imageOfCarriers(
       ...(conditionAt.get(index) === undefined ? {} : { condition: conditionAt.get(index)! }),
     });
     if (!lowered.ok) {
-      refused.push(`#${index} ${carrier.mnemonic}: ${lowered.reason}`);
+      refused.push(refusalOf(lowered.code, `#${index} ${carrier.mnemonic}: ${lowered.reason}`));
       continue;
     }
     body.push(...lowered.instructions);

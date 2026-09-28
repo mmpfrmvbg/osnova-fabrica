@@ -68,6 +68,7 @@ import {
   printCommandForm,
   printSaveCountOf,
 } from "./printCall";
+import { LOWERING_CODES, failureOf, type LoweringFailure, type LoweringRefusalCode } from "./loweringRefusal";
 
 const imm = (value: number): Operand => ({ kind: "imm", value });
 
@@ -376,11 +377,29 @@ function callFlags(instruction: AsmInstruction): { argc: number; hasDestination:
   return { argc: flags.value >> 1, hasDestination: (flags.value & 1) === 1 };
 }
 
+/**
+ * Итог взятия формы: либо форма, либо ОТКАЗ С КОДОМ (`OSN-LOW-*`).
+ *
+ * Код здесь обязателен по той же причине, что и в понижении: наблюдатель обязан отличать
+ * «язык этого не умеет» от «конвейер получил носитель не той формы», а по тексту причины
+ * это неразличимо (`src/e2k/loweringRefusal.ts`).
+ */
+interface CarrierFormOutcome {
+  readonly form?: CarrierForm;
+  readonly failure?: LoweringFailure;
+}
+
 /** Форма вызова: пересылки аргументов в окно вызываемого + `disp` + `call` + чтение результата. */
-function callForm(instruction: AsmInstruction): { form?: CarrierForm; reason?: string } {
+function callForm(instruction: AsmInstruction): CarrierFormOutcome {
   const flags = callFlags(instruction);
-  if (flags === undefined) return { reason: '«IR.call»: операнд флагов не число — арность вызова неизвестна' };
-  if (flags.argc > 2) return { reason: `«IR.call»: аргументов ${flags.argc}, носитель несёт не больше двух` };
+  if (flags === undefined) {
+    return { failure: failureOf(LOWERING_CODES.carrier, '«IR.call»: операнд флагов не число — арность вызова неизвестна') };
+  }
+  if (flags.argc > 2) {
+    return {
+      failure: failureOf(LOWERING_CODES.runtime, `«IR.call»: аргументов ${flags.argc}, носитель несёт не больше двух`),
+    };
+  }
   const commands: CommandForm[] = [];
   for (let argument = 0; argument < flags.argc; argument++) commands.push(CALL_COMMAND_FORMS.get('movts')!);
   commands.push(CALL_COMMAND_FORMS.get('disp')!);
@@ -392,9 +411,11 @@ function callForm(instruction: AsmInstruction): { form?: CarrierForm; reason?: s
 }
 
 /** Форма возврата: пересылка значения в приёмник соглашения (`%r0` вызываемого) + `return %ctpr3`. */
-function retForm(instruction: AsmInstruction): { form?: CarrierForm; reason?: string } {
+function retForm(instruction: AsmInstruction): CarrierFormOutcome {
   const flag = instruction.operands[0];
-  if (flag === undefined || flag.kind !== 'imm') return { reason: '«IR.ret»: операнд «есть значение» не число' };
+  if (flag === undefined || flag.kind !== 'imm') {
+    return { failure: failureOf(LOWERING_CODES.carrier, '«IR.ret»: операнд «есть значение» не число') };
+  }
   const commands: CommandForm[] = flag.value === 1 ? [CALL_COMMAND_FORMS.get('movts')!] : [];
   commands.push(CALL_COMMAND_FORMS.get('return')!);
   return { form: { carrier: 'IR.ret', commands } };
@@ -439,7 +460,7 @@ function constForm(instruction: AsmInstruction, context: CarrierFormContext): Ca
 function carrierFormWithReason(
   instruction: AsmInstruction,
   context: CarrierFormContext,
-): { form?: CarrierForm; reason?: string } {
+): CarrierFormOutcome {
   // `IR.const` — единственный носитель, чья длина зависит от ЗНАЧЕНИЯ (литерал из пула), поэтому
   // форма берётся отдельной ветвью, а не из статической таблицы CARRIER_FORMS.
   if (instruction.mnemonic === 'IR.const') return { form: constForm(instruction, context) };
@@ -452,20 +473,27 @@ function carrierFormWithReason(
   const names = context.invokeNames;
   if (names === undefined) {
     return {
-      reason:
+      failure: failureOf(
+        LOWERING_CODES.carrier,
         '«IR.invoke»: не передан список имён хост-вызовов образа (`invokeNames`) — `payload` носителя ' +
-        'это индекс в нём, и длину понижения (одна команда у «длина», девять у «добавить») взять негде',
+          'это индекс в нём, и длину понижения (одна команда у «длина», девять у «добавить») взять негде',
+      ),
     };
   }
   const payload = instruction.operands[3];
   const flags = instruction.operands[0];
   if (payload === undefined || payload.kind !== 'imm' || flags === undefined || flags.kind !== 'imm') {
-    return { reason: '«IR.invoke»: операнды носителя не той формы (ожидались flags и payload числами)' };
+    return {
+      failure: failureOf(LOWERING_CODES.carrier, '«IR.invoke»: операнды носителя не той формы (ожидались flags и payload числами)'),
+    };
   }
   const name = names[payload.value];
   if (name === undefined) {
     return {
-      reason: `«IR.invoke»: в таблице имён нет записи с индексом ${payload.value} (всего имён ${names.length})`,
+      failure: failureOf(
+        LOWERING_CODES.carrier,
+        `«IR.invoke»: в таблице имён нет записи с индексом ${payload.value} (всего имён ${names.length})`,
+      ),
     };
   }
   const argc = flags.value >> 1;
@@ -487,15 +515,19 @@ function carrierFormWithReason(
   if (isPrintCallName(name)) {
     const argument = instruction.operands[1];
     if (argument === undefined || argument.kind !== 'reg') {
-      return { reason: `«${name}»: значение не в регистре — развёртка печати берёт его из регистра` };
+      return {
+        failure: failureOf(LOWERING_CODES.print, `«${name}»: значение не в регистре — развёртка печати берёт его из регистра`),
+      };
     }
     const saveCount = printSaveCountOf(instruction);
     if (saveCount === undefined) {
       return {
-        reason:
+        failure: failureOf(
+          LOWERING_CODES.print,
           `«${name}»: носитель не несёт число сохраняемых через печать регистров (операнд ` +
-          `${String(PRINT_SAVE_COUNT_OPERAND)}) — его ставит конвейер (src/e2k/programImage.ts), и без него ` +
-          'длину сайта печати взять негде',
+            `${String(PRINT_SAVE_COUNT_OPERAND)}) — его ставит конвейер (src/e2k/programImage.ts), и без него ` +
+            'длину сайта печати взять негде',
+        ),
       };
     }
     const printing: CommandForm[] = [];
@@ -503,9 +535,11 @@ function carrierFormWithReason(
       const form = printCommandForm(command);
       if (form === undefined) {
         return {
-          reason:
+          failure: failureOf(
+            LOWERING_CODES.print,
             `«${name}»: у команды развёртки «${command.mnemonic}» нет формы в таблице раскладки — ` +
-            'длину взять негде (таблица — src/e2k/printCall.ts:printCommandForm)',
+              'длину взять негде (таблица — src/e2k/printCall.ts:printCommandForm)',
+          ),
         };
       }
       printing.push({ mnemonic: form.mnemonic, form: form.form, size: form.size, source: form.source });
@@ -533,15 +567,17 @@ function carrierFormWithReason(
       return error instanceof Error ? error.message : String(error);
     }
   })();
-  if (typeof lowered === 'string') return { reason: lowered };
+  if (typeof lowered === 'string') return { failure: failureOf(LOWERING_CODES.runtime, lowered) };
   const commands: CommandForm[] = [];
   for (const command of lowered) {
     const form = ARRAY_COMMAND_FORMS.get(command.mnemonic);
     if (form === undefined) {
       return {
-        reason:
+        failure: failureOf(
+          LOWERING_CODES.carrier,
           `«${name}»: у команды понижения «${command.mnemonic}» нет формы в таблице раскладки — ` +
-          'длину взять негде (в рантаймах массивов и математики таких команд быть не должно)',
+            'длину взять негде (в рантаймах массивов и математики таких команд быть не должно)',
+        ),
       };
     }
     commands.push(form);
@@ -701,10 +737,12 @@ export interface LayoutEntry {
   readonly wideGroup?: WideGroupShape;
 }
 
-/** Инструкция, которой адрес не присвоен, и почему. */
+/** Инструкция, которой адрес не присвоен, и почему — с КОДОМ отказа (`OSN-LOW-*`). */
 export interface UnplacedInstruction {
   readonly index: number;
   readonly carrier: string;
+  /** Личность отказа: код контракта, а не текст причины. */
+  readonly code: LoweringRefusalCode;
   readonly reason: string;
 }
 
@@ -761,13 +799,20 @@ export function layoutOf(
       offset += size;
       return;
     }
-    const { form, reason } = carrierFormWithReason(instruction, context);
-    if (form === undefined) {
+    const outcome = carrierFormWithReason(instruction, context);
+    if (outcome.form === undefined) {
       // Причина называется своя, если она известна (например, у `IR.invoke` без имён хост-вызовов):
       // общая отговорка «формы понижения нет» на этом месте врала бы — форма есть, её негде взять.
-      unplaced.push({ index, carrier: instruction.mnemonic, reason: reason ?? unplacedReason(instruction.mnemonic) });
+      // Код берётся у той же причины: нет формы — `OSN-LOW-001`, а у своего отказа свой код.
+      unplaced.push({
+        index,
+        carrier: instruction.mnemonic,
+        code: outcome.failure?.code ?? LOWERING_CODES.noForm,
+        reason: outcome.failure?.reason ?? unplacedReason(instruction.mnemonic),
+      });
       return;
     }
+    const form = outcome.form;
     const size = form.commands.reduce((sum, command) => sum + command.size, 0);
     entries.push({
       index,
@@ -810,9 +855,11 @@ export interface Displacement {
   readonly disp: number;
 }
 
-/** Отказ второго прохода: переход, которому смещение не вычислено. */
+/** Отказ второго прохода: переход, которому смещение не вычислено — с кодом контракта. */
 export interface DisplacementRefusal {
   readonly index: number;
+  /** Личность отказа: `OSN-LOW-004`, если не хватило раскладки, и `OSN-LOW-007`/`001`, если виноват носитель. */
+  readonly code: LoweringRefusalCode;
   readonly reason: string;
 }
 
@@ -850,30 +897,31 @@ export function secondPass(
 
   instructions.forEach((instruction, index) => {
     if (!isJumpCarrier(instruction.mnemonic)) return;
-    const refuse = (reason: string): void => {
-      refusals.push({ index, reason: `«${instruction.mnemonic}» #${index}: ${reason}` });
+    const refuse = (code: LoweringRefusalCode, reason: string): void => {
+      refusals.push({ index, code, reason: `«${instruction.mnemonic}» #${index}: ${reason}` });
     };
     // Позиция цели в носителе: у `IR.jmp` она первая, у условного перехода — вторая (первая
     // занята регистром-условием: носитель несёт `(cond, off)`, src/e2k/emitterShell.ts).
     const targetAt = instruction.mnemonic === JUMP_CARRIER ? 0 : 1;
     const operand = instruction.operands[targetAt];
     if (operand === undefined || operand.kind !== "imm" || !Number.isInteger(operand.value)) {
-      refuse(`цель перехода не выражена числом — операция несёт ${operand?.kind ?? "ничего"}`);
+      refuse(LOWERING_CODES.carrier, `цель перехода не выражена числом — операция несёт ${operand?.kind ?? "ничего"}`);
       return;
     }
     const targetIndex = operand.value;
     if (targetIndex < 0 || targetIndex >= instructions.length) {
-      refuse(`цель перехода #${targetIndex} вне потока (инструкций ${instructions.length})`);
+      refuse(LOWERING_CODES.carrier, `цель перехода #${targetIndex} вне потока (инструкций ${instructions.length})`);
       return;
     }
     const commandAddress = addresses.get(index);
     if (commandAddress === undefined) {
-      refuse(`команда не размещена — у «${instruction.mnemonic}» нет формы понижения`);
+      refuse(LOWERING_CODES.noForm, `команда не размещена — у «${instruction.mnemonic}» нет формы понижения`);
       return;
     }
     const targetAddress = addresses.get(targetIndex);
     if (targetAddress === undefined) {
       refuse(
+        LOWERING_CODES.noForm,
         `цель перехода #${targetIndex} (${instructions[targetIndex]!.mnemonic}) не размещена — ` +
           `у неё нет формы понижения, адрес цели неизвестен`,
       );
@@ -882,6 +930,7 @@ export function secondPass(
     const delta = targetAddress - commandAddress;
     if (delta % DISP_UNITS !== 0) {
       refuse(
+        LOWERING_CODES.layout,
         `разность адресов ${delta} не кратна ${DISP_UNITS}: смещение выражается только в ` +
           `восьмибайтовых словах (syllab-format.h:100)`,
       );
@@ -890,7 +939,7 @@ export function secondPass(
     const disp = delta / DISP_UNITS;
     const problem = dispRangeProblem(disp);
     if (problem !== undefined) {
-      refuse(problem);
+      refuse(LOWERING_CODES.layout, problem);
       return;
     }
     // Смещение подставляется В ЦЕЛЬ, а прочие операнды не трогаются: у условного перехода

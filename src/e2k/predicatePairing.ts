@@ -40,6 +40,7 @@
  */
 
 import type { AsmInstruction } from "./backend";
+import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
 
 /** Номер предиката, отданный парам: пары не переплетаются, поэтому одного достаточно. */
 export const PREDICATE_FOR_PAIRS = 0;
@@ -96,9 +97,17 @@ export interface PredicatePair {
   readonly condition: number;
 }
 
-/** Отказ сопоставления с причиной. */
+/**
+ * Отказ сопоставления с причиной И КОДОМ.
+ *
+ * Код у всех отказов сопоставления один — `OSN-LOW-004` (раскладка): предикат ставит раскладка, и
+ * «пара не составилась» значит, что раскладка не может выдать команду сравнения. Разные причины
+ * внутри этого кода различимы текстом, но личность у них одна — и это честнее, чем семь кодов
+ * на семь формулировок одной и той же невозможности.
+ */
 export interface PairingRefusal {
   readonly index: number;
+  readonly code: LoweringRefusalCode;
   readonly reason: string;
 }
 
@@ -205,13 +214,22 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
   const pairs: PredicatePair[] = [];
   const refusals: PairingRefusal[] = [];
   const pairedJump = new Set<number>();
+  /**
+   * Отказ сопоставления: КОД один и назван здесь, а не у каждой формулировки.
+   *
+   * `OSN-LOW-004` — раскладка: предикат-приёмник ставит она, и сопоставление — её проход
+   * (`src/e2k/loweringRefusal.ts`). Меняется только текст причины, личность — нет.
+   */
+  const refuse = (index: number, reason: string): void => {
+    refusals.push({ index, code: LOWERING_CODES.layout, reason });
+  };
 
   instructions.forEach((instruction, index) => {
     const comparison = comparisonMnemonicOf(instruction.mnemonic);
     if (comparison === undefined) return;
     const result = registersOf(instruction).writes[0];
     if (result === undefined) {
-      refusals.push({ index, reason: `«${instruction.mnemonic}» #${index}: у сравнения нет регистра-результата` });
+      refuse(index, `«${instruction.mnemonic}» #${index}: у сравнения нет регистра-результата`);
       return;
     }
     // Конец жизни значения: следующая инструкция, которая пишет тот же регистр.
@@ -233,39 +251,33 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
       if (registersOf(instructions[next]!).reads.includes(result)) readers.push(next);
     }
     if (barrier !== undefined && readers.length === 0) {
-      refusals.push({
+      refuse(
         index,
-        reason:
-          `«${instruction.mnemonic}» #${index}: в промежутке (#${barrier} ${instructions[barrier]!.mnemonic}) ` +
+        `«${instruction.mnemonic}» #${index}: в промежутке (#${barrier} ${instructions[barrier]!.mnemonic}) ` +
           "операция с неизвестными операндами — живость результата не доказана",
-      });
+      );
       return;
     }
     if (readers.length === 0) {
-      refusals.push({
-        index,
-        reason: `«${instruction.mnemonic}» #${index}: результат никем не читается — предикат некуда деть`,
-      });
+      refuse(index, `«${instruction.mnemonic}» #${index}: результат никем не читается — предикат некуда деть`);
       return;
     }
     if (readers.length > 1) {
-      refusals.push({
+      refuse(
         index,
-        reason:
-          `«${instruction.mnemonic}» #${index}: результат читают ${readers.length} инструкций ` +
+        `«${instruction.mnemonic}» #${index}: результат читают ${readers.length} инструкций ` +
           `(${readers.map((at) => `#${at} ${instructions[at]!.mnemonic}`).join(", ")}) — значение обязано жить в регистре`,
-      });
+      );
       return;
     }
     const jumpIndex = readers[0]!;
     const jump = instructions[jumpIndex]!;
     if (conditionRegisterOf(jump) !== result) {
-      refusals.push({
+      refuse(
         index,
-        reason:
-          `«${instruction.mnemonic}» #${index}: единственный читатель результата — #${jumpIndex} ${jump.mnemonic}, ` +
+        `«${instruction.mnemonic}» #${index}: единственный читатель результата — #${jumpIndex} ${jump.mnemonic}, ` +
           "и это не чтение условия перехода — предикат подставить некуда",
-      });
+      );
       return;
     }
     const inverted = (jump.mnemonic === "IR.jmp_if_not") !== comparison.flipped;
@@ -285,12 +297,11 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
   instructions.forEach((instruction, index) => {
     if (!CONDITIONAL_JUMPS.includes(instruction.mnemonic) || pairedJump.has(index)) return;
     const condition = conditionRegisterOf(instruction);
-    refusals.push({
+    refuse(
       index,
-      reason:
-        `«${instruction.mnemonic}» #${index}: условие %r${String(condition)} пришло не из сравнения ` +
+      `«${instruction.mnemonic}» #${index}: условие %r${String(condition)} пришло не из сравнения ` +
         "(или сравнение отвергнуто) — предикат взять неоткуда",
-    });
+    );
   });
 
   refusals.sort((a, b) => a.index - b.index);

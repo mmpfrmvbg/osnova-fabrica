@@ -25,6 +25,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { buildElfFromCode, MINIMAL_BASE } from "../e2k/elfMinimal";
 import { HEAP_OFFSET, loweredProgram, valueReturnsOf } from "../e2k/programImage";
+import { LOWERING_CODES, type LoweringRefusal } from "../e2k/loweringRefusal";
 import { buildShim, runInQemu } from "./e2kQemuExec";
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -38,10 +39,10 @@ export function shimAvailable(): boolean {
 export const SHIM_REASON =
   "шим не собран: в WSL-дистрибутиве нет компилятора C (docs/e2k-qemu-run.md §2.5)";
 
-/** Образ программы: байты, отказы понижения и число занятых регистров. */
+/** Образ программы: байты, отказы понижения (КОД плюс причина) и число занятых регистров. */
 export interface E2kImage {
   bytes: Uint8Array;
-  refused: string[];
+  refused: LoweringRefusal[];
   used: number;
 }
 
@@ -59,6 +60,12 @@ export interface E2kImage {
  * конвейере, и до неё отказ остаётся названным, а не тихим.
  */
 export class MultiReturnRefusal extends Error {
+  /**
+   * Код контракта отказа понижения (`OSN-LOW-006`, обвязка): канал другой — ИСКЛЮЧЕНИЕ, а не запись
+   * в `refused`, — а личность одна, и её читает наблюдатель по полю `code`
+   * (`src/e2k/loweringRefusal.ts`).
+   */
+  readonly code = LOWERING_CODES.wrapper;
   constructor(readonly returns: number) {
     super(
       `обвязка не умеет возврат из середины процедуры: возвратов со значением ${String(returns)}, ` +
@@ -84,7 +91,7 @@ export function buildE2kImage(source: string): E2kImage {
 /** Результат прогона на цели: код возврата `exit` и что не понизилось. */
 export interface E2kRun {
   status: number | undefined;
-  refused: string[];
+  refused: LoweringRefusal[];
   used: number;
   file: string;
   /**

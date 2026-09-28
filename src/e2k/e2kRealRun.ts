@@ -68,6 +68,7 @@ import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
 import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
+import { LOWERING_CODES, failureOf, type LoweringFailure } from "./loweringRefusal";
 import type { ShellEmitResult } from "./emitterOracle";
 import { RegVM } from "../runtime/vm/reginterpreter";
 import { createDefaultInvokeHandler, type StackValue } from "../runtime/vm/interpreter";
@@ -295,7 +296,7 @@ export function loweringOf(carrier: string): LoweringRule | undefined {
 /** Результат понижения одной инструкции. */
 export type LoweringResult =
   | { readonly ok: true; readonly instruction: AsmInstruction }
-  | { readonly ok: false; readonly reason: string };
+  | LoweringFailure;
 
 /**
  * Результат понижения носителя: одна команда или **серия** команд.
@@ -305,7 +306,7 @@ export type LoweringResult =
  */
 export type CarrierLoweringResult =
   | { readonly ok: true; readonly instructions: readonly AsmInstruction[] }
-  | { readonly ok: false; readonly reason: string };
+  | LoweringFailure;
 
 /** Что нужно понижению, кроме самой инструкции: пул констант модуля и смещение перехода. */
 export interface LoweringContext {
@@ -358,45 +359,47 @@ export interface LoweringContext {
 export function lowerInstruction(instruction: AsmInstruction, context: LoweringContext = {}): LoweringResult {
   const rule = loweringOf(instruction.mnemonic);
   if (rule === undefined) {
-    return {
-      ok: false,
-      reason: REFUSALS[instruction.mnemonic] ?? `носитель «${instruction.mnemonic}» не описан в таблице понижения`,
-    };
+    return failureOf(
+      LOWERING_CODES.noForm,
+      REFUSALS[instruction.mnemonic] ?? `носитель «${instruction.mnemonic}» не описан в таблице понижения`,
+    );
   }
   const entry = realOpcode(rule.mnemonic)!;
   if (rule.slots.length !== rule.fromIr.length) {
-    return { ok: false, reason: `правило «${rule.carrier}»: слотов ${rule.slots.length}, источников ${rule.fromIr.length}` };
+    return failureOf(
+      LOWERING_CODES.carrier,
+      `правило «${rule.carrier}»: слотов ${rule.slots.length}, источников ${rule.fromIr.length}`,
+    );
   }
   if (instruction.operands.length <= Math.max(...rule.fromIr)) {
-    return {
-      ok: false,
-      reason:
-        `«${instruction.mnemonic}»: операндов ${instruction.operands.length}, ` +
+    return failureOf(
+      LOWERING_CODES.carrier,
+      `«${instruction.mnemonic}»: операндов ${instruction.operands.length}, ` +
         `правило понижения читает операнд ${Math.max(...rule.fromIr)}`,
-    };
+    );
   }
   const operands: Operand[] = [];
   for (const index of rule.fromIr) {
     const operand = instruction.operands[index];
     if (index === rule.literalFromIr) {
       const literal = literalOf(instruction, index, operand, rule, context);
-      if (typeof literal === "string") return { ok: false, reason: literal };
+      if (typeof literal === "string") return failureOf(LOWERING_CODES.constant, literal);
       operands.push(imm(literal));
       continue;
     }
     if (operand === undefined || operand.kind !== "reg") {
-      return {
-        ok: false,
-        reason: `«${instruction.mnemonic}»: операнд ${index} не регистр — в e2k он попал бы в поле слога`,
-      };
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${instruction.mnemonic}»: операнд ${index} не регистр — в e2k он попал бы в поле слога`,
+      );
     }
     operands.push(reg(operand.index));
   }
   if (entry.operands.length !== rule.slots.length) {
-    return {
-      ok: false,
-      reason: `«${rule.mnemonic}»: форма ${entry.form} несёт ${entry.operands.length} операнда, правило даёт ${rule.slots.length}`,
-    };
+    return failureOf(
+      LOWERING_CODES.carrier,
+      `«${rule.mnemonic}»: форма ${entry.form} несёт ${entry.operands.length} операнда, правило даёт ${rule.slots.length}`,
+    );
   }
   return {
     ok: true,
@@ -436,26 +439,25 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
   if (instruction.mnemonic === "IR.call") {
     const flags = instruction.operands[0];
     if (flags === undefined || flags.kind !== "imm") {
-      return { ok: false, reason: '«IR.call»: операнд флагов не число — арность вызова неизвестна' };
+      return failureOf(LOWERING_CODES.carrier, '«IR.call»: операнд флагов не число — арность вызова неизвестна');
     }
     const argc = flags.value >> 1;
     const hasDestination = (flags.value & 1) === 1;
     if (argc > 2) {
-      return { ok: false, reason: `«IR.call»: аргументов ${argc}, носитель несёт не больше двух` };
+      return failureOf(LOWERING_CODES.runtime, `«IR.call»: аргументов ${argc}, носитель несёт не больше двух`);
     }
     if (context.callDisplacement === undefined) {
-      return {
-        ok: false,
-        reason:
-          '«IR.call»: не передано смещение вызова — цель это адрес первой команды вызываемой процедуры, ' +
+      return failureOf(
+        LOWERING_CODES.layout,
+        '«IR.call»: не передано смещение вызова — цель это адрес первой команды вызываемой процедуры, ' +
           'и он известен только после двухпроходной раскладки (src/e2k/twoPassLayout.ts)',
-      };
+      );
     }
     const instructions: AsmInstruction[] = [];
     for (let argument = 0; argument < argc; argument++) {
       const source = instruction.operands[1 + argument];
       if (source === undefined || source.kind !== "reg") {
-        return { ok: false, reason: `«IR.call»: аргумент ${argument} не в регистре` };
+        return failureOf(LOWERING_CODES.carrier, `«IR.call»: аргумент ${argument} не в регистре`);
       }
       instructions.push(movts(source.index, CALL_WBS * 2 + argument));
     }
@@ -464,7 +466,7 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     if (hasDestination) {
       const destination = instruction.operands[4];
       if (destination === undefined || destination.kind !== "reg") {
-        return { ok: false, reason: '«IR.call»: флаг обещает результат, а регистра-приёмника нет' };
+        return failureOf(LOWERING_CODES.carrier, '«IR.call»: флаг обещает результат, а регистра-приёмника нет');
       }
       instructions.push(movts(CALL_WBS * 2, destination.index));
     }
@@ -474,13 +476,13 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
   if (instruction.mnemonic === "IR.ret") {
     const flag = instruction.operands[0];
     if (flag === undefined || flag.kind !== "imm") {
-      return { ok: false, reason: '«IR.ret»: операнд «есть значение» не число' };
+      return failureOf(LOWERING_CODES.carrier, '«IR.ret»: операнд «есть значение» не число');
     }
     const instructions: AsmInstruction[] = [];
     if (flag.value === 1) {
       const value = instruction.operands[1];
       if (value === undefined || value.kind !== "reg") {
-        return { ok: false, reason: '«IR.ret»: флаг обещает значение, а регистра нет' };
+        return failureOf(LOWERING_CODES.carrier, '«IR.ret»: флаг обещает значение, а регистра нет');
       }
       instructions.push(movts(value.index, 0));
     }
@@ -499,31 +501,33 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
   if (instruction.mnemonic === "IR.invoke") {
     const names = context.invokeNames;
     if (names === undefined) {
-      return {
-        ok: false,
-        reason:
-          "«IR.invoke»: не передан список имён хост-вызовов (`invokeNames` образа оболочки) — " +
+      return failureOf(
+        LOWERING_CODES.carrier,
+        "«IR.invoke»: не передан список имён хост-вызовов (`invokeNames` образа оболочки) — " +
           "без него `payload` это число, а не операция",
-      };
+      );
     }
     const payload = instruction.operands[3];
     const flags = instruction.operands[0];
     if (payload === undefined || payload.kind !== "imm" || flags === undefined || flags.kind !== "imm") {
-      return { ok: false, reason: "«IR.invoke»: операнды носителя не той формы (ожидались flags и payload числами)" };
+      return failureOf(
+        LOWERING_CODES.carrier,
+        "«IR.invoke»: операнды носителя не той формы (ожидались flags и payload числами)",
+      );
     }
     const name = names[payload.value];
     if (name === undefined) {
-      return {
-        ok: false,
-        reason: `«IR.invoke»: в таблице имён нет записи с индексом ${payload.value} (всего имён ${names.length})`,
-      };
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«IR.invoke»: в таблице имён нет записи с индексом ${payload.value} (всего имён ${names.length})`,
+      );
     }
     const argc = flags.value >> 1;
     const hasDestination = (flags.value & 1) === 1;
     const args = [instruction.operands[1], instruction.operands[2]].slice(0, argc);
     const destination = instruction.operands[4];
     if (hasDestination && (destination === undefined || destination.kind !== "reg")) {
-      return { ok: false, reason: `«${name}»: у носителя нет регистра-приёмника, а флаг обещает результат` };
+      return failureOf(LOWERING_CODES.carrier, `«${name}»: у носителя нет регистра-приёмника, а флаг обещает результат`);
     }
     try {
       // Два рантайма по ИМЕНИ вызова: массивы (`src/e2k/arrayRuntime.ts`) и математика
@@ -539,7 +543,7 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
         ),
       };
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+      return failureOf(LOWERING_CODES.runtime, error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -565,12 +569,12 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       second.kind !== "reg" ||
       slot.kind !== "imm"
     ) {
-      return {
-        ok: false,
-        reason: `«${instruction.mnemonic}»: ожидались [регистр, регистр, адрес слота], получено [${operands
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${instruction.mnemonic}»: ожидались [регистр, регистр, адрес слота], получено [${operands
           .map((operand) => operand.kind)
           .join(", ")}]`,
-      };
+      );
     }
     const literal: Operand = { kind: "imm64", value: BigInt(slot.value) } as Operand;
     if (instruction.mnemonic === SPILL_LOAD) {
@@ -597,13 +601,12 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
   if (comparison !== undefined) {
     const predicate = context.predicate;
     if (predicate === undefined) {
-      return {
-        ok: false,
-        reason:
-          `«${instruction.mnemonic}»: сравнение понижается только ПАРОЙ с условным переходом — ` +
+      return failureOf(
+        LOWERING_CODES.layout,
+        `«${instruction.mnemonic}»: сравнение понижается только ПАРОЙ с условным переходом — ` +
           "предикат, который оно пишет, читает `ct` (`SS.ctcond.psrc`), а значение в регистре предикатом " +
           "не является; сопоставление — src/e2k/predicatePairing.ts",
-      };
+      );
     }
     const left = instruction.operands[1];
     const right = instruction.operands[2];
@@ -612,10 +615,10 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       [2, right],
     ] as const) {
       if (operand === undefined || operand.kind !== "reg") {
-        return {
-          ok: false,
-          reason: `«${instruction.mnemonic}»: операнд ${at} не регистр — в e2k он попал бы в поле слога`,
-        };
+        return failureOf(
+          LOWERING_CODES.carrier,
+          `«${instruction.mnemonic}»: операнд ${at} не регистр — в e2k он попал бы в поле слога`,
+        );
       }
     }
     return {
@@ -634,20 +637,19 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     const displacement = context.displacement;
     const condition = context.condition;
     if (displacement === undefined || condition === undefined) {
-      return {
-        ok: false,
-        reason:
-          `«${instruction.mnemonic}»: условный переход понижается серией «disp + ct» и требует ДВУХ ` +
+      return failureOf(
+        LOWERING_CODES.layout,
+        `«${instruction.mnemonic}»: условный переход понижается серией «disp + ct» и требует ДВУХ ` +
           "вещей из контекста — смещения (раскладка) и кода условия `SS.ctcond` (сопоставление пары " +
           "со сравнением); иначе ни адрес цели, ни предикат взять неоткуда",
-      };
+      );
     }
     return { ok: true, instructions: jumpCommands(displacement, condition) };
   }
 
   if (instruction.mnemonic === JUMP_CARRIER) {
     const displacement = context.displacement;
-    if (displacement === undefined) return { ok: false, reason: JUMP_NEEDS_LAYOUT };
+    if (displacement === undefined) return failureOf(LOWERING_CODES.layout, JUMP_NEEDS_LAYOUT);
     return { ok: true, instructions: jumpCommands(displacement) };
   }
 
