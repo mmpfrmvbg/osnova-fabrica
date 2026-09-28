@@ -326,6 +326,25 @@ export interface CarrierFormContext {
    * `movtd` — всегда 16 байт), поэтому без него берётся конвенция образа.
    */
   readonly heapAddress?: number;
+  /**
+   * ИСПОЛНЯЕТСЯ ли носитель `IR.ret` как возврат процедуры.
+   *
+   * Возврат в этом порте — ПАРА команд (`return %ctpr3` + `ct %ctpr3`): одна `return` валит
+   * утверждение, одна `ct` — ловушка (`src/e2k/e2kCallWindowQemu.test.ts`, шлюз). Значит у формы
+   * `IR.ret` два честных размера: 24/16 байт там, где возврат ИСПОЛНЯЕТСЯ (вызываемая процедура),
+   * и прежние 16/8 там, где носитель только КОДИРУЕТСЯ, а исполняется не он (точка входа:
+   * её выход — `exit`; замеры ядер — тот же случай). Раскладка обязана считать ровно те байты,
+   * что выдаёт понижение, иначе адреса уезжают (`docs/hardware-debt.md` §3.35).
+   */
+  readonly procedureReturn?: boolean;
+  /**
+   * Индексы носителей, которые в образ НЕ ПОПАДАЮТ и потому получают размер 0.
+   *
+   * Так называется один случай: возвраты точки входа. Их не исполняет никто (выход точки входа —
+   * `exit`), но раскладка обязана знать об этом ЗАРАНЕЕ, иначе адреса процедур за ними уезжают
+   * (`src/e2k/procedureCall.ts#prepareImage`).
+   */
+  readonly zeroSize?: readonly number[];
 }
 
 /**
@@ -356,6 +375,22 @@ const CALL_COMMAND_FORMS: ReadonlyMap<string, CommandForm> = new Map([
       form: 'CS0_RETURN',
       size: REAL_SHORT_FORM_SIZE,
       source: 'CS0, `ctp_opc = 0`; измерено ассемблером: `return %ctpr3` → 8 байт (docs/e2k-minimal-elf.md §3)',
+    },
+  ],
+  [
+    // ВТОРАЯ ПОЛОВИНА ВОЗВРАТА. Одна `return %ctpr3` в порте валит утверждение (`op_descr->is_al`,
+    // статус 134), одна `ct %ctpr3` — ловушка (статус 9): `call` стирает ctpr в пустой тег.
+    // Управление возвращает только ПАРА (`src/e2k/e2kCallWindowQemu.test.ts`, шлюз; `docs/e2k-return-port.md`).
+    // Форма обязана считать те же байты, что выдаёт понижение (`src/e2k/e2kRealRun.ts`, ветвь `IR.ret`):
+    // расхождение формы и понижения уже стоило нам уехавших адресов (docs/hardware-debt.md §3.35).
+    'ct',
+    {
+      mnemonic: 'ct',
+      form: 'SS (SF1)',
+      size: REAL_SHORT_FORM_SIZE,
+      source:
+        'SS формата SF1, 8 байт — REAL_CONTROL_OPCODES[ct].size (src/e2k/e2k-real.ts); измерено: ' +
+        '`ct %ctpr1` → 01 10 00 00 20 04 00 c0 (docs/e2k-syllables-real.md §4)',
     },
   ],
 ]);
@@ -411,13 +446,17 @@ function callForm(instruction: AsmInstruction): CarrierFormOutcome {
 }
 
 /** Форма возврата: пересылка значения в приёмник соглашения (`%r0` вызываемого) + `return %ctpr3`. */
-function retForm(instruction: AsmInstruction): CarrierFormOutcome {
+function retForm(instruction: AsmInstruction, procedureReturn: boolean): CarrierFormOutcome {
   const flag = instruction.operands[0];
   if (flag === undefined || flag.kind !== 'imm') {
     return { failure: failureOf(LOWERING_CODES.carrier, '«IR.ret»: операнд «есть значение» не число') };
   }
+  // Результат (если он есть) уезжает в свой `%r0` пересылкой. Возврат ИСПОЛНЯЕТСЯ парой
+  // (`return` + `ct`) там, где из процедуры действительно возвращаются; в точке входа носитель
+  // не исполняется вовсе (её выход — `exit`), и там форма остаётся прежней, однокомандной.
   const commands: CommandForm[] = flag.value === 1 ? [CALL_COMMAND_FORMS.get('movts')!] : [];
   commands.push(CALL_COMMAND_FORMS.get('return')!);
+  if (procedureReturn) commands.push(CALL_COMMAND_FORMS.get('ct')!);
   return { form: { carrier: 'IR.ret', commands } };
 }
 
@@ -465,7 +504,7 @@ function carrierFormWithReason(
   // форма берётся отдельной ветвью, а не из статической таблицы CARRIER_FORMS.
   if (instruction.mnemonic === 'IR.const') return { form: constForm(instruction, context) };
   if (instruction.mnemonic === 'IR.call') return callForm(instruction);
-  if (instruction.mnemonic === 'IR.ret') return retForm(instruction);
+  if (instruction.mnemonic === 'IR.ret') return retForm(instruction, context.procedureReturn === true);
   if (instruction.mnemonic !== 'IR.invoke') {
     const form = carrierForm(instruction.mnemonic);
     return form === undefined ? {} : { form };
@@ -781,8 +820,17 @@ export function layoutOf(
   const entries: LayoutEntry[] = [];
   const unplaced: UnplacedInstruction[] = [];
   const addresses = new Map<number, number>();
+  // Носители, которые в образ НЕ ПОПАДАЮТ (возвраты точки входа: их место занимает её `exit`),
+  // получают размер 0 — иначе раскладка резервирует байты под то, чего в образе не будет, и адреса
+  // всего, что стоит дальше, уезжают. Список приходит от конвейера: он знает, чьи это возвраты.
+  const zeroSize = new Set(context.zeroSize ?? []);
   let offset = 0;
   instructions.forEach((instruction, index) => {
+    if (zeroSize.has(index)) {
+      entries.push({ index, address: offset, size: 0, carrier: instruction.mnemonic, commands: [] });
+      addresses.set(index, offset);
+      return;
+    }
     // Широкая команда — не носитель и не форма: её размер задаёт структура (HS + слоги + добивка),
     // и в `CARRIER_FORMS` её нет и быть не может, потому что она собирается из нескольких команд.
     if (instruction.wideGroup !== undefined) {

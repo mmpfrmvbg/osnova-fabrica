@@ -61,7 +61,7 @@
 
 import type { AsmInstruction, Encoder, Operand } from "./backend";
 import { sameInstruction } from "./backend";
-import { REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from "./e2k-real";
+import { CT_COND_ALWAYS, REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from "./e2k-real";
 import { CALL_WBS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
@@ -343,6 +343,16 @@ export interface LoweringContext {
    * только после двухпроходной раскладки. Без него вызов не понижается — с названной причиной.
    */
   readonly callDisplacement?: number;
+  /**
+   * ИСПОЛНЯЕТСЯ ли `IR.ret` как ВОЗВРАТ ПРОЦЕДУРЫ.
+   *
+   * Тогда он понижается ПАРОЙ: подготовка `return %ctpr3` плюс переход `ct %ctpr3`. Одна `return`
+   * в этом порте валит утверждение (`op_descr->is_al`, статус 134), одна `ct` — ловушка (статус 9):
+   * `call` стирает ctpr в пустой тег. Измерено оракулом окна (`src/e2k/e2kCallWindowQemu.test.ts`,
+   * шлюз), разбор — `docs/e2k-return-port.md`. Без флага (точка входа, замеры) форма остаётся
+   * прежней: там носитель не исполняется, и сдвигать закреплённые числа нечем.
+   */
+  readonly procedureReturn?: boolean;
 }
 
 /**
@@ -486,9 +496,15 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       }
       instructions.push(movts(value.index, 0));
     }
-    // `return %ctpr3`: цель возврата готовит сам `call` (адрес следующей команды), и это приём
-    // соглашения, а не факт: исполнение в порте не подтверждено (§7.10).
+    // ВОЗВРАТ ПРОЦЕДУРЫ — ПАРА, А НЕ ОДНА КОМАНДА. Измерено оракулом окна
+    // (`src/e2k/e2kCallWindowQemu.test.ts`, шлюз `gate:qemu`): одна `return %ctpr3` (CS0) валит порт
+    // утверждением `op_descr->is_al` (статус 134), одна `ct %ctpr3` (SS) — гостевым исключением на
+    // самой `ct` (статус 9): `call` стирает ctpr в пустой тег. Управление возвращает ТОЛЬКО пара —
+    // подготовка плюс переход. Это замер, а не догадка: `docs/e2k-return-port.md`, §3.24.
     instructions.push({ mnemonic: "return", channel: 0, operands: [imm(3)] });
+    if (context.procedureReturn === true) {
+      instructions.push({ mnemonic: "ct", channel: 0, operands: [imm(3), imm(CT_COND_ALWAYS)] });
+    }
     return { ok: true, instructions };
   }
 

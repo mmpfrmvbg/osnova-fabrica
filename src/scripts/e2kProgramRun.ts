@@ -24,7 +24,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { buildElfFromCode, MINIMAL_BASE } from "../e2k/elfMinimal";
-import { HEAP_OFFSET, loweredProgram, valueReturnsOf } from "../e2k/programImage";
+import { HEAP_OFFSET, entryValueReturnsOf, loweredProgram } from "../e2k/programImage";
 import { LOWERING_CODES, type LoweringRefusal } from "../e2k/loweringRefusal";
 import { buildShim, runInQemu } from "./e2kQemuExec";
 
@@ -68,8 +68,9 @@ export class MultiReturnRefusal extends Error {
   readonly code = LOWERING_CODES.wrapper;
   constructor(readonly returns: number) {
     super(
-      `обвязка не умеет возврат из середины процедуры: возвратов со значением ${String(returns)}, ` +
-        "а в e2k-бэкенде возврата процедуры нет — обход через регистр верен только при одном возврате",
+      `обвязка не умеет возврат из середины ТОЧКИ ВХОДА: возвратов со значением ${String(returns)}, ` +
+        'а результат точки входа уходит кодом возврата процесса — одна точка выхода на прогон. ' +
+        'У ВЫЗЫВАЕМОЙ процедуры возвратов может быть сколько угодно: там работает `return %ctpr3`',
     );
     this.name = "MultiReturnRefusal";
   }
@@ -81,8 +82,10 @@ export function buildE2kImage(source: string): E2kImage {
   // для программ с несколькими возвратами (см. {@link MultiReturnRefusal}).
   // Возвратов со значением может быть несколько — и тогда обход через регистр
   // неверен (см. MultiReturnRefusal). Отказываем ДО сборки: тихое неверное число
-  // хуже названного отказа. Считаем по носителям, а не по тексту.
-  const returns = valueReturnsOf(source);
+  // хуже названного отказа. Считаем по носителям, а не по тексту — И ТОЛЬКО В ТОЧКЕ ВХОДА:
+  // у вызываемой процедуры возврат свой (`return %ctpr3`), и ранний возврат в ней — норма
+  // (пример `08-факториал`), а не повод отказать программе.
+  const returns = entryValueReturnsOf(source);
   if (returns > 1) throw new MultiReturnRefusal(returns);
   const built = loweredProgram(source);
   return { bytes: built.bytes, refused: [...built.refused], used: built.used };
