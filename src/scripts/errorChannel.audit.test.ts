@@ -429,22 +429,27 @@ describe("каталог видов: покрытие, уникальность 
     expect(produced.size, "semantic.ts обязан порождать виды").toBeGreaterThan(0);
   });
 
-  it("вид каталога без производителя обязан быть назван долгом, а не выдуман", () => {
+  it("вид каталога без производителя обязан быть назван мёртвым с замером, а не выдуман", () => {
     const produced = kindsProducedBySource();
     const orphans = DIAGNOSTIC_KINDS.filter((k) => !produced.has(k.kind));
     const unnamed = orphans.filter((k) => {
-      const debt = "debt" in k ? k.debt : undefined;
-      return typeof debt !== "string" || debt.trim() === "";
+      // Состояние — одно на вид (T12): осиротевший вид обязан быть назван
+      // «недостижимый» и нести замер, иначе он выдуман или спрятан.
+      if (k.state !== "недостижимый") return true;
+      const measure = "unreachable" in k ? k.unreachable : undefined;
+      return typeof measure !== "string" || measure.trim().length <= 20;
     });
     expect(
       unnamed.map((k) => k.kind),
-      "запись каталога без производителя и без названной причины — выдуманный вид",
+      "запись каталога без производителя, но не названная мёртвой с замером",
     ).toEqual([]);
     // Сегодня такой ровно один — `chained_compare`: цепочку `a < b < c`
     // разворачивает в `(a < b) и (b < c)` ПАРСЕР (канон §2.1), поэтому площадки в
     // семантике нет, а прежняя проверка била только по законным программам
-    // (`(1 < 2) = истина`) и снята. Число закреплено: тихое возвращение
-    // производителя или второй «осиротевший» вид видно сразу.
+    // (`(1 < 2) = истина`) и снята. `keyword_param` и `export_collision` площадку
+    // в `semantic.ts` имеют (мёртвую), поэтому в осиротевшие не попадают, — их
+    // недостижимость меряется отдельными пробами ниже. Число закреплено: тихое
+    // возвращение производителя или второй «осиротевший» вид видно сразу.
     expect(orphans.map((k) => k.kind)).toEqual(["chained_compare"]);
   });
 
@@ -549,7 +554,7 @@ describe("каталог против факта: блокирует ли вид
    * мутированную копию, не трогая файл на диске.
    */
   function blockingDivergences(
-    entries: readonly { kind: string; blocking: boolean }[],
+    entries: readonly { kind: string; state: string }[],
     triggers: Record<string, string>,
   ): string[] {
     const divergences: string[] = [];
@@ -561,9 +566,9 @@ describe("каталог против факта: блокирует ли вид
       }
       const report = compileToBuildReport(compileSource(source, { filename: "проба-вида.osnova" }));
       const blocksInFact = report.success === false;
-      if (info.blocking !== blocksInFact) {
+      if ((info.state === "блокирующий") !== blocksInFact) {
         divergences.push(
-          `${kind}: каталог blocking=${info.blocking}, факт success=${report.success}` +
+          `${kind}: каталог state=${info.state}, факт success=${report.success}` +
             `, module=${report.bytecode === null ? "null" : "есть"}` +
             `, compilerSuccess=${report.compilerSuccess}`,
         );
@@ -602,7 +607,7 @@ describe("каталог против факта: блокирует ли вид
     // Тот же код, что и в проверке выше, но на мутированной КОПИИ каталога: без
     // этого «расхождений нет» неотличимо от «проверка ничего не проверяет».
     const mutated = DIAGNOSTIC_KINDS.map((entry) => ({ ...entry }));
-    mutated.find((entry) => entry.kind === "break_outside_loop")!.blocking = false;
+    mutated.find((entry) => entry.kind === "break_outside_loop")!.state = "неблокирующий";
     const divergences = blockingDivergences(mutated, TRIGGERS);
     expect(divergences.map((d) => d.split(":")[0])).toEqual(["break_outside_loop"]);
   });

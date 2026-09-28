@@ -89,15 +89,19 @@ describe('списки и каталог', () => {
 
   it('ALL_SEMANTIC_KINDS — только ОТНЕСЁННЫЕ виды, а не весь каталог', () => {
     // Различие, которое легко перепутать: «все виды языка» — это каталог (15),
-    // а `ALL_SEMANTIC_KINDS` — списки потребителей (9). Шесть видов с долгом
-    // стоят вне обоих списков, и это названо в каталоге, а не забыто.
+    // а `ALL_SEMANTIC_KINDS` — списки потребителей (9). Шесть видов стоят
+    // вне обоих списков, но у каждого названное состояние: три мёртвых и три живых,
+    // потребителям не отданных (T12: расширение отклонено владельцем).
     expect(ALL_SEMANTIC_KINDS.length).toBeLessThan(DIAGNOSTIC_KINDS.length);
     const listed = new Set<string>(ALL_SEMANTIC_KINDS);
     const unlisted = catalogueKinds.filter((kind) => !listed.has(kind));
     expect(unlisted, 'виды каталога вне списков').toHaveLength(6);
     for (const kind of unlisted) {
       const entry = DIAGNOSTIC_KINDS.find((e) => e.kind === kind)!;
-      expect(entry.debt, `«${kind}» вне списков обязан быть назван долгом`).toBeTruthy();
+      expect(
+        ['недостижимый', 'неблокирующий-вне-списка'],
+        `вид ${kind} вне списков обязан иметь названное состояние`,
+      ).toContain(entry.state);
     }
   });
 });

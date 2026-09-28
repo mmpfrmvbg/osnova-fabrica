@@ -20,29 +20,32 @@
  * (в) каждый вид, который `semantic.ts` порождает, есть в каталоге — **скан
  * исходника**, а не ручной список: ручной список разошёлся бы так же, как
  * разошлись прежние три;
- * (г) каждый вид каталога либо порождается, либо помечен долгом — иначе в
- * каталоге заводится вид, которого язык не знает;
- * (д) `BLOCKING_SEMANTIC_KINDS` в точности равен множеству `blocking: true`,
- * неблокирующий список — множеству «не блокирует **и** долга нет», а
+ * (г) каждый вид каталога либо порождается, либо назван **недостижимым** — иначе
+ * в каталоге заводится вид, которого язык не знает;
+ * (д) `BLOCKING_SEMANTIC_KINDS` в точности равен множеству видов в состоянии
+ * «блокирующий», неблокирующий список — множеству «неблокирующий», а
  * `ALL_SEMANTIC_KINDS` — их сумме;
- * (е) **класс: признак обязан совпадать с поведением компилятора** — для каждого
- * вида с пробой `blocking` ⟺ сборка не проходит, а `buildRefused` заполнен ⟺
- * замер показывает отказ. Перечня «известных расхождений» и исключений здесь
- * нет: расхождение — это красное, а не запись. Замер 2026-09-28: расхождений
- * ноль (`break_outside_loop`/`continue_outside_loop` переведены в блокирующие —
- * программа с ними не собирается), а `chained_compare` объявлен недостижимым,
- * потому что канон §2.1 разворачивает цепочку в парсере.
+ * (е) **класс: состояние обязано совпадать с поведением компилятора** — для
+ * каждого вида с пробой «блокирующий» ⟺ сборка не проходит, а `buildRefused`
+ * заполнен ⟺ замер показывает отказ. Перечня «известных расхождений» и исключений
+ * здесь нет: расхождение — это красное, а не запись. Замер 2026-09-28: расхождений
+ * ноль (`break_outside_loop`/`continue_outside_loop` — блокирующие, программа с
+ * ними не собирается);
+ * (ж) **класс: у вида ровно одно состояние, и оно совпадает с замером**
+ * (задача T12, решение владельца: состояние `debt` снято). Живой вид обязан
+ * порождаться исходным текстом, мёртвый — не порождаться ни одной площадкой и
+ * иметь названный замер недостижимости. Состояния складываются в 15 без остатка:
+ * **8 блокирующих + 1 неблокирующий + 3 неблокирующих вне списка + 3 недостижимых**.
  *
  * # Негативный контроль
  *
  * Мутации **копии** каталога: файл на диске не трогается — вердикты
- * (`catalogueFindings`, `behaviourFindings`) принимают каталог параметром.
- * Каждая мутация обязана покраснеть, и проверка называет, ЧТО покраснело: без
- * этого «контроль прошёл» неотличимо от «сторож слеп». Среди мутаций несущие:
- * снятие долга с `arg_count_mismatch` расширяет неблокирующий список, снятие
- * всех шести долгов — до семи видов, а подмена `blocking` у вида с пробой и
- * снятый `buildRefused` краснят класс (е) — это и есть контроль на «вид из
- * каталога перестал соответствовать компилятору».
+ * (`catalogueFindings`, `behaviourFindings`, `stateFindings`) принимают каталог
+ * параметром. Каждая мутация обязана покраснеть, и проверка называет, ЧТО
+ * покраснело: без этого «контроль прошёл» неотличимо от «сторож слеп». Среди
+ * мутаций несущие: живой вид, названный мёртвым; мёртвый, названный живым;
+ * подмена состояния у вида с пробой и снятый `buildRefused` — это и есть контроль
+ * на «вид из каталога перестал соответствовать компилятору».
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -94,11 +97,14 @@ type CheckId =
   | 'уникальность кода'
   | 'формат кода'
   | 'порождённый вид вне каталога'
-  | 'вид каталога без порождения и без долга'
+  | 'вид каталога без порождения и без состояния'
   | 'блокирующий список'
   | 'неблокирующий список'
   | 'признак против сборки'
-  | 'замер buildRefused';
+  | 'замер buildRefused'
+  | 'состояние вида'
+  | 'состояние против факта'
+  | 'замер недостижимости';
 
 interface Finding {
   check: CheckId;
@@ -112,15 +118,23 @@ interface Finding {
 interface EntryLike {
   kind: string;
   code: string;
-  blocking: boolean;
+  state: string;
   description: string;
-  debt?: string;
+  unreachable?: string;
   buildRefused?: string;
 }
 
-/** Долг назван — значит вид имеет право не порождаться и стоять вне списков. */
-function hasDebt(entry: EntryLike): boolean {
-  return typeof entry.debt === 'string' && entry.debt.trim() !== '';
+/** Состояния, какие бывают. Всё прочее — дефект каталога, а не пятое состояние. */
+const STATES = ['блокирующий', 'неблокирующий', 'неблокирующий-вне-списка', 'недостижимый'] as const;
+
+/** Вид назван живым: он обязан порождаться исходным текстом. */
+function isAlive(entry: EntryLike): boolean {
+  return entry.state !== 'недостижимый';
+}
+
+/** Названный замер недостижимости — непустой текст, а не отписка. */
+function hasUnreachableMeasure(entry: EntryLike): boolean {
+  return typeof entry.unreachable === 'string' && entry.unreachable.trim().length > 20;
 }
 
 /** Значения, встретившиеся больше одного раза (в порядке первого повтора). */
@@ -192,32 +206,34 @@ function catalogueFindings(entries: readonly EntryLike[], produced: readonly str
     }
   }
 
-  // (г) вид каталога обязан быть порождён — или назван долгом.
+  // (г) вид каталога обязан быть порождён — или назван недостижимым с замером.
   for (const entry of entries) {
-    if (!producedSet.has(entry.kind) && !hasDebt(entry)) {
+    if (!producedSet.has(entry.kind) && entry.state !== 'недостижимый') {
       findings.push({
-        check: 'вид каталога без порождения и без долга',
-        detail: `«${entry.kind}» не порождается ни одной площадкой и долга за ним нет`,
+        check: 'вид каталога без порождения и без состояния',
+        detail:
+          `«${entry.kind}» не порождается ни одной площадкой, а состояние у него ` +
+          `«${entry.state}» — живой вид обязан порождаться`,
       });
     }
   }
 
-  // (д) блокирующий список — в точности множество `blocking: true`.
+  // (д) блокирующий список — в точности множество видов в состоянии «блокирующий».
   findings.push(
     ...listFindings(
       'блокирующий список',
       BLOCKING_SEMANTIC_KINDS,
-      entries.filter((entry) => entry.blocking).map((entry) => entry.kind),
+      entries.filter((entry) => entry.state === 'блокирующий').map((entry) => entry.kind),
     ),
   );
 
-  // (д) неблокирующий — «не блокирует И долга нет»: снятый долг обязан
-  // покраснеть, потому что он расширит список, а с ним поведение потребителей.
+  // (д) неблокирующий — в точности состояние «неблокирующий»: мёртвый вид сюда
+  // попасть не может (маршрутизировать нечего), а живой обязан.
   findings.push(
     ...listFindings(
       'неблокирующий список',
       NON_BLOCKING_SEMANTIC_KINDS,
-      entries.filter((entry) => !entry.blocking && !hasDebt(entry)).map((entry) => entry.kind),
+      entries.filter((entry) => entry.state === 'неблокирующий').map((entry) => entry.kind),
     ),
   );
 
@@ -253,27 +269,116 @@ function behaviourFindings(
     // проверка с названной причиной (`UNPROBED`).
     if (m === undefined) continue;
     const refused = !m.builds;
-    if (entry.blocking !== refused) {
+    if ((entry.state === 'блокирующий') !== refused) {
       findings.push({
         check: 'признак против сборки',
         detail:
-          `«${entry.kind}»: в каталоге blocking=${entry.blocking}, а замер ` +
+          `«${entry.kind}»: в каталоге состояние «${entry.state}», а замер ` +
           (refused ? 'показывает отказ сборки (success=false)' : 'показывает успешную сборку'),
       });
     }
     const filled = typeof entry.buildRefused === 'string' && entry.buildRefused.trim() !== '';
     // `buildRefused` — имя расхождения, а не общий замер: заполнено ⟺ «сборка не
-    // проходит, а в блокирующем списке вида нет». Сегодня таких нет ни одного.
-    const diverges = refused && !entry.blocking;
+    // проходит, а вид не блокирующий». Сегодня таких нет ни одного.
+    const diverges = refused && entry.state !== 'блокирующий';
     if (filled !== diverges) {
       findings.push({
         check: 'замер buildRefused',
         detail:
           `«${entry.kind}»: buildRefused ${filled ? 'заполнен' : 'пуст'}, а расхождение ` +
           (diverges
-            ? 'есть: сборка не проходит, а признак `blocking` равен false'
-            : 'отсутствует: признак и судьба сборки согласованы'),
+            ? 'есть: сборка не проходит, а состояние не «блокирующий»'
+            : 'отсутствует: состояние и судьба сборки согласованы'),
       });
+    }
+  }
+  return findings;
+}
+
+/**
+ * КЛАСС (ж): **у вида ровно одно состояние, и оно совпадает с замером.**
+ *
+ * Решение владельца (задача T12, 2026-09-28): состояние `debt` снято; у каждого
+ * из пятнадцати видов состояние названо, и безымянного «не отнесён ни к одному»
+ * больше нет. Состояний четыре, и они складываются в 15 без остатка:
+ * **8 блокирующих + 1 неблокирующий + 3 неблокирующих вне списка + 3 недостижимых**.
+ *
+ * Факт, с которым сверяется состояние, — **достижимость по замеру**: вид с пробой
+ * (`MEASURED`) порождается исходным текстом, вид без пробы — нет. Именно «по
+ * замеру», а не «по скану площадок»: у `keyword_param` и `export_collision`
+ * площадка в `semantic.ts` **есть**, но мёртвая (парсер отвергает ключевое слово
+ * в позиции параметра; загрузчик не даёт двух провайдеров), поэтому скан говорит
+ * «порождается», а замер — «нет». Скан держит проверка (г) выше.
+ *
+ * Поэтому здесь:
+ * - состояние обязано быть одним из четырёх (`STATES`) — пятого не бывает;
+ * - живой вид обязан иметь пробу, мёртвый — не иметь;
+ * - мёртвый обязан нести названный замер недостижимости (`unreachable`, длиннее
+ *   отписки), живой его нести не может — иначе «мёртвость» приписывалась бы
+ *   живому виду текстом.
+ */
+function stateFindings(
+  entries: readonly EntryLike[],
+  measured: Record<string, { builds: boolean }>,
+): Finding[] {
+  const findings: Finding[] = [];
+  const counts: Record<string, number> = {};
+
+  for (const entry of entries) {
+    counts[entry.state] = (counts[entry.state] ?? 0) + 1;
+
+    // Ровно одно состояние — и оно из трёх названных.
+    if (!(STATES as readonly string[]).includes(entry.state)) {
+      findings.push({
+        check: 'состояние вида',
+        detail: `«${entry.kind}»: состояние «${entry.state}» не из трёх названных`,
+      });
+      continue;
+    }
+
+    const probed = measured[entry.kind] !== undefined;
+    const alive = isAlive(entry);
+
+    if (alive && !probed) {
+      findings.push({
+        check: 'состояние против факта',
+        detail: `«${entry.kind}»: назван живым (${entry.state}), а пробы нет — достижимость не показана`,
+      });
+    }
+    if (!alive && probed) {
+      findings.push({
+        check: 'состояние против факта',
+        detail: `«${entry.kind}»: назван мёртвым, а проба его порождает — вид жив`,
+      });
+    }
+
+    // Замер недостижимости — только у мёртвого и обязателен у него.
+    const measuredUnreachable = hasUnreachableMeasure(entry);
+    if (!alive && !measuredUnreachable) {
+      findings.push({
+        check: 'замер недостижимости',
+        detail: `«${entry.kind}»: назван мёртвым без названного замера недостижимости`,
+      });
+    }
+    if (alive && entry.unreachable !== undefined) {
+      findings.push({
+        check: 'замер недостижимости',
+        detail: `«${entry.kind}»: живой вид несёт замер недостижимости — состояния спорят`,
+      });
+    }
+  }
+
+  // Сумма состояний — 15 без остатка, и каждое состояние непусто.
+  const sum = STATES.reduce((acc, state) => acc + (counts[state] ?? 0), 0);
+  if (sum !== entries.length) {
+    findings.push({
+      check: 'состояние вида',
+      detail: `состояния покрывают ${sum} видов из ${entries.length} — есть вид без состояния`,
+    });
+  }
+  for (const state of STATES) {
+    if ((counts[state] ?? 0) === 0) {
+      findings.push({ check: 'состояние вида', detail: `состояние «${state}» не занято ни одним видом` });
     }
   }
   return findings;
@@ -313,12 +418,12 @@ describe('каталог видов: один источник правды', ()
     expect(unknown, 'виды, порождённые компилятором и каталогу неизвестные').toEqual([]);
   });
 
-  it('(г) каждый вид каталога либо порождается, либо помечен долгом', () => {
+  it('(г) каждый вид каталога либо порождается, либо назван недостижимым', () => {
     const producedSet = new Set(PRODUCED);
     const silent = DIAGNOSTIC_KINDS.filter(
-      (entry) => !producedSet.has(entry.kind) && entry.debt === undefined,
+      (entry) => !producedSet.has(entry.kind) && entry.state !== 'недостижимый',
     ).map((entry) => entry.kind);
-    expect(silent, 'виды каталога без порождения и без долга').toEqual([]);
+    expect(silent, 'виды каталога без порождения и без состояния «недостижимый»').toEqual([]);
   });
 
   it('скан исходника не слеп: 24 площадки порождения, 14 видов', () => {
@@ -334,25 +439,29 @@ describe('каталог видов: один источник правды', ()
 // ─────────────────── (д): списки выводятся из каталога ───────────────────
 
 describe('списки выводятся из каталога, а не пишутся рядом', () => {
-  it('(д) BLOCKING_SEMANTIC_KINDS в точности равен множеству `blocking: true`', () => {
-    const derived = DIAGNOSTIC_KINDS.filter((entry) => entry.blocking).map((entry) => entry.kind);
+  it('(д) BLOCKING_SEMANTIC_KINDS в точности равен множеству состояния «блокирующий»', () => {
+    const derived = DIAGNOSTIC_KINDS.filter((entry) => entry.state === 'блокирующий').map(
+      (entry) => entry.kind,
+    );
     expect([...BLOCKING_SEMANTIC_KINDS]).toEqual(derived);
     expect(derived, 'блокирующих видов').toHaveLength(8);
   });
 
-  it('(д) NON_BLOCKING_SEMANTIC_KINDS в точности равен множеству «не блокирует и без долга»', () => {
-    const derived = DIAGNOSTIC_KINDS.filter(
-      (entry) => !entry.blocking && entry.debt === undefined,
-    ).map((entry) => entry.kind);
-    expect([...NON_BLOCKING_SEMANTIC_KINDS]).toEqual(derived);
-    expect(derived, 'неблокирующих видов').toHaveLength(1);
-  });
-
-  it('шесть видов с долгом не входят ни в один список — названы, а не спрятаны', () => {
-    const withDebt = DIAGNOSTIC_KINDS.filter((entry) => entry.debt !== undefined).map(
+  it('(д) NON_BLOCKING_SEMANTIC_KINDS в точности равен множеству состояния «неблокирующий»', () => {
+    const derived = DIAGNOSTIC_KINDS.filter((entry) => entry.state === 'неблокирующий').map(
       (entry) => entry.kind,
     );
-    expect(withDebt).toEqual([
+    expect([...NON_BLOCKING_SEMANTIC_KINDS]).toEqual(derived);
+    // Список НЕ расширен (T12: расширение отклонено владельцем) — в нём один вид,
+    // а три живых неблокирующих стоят вне списка с названным состоянием.
+    expect(derived, 'неблокирующих видов в списке').toHaveLength(1);
+  });
+
+  it('шесть видов вне списков, и у каждого названное состояние — не «ни к одному»', () => {
+    const beyondLists = DIAGNOSTIC_KINDS.filter(
+      (entry) => entry.state !== 'блокирующий' && entry.state !== 'неблокирующий',
+    ).map((entry) => entry.kind);
+    expect(beyondLists).toEqual([
       'arg_count_mismatch',
       'chained_compare',
       'keyword_param',
@@ -360,14 +469,32 @@ describe('списки выводятся из каталога, а не пиш�
       'unknown_module',
       'export_collision',
     ]);
-    for (const kind of withDebt) {
+    for (const kind of beyondLists) {
+      const entry = DIAGNOSTIC_KINDS.find((e) => e.kind === kind)!;
       expect(BLOCKING_SEMANTIC_KINDS as readonly string[]).not.toContain(kind);
       expect(NON_BLOCKING_SEMANTIC_KINDS as readonly string[]).not.toContain(kind);
       expect(ALL_SEMANTIC_KINDS as readonly string[]).not.toContain(kind);
+      // Состояние названо — и оно одно из двух законных «вне списков».
+      expect(
+        ['недостижимый', 'неблокирующий-вне-списка'],
+        `«${kind}»: состояние вне списков`,
+      ).toContain(entry.state);
     }
+    const dead = beyondLists.filter(
+      (kind) => DIAGNOSTIC_KINDS.find((e) => e.kind === kind)!.state === 'недостижимый',
+    );
+    const notRouted = beyondLists.filter(
+      (kind) => DIAGNOSTIC_KINDS.find((e) => e.kind === kind)!.state === 'неблокирующий-вне-списка',
+    );
+    expect(dead, 'мёртвых').toEqual(['chained_compare', 'keyword_param', 'export_collision']);
+    expect(notRouted, 'живых, потребителям не отданных').toEqual([
+      'arg_count_mismatch',
+      'sentinel_pattern',
+      'unknown_module',
+    ]);
   });
 
-  it('ALL_SEMANTIC_KINDS = блокирующие + неблокирующие: 9 из 15', () => {
+  it('ALL_SEMANTIC_KINDS = блокирующие + неблокирующие: 9 из 15 (число не сдвинулось)', () => {
     expect([...ALL_SEMANTIC_KINDS]).toEqual([
       ...BLOCKING_SEMANTIC_KINDS,
       ...NON_BLOCKING_SEMANTIC_KINDS,
@@ -376,13 +503,13 @@ describe('списки выводятся из каталога, а не пиш�
     expect(ALL_SEMANTIC_KINDS.length).toBeLessThan(DIAGNOSTIC_KINDS.length);
   });
 
-  it('значения списков: 8 блокирующих и 1 неблокирующий (сдвиг 2026-09-28 по замеру)', () => {
+  it('значения списков: 8 блокирующих и 1 неблокирующий (T12: без расширения)', () => {
     // Эти два перечня импортируют ~15 файлов, включая замороженный пайплайн и
-    // `src/agents/**`. Сдвиг назван вслух, а не сделан тихо: `break_outside_loop`
-    // и `continue_outside_loop` перешли в блокирующие, потому что программа с
-    // ними НЕ собирается (замер — таблица ниже) — иначе отказ не маршрутизируется
-    // в repair-цикл и печатается «советом». Проверка класса (е) держит это
-    // правило выведенным, а не записанным руками.
+    // `src/agents/**`. Сдвиг 2026-09-28 один и назван вслух:
+    // `break_outside_loop`/`continue_outside_loop` перешли в блокирующие (сборка
+    // не проходит). Неблокирующий список НЕ расширен — три живых вида с долгом
+    // получили состояние «неблокирующий-вне-списка»; цена расширения измерена и
+    // лежит в `semanticKinds.ts` и в каталоге.
     expect([...BLOCKING_SEMANTIC_KINDS]).toEqual([
       'unknown_syscall',
       'undeclared_var',
@@ -420,23 +547,15 @@ function setCode(entries: readonly EntryLike[], kind: string, code: string): Ent
   return entries.map((entry) => (entry.kind === kind ? { ...entry, code } : { ...entry }));
 }
 
-function setBlocking(entries: readonly EntryLike[], kind: string, blocking: boolean): EntryLike[] {
-  return entries.map((entry) => (entry.kind === kind ? { ...entry, blocking } : { ...entry }));
+function setState(entries: readonly EntryLike[], kind: string, state: string): EntryLike[] {
+  return entries.map((entry) => (entry.kind === kind ? { ...entry, state } : { ...entry }));
 }
 
-function clearDebt(entries: readonly EntryLike[], kind: string): EntryLike[] {
+function clearUnreachable(entries: readonly EntryLike[], kind: string): EntryLike[] {
   return entries.map((entry) => {
     if (entry.kind !== kind) return { ...entry };
     const without: EntryLike = { ...entry };
-    delete without.debt;
-    return without;
-  });
-}
-
-function clearAllDebts(entries: readonly EntryLike[]): EntryLike[] {
-  return entries.map((entry) => {
-    const without: EntryLike = { ...entry };
-    delete without.debt;
+    delete without.unreachable;
     return without;
   });
 }
@@ -474,50 +593,55 @@ describe('(е) негативный контроль: мутация копии 
 
   it('потеря вида, который порождает semantic.ts, краснит проверку (в)', () => {
     const mutated = dropKind(copy(), 'arg_count_mismatch');
+    // Одна находка: вид стоит вне списков (состояние «неблокирующий-вне-списка»),
+    // поэтому список потребителей его потерей не двигается — двигается каталог.
     expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED).map((f) => f.check)).toEqual([
       'порождённый вид вне каталога',
     ]);
   });
 
-  it('выдуманный вид без долга краснит проверки (г) и неблокирующий список', () => {
+  it('выдуманный живой вид краснит проверки (г) и неблокирующий список', () => {
     const mutated = addEntry(copy(), {
       kind: 'ghost_kind',
       code: 'OSN-SEM-016',
-      blocking: false,
+      state: 'неблокирующий',
       description: 'вид, которого язык не знает',
     });
-    // Две находки, и вторая — не шум: вид «не блокирует и долга нет» по выводу
-    // попадает в `NON_BLOCKING_SEMANTIC_KINDS`, то есть расширяет список, которым
-    // пользуются потребители. Именно это и обязан поймать сторож.
+    // Две находки, и вторая — не шум: живой вид по состоянию попадает в
+    // `NON_BLOCKING_SEMANTIC_KINDS`, то есть расширяет список, которым пользуются
+    // потребители. Именно это и обязан поймать сторож.
     expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED).map((f) => f.check)).toEqual([
-      'вид каталога без порождения и без долга',
+      'вид каталога без порождения и без состояния',
       'неблокирующий список',
     ]);
   });
 
-  it('пустой долг долгом не считается: проверки (г) и список краснеют', () => {
+  it('выдуманный МЁРТВЫЙ вид без замера краснит класс (ж), а список не трогает', () => {
     const mutated = addEntry(copy(), {
       kind: 'ghost_kind',
       code: 'OSN-SEM-016',
-      blocking: false,
-      description: 'вид с пустой отпиской вместо долга',
-      debt: '   ',
+      state: 'недостижимый',
+      description: 'вид, названный мёртвым заранее',
     });
-    expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED).map((f) => f.check)).toEqual([
-      'вид каталога без порождения и без долга',
-      'неблокирующий список',
+    // Проверка (г) молчит: мёртвый вид имеет право не порождаться. Молчит и
+    // неблокирующий список. Но класс (ж) требует замер недостижимости — и краснеет.
+    expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED)).toEqual([]);
+    expect(stateFindings(mutated, MEASURED).map((f) => f.check)).toEqual([
+      'замер недостижимости',
     ]);
   });
 
-  it('вид без порождения, но С ДОЛГОМ — не находка (обратный контроль (г))', () => {
+  it('мёртвый вид С ЗАМЕРОМ — не находка (обратный контроль (ж))', () => {
     const mutated = addEntry(copy(), {
       kind: 'ghost_kind',
       code: 'OSN-SEM-016',
-      blocking: false,
-      description: 'вид, названный долгом заранее',
-      debt: 'заведён до первой площадки порождения — долг назван, сторож молчит',
+      state: 'недостижимый',
+      description: 'вид, названный мёртвым с замером',
+      unreachable:
+        'заведён до первой площадки порождения; замер: проба не строится, площадок в semantic.ts ноль',
     });
     expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED)).toEqual([]);
+    expect(stateFindings(mutated, MEASURED)).toEqual([]);
   });
 
   it('дубль вида краснит проверки (а) и (б)', () => {
@@ -538,27 +662,60 @@ describe('(е) негативный контроль: мутация копии 
     expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED).map((f) => f.check)).toEqual(['формат кода']);
   });
 
-  it('снятие долга с arg_count_mismatch краснит неблокирующий список: 3 вида → 4', () => {
-    const mutated = clearDebt(copy(), 'arg_count_mismatch');
+  it('подмена состояния у блокирующего вида краснит обе проверки (д)', () => {
+    const mutated = setState(copy(), 'unknown_syscall', 'неблокирующий');
+    expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED).map((f) => f.check)).toEqual([
+      'блокирующий список',
+      'неблокирующий список',
+    ]);
+  });
+
+  it('тихое расширение списка краснит проверку (д): «вне списка» → «неблокирующий»', () => {
+    // Тот самый контроль на отклонённое расширение: если кто-то переведёт живой
+    // неотданный вид в состояние «неблокирующий», список молча вырастет с 1 до 2 —
+    // и это обязано быть красным, а не тихой правкой замороженного пайплайна.
+    const mutated = setState(copy(), 'arg_count_mismatch', 'неблокирующий');
     expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED).map((f) => f.check)).toEqual([
       'неблокирующий список',
     ]);
   });
 
-  it('снятие всех шести долгов расширяет неблокирующий список с 1 до 7 — красное', () => {
-    const mutated = clearAllDebts(copy());
-    const findings = catalogueFindings(mutated, PRODUCED_AS_CATALOGUED);
-    expect(checksOf(findings)).toEqual(['неблокирующий список']);
-    expect(findings, 'виды, которые молча вошли бы в список').toHaveLength(6);
-    const wouldJoin = mutated.filter((entry) => !entry.blocking).map((entry) => entry.kind);
-    expect(wouldJoin, 'неблокирующих стало бы').toHaveLength(7);
+  it('обратный контроль: «неблокирующий» → «вне списка» тоже краснит (д)', () => {
+    const mutated = setState(copy(), 'keyword_as_identifier', 'неблокирующий-вне-списка');
+    expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED).map((f) => f.check)).toEqual([
+      'неблокирующий список',
+    ]);
   });
 
-  it('подмена признака blocking краснит обе проверки (д)', () => {
-    const mutated = setBlocking(copy(), 'unknown_syscall', false);
-    expect(catalogueFindings(mutated, PRODUCED_AS_CATALOGUED).map((f) => f.check)).toEqual([
-      'блокирующий список',
-      'неблокирующий список',
+  it('живой вид, названный мёртвым, краснит класс (ж) — обратная сторона', () => {
+    const mutated = setState(copy(), 'unknown_module', 'недостижимый');
+    expect(stateFindings(mutated, MEASURED).map((f) => f.check)).toEqual([
+      'состояние против факта',
+      'замер недостижимости',
+    ]);
+  });
+
+  it('мёртвый вид, названный живым, краснит класс (ж)', () => {
+    const mutated = setState(copy(), 'chained_compare', 'неблокирующий');
+    expect(stateFindings(mutated, MEASURED).map((f) => f.check)).toEqual([
+      'состояние против факта',
+      'замер недостижимости',
+    ]);
+  });
+
+  it('четвёртое состояние краснит класс (ж) — состояний ровно три', () => {
+    const mutated = setState(copy(), 'unknown_module', 'долг');
+    // Две стороны одной правки: состояние не из трёх названных — и сумма
+    // состояний перестаёт покрывать 15 видов. Обе находки одного имени.
+    const findings = stateFindings(mutated, MEASURED);
+    expect(checksOf(findings)).toEqual(['состояние вида']);
+    expect(findings).toHaveLength(2);
+  });
+
+  it('снятый замер недостижимости краснит класс (ж)', () => {
+    const mutated = clearUnreachable(copy(), 'keyword_param');
+    expect(stateFindings(mutated, MEASURED).map((f) => f.check)).toEqual([
+      'замер недостижимости',
     ]);
   });
 
@@ -591,7 +748,7 @@ describe('(е) класс: признак и замер совпадают с п
   });
 
   it('сдвиг признака у вида с пробой краснит класс — негативный контроль', () => {
-    const mutated = setBlocking(copy(), 'break_outside_loop', false);
+    const mutated = setState(copy(), 'break_outside_loop', 'неблокирующий');
     const findings = behaviourFindings(mutated, MEASURED);
     // Две стороны одной мутации: признак разошёлся со сборкой — и имя расхождения
     // (`buildRefused`) обязано появиться. Ровно это прежде прикрывал перечень
@@ -625,6 +782,69 @@ describe('(е) класс: признак и замер совпадают с п
   });
 });
 
+// ─────────── (ж) класс: ровно одно состояние на вид, и оно совпадает с фактом ───────────
+
+/**
+ * Задача T12, решение владельца 2026-09-28: состояние `debt` снято. Здесь
+ * проверяется, что у каждого вида **ровно одно** состояние из трёх и что оно
+ * совпадает с замером: живой вид порождается, мёртвый — нет и назван замером.
+ *
+ * Состояний ровно три, и они складываются в 15 без остатка: 8 + 4 + 3. Это
+ * проверяется числом, а не абзацем: сумма состояний обязана совпасть с числом
+ * видов, а каждое состояние — быть занятым.
+ */
+describe('(ж) класс: состояние вида совпадает с фактом, третьего состояния нет', () => {
+  it('чистый каталог против замеров — находок нет', () => {
+    expect(stateFindings(DIAGNOSTIC_KINDS, MEASURED)).toEqual([]);
+  });
+
+  it('состояния складываются в 15 без остатка: 8 + 1 + 3 + 3', () => {
+    const counts = {
+      блокирующий: 0,
+      неблокирующий: 0,
+      'неблокирующий-вне-списка': 0,
+      недостижимый: 0,
+    } as Record<string, number>;
+    for (const entry of DIAGNOSTIC_KINDS) counts[entry.state] = (counts[entry.state] ?? 0) + 1;
+    expect(counts).toEqual({
+      блокирующий: 8,
+      неблокирующий: 1,
+      'неблокирующий-вне-списка': 3,
+      недостижимый: 3,
+    });
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(DIAGNOSTIC_KINDS.length);
+    // «Долга» как состояния больше нет — это и есть решение владельца.
+    expect(Object.keys(counts)).not.toContain('debt');
+  });
+
+  it('у каждого мёртвого вида назван свой замер недостижимости, и они разные', () => {
+    const dead = DIAGNOSTIC_KINDS.filter((entry) => entry.state === 'недостижимый');
+    expect(dead.map((entry) => entry.kind)).toEqual([
+      'chained_compare',
+      'keyword_param',
+      'export_collision',
+    ]);
+    for (const entry of dead) {
+      const measure = 'unreachable' in entry ? entry.unreachable : undefined;
+      expect(typeof measure, `«${entry.kind}»: замер недостижимости`).toBe('string');
+      expect(measure!.length, `«${entry.kind}»: замер длиннее отписки`).toBeGreaterThan(80);
+      expect(measure, `«${entry.kind}»: замер называет дату`).toContain('2026-09-28');
+    }
+    // Замеры разные: три вида мёртвы по трём разным причинам, и одна отписка на
+    // всех означала бы, что мерили не каждый.
+    const measures = dead.map((entry) => ('unreachable' in entry ? entry.unreachable : ''));
+    expect(new Set(measures).size).toBe(3);
+  });
+
+  it('живые виды несут замер недостижимости только если он у них есть — и ни у кого нет', () => {
+    const alive = DIAGNOSTIC_KINDS.filter((entry) => entry.state !== 'недостижимый');
+    expect(alive).toHaveLength(12);
+    for (const entry of alive) {
+      expect('unreachable' in entry ? entry.unreachable : undefined).toBeUndefined();
+    }
+  });
+});
+
 // ═══════════ таблица замеров: достижимость вида и судьба сборки ═══════════
 
 /**
@@ -632,15 +852,15 @@ describe('(е) класс: признак и замер совпадают с п
  * написать программу, которая порождает **его одного**, и собирается ли такая
  * программа.
  *
- * # Зачем это отдельно от `blocking`
+ * # Зачем это отдельно от состояния вида
  *
- * Поле `blocking` отвечает за вхождение в блокирующий список, а судьбу сборки
- * решает ещё и кодоген. Раньше эти две вещи расходились (два вида), и расхождение
- * было закреплено перечнем «известных». Теперь правило обратное: **признак и
- * замер обязаны совпадать** — разошлись, значит красное (`behaviourFindings`
- * выше). Перечень снят вместе с расхождением: `break_outside_loop` и
- * `continue_outside_loop` переведены в блокирующие, потому что программы с ними
- * не собираются.
+ * Состояние (`state`) отвечает за вхождение в списки потребителей, а судьбу
+ * сборки решает ещё и кодоген. Раньше эти две вещи расходились (два вида), и
+ * расхождение было закреплено перечнем «известных». Теперь правило обратное:
+ * **состояние и замер обязаны совпадать** — разошлись, значит красное
+ * (`behaviourFindings`, `stateFindings` выше). Перечень снят вместе с
+ * расхождением: `break_outside_loop` и `continue_outside_loop` переведены в
+ * блокирующие, потому что программы с ними не собираются.
  *
  * # Это не проза
  *
@@ -649,9 +869,9 @@ describe('(е) класс: признак и замер совпадают с п
  * нельзя, так и записано, с причиной и числом (`UNPROBED`), — вида «не пробовал»
  * здесь нет.
  *
- * Числа в текстах каталога (`debt`, `buildRefused`) взяты из этой таблицы, а сама
- * таблица проверяется исполнением: сдвинется факт — красным станет здесь, а не
- * тихо разойдётся текст с поведением.
+ * Числа в текстах каталога (`unreachable`, `buildRefused`) взяты из этой таблицы,
+ * а сама таблица проверяется исполнением: сдвинется факт — красным станет здесь, а
+ * не тихо разойдётся текст с поведением.
  */
 const MEASURED_AT = '2026-09-28';
 
@@ -766,15 +986,17 @@ describe(`таблица замеров (${MEASURED_AT}): достижимост
     expect(wrong, `таблица разошлась с фактом:\n  ${wrong.join('\n  ')}`).toEqual([]);
   });
 
-  it('расхождений «список против факта сборки» нет ни одного — и это выведено, а не закреплено', () => {
+  it('расхождений «состояние против факта сборки» нет ни одного — и это выведено, а не закреплено', () => {
     // Прежде здесь стоял перечень «известных двух» расхождений
     // (`break_outside_loop`, `continue_outside_loop`): каталог говорил
-    // `blocking: false`, а программа не собиралась. Перечень был честной записью
-    // о дефекте — и оставался бы ею, пока признак не привели к замеру. Теперь
+    // «неблокирующий», а программа не собиралась. Перечень был честной записью
+    // о дефекте — и оставался бы ею, пока состояние не привели к замеру. Теперь
     // проверка выведена (класс (е)), а не сверяется со списком: любой сдвиг —
     // красное, а не строка «известное».
     expect(behaviourFindings(DIAGNOSTIC_KINDS, MEASURED)).toEqual([]);
-    const blocking = DIAGNOSTIC_KINDS.filter((e) => e.blocking).map((e) => e.kind).sort();
+    const blocking = DIAGNOSTIC_KINDS.filter((e) => e.state === 'блокирующий')
+      .map((e) => e.kind)
+      .sort();
     const refuses = Object.entries(MEASURED)
       .filter(([, m]) => !m.builds)
       .map(([kind]) => kind)
@@ -784,14 +1006,14 @@ describe(`таблица замеров (${MEASURED_AT}): достижимост
     );
   });
 
-  it('поле buildRefused пусто у всех: расхождений «признак против сборки» нет', () => {
+  it('поле buildRefused пусто у всех: расхождений «состояние против сборки» нет', () => {
     // Поле — имя расхождения, а не украшение: заполнено ⟺ «сборка не проходит, а
-    // в блокирующем списке вида нет». Проверка выведена из таблицы, поэтому
-    // краснеют обе стороны — расхождение без записи и запись без расхождения.
+    // вид не блокирующий». Проверка выведена из таблицы, поэтому краснеют обе
+    // стороны — расхождение без записи и запись без расхождения.
     const wrong: string[] = [];
     for (const entry of DIAGNOSTIC_KINDS) {
       const measured = MEASURED[entry.kind];
-      const diverges = measured !== undefined && !measured.builds && !entry.blocking;
+      const diverges = measured !== undefined && !measured.builds && entry.state !== 'блокирующий';
       const filled = typeof entry.buildRefused === 'string' && entry.buildRefused.trim() !== '';
       if (diverges !== filled) {
         wrong.push(
