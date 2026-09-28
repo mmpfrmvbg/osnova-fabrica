@@ -32,10 +32,30 @@
  * друг с другом, а не с репозиторием. Здесь исключение — это **утверждение с причиной**, и оно
  * проверяется на непустоту: устаревшее исключение краснеет, потому что прикрывает несуществующее.
  *
+ * # ПРАВИЛО: НОЛЬ СОБРАННЫХ ПРОВЕРОК — ЭТО КРАСНОЕ (2026-09-28)
+ *
+ * Сторож, который не собрал ни одной проверки, выглядит зелёным **ровно так же**, как работающий:
+ * «файл собран» и «в файле есть проверки» — разные утверждения, и первое без второго ничего не
+ * значит. Замер, ради которого правило заведено: механизм негативных контролей раскладки
+ * (`src/scripts/e2kLayoutNegativeControl.ts`, 36 записей) был наполовину мёртв — **23 записи из 36**
+ * собирали ноль проверок с 23.09, потому что их оракулы вынесли из полного прогона в отдельные
+ * конфиги (`afca551`), а конфиг у записей не проставили. Половина утверждения «дефекты ловятся» была
+ * проверена на бумаге четыре дня — и выглядела зелёной.
+ *
+ * Проверяются **два** источника, и оба без исполнения:
+ *
+ * | что | откуда | что краснеет |
+ * |---|---|---|
+ * | файл собран, но проверок в нём ноль | отчёт прогона (`assertionResults`) | имя файла |
+ * | запись негативного контроля собирает ноль | `vitest list --config=…` по её оракулам | id записи, конфиг и файл |
+ *
+ * Записи, которые собирают ноль по структурной причине (оракулы живут в двух разных конфигах, а
+ * инструмент запускает один), названы в `KNOWN_DEAD_CONTROLS` — **с причиной и числом**, и список
+ * проверяется на устаревание: ожившая запись краснеет, потому что исключение перестало объяснять.
+ *
  * # Чего сторож НЕ делает
  *
- * Не проверяет, что внутри собранных файлов есть проверки: файл, собранный с нулём тестов, для
- * этого сторожа выглядит собранным. Это следующий долг, названный явно, а не скрытый.
+ * Не исполняет ни одного теста: `vitest list` собирает проверки, не запуская их.
  *
  * Использование:
  *   npm run check:test-files      # после прогона с --reporter=json
@@ -44,6 +64,7 @@
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as controlTables from './e2kLayoutNegativeControl';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const REPORT = path.join(ROOT, '.tmp', 'vitest-report.json');
@@ -361,6 +382,177 @@ export function evidenceLines(
   return lines;
 }
 
+// ─────────────────── ПРАВИЛО: НОЛЬ СОБРАННЫХ ПРОВЕРОК — ЭТО КРАСНОЕ ───────────────────
+
+/** Сколько проверок собрано: имя (файл или запись) и число. */
+export interface CollectedChecks {
+  /** Имя файла либо запись негативного контроля — то, что печатает вердикт. */
+  readonly name: string;
+  readonly checks: number;
+  /** Подпись для человека: что именно за прогон. */
+  readonly what: string;
+}
+
+/**
+ * ВЕРДИКТ по нулю: имя того, кто собрал **НОЛЬ**, и чем это опасно. Пусто — собрали все.
+ *
+ * Чистая функция: принимает счётчики, поэтому негативный контроль подсовывает сюда нули, не
+ * трогая ни прогон, ни конфиги.
+ */
+export function zeroCollectionFindings(items: readonly CollectedChecks[]): string[] {
+  return items
+    .filter((item) => item.checks === 0)
+    .map(
+      (item) =>
+        `${item.what}: ${item.name} — ноль собранных проверок; такой сторож выглядит зелёным ровно ` +
+        'так же, как работающий (docs/verification-debt.md, случай 22)',
+    );
+}
+
+/** Запись негативного контроля: чем запускается и какие оракулы обязана собрать. */
+export interface ControlRecord {
+  readonly id: string;
+  readonly config?: string;
+  readonly tests: readonly string[];
+}
+
+/**
+ * Записи, которые собирают ноль по **структурной** причине, названной здесь с числом.
+ *
+ * Список — не оправдание, а долг с именем: он проверяется на устаревание (ожившая запись
+ * краснеет), и каждая запись здесь обязана быть действительно мёртвой.
+ */
+export const KNOWN_DEAD_CONTROLS: readonly { readonly id: string; readonly reason: string }[] = [
+  {
+    id: '12.4',
+    reason:
+      'оракулы записи живут в ДВУХ конфигах: `e2kCallLowering.test.ts` собирается умолчанием ' +
+      '(10 проверок), `e2kRealRun.test.ts` — только `vitest.e2k.config.ts` (45), а инструмент ' +
+      'запускает запись ОДНИМ конфигом. Починка — решение плоскости e2k: либо внести ' +
+      '`e2kCallLowering.test.ts` в `include` конфига e2k, либо снять оракул, который не ' +
+      'исполнялся ни разу (он и сейчас собирает ноль)',
+  },
+];
+
+/**
+ * ВЕРДИКТ по записям негативных контролей: у каждой обязан быть названный конфиг, и каждый её
+ * оракул обязан собирать **не ноль** проверок.
+ *
+ * `collected` — счётчики по ключу `` `${config}|${file}` ``. `known` — названные структурные
+ * исключения: запись из списка не краснеет, но **обязана быть мёртвой**, иначе исключение
+ * устарело (случай 1: «имена вместо наличия»).
+ */
+export function deadControlFindings(
+  records: readonly ControlRecord[],
+  collected: ReadonlyMap<string, number>,
+  known: readonly { readonly id: string; readonly reason: string }[] = KNOWN_DEAD_CONTROLS,
+): string[] {
+  const findings: string[] = [];
+  const knownIds = new Set(known.map((item) => item.id));
+  const dead = new Set<string>();
+  for (const record of records) {
+    if (record.config === undefined) {
+      findings.push(
+        `запись ${record.id}: не назван config — прогон пойдёт с умолчанием и может собрать ноль ` +
+          '(именно так 23 записи из 36 были мертвы с 23.09; docs/verification-debt.md, случай 22)',
+      );
+    }
+    for (const file of record.tests) {
+      const key = `${record.config ?? ''}|${file}`;
+      if ((collected.get(key) ?? 0) > 0) continue;
+      dead.add(record.id);
+      if (knownIds.has(record.id)) continue;
+      findings.push(
+        `запись ${record.id}: оракул ${file} собирает ноль проверок с конфигом ` +
+          `${record.config ?? '<умолчание>'} — контроль недействителен ` +
+          '(docs/verification-debt.md, случай 22)',
+      );
+    }
+  }
+  for (const item of known) {
+    if (!dead.has(item.id)) {
+      findings.push(
+        `устаревшее исключение ${item.id}: запись собирает проверки — исключение прикрывает живое ` +
+          '(docs/verification-debt.md, случай 1)',
+      );
+    }
+  }
+  return findings;
+}
+
+/** Путь к vitest: тот же, каким пользуется инструмент негативных контролей. */
+const VITEST = path.join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
+
+/** Все записи всех таблиц инструмента негативных контролей — динамически, чтобы новые попали. */
+export function allControlRecords(): ControlRecord[] {
+  const records: ControlRecord[] = [];
+  for (const [name, value] of Object.entries(controlTables)) {
+    if (!name.startsWith('DEFECTS') || !Array.isArray(value)) continue;
+    for (const item of value as readonly { id?: string; config?: string; tests?: readonly string[] }[]) {
+      if (typeof item.id !== 'string' || !Array.isArray(item.tests)) continue;
+      records.push({ id: item.id, config: item.config, tests: item.tests });
+    }
+  }
+  return records;
+}
+
+/**
+ * Сбор **без исполнения**: `vitest list --config=… <файлы>` — сколько проверок у каждого файла.
+ *
+ * Ноль означает, что конфиг этот файл не собирает (именно так выглядит мёртвый контроль).
+ */
+export function listCollected(config: string, files: readonly string[]): Map<string, number> {
+  const per = new Map<string, number>();
+  for (const file of files) per.set(file, 0);
+  if (files.length === 0) return per;
+  const out = execFileSync(process.execPath, [VITEST, 'list', `--config=${config}`, ...files], {
+    cwd: ROOT,
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  for (const line of out.split(/\r?\n/)) {
+    const file = line.split(' > ')[0]?.trim();
+    if (file !== undefined && per.has(file)) per.set(file, (per.get(file) ?? 0) + 1);
+  }
+  return per;
+}
+
+/** Счётчики по всем записям: ключ `` `${config}|${file}` `` — по одному прогону сбора на конфиг. */
+export function collectForControls(records: readonly ControlRecord[]): Map<string, number> {
+  const byConfig = new Map<string, string[]>();
+  for (const record of records) {
+    const config = record.config ?? 'vitest.config.ts';
+    const files = byConfig.get(config) ?? [];
+    for (const file of record.tests) if (!files.includes(file)) files.push(file);
+    byConfig.set(config, files);
+  }
+  const collected = new Map<string, number>();
+  for (const [config, files] of byConfig) {
+    for (const [file, checks] of listCollected(config, files)) {
+      collected.set(`${config}|${file}`, checks);
+      // Запись без названного конфига считается по умолчанию: вердикт скажет об этом отдельно.
+      if (config === 'vitest.config.ts') collected.set(`|${file}`, checks);
+    }
+  }
+  return collected;
+}
+
+/** Сколько проверок собрал каждый файл отчёта прогона. `undefined` — отчёта нет. */
+export function reportCollected(reportFile = REPORT): Map<string, number> | undefined {
+  if (!fs.existsSync(reportFile)) return undefined;
+  const report = JSON.parse(fs.readFileSync(reportFile, 'utf-8')) as {
+    testResults?: { name?: string; assertionResults?: unknown[] }[];
+  };
+  const per = new Map<string, number>();
+  for (const item of report.testResults ?? []) {
+    const name = relative(item.name ?? '');
+    if (name === '') continue;
+    per.set(name, (item.assertionResults ?? []).length);
+  }
+  return per;
+}
+
 /** Отчёт о кодировке вывода git: сырые строки, hex, длины, вердикт. */
 export function rawReport(nullSeparated = false): readonly string[] {
   const { bytes, lines } = rawGitOutput(nullSeparated);
@@ -419,6 +611,44 @@ export function runAudit(): number {
   );
   for (const line of evidenceLines(audit, ROOT)) console.log(line);
   const problems: string[] = [];
+
+  // ─── ПРАВИЛО: НОЛЬ СОБРАННЫХ ПРОВЕРОК — ЭТО КРАСНОЕ (случай 22) ───
+  //
+  // Два источника, оба без исполнения: отчёт прогона (в файле ноль проверок) и `vitest list`
+  // по записям негативных контролей (ноль собранных = контроль недействителен).
+  const checksInFiles = reportCollected();
+  const emptyFiles: CollectedChecks[] = [];
+  if (checksInFiles !== undefined) {
+    for (const [file, checks] of checksInFiles) {
+      emptyFiles.push({ name: file, checks, what: 'файл прогона' });
+    }
+  }
+  const emptyFileFindings = zeroCollectionFindings(emptyFiles);
+  console.log(
+    `сторож счёта проверок: файлов в отчёте ${emptyFiles.length}, собрали ноль ${emptyFileFindings.length}`,
+  );
+
+  let controlFindings: string[] = [];
+  try {
+    const records = allControlRecords();
+    const collectedControls = collectForControls(records);
+    controlFindings = deadControlFindings(records, collectedControls);
+    const named = records.filter((r) => KNOWN_DEAD_CONTROLS.some((k) => k.id === r.id)).length;
+    console.log(
+      `сторож счёта проверок: записей негативного контроля ${records.length}, ` +
+        `названных мёртвыми ${named}, безымянных находок ${controlFindings.length}`,
+    );
+    for (const item of KNOWN_DEAD_CONTROLS) {
+      console.log(`  НАЗВАННАЯ МЁРТВАЯ ЗАПИСЬ ${item.id}: ${item.reason}`);
+    }
+  } catch (error) {
+    // Инструмент недоступен — это «проверка не выполнена», а не «пройдено».
+    controlFindings = [
+      `записи негативных контролей не проверены: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+  }
+  problems.push(...emptyFileFindings, ...controlFindings);
+
   for (const file of audit.dropped) {
     problems.push(
       `оракул выпал из прогона: ${file} — в репозитории есть, в прогоне нет и исключением не объяснён ` +
@@ -442,7 +672,9 @@ export function runAudit(): number {
     console.error(`итого расхождений: ${problems.length}`);
     return 1;
   }
-  console.log('расхождений нет: каждый файл оракула либо собран, либо объяснён исключением с причиной');
+  console.log(
+    'расхождений нет: каждый файл оракула собран с проверками, каждая запись контроля собирает свои',
+  );
   return 0;
 }
 

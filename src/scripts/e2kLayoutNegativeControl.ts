@@ -351,6 +351,7 @@ export const DEFECTS_WIDE: readonly Defect[] = [
     from: '        : dependent({ reads: groupReads, writes: groupWrites }, registers) ??',
     to: '        : "ДЕФЕКТ 7.1: группировка снята" ?? //',
     tests: ['src/e2k/widePackets.test.ts'],
+    config: 'vitest.config.ts',
   },
   {
     // Ловится прогоном: зависимые операции в одной команде дают неверный результат (измерено: 5).
@@ -370,6 +371,7 @@ export const DEFECTS_WIDE: readonly Defect[] = [
     from: '  const ordered = [...group].sort((a, b) => a.syllable.channel - b.syllable.channel);',
     to: '  const ordered = [...group].map((slot) => ({ ...slot, syllable: { ...slot.syllable, channel: 0 } })); // ДЕФЕКТ 7.3',
     tests: ['src/e2k/widePackets.test.ts'],
+    config: 'vitest.config.ts',
   },
   {
     // WAR/WAW сняты, RAW на месте: оракул раскладки это видит, прогон — нет (параллельное чтение).
@@ -379,6 +381,7 @@ export const DEFECTS_WIDE: readonly Defect[] = [
     from: '  const writeWrite = shared(a.writes, b.writes);\n  if (writeWrite.length > 0) return `WAW по ${writeWrite.join(\', \')}`;',
     to: '  // ДЕФЕКТ 7.4: WAW и WAR не проверяются\n  if (false) return "WAW снят";',
     tests: ['src/e2k/widePackets.test.ts'],
+    config: 'vitest.config.ts',
   },
 ];
 
@@ -563,6 +566,7 @@ export const DEFECTS_CALL_LOWERING: readonly Defect[] = [
     from: '      instructions.push(movts(source.index, CALL_WBS * 2 + argument));',
     to: '      instructions.push(movts(source.index, CALL_WBS + argument)); // ДЕФЕКТ 12.1: сдвиг окна перепутан',
     tests: ['src/e2k/e2kCallLowering.test.ts'],
+    config: 'vitest.config.ts',
   },
   {
     id: '12.2',
@@ -571,6 +575,7 @@ export const DEFECTS_CALL_LOWERING: readonly Defect[] = [
     from: '      instructions.push(movts(CALL_WBS * 2, destination.index));',
     to: '      instructions.unshift(movts(CALL_WBS * 2, destination.index)); // ДЕФЕКТ 12.2: чтение результата до вызова',
     tests: ['src/e2k/e2kCallLowering.test.ts'],
+    config: 'vitest.config.ts',
   },
   {
     id: '12.3',
@@ -579,6 +584,7 @@ export const DEFECTS_CALL_LOWERING: readonly Defect[] = [
     from: '      instructions.push(movts(value.index, 0));',
     to: '      instructions.push(movts(value.index, CALL_WBS * 2)); // ДЕФЕКТ 12.3: приёмник возврата не тот',
     tests: ['src/e2k/e2kCallLowering.test.ts'],
+    config: 'vitest.config.ts',
   },
   {
     id: '12.4',
@@ -587,6 +593,7 @@ export const DEFECTS_CALL_LOWERING: readonly Defect[] = [
     from: "  if (flags.hasDestination) commands.push(CALL_COMMAND_FORMS.get('movts')!);",
     to: "  if (false) commands.push(CALL_COMMAND_FORMS.get('movts')!); // ДЕФЕКТ 12.4: длина вызова занижена",
     tests: ['src/e2k/e2kCallLowering.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+    config: 'vitest.config.ts',
   },
 ];
 
@@ -685,6 +692,7 @@ export const DEFECTS_STEP6: readonly Defect[] = [
     from: '  const wide = instruction.operands.findIndex((operand) => operand.kind === "imm64");',
     to: '  const wide = -1; // ДЕФЕКТ 6.1: форма 0xdc снята',
     tests: ['src/e2k/e2kImm64.test.ts'],
+    config: 'vitest.config.ts',
   },
   {
     id: '6.2',
@@ -693,6 +701,7 @@ export const DEFECTS_STEP6: readonly Defect[] = [
     from: '  const fits32 = literal.value >= -2147483648 && literal.value <= 2147483647;',
     to: '  const fits32 = true; // ДЕФЕКТ 6.2: отказ на усечении снят',
     tests: ['src/e2k/e2kImm64.test.ts'],
+    config: 'vitest.config.ts',
   },
   {
     id: '6.3',
@@ -701,6 +710,7 @@ export const DEFECTS_STEP6: readonly Defect[] = [
     from: '  writeWord(bytes, 8, Number(bits >> 32n) >>> 0);\n  writeWord(bytes, 12, Number(bits & 0xffffffffn) >>> 0);',
     to: '  writeWord(bytes, 8, Number(bits & 0xffffffffn) >>> 0); // ДЕФЕКТ 6.3\n  writeWord(bytes, 12, Number(bits >> 32n) >>> 0);',
     tests: ['src/scripts/e2kExternalAs.test.ts'],
+    config: 'vitest.config.ts',
   },
   {
     id: '6.4',

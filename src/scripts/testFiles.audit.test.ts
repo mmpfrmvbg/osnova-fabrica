@@ -22,12 +22,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   EXPECTED_EXCLUSIONS,
+  allControlRecords,
   auditTestFiles,
+  deadControlFindings,
   decodeGitOutput,
   encodingProbe,
   evidenceLines,
   relative,
   rootProblem,
+  zeroCollectionFindings,
 } from './testFiles.audit';
 
 const A = 'src/e2k/one.test.ts';
@@ -158,5 +161,96 @@ it('НЕГАТИВНЫЙ КОНТРОЛЬ: файл приложения Osiris 
     const probe = encodingProbe(lines, 2, false);
     expect(probe[0]!.bytes, 'в UTF-8 байт равно символам').toBe(probe[0]!.characters);
     expect(probe[0]!.twoBytesPerCharacter).toBe(false);
+  });
+});
+
+/**
+ * ПРАВИЛО «НОЛЬ СОБРАННЫХ ПРОВЕРОК — ЭТО КРАСНОЕ» (случай 22).
+ *
+ * Замер 2026-09-28: 23 записи из 36 в инструменте негативных контролей собирали ноль проверок с
+ * 23.09 и выглядели зелёными. Здесь проверяются **чистые** вердикты (`zeroCollectionFindings`,
+ * `deadControlFindings`): исполнение (git, отчёт прогона, `vitest list`) проверяется самим запуском
+ * `npm run check:test-files` — тем же порядком, что и у сторожа счёта файлов.
+ */
+describe('ноль собранных проверок — это красное', () => {
+  it('все собрали — находок нет', () => {
+    expect(
+      zeroCollectionFindings([
+        { name: 'src/a.test.ts', checks: 3, what: 'файл прогона' },
+        { name: 'src/b.test.ts', checks: 1, what: 'файл прогона' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: файл с нулём назван ИМЕНЕМ, а не числом', () => {
+    const findings = zeroCollectionFindings([
+      { name: 'src/dead.test.ts', checks: 0, what: 'файл прогона' },
+      { name: 'src/alive.test.ts', checks: 7, what: 'файл прогона' },
+    ]);
+    expect(findings, 'файл с нулём проверок обязан краснеть').toHaveLength(1);
+    expect(findings[0], 'имя файла, а не число').toContain('src/dead.test.ts');
+    expect(findings[0], 'названа причина, а не «что-то не так»').toMatch(/ноль собранных/);
+    expect(findings[0], 'назван документ с правилом').toMatch(/случай 22/);
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: запись без config краснеет — именно так 23 из 36 были мертвы', () => {
+    const records = [{ id: '4.1', tests: ['src/e2k/twoPassLayout.test.ts'] }];
+    const collected = new Map([['vitest.config.ts|src/e2k/twoPassLayout.test.ts', 0]]);
+    const findings = deadControlFindings(records, collected, []);
+    // Две стороны одного дефекта, и обе названы: конфиг не указан — И сбор с умолчанием нулевой
+    // (оракул живёт в конфиге e2k). Оба вердикта называют запись по имени.
+    expect(findings, 'запись без названного конфига обязана краснеть дважды').toHaveLength(2);
+    for (const finding of findings) expect(finding).toContain('4.1');
+    expect(findings.some((f) => /не назван config/.test(f)), 'подсказка, чем чинить').toBe(true);
+    expect(findings.some((f) => /собирает ноль проверок/.test(f)), 'назван и нулевой сбор').toBe(true);
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: названный конфиг, а сбор нулевой — красное с id и файлом', () => {
+    const records = [{ id: '5.1', config: 'vitest.e2k.config.ts', tests: ['src/runtime/vm.test.ts'] }];
+    const collected = new Map([['vitest.e2k.config.ts|src/runtime/vm.test.ts', 0]]);
+    const findings = deadControlFindings(records, collected, []);
+    expect(findings, 'нулевой сбор при названном конфиге обязан краснеть').toHaveLength(1);
+    expect(findings[0]).toContain('5.1');
+    expect(findings[0]).toContain('src/runtime/vm.test.ts');
+    expect(findings[0]).toMatch(/контроль недействителен/);
+  });
+
+  it('обратный контроль: запись, собравшая проверки, не краснеет', () => {
+    const records = [{ id: '5.1', config: 'vitest.e2k.config.ts', tests: ['src/e2k/e2kPredicatePairs.test.ts'] }];
+    const collected = new Map([['vitest.e2k.config.ts|src/e2k/e2kPredicatePairs.test.ts', 12]]);
+    expect(deadControlFindings(records, collected, [])).toEqual([]);
+  });
+
+  it('НАЗВАННАЯ мёртвая запись молчит — но только пока она действительно мёртвая', () => {
+    const known = [{ id: '12.4', reason: 'оракулы живут в двух конфигах, инструмент запускает один' }];
+    const records = [
+      {
+        id: '12.4',
+        config: 'vitest.config.ts',
+        tests: ['src/e2k/e2kCallLowering.test.ts', 'src/e2k/e2kRealRun.test.ts'],
+      },
+    ];
+    const dead = new Map([
+      ['vitest.config.ts|src/e2k/e2kCallLowering.test.ts', 10],
+      ['vitest.config.ts|src/e2k/e2kRealRun.test.ts', 0],
+    ]);
+    expect(deadControlFindings(records, dead, known), 'названная мёртвая запись не краснеет').toEqual([]);
+
+    // А если она ожила — исключение устарело и обязано краснеть (случай 1: «имена вместо наличия»).
+    const alive = new Map([
+      ['vitest.config.ts|src/e2k/e2kCallLowering.test.ts', 10],
+      ['vitest.config.ts|src/e2k/e2kRealRun.test.ts', 45],
+    ]);
+    const stale = deadControlFindings(records, alive, known);
+    expect(stale, 'ожившая запись обязана снять исключение красным').toHaveLength(1);
+    expect(stale[0]).toMatch(/устаревшее исключение 12\.4/);
+  });
+
+  it('пустая таблица записей — это находка, а не «всё сошлось»', () => {
+    // Вакуумная правда: «у всех записей сбор не ноль» верно и для пустого списка. Поэтому сторож
+    // обязан отдельно убедиться, что записи вообще есть: ноль записей — это мёртвый механизм,
+    // который выглядит зелёным (та же болезнь, от которой лечим).
+    expect(deadControlFindings([], new Map(), [])).toEqual([]);
+    expect(allControlRecords().length, 'записей негативного контроля в дереве').toBeGreaterThan(0);
   });
 });
