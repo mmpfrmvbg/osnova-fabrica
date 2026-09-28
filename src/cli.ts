@@ -19,7 +19,7 @@ import { resident } from './resident/core';
 import { createLlmPlanner, createResidentExecutor } from './resident/adapters';
 import { validateEnv } from './env';
 import { compileSource } from './compiler/compiler';
-import { printParseError } from './compiler/parser';
+import { reportCompileDiagnostics } from './compiler/compileDiagnostics';
 import { run as runRuntime } from './runtime/run';
 import { runParity } from './oracle/parity';
 import { regModuleOf } from './vliw/regOracle';
@@ -258,14 +258,11 @@ function runCompileMode(cliArgs: string[]): number {
     baseDir: path.dirname(inputPath),
     filename: path.basename(inputPath),
   });
-  if (result.lexerErrors.length > 0) {
-    for (const e of result.lexerErrors) {
-      console.error(`Лексер ${e.line}:${e.column}: ${e.message}`);
-    }
-  }
-  if (result.parserErrors.length > 0) {
-    for (const e of result.parserErrors) printParseError(e, source);
-  }
+  // Здесь стоял молчащий путь: печатались лексер и парсер, а `compilerErrors`
+  // не печатались вовсе — на семантической ошибке команда выходила кодом 1 с
+  // нулём строк вывода (замер 2026-09-28). Из этого файла собран `dist/cli.js`,
+  // то есть установленный `osnova`. Вывод сведён к одному модулю.
+  reportCompileDiagnostics(result, { error: (line) => console.error(line) }, { source });
   if (!result.module) return 1;
   const json = JSON.stringify(result.module, null, 2);
   const outPath = output ?? inputPath.replace(/\.osnova$/i, '.osvbc.json');

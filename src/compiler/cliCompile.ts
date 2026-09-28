@@ -14,7 +14,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { compileSource } from ".";
-import { printParseError } from "./parser";
+import { reportCompileDiagnostics } from "./compileDiagnostics";
 import type { ParseWarning } from "./parser";
 
 /** Куда CLI пишет. Инъекция — ради оракула, а не ради гибкости. */
@@ -61,23 +61,10 @@ export function runCompileCli(argv: string[], io: CliIo = DEFAULT_IO): number {
     filename: path.basename(inputPath),
     warnDeprecated,
   });
-  if (result.lexerErrors.length > 0) {
-    for (const e of result.lexerErrors) io.err(`Лексер ${e.line}:${e.column}: ${e.message}`);
-  }
-  if (result.parserErrors.length > 0) {
-    for (const e of result.parserErrors) printParseError(e, source, io.err);
-  }
-  if (result.compilerErrors.length > 0) {
-    for (const e of result.compilerErrors) {
-      const loc =
-        e.file != null
-          ? e.line != null
-            ? `${e.file}:${e.line}${e.column != null ? `:${e.column}` : ""} `
-            : `${e.file} `
-          : "";
-      io.err(`${loc}${e.message}`);
-    }
-  }
+  // Вывод один на все точки входа — `./compileDiagnostics`. Здесь раньше жила
+  // четвёртая копия сборки строк, и она уходила от остальных: семантическая
+  // ошибка печаталась зеркалом `[semantic] …` без вида и файла.
+  reportCompileDiagnostics(result, { error: io.err }, { source });
   // Предупреждения печатаются ДО проверки модуля: даже при отказе сборки
   // полезно видеть, что причина — не только устаревшая форма.
   for (const w of result.warnings) io.err(formatDeprecatedWarning(w));

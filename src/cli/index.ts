@@ -9,6 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { compileSource } from "../compiler/compiler";
 import { formatDeprecatedWarning } from "../compiler/cliCompile";
+import { reportCompileDiagnostics } from "../compiler/compileDiagnostics";
 import { VM, createDefaultInvokeHandler, formatOsnovaValue, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import { isKnownInvoke } from "../runtime/vm/invokeRegistry";
 import type { OsVbcModule } from "../runtime/vm/bytecode";
@@ -47,13 +48,12 @@ function readProgram(inputFile: string): OsVbcModule {
       baseDir: path.dirname(full),
       filename: path.basename(full),
     });
-    if (!result.compilerSuccess || !result.module) {
-      for (const e of result.lexerErrors) console.error(`[лексер] строка ${e.line}: ${e.message}`);
-      for (const e of result.parserErrors) console.error(`[парсер] строка ${e.line}: ${e.message}`);
-      for (const e of result.compilerErrors) console.error(`[компилятор] ${e.message}`);
-      process.exit(1);
-    }
-    for (const e of result.compilerErrors) console.warn(`[предупреждение] ${e.message}`);
+    reportCompileDiagnostics(
+      result,
+      { error: (line) => console.error(line), warning: (line) => console.warn(line) },
+      { source: raw },
+    );
+    if (!result.compilerSuccess || !result.module) process.exit(1);
     return result.module;
   }
 
@@ -91,23 +91,14 @@ function cmdCompile(args: string[]): void {
     warnDeprecated,
   });
 
-  if (!result.compilerSuccess || !result.module) {
-    for (const e of result.lexerErrors)
-      console.error(`[лексер] строка ${e.line}: ${e.message}`);
-    for (const e of result.parserErrors)
-      console.error(`[парсер] строка ${e.line}: ${e.message}`);
-    for (const e of result.compilerErrors)
-      console.error(`[компилятор] ${e.message}`);
-    for (const w of result.warnings) console.warn(formatDeprecatedWarning(w));
-    process.exit(1);
-  }
-
-  if (result.compilerErrors.length > 0) {
-    for (const e of result.compilerErrors)
-      console.warn(`[предупреждение] ${e.message}`);
-  }
-
+  reportCompileDiagnostics(
+    result,
+    { error: (line) => console.error(line), warning: (line) => console.warn(line) },
+    { source },
+  );
   for (const w of result.warnings) console.warn(formatDeprecatedWarning(w));
+
+  if (!result.compilerSuccess || !result.module) process.exit(1);
 
   fs.writeFileSync(outputFile, JSON.stringify(result.module, null, 2), "utf-8");
   console.log(`Скомпилировано: ${inputFile} → ${outputFile}`);
