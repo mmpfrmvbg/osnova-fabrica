@@ -215,27 +215,35 @@ describe('печать: шесть записей корпуса собираю�
   }
 
   it('СТОРОЖ МЕСТА: образ, код которого дорастает до площадки, отклоняется с числами', () => {
-    // Двадцать сайтов печати. С разделением (≥2 сайтов развёртка стоит ОДИН раз, сайт платит
-    // вызов и `write`) это уже не «три развёртки», а двадцать сайтов по ~180 байт: граница
-    // сместилась, но не исчезла — площадку по-прежнему нельзя перерасти (§3.40.6, §3.45.5).
-    const many: AsmInstruction[] = [
-      ...Array.from({ length: 20 }, () => printingCarrier(2)),
+    // ГРАНИЦА ИЗМЕРЕНА 2026-09-28 (`.tmp/osnova-print-ceiling.ts`): при разделённой печати
+    // ВЛЕЗАЮТ 28 сайтов (7264 байта, конец 0x101c60), а 32 (8096 байт) — ОТКАЗ с числами.
+    // До починки сторожа (он прибавлял файловое смещение 0x1000 к виртуальному адресу и был
+    // строже настоящей границы на 4096 байт) отказ приходил уже на двадцати — то есть проверка
+    // стерегла неверную границу. Здесь берём по обе стороны НАСТОЯЩЕЙ: 32 переполняют, 28 нет.
+    const over: AsmInstruction[] = [
+      ...Array.from({ length: 32 }, () => printingCarrier(2)),
       { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] },
     ];
-    expect(() => imageOfCarriers(many, [], [PRINT_CALL])).toThrow(PrintCallRefusal);
-    expect(() => imageOfCarriers(many, [], [PRINT_CALL])).toThrow(/площадк/iu);
+    expect(() => imageOfCarriers(over, [], [PRINT_CALL])).toThrow(PrintCallRefusal);
+    expect(() => imageOfCarriers(over, [], [PRINT_CALL])).toThrow(/площадк/iu);
     // Положительный контроль: та же программа с ОДНОЙ печатью проходит — и она инлановая
     // (делить нечего: развёртка одна).
     const one = imageOfCarriers([printingCarrier(2), { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] }], [], [PRINT_CALL]);
     expect(one.refused).toEqual([]);
     expect(one.bytes.length).toBeGreaterThan(1000);
-    // Десять сайтов — тот же случай, что в приёмке: делятся, влезают, отказов нет.
-    const ten = imageOfCarriers(
-      [...Array.from({ length: 10 }, () => printingCarrier(2)), { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] }],
+    // Двадцать восемь сайтов — сторона «влезает», и это не «почти»: между 28 и 32 лежит запас
+    // в четыре сайта (~832 байта), поэтому проверка не ловит случайное колебание размера.
+    const fits = imageOfCarriers(
+      [...Array.from({ length: 28 }, () => printingCarrier(2)), { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] }],
       [],
       [PRINT_CALL],
     );
-    expect(ten.refused, 'разделённая печать обязана собираться').toEqual([]);
-    expect(MINIMAL_BASE + 0x1000 + ten.bytes.length, 'и влезать в площадку').toBeLessThan(AREA);
+    expect(fits.refused, 'разделённая печать обязана собираться').toEqual([]);
+    // ГРАНИЦА — ОТ `MINIMAL_BASE`, БЕЗ ФАЙЛОВОГО СМЕЩЕНИЯ (2026-09-28). Прежняя редакция этой
+    // проверки прибавляла `0x1000` и мерила не тот адрес: `0x1000` — смещение `.text` В ФАЙЛЕ
+    // (`p_offset`), а `p_vaddr` сегмента равен `MINIMAL_BASE` (заголовки ELF, замер
+    // `.tmp/osnova-elf-address.ts`). Из-за этого сторож отказывал образам на 4096 байт раньше
+    // настоящей границы — и проверка это закрепляла.
+    expect(MINIMAL_BASE + fits.bytes.length, 'и влезать в площадку').toBeLessThan(AREA);
   });
 });
