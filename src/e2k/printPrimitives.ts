@@ -1,0 +1,492 @@
+/**
+ * ПРИМИТИВЫ ПЕЧАТИ e2k: ЧИСЛО → ДЕСЯТИЧНЫЙ ТЕКСТ В ПАМЯТИ, ПРЯМОЙ ПОСЛЕДОВАТЕЛЬНОСТЬЮ.
+ *
+ * # Зачем отдельный модуль
+ *
+ * Печать держит **15 записей корпуса из 20** нецелевых: язык умеет считать, но не умеет отдать
+ * результат наружу иначе как 8-битным кодом возврата (`docs/hardware-debt.md` §3.31). Кирпичи
+ * измерены по отдельности (`write` — `buildHelloProgram`, `sdivs`, `muls`, `adds` с литералом,
+ * `stb`/`ldd`/`std`), а **последовательности «число → текст» не было ни в одном рабочем виде**.
+ * Здесь она собрана целиком и доведена до записи в память.
+ *
+ * # Чем это отличается от `printRuntime.ts` (заморожен владельцем, читать можно, править нельзя)
+ *
+ * | решение | `printRuntime.ts` | здесь | почему |
+ * |---|---|---|---|
+ * | разряд в буфере | слово (`std`), 8 байт на разряд | **байт** (`stb`), 1 байт на разряд | критерий приёмки — байты `39 37 38` **подряд**; слово дало бы `39 00 …`, и `write` отдал бы нули между цифрами — «10» из такой области не получается ни при какой длине (§3.42.2, часть В). `stb` измерен: `.tmp/osnova-print-primitives.ts` |
+ * | знак | `shrs(v,31)` считается за −1 | `shrs(v,31)` — **логический** сдвиг, даёт 1 | измерено по источнику порта: `gen_shr_i32` = `tcg_gen_shr_i32` (`qemu/target/e2k/tcg/translate-al-c2.c:265-271`), то есть бит 31 встаёт в бит 0. С −1 модуль выходил бы `muls(v, 1+2·1) = 3v` |
+ * | счёт разрядов | девять порогов по 5 команд | три команды на разряд, порог 10 | `[v ≥ 10] = shrs(9 − v, 31)` — знак разности без сравнения и без ветвления |
+ * | перевод строки | не входит в длину | входит: `\n` сразу за младшим разрядом | эталоны записей `39`–`44` кончаются `0a` (§3.42.1): у `43` три вызова дают три строки |
+ * | длина и адрес | считает хвост по слоту знака | считает сама последовательность, кладёт **в память** | граница «число → текст» отделена от «отдать наружу»: хвост `write` читает два слова и не знает про регистры разрядов |
+ * | завершение | нет (и печатающая программа падает — §3.39) | {@link printNumberPrimitives} делает своё `exit(0)` | программа без возврата значения на цели падает (134), а не выходит нулём |
+ *
+ * # Почему без циклов, без сравнений и без ветвлений
+ *
+ * Цикл в этой плоскости упирается в сопоставление предикатов: результат сравнения читают и переход,
+ * и арифметика, а предикат у пары «сравнение + переход» один (`src/e2k/predicatePairing.ts`).
+ * Поэтому разряды берутся **развёрткой**: десять шагов подряд, каждый — свои команды. Переходов в
+ * последовательности нет вовсе (`ct`/`disp` не выдаются ни одной), значит раскладке внутри неё
+ * считать нечего.
+ *
+ * # Площадка: где живёт текст
+ *
+ * | что | где | зачем |
+ * |---|---|---|
+ * | разряды | `digitsBase + (9 − i)`, `i` — от младшего | старший разряд — по младшему адресу, как в тексте |
+ * | знак | `digitsBase − 1` (при десяти разрядах и минусе) | байт левее первого разряда; у неотрицательного он вне отрезка `write` и безвреден |
+ * | адрес текста | слово `startWord` площадки | граница с хвостом `write` |
+ * | длина текста | слово `lengthWord` площадки | там же |
+ *
+ * # Что измерено прогоном в модели (паспортная сборка, `-d strace` + шим)
+ *
+ * | опыт | результат |
+ * |---|---|
+ * | `stb` пишет БАЙТ: два байта подряд (`39` по X, `37` по X+1), чтение обратно | память `39 37 00 …`; `ldb` → **0x39**, `ldd` → **0x3739** — словесная запись затёрла бы первый байт |
+ * | печать числа | `10` → `31 30 0a`, `0` → `30 0a`, `-7` → `2d 37 0a`, `978` → `39 37 38 0a`, `100` → `31 30 30 0a` — байты равны эталонам записей `39`–`44` ЦЕЛИКОМ, код возврата **0** |
+ * | адрес и длина в журнале `write(1,<адрес>,<длина>)` | совпали с расчётом ПО ЧИСЛУ в TS (независимый свидетель) во всех восьми опытах |
+ * | площадка `0x101EC0` | запись и `write` проходят: страница кода в этой точке **не** защищена (прежний ACCERR был на странице ЗАГОЛОВКОВ, `MINIMAL_BASE + 0x88`) |
+ * | `%b[8]` и оконный `%r8` | **одна ячейка**: после `movts 4 → %r8` чтение `%b[8]` даёт `04`. Отсюда порядок хвоста: аргументы `write` кладутся последними |
+ * | сверка с `as-new -mcpu=elbrus-v5` | **150 команд из 150 совпали побайтово**; поток до первого `call` (140 команд, 1432 байта) совпал целиком; дальше `as` вставляет нулевые слоты (`nop`) — 32 байта перед выходом и 16 в конце, поэтому его образ длиннее на 48 |
+ * | дизассемблер МЦСТ читает НАШ образ | 150 команд по адресам; адреса дизассемблера на `0x1000` ниже наших — он берёт адрес секции `.text`, а `buildElfFromCode` кладёт код по `base + 0x1000` (несогласованность заголовков ELF, не наша и не чинится здесь) |
+ * | две печати ПОДРЯД | `31 0a 32 0a`, два `write` в журнале, код 0 — буфер переиспользуется между вызовами |
+ *
+ * # Границы, названные ЧИСЛОМ
+ *
+ * - **Площадка лежит в хвосте образа** (`spillBase − 64` = `0x101EC0` при конвенции образа). Код,
+ *   дошедший до неё, столкнётся с ней — и это измерено, а не предположено: **три печати ПОДРЯД**
+ *   (432 команды, код доходит до `0x102070`) пишут разряды поверх себя, программа кончается отказом
+ *   (код 139) после двух строк. В корпусе запись `43` печатает **в цикле** — код короткий, и её
+ *   эталон `31 0a 32 0a 33 0a` достигается циклом. Сторож для конвейера: перед подключением печати
+ *   к образу надо сверять `MINIMAL_BASE + 0x1000 + длина кода < printAreaOf(heap)` — иначе отказ.
+ * - **Только целое 32-битное знаковое**, кроме `−2^31`: модуль берётся умножением на −1
+ *   (`muls`), а `−(−2^31)` в 32 битах переполняется.
+ * - **Печатается ровно `PRINT_DIGITS` шагов**: числа ≥ 10^10 не наблюдаются — то же соглашение,
+ *   что у `sdivs` (32/32→32).
+ * - **Регистры `%b[0..11]` портятся** ({@link PRINT_PRIMITIVE_REGISTERS}); `%b[12..15]` — состояние
+ *   рантайма массивов, оно не трогается.
+ * - **Своё `exit` печатающая программа обязана сделать сама** (§3.39): {@link numberToTextPrimitives}
+ *   и {@link writeTextPrimitives} выхода НЕ делают (это половины), а {@link printNumberPrimitives}
+ *   завершает последовательность выходом. Так замороженному `printRuntime.ts` для подключения нужна
+ *   ровно одна новая часть — своя пара `exit` после `writeTail` (текст правки — §3.42.2, часть А).
+ */
+
+import { getEncoder, type AsmInstruction, type Operand } from './backend';
+import { MINIMAL_BASE, spillBaseOf } from './elfMinimal';
+import { ARRAY_WINDOW_RSZ } from './arrayRuntime';
+import { SYS_EXIT, SYS_WRITE, STDOUT_FD, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
+
+/** Десятичное основание. */
+export const PRINT_BASE = 10;
+
+/** Код ASCII нуля: код разряда — `48 + разряд`. */
+export const ASCII_ZERO = 48;
+
+/** Код ASCII минуса — байт знака. */
+export const ASCII_MINUS = 45;
+
+/**
+ * ПЕРЕВОД СТРОКИ — ЧАСТЬ ЭТАЛОНА, А НЕ ОФОРМЛЕНИЕ.
+ *
+ * Байты шести печатающих записей корпуса (`docs/hardware-debt.md` §3.42.1): `39` = `31 30 0a`,
+ * `40` = `30 0a`, `41` = `2d 37 0a`, `42` = `39 37 38 0a`, `43` = `31 0a 32 0a 33 0a`,
+ * `44` = `31 30 30 0a`. У `43` три вызова печати дают три строки — значит `\n` добавляет **каждый**
+ * вызов, а не программа. Без него запись `43` дала бы «123» вместо «1\n2\n3\n».
+ */
+export const ASCII_NEWLINE = 0x0a;
+
+/** Разрядов в развёртке: `2^31 < 10^10`, десяти хватает на любое 32-битное. */
+export const PRINT_DIGITS = 10;
+
+/**
+ * РАБОЧИЕ РЕГИСТРЫ ПОСЛЕДОВАТЕЛЬНОСТИ — `%b[0..11]`.
+ *
+ * `%b[12..15]` — состояние рантайма массивов (`zero`, `one`, `eight`, `heap`): оно живёт через всю
+ * программу, и последовательность его не трогает. `%b[10]`/`%b[11]` — **временные** рантайма
+ * массивов (`scratch2`/`scratch`), они и заняты постоянными 1 и 9.
+ *
+ * `%b[8..11]` — те же физические ячейки, что оконные `%r8..%r11` при начальном `WD.base_d = 0`,
+ * `rbs = rcur = 0` (`qemu/target/e2k/reg-index.h:19-59`: `%b[N]` → `(base + rbs + N % rsz_full)`,
+ * `%rN` → `(base + N)`). Отсюда порядок хвоста: аргументы `write` кладутся **после** того, как
+ * разряды уже в памяти, и затирание `%b[8..11]` ничего не портит.
+ */
+export const PRINT_PRIMITIVE_REGISTERS = {
+  /** Значение (копия аргумента). */
+  input: 0,
+  /** Признак знака: 1 — отрицательное, 0 — нет (`shrs(вход, 31)`, сдвиг логический). */
+  negative: 1,
+  /** Модуль значения, затем частные. */
+  value: 2,
+  /** Частное `value / 10`. */
+  quotient: 3,
+  /** Временный: произведение, разряд, признак порога, адрес знака. */
+  scratch: 4,
+  /** Постоянная 10. */
+  ten: 5,
+  /** Смещение адресации (`stb`/`ldd`/`std` обязаны брать основание и смещение из РАЗНЫХ регистров). */
+  offset: 6,
+  /** Адрес площадки — основание адресации. */
+  buffer: 7,
+  /** Счёт разрядов. */
+  count: 8,
+  /** Постоянный ноль: нулевое смещение и «нет минуса». */
+  zero: 9,
+  /** Постоянная 1: `1 − 2·знак` даёт −1 у отрицательного и 1 у неотрицательного. */
+  one: 10,
+  /** Постоянная 9: `9 − value` — проверка `value ≥ 10` знаком разности. */
+  nine: 11,
+} as const;
+
+/** Регистры, которые последовательность портит: их не имеет права держать чужое значение. */
+export const PRINT_PRIMITIVE_CLOBBERS: readonly number[] = Object.values(PRINT_PRIMITIVE_REGISTERS);
+
+/**
+ * РАЗМЕТКА ПЛОЩАДКИ в байтах.
+ *
+ * `sign` — запасной байт под минус: у отрицательного десятиразрядного числа `-` стоит на
+ * `digitsBase − 1`, то есть **ниже** разрядов.
+ */
+export const PRINT_AREA_LAYOUT = {
+  /** Байт знака при десяти разрядах и минусе (иначе не используется). */
+  sign: 1,
+  /** Первый (старший) слот разряда: разряды занимают `digits … digits + PRINT_DIGITS − 1`. */
+  digits: 2,
+  /**
+   * Перевод строки — **всегда сразу за младшим разрядом**: разряды кончаются на
+   * `digits + PRINT_DIGITS − 1` при любом их числе, поэтому байт `\n` стоит по постоянному адресу.
+   */
+  newline: 2 + 10,
+  /** Слово «адрес первого байта текста» (8 байт). */
+  startWord: 16,
+  /** Слово «длина текста в байтах» (8 байт). */
+  lengthWord: 24,
+} as const;
+
+/** Размер площадки целиком. */
+export const PRINT_AREA_BYTES = 32;
+
+/**
+ * ОТСТУП ПЛОЩАДКИ ОТ ОБЛАСТИ ВЫТЕСНЕНИЯ: площадка лежит **под** ней, в хвосте образа.
+ *
+ * Почему не в куче и не в её первой странице: куча растёт вверх от `MINIMAL_BASE + 0x2000`, и
+ * первый же блок массива затёр бы площадку по нулевому смещению. Печать **не должна выделять
+ * память** (пример `43` печатает в цикле), поэтому место берётся статически.
+ *
+ * 64 байта, а не 32, — соглашение карты (`MINIMAL_BASE + 0x2000 − 0x100 − 64`); площадка занимает
+ * младшие 32 из них.
+ */
+export const PRINT_AREA_TAIL_OFFSET = 64;
+
+/**
+ * Адрес площадки при данном адресе кучи: `spillBaseOf(куча) − 64`.
+ *
+ * При конвенции образа (`MINIMAL_BASE + 0x2000`) это `0x101EC0`. **Измерено прогоном** (`.tmp/osnova-print-buf-page.ts`):
+ * запись `stb` по этому адресу и `write` с него проходят, текст приходит в stdout — то есть
+ * страница кода в этой точке **не** защищена, вопреки чтению прежнего замера (`mem-page.ts`
+ * падал на странице ЗАГОЛОВКОВ, `MINIMAL_BASE + 0x88`, а не на этой).
+ *
+ * Граница, названная здесь: код, дошедший до `0x101EC0`, столкнётся с площадкой — она лежит в
+ * хвосте образа, а не в отдельной странице.
+ */
+export function printAreaOf(heapAddress: number): number {
+  return spillBaseOf(heapAddress) - PRINT_AREA_TAIL_OFFSET;
+}
+
+/** Адрес площадки по конвенции образа. */
+export const DEFAULT_PRINT_AREA = printAreaOf(MINIMAL_BASE + 0x2000);
+
+/** Отказ примитивов печати: причина называется, а не замалчивается. */
+export class PrintPrimitiveRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PrintPrimitiveRefusal';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ФОРМЫ КОМАНД (каждая — измеренная; источники в шапке и в таблице МЦСТ)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const reg = (index: number): Operand => ({ kind: 'reg', index });
+const imm = (value: number): Operand => ({ kind: 'imm', value });
+const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
+const f64 = (value: number): Operand => ({ kind: 'imm64', value: BigInt(value) } as unknown as Operand);
+
+const a = (mnemonic: string, operands: readonly Operand[], channel = 0): AsmInstruction => ({ mnemonic, channel, operands });
+
+/** Короткая пересылка: литерал 0…15 кодируется короткой непосредственной формой (`0xc0 | N`). */
+const movts = (value: number, destination: number): AsmInstruction => a('movts', [imm(value), reg(destination)]);
+
+/** Пересылка регистр→регистр: отдельной мнемоники у МЦСТ нет, вид операнда решает (`e2k-opc.h:644`). */
+const movtsReg = (source: number, destination: number): AsmInstruction => a('movts', [reg(source), reg(destination)]);
+
+/** 64-битный литерал (`_f64`, форма 0xdc): адрес площадки в 16 бит не влезает. */
+const movtd = (value: number, destination: number): AsmInstruction => a('movtd', [f64(value), reg(destination)]);
+
+/** Запись байта: `stb значение, база, смещение` — порядок операндов измерен (`.tmp/std-order.ts`). */
+const stb = (value: number, base: number, offset: number): AsmInstruction => a('stb', [reg(value), reg(base), reg(offset)], 2);
+
+/** Запись слова: рабочая граница с хвостом `write`. */
+const std = (value: number, base: number, offset: number): AsmInstruction => a('std', [reg(value), reg(base), reg(offset)], 2);
+
+/** Чтение слова. */
+const ldd = (base: number, offset: number, destination: number): AsmInstruction => a('ldd', [reg(base), reg(offset), reg(destination)]);
+
+/** Целочисленное деление: канал ТОЛЬКО пятый (`e2k-opc.h:69`, измерено `.tmp/idiv-channel.ts`). */
+const sdivs = (left: number, right: number, destination: number): AsmInstruction => a('sdivs', [reg(left), reg(right), reg(destination)], 5);
+
+const muls = (left: number, right: number, destination: number): AsmInstruction => a('muls', [reg(left), reg(right), reg(destination)]);
+const adds = (left: number, right: number, destination: number): AsmInstruction => a('adds', [reg(left), reg(right), reg(destination)]);
+const addsImm = (source: number, value: number, destination: number): AsmInstruction => a('adds', [reg(source), imm(value), reg(destination)]);
+const subs = (left: number, right: number, destination: number): AsmInstruction => a('subs', [reg(left), reg(right), reg(destination)]);
+const shrs = (source: number, shift: number, destination: number): AsmInstruction => a('shrs', [reg(source), imm(shift), reg(destination)]);
+
+/** Окно вращаемых регистров: без него системный вызов не принимается. */
+const setbn = (rsz: number): AsmInstruction => a('setbn', [imm(rsz), imm(0), imm(0)]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ПОСЛЕДОВАТЕЛЬНОСТЬ «ЧИСЛО → ТЕКСТ»
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Что последовательность оставляет после себя. */
+export interface NumberToText {
+  /** Команды: разряды в буфере и два слова-границы. */
+  readonly instructions: readonly AsmInstruction[];
+  /** Адрес площадки. */
+  readonly area: number;
+  /** Адрес старшего слота разряда (`area + PRINT_AREA_LAYOUT.digits`). */
+  readonly digitsBase: number;
+  /** Адрес байта знака при десяти разрядах и минусе. */
+  readonly signByte: number;
+  /** Адрес слова «адрес текста». */
+  readonly startWord: number;
+  /** Адрес слова «длина текста». */
+  readonly lengthWord: number;
+}
+
+/**
+ * СОБРАТЬ ПОСЛЕДОВАТЕЛЬНОСТЬ: значение из регистра `argument` → десятичный текст в площадке.
+ *
+ * Последовательность — **прямая**: ни одного перехода, ни одного сравнения, десять шагов разбора и
+ * прямой счёт длины. Что она делает по шагам:
+ *
+ * | шаг | команды | что получается |
+ * |---|---|---|
+ * | знак | `shrs` → `adds` → `subs` → `muls` | `%b[1]` — 1 или 0; `%b[2]` — модуль значения (`muls(v, 1 − 2·знак)`) |
+ * | константы | `movts`×4, `movtd` | 10, 0, 1, 9 и адрес площадки — в регистрах, а не в операндах |
+ * | разряд `i` | `sdivs` → `muls` → `subs` → `adds 48` → `movts` → `stb` | код разряда — байтом в свой слот |
+ * | счёт | `subs 9−v` → `shrs` → `adds` | `[v ≥ 10]` знаком разности: счёт начинается с единицы (ноль — один разряд) |
+ * | адрес и длина | `movts`/`subs`/`adds` | адрес = `digitsBase + (10 − разряды) − знак`, длина = `разряды + знак` |
+ * | знак байтом | `subs` → `movts 45` → `stb` | минус ложится на байт левее текста; у неотрицательного — вне `write` |
+ * | граница | `movtd` → `std` ×2 | адрес и длина — в слова площадки: хвост читает их, а не регистры |
+ *
+ * @param argument регистр со значением (его выдала раскладка или проба)
+ * @param heapAddress адрес кучи образа — от него считается площадка
+ */
+export function numberToTextPrimitives(argument: number, heapAddress: number): NumberToText {
+  const r = PRINT_PRIMITIVE_REGISTERS;
+  const area = printAreaOf(heapAddress);
+  const digitsBase = area + PRINT_AREA_LAYOUT.digits;
+  const startWord = area + PRINT_AREA_LAYOUT.startWord;
+  const lengthWord = area + PRINT_AREA_LAYOUT.lengthWord;
+  const instructions: AsmInstruction[] = [];
+
+  // 1. Значение — в рабочий регистр.
+  if (argument !== r.input) instructions.push(movtsReg(argument, r.input));
+
+  // 2. КОНСТАНТЫ — ПЕРВЫМИ. Порядок не косметика: модуль знака считает `1 − 2·знак`, то есть
+  //    читает постоянную единицу, и если материализовать её после, произведение даст ноль
+  //    (измерено `.tmp/osnova-print-area-dump.ts`: разряды выходили `30 30 …` при любом входе).
+  instructions.push(
+    movts(PRINT_BASE, r.ten),
+    movts(0, r.zero),
+    movts(1, r.one),
+    movts(9, r.nine),
+    movtd(area, r.buffer),
+    movts(1, r.count), // счёт начинается с единицы: ноль — это один разряд
+  );
+
+  // 3. Знак и модуль: `shrs` логический, поэтому признак — 1/0, а не −1/0.
+  instructions.push(
+    shrs(r.input, 31, r.negative), // 1 у отрицательного, 0 у неотрицательного
+    adds(r.negative, r.negative, r.scratch), // 2·знак
+    subs(r.one, r.scratch, r.scratch), // 1 − 2·знак: −1 у отрицательного, 1 у неотрицательного
+    muls(r.input, r.scratch, r.value), // модуль
+  );
+
+  // 4. Десять разрядов: прямые шаги, без цикла и без сравнений. Разряд `i` (от младшего) — в слот
+  //    `digits + PRINT_DIGITS − 1 − i` площадки: старший разряд по младшему адресу, как в тексте.
+  for (let index = 0; index < PRINT_DIGITS; index++) {
+    instructions.push(
+      sdivs(r.value, r.ten, r.quotient), // q = v / 10
+      muls(r.quotient, r.ten, r.scratch), // q·10
+      subs(r.value, r.scratch, r.scratch), // разряд = v − q·10 (остатка у IR формы нет)
+      addsImm(r.scratch, ASCII_ZERO, r.scratch), // код разряда
+      movts(PRINT_AREA_LAYOUT.digits + PRINT_DIGITS - 1 - index, r.offset),
+      stb(r.scratch, r.buffer, r.offset), // байтом — в свой слот (основание ≠ смещение)
+      subs(r.nine, r.value, r.scratch), // 9 − v
+      shrs(r.scratch, 31, r.scratch), // 1, если v ≥ 10 (знак разности, а не сравнение)
+      adds(r.count, r.scratch, r.count), // в счёт разрядов
+      movtsReg(r.quotient, r.value), // v ← q
+    );
+  }
+
+  // 5. Адрес первого байта текста и его длина — прямой арифметикой, без единого перехода.
+  //    Счёт разрядов (`%b[8]`) здесь НЕ переиспользуется под константу: из него берётся длина.
+  instructions.push(
+    movts(PRINT_AREA_LAYOUT.digits + PRINT_DIGITS, r.scratch), // 2 + 10: смещение считается от начала площадки
+    subs(r.scratch, r.count, r.scratch), // 10 − разряды: сколько слотов пропустить
+    subs(r.scratch, r.negative, r.scratch), // минус сдвигает текст на байт влево
+    adds(r.buffer, r.scratch, r.quotient), // адрес текста → %b[3]
+    subs(r.quotient, r.one, r.scratch), // адрес последнего байта перед текстом
+    adds(r.scratch, r.negative, r.scratch), // + знак: у отрицательного минус ВХОДИТ в текст, у прочих лежит до него
+    movts(ASCII_MINUS, r.value), // код минуса (значение больше не нужно)
+    stb(r.value, r.scratch, r.zero), // минус — байтом; у неотрицательного он вне текста
+    adds(r.count, r.negative, r.count), // длина = разряды + знак
+    // Перевод строки: он часть эталона (`31 30 0a`), поэтому входит и в текст, и в длину.
+    adds(r.count, r.one, r.count), // длина = разряды + знак + 1
+    movts(ASCII_NEWLINE, r.value), // 0x0a
+    movts(PRINT_AREA_LAYOUT.newline, r.offset), // сразу за младшим разрядом — адрес постоянный
+    stb(r.value, r.buffer, r.offset),
+  );
+  // Разряды потеряны как число, но их счёт жив: он в `%b[8]`, а длина — уже в `%b[8]`. Адрес текста
+  // и длина уезжают в память: граница «число → текст» должна быть видна снаружи, а не в регистрах.
+  instructions.push(
+    movtd(startWord, r.offset),
+    std(r.quotient, r.offset, r.zero),
+    movtd(lengthWord, r.offset),
+    std(r.count, r.offset, r.zero),
+  );
+
+  return { instructions, area, digitsBase, signByte: digitsBase - 1, startWord, lengthWord };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ХВОСТ: ОТДАТЬ ТЕКСТ НАРУЖУ
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `write(fd, buf, count)` по словам площадки — тем же набором форм, что у «hello»
+ * (`src/e2k/syscallRuntime.ts:97-115`).
+ *
+ * @param windowRsz размер окна для `setbn`: по умолчанию тот же, что ставит пролог образа
+ *   (`ARRAY_WINDOW_RSZ = 7`, шестнадцать единиц — `%b[0..15]`). Меньшее значение **сужает** окно и
+ *   делает `%b[12..15]` недоступными, поэтому по умолчанию берётся прологовое.
+ */
+export function writeTextPrimitives(heapAddress: number, windowRsz = ARRAY_WINDOW_RSZ): AsmInstruction[] {
+  const r = PRINT_PRIMITIVE_REGISTERS;
+  const area = printAreaOf(heapAddress);
+  const startWord = area + PRINT_AREA_LAYOUT.startWord;
+  const lengthWord = area + PRINT_AREA_LAYOUT.lengthWord;
+  return [
+    setbn(windowRsz),
+    movts(0, r.zero), // ноль понадобится как «второе слагаемое» при пересылке в оконный регистр
+    movtd(startWord, r.offset),
+    ldd(r.offset, r.zero, r.value), // адрес текста
+    // Аргумент 2 — в оконный `%r10`: форма `adds регистр, ноль, %rN` измерена на выходе всех
+    // программ корпуса (`src/e2k/programImage.ts:126-129`). Оконный приёмник — не прихоть:
+    // `movts` регистр→оконный регистр в дереве не проверен, а эта форма работает.
+    a('adds', [reg(r.value), reg(r.zero), window_(WINDOW_NUMBER_REGISTER + 2)]),
+    movtd(lengthWord, r.offset),
+    ldd(r.offset, r.zero, r.scratch), // длина
+    a('adds', [reg(r.scratch), reg(r.zero), window_(WINDOW_NUMBER_REGISTER + 3)]), // аргумент 3
+    a('movts', [imm(SYS_WRITE), window_(WINDOW_NUMBER_REGISTER)]),
+    a('movts', [imm(STDOUT_FD), window_(WINDOW_NUMBER_REGISTER + 1)]),
+    a('sdisp', [imm(1), imm(0)]),
+    a('call', [imm(1), imm(4)]), // wbs = 4 — минимум, который требует порт (`psize_q = 4`)
+  ];
+}
+
+/**
+ * ВЫХОД ПРОГРАММЫ — обязательная часть печати, а не украшение.
+ *
+ * Измерено (`docs/hardware-debt.md` §3.39): программа **без возврата значения** на цели падает
+ * (код 134, поток уходит за свой код), а `вернуть 0/1/2` даёт 0/1/2. Поэтому печатающая программа
+ * завершается **своим** `exit`, а не отсутствием возврата.
+ *
+ * Окно здесь не ставится намеренно: его уже поставил либо {@link writeTextPrimitives}, либо пролог
+ * образа. Отдельный `setbn` ставить **вредно**: он сужает окно (`docs/hardware-debt.md` §3.24).
+ */
+export function exitPrimitives(code = 0): AsmInstruction[] {
+  return [
+    a('movts', [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)]),
+    a('movts', [imm(code), window_(WINDOW_NUMBER_REGISTER + 1)]),
+    a('sdisp', [imm(1), imm(0)]),
+    a('call', [imm(1), imm(4)]),
+  ];
+}
+
+/** Готовая программа печати одного числа: текст в площадке, `write`, свой `exit`. */
+export interface PrintNumberSequence {
+  readonly instructions: readonly AsmInstruction[];
+  readonly area: number;
+  readonly startWord: number;
+  readonly lengthWord: number;
+}
+
+/** Собрать полную последовательность печати: число → текст → `write` → `exit`. */
+export function printNumberPrimitives(
+  argument: number,
+  heapAddress: number,
+  options: { readonly exitCode?: number; readonly windowRsz?: number } = {},
+): PrintNumberSequence {
+  const text = numberToTextPrimitives(argument, heapAddress);
+  return {
+    instructions: [
+      ...text.instructions,
+      ...writeTextPrimitives(heapAddress, options.windowRsz),
+      ...exitPrimitives(options.exitCode ?? 0),
+    ],
+    area: text.area,
+    startWord: text.startWord,
+    lengthWord: text.lengthWord,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// СТОРОЖ ПОСЛЕДОВАТЕЛЬНОСТИ
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Сторож: проверяет **смысл** шагов, а не их наличие (по образцу `checkArraySequence`).
+ *
+ * Он же — материал негативного контроля: сними запись разряда, деление, счёт длины или саму
+ * границу с хвостом — и он покраснеет с названной причиной.
+ */
+export function checkNumberToText(instructions: readonly AsmInstruction[]): string[] {
+  const problems: string[] = [];
+  const count = (mnemonic: string): number => instructions.filter((item) => item.mnemonic === mnemonic).length;
+  if (count('sdivs') !== PRINT_DIGITS) {
+    problems.push(`печать: делений ${String(count('sdivs'))}, а разрядов ${String(PRINT_DIGITS)}`);
+  }
+  if (count('stb') !== PRINT_DIGITS + 2) {
+    problems.push(
+      `печать: байтовых записей ${String(count('stb'))} — нужны ${String(PRINT_DIGITS)} разрядов, знак и перевод строки`,
+    );
+  }
+  if (count('std') !== 2) {
+    problems.push(`печать: слов-границ ${String(count('std'))}, а их две (адрес текста и длина)`);
+  }
+  if (count('ct') !== 0 || count('disp') !== 0 || count('call') !== 0) {
+    problems.push('печать: в последовательности «число → текст» нет ни переходов, ни вызовов — только прямая развёртка');
+  }
+  if (count('shrs') !== PRINT_DIGITS + 1) {
+    problems.push(`печать: сдвигов ${String(count('shrs'))} — один на знак и по одному на порог разряда`);
+  }
+  // Основание и смещение формы памяти обязаны быть РАЗНЫМИ регистрами: измерено
+  // (`docs/hardware-debt.md` §3.30) — совпадение валит порт исключением при входе в блок.
+  instructions.forEach((instruction, index) => {
+    if (instruction.mnemonic !== 'ldd' && instruction.mnemonic !== 'std' && instruction.mnemonic !== 'stb') return;
+    const base = instruction.operands[instruction.mnemonic === 'ldd' ? 0 : 1];
+    const offset = instruction.operands[instruction.mnemonic === 'ldd' ? 1 : 2];
+    if (base?.kind === 'reg' && offset?.kind === 'reg' && base.index === offset.index) {
+      problems.push(
+        `#${String(index)} ${instruction.mnemonic}: основание и смещение — один и тот же %b[${String(base.index)}]: ` +
+          'порт взводит исключение (docs/hardware-debt.md §3.30)',
+      );
+    }
+  });
+  return problems;
+}
+
+/** Готовый кодировщик — для проб, которым нужны байты. */
+export const printEncoder = getEncoder('e2k');
