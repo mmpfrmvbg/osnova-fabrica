@@ -35,15 +35,27 @@ import type { InvokeHandler, StackValue } from "./interpreter";
 // Формат значения — один на все VM: своя копия здесь разошлась бы с общей, и
 // склейка строк в регистровой машине печатала бы логическое иначе, чем в стековой.
 import { formatOsnovaValue } from "./interpreter";
+// Коды отказа — общее пространство обеих VM: код `OSN-RT-002` обязан значить
+// одно и то же в стековой и в регистровой машине, иначе по журналу нельзя
+// считать частоты (см. `src/runtime/runtimeCodes.ts`).
+import { RUNTIME_CODES, type RuntimeErrorCode } from "../runtimeCodes";
 
 export type { StackValue };
 
-/** Ошибка регистровой VM: сообщение + место в регистровом коде. */
+/**
+ * Ошибка регистровой VM: сообщение + место в регистровом коде + код отказа.
+ *
+ * `code` — четвёртый параметр (как у `InterpreterError`): порядок
+ * `message, pc, op` закреплён вызовами и оракулами, поэтому новый параметр
+ * добавлен в конец. Проставлен в каждой точке броска; сторож —
+ * `src/runtime/runtimeCodes.test.ts` (скан источников).
+ */
 export class RegInterpreterError extends Error {
   constructor(
     message: string,
     public pc?: number,
     public op?: string,
+    public code?: RuntimeErrorCode,
   ) {
     super(message);
     this.name = "RegInterpreterError";
@@ -153,7 +165,7 @@ export class RegVM {
   /** Индекс процедуры по имени; бросает, если нет (как `VM.findProcedureIndex`). */
   findProcedureIndex(name: string): number {
     const i = this.module.procedures.findIndex((p) => p.name === name);
-    if (i < 0) throw new RegInterpreterError(`Procedure not found: ${name}`);
+    if (i < 0) throw new RegInterpreterError(`Procedure not found: ${name}`, undefined, undefined, RUNTIME_CODES.entryNotFound);
     return i;
   }
 
@@ -167,7 +179,7 @@ export class RegVM {
   ): Promise<StackValue | undefined> {
     const proc = this.module.procedures[procedureIndex];
     if (!proc) {
-      throw new RegInterpreterError(`Invalid procedure index: ${procedureIndex}`);
+      throw new RegInterpreterError(`Invalid procedure index: ${procedureIndex}`, undefined, undefined, RUNTIME_CODES.entryNotFound);
     }
 
     this.frames = [this.createFrame(proc, procedureIndex, -1, args)];
@@ -181,11 +193,13 @@ export class RegVM {
         throw new RegInterpreterError(
           `Max steps exceeded (${this.maxSteps})`,
           this.pc,
+          undefined,
+          RUNTIME_CODES.maxSteps,
         );
       }
       const element = this.module.code[this.pc];
       if (!element) {
-        throw new RegInterpreterError(`Нет инструкции по адресу ${this.pc}`, this.pc);
+        throw new RegInterpreterError(`Нет инструкции по адресу ${this.pc}`, this.pc, undefined, RUNTIME_CODES.internalInvariant);
       }
       const next = await this.executeElement(element);
       if (next === "ret") return this.lastReturn;
@@ -234,14 +248,14 @@ export class RegVM {
 
   private frame(): RegFrame {
     const frame = this.frames[this.frames.length - 1];
-    if (!frame) throw new RegInterpreterError("Нет активного кадра", this.pc);
+    if (!frame) throw new RegInterpreterError("Нет активного кадра", this.pc, undefined, RUNTIME_CODES.internalInvariant);
     return frame;
   }
 
   private read(reg: number): StackValue {
     const values = this.frame().values;
     if (reg < 0 || reg >= values.length) {
-      throw new RegInterpreterError(`Регистр вне диапазона: r${reg}`, this.pc, "read");
+      throw new RegInterpreterError(`Регистр вне диапазона: r${reg}`, this.pc, "read", RUNTIME_CODES.internalInvariant);
     }
     return values[reg] as StackValue;
   }
@@ -249,7 +263,7 @@ export class RegVM {
   private write(reg: number, value: StackValue): void {
     const values = this.frame().values;
     if (reg < 0 || reg >= values.length) {
-      throw new RegInterpreterError(`Регистр вне диапазона: r${reg}`, this.pc, "write");
+      throw new RegInterpreterError(`Регистр вне диапазона: r${reg}`, this.pc, "write", RUNTIME_CODES.internalInvariant);
     }
     values[reg] = value;
   }
@@ -269,6 +283,7 @@ export class RegVM {
             `Constant index out of range: ${ins.k}`,
             this.pc,
             "const",
+            RUNTIME_CODES.internalInvariant,
           );
         }
         this.write(ins.d, v as StackValue);
@@ -305,7 +320,7 @@ export class RegVM {
       case "div": {
         const a = this.read(ins.a) as number;
         const b = this.read(ins.b) as number;
-        if (b === 0) throw new RegInterpreterError("Division by zero", this.pc, "div");
+        if (b === 0) throw new RegInterpreterError("Division by zero", this.pc, "div", RUNTIME_CODES.divisionByZero);
         this.write(ins.d, a / b);
         return next;
       }
@@ -313,7 +328,7 @@ export class RegVM {
         // БЛОК 2: целочисленное деление — отсечение к нулю (как `SDIVs` в e2k).
         const a = this.read(ins.a) as number;
         const b = this.read(ins.b) as number;
-        if (b === 0) throw new RegInterpreterError("Integer division by zero", this.pc, "idiv");
+        if (b === 0) throw new RegInterpreterError("Integer division by zero", this.pc, "idiv", RUNTIME_CODES.divisionByZero);
         this.write(ins.d, Math.trunc(a / b));
         return next;
       }
@@ -321,7 +336,7 @@ export class RegVM {
         const a = this.read(ins.a) as number;
         const b = this.read(ins.b) as number;
         if (b === 0) {
-          throw new RegInterpreterError("Remainder by zero", this.pc, "rem");
+          throw new RegInterpreterError("Remainder by zero", this.pc, "rem", RUNTIME_CODES.remainderByZero);
         }
         this.write(ins.d, a % b);
         return next;
@@ -360,6 +375,7 @@ export class RegVM {
             `Unknown invoke: ${ins.name}`,
             this.pc,
             "invoke",
+            RUNTIME_CODES.unknownInvoke,
           );
         }
         const argc = extraArgc !== undefined ? extraArgc : getInvokeArgCount(ins.name);
@@ -368,6 +384,7 @@ export class RegVM {
             `invoke ${ins.name}: ожидалось аргументов ${argc}, в коде ${ins.argc}`,
             this.pc,
             "invoke",
+            RUNTIME_CODES.internalInvariant,
           );
         }
         const args: StackValue[] = [];
@@ -380,7 +397,7 @@ export class RegVM {
       case "call": {
         const callee = this.module.procedures[ins.fi];
         if (!callee) {
-          throw new RegInterpreterError(`call invalid procedure index: ${ins.fi}`, this.pc);
+          throw new RegInterpreterError(`call invalid procedure index: ${ins.fi}`, this.pc, undefined, RUNTIME_CODES.internalInvariant);
         }
         const args: StackValue[] = [];
         for (let i = 0; i < ins.argc; i++) args.push(this.read(ins.args[i] ?? -1));
@@ -413,6 +430,7 @@ export class RegVM {
             `Необработанное исключение: ${describeValue(errVal)}`,
             this.pc,
             "throw",
+            RUNTIME_CODES.unhandledThrow,
           );
         }
         // Разворачивание: снять кадры, накопленные внутри защищённого блока.
@@ -426,7 +444,7 @@ export class RegVM {
         const value = ins.v === undefined ? undefined : this.read(ins.v);
         const frame = this.frames.pop();
         if (!frame) {
-          throw new RegInterpreterError("ret без кадра", this.pc, "ret");
+          throw new RegInterpreterError("ret без кадра", this.pc, "ret", RUNTIME_CODES.internalInvariant);
         }
         // Досрочный выход из процедуры снимает и её незакрытые защищённые блоки
         // (то же делает стековая VM), иначе обработчик «мёртвого» кадра остался
@@ -486,6 +504,7 @@ export class RegVM {
           `Unknown op: ${unknown.op ?? "?"}`,
           this.pc,
           unknown.op,
+          RUNTIME_CODES.internalInvariant,
         );
       }
     }
@@ -527,7 +546,7 @@ function defaultEntryIndex(module: RegModule): number {
     if (i >= 0) return i;
   }
   if (module.procedures.length === 0) {
-    throw new RegInterpreterError("Регистровый модуль без процедур");
+    throw new RegInterpreterError("Регистровый модуль без процедур", undefined, undefined, RUNTIME_CODES.entryNotFound);
   }
   return 0;
 }

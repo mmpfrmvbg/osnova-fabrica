@@ -44,6 +44,7 @@ import type { InterpreterOptions, StackValue, InvokeHandler } from "./interprete
 import type { OsnovaSpec } from "../pipeline/types";
 import { isOsVbcModule, type OsVbcModule } from "./vm/bytecode";
 import { createDefaultInvokeHandler } from "./vm/interpreter";
+import { RUNTIME_CODES, runtimeErrorCodeOf } from "./runtimeCodes";
 import {
   TimeoutError,
   RecoveryManager,
@@ -63,15 +64,23 @@ export function vmExecuteTimeoutMessage(timeoutMs: number, procedure: string): s
 /**
  * Единый текст ошибки VM для {@link safeExecutePipelineVm}, логов и отчётов пайплайна.
  * Для {@link InterpreterError} добавляет `op` и `pc`, чтобы совпадать с диагностикой интерпретатора.
+ *
+ * Код (`код=OSN-RT-NNN`, см. {@link import("./runtimeCodes").RUNTIME_CODES}) дописывается
+ * **в конец** и только когда он есть: прежний текст остаётся дословным префиксом, поэтому
+ * потребители, искавшие в строке `Remainder by zero`, продолжают её находить. Машине
+ * строку разбирать не нужно — код читается полем через
+ * {@link import("./runtimeCodes").runtimeErrorCodeOf}.
  */
 export function formatVmRuntimeError(err: unknown): string {
+  const code = runtimeErrorCodeOf(err);
   if (err instanceof InterpreterError) {
     const parts: string[] = [err.message];
     if (err.op !== undefined) parts.push(`op=${err.op}`);
     if (err.pc !== undefined) parts.push(`pc=${err.pc}`);
+    if (code !== undefined) parts.push(`код=${code}`);
     return parts.join(" ");
   }
-  if (err instanceof Error) return err.message;
+  if (err instanceof Error) return code === undefined ? err.message : `${err.message} код=${code}`;
   return String(err);
 }
 
@@ -87,6 +96,19 @@ export * from "./vm/reginterpreter";
 /** Имена опкодов в поле `op` байткода; совпадают с emit в {@link import("../compiler/codegen")} и списком opcodes в language-schema. */
 export { OpCode } from "./interpreter";
 export type { InterpreterOptions, StackValue, InvokeHandler } from "./interpreter";
+/**
+ * Коды отказа исполнения — наружу через фасад VM (`src/runtime/index.ts`
+ * реэкспортирует `./vm`), чтобы потребитель (журнал, отчёт, CLI) брал и таблицу,
+ * и способ чтения из одного места, а не собирал путь по внутренним файлам.
+ */
+export {
+  RUNTIME_CODES,
+  RUNTIME_CODE_TABLE,
+  isRuntimeErrorCode,
+  runtimeCodeInfo,
+  runtimeErrorCodeOf,
+} from "./runtimeCodes";
+export type { RuntimeErrorCode, RuntimeCodeInfo } from "./runtimeCodes";
 
 /** Фаза записи в {@link OsVbcVMOptions.onExecutionLog}. */
 export type VmExecutionLogPhase = "start" | "done" | "error";
@@ -312,7 +334,18 @@ function runWithTimeout<T>(
       settled = true;
       // Прогон байткода и ожидание invoke могут завершиться после таймаута — гасим поздний reject, иначе unhandledRejection.
       void promise.catch(() => {});
-      reject(new TimeoutError(message, { timeoutMs: ms, procedure, recoverable: true }));
+      // Код отказа кладётся в `metadata.runtimeCode`, а не в `code`: поле `code`
+      // у TimeoutError занято значением `TIMEOUT_ERROR`, на которое опирается
+      // `TimeoutRetryStrategy` (`src/runtime/runtimeRecovery.ts`). Читается
+      // оттуда через `runtimeErrorCodeOf` — единый способ для всех классов.
+      reject(
+        new TimeoutError(message, {
+          timeoutMs: ms,
+          procedure,
+          recoverable: true,
+          metadata: { runtimeCode: RUNTIME_CODES.timeout },
+        }),
+      );
     }, ms);
     promise.then(
       (v) => {
@@ -558,7 +591,7 @@ export class OsVbcVM implements VM {
    */
   async execute(opts: OsVbcExecuteOptions = {}): Promise<StackValue | undefined> {
     if (this.executing) {
-      throw new InterpreterError(VM_ERROR_CONCURRENT_EXECUTE);
+      throw new InterpreterError(VM_ERROR_CONCURRENT_EXECUTE, undefined, undefined, RUNTIME_CODES.concurrentExecute);
     }
     this.executing = true;
     const t0 = Date.now();

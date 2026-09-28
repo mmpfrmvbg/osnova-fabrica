@@ -16,6 +16,7 @@ import { compile, compileProgram } from './codegen';
 import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction } from '../runtime/vm/bytecode';
 import { OsVbcVM, type OsVbcVMOptions, type StackValue } from '../runtime/vm';
 import { InterpreterError } from '../runtime/vm/interpreter';
+import { RUNTIME_CODES } from '../runtime/runtimeCodes';
 import { analyzeProgram, type SemanticError, type HostSyscallSpec } from './semantic';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
@@ -184,7 +185,15 @@ export class Compiler {
     } else {
       const def = result.module.procedures[procedureIndex];
       if (!def) {
-        throw new InterpreterError(`Invalid procedure index: ${procedureIndex}`);
+        // Код назван так же, как у одноимённого пути в интерпретаторе: без него
+        // запись отказа в журнале получила бы `OSN-RT-000` («код не назван») и
+        // выглядела бы разрывом канала, хотя причина известна (замер T2, 2026-09-28).
+        throw new InterpreterError(
+          `Invalid procedure index: ${procedureIndex}`,
+          undefined,
+          undefined,
+          RUNTIME_CODES.entryNotFound,
+        );
       }
       procedure = def.name;
     }

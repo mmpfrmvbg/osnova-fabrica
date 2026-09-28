@@ -8,6 +8,7 @@ import * as path from "path";
 import type { OsVbcModule, RawInstruction, CodeElement } from "./bytecode";
 import { getInvokeArgCount, isKnownInvoke } from "./invokeRegistry";
 import { isVliwPacket } from "./bytecode";
+import { RUNTIME_CODES, type RuntimeErrorCode } from "../runtimeCodes";
 
 export type StackValue =
   | number
@@ -368,8 +369,22 @@ export interface TryFrame {
   frameDepth: number;
 }
 
+/**
+ * Отказ стековой VM: текст (человеку), место в байткоде и **код** (машине).
+ *
+ * `code` — четвёртый параметр, а не второй: порядок `message, pc, op` закреплён
+ * существующими вызовами (в т.ч. `src/compiler/compiler.ts`) и тестами, поэтому
+ * новый параметр добавлен в конец и необязателен. Значения кодов — таблица
+ * `src/runtime/runtimeCodes.ts`; в каждой точке броска код проставлен явно, и
+ * это держит сторож `src/runtime/runtimeCodes.test.ts` (скан источников).
+ */
 export class InterpreterError extends Error {
-  constructor(message: string, public pc?: number, public op?: string) {
+  constructor(
+    message: string,
+    public pc?: number,
+    public op?: string,
+    public code?: RuntimeErrorCode,
+  ) {
     super(message);
     this.name = "InterpreterError";
   }
@@ -464,7 +479,7 @@ export class VM {
   /** Найти индекс процедуры по имени (без учёта модуля: имя процедуры). */
   findProcedureIndex(name: string): number {
     const i = this.module.procedures.findIndex((p) => p.name === name);
-    if (i < 0) throw new InterpreterError(`Procedure not found: ${name}`);
+    if (i < 0) throw new InterpreterError(`Procedure not found: ${name}`, undefined, undefined, RUNTIME_CODES.entryNotFound);
     return i;
   }
 
@@ -474,7 +489,7 @@ export class VM {
    */
   async runProcedure(procedureIndex: number, args: StackValue[]): Promise<StackValue | undefined> {
     const proc = this.module.procedures[procedureIndex];
-    if (!proc) throw new InterpreterError(`Invalid procedure index: ${procedureIndex}`);
+    if (!proc) throw new InterpreterError(`Invalid procedure index: ${procedureIndex}`, undefined, undefined, RUNTIME_CODES.entryNotFound);
 
     const locals: StackValue[] = new Array(Math.max(proc.argc, proc.localsCount));
     for (let i = 0; i < proc.argc; i++) locals[i] = args[i] ?? null;
@@ -492,7 +507,7 @@ export class VM {
     let steps = 0;
     while (this.pc >= 0 && this.pc < this.module.code.length) {
       if (++steps > this.options.maxSteps) {
-        throw new InterpreterError(`Max steps exceeded (${this.options.maxSteps})`, this.pc);
+        throw new InterpreterError(`Max steps exceeded (${this.options.maxSteps})`, this.pc, undefined, RUNTIME_CODES.maxSteps);
       }
       const el: CodeElement = this.module.code[this.pc];
       if (isVliwPacket(el)) {
@@ -559,7 +574,7 @@ export class VM {
       case "const": {
         const k = (ins as { op: "const"; type: string; k: number }).k;
         const v = this.module.constants[k];
-        if (v === undefined) throw new InterpreterError(`Constant index out of range: ${k}`, this.pc, "const");
+        if (v === undefined) throw new InterpreterError(`Constant index out of range: ${k}`, this.pc, "const", RUNTIME_CODES.internalInvariant);
         this.stack.push(v as StackValue);
         return next;
       }
@@ -576,7 +591,7 @@ export class VM {
         const i = (ins as { op: "local.get"; i: number }).i;
         const frame = this.frames[this.frames.length - 1];
         if (!frame || i < 0 || i >= frame.locals.length)
-          throw new InterpreterError(`local.get invalid index: ${i}`, this.pc);
+          throw new InterpreterError(`local.get invalid index: ${i}`, this.pc, undefined, RUNTIME_CODES.internalInvariant);
         this.stack.push(frame.locals[i]);
         return next;
       }
@@ -584,7 +599,7 @@ export class VM {
         const i = (ins as { op: "local.set"; i: number }).i;
         const frame = this.frames[this.frames.length - 1];
         if (!frame || i < 0 || i >= frame.locals.length)
-          throw new InterpreterError(`local.set invalid index: ${i}`, this.pc);
+          throw new InterpreterError(`local.set invalid index: ${i}`, this.pc, undefined, RUNTIME_CODES.internalInvariant);
         const v = this.stack.pop();
         frame.locals[i] = v ?? null;
         return next;
@@ -614,7 +629,7 @@ export class VM {
       case "div": {
         const b = this.stack.pop() as number;
         const a = this.stack.pop() as number;
-        if (b === 0) throw new InterpreterError("Division by zero", this.pc, "div");
+        if (b === 0) throw new InterpreterError("Division by zero", this.pc, "div", RUNTIME_CODES.divisionByZero);
         this.stack.push(a / b);
         return next;
       }
@@ -623,14 +638,14 @@ export class VM {
         // как остаток `rem` в этом же интерпретаторе: знак — по делимому).
         const b = this.stack.pop() as number;
         const a = this.stack.pop() as number;
-        if (b === 0) throw new InterpreterError("Integer division by zero", this.pc, "idiv");
+        if (b === 0) throw new InterpreterError("Integer division by zero", this.pc, "idiv", RUNTIME_CODES.divisionByZero);
         this.stack.push(Math.trunc(a / b));
         return next;
       }
       case "rem": {
         const b = this.stack.pop() as number;
         const a = this.stack.pop() as number;
-        if (b === 0) throw new InterpreterError("Remainder by zero", this.pc, "rem");
+        if (b === 0) throw new InterpreterError("Remainder by zero", this.pc, "rem", RUNTIME_CODES.remainderByZero);
         this.stack.push(a % b);
         return next;
       }
@@ -684,7 +699,7 @@ export class VM {
       case "call": {
         const fi = (ins as { op: "call"; fi: number }).fi;
         const proc = this.module.procedures[fi];
-        if (!proc) throw new InterpreterError(`call invalid procedure index: ${fi}`, this.pc);
+        if (!proc) throw new InterpreterError(`call invalid procedure index: ${fi}`, this.pc, undefined, RUNTIME_CODES.internalInvariant);
         const args: StackValue[] = [];
         for (let i = 0; i < proc.argc; i++) args.unshift(this.stack.pop()!);
         const locals: StackValue[] = new Array(Math.max(proc.argc, proc.localsCount));
@@ -697,7 +712,7 @@ export class VM {
         const name = (ins as { op: "invoke"; name: string }).name;
         const extraArgc = this.extraInvokeArgc.get(name);
         if (!isKnownInvoke(name) && extraArgc === undefined) {
-          throw new InterpreterError(`Unknown invoke: ${name}`, this.pc, "invoke");
+          throw new InterpreterError(`Unknown invoke: ${name}`, this.pc, "invoke", RUNTIME_CODES.unknownInvoke);
         }
         const argc = extraArgc !== undefined ? extraArgc : getInvokeArgCount(name);
         const args: StackValue[] = [];
@@ -737,7 +752,7 @@ export class VM {
         } else {
           errText = String(errVal);
         }
-        throw new InterpreterError(`Необработанное исключение: ${errText}`, this.pc, "throw");
+        throw new InterpreterError(`Необработанное исключение: ${errText}`, this.pc, "throw", RUNTIME_CODES.unhandledThrow);
       }
       case "jmp_if": {
         const off = (ins as { op: "jmp_if"; off: number }).off;
@@ -780,13 +795,13 @@ export class VM {
       }
       case "pop": {
         if (this.stack.length === 0) {
-          throw new InterpreterError("Stack underflow on pop", this.pc, "pop");
+          throw new InterpreterError("Stack underflow on pop", this.pc, "pop", RUNTIME_CODES.internalInvariant);
         }
         this.stack.pop();
         return next;
       }
       default:
-        throw new InterpreterError(`Unknown op: ${(ins as RawInstruction).op}`, this.pc, (ins as RawInstruction).op);
+        throw new InterpreterError(`Unknown op: ${(ins as RawInstruction).op}`, this.pc, (ins as RawInstruction).op, RUNTIME_CODES.internalInvariant);
     }
   }
 
@@ -805,7 +820,7 @@ function resolveProgramEntry(
 ): ProcedureLocation {
   const firstModule = modules[0];
   if (!firstModule || firstModule.procedures.length === 0) {
-    throw new InterpreterError("Program has no procedures in the first module");
+    throw new InterpreterError("Program has no procedures in the first module", undefined, undefined, RUNTIME_CODES.entryNotFound);
   }
 
   if (options.entryProcedure) {
@@ -839,7 +854,7 @@ function resolveProgramEntry(
 
   const fallback = procedureRegistry.get(firstModule.procedures[0]!.name);
   if (!fallback) {
-    throw new InterpreterError("Entry point not found: neither главная/main nor first procedure exists");
+    throw new InterpreterError("Entry point not found: neither главная/main nor first procedure exists", undefined, undefined, RUNTIME_CODES.entryNotFound);
   }
   return fallback;
 }
@@ -849,7 +864,7 @@ export async function runProgram(
   options: RunProgramOptions = {},
 ): Promise<void> {
   if (!Array.isArray(modules) || modules.length === 0) {
-    throw new InterpreterError("Program is empty: no modules provided");
+    throw new InterpreterError("Program is empty: no modules provided", undefined, undefined, RUNTIME_CODES.entryNotFound);
   }
 
   const procedureRegistry = new Map<string, ProcedureLocation>();
