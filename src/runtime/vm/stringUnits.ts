@@ -36,9 +36,12 @@
 
 /** Сколько КОДОВЫХ ТОЧЕК в строке. Не `.length`: там единицы UTF-16. */
 export function codePointLength(value: string): number {
+  // Итератор строки идёт по кодовым точкам, поэтому суррогатная пара считается за одну.
+  // Через итератор, а не `for (const _ of value)`: привязка без имени — ошибка линта,
+  // а через `[...value]` на каждый вызов создавался бы массив.
   let count = 0;
-  // Итерация строки идёт по кодовым точкам, поэтому суррогатная пара считается за одну.
-  for (const _ of value) count += 1;
+  const iterator = value[Symbol.iterator]();
+  while (iterator.next().done !== true) count += 1;
   return count;
 }
 
