@@ -422,17 +422,24 @@ export interface ControlRecord {
  * Список — не оправдание, а долг с именем: он проверяется на устаревание (ожившая запись
  * краснеет), и каждая запись здесь обязана быть действительно мёртвой.
  */
-export const KNOWN_DEAD_CONTROLS: readonly { readonly id: string; readonly reason: string }[] = [
-  {
-    id: '12.4',
-    reason:
-      'оракулы записи живут в ДВУХ конфигах: `e2kCallLowering.test.ts` собирается умолчанием ' +
-      '(10 проверок), `e2kRealRun.test.ts` — только `vitest.e2k.config.ts` (45), а инструмент ' +
-      'запускает запись ОДНИМ конфигом. Починка — решение плоскости e2k: либо внести ' +
-      '`e2kCallLowering.test.ts` в `include` конфига e2k, либо снять оракул, который не ' +
-      'исполнялся ни разу (он и сейчас собирает ноль)',
-  },
+/**
+ * КОНФИГИ ПРОГОНОВ, между которыми делится дерево. Вердикт записей ищет конфиг на КАЖДЫЙ файл
+ * (2026-09-28): оракулы одной записи могут жить в разных конфигах, и прежний вопрос «под каким
+ * конфигом запись собирается целиком» делал такую запись ложно мёртвой.
+ */
+export const KNOWN_CONFIGS: readonly string[] = [
+  'vitest.config.ts',
+  'vitest.e2k.config.ts',
+  'vitest.qemu.config.ts',
+  'vitest.e2e.config.ts',
 ];
+
+/**
+ * Записи негативных контролей, которые собирают ноль **по структурной причине**, названной здесь.
+ * Такая запись не краснеет, но обязана быть действительно мёртвой: если оживёт, вердикт скажет
+ * «устаревшее исключение» (случай 1: «имена вместо наличия»).
+ */
+export const KNOWN_DEAD_CONTROLS: readonly { readonly id: string; readonly reason: string }[] = [];
 
 /**
  * ВЕРДИКТ по записям негативных контролей: у каждой обязан быть названный конфиг, и каждый её
@@ -458,13 +465,23 @@ export function deadControlFindings(
       );
     }
     for (const file of record.tests) {
-      const key = `${record.config ?? ''}|${file}`;
-      if ((collected.get(key) ?? 0) > 0) continue;
+      // КОНФИГ ИЩЕТСЯ НА КАЖДЫЙ ФАЙЛ, А НЕ НА ЗАПИСЬ (2026-09-28).
+      //
+      // Почему: запись 12.4 держит оракулы в ДВУХ конфигах (`e2kCallLowering.test.ts` под
+      // умолчанием, `e2kRealRun.test.ts` — в `vitest.e2k.config.ts`), а прежний вердикт брал
+      // ОДИН конфиг на всю запись и объявлял её мёртвой, хотя её оракулы собираются — просто
+      // в разных прогонах. Это ошибка того же рода, что и повод случая 22: «ноль собранных»
+      // означал не мёртвый контроль, а неверный вопрос к нему. Теперь файл зачитывается, если
+      // его собирает ХОТЬ ОДИН из объявленных/известных конфигов; названный конфиг остаётся
+      // первым кандидатом (и его отсутствие по-прежнему называется отдельной находкой выше).
+      const candidates = [record.config ?? 'vitest.config.ts', ...KNOWN_CONFIGS.filter((c) => c !== (record.config ?? 'vitest.config.ts'))];
+      const best = Math.max(...candidates.map((config) => collected.get(`${config}|${file}`) ?? 0));
+      if (best > 0) continue;
       dead.add(record.id);
       if (knownIds.has(record.id)) continue;
       findings.push(
-        `запись ${record.id}: оракул ${file} собирает ноль проверок с конфигом ` +
-          `${record.config ?? '<умолчание>'} — контроль недействителен ` +
+        `запись ${record.id}: оракул ${file} собирает ноль проверок НИ ОДНИМ из конфигов ` +
+          `(${candidates.join(', ')}) — контроль недействителен ` +
           '(docs/verification-debt.md, случай 22)',
       );
     }
@@ -520,15 +537,11 @@ export function listCollected(config: string, files: readonly string[]): Map<str
 
 /** Счётчики по всем записям: ключ `` `${config}|${file}` `` — по одному прогону сбора на конфиг. */
 export function collectForControls(records: readonly ControlRecord[]): Map<string, number> {
-  const byConfig = new Map<string, string[]>();
-  for (const record of records) {
-    const config = record.config ?? 'vitest.config.ts';
-    const files = byConfig.get(config) ?? [];
-    for (const file of record.tests) if (!files.includes(file)) files.push(file);
-    byConfig.set(config, files);
-  }
   const collected = new Map<string, number>();
-  for (const [config, files] of byConfig) {
+  // Файлы записей собираются под КАЖДЫМ из известных конфигов: вердикт ищет конфиг на файл,
+  // а не на запись (см. пояснение в `controlVerdict`). Прогонов столько же, сколько конфигов.
+  const files = [...new Set(records.flatMap((record) => [...record.tests]))];
+  for (const config of KNOWN_CONFIGS) {
     for (const [file, checks] of listCollected(config, files)) {
       collected.set(`${config}|${file}`, checks);
       // Запись без названного конфига считается по умолчанию: вердикт скажет об этом отдельно.
