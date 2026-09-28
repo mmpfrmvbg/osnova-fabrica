@@ -405,8 +405,22 @@ export interface BuildReport {
 
 // ─── Выход фазы golden_check ───
 
+/**
+ * Отказ исполнения в отчёте golden. Несёт не только текст, но и **личность**
+ * (`src/runtime/runtimeCodes.ts`): `code` — код из таблицы (`OSN-RT-002`), `op`/`pc` —
+ * место в байткоде. Заполняет их `vmErrorRecordOf` (`src/runtime/goldenApps.ts`),
+ * поэтому тип обязан их знать: иначе следующий читатель снова потеряет код, как
+ * это уже было до 2026-09-28 (замер: 51 отказ исполнения в живом журнале без кода).
+ * Поля опциональные — записи, собранные до этого, читаются как раньше.
+ */
 export interface VMError {
   readonly message: string;
+  /** Код исполнения из `src/runtime/runtimeCodes.ts`; нет — код не назван (`OSN-RT-000`). */
+  readonly code?: string;
+  /** Место отказа: операция интерпретатора (`div`, `invoke`, …). */
+  readonly op?: string;
+  /** Место отказа: счётчик команд байткода. */
+  readonly pc?: number;
   readonly opcode?: string;
   readonly stack?: unknown[];
 }

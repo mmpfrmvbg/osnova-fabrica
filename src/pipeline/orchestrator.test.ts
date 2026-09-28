@@ -120,7 +120,9 @@ vi.mock('../trace/traceStore', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    saveTrace: vi.fn().mockResolvedValue(undefined),
+    // `saveTrace` возвращает итог записи (T4: отказ не имеет права молчать) —
+    // мок обязан отдавать тот же контракт, иначе оркестратор читает `saved` у undefined.
+    saveTrace: vi.fn().mockResolvedValue({ saved: true }),
   };
 });
 
@@ -220,7 +222,14 @@ describe('Pipeline integration (mock LLM)', () => {
 
     const result = await runPipeline('тест repair_exhausted');
     expect(result.status).toBe('repair_exhausted');
-  });
+
+    // T4: диагностика доезжает до записи журнала — поверка на прогоне, а не только
+    // сканом исходников. `vmErrors` без кода обязаны дать запись фазы «исполнение»
+    // с маркером «код не назван», а не пустой список.
+    const traceStore = await import('../trace/traceStore');
+    const lastSaved = vi.mocked(traceStore.saveTrace).mock.calls.at(-1)?.[0];
+    expect(lastSaved?.diagnostics?.some((d) => d.phase === 'исполнение')).toBe(true);
+  }, 15000);
 
   it('runPipeline: error — G1 падает при пустых features', async () => {
     // mock IntakeAgent возвращает intent с features=[] → G1 блокирует

@@ -22,6 +22,7 @@ import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import { classifyFailure } from './failureKind';
 import { saveTrace } from '../trace/traceStore';
+import { projectEntryDiagnostics } from '../trace/diagnosticsProjection';
 import { logger } from '../logger';
 import { compileSource, compileToBuildReport } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
@@ -125,6 +126,13 @@ export async function runPipeline(
   let lastSource: OsnovaSource | undefined;
   let shadowHits: ShadowHit[] = [];
 
+  /**
+   * Диагностика прогона для записи журнала (T4). Только заполнение нового поля
+   * `diagnostics`: ни статусы, ни гейты, ни repair-цикл отсюда не меняются —
+   * замороженный контур `src/pipeline/**` остаётся как был.
+   */
+  const diagnosticsForTrace = () => projectEntryDiagnostics({ buildReport, goldenReport });
+
   try {
     // ─── Фаза 1: intake ───
     log.info('phase: intake');
@@ -215,7 +223,7 @@ export async function runPipeline(
           log.info('qualityScore in [0.5, 0.7) — partial, no repair');
           source = lastSource;
           const result = finish('partial');
-          await saveTrace({
+          const partialTrace = await saveTrace({
             runId,
             status: toPipelineTracePersistedStatus(result.status),
             task,
@@ -227,8 +235,12 @@ export async function runPipeline(
             goldenReport,
             repairAttempts,
             semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+            diagnostics: diagnosticsForTrace(),
             shadow_hits: shadowHits,
           });
+          if (!partialTrace.saved) {
+            log.warn('запись журнала не сохранена (partial)', partialTrace.reason);
+          }
           return result;
         }
         log.warn(`gate G3 FAIL (attempt ${loop + 1})`, g3.failedChecks);
@@ -267,7 +279,7 @@ export async function runPipeline(
       // non-blocking sem errors не блокируют success (по дизайну языка)
       const finalStatus = goldenReport.passed && !blockingSemErrors ? 'success' : 'partial';
       const result = finish(finalStatus);
-      await saveTrace({
+      const finalTrace = await saveTrace({
         runId,
         status: toPipelineTracePersistedStatus(result.status),
         task,
@@ -279,8 +291,12 @@ export async function runPipeline(
         goldenReport,
         repairAttempts,
         semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+        diagnostics: diagnosticsForTrace(),
         shadow_hits: shadowHits,
       });
+      if (!finalTrace.saved) {
+        log.warn(`запись журнала не сохранена (${result.status})`, finalTrace.reason);
+      }
       return result;
     }
 
@@ -292,7 +308,7 @@ export async function runPipeline(
       log.error('repair loop exhausted', { repairAttempts, lastErrorKind });
     }
     const result = finish('repair_exhausted', 'max repair loops reached', lastErrorKind);
-    await saveTrace({
+    const exhaustedTrace = await saveTrace({
       runId,
       status: toPipelineTracePersistedStatus(result.status),
       task,
@@ -305,8 +321,12 @@ export async function runPipeline(
       modelId,
       lastErrorKind,
       semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+      diagnostics: diagnosticsForTrace(),
       shadow_hits: shadowHits,
     });
+    if (!exhaustedTrace.saved) {
+      log.warn('запись журнала не сохранена (repair_exhausted)', exhaustedTrace.reason);
+    }
     appendRepairFailure({
       ts: new Date().toISOString(),
       traceId: runId,
@@ -320,7 +340,7 @@ export async function runPipeline(
     const message = err instanceof Error ? err.message : String(err);
     log.error('unhandled error', message);
     try {
-      await saveTrace({
+      const errorTrace = await saveTrace({
         runId,
         status: 'error',
         task,
@@ -331,8 +351,12 @@ export async function runPipeline(
         buildReport,
         goldenReport,
         repairAttempts,
+        diagnostics: diagnosticsForTrace(),
         shadow_hits: shadowHits,
       });
+      if (!errorTrace.saved) {
+        log.warn('запись журнала не сохранена (error)', errorTrace.reason);
+      }
     } catch (traceErr) {
       console.warn('[orchestrator] saveTrace failed:', traceErr);
     }
