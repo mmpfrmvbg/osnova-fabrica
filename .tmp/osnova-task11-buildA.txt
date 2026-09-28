@@ -1,0 +1,14 @@
+--- копия ДО правки: /root/task11-cpu_loop.before.c (sha256 ниже) ---
+abd329ccc4fc83b23b578ee6af9bc768aa9466a5a9fa13fb9b45025fe39cd4ad  /root/task11-cpu_loop.before.c
+--- источник ПОСЛЕ правки (должен совпасть с /root/task11-check/linux-user/e2k/cpu_loop.c) ---
+18a52004c77891ddacebffe1412381c20bfa74eef176622ab1c3063e33c8d2c2  /root/qemu-src/qemu/linux-user/e2k/cpu_loop.c
+18a52004c77891ddacebffe1412381c20bfa74eef176622ab1c3063e33c8d2c2  /root/task11-check/linux-user/e2k/cpu_loop.c
+306:    env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, size_q , 12);
+311:    env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, size_d , 12 * 2);
+[1/4] Generating qemu-version.h with a custom command (wrapped by meson to capture output)
+[2/3] Compiling C object libqemu-e2k-linux-user.a.p/linux-user_e2k_cpu_loop.c.o
+[3/3] Linking target qemu-e2k
+--- сборка сделана ---
+2db878e61bca986dac55693a0e88a44ddec96f543596debf7e3cbcf8bedc128b  /root/qemu-build/qemu-e2k
+2026-09-28 13:14:42.182141200 +0000
+qemu-e2k version 11.0.1

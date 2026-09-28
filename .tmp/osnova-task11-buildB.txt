@@ -1,0 +1,11 @@
+--- источник восстановлен из копии ДО правки ---
+303:    env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, size_q , 8);
+308:    env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, size_d , 8 * 2);
+восстановление байт-в-байт
+[1/4] Generating qemu-version.h with a custom command (wrapped by meson to capture output)
+[2/3] Compiling C object libqemu-e2k-linux-user.a.p/linux-user_e2k_cpu_loop.c.o
+[3/3] Linking target qemu-e2k
+--- сборка сделана ---
+9a5be965f04c312b9efb869512a739a020ba5536f6c39146252a59f34e2cc9d4  /root/qemu-build/qemu-e2k
+2026-09-28 13:15:48.024655500 +0000
+qemu-e2k version 11.0.1

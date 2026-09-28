@@ -1,0 +1,19 @@
+--- a/linux-user/e2k/cpu_loop.c
++++ b/linux-user/e2k/cpu_loop.c
+@@ -300,7 +300,15 @@
+     env->sregs.ip = WRITE_E2K(env->sregs.ip, IP, info->entry);
+     env->sregs.wd  = E2K_SREG_INIT_WD ;
+     env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, psize_q, 4);
+-    env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, size_q , 8);
++    /* OSNOVA-LOCAL-PATCH 2 (окно): size_q = 12 квадрослов — вызываемая получает
++       2 * (12 - psize_q=4) = 16 регистров вместо восьми (docs/hardware-debt.md §3.36, §3.44).
++       Поле size_q — семь бит, MAXSR_Q = 112, поэтому 12 выразимо. */
++    env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, size_q , 12);
++    /* OSNOVA-LOCAL-PATCH: _d = 2 * _q (target/e2k/cpu.h:58); порт их только читает, поэтому
++       без этих строк недоступен ни один оконный регистр и системный вызов не может
++       прочитать номер из %r0 (cpu_loop.c:164-169). */
++    env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, psize_d, 4 * 2);
++    env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, size_d , 12 * 2);
+     env->sregs.br  = E2K_SREG_INIT_BR ;
+     env->sregs.bgr = E2K_SREG_INIT_BGR;
+     env->sregs.bgr = FIELD_DP64_E2K(env->sregs.bgr, BGR, cur, 0);
