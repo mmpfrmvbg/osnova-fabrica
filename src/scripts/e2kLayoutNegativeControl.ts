@@ -533,10 +533,10 @@ export const DEFECTS_INVOKE: readonly Defect[] = [
 export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
   {
     id: '11.1',
-    title: 'окно вызываемой объявлено как у вызывающего (16) — «фильтр» будто бы влезает',
+    title: 'окно вызываемой объявлено как у вызывающего (24) — «фильтр» будто бы влезает с запасом',
     file: 'src/e2k/regAlloc.ts',
-    from: 'export const WINDOW_REGISTERS_CALLEE = 8;',
-    to: 'export const WINDOW_REGISTERS_CALLEE = 16; // ДЕФЕКТ 11.1: окно вызываемой равно вызывающему',
+    from: 'export const WINDOW_REGISTERS_CALLEE = 16;',
+    to: 'export const WINDOW_REGISTERS_CALLEE = 24; // ДЕФЕКТ 11.1: окно вызываемой равно вызывающему',
     tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
     config: 'vitest.e2k.config.ts',
   },

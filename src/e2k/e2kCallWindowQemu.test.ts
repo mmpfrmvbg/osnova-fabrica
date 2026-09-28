@@ -24,9 +24,9 @@
  *
  * | наблюдение | число |
  * |---|---|
- * | доступны в вызываемой | `%r0..%r7` (**8** регистров) |
- * | недоступны | `%r8`, `%r9`, `%r10` — ловушка на первой команде тела |
- * | системный вызов из вызываемой | **невозможен**: номер берётся из `%r8`, а его у вызываемой нет |
+ * | доступны в вызываемой | при `size_q = 8` было `%r0..%r7` (**8**); с 2026-09-28 порт собран с `size_q = 12` и доступны `%r0..%r15` (**16**, §3.49) |
+ * | недоступны | первый регистр СНАРУЖИ окна — ловушка на первой команде тела: при 8 это `%r8`, при 16 это `%r16` |
+ * | системный вызов из вызываемой | при 8 был **невозможен** (номер идёт в `%r8`); при 16 запись в `%r8` ПРОХОДИТ, и отказ съезжает на вложенный `call` — его отвергает `psize_q` (§3.49) |
  * | `return %ctpr3` (CS0) **одна** | порт **падает на утверждении** `op_descr->is_al` (`translate-lookahead.c:318`, `e2k_update_used_regs_context`), статус 134 |
  * | `ct %ctpr3` (SS) **одна**, без подготовки | гостевое исключение на самой `ct`: `call` стирает ctpr в пустой тег `CTPEW` (`translate-ct.c:1135-1138`), статус 9 |
  * | `return %ctpr3` **и** `ct %ctpr3` подряд | **управление возвращается**: вызывающий доходит до своего выхода, статус **99** |
@@ -38,16 +38,16 @@
  * (`e2k_cpu_exec_ct_return`, `translate-ct.c:27-67`). Подробности и предложение правки порта —
  * `docs/e2k-return-port.md`.
  *
- * Отсюда следствие для раскладки: `фильтр` ядра FIR занимает `%b[0..9]` (10 регистров), то есть в
- * окно вызываемой (8) **не влезает**; влезают `сумма` (6) и подобные. И следствие для шага 4:
- * сквозной прогон FIR с вызовами возможен — возврат даётся **парой** `return` + `ct` (16 байт вместо
- * 8), но бюджет вызываемой (8 регистров) от этого не меняется.
+ * Отсюда следствие для раскладки: `фильтр` ядра FIR занимает `%b[0..9]` (10 регистров) — при окне 8 он
+ * **не влезал**, при окне 16 влезает, и это ИЗМЕРЕНО порогом, а не выведено: `firstClosedRegister`
+ * даёт 16 у вызываемой и 24 у вызывающего (§3.49).
  *
  * # Чего оракул НЕ доказывает
  *
  * Что так поведёт себя железо (QEMU — модель и, более того, порт с известными послаблениями) и что
  * окно вызываемой нельзя расширить: `setwd` расширяет (измерено, §7.6), но с памятью ведёт себя
- * неустойчиво, и владельцем отложен.
+ * неустойчиво, и владельцем отложен. И что расширения окна достаточно для вызова из процедуры:
+ * вложенный `call` отвергает `psize_q` — это свойство ПОРТА, а не окна (§3.49).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -57,6 +57,8 @@ import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { buildElfFromCode, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
 import { SYS_EXIT, HELLO_SETBN_RSZ, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { CT_COND_ALWAYS } from './e2k-real';
+import { WINDOW_REGISTERS_CALLEE } from './regAlloc';
+import { passportWindow, windowGeometryProblems } from './windowGeometry';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -152,6 +154,79 @@ function probe(register: number, returnForm: ReturnForm = 'exit'): { status: num
 
 const shim = buildShim();
 
+/**
+ * Проба «пишет СВОЙ `%rK` вызывающий»: тело возвращается парой, вызывающий выходит кодом 99.
+ *
+ * Вторая сторона той же пробы нужна потому, что окно вызывающего (`2*size_q`) и окно вызываемой
+ * (`2*(size_q − wbs)`) — РАЗНЫЕ числа, и оракул класса (§3.44.4) требует измерить оба.
+ */
+function programCaller(register: number): { bytes: Uint8Array; probeAddress: number } {
+  const build = (callTarget: number): AsmInstruction[] => [
+    { mnemonic: 'setbn', channel: 0, operands: [imm(HELLO_SETBN_RSZ), imm(0), imm(0)] },
+    { mnemonic: 'movts', channel: 0, operands: [imm(42), window_(register)] }, // ← проба (индекс 2)
+    { mnemonic: 'disp', channel: 0, operands: [imm(1), imm(callTarget)] },
+    { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+    { mnemonic: 'movts', channel: 0, operands: [imm(99), window_(WINDOW_NUMBER_REGISTER + 1)] },
+    { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
+    { mnemonic: 'sdisp', channel: 0, operands: [imm(2), imm(0)] },
+    { mnemonic: 'call', channel: 0, operands: [imm(2), imm(SYSCALL_WBS)] },
+    { mnemonic: 'return', channel: 0, operands: [imm(3)] },
+    { mnemonic: 'ct', channel: 0, operands: [imm(3), imm(CT_COND_ALWAYS)] },
+  ];
+  const addressesOf = (list: readonly AsmInstruction[]): number[] => {
+    const addresses: number[] = [];
+    let offset = 0;
+    for (const instruction of list) {
+      addresses.push(offset);
+      offset += encoder.encode(instruction).length;
+    }
+    return addresses;
+  };
+  const draftAddresses = addressesOf(build(0));
+  const target = (draftAddresses[8]! - draftAddresses[2]!) / 8;
+  expect(Number.isInteger(target), 'цель перехода не кратна 8 байтам').toBe(true);
+  const instructions = build(target);
+  const chunks = instructions.map((instruction) => encoder.encode(instruction));
+  const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return { bytes, probeAddress: MINIMAL_BASE + addressesOf(instructions)[2]! };
+}
+
+/** Проба со стороны: у вызываемой — запись в теле (пара `return`+`ct`), у вызывающего — до вызова. */
+function probeSide(where: 'callee' | 'caller', register: number): { status: number | null; exceptionIp?: number; probeAddress: number } {
+  const built = where === 'callee' ? program(register, 'pair') : programCaller(register);
+  const probeAddress = where === 'callee' ? built.bodyAddress : built.probeAddress;
+  const file = path.join(ROOT, '.tmp', `e2k-window-threshold-${where}-${String(register)}.elf`);
+  fs.writeFileSync(file, buildElfFromCode(built.bytes, MINIMAL_BASE).bytes);
+  const run = runInQemu(file, { shim: true, timeoutMs: 30_000 });
+  return {
+    status: run?.status ?? null,
+    ...(run?.exceptionIp === undefined ? {} : { exceptionIp: run.exceptionIp }),
+    probeAddress,
+  };
+}
+
+/**
+ * Первый недоступный номер у вызываемой / у вызывающего: порог ИЗМЕРЯЕТСЯ, а не предполагается.
+ *
+ * Признак доступности тот же, что уже измерен в этом файле: проба пишет 42 в СВОЙ `%rK`, тело
+ * возвращается парой `return` + `ct`, и вызывающий доходит до своего выхода — код 99; недоступный
+ * регистр даёт ловушку на самой пробе, её адрес известен
+ * (построитель — `.tmp/osnova-window-ladder.ts`, им снята вся лестница §3.36).
+ */
+function firstClosedRegister(where: 'callee' | 'caller', around: number): number {
+  for (const register of [around - 1, around, around + 1]) {
+    if (register < 0 || register > 63) continue; // поле слога — шесть бит (0..63)
+    const result = probeSide(where, register);
+    if (result.status !== 99 || result.exceptionIp === result.probeAddress) return register;
+  }
+  throw new Error(`ни один из %r${String(around - 1)}..%r${String(around + 1)} не закрыт: порог выше предсказанного`);
+}
+
 describe('модель окна на вызове процедуры: сколько регистров у вызываемой', () => {
   it('шим и модель доступны — или причина названа', () => {
     if (shim === undefined) {
@@ -161,27 +236,52 @@ describe('модель окна на вызове процедуры: сколь
     expect(shim.length).toBeGreaterThan(3);
   });
 
-  it('вызываемая видит восемь регистров %r0..%r7, а %r8 — нет', () => {
+  it('геометрия окна: паспорт, константы раскладки и ЖИВАЯ модель дают одно число', () => {
     if (shim === undefined) return;
-    // Различающий перебор: признак — ловушка на ПЕРВОЙ команде тела (регистр недоступен) против
-    // «запись прошла» (ловушка дальше или её нет).
-    const accessible = (register: number): boolean => {
-      const result = probe(register);
-      return result.exceptionIp !== result.bodyAddress;
+    // Порог измеряется по обе стороны: у вызываемой — запись в теле, у вызывающего — до вызова.
+    const passport = passportWindow();
+    const measured = {
+      callee: firstClosedRegister('callee', passport.callee),
+      caller: firstClosedRegister('caller', passport.caller),
     };
-    const inside = [5, 7].map(accessible);
-    const outside = [8, 9, 10].map(accessible);
-    expect(inside, '%r5 и %r7 обязаны быть доступны вызываемой').toEqual([true, true]);
-    expect(outside, '%r8, %r9, %r10 обязаны быть недоступны вызываемой').toEqual([false, false, false]);
+    const problems = windowGeometryProblems(measured);
+    expect(problems, problems.join('; ')).toEqual([]);
+    // Числом, а не только «нет расхождений»: 2*(12−4) = 16 у вызываемой и 2*12 = 24 у вызывающего.
+    expect(measured.callee, 'измеренный порог вызываемой').toBe(passport.callee);
+    expect(measured.caller, 'измеренный порог вызывающего').toBe(passport.caller);
   });
 
-  it('системный вызов из вызываемой невозможен: номер идёт в %r8, которого у неё нет', () => {
+  it('системный вызов из вызываемой: исход СЛЕДУЕТ из измеренной геометрии, а не утверждается', () => {
     if (shim === undefined) return;
-    // Тело собирает системный вызов exit(42) внутри процедуры: первая же запись в `%r8` (номер
-    // вызова) — вне окна процедуры, и опыт это подтверждает адресом ловушки.
+    // Тело собирает системный вызов exit(42) внутри процедуры: запись номера идёт в `%r8` её окна.
     const result = probe(5);
-    const numberAddress = result.bodyAddress + 8; // movts 42 → свой %r5 (0 байт), movts 42 → %r9 (8)
-    expect(result.exceptionIp, 'ловушка обязана стоять на записи в %r8 вызываемой').toBe(numberAddress + 8);
+    const numberAddress = result.bodyAddress + 32; // тело: %r5 ← 42 (0, 16 б), %r9 ← 42 (16, 16 б), %r8 ← SYS_EXIT (32)
+    const callAddress = result.bodyAddress + 48; // затем sdisp (40) и на 48 сама `call %ctpr2, wbs=4`
+    if (WINDOW_REGISTERS_CALLEE < WINDOW_NUMBER_REGISTER + 2) {
+      // окно уже, чем номер и аргумент: запись номера вне окна — ловушка, и это названо адресом
+      expect(result.exceptionIp, 'ловушка обязана стоять на записи в %r8 вызываемой').toBe(numberAddress);
+      return;
+    }
+    // Окно 16 вмещает и номер, и аргумент — запись ПРОХОДИТ, и отказ съезжает на ВЛОЖЕННЫЙ ВЫЗОВ:
+    // `call wbs = 4` из процедуры порт отвергает, потому что `call` ставит вызываемой
+    // `psize_q = size_q − wbs = 8`, а вложенный вызов обязан иметь `wbs ≥ psize_q`
+    // (`translate-ct.c`, `helper_e2k_prep_ct_CALL`: `wbs < psize_q` → исключение).
+    //
+    // Точный адрес ловушки здесь НЕ утверждается, и это не уступка: порт называет адрес по границам
+    // ПАКЕТОВ (то же свойство измерено на `ct`: тело 0x100068, `ct` 0x100070, ловушка 0x100078), и
+    // сдвиг тела на 8 байт переносит названный адрес на пакет назад — при том же дефекте. Поэтому
+    // проверяется ИСХОД (кода 42 нет) и что ловушка лежит в хвосте тела, начиная с записи номера.
+    //
+    // Различающий замер — `.tmp/osnova-proc-syscall.ts`: то же тело даёт ловушку РОВНО на `call`
+    // (0x100098, тело 0x100068), а вариант БЕЗ системного вызова и БЕЗ записи в `%r8` — на своём
+    // `call` (0x100070). Значит дело не в системном вызове и не в доступе к регистру, а во
+    // вложенном вызове. Что это значит для печати из процедуры — `docs/hardware-debt.md` §3.49.
+    expect(result.status, 'системный вызов из процедуры ещё не исполняется').toBe(9);
+    expect(
+      result.exceptionIp ?? 0,
+      `ловушка обязана лежать в хвосте тела (запись номера ${String(numberAddress)} … вызов ${String(callAddress)})`,
+    ).toBeGreaterThanOrEqual(numberAddress);
+    expect(result.exceptionIp ?? 0, 'ловушка не может стоять раньше записи номера').toBeLessThanOrEqual(callAddress);
   });
 
   it('одна `return %ctpr3` в этом порте не возвращает — названа причина, а не «не получилось»', () => {

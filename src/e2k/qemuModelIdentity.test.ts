@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { QEMU_MODEL, modelIdentityProblems, type ModelIdentity } from './qemuModelPassport';
 import { WINDOW_REGISTERS_CALLEE, WINDOW_REGISTERS_ENTRY } from './regAlloc';
+import { calleeWindowRegisters, passportWindow } from './windowGeometry';
 
 /** Тот же путь к WSL, что и в остальных оракулах шлюза. */
 const WSL = 'C:\\Program Files\\WSL\\wsl.exe';
@@ -128,21 +129,25 @@ describe('идентичность модели e2k: та ли сборка, н�
    * назовёт расхождение ЧИСЛОМ, а не «где-то стало тесно».
    */
   it('окно вызываемой — следствие геометрии порта, а не литерал', () => {
-    /** Восемь квадрослов, которые вызов сохраняет под параметры (`call wbs = 4`). */
-    const SYSCALL_WBS_QUADS = 4;
-    /** Сегодняшняя геометрия порта: `size_q` в `cpu_loop.c` (ступень лестницы §3.36). */
-    const SIZE_Q_TODAY = 8;
-    const derived = 2 * (SIZE_Q_TODAY - SYSCALL_WBS_QUADS);
+    // Геометрия читается ИЗ ПАСПОРТА — единственного источника, который меняется вместе с портом.
+    // Прежняя редакция вписывала `SIZE_Q_TODAY = 8` литералом: при правке порта она краснела, но
+    // требовала правки СЕБЯ, а не называла расхождение паспорта с константой (§3.44.4, §3.49).
+    const window = QEMU_MODEL.window;
+    const derived = calleeWindowRegisters(window.sizeQ, window.wbs);
     expect(
       WINDOW_REGISTERS_CALLEE,
-      `окно вызываемой ${String(WINDOW_REGISTERS_CALLEE)} не сходится с геометрией порта: ` +
-        `2*(size_q=${String(SIZE_Q_TODAY)} − wbs=${String(SYSCALL_WBS_QUADS)}) = ${String(derived)}. ` +
-        'Если окно расширяется правкой порта — меняй не эту проверку, а порт и паспорт ' +
-        '(`docs/hardware-debt.md` §3.44.6: константа, оракул класса и перемер входят одним коммитом)',
+      `окно вызываемой ${String(WINDOW_REGISTERS_CALLEE)} не сходится с геометрией порта из паспорта: ` +
+        `2*(size_q=${String(window.sizeQ)} − wbs=${String(window.wbs)}) = ${String(derived)}. ` +
+        'Правка окна входит одним пакетом: порт → патч → паспорт → константа → оракул класса ' +
+        '(`src/e2k/windowGeometry.ts`) → перемер (`docs/hardware-debt.md` §3.44.6)',
     ).toBe(derived);
     expect(
-      2 * WINDOW_REGISTERS_CALLEE,
-      'вызывающий видит вдвое больше вызываемой — второе следствие той же геометрии',
-    ).toBe(WINDOW_REGISTERS_ENTRY);
+      passportWindow().caller,
+      'вызывающий видит 2*size_q — второе следствие той же геометрии',
+    ).toBe(2 * window.sizeQ);
+    expect(
+      WINDOW_REGISTERS_ENTRY,
+      'окно входа (пролог образа, setbn rsz) обязано помещаться в окно вызывающего',
+    ).toBeLessThanOrEqual(2 * window.sizeQ);
   });
 });

@@ -769,24 +769,24 @@ describe('сквозной прогон: раскладка регистров �
     // (`.tmp/spill-measure.ts`).
     const expected: Readonly<Record<string, ReadonlyArray<{ procedure: string; needed: number; ok: boolean }>>> = {
       fir: [
-        { procedure: 'фильтр', needed: 10, ok: false },
+        { procedure: 'фильтр', needed: 10, ok: true },
         { procedure: 'сумма', needed: 7, ok: true },
       ],
       iir: [
         { procedure: 'целое_деление', needed: 4, ok: true },
-        { procedure: 'фильтр', needed: 9, ok: false },
+        { procedure: 'фильтр', needed: 9, ok: true },
         { procedure: 'сумма', needed: 7, ok: true },
       ],
       fft: [
-        { procedure: 'бпф4', needed: 9, ok: false },
+        { procedure: 'бпф4', needed: 9, ok: true },
         { procedure: 'сумма', needed: 7, ok: true },
       ],
       convolution: [
-        { procedure: 'свёртка', needed: 10, ok: false },
+        { procedure: 'свёртка', needed: 10, ok: true },
         { procedure: 'сумма', needed: 7, ok: true },
       ],
       correlation: [
-        { procedure: 'корреляция', needed: 10, ok: false },
+        { procedure: 'корреляция', needed: 10, ok: true },
         { procedure: 'сумма', needed: 7, ok: true },
       ],
     };
@@ -797,14 +797,18 @@ describe('сквозной прогон: раскладка регистров �
         `${name}: вызываемые процедуры и их окно`,
       ).toEqual(items);
       for (const item of report.calleeWindow) {
-        expect(item.available, `${name}/${item.procedure}: доступно регистров вызываемой`).toBe(8);
+        expect(item.available, `${name}/${item.procedure}: доступно регистров вызываемой`).toBe(16);
         if (!item.ok) {
           expect(item.reason ?? '', `${name}/${item.procedure}: причина отказа без причины`).toMatch(/регистр|раскладка/);
         }
       }
     }
-    // У FIR это и есть препятствие шага 4: единственная вызываемая процедура ядра в окно не влезает.
-    expect(REPORTS.get('fir')!.calleeWindow.some((item) => !item.ok), 'FIR: ни одной вызываемой, которая не влезает').toBe(true);
+    // Перемер 2026-09-28 (§3.49): при `size_q = 12` окно вызываемой — 16, поэтому невлезающих
+    // вызываемых не осталось ВООБЩЕ; числа `needed` (10/9/9/10/10) при этом не двигались.
+    expect(
+      REPORTS.get('fir')!.calleeWindow.some((item) => !item.ok),
+      'FIR: ни одной вызываемой, которая не влезает',
+    ).toBe(false);
   });
 
   it('покрытие FIR: 104 из 104 — ядро понижается ЦЕЛИКОМ, но вызвать его процедуру всё ещё нельзя', () => {
@@ -823,9 +827,10 @@ describe('сквозной прогон: раскладка регистров �
     expect(report.refused, 'отказов').toBe(0);
     expect(report.blocking.map((item) => item.carrier), 'мешающие носители у FIR').toEqual([]);
     expect(report.executableThroughReal, 'сквозной прогон через реальную кодировку').toBe(true);
-    // И вызывать `фильтр` всё ещё нельзя — окно вызываемой меньше, чем ему нужно.
+    // И вызывать `фильтр` теперь МОЖНО: при `size_q = 12` окно вызываемой 16 ≥ 10 (§3.49).
+    // Числа этого не сдвинуло — ни носители (104), ни требование окна (10).
     const filter = report.calleeWindow.find((item) => item.procedure === 'фильтр')!;
-    expect(filter.ok, 'окно вызываемой для `фильтр`').toBe(false);
+    expect(filter.ok, 'окно вызываемой для `фильтр`').toBe(true);
     expect(filter.needed, 'нужно регистров окна').toBe(10);
   });
 });
