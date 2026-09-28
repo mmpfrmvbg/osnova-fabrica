@@ -87,6 +87,15 @@ export interface E2kRun {
   refused: string[];
   used: number;
   file: string;
+  /**
+   * ВЫВОД МОДЕЛИ — то, что она сказала о прогоне (причина отказа пишется в stderr, а код
+   * возврата при этом может быть 0). Отдаётся наружу, потому что иначе причина недоступна:
+   * на этом уже спотыкались — код 134 читался как «модель упала», хотя модель могла назвать
+   * причину словами. Собирается раннером всегда; наружу не отдавался.
+   */
+  output: string;
+  /** Адрес инструкции, на которой модель остановилась с исключением (если назвала). */
+  exceptionIp: number | undefined;
 }
 
 /**
@@ -108,6 +117,13 @@ export function runOnE2k(source: string, fileName: string): E2kRun {
   const image = buildE2kImage(source);
   const elf = path.join(ROOT, ".tmp", fileName);
   fs.writeFileSync(elf, buildElfImage(source));
-  const status = runInQemu(elf, { shim: true, timeoutMs: 20_000 })?.status ?? undefined;
-  return { status, refused: image.refused, used: image.used, file: elf };
+  const run = runInQemu(elf, { shim: true, timeoutMs: 20_000 });
+  return {
+    status: run?.status ?? undefined,
+    refused: image.refused,
+    used: image.used,
+    file: elf,
+    output: run?.output ?? "",
+    exceptionIp: run?.exceptionIp,
+  };
 }

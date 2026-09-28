@@ -25,6 +25,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * | `src/e2k/e2kQemuExec.test.ts` | запускает `qemu-e2k` с шимом и **исполняет** наши байты |
  * | `src/scripts/e2kQemuRun.audit.test.ts` | пробует живой прогон и сверяет с ним документ |
  * | `src/scripts/examplesE2k.audit.test.ts` | исполняет на цели примеры корпуса, объявленные исполняемыми, и сверяет с тем же `expected.txt`, что и VM |
+ * | `src/scripts/e2kRunOutput.test.ts` | стережёт КАНАЛ причины: вывод модели обязан доходить до оракула. Раньше код 134 читался как «модель упала» без причины — сама причина (утверждение про полуслог `AAS2`) была собрана, но не отдана наружу |
  *
  * # Чего шлюз НЕ делает
  *
@@ -66,6 +67,8 @@ export default defineConfig({
       // Корпус примеров на цели: примеры, объявленные исполняемыми на e2k,
       // сверяются с тем же expected.txt, что и VM (сквозная проверка).
       'src/scripts/examplesE2k.audit.test.ts',
+      // Канал причины: вывод модели обязан доходить наружу, иначе падение неотличимо от отказа.
+      'src/scripts/e2kRunOutput.test.ts',
     ],
   },
 });
