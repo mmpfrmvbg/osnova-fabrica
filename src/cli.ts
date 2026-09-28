@@ -20,6 +20,12 @@ import { createLlmPlanner, createResidentExecutor } from './resident/adapters';
 import { validateEnv } from './env';
 import { compileSource } from './compiler/compiler';
 import { reportCompileDiagnostics } from './compiler/compileDiagnostics';
+import {
+  diagnosticsSink,
+  parseDiagnosticsFormat,
+  reportCliRefusal,
+  reportParseWarnings,
+} from './compiler/cliCompile';
 import { run as runRuntime } from './runtime/run';
 import { runParity } from './oracle/parity';
 import { regModuleOf } from './vliw/regOracle';
@@ -224,6 +230,16 @@ async function runResidentMode(startGoal: string, args: string[]): Promise<void>
 }
 
 function runCompileMode(cliArgs: string[]): number {
+  // Формат диагностики разбирается до чтения файла: неверная форма флага — это
+  // отказ команды, а не молчаливое умолчание (правило канала — `cliCompile`).
+  const format = parseDiagnosticsFormat(cliArgs);
+  if (format === null) {
+    console.error('Формат диагностики не поддержан. Допустимо: --diagnostics=json (или --diagnostics=human).');
+    return 1;
+  }
+  // Стоки объявлены до разбора аргументов: отказы ДО компиляции печатаются теми
+  // же двумя потоками (человеку — stderr, машине — stdout).
+  const io = { out: (line: string) => console.log(line), err: (line: string) => console.error(line) };
   let input: string | null = null;
   let output: string | null = null;
   for (let i = 0; i < cliArgs.length; i++) {
@@ -234,12 +250,21 @@ function runCompileMode(cliArgs: string[]): number {
     }
   }
   if (!input) {
-    console.error('Использование: osnova compile input.osnova [-o output.osvbc.json]');
+    // Человеческий вывод — прежний (замыкание), машинный — запись `OSN-CLI-001`.
+    reportCliRefusal("inputMissing", format, io, () =>
+      console.error('Использование: osnova compile input.osnova [-o output.osvbc.json] [--diagnostics=json]'),
+    );
     return 1;
   }
   const inputPath = path.resolve(input);
   if (!fs.existsSync(inputPath)) {
-    console.error('Файл не найден:', inputPath);
+    reportCliRefusal(
+      "inputNotFound",
+      format,
+      io,
+      () => console.error('Файл не найден:', inputPath),
+      inputPath,
+    );
     return 1;
   }
   const source = fs.readFileSync(inputPath, 'utf-8');
@@ -262,12 +287,18 @@ function runCompileMode(cliArgs: string[]): number {
   // не печатались вовсе — на семантической ошибке команда выходила кодом 1 с
   // нулём строк вывода (замер 2026-09-28). Из этого файла собран `dist/cli.js`,
   // то есть установленный `osnova`. Вывод сведён к одному модулю.
-  reportCompileDiagnostics(result, { error: (line) => console.error(line) }, { source });
+  //
+  // `--diagnostics=json` поддержан и здесь: машинный вывод нужен именно
+  // установленной команде, а флаг, понятный только другой точке входа, — это
+  // ровно тот разъезд трёх реализаций, ради которого модуль и появился.
+  reportCompileDiagnostics(result, diagnosticsSink(io, format), { source, format });
+  reportParseWarnings(result.warnings, io, format);
   if (!result.module) return 1;
   const json = JSON.stringify(result.module, null, 2);
   const outPath = output ?? inputPath.replace(/\.osnova$/i, '.osvbc.json');
   fs.writeFileSync(path.resolve(outPath), json, 'utf-8');
-  console.log('Скомпилировано:', outPath);
+  // В JSON-режиме stdout несёт только JSONL (успех виден по коду 0 и файлу).
+  if (format !== 'json') console.log('Скомпилировано:', outPath);
   return 0;
 }
 

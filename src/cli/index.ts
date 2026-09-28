@@ -8,7 +8,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import { compileSource } from "../compiler/compiler";
-import { formatDeprecatedWarning } from "../compiler/cliCompile";
+import {
+  diagnosticsSink,
+  formatCliRefusalJson,
+  parseDiagnosticsFormat,
+  reportCliRefusal,
+  reportParseWarnings,
+} from "../compiler/cliCompile";
 import { reportCompileDiagnostics } from "../compiler/compileDiagnostics";
 import { VM, createDefaultInvokeHandler, formatOsnovaValue, type InvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import { isKnownInvoke } from "../runtime/vm/invokeRegistry";
@@ -19,7 +25,7 @@ import { compareReorders, formatComparison } from "../vliw/reorderEquivalence";
 
 function usage(): void {
   console.error("Использование:");
-  console.error("  osnova compile <файл.osnova> [-o <файл.osvbc.json>] [--warn-deprecated]");
+  console.error("  osnova compile <файл.osnova> [-o <файл.osvbc.json>] [--warn-deprecated] [--diagnostics=json]");
   console.error("  osnova run <файл.osnova>            скомпилировать и сразу запустить");
   console.error("  osnova run <файл.osvbc.json>        запустить готовый байткод");
   console.error("  osnova parity <файл.osnova>         сверка стековой и регистровой VM");
@@ -66,8 +72,24 @@ function readProgram(inputFile: string): OsVbcModule {
 }
 
 function cmdCompile(args: string[]): void {
+  // Формат диагностики — до чтения файла: неверная форма флага это отказ
+  // команды, а не тихое умолчание (правило канала — `../compiler/cliCompile`).
+  const format = parseDiagnosticsFormat(args);
+  if (format === null) {
+    console.error("Формат диагностики не поддержан. Допустимо: --diagnostics=json (или --diagnostics=human).");
+    process.exit(1);
+  }
+  const io = { out: (line: string) => console.log(line), err: (line: string) => console.error(line) };
   const inputIdx = args.findIndex((a) => !a.startsWith("-"));
-  if (inputIdx === -1) { console.error("Ошибка: не указан входной файл"); usage(); }
+  if (inputIdx === -1) {
+    // Человеческий вывод — прежний: строка + подсказка (usage() выходит сам);
+    // машинный — одна запись `OSN-CLI-001`, без человеческих строк.
+    reportCliRefusal("inputMissing", format, io, () => {
+      console.error("Ошибка: не указан входной файл");
+      usage();
+    });
+    process.exit(1);
+  }
   const inputFile = args[inputIdx]!;
 
   const outFlagIdx = args.indexOf("-o");
@@ -80,6 +102,16 @@ function cmdCompile(args: string[]): void {
   // выключено по умолчанию, включается явным флагом.
   const warnDeprecated = args.includes("--warn-deprecated");
 
+  // Файла нет — машинный режим обязан сказать это записью. Человеческого отказа
+  // «файл не найден» у этой точки входа не было вовсе: `readFileSync` падал
+  // исключением, и его печатал `main().catch`. Человеческий вывод не трогаю (он
+  // заморожен), поэтому проверка условна — иначе третий путь команды остался бы
+  // единственной дырой канала: пустой stdout на код 1.
+  if (format === "json" && !fs.existsSync(inputFile)) {
+    io.out(formatCliRefusalJson("inputNotFound", path.resolve(inputFile)));
+    process.exit(1);
+  }
+
   const source = fs.readFileSync(inputFile, "utf-8");
   // Имя файла передаётся ЯВНО: под каноном «файл = модуль» без него модуль
   // получает имя `вход` (умолчание из parser.ts), и артефакт расходится с тем,
@@ -91,17 +123,14 @@ function cmdCompile(args: string[]): void {
     warnDeprecated,
   });
 
-  reportCompileDiagnostics(
-    result,
-    { error: (line) => console.error(line), warning: (line) => console.warn(line) },
-    { source },
-  );
-  for (const w of result.warnings) console.warn(formatDeprecatedWarning(w));
+  reportCompileDiagnostics(result, diagnosticsSink(io, format), { source, format });
+  reportParseWarnings(result.warnings, io, format);
 
   if (!result.compilerSuccess || !result.module) process.exit(1);
 
   fs.writeFileSync(outputFile, JSON.stringify(result.module, null, 2), "utf-8");
-  console.log(`Скомпилировано: ${inputFile} → ${outputFile}`);
+  // В JSON-режиме stdout несёт только JSONL (успех виден по коду 0 и файлу).
+  if (format !== "json") console.log(`Скомпилировано: ${inputFile} → ${outputFile}`);
 }
 
 async function cmdRun(args: string[]): Promise<void> {
