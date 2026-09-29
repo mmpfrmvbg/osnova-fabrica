@@ -184,21 +184,35 @@ describe('печать на цели: число → текст, сверка б
     expect(run.stderr.match(/write\(1,/g)?.length, 'в журнале обязаны быть ДВА вызова write').toBe(2);
   });
 
-  it('ГРАНИЦА ИЗМЕРЕНА: три печати ПОДРЯД упираются в площадку — код доходит до неё', () => {
+  it('ГРАНИЦА ИЗМЕРЕНА: три печати ПОДРЯД входят в СТРАНИЦУ площадки — и падают', () => {
     if (shim === undefined) return;
-    // Площадка стоит в хвосте образа (`spillBase − 64`). Прямая развёртка трёх печатей — 432
-    // команды: код перерастает её и пишет разряды ПОВЕРХ СЕБЯ. Это не дефект последовательности,
-    // а названная граница места: в корпусе запись `43` печатает в ЦИКЛЕ (код короткий), поэтому
-    // её эталон `31 0a 32 0a 33 0a` достигается циклом, а не тремя развёртками подряд.
+    // ПРИЧИНА НАЗВАНА ЗАМЕРОМ 2026-09-29 (§3.90.7). Падает не «код дошёл до площадки», а «код вошёл
+    // в её СТРАНИЦУ»: QEMU делает страницу переведённого кода защищённой (`src/e2k/elfMinimal.ts`),
+    // и запись разрядов в ту же страницу кончается ACCERR. Три прямые развёртки — конец кода
+    // 0x101120, страница площадки начинается на 0x101000: 0x101120 < 0x101ec0 (до АДРЕСА площадки
+    // код не дошёл), но страница уже его. Прежняя редакция этой проверки прибавляла файловое
+    // смещение 0x1000 и мерила 0x102120 — то есть проходила по неверному числу.
+    //
+    // Это и есть та «оговорка», которую сторож места держал открытой: замер §3.40.6 не сходился с
+    // адресной арифметикой именно потому, что граница — страничная.
     const three = printManyProgram([1, 2, 3]);
     const codeBytes = pack(three).length;
-    expect(MINIMAL_BASE + 0x1000 + codeBytes, 'код трёх печатей обязан доходить до площадки').toBeGreaterThan(AREA);
+    const codeEnd = MINIMAL_BASE + codeBytes;
+    const page = AREA - (AREA % 0x1000);
+    expect(codeEnd, `код трёх печатей 0x${codeEnd.toString(16)} против страницы 0x${page.toString(16)}`).toBeGreaterThan(page);
+    expect(codeEnd, 'и до АДРЕСА площадки он при этом не доходит — граница не адресная').toBeLessThan(AREA);
     const run = runWithJournal(three, 'three-calls');
     expect(
       hex(run.stdout),
       'граница обязана быть видна поведением: третья строка НЕ печатается молча',
     ).not.toBe('31 0a 32 0a 33 0a');
-    expect(run.status, 'запись поверх своего кода обязана кончаться отказом, а не тихой ложью').not.toBe(0);
+    expect(run.status, 'запись в страницу своего кода обязана кончаться отказом, а не тихой ложью').not.toBe(0);
+    // СТОРОНА «ВЛЕЗАЕТ» — ЧИСЛОМ: две прямые развёртки остаются НИЖЕ страницы, и их поведение уже
+    // измерено рядом («два вызова подряд»: `31 0a 32 0a`, код 0). Стороны различает страница:
+    // две — ниже (0x100900), три — внутри (0x101080).
+    const two = printManyProgram([1, 2]);
+    const twoEnd = MINIMAL_BASE + pack(two).length;
+    expect(twoEnd, `две развёртки 0x${twoEnd.toString(16)} против страницы 0x${page.toString(16)}`).toBeLessThanOrEqual(page);
   });
 
   it('НЕГАТИВНЫЙ КОНТРОЛЬ: подмена числа меняет байты вывода', () => {
@@ -354,14 +368,50 @@ describe('СТРОКИ НА ЦЕЛИ: кодпоинты, склейка, выв
     expect(hex(first.stdout), 'первый байт «Аня» — d0 90').toBe('d0 90 d0 bd d1 8f 0a');
   });
 
-  it('ГРАНИЦА: переполнение статического буфера (20 байт) — названный отказ, а не тихая порча', () => {
-    const image = loweredProgram(
-      wrapped('  система.лог.вывести(система.строка.объединить("012345678901234567890", "х"))'),
+  it('ГРАНИЦА СТАТИЧЕСКОГО БУФЕРА (20 байт): статика как была, сверх — АРЕНА, отказ переехал', () => {
+    // СТОРОЖ РАСШИРЕН, А НЕ УДАЛЁН (решение владельца 2026-09-29). Прежняя редакция требовала на
+    // 21 байт ОТКАЗ СБОРКИ. Теперь такую склейку берёт арена, и отказ переехал на её исчерпание —
+    // но САМА ГРАНИЦА осталась: двадцать байт это предел СТАТИЧЕСКОГО буфера, и сверх него в буфер
+    // не пишется ничего. Порча соседних статических байтов была бы видна в выводе — поэтому вывод
+    // и сверяется, побайтово, на ОБОИХ концах границы.
+    const runAware = (
+      source: string,
+      name: string,
+    ): { image: ReturnType<typeof loweredProgram>; run: { stdout: Buffer; stderr: string; status: number | null } } => {
+      const image = loweredProgram(source);
+      expect(image.refused, `программа «${name}» обязана понижаться без отказов`).toEqual([]);
+      return {
+        image,
+        run: runImage(
+          // Отображение берётся ИЗ ОТЧЁТА ОБРАЗА: арена лежит выше восьми отображённых килобайт,
+          // и прежние «всегда HEAP_OFFSET» сделали бы обращение к ней исключением.
+          buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: image.arena.extraMemory }).bytes,
+          name,
+        ),
+      };
+    };
+    const statics = runAware(
+      wrapped('  система.лог.вывести(система.строка.объединить("0123456789012345678", "z"))'),
+      'string-buffer-20',
     );
-    expect(image.refused.length, 'переполнение обязано быть отказом').toBeGreaterThan(0);
-    const overflow = image.refused.find((item) => item.reason.includes('склейка строк'));
-    expect(overflow, 'причина обязана называть переполнение, а не отсутствие пометок').toBeDefined();
-    expect(overflow?.reason, 'числа обязаны быть названы').toMatch(/2[0-9]/u);
+    expect(statics.image.arena.used, 'двадцать байт — по-прежнему статический буфер').toBe(false);
+    expect(statics.image.arena.extraMemory, 'и отображение прежнее').toBe(HEAP_OFFSET);
+    const staticsExpected = Buffer.from('0123456789012345678z\n', 'utf-8');
+    expect(hex(statics.run.stdout), 'статика: вывод — ровно двадцать байт и перевод строки').toBe(
+      [...staticsExpected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '),
+    );
+    expect(statics.run.status).toBe(0);
+
+    const over = runAware(
+      wrapped('  система.лог.вывести(система.строка.объединить("0123456789012345678", "zz"))'),
+      'string-buffer-21',
+    );
+    expect(over.image.arena.used, 'двадцать один байт — арена').toBe(true);
+    const overExpected = Buffer.from('0123456789012345678zz\n', 'utf-8');
+    expect(hex(over.run.stdout), 'арена: вывод — ровно склеенные байты, сосед не тронут').toBe(
+      [...overExpected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '),
+    );
+    expect(over.run.status).toBe(0);
   });
 });
 

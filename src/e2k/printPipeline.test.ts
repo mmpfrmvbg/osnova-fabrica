@@ -32,7 +32,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { MINIMAL_BASE } from './elfMinimal';
-import { HEAP_OFFSET, imageOfCarriers, loweredProgram } from './programImage';
+import { HEAP_OFFSET, WRITE_PAGE_BYTES, imageOfCarriers, loweredProgram } from './programImage';
 import { carrierFormOf, layoutOf } from './twoPassLayout';
 import { printAreaOf, PRINT_PRIMITIVE_CLOBBERS } from './printPrimitives';
 import {
@@ -51,6 +51,8 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
 const HEAP = MINIMAL_BASE + HEAP_OFFSET;
 const AREA = printAreaOf(HEAP);
+/** Начало СТРАНИЦЫ записи: писать можно только туда, где нет кода (замер 2026-09-29, §3.90.7). */
+const pageOf = (address: number): number => address - (address % WRITE_PAGE_BYTES);
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 
@@ -205,45 +207,39 @@ describe('печать: шесть записей корпуса собираю�
   });
 
   for (const dir of dirs) {
-    it(`запись ${dir}: отказов нет, код не доходит до площадки`, () => {
+    it(`запись ${dir}: отказов нет, код не входит в страницу записи`, () => {
       const source = fs.readFileSync(path.join(ROOT, 'examples', dir, 'main.osnova'), 'utf-8');
       const image = loweredProgram(source);
       expect(image.refused, `отказы понижения ${dir}`).toEqual([]);
-      const codeEnd = MINIMAL_BASE + 0x1000 + image.bytes.length;
-      expect(codeEnd, `код ${dir} против площадки ${AREA.toString(16)}`).toBeLessThan(AREA);
+      // `image.bytes` включает статические байты, то есть оценка СТРОЖЕ настоящего конца кода, —
+      // и граница берётся по СТРАНИЦЕ площадки, а не по её адресу (замер 2026-09-29, §3.90.7).
+      const codeEnd = MINIMAL_BASE + image.bytes.length;
+      expect(codeEnd, `код ${dir} против страницы записи ${pageOf(AREA).toString(16)}`).toBeLessThanOrEqual(pageOf(AREA));
     });
   }
 
-  it('СТОРОЖ МЕСТА: образ, код которого дорастает до площадки, отклоняется с числами', () => {
-    // ГРАНИЦА ИЗМЕРЕНА 2026-09-28 (`.tmp/osnova-print-ceiling.ts`): при разделённой печати
-    // ВЛЕЗАЮТ 28 сайтов (7264 байта, конец 0x101c60), а 32 (8096 байт) — ОТКАЗ с числами.
-    // До починки сторожа (он прибавлял файловое смещение 0x1000 к виртуальному адресу и был
-    // строже настоящей границы на 4096 байт) отказ приходил уже на двадцати — то есть проверка
-    // стерегла неверную границу. Здесь берём по обе стороны НАСТОЯЩЕЙ: 32 переполняют, 28 нет.
-    const over: AsmInstruction[] = [
-      ...Array.from({ length: 32 }, () => printingCarrier(2)),
+  it('СТОРОЖ МЕСТА: образ, код которого входит в СТРАНИЦУ записи, отклоняется с числами', () => {
+    // ГРАНИЦА ПЕРЕМЕРЕНА 2026-09-29 (§3.90.7), и прежний замер был НЕВЕРЕН — не границей, а её
+    // причиной. Тогда считалось: «влезают 28 сайтов (7264 байта, конец 0x101c60), 32 — отказ».
+    // Замер на модели: 28 сайтов ПАДАЮТ (`QEMU internal SIGSEGV {code=ACCERR, addr=0x101ecb}`) —
+    // код входит в СТРАНИЦУ площадки печати (0x101000), которую модель защищает как страницу
+    // переведённого кода (`src/e2k/elfMinimal.ts`). Настоящий потолок — 12 сайтов (конец 0x100f60;
+    // положительный контроль: 12 строк вывода, код 0 — `src/e2k/printPrimitivesQemu.test.ts`),
+    // а 13-й уже входит в страницу: 0x101030 > 0x101000. Отсюда и сторож отказал на 28 — теперь он
+    // отказывает на 13, то есть на НАСТОЯЩЕЙ границе, а не на 4096 байт позже неё.
+    const sites = (count: number): AsmInstruction[] => [
+      ...Array.from({ length: count }, () => printingCarrier(2)),
       { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] },
     ];
-    expect(() => imageOfCarriers(over, [], [PRINT_CALL])).toThrow(PrintCallRefusal);
-    expect(() => imageOfCarriers(over, [], [PRINT_CALL])).toThrow(/площадк/iu);
-    // Положительный контроль: та же программа с ОДНОЙ печатью проходит — и она инлановая
-    // (делить нечего: развёртка одна).
-    const one = imageOfCarriers([printingCarrier(2), { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] }], [], [PRINT_CALL]);
-    expect(one.refused).toEqual([]);
-    expect(one.bytes.length).toBeGreaterThan(1000);
-    // Двадцать восемь сайтов — сторона «влезает», и это не «почти»: между 28 и 32 лежит запас
-    // в четыре сайта (~832 байта), поэтому проверка не ловит случайное колебание размера.
-    const fits = imageOfCarriers(
-      [...Array.from({ length: 28 }, () => printingCarrier(2)), { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] }],
-      [],
-      [PRINT_CALL],
-    );
-    expect(fits.refused, 'разделённая печать обязана собираться').toEqual([]);
-    // ГРАНИЦА — ОТ `MINIMAL_BASE`, БЕЗ ФАЙЛОВОГО СМЕЩЕНИЯ (2026-09-28). Прежняя редакция этой
-    // проверки прибавляла `0x1000` и мерила не тот адрес: `0x1000` — смещение `.text` В ФАЙЛЕ
-    // (`p_offset`), а `p_vaddr` сегмента равен `MINIMAL_BASE` (заголовки ELF, замер
-    // `.tmp/osnova-elf-address.ts`). Из-за этого сторож отказывал образам на 4096 байт раньше
-    // настоящей границы — и проверка это закрепляла.
-    expect(MINIMAL_BASE + fits.bytes.length, 'и влезать в площадку').toBeLessThan(AREA);
+    expect(() => imageOfCarriers(sites(13), [], [PRINT_CALL])).toThrow(PrintCallRefusal);
+    expect(() => imageOfCarriers(sites(13), [], [PRINT_CALL])).toThrow(/место записи/iu);
+    // Положительный контроль: двенадцать сайтов — сторона «влезает», и это не «почти»: между
+    // двенадцатым (0x100f60) и тринадцатым (0x101030) лежит граница страницы 0x101000.
+    const fits = imageOfCarriers(sites(12), [], [PRINT_CALL]);
+    expect(fits.refused, 'двенадцать сайтов обязаны собираться').toEqual([]);
+    const fitsEnd = MINIMAL_BASE + fits.bytes.length;
+    expect(fitsEnd, 'и не входить в страницу записи').toBeLessThanOrEqual(pageOf(AREA));
+    // Различающая пара на самой границе: двенадцатый сайт ниже страницы, тринадцатый — выше.
+    expect(fitsEnd).toBeGreaterThan(pageOf(AREA) - 0x1000);
   });
 });

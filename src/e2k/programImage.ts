@@ -43,6 +43,7 @@ import { LOWERING_CODES, LoweringRefusalError, refusalOf, type LoweringRefusal }
 import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringMarksOf } from './stringPlan';
 import { INNER_CALL_WBS, WINDOW_GROW_CARRIER } from './procedureCall';
 import {
+  ARENA_BASE,
   ARENA_EXTRA_MEMORY,
   ARENA_REFUSAL_TEXT,
   arenaGroups,
@@ -50,7 +51,7 @@ import {
   arenaReservedRegisters,
   usesArena,
 } from './arenaRuntime';
-import { STRING_CALLS } from './stringRuntime';
+import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, stringArenaCopyInstructions } from './stringRuntime';
 import {
   STRING_PRINT_CLOBBERS,
   stringConcatInstructions,
@@ -89,6 +90,16 @@ const shellEncoder = getEncoder('internal-shell');
 
 /** Куча — отдельная страница: запись в страницу кода даёт ACCERR (см. `e2kMemoryQemu.test.ts`). */
 export const HEAP_OFFSET = 0x2000;
+
+/**
+ * РАЗМЕР СТРАНИЦЫ, которой модель защищает переведённый код, — 4096 байт.
+ *
+ * Не догадка: замер 2026-09-29 (`docs/hardware-debt.md` §3.90.7) — программа с концом кода
+ * `0x1008d0` работает, а с `0x101480` и `0x101c60` падает `ACCERR` на записи в площадку печати
+ * (`0x101ecb`). Обе границы лежат в одной странице `[0x101000, 0x102000)`, а первая — нет: значит
+ * страница 4 КиБ, а не 16 и не 64.
+ */
+export const WRITE_PAGE_BYTES = 0x1000;
 
 /**
  * НОСИТЕЛИ ОБОЛОЧКИ — общий первый шаг обоих потоков.
@@ -479,7 +490,21 @@ export function loweredProgram(source: string): {
   // потока носителей, поэтому раскладка не имеет права их отдать (иначе значение легло бы туда же
   // и было бы затёрто молча). Список резервируется ТОЛЬКО тогда, когда образ ареной пользуется:
   // у прочих программ он пуст, и закреплённые числа пяти ядер не двигаются.
-  const reserved = usesArena(emitted.instructions, emitted.image.invokeNames) ? arenaReservedRegisters() : [];
+  //
+  // Решение принимается ЗДЕСЬ и ДО раскладки, а знает его планирование строк: ареной пользуется не
+  // только явный `система.память.выделить`, но и **склейка сверх статического буфера**. Поэтому
+  // идёт РАЗВЕДКА тем же проходом (`planStrings`) по потоку ДО раскладки — второй счётчик длин
+  // разошёлся бы с планом. Разойдись разведка с потоком после раскладки, `imageOfCarriers` откажет
+  // по имени (`arenaReserved`), а не соберёт образ с мусором вместо указателя арены.
+  const arenaReserved =
+    usesArena(emitted.instructions, emitted.image.invokeNames) ||
+    planStrings(
+      emitted.instructions,
+      emitted.scheduled.constants,
+      emitted.image.invokeNames,
+      MINIMAL_BASE + HEAP_OFFSET,
+    ).counts.arenaConcats > 0;
+  const reserved = arenaReserved ? arenaReservedRegisters() : [];
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, { reserved });
   const report = allocation.report[0]!;
   if (!report.ok) {
@@ -501,6 +526,9 @@ export function loweredProgram(source: string): {
         name: procedure.name,
         codeOffset: procedure.codeOffset,
       })),
+      // Слово о закреплении регистров — тому, кто раскладывал: разойдись оно с нуждой образа,
+      // конвейер откажет по имени, а не соберёт образ с мусором вместо указателя арены.
+      arenaReserved,
     }),
     used: report.used,
   };
@@ -588,6 +616,16 @@ export function imageOfCarriers(
      * Без них поток считается ОДНОЙ процедурой — как было до появления вызовов.
      */
     readonly procedures?: readonly ProcedureOffset[];
+    /**
+     * ЗАКРЕПЛЕНЫ ЛИ РЕГИСТРЫ АРЕНЫ у этого потока — слово того, кто раскладывал регистры.
+     *
+     * Арена пишет указатель и предел **в обход** потока носителей (`src/e2k/arenaRuntime.ts`),
+     * поэтому раскладка обязана была их не отдать. Знание об этом живёт у вызывающего
+     * ({@link loweredProgram} решает это ДО раскладки — по разведке планирования строк), а проверить
+     * его можно только здесь, где известно, нужна ли арена на самом деле. `false` при нужной арене —
+     * НАЗВАННЫЙ отказ, а не тихая порча: иначе выделение взяло бы мусор вместо указателя.
+     */
+    readonly arenaReserved?: boolean;
   } = {},
 ): {
   bytes: Uint8Array;
@@ -600,20 +638,34 @@ export function imageOfCarriers(
   readonly arena: { readonly used: boolean; readonly extraMemory: number };
 } {
   const heapAddress = options.heapAddress ?? MINIMAL_BASE + HEAP_OFFSET;
-  // АРЕНА: пользуется ли образ операцией `система.память.выделить` — по имени вызова в потоке.
-  // Строка отказа планируется ВМЕСТЕ со прочими статическими блоками: её адрес выведен из конца
+  // АРЕНА: пользуется ли образ ареной — и это ДВА источника, а не один. Первый — вызов
+  // `система.память.выделить` в потоке; второй — СКЛЕЙКА СТРОК СВЕРХ СТАТИЧЕСКОГО БУФЕРА: она тоже
+  // берёт блок у арены, и вызова для этого не нужно. Второй источник знает только планирование строк
+  // (оно одно считает длины), поэтому при отсутствии явного вызова план строится дважды: первый
+  // проход — РАЗВЕДКА (нужна ли образу строка отказа), второй — окончательный. Второй счётчик длин
+  // не заводится: он разошёлся бы с планом (класс `docs/hardware-debt.md` §3.35).
+  const arenaCall = usesArena(code, invokeNames);
+  const probe = arenaCall ? undefined : planStrings(code, constants, invokeNames, heapAddress);
+  const arenaUsed = arenaCall || (probe?.counts.arenaConcats ?? 0) > 0;
+  // Строка отказа арены планируется ВМЕСТЕ со прочими статическими блоками: её адрес выведен из конца
   // образа, и второй способ его считать разошёлся бы с первым (`src/e2k/stringPlan.ts`).
-  const arenaUsed = usesArena(code, invokeNames);
+  if (arenaUsed && options.arenaReserved === false) {
+    // Отказ конвейера, а не программы: канал — исключение с кодом, как у отказа раскладки
+    // (`imageOfCarriers` здесь не собирает образ ВООБЩЕ: с незакреплёнными регистрами он был бы
+    // мусором, а пустые байты в отчёте выглядели бы рабочим образом).
+    throw new LoweringRefusalError(
+      LOWERING_CODES.runtime,
+      'арена нужна образу, а регистры её не закреплены: раскладка не знала об арене ' +
+        '(разведка планирования строк и поток после раскладки разошлись) — это дефект конвейера, ' +
+        'а не программы (src/e2k/programImage.ts#loweredProgram)',
+    );
+  }
+  const strings = arenaUsed
+    ? planStrings(code, constants, invokeNames, heapAddress, { arenaRefusal: ARENA_REFUSAL_TEXT })
+    : probe!;
   // СТРОКИ: литералы становятся адресами статических байтов, `длина`/`объединить` — пометками,
   // по которым ОДНИ И ТЕ ЖЕ команды считают и раскладка (форма), и понижение (байты). Планирование
   // идёт ДО всего остального: адреса блобов сдвигают сторож места, а пул констант — длину `IR.const`.
-  const strings = planStrings(
-    code,
-    constants,
-    invokeNames,
-    heapAddress,
-    arenaUsed ? { arenaRefusal: ARENA_REFUSAL_TEXT } : {},
-  );
   const stringContext = { constants: strings.constants, invokeNames: strings.invokeNames };
   // Дальше весь конвейер работает с ПЕРЕПИСАННЫМ потоком и РАСШИРЕННЫМ пулом: строковый литерал —
   // это уже адрес, а не строка (`src/e2k/stringPlan.ts`).
@@ -784,8 +836,9 @@ export function imageOfCarriers(
   const entryEndsAt = prepared.entryEndsAt;
 
   const body: AsmInstruction[] = [];
-  // Отказы ПЛАНИРОВАНИЯ СТРОК идут первыми: у переполнения буфера причина — оно, а не отсутствие пометок,
-  // которое видит раскладка следом (обе записи верны, но причина обязана стоять первой).
+  // Отказы ПЛАНИРОВАНИЯ СТРОК идут первыми: причина из плана (у значения не оказалось адреса,
+  // склейка сверх буфера осталась без приёмника) обязана стоять ПЕРЕД отказом раскладки, который
+  // видит уже следствие — отсутствие пометок (обе записи верны, но причина обязана быть первой).
   const refused: LoweringRefusal[] = [
     ...strings.problems.map((reason) => refusalOf(LOWERING_CODES.runtime, reason)),
     ...sharing.problems,
@@ -1040,6 +1093,68 @@ export function imageOfCarriers(
         continue;
       }
     }
+    // ── СКЛЕЙКА СВЕРХ СТАТИЧЕСКОГО БУФЕРА: копирование байтов В БЛОК АРЕНЫ ───────────────────────
+    //
+    // Выделение и проверка предела к этому месту уже сделаны: их выпустила группа арены
+    // (`src/e2k/arenaRuntime.ts#arenaGroups`) — и командами того же сайта, что у
+    // `система.память.выделить`. Здесь только байты: база записи — регистр-приёмник выделения.
+    if (carrier.mnemonic === STRING_ARENA_COPY_CARRIER) {
+      if (inCallee) {
+        // Та же граница, что у статической склейки: рантайм держит состояние в `%b[10..13]`, а это
+        // регистры окна вызываемой — причина названа, а не «не сработало».
+        refused.push(
+          refusalOf(
+            LOWERING_CODES.runtime,
+            `#${index} ${STRING_CALLS.concat}: склейка сверх статического буфера в вызываемой процедуре ` +
+              'невозможна — её рантайм держит состояние в %b[10..13], а окно вызываемой — %b[0..7]',
+          ),
+        );
+        continue;
+      }
+      const first = carrier.operands[0];
+      const second = carrier.operands[1];
+      const block = carrier.operands[2];
+      const firstBytes = carrier.operands[3];
+      const secondBytes = carrier.operands[4];
+      if (
+        first?.kind !== 'reg' ||
+        second?.kind !== 'reg' ||
+        block?.kind !== 'reg' ||
+        firstBytes?.kind !== 'imm' ||
+        secondBytes?.kind !== 'imm'
+      ) {
+        refused.push(
+          refusalOf(
+            LOWERING_CODES.runtime,
+            `#${index} ${STRING_CALLS.concat}: у копирования в блок арены не та форма операндов ` +
+              '(нужны две строки, регистр блока и две длины) — их ставит планирование строк',
+          ),
+        );
+        continue;
+      }
+      body.push(
+        ...stringArenaCopyInstructions({
+          first: first.index,
+          second: second.index,
+          base: block.index,
+          firstBytes: firstBytes.value,
+          secondBytes: secondBytes.value,
+        }),
+      );
+      continue;
+    }
+    // Носитель САЙТА склейки, доживший до понижения, — дефект конвейера: его обязан был расширить
+    // `arenaGroups` (src/e2k/arenaRuntime.ts), и там же лежит проверка предела. Названо, а не «нет формы».
+    if (carrier.mnemonic === STRING_ARENA_CONCAT_CARRIER) {
+      refused.push(
+        refusalOf(
+          LOWERING_CODES.runtime,
+          `#${index} ${STRING_CALLS.concat}: носитель склейки в арене не расширен группой арены — ` +
+            'это дефект конвейера (src/e2k/arenaRuntime.ts#arenaGroups), а не программы',
+        ),
+      );
+      continue;
+    }
     if (carrier.mnemonic === PRINT_TEXT_CARRIER) {
       // ТЕЛО ЛИСТОВОЙ ПРОЦЕДУРЫ: развёртка «число → текст». Она живёт в вызываемой, поэтому все её
       // регистры — оконные (измерено: базовая форма в вызываемой даёт исключение на первой команде).
@@ -1143,31 +1258,57 @@ export function imageOfCarriers(
     bytes.set(chunk, offset);
     offset += chunk.length;
   }
-  // СТОРОЖ МЕСТА (§3.40.6): код не имеет права дорасти до площадки печати — иначе развёртка пишет
-  // разряды поверх собственных команд.
+  // ── СТОРОЖ МЕСТА: ГРАНИЦА — СТРАНИЦА, А НЕ АДРЕС (замер 2026-09-29, §3.90.7) ─────────────────
+  //
+  // Писать программа вправе только туда, где НЕТ КОДА, и запрет проходит **по страницам**: QEMU
+  // делает страницу переведённого кода защищённой (`src/e2k/elfMinimal.ts`), поэтому запись разрядов
+  // в ТУ ЖЕ страницу, где лежит код, кончается `QEMU internal SIGSEGV {code=ACCERR}` — даже если до
+  // адреса площадки код не дошёл.
+  //
+  // ЗАМЕР (три программы, один и тот же путь):
+  //
+  // | программа | конец кода | страница площадки (0x101000) | модель |
+  // |---|---|---|---|
+  // | `48-память-выделение` | `0x1008d0` | свободна | код 0, вывод есть |
+  // | 28 сайтов печати (прежняя редакция этого сторожа считала их «влезающими»!) | `0x101c60` | **занята кодом** | **139**, ACCERR на `0x101ecb` |
+  // | запись `49` как задумана (склейка 50 байт) | `0x101480` | **занята кодом** | **139**, ACCERR на `0x101ecb` |
+  //
+  // Отсюда же снимается ОГОВОРКА прежней редакции: замер §3.40.6 («ACCERR на 0x101ec5 при 4384 байтах
+  // от `MINIMAL_BASE`» = `0x101120`) — тот же случай: код вошёл в страницу площадки, а до самой
+  // площадки не дошёл. Граница сторожа была адресной, а настоящая — страничная; сторож, отказывающий
+  // верному и пропускающий неверное, — один и тот же класс дефекта.
   //
   // ГДЕ НАЧИНАЕТСЯ КОД — ПРОВЕРЕНО ЗАГОЛОВКАМИ ELF, И ЭТО `MINIMAL_BASE` (2026-09-28,
   // `.tmp/osnova-elf-address.ts`): `e_entry = 0x100000`, единственный `PT_LOAD` несёт
   // `p_offset = 0x1000` при `p_vaddr = 0x100000` — то есть `0x1000` это смещение `.text` **в файле**,
-  // а не в памяти. Прежняя редакция прибавляла его к виртуальному адресу и была строже настоящей
-  // границы ровно на 4096 байт: она ОТКАЗЫВАЛА образам, которые помещаются (сторож, отказывающий
-  // верному, — тот же класс дефекта, что сторож, пропускающий неверное). Та же поправка уже
-  // применялась ниже, к статическим байтам строк, и здесь она приведена в согласие с ней.
-  //
-  // Оговорка, которую надо снять отдельным разбором: замер §3.40.6 («три печати подряд → ACCERR
-  // на 0x101ec5») с этой арифметикой не сходится — при 4384 байтах от `MINIMAL_BASE` площадка
-  // `0x101EC0` не задевается, а проба `.tmp/osnova-elf-address.ts` с тремя печатями проходит
-  // кодом 0. Либо тот замер был снят при другом образе, либо ACCERR имел иную причину. Пока это
-  // расхождение названо, сторож берёт границу по заголовкам — она внешний свидетель.
+  // а не в памяти.
+  const writeTargets: { readonly what: string; readonly address: number }[] = [];
   if (prints) {
+    writeTargets.push({ what: 'площадка печати', address: printAreaOf(heapAddress) });
+  }
+  if (strings.bufferAddress !== undefined) {
+    writeTargets.push({ what: 'статический буфер склейки', address: strings.bufferAddress });
+  }
+  for (const address of options.spilledAddresses ?? []) {
+    writeTargets.push({ what: `слот вытеснения ${address.toString(16)}`, address });
+  }
+  if (arenaUsed) writeTargets.push({ what: 'арена', address: ARENA_BASE });
+  if (usesArrayHeap(code, invokeNames)) {
+    writeTargets.push({ what: 'куча массивов', address: heapAddress });
+  }
+  if (writeTargets.length > 0) {
+    const pageOf = (address: number): number => address - (address % WRITE_PAGE_BYTES);
+    const barrier = writeTargets.reduce((lowest, target) => Math.min(lowest, pageOf(target.address)), Number.MAX_SAFE_INTEGER);
+    const lowest = writeTargets.reduce((first, target) => (pageOf(target.address) < pageOf(first.address) ? target : first));
     const codeEnd = MINIMAL_BASE + bytes.length;
-    const area = printAreaOf(heapAddress);
-    if (codeEnd > area) {
+    if (codeEnd > barrier) {
       throw new PrintCallRefusal(
-        `печать: код образа доходит до ${codeEnd.toString(16)}, а площадка печати стоит на ${area.toString(16)} ` +
-          `(кода ${String(bytes.length)} байт) — ` +
-          'развёртка писала бы разряды поверх своих команд. Место кончается: площадку нельзя двигать выше ' +
-          '(там куча), а печатать в цикле — можно (docs/hardware-debt.md §3.40.6)',
+        `место записи: код образа кончается на ${codeEnd.toString(16)} (кода ${String(bytes.length)} байт), а ` +
+          `страница записи начинается на ${barrier.toString(16)} — в неё попадает «${lowest.what}» ` +
+          `(${lowest.address.toString(16)}). Модель делает страницу переведённого кода защищённой, и запись ` +
+          'в неё падает ACCERR: замер 2026-09-29 — конец кода 0x101c60 при площадке 0x101ec0 падает, ' +
+          'а 0x1008d0 работает. Двигать страницу записи некуда: выше куча и арена — место записи надо ' +
+          'выносить на СВОЮ страницу (docs/hardware-debt.md §3.90.7)',
       );
     }
   }

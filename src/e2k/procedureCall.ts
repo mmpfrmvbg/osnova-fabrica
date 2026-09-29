@@ -166,6 +166,22 @@ export function arenaAllocRegisterInstructions(size: number, destination: number
     { mnemonic: "adds", channel: 0, operands: [base_(ARENA_POINTER_BASE), base_(size), base_(ARENA_POINTER_BASE)] },
   ];
 }
+
+/**
+ * Выделение с ИЗВЕСТНЫМ НА СБОРКЕ размером: размер приходит ЧИСЛОМ, а не регистром.
+ *
+ * Так выделяет себя **склейка строк сверх статического буфера**: её длины статические, и регистра
+ * под размер взять негде — `%b[10..13]` заняты копированием байтов, `%b[0..9]` отданы раскладке,
+ * а арена уже держит `%b[4]`/`%b[6]`. Второго механизма не заводим: форма — та же `adds`, что у
+ * регистровой редакции, только второй операнд литерал (ею уже пользуется строковый рантайм:
+ * `adds %b[10], 1, %b[10]`).
+ */
+export function arenaAllocImmediateInstructions(bytes: number, destination: number): AsmInstruction[] {
+  return [
+    { mnemonic: "movts", channel: 0, operands: [base_(ARENA_POINTER_BASE), base_(destination)] },
+    { mnemonic: "adds", channel: 0, operands: [base_(ARENA_POINTER_BASE), imm(bytes), base_(ARENA_POINTER_BASE)] },
+  ];
+}
 /** Оператор f64 для movtd (адрес в память кладётся movtd, не movts). */
 const f64 = (value: bigint): Operand => ({ kind: 'imm64', value }) as unknown as Operand;
 export function bankLoadInstruction(destination: number): AsmInstruction {

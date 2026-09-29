@@ -54,12 +54,14 @@ import {
   ARENA_LIMIT_CARRIER,
   ARENA_POINTER_BASE,
   ARENA_POINTER_CARRIER,
+  arenaAllocImmediateInstructions,
   arenaAllocRegisterInstructions,
   arenaInitInstructions,
   arenaLimitInstructions,
   arenaPointerInstructions,
 } from './procedureCall';
 import { syscallFrameOfCarrier } from './printCall';
+import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER } from './stringRuntime';
 import {
   ENTRY_SYSCALL_FRAME,
   SYS_EXIT,
@@ -246,10 +248,14 @@ export function arenaCarrierInstructions(carrier: AsmInstruction): AsmInstructio
     case ARENA_ALLOC_CARRIER: {
       const size = operands[0];
       const destination = operands[1];
-      if (size === undefined || size.kind !== 'reg' || destination === undefined || destination.kind !== 'reg') {
-        return undefined;
-      }
-      return arenaAllocRegisterInstructions(size.index, destination.index);
+      if (destination === undefined || destination.kind !== 'reg') return undefined;
+      // Размер приходит ЛИБО регистром (язык знает его в рантайме), ЛИБО числом (склейка строк:
+      // её длины статические). Обе редакции — в `src/e2k/procedureCall.ts`, и обе дают одну форму
+      // `adds`, поэтому раскладке нечем разойтись с понижением.
+      if (size === undefined) return undefined;
+      if (size.kind === 'reg') return arenaAllocRegisterInstructions(size.index, destination.index);
+      if (size.kind === 'imm') return arenaAllocImmediateInstructions(size.value, destination.index);
+      return undefined;
     }
     case ARENA_POINTER_CARRIER: {
       const destination = operands[0];
@@ -291,8 +297,38 @@ export function arenaCarrierInstructions(carrier: AsmInstruction): AsmInstructio
 export interface ArenaGroups {
   readonly groups: ReadonlyMap<number, readonly AsmInstruction[]>;
   readonly sites: number;
+  /** Сколько сайтов СКЛЕЙКИ СТРОК ушло в арену (`IR.arena_concat`) — для отчёта и сторожей. */
+  readonly concatSites: number;
   /** Индекс блока отказа в потоке ПОСЛЕ расширения (цели переходов указывают на него). */
   readonly refusalIndex: number;
+}
+
+/**
+ * САЙТ СКЛЕЙКИ СТРОК В АРЕНЕ: тот же сайт выделения плюс копирование байтов.
+ *
+ * Проверка предела — **та же** (`arenaSiteCarriers`), а не своя: исчерпание обязано быть одним
+ * контрактом с одним текстом и одним кодом, иначе склейка и `система.память.выделить` разошлись бы
+ * в том, что считается исчерпанием. Отличается только приёмник: у склейки он же — БАЗА ЗАПИСИ
+ * копирования (`IR.string_arena_copy`), потому что адрес блока уже в нём.
+ */
+function arenaConcatSite(carrier: AsmInstruction, refusalIndex: number): readonly AsmInstruction[] | undefined {
+  const first = carrier.operands[0];
+  const second = carrier.operands[1];
+  const destination = carrier.operands[2];
+  const firstBytes = carrier.operands[3];
+  const secondBytes = carrier.operands[4];
+  if (first === undefined || second === undefined || destination === undefined) return undefined;
+  if (first.kind !== 'reg' || second.kind !== 'reg' || destination.kind !== 'reg') return undefined;
+  if (firstBytes === undefined || secondBytes === undefined) return undefined;
+  if (firstBytes.kind !== 'imm' || secondBytes.kind !== 'imm') return undefined;
+  return [
+    ...arenaSiteCarriers(imm(firstBytes.value + secondBytes.value), destination, refusalIndex),
+    {
+      mnemonic: STRING_ARENA_COPY_CARRIER,
+      channel: 0,
+      operands: [first, second, destination, firstBytes, secondBytes],
+    },
+  ];
 }
 
 /**
@@ -310,10 +346,12 @@ export function arenaGroups(
     const payload = carrier.operands[3];
     return payload !== undefined && payload.kind === 'imm' && invokeNames[payload.value] === ARENA_CALL;
   };
+  const isArenaConcat = (carrier: AsmInstruction): boolean => carrier.mnemonic === STRING_ARENA_CONCAT_CARRIER;
   const sites = code.filter(isArenaInvoke).length;
-  // Индекс блока отказа известен ДО сборки: заведение — один носитель, сайт — три вместо одного,
-  // блок — два в конце.
-  const refusalIndex = 1 + code.length + 2 * sites;
+  const concatSites = code.filter(isArenaConcat).length;
+  // Индекс блока отказа известен ДО сборки: заведение — один носитель, сайт выделения — три вместо
+  // одного (+2), сайт склейки — четыре вместо одного (+3), блок отказа — два в конце.
+  const refusalIndex = 1 + code.length + 2 * sites + 3 * concatSites;
   const groups = new Map<number, readonly AsmInstruction[]>();
   code.forEach((carrier, index) => {
     const site = isArenaInvoke(carrier)
@@ -326,16 +364,17 @@ export function arenaGroups(
           return arenaSiteCarriers(size, destination, refusalIndex);
         })()
       : undefined;
+    const concat = site === undefined && isArenaConcat(carrier) ? arenaConcatSite(carrier, refusalIndex) : undefined;
     // Заведение арены — прологом ТОЧКИ ВХОДА; если её первый носитель сам сайт, порядок сохраняется:
     // заведение, затем сайт.
     const head = index === entryOffset ? [arenaInitCarrier()] : [];
-    const body = site ?? [carrier];
-    if (head.length === 0 && site === undefined) return;
+    const body = site ?? concat ?? [carrier];
+    if (head.length === 0 && site === undefined && concat === undefined) return;
     groups.set(index, [...head, ...body]);
   });
   // Точки входа нет в потоке (пустой модуль) — заведение всё равно обязано быть: названо, не молча.
   if (!groups.has(entryOffset)) {
     groups.set(entryOffset, [arenaInitCarrier(), ...(code[entryOffset] === undefined ? [] : [code[entryOffset]!])]);
   }
-  return { groups, sites, refusalIndex };
+  return { groups, sites, concatSites, refusalIndex };
 }

@@ -56,7 +56,9 @@
 
 import type { AsmInstruction, Operand, WideGroupShape } from "./backend";
 import {
+  STRING_ARENA_COPY_CARRIER,
   STRING_CALLS,
+  stringArenaCopyInstructions,
   stringConcatInstructions,
   stringLengthInstructions,
   stringWriteInstructions,
@@ -576,6 +578,43 @@ function carrierFormWithReason(
         commands: forms.map((form) => form!),
       },
     };
+  }
+  // СКЛЕЙКА СВЕРХ СТАТИЧЕСКОГО БУФЕРА (БЛОК АРЕНЫ): длины берутся ИЗ ТЕХ ЖЕ КОМАНД, что понижает
+  // конвейер (`src/e2k/stringRuntime.ts#stringArenaCopyInstructions`) — форма обязана совпасть с
+  // байтами, иначе уедут адреса переходов и вызовов (§3.35). Выделение и проверка предела к этому
+  // носителю не относятся: их выпускает сайт арены, и формы у них те же, что у `память.выделить`.
+  if (instruction.mnemonic === STRING_ARENA_COPY_CARRIER) {
+    const first = instruction.operands[0];
+    const second = instruction.operands[1];
+    const block = instruction.operands[2];
+    const firstBytes = instruction.operands[3];
+    const secondBytes = instruction.operands[4];
+    const shaped =
+      first?.kind === 'reg' &&
+      second?.kind === 'reg' &&
+      block?.kind === 'reg' &&
+      firstBytes?.kind === 'imm' &&
+      secondBytes?.kind === 'imm';
+    const commands = shaped
+      ? stringArenaCopyInstructions({
+          first: first.index,
+          second: second.index,
+          base: block.index,
+          firstBytes: firstBytes.value,
+          secondBytes: secondBytes.value,
+        })
+      : undefined;
+    const forms = commands?.map((command) => printCommandForm(command));
+    if (forms === undefined || forms.some((form) => form === undefined)) {
+      return {
+        failure: failureOf(
+          LOWERING_CODES.carrier,
+          `«${instruction.mnemonic}»: форму команды копирования в блок арены взять негде — ` +
+            'операнды носителя или команды понижения разошлись (src/e2k/stringRuntime.ts)',
+        ),
+      };
+    }
+    return { form: { carrier: instruction.mnemonic, commands: forms.map((form) => form!) } };
   }
   // РОСТ ОКНА у процедуры, которая сама вызывает: `setwd wsz=16` (CS1_SETWD, 16 байт — измерено
   // кодировщиком, `.tmp/osnova-setwd-encode.ts`) плюс `setbn rsz=15` (ALF2, 8 байт). Объявление

@@ -8,24 +8,29 @@
  * раскладка (`src/e2k/twoPassLayout.ts`) и понижение считают ОДНИ И ТЕ ЖЕ команды. Разойтись
  * пометке и коду нечем: обе стороны зовут `src/e2k/stringRuntime.ts`.
  *
+ * Склейка сверх статического буфера — ИСКЛЮЧЕНИЕ из «без носителей»: она становится носителем
+ * `IR.arena_concat`, а расширяет его группа арены (`src/e2k/arenaRuntime.ts#arenaGroups`) — там же
+ * проверка предела и блок отказа. Иначе у проверки исчерпания было бы два источника.
+ *
  * # Где лежат байты
  *
  * Статическая область — **под площадкой печати**, в том же хвосте образа: площадка занимает
  * `[printArea, printArea + 32)`, а строковые блобы растут ВНИЗ от `printArea`. Поэтому сторож места
  * становится строже ровно на их размер: «код не доходит до статических байтов» вместо «до площадки».
- * Отдельной страницы под строки нет и не заводится — решения владельца о памяти здесь нет.
+ * Отдельной страницы под строки нет: склейка сверх буфера живёт в арене, а не в образе.
  *
  * # Что известно на сборке, а что в рантайме
  *
- * Строки статические: литерал пришёл из пула, склейка идёт в буфер фиксированного размера. Поэтому
- * на сборке известно ВСЁ — и адреса, и длины в байтах, — и `длина` считает кодпоинты КОДОМ по
- * байтам (развёртка, `stringLengthInstructions`), а не подставляет готовое число. Разница
- * принципиальная: подстановка не пережила бы появления памяти, а развёртка переживёт — изменится
- * только то, откуда берётся длина в байтах.
+ * Строки статические: литерал пришёл из пула, склейка до 20 байт идёт в буфер фиксированного размера,
+ * а склейка сверх — в блок, выделенный **ареной** (носитель `IR.arena_concat`). Поэтому на сборке
+ * известны и адреса, и длины в байтах, — и `длина` считает кодпоинты КОДОМ по байтам (развёртка,
+ * `stringLengthInstructions`), а не подставляет готовое число. Разница принципиальная: подстановка не
+ * пережила бы появления памяти, а развёртка переживает — адрес приходит регистром, а не константой.
  */
 import type { AsmInstruction, Operand } from './backend';
 import { printAreaOf } from './printPrimitives';
 import {
+  STRING_ARENA_CONCAT_CARRIER,
   STRING_BUFFER_BYTES,
   STRING_CALLS,
   STRING_NEWLINE,
@@ -73,6 +78,13 @@ type StringEdit =
   | { readonly kind: 'const'; readonly index: number; readonly poolIndex: number; readonly value: StringValue }
   | { readonly kind: 'length'; readonly index: number; readonly value: StringValue; readonly marks: number[] }
   | { readonly kind: 'concat'; readonly index: number; readonly first: StringValue; readonly second: StringValue; readonly marks: number[]; readonly payload: number; readonly fromAdd: boolean }
+  | {
+      readonly kind: 'arena_concat';
+      readonly index: number;
+      readonly first: StringValue;
+      readonly second: StringValue;
+      readonly destination: number | undefined;
+    }
   | { readonly kind: 'print'; readonly index: number; readonly value: StringValue; readonly marks: number[] }
   | { readonly kind: 'none'; readonly index: number; readonly reason: string };
 
@@ -87,7 +99,20 @@ export interface StringPlan {
   readonly staticStart: number;
   readonly problems: readonly string[];
   /** Сколько строковых операций и печатей строк распознано — для отчёта и оракулов. */
-  readonly counts: { readonly lengths: number; readonly concats: number; readonly prints: number; readonly strings: number };
+  readonly counts: {
+    readonly lengths: number;
+    readonly concats: number;
+    readonly prints: number;
+    readonly strings: number;
+    /**
+     * Сколько склеек ушло В АРЕНУ (сумма байтов больше статического буфера).
+     *
+     * По этому числу конвейер понимает, что образ пользуется ареной, даже если
+     * `система.память.выделить` в программе нет (`src/e2k/programImage.ts`): арене нужны пролог,
+     * блок отказа и закреплённые регистры — без них выделение взяло бы мусор.
+     */
+    readonly arenaConcats: number;
+  };
   /**
    * Где лежит строка отказа арены и сколько в ней байт (`undefined` — образ ареной не пользуется).
    *
@@ -95,6 +120,13 @@ export interface StringPlan {
    * ДО раскладки — иначе блоб и переход разошлись бы (класс `docs/hardware-debt.md` §3.35).
    */
   readonly arenaRefusal?: { readonly address: number; readonly byteLength: number };
+  /**
+   * Адрес СТАТИЧЕСКОГО БУФЕРА СКЛЕЙКИ, если он объявлен (`undefined` — все склейки ушли в арену).
+   *
+   * Нужен наружу ровно затем, что это **место записи**: буфер лежит среди статических байтов, а
+   * писать можно только туда, где нет кода (граница — страница, замер `src/e2k/programImage.ts`).
+   */
+  readonly bufferAddress?: number;
 }
 
 /**
@@ -123,10 +155,14 @@ export function planStrings(
   })();
   const byRegister = new Map<number, StringValue>();
   const values = new Map<string, StringValue>();
+  /** Значения, собранные ареной: статических байтов у них нет и в образ они не кладутся. */
+  const arenaValues = new Set<string>();
   const edits = new Map<number, StringEdit>();
   const problems: string[] = [];
   let lengths = 0;
   let concats = 0;
+  let staticConcats = 0;
+  let arenaConcats = 0;
   let prints = 0;
 
   const valueOf = (text: string): StringValue => {
@@ -212,18 +248,22 @@ export function planStrings(
         edits.set(index, { kind: 'none', index, reason: 'аргумент не строка' });
         return;
       }
-      const overflow = concatFitsBuffer(first.bytes.length, second.bytes.length);
-      if (overflow !== undefined) {
-        problems.push(`#${String(index)} ${name}: ${overflow}`);
-        edits.set(index, { kind: 'none', index, reason: 'переполнение буфера' });
-        return;
-      }
       const joined = values.get(`${first.key}\u0000${second.key}`);
       const result: StringValue =
         joined ?? { bytes: [...first.bytes, ...second.bytes], key: `${first.key}\u0000${second.key}` };
       values.set(result.key, result);
       if (destination !== undefined) byRegister.set(destination, result);
       concats += 1;
+      // СКЛЕЙКА СВЕРХ СТАТИЧЕСКОГО БУФЕРА — ЧЕРЕЗ АРЕНУ (решение владельца, 2026-09-29).
+      // Не «влезло/не влезло» решает раскладка, а вот это место: длины известны только здесь.
+      // Носитель один, а расширяется он группой арены — там же проверка предела и блок отказа.
+      if (!concatFitsBuffer(first.bytes.length, second.bytes.length)) {
+        arenaConcats += 1;
+        arenaValues.add(result.key);
+        edits.set(index, { kind: 'arena_concat', index, first, second, destination });
+        return;
+      }
+      staticConcats += 1;
       edits.set(index, {
         kind: 'concat',
         index,
@@ -246,12 +286,17 @@ export function planStrings(
 
   // ── Раскладка статических блобов: снизу вверх от площадки печати ──────────────────────────────
   const needsTable = lengths > 0;
-  const needsBuffer = concats > 0;
+  // Буфер нужен, только если в него кто-то пишет: у склейки сверх статического буфера байты едут в
+  // арену, и объявлять под неё статические 20 байт значило бы платить за неиспользуемое.
+  const needsBuffer = staticConcats > 0;
   const needsNewline = prints > 0;
   const ordered: { readonly key: string; readonly bytes: readonly number[] }[] = [];
   if (needsTable) ordered.push({ key: '⟨таблица продолжений⟩', bytes: continuationTable() });
   for (const value of values.values()) {
     // Буфер склейки — значение того же вида, что литерал: его байты лежат статически.
+    // СКЛЕЙКА ЧЕРЕЗ АРЕНУ в образ НЕ кладётся: её байты собираются в выделенном блоке в рантайме,
+    // и статическая копия была бы и лишней, и опасной — образ рос бы на всю длину строки.
+    if (arenaValues.has(value.key)) continue;
     ordered.push({ key: value.key, bytes: value.bytes });
   }
   if (needsBuffer) ordered.push({ key: '⟨буфер склейки⟩', bytes: new Array<number>(STRING_BUFFER_BYTES).fill(0) });
@@ -269,7 +314,9 @@ export function planStrings(
     addresses.set(blob.key, cursor);
     blobs.push({ address: cursor, bytes: blob.bytes });
   }
-  // Адрес значения: у литерала — его собственные байты, у склейки — буфер (результат живёт там).
+  // Адрес значения: у литерала — его собственные байты, у статической склейки — буфер (результат
+  // живёт там). У склейки ЧЕРЕЗ АРЕНУ адреса нет и быть не может: он появляется в рантайме, и
+  // значение живёт в регистре-приёмнике выделения.
   for (const value of values.values()) {
     const isJoined = value.key.includes('\u0000');
     const address = isJoined ? addresses.get('⟨буфер склейки⟩') : addresses.get(value.key);
@@ -299,6 +346,29 @@ export function planStrings(
     if (edit.kind === 'length') {
       operands[STRING_MARK_OPERAND] = imm(edit.marks[0]!);
       operands[STRING_MARK_OPERAND + 1] = imm(tableAddress);
+    } else if (edit.kind === 'arena_concat') {
+      // СКЛЕЙКА СВЕРХ СТАТИЧЕСКОГО БУФЕРА: носитель СМЕНЁН, а не помечен. Пометки здесь не годятся:
+      // у операции меняется не одна длина, а способ — «выделить блок у арены и скопировать байты».
+      // Приёмник — тот же регистр, что был у операции: у `IR.invoke` он четвёртый, у `IR.add` — первый.
+      const destination = carrier.mnemonic === 'IR.add' ? carrier.operands[0] : carrier.operands[4];
+      if (edit.destination === undefined || destination === undefined || destination.kind !== 'reg') {
+        problems.push(
+          `#${String(index)} ${STRING_CALLS.concat}: склейка сверх статического буфера без приёмника — ` +
+            'арена выделяет блок В ПРИЁМНИК, и положить его некуда',
+        );
+        return carrier;
+      }
+      return {
+        mnemonic: STRING_ARENA_CONCAT_CARRIER,
+        channel: carrier.channel,
+        operands: [
+          carrier.operands[1]!,
+          carrier.operands[2]!,
+          destination,
+          imm(edit.first.bytes.length),
+          imm(edit.second.bytes.length),
+        ],
+      };
     } else if (edit.kind === 'concat') {
       if (edit.fromAdd) {
         const args = [carrier.operands[1], carrier.operands[2], carrier.operands[0]];
@@ -338,7 +408,8 @@ export function planStrings(
     blobs,
     staticStart: cursor,
     problems,
-    counts: { lengths, concats, prints, strings: ordered.length },
+    counts: { lengths, concats, prints, strings: ordered.length, arenaConcats },
+    ...(needsBuffer ? { bufferAddress } : {}),
     ...(refusalAddress === undefined || refusalBytes === undefined
       ? {}
       : { arenaRefusal: { address: refusalAddress, byteLength: refusalBytes.length } }),

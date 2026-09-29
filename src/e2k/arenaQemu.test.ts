@@ -9,6 +9,8 @@
  * | арена заполнена РОВНО (`8 × 512 = 4096`) | отказа НЕТ: полоса `[base, limit)` заполняется до последнего байта — граница «строго больше» |
  * | девятое выделение сверх предела | код **231** И строка отказа — оба наблюдаемых, ни одного вместо другого |
  * | канал | строка приходит в **stderr**, а stdout пуст: отказ не подменяет вывод программы |
+ * | **СКЛЕЙКА СТРОК СВЕРХ 20 БАЙТ** (заход 2026-09-29) | 21 байт работает БЕЗ явного `память.выделить`: арена нужна образу по одной склейке; 20 байт рядом — по-прежнему статика, арены НЕТ |
+ * | **ИСЧЕРПАНИЕ СКЛЕЙКОЙ** | 23 байта за виток: 4096 / 23 = **178** целых — сто семьдесят восемь строк `21` (кодпоинтов, не байтов!) и на 179-й отказ 231. Число 178 и есть замер: блок берётся РОВНО под сумму байтов |
  *
  * # Негативный контроль
  *
@@ -20,7 +22,8 @@
  * # Границы
  *
  * Модель — не железо: числа с неё на Эльбрус без прогона на железе не переносятся
- * (`tools/e2k-hardware/`). Файл живёт в шлюзе `gate:qemu`; в полном прогоне его нет (там нет QEMU).
+ * (`tools/e2k-hardware/`). Файл входит и в шлюз `gate:qemu`, и в полный прогон; без шима проверки
+ * пропускаются — причина называется, а не замалчивается (`buildShim`).
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -28,9 +31,12 @@ import * as path from 'node:path';
 import { MINIMAL_BASE, buildElfFromCode } from './elfMinimal';
 import { HEAP_OFFSET, loweredProgram } from './programImage';
 import { ARENA_BASE, ARENA_BYTES, ARENA_LIMIT, ARENA_REFUSAL_CODE, ARENA_REFUSAL_TEXT } from './arenaRuntime';
-import { runInQemu } from '../scripts/e2kQemuExec';
+import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
+import { SHIM_REASON } from '../scripts/e2kProgramRun';
 
 const ROOT = path.resolve(__dirname, '..', '..');
+/** Без шима модель не запускается: проверки пропускаются, и это НАЗВАНО, а не «зелено». */
+const shim = buildShim();
 
 /** Цикл выделений по 16 байт; между выделениями — ВЛОЖЕННЫЙ ВЫЗОВ и печать разности. */
 const LOOP = [
@@ -73,6 +79,52 @@ const OVERFLOW = [
   'конец_процедуры',
 ].join('\n');
 
+/**
+ * СКЛЕЙКА СТРОК ЧЕРЕЗ АРЕНУ — без единого `система.память.выделить` в программе.
+ *
+ * 19 знаков + «zz» = 21 байт: сверх статического буфера (20), значит блок берётся у арены.
+ * Рядом — та же программа с 20 байтами: она обязана остаться на статике (различающая пара).
+ */
+const CONCAT_OVER = [
+  'процедура главная()',
+  '  система.лог.вывести(система.строка.объединить("0123456789012345678", "zz"))',
+  'конец_процедуры',
+].join('\n');
+
+const CONCAT_FITS = [
+  'процедура главная()',
+  '  система.лог.вывести(система.строка.объединить("0123456789012345678", "z"))',
+  'конец_процедуры',
+].join('\n');
+
+/**
+ * ЦИКЛ СКЛЕЕК: 19 знаков + «яя» (4 байта UTF-8) = **23 байта**, но **21 кодовая точка**.
+ * 4096 / 23 = 178 целых — значит арена выдержит ровно 178 выделений, а 179-е даст отказ.
+ */
+const CONCAT_LOOP = [
+  'процедура главная()',
+  '  пусть индекс = 0',
+  '  пока индекс < 250',
+  '    система.лог.вывести(система.строка.длина(система.строка.объединить("0123456789012345678", "яя")))',
+  '    индекс = индекс + 1',
+  '  конец_пока',
+  'конец_процедуры',
+].join('\n');
+
+/**
+ * ДВА САЙТА АРЕНЫ В ОДНОЙ ПРОГРАММЕ: склейка строк и явное выделение (плюс длина статического
+ * литерала третьим, уже не аренным сайтом). Ключ предиката у сайтов арены ОДИН (`%b[5]`), поэтому
+ * проверяется и арифметика индексов блока отказа, и то, что пары не перепутались: разойдись они —
+ * переход ушёл бы не туда. Конец кода 0x100d40 — ниже страницы записи 0x101000 (замер §3.90.7).
+ */
+const TWO_ARENA_SITES = [
+  'процедура главная()',
+  '  система.лог.вывести(система.строка.объединить("0123456789012345678", "zz"))',
+  '  пусть блок = система.память.выделить(100)',
+  '  система.лог.вывести(система.строка.длина("0123456789012345678"))',
+  'конец_процедуры',
+].join('\n');
+
 interface ArenaRun {
   readonly status: number | null | undefined;
   readonly stdout: string;
@@ -93,25 +145,88 @@ function runArena(source: string, name: string): ArenaRun {
   expect(result, `${name}: модель обязана ответить`).toBeDefined();
   return { status: result!.status, stdout: result!.stdout, stderr: result!.stderr };
 }
-
 describe('АРЕНА НА ЦЕЛИ: выделение переживает печать и вызов, исчерпание — названный отказ', () => {
+  it('шим и модель доступны — или причина названа', () => {
+    // Пропуск обязан быть НАЗВАН: «зелено» без модели читалось бы как «проверено» (случай 22,
+    // docs/verification-debt.md). Здесь причина называется словами, а не молчанием.
+    if (shim === undefined) {
+      expect(SHIM_REASON.length, 'причина недоступности модели обязана быть названа').toBeGreaterThan(10);
+      return;
+    }
+    expect(shim.length).toBeGreaterThan(0);
+  });
+
   it('цикл с вложенным вызовом: разность соседних блоков ровно 16, код 0', () => {
+    if (shim === undefined) return;
     const run = runArena(LOOP, 'loop');
     expect(run.stdout, 'байты вывода: четыре выделения по 16 — ни одного лишнего').toBe('16\n16\n16\n16\n');
     expect(run.status, 'код возврата: программа дошла до конца').toBe(0);
   });
 
   it('арена, заполненная РОВНО: отказа нет — полоса [base, limit) заполняется до конца', () => {
+    if (shim === undefined) return;
     const run = runArena(EDGE, 'edge');
     expect(run.stdout, 'маркер после восьми выделений — значит девятого не потребовалось').toBe('7\n');
     expect(run.status).toBe(0);
   });
 
   it('ИСЧЕРПАНИЕ: код 231 И строка, оба наблюдаемых', () => {
+    if (shim === undefined) return;
     const run = runArena(OVERFLOW, 'overflow');
     expect(run.status, 'код возврата отказа').toBe(ARENA_REFUSAL_CODE);
     expect(run.stderr, 'строка отказа — в stderr').toContain(ARENA_REFUSAL_TEXT);
     expect(run.stdout, 'отказ не подменяет вывод программы: stdout пуст').toBe('');
+  });
+
+  it('СКЛЕЙКА СВЕРХ 20 БАЙТ: арена нужна образу БЕЗ вызова выделения — и работает', () => {
+    if (shim === undefined) return;
+    // `runArena` сам утверждает `arena.used === true`: если бы разведка планирования строк не
+    // увидела склейку, регистры арены не были бы закреплены, и это покраснело бы здесь.
+    const run = runArena(CONCAT_OVER, 'concat-over');
+    expect(run.stdout, 'двадцать один байт — ровно склеенные байты и перевод строки').toBe(
+      '0123456789012345678zz\n',
+    );
+    expect(run.status, 'программа дошла до конца').toBe(0);
+  });
+
+  it('РАЗЛИЧАЮЩАЯ ПАРА: те же строки на 20 байтах — статика, арены НЕТ', () => {
+    if (shim === undefined) return;
+    const image = loweredProgram(CONCAT_FITS);
+    expect(image.refused.map((item) => item.reason).join(' | ')).toBe('');
+    expect(image.arena.used, 'двадцать байт — по-прежнему статический буфер').toBe(false);
+    const elf = path.join(ROOT, '.tmp', 'arena-concat-fits.elf');
+    fs.writeFileSync(
+      elf,
+      buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: image.arena.extraMemory }).bytes,
+    );
+    const result = runInQemu(elf, { shim: true, timeoutMs: 20_000 });
+    expect(result?.stdout, 'двадцать байт выводятся байт в байт').toBe('0123456789012345678z\n');
+    expect(result?.status).toBe(0);
+  });
+
+  it('ИСЧЕРПАНИЕ СКЛЕЙКОЙ: 178 выделений по 23 байта, затем код 231 и строка', () => {
+    if (shim === undefined) return;
+    // Число 178 — ЗАМЕР, а не украшение: 178 × 23 = 4094 ≤ 4096, а 179 × 23 = 4117 > 4096.
+    // Печатается 21 (КОДОВЫЕ ТОЧКИ), хотя выделяется 23 байта — значит `длина` читает байты по
+    // адресу, которого на сборке не было, а блок взят ровно под сумму байтов.
+    const perIteration = 23;
+    const fits = Math.floor(ARENA_BYTES / perIteration);
+    expect(fits, 'арифметика границы — числом').toBe(178);
+    expect(fits * perIteration).toBeLessThanOrEqual(ARENA_BYTES);
+    expect((fits + 1) * perIteration).toBeGreaterThan(ARENA_BYTES);
+    const run = runArena(CONCAT_LOOP, 'concat-loop');
+    expect(run.stdout, `ровно ${String(fits)} строк «21» и ни строки больше`).toBe('21\n'.repeat(fits));
+    expect(run.status, 'сто семьдесят девятое выделение — отказ').toBe(ARENA_REFUSAL_CODE);
+    expect(run.stderr, 'строка отказа — в stderr').toContain(ARENA_REFUSAL_TEXT);
+  });
+
+  it('ДВА САЙТА АРЕНЫ В ОДНОЙ ПРОГРАММЕ: склейка и выделение — ключ предиката один, пары не путаются', () => {
+    if (shim === undefined) return;
+    const run = runArena(TWO_ARENA_SITES, 'concat-two-sites');
+    expect(run.stdout, 'склейка 21 байта, затем длина статического литерала — 19').toBe(
+      '0123456789012345678zz\n19\n',
+    );
+    expect(run.status).toBe(0);
   });
 
   it('числа арены названы и лежат там, где решено', () => {
@@ -126,3 +241,4 @@ describe('АРЕНА НА ЦЕЛИ: выделение переживает пе
     expect(plain.arena.extraMemory).toBe(HEAP_OFFSET);
   });
 });
+

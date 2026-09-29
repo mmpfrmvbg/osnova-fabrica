@@ -45,7 +45,9 @@
 
 import type { AsmInstruction } from './backend';
 import { cfgLiveSets, cfgRanges } from '../vliw/cfg';
+import { ARRAY_REGISTERS } from './arrayRuntime';
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from './procedureCall';
+import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, STRING_REGISTERS } from './stringRuntime';
 
 /** Что носитель пишет и что читает (номера vreg'ов). */
 export interface DefUse {
@@ -188,6 +190,22 @@ export function defUseOf(instruction: AsmInstruction): DefUse {
     // Блок отказа: адрес и длина — литералы, регистров нет (аргументы `write` — оконные слоты кадра).
     case 'IR.arena_refusal':
       return { def: [], use: [] };
+    // САЙТ СКЛЕЙКИ В АРЕНЕ (`src/e2k/stringRuntime.ts#STRING_ARENA_CONCAT_CARRIER`) — до расширения:
+    // `[первая, вторая, приёмник, байтов, байтов]`. Регистры состояния арены здесь НЕ трогаются:
+    // ими заведует выделение, в которое этот носитель и разворачивается.
+    case STRING_ARENA_CONCAT_CARRIER:
+      return {
+        def: registers(registerAt(instruction, 2)),
+        use: registers(registerAt(instruction, 0), registerAt(instruction, 1)),
+      };
+    // КОПИРОВАНИЕ В БЛОК АРЕНЫ — после расширения: `[первая, вторая, блок, байтов, байтов]`. База
+    // (регистр блока) ЧИТАЕТСЯ, а временные `%b[10]`, `%b[11]` и единица рантайма `%b[13]` пишутся —
+    // их обязан назвать этот разбор, иначе сайт печати не увидит живыми тех, что живут в них.
+    case STRING_ARENA_COPY_CARRIER:
+      return {
+        def: [STRING_REGISTERS.first, STRING_REGISTERS.second, ARRAY_REGISTERS.one],
+        use: registers(registerAt(instruction, 0), registerAt(instruction, 1), registerAt(instruction, 2)),
+      };
     case 'IR.move':
     case 'IR.not':
       return { def: registers(registerAt(instruction, 0)), use: registers(registerAt(instruction, 1)) };

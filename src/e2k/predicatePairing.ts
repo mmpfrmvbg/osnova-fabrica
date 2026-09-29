@@ -41,7 +41,9 @@
 
 import type { AsmInstruction } from "./backend";
 import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
+import { ARRAY_REGISTERS } from "./arrayRuntime";
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from "./procedureCall";
+import { STRING_REGISTERS } from "./stringRuntime";
 
 /** Номер предиката, отданный парам: пары не переплетаются, поэтому одного достаточно. */
 export const PREDICATE_FOR_PAIRS = 0;
@@ -211,6 +213,18 @@ function registersOf(instruction: AsmInstruction): { known: boolean; reads: numb
       return known([ARENA_LIMIT_BASE], regs([operands[0]!]));
     case "IR.arena_refusal":
       return known([], []);
+    // СКЛЕЙКА В АРЕНЕ (`src/e2k/stringRuntime.ts`): сайт до расширения `[первая, вторая, приёмник,
+    // байтов, байтов]` и копирование после `[первая, вторая, блок, байтов, байтов]`. Без этих ветвей
+    // оба носителя стали бы БАРЬЕРОМ (`known: false`) — и сравнение сайта получило бы «читателей» из
+    // последующих сайтов: ровно тот отказ, что держал восемь заходов (§3.89.3). Копирование пишет
+    // временные `%b[10]`, `%b[11]` и единицу рантайма `%b[13]` — это названо, а не умолчано.
+    case "IR.arena_concat":
+      return known(regs([operands[0]!, operands[1]!]), regs([operands[2]!]));
+    case "IR.string_arena_copy":
+      return known(
+        regs([operands[0]!, operands[1]!, operands[2]!]),
+        [STRING_REGISTERS.first, STRING_REGISTERS.second, ARRAY_REGISTERS.one],
+      );
     default:
       return { known: false, reads: [], writes: [] };
   }

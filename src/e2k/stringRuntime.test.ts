@@ -29,6 +29,7 @@ import {
   codePointCount,
   concatFitsBuffer,
   continuationTable,
+  stringArenaCopyInstructions,
   stringConcatInstructions,
   stringLengthInstructions,
   stringSequenceProblems,
@@ -66,14 +67,13 @@ describe('строки: байты, кодпоинты и границы', () =>
     }
   });
 
-  it('граница буфера: 20 влезает ровно, 21 — названный отказ с числами', () => {
-    expect(concatFitsBuffer(14, 6), 'склейка записи 04 — ровно 20 байт').toBeUndefined();
-    expect(concatFitsBuffer(STRING_BUFFER_BYTES, 0)).toBeUndefined();
-    const overflow = concatFitsBuffer(20, 1);
-    expect(overflow, 'переполнение обязано отказать').toBeDefined();
-    expect(overflow).toContain('21');
-    expect(overflow).toContain(String(STRING_BUFFER_BYTES));
-    expect(concatFitsBuffer(0, 0), 'пустое влезает').toBeUndefined();
+  it('граница буфера: 20 влезает ровно, 21 — уже АРЕНА (отказ переехал на исчерпание)', () => {
+    expect(concatFitsBuffer(14, 6), 'склейка записи 04 — ровно 20 байт').toBe(true);
+    expect(concatFitsBuffer(STRING_BUFFER_BYTES, 0)).toBe(true);
+    expect(concatFitsBuffer(20, 1), '21 байт в статический буфер не влезает — но и не отказ').toBe(false);
+    expect(concatFitsBuffer(0, 0), 'пустое влезает').toBe(true);
+    // Различающая пара: 20 и 21 отличаются ОДНИМ байтом и решением о способе, а не «примерно».
+    expect(concatFitsBuffer(19, 1)).not.toBe(concatFitsBuffer(19, 2));
   });
 
   it('структура последовательностей: регистры рантайма массивов целы', () => {
@@ -86,10 +86,20 @@ describe('строки: байты, кодпоинты и границы', () =>
       firstBytes: 8,
       secondBytes: 6,
     });
+    // СКЛЕЙКА В БЛОК АРЕНЫ — четвёртая последовательность того же рантайма: база записи приходит
+    // РЕГИСТРОМ (адрес выделения), поэтому ноль рантайма массивов не трогается вовсе.
+    const arenaConcat = stringArenaCopyInstructions({
+      first: 0,
+      second: 1,
+      base: 2,
+      firstBytes: 8,
+      secondBytes: 6,
+    });
     const write = stringWriteInstructions({ address: 0, byteLength: 11, newlineAddress: 0x101ec0 });
     for (const [name, instructions] of [
       ['длина', length],
       ['склейка', concat],
+      ['склейка в арене', arenaConcat],
       ['вывод', write],
     ] as const) {
       expect(stringSequenceProblems(instructions), `структура «${name}»`).toEqual([]);
@@ -106,6 +116,13 @@ describe('строки: байты, кодпоинты и границы', () =>
       { mnemonic: 'adds', channel: 0, operands: [{ kind: 'reg', index: ARRAY_REGISTERS.heap }, { kind: 'imm', value: 1 }, { kind: 'reg', index: ARRAY_REGISTERS.heap }] },
     ];
     expect(stringSequenceProblems(damaged as never), 'порча кучи обязана быть видна').not.toEqual([]);
+    // Различающий контроль арены: у неё восстанавливается ЕДИНИЦА (смещение записи), а ноль — нет:
+    // значит «восстановление» сторож берёт из факта порчи, а не из того, что оно там когда-то было.
+    const arenaBroken = arenaConcat.filter(
+      (instruction) =>
+        !(instruction.mnemonic === 'movts' && instruction.operands[1]?.kind === 'reg' && instruction.operands[1].index === ARRAY_REGISTERS.one),
+    );
+    expect(stringSequenceProblems(arenaBroken), 'без возврата единицы сторож обязан краснеть').not.toEqual([]);
   });
 
   it('ФОРМА СОВПАДАЕТ С ПОНИЖЕНИЕМ: длина команд строкового рантайма — то же, что считает раскладка', () => {
@@ -114,6 +131,7 @@ describe('строки: байты, кодпоинты и границы', () =>
     const sequences = [
       stringLengthInstructions({ base: 0, byteLength: 20, destination: 1, tableAddress: 0x101ec0 }),
       stringConcatInstructions({ first: 0, second: 1, destination: 2, bufferAddress: 0x101ed0, firstBytes: 10, secondBytes: 10 }),
+      stringArenaCopyInstructions({ first: 0, second: 1, base: 2, firstBytes: 10, secondBytes: 11 }),
       stringWriteInstructions({ address: 0, byteLength: 20, newlineAddress: 0x101ec0 }),
     ];
     for (const instructions of sequences) {

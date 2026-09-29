@@ -44,6 +44,7 @@ import { pairPredicates } from './predicatePairing';
 import { PRINT_PRIMITIVE_CLOBBERS } from './printPrimitives';
 import { planPrintSite } from './printCall';
 import { MINIMAL_BASE } from './elfMinimal';
+import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER } from './stringRuntime';
 
 const encoder = getEncoder('e2k');
 const carrier = (mnemonic: string, operands: AsmInstruction['operands']): AsmInstruction => ({
@@ -58,6 +59,9 @@ const reg = (index: number) => ({ kind: 'reg', index }) as const;
 const SAMPLES: readonly AsmInstruction[] = [
   carrier(ARENA_INIT_CARRIER, [imm(ARENA_BASE), imm(ARENA_LIMIT)]),
   carrier(ARENA_ALLOC_CARRIER, [reg(0), reg(1)]),
+  // ВЫДЕЛЕНИЕ С ЧИСЛОВЫМ РАЗМЕРОМ — вторая редакция того же носителя: так выделяет себя склейка
+  // строк сверх статического буфера (длины статические, регистра под размер брать негде).
+  carrier(ARENA_ALLOC_CARRIER, [imm(21), reg(1)]),
   carrier(ARENA_POINTER_CARRIER, [reg(2)]),
   carrier(ARENA_LIMIT_CARRIER, [reg(3)]),
   // `IR.exit` блока отказа — носитель ПЕЧАТИ (`src/e2k/printCall.ts#EXIT_CARRIER`), у него своя
@@ -169,6 +173,46 @@ describe('арена: расширение потока', () => {
       'сравнение ПЕРВОГО сайта пары не образует: живость не доказана',
     ).not.toContain(1);
     expect(pairing.refusals.map((item) => item.reason).join(' ')).toContain('результат читают 2 инструкций');
+  });
+
+  it('САЙТ СКЛЕЙКИ СТРОК: три носителя проверки плюс копирование, размер — СУММА байтов', () => {
+    // Тот же сайт проверки предела, что у `память.выделить` (один контракт исчерпания), и тот же
+    // счёт индексов: сайт выделения даёт +2 носителя, сайт склейки — +3. Ошибка в счёте увела бы
+    // переход в блок отказа в чужое тело.
+    const site = carrier(STRING_ARENA_CONCAT_CARRIER, [reg(0), reg(1), reg(2), imm(19), imm(2)]);
+    const call = carrier('IR.invoke', [imm(3), reg(0), reg(0), imm(0), reg(1)]);
+    const groups = arenaGroups([site, call], ['система.память.выделить'], 0);
+    expect(groups.concatSites).toBe(1);
+    expect(groups.sites).toBe(1);
+    expect(groups.refusalIndex).toBe(1 + 2 + 2 * 1 + 3 * 1);
+    const expanded = groups.groups.get(0);
+    expect(expanded?.map((item) => item.mnemonic)).toEqual([
+      ARENA_INIT_CARRIER,
+      ARENA_ALLOC_CARRIER,
+      'IR.le',
+      'IR.jmp_if_not',
+      STRING_ARENA_COPY_CARRIER,
+    ]);
+    expect(expanded?.[1]?.operands[0], 'выделяется ровно 19 + 2 = 21 байт').toEqual(imm(21));
+    expect(expanded?.[3]?.operands[1], 'переход ведёт в блок отказа').toEqual(imm(groups.refusalIndex));
+    expect(
+      arenaCarrierInstructions(expanded![1]!),
+      'команды выделения с числовым размером обязаны быть',
+    ).toBeDefined();
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: сайт склейки не той формы НЕ расширяется — и это названо', () => {
+    // Такой поток конвейер не собирает (операнды ставит планирование строк), но если носитель
+    // пришёл не той формы, расширять его НЕЛЬЗЯ: выделение взяло бы размер из чужого места.
+    const broken = carrier(STRING_ARENA_CONCAT_CARRIER, [imm(19), reg(1), reg(2), imm(19), imm(2)]);
+    const groups = arenaGroups([broken], [], 0);
+    // Заведение арены на месте (индекс 0 — точка входа), а САМ носитель остался как есть: расширять
+    // его нечем, и понижение откажет по имени, а не выделит блок с чужим размером.
+    expect(groups.groups.get(0)?.map((item) => item.mnemonic)).toEqual([
+      ARENA_INIT_CARRIER,
+      STRING_ARENA_CONCAT_CARRIER,
+    ]);
+    expect(groups.concatSites, 'но сосчитан: индекс отказа обязан учитывать место').toBe(1);
   });
 });
 
