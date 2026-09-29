@@ -23,9 +23,22 @@ export interface InvokeHandler {
   (name: string, args: StackValue[]): Promise<StackValue> | StackValue;
 }
 
+/**
+ * АРЕНА У ЯЗЫКА: база и предел — условные числа (в VM адрес — просто число), но **поведение
+ * обязано совпадать с целью**: арена растёт, не возвращается, а исчерпание — это ОТКАЗ с одной и
+ * той же строкой (решение владельца: «текст потом» не принимается, молчание с числом — нет).
+ * Контракт цели: `docs/hardware-debt.md` §3.87.
+ */
+export const VM_ARENA_BASE = 4096;
+export const VM_ARENA_LIMIT = 65536;
+/** Строка отказа при исчерпании — ОДНА на VM и на цель (на цели её печатает stderr, код 231). */
+export const ARENA_EXHAUSTED_MESSAGE = "арена исчерпана: выделение сверх предела";
+
 /** Обработчик по умолчанию (используется когда invoke не передан). */
 export function createDefaultInvokeHandler(): InvokeHandler {
   const storage = new Map<string, StackValue>();
+  // Указатель арены: одна арена на прогон — как и на цели.
+  let arenaNext = VM_ARENA_BASE;
   const pad2 = (n: number): string => String(Math.trunc(n)).padStart(2, "0");
   return async (name: string, args: StackValue[]): Promise<StackValue | null> => {
     switch (name) {
@@ -87,6 +100,22 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       // ЕДИНИЦА — КОДОВАЯ ТОЧКА (решение владельца 2026-09-28): `s.length` здесь давало единицы
       // UTF-16, из-за чего «🙂» отвечало 2 вместо 1, а «👨‍👩‍👧» — 8 вместо 5.
       return codePointLength(s);
+    }
+    case "система.память.выделить": {
+      // Тип результата — ЧИСЛО: отдельного типа «Адрес» нет (решение владельца, §3.87).
+      const bytes = Number(args[0] ?? 0);
+      if (!Number.isFinite(bytes) || bytes < 0) {
+        throw new Error(
+          `система.память.выделить: размер обязан быть неотрицательным числом, получено ${String(args[0])}`,
+        );
+      }
+      if (arenaNext + bytes > VM_ARENA_LIMIT) {
+        // Исчерпание — ОТКАЗ, а не тихая порча указателя: та же строка, что печатает цель.
+        throw new Error(ARENA_EXHAUSTED_MESSAGE);
+      }
+      const address = arenaNext;
+      arenaNext += bytes;
+      return address;
     }
     case "система.строка.содержит": {
       const haystack = String(args[0] ?? "");
