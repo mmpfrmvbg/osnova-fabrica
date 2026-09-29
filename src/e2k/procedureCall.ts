@@ -139,6 +139,17 @@ export function arenaInitInstructions(base: number, limit: number): AsmInstructi
   ];
 }
 /** Выделение: новый указатель = старый + размер, старый уезжает в приёмник. */
+/** Носители ЧТЕНИЯ арены: без них физические %b[8]/%b[10] языку носителей не видны (§3.75). */
+export const ARENA_POINTER_CARRIER = 'IR.arena_pointer';
+export const ARENA_LIMIT_CARRIER = 'IR.arena_limit';
+/** Указатель арены → регистр IR. Читается СВЕЖИМ после каждого выделения: копия устаревает. */
+export function arenaPointerInstructions(destination: number): AsmInstruction[] {
+  return [{ mnemonic: 'movts', channel: 0, operands: [base_(ARENA_POINTER_BASE), window_(destination)] }];
+}
+/** Предел арены → регистр IR. */
+export function arenaLimitInstructions(destination: number): AsmInstruction[] {
+  return [{ mnemonic: 'movts', channel: 0, operands: [base_(ARENA_LIMIT_BASE), window_(destination)] }];
+}
 export function arenaAllocInstructions(size: number, destination: number): AsmInstruction[] {
   return [
     { mnemonic: "movts", channel: 0, operands: [base_(ARENA_POINTER_BASE), window_(destination)] },

@@ -67,6 +67,8 @@ import {
   BANK_STORE_CARRIER,
   ARENA_ALLOC_CARRIER,
   ARENA_INIT_CARRIER,
+  ARENA_LIMIT_CARRIER,
+  ARENA_POINTER_CARRIER,
   GETSP_CARRIER,
   WINDOW_GROW_CARRIER,
 } from "./procedureCall";
@@ -556,6 +558,14 @@ function carrierFormWithReason(
   // поэтому формы одинаковы, но берутся ИЗ ТОГО ЖЕ источника, что и понижение: разойтись нечем.
   const frame = syscallFrameOfCarrier(instruction);
   // АРЕНА: длины — те же команды, что понижает конвейер (movtd по 8, movts/adds по 8).
+  if (instruction.mnemonic === ARENA_POINTER_CARRIER || instruction.mnemonic === ARENA_LIMIT_CARRIER) {
+    return {
+      form: {
+        carrier: instruction.mnemonic,
+        commands: [{ mnemonic: "movts", form: "ALF2", size: REAL_SHORT_FORM_SIZE, source: "ALF2, 8 байт — чтение арены" }],
+      },
+    };
+  }
   if (instruction.mnemonic === ARENA_INIT_CARRIER || instruction.mnemonic === ARENA_ALLOC_CARRIER) {
     const count = instruction.mnemonic === ARENA_INIT_CARRIER ? 2 : 2;
     const mnemonic = instruction.mnemonic === ARENA_INIT_CARRIER ? "movtd" : "movts";

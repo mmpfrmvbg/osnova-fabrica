@@ -70,8 +70,12 @@ import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
 import {
   ARENA_ALLOC_CARRIER,
   ARENA_INIT_CARRIER,
+  ARENA_LIMIT_CARRIER,
+  ARENA_POINTER_CARRIER,
   arenaAllocInstructions,
   arenaInitInstructions,
+  arenaLimitInstructions,
+  arenaPointerInstructions,
   BANK_LOAD_CARRIER,
   BANK_STORE_CARRIER,
   GETSP_CARRIER,
@@ -563,6 +567,19 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       return failureOf(LOWERING_CODES.carrier, "«IR.arena_init»: ожидались два числа — база и предел");
     }
     return { ok: true, instructions: arenaInitInstructions(base.value, limit.value) };
+  }
+  if (instruction.mnemonic === ARENA_POINTER_CARRIER || instruction.mnemonic === ARENA_LIMIT_CARRIER) {
+    const destination = instruction.operands[0];
+    if (destination === undefined || destination.kind !== "reg") {
+      return failureOf(LOWERING_CODES.carrier, "чтение арены: ожидался регистр-приёмник");
+    }
+    return {
+      ok: true,
+      instructions:
+        instruction.mnemonic === ARENA_POINTER_CARRIER
+          ? arenaPointerInstructions(destination.index)
+          : arenaLimitInstructions(destination.index),
+    };
   }
   if (instruction.mnemonic === ARENA_ALLOC_CARRIER) {
     const size = instruction.operands[0];
