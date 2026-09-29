@@ -1,0 +1,128 @@
+[
+  {
+    "mode": "grow",
+    "register": 3,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-grow-3.elf"
+  },
+  {
+    "mode": "grow",
+    "register": 15,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-grow-15.elf"
+  },
+  {
+    "mode": "grow",
+    "register": 16,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-grow-16.elf"
+  },
+  {
+    "mode": "grow",
+    "register": 17,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-grow-17.elf"
+  },
+  {
+    "mode": "grow",
+    "register": 23,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-grow-23.elf"
+  },
+  {
+    "mode": "grow",
+    "register": 24,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-grow-24.elf"
+  },
+  {
+    "mode": "grow",
+    "register": 30,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-grow-30.elf"
+  },
+  {
+    "mode": "grow",
+    "register": 31,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-grow-31.elf"
+  },
+  {
+    "mode": "grow",
+    "register": 32,
+    "status": 9,
+    "exceptionIp": 1048672,
+    "file": "osnova-us-free-grow-32.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 3,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-no-grow-3.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 15,
+    "status": 42,
+    "exceptionIp": null,
+    "file": "osnova-us-free-no-grow-15.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 16,
+    "status": 9,
+    "exceptionIp": 1048648,
+    "file": "osnova-us-free-no-grow-16.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 17,
+    "status": 9,
+    "exceptionIp": 1048648,
+    "file": "osnova-us-free-no-grow-17.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 23,
+    "status": 9,
+    "exceptionIp": 1048648,
+    "file": "osnova-us-free-no-grow-23.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 24,
+    "status": 9,
+    "exceptionIp": 1048648,
+    "file": "osnova-us-free-no-grow-24.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 30,
+    "status": 9,
+    "exceptionIp": 1048648,
+    "file": "osnova-us-free-no-grow-30.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 31,
+    "status": 9,
+    "exceptionIp": 1048648,
+    "file": "osnova-us-free-no-grow-31.elf"
+  },
+  {
+    "mode": "no-grow",
+    "register": 32,
+    "status": 9,
+    "exceptionIp": 1048648,
+    "file": "osnova-us-free-no-grow-32.elf"
+  }
+]
