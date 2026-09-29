@@ -761,6 +761,9 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
 /** Поле инструкции управления: `ctpr` — номер регистра подготовки, `cond` — код условия `ct`,
  * `disp` — смещение перехода в восьмибайтовых словах, `wbs` — параметр `call`. */
 export type RealControlSlot =
+  | "offset"
+  | "receiver"
+  | "channel"
   | "ctpr"
   | "cond"
   | "disp"
@@ -795,7 +798,8 @@ export interface RealControlEntry {
     | "CS1_SETBN"
     | "CS1_SETWD"
     | "CS1_SETMAS"
-    | "CS1_CALL";
+    | "CS1_CALL"
+  | "ALOPF12_GETSP";
   readonly operands: readonly RealControlSlot[];
   readonly size: number;
   /** Источник полей слога. */
@@ -822,7 +826,25 @@ export const CT_COND_ALWAYS = 0x20;
  * `return %ctpr3` → `01 40 00 00 00 00 00 f0`, `call %ctpr1, wbs=16` →
  * `12 90 00 00 20 04 00 c0 10 00 00 50 00 00 00 00`.
  */
+/** Источник формы `getsp`: замер ассемблером МЦСТ (§3.46.1). */
+const GETSP_SOURCE =
+  "измерено: `getsp,0 -16, %db[10]` → 11 00 10 04 0a d4 ec 58 00 00 c0 01 00 00 f0 ff (docs/hardware-debt.md §3.46.1)";
+
 export const REAL_CONTROL_OPCODES: readonly RealControlEntry[] = [
+  {
+    mnemonic: "getsp",
+    form: "ALOPF12_GETSP",
+    operands: ["offset", "receiver"],
+    size: 16,
+    formSource: GETSP_SOURCE,
+    source:
+      "§3.46.1 (измерено ассемблером МЦСТ, подтверждено его дизассемблером): «getsp,0 -16, %db[10]» → " +
+      "11 00 10 04 0a d4 ec 58 00 00 c0 01 00 00 f0 ff. Поля: опкод 0x58 (байт 7), форма ALOPF12, 16 байт, " +
+      "канал ТОЛЬКО 0, приёмник — базовый (0x0a = %db[10]) или оконный (0x8a), литерал 16…32767 формой d4 " +
+      "(байты 5–6 = d4 ec), минус — выделить, плюс — вернуть, смещение кратно 16. " +
+      "ЧЕГО ФОРМА НЕ ВЫРАЖАЕТ и потому ОТКАЗЫВАЕТ с причиной, а не подбирает байты: короткая форма " +
+      "литерала (0…15) и форма d8 (≥ 32768) — образцов для них у нас нет.",
+  },
   {
     mnemonic: "ct",
     form: "SS",
@@ -1215,6 +1237,51 @@ function encodeControl(entry: RealControlEntry, instruction: AsmInstruction): Ui
       // HS: CS1 присутствует (бит 15), mdl = 1, lng = 0 → 8 байт (измерено: `01 80 00 00 …`).
       writeWord(bytes, 0, 0x00008001);
       writeWord(bytes, 4, cs1SetbnWord(values.get("rsz")!, values.get("rbs")!, values.get("rcur")!));
+      return bytes;
+    }
+    case "ALOPF12_GETSP": {
+      // ШАБЛОН — ИЗМЕРЕННЫЕ 16 байт (§3.46.1), а не собранные по полям: меняются только приёмник
+      // (байт 4) и литерал (байты 14–15, дополнительный код). Всё остальное — как у ассемблера МЦСТ.
+      const offset = values.get("offset")!;
+      const receiver = values.get("receiver")!;
+      if (offset === 0 || Math.abs(offset) < 16) {
+        throw new EncodingError(
+          "«getsp»: смещение " + String(offset) + " попадает в короткую форму литерала (0…15), " +
+            "а её байты у нас НЕ измерены — образец есть только для формы d4 (16…32767). " +
+            "Подбирать байты запрещено (§3.46.1, §3.68)",
+        );
+      }
+      if (Math.abs(offset) >= 32768) {
+        throw new EncodingError(
+          "«getsp»: смещение " + String(offset) + " требует формы d8 (≥ 32768), её байты у нас НЕ измерены",
+        );
+      }
+      if (offset % 16 !== 0) {
+        throw new EncodingError(
+          "«getsp»: смещение " + String(offset) + " не кратно 16, а выравнивание стека — 16 (§3.46.1)",
+        );
+      }
+      if (instruction.channel !== 0) {
+        throw new EncodingError("«getsp»: форма живёт ТОЛЬКО в канале 0 (§3.46.1)");
+      }
+      // байты 0–3: 11 00 10 04; байты 4–7: <приёмник> d4 ec 58; байты 8–11: 00 00 c0 01; 12–13: 00 00
+      writeWord(bytes, 0, 0x04100011);
+      const isWindow = (receiver & 0x80) !== 0;
+      const register = receiver & 0x3f;
+      if (receiver < 0 || receiver > 0xbf || (!isWindow && receiver > 0x3f) || (isWindow && register === 0)) {
+        throw new EncodingError(
+          "«getsp»: приёмник " +
+            String(receiver) +
+            " не выражается полем: базовый 0x00…0x3f, оконный 0x80…0xbf (двойное слово: 0x0a = %db[10], " +
+            "0x8a = оконный %dr10) — §3.46.1",
+        );
+      }
+      writeWord(bytes, 4, 0x58ecd40a | (receiver & 0xff));
+      writeWord(bytes, 8, 0x01c00000);
+      writeWord(bytes, 12, 0);
+      const literal = offset & 0xffff;
+      bytes[14] = literal & 0xff;
+      bytes[15] = (literal >> 8) & 0xff;
       return bytes;
     }
     case "CS1_SETWD": {
