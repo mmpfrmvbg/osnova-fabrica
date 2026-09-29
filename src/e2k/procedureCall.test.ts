@@ -186,7 +186,10 @@ describe('вызов процедуры и возврат: адрес, форм�
     expect(recursion.refused.length).toBe(1);
     expect(recursion.refused[0]!.code).toBe(LOWERING_CODES.runtime);
     expect(recursion.refused[0]!.reason).toContain('вызов из вызываемой процедуры невозможен');
-    expect(recursion.refused[0]!.reason, 'причина называет замер').toContain('e2kCallWindowQemu');
+    // Причина называет ФАКТ, а не прежнюю догадку: не «окно восемь регистров» (после S=12 это
+    // неверно, §3.49), а кольцо окон с числами — и замер, которым это снято (§3.51).
+    expect(recursion.refused[0]!.reason, 'причина называет кольцо окон числом').toContain('psize_q');
+    expect(recursion.refused[0]!.reason, 'причина называет замер').toContain('§3.51');
 
     // Печать из вызываемой: системный вызов невозможен — номер идёт в %r8, которого у неё нет.
     const printing = `процедура печать_числа(ч: Число)
