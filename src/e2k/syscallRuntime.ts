@@ -101,7 +101,7 @@ export const ENTRY_SYSCALL_FRAME: SyscallFrame = { wbs: SYSCALL_WBS, base: 2 * S
  * не ловушка — матрица `.tmp/osnova-syscall-matrix.ts` даёт код 77 и с `setbn 15`, и с `setbn 7`.
  * Так форма раскладки и понижение считают ОДНИ команды: разошлись бы — уехали адреса (§3.58).
  */
-export const GROWN_SYSCALL_FRAME: SyscallFrame = { wbs: 8, base: 16, setbn: true };
+export const GROWN_SYSCALL_FRAME: SyscallFrame = { wbs: 16, base: 32, setbn: true };
 
 /** Оконный индекс `k`-го аргумента вызова в данном кадре. */
 export function syscallWindowOf(frame: SyscallFrame, k: number): number {

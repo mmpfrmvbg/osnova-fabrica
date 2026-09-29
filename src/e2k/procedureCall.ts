@@ -61,8 +61,8 @@ const imm = (value: number): Operand => ({ kind: 'imm', value });
  * `setwd` даёт ловушку `0x100008`. Верхняя граница — `wsz ≤ MAXSR_D / 2 = 112` (правило 6): 112
  * работает, 128 и 255 — ловушка. Здесь ровно 16 — минимум, дающий `wbs = 8`.
  */
-export const WINDOW_GROW_WSZ = 16;
-export const WINDOW_GROW_RSZ = 15;
+export const WINDOW_GROW_WSZ = 32;
+export const WINDOW_GROW_RSZ = 31;
 
 /**
  * ШИРИНА ВНУТРЕННЕГО ВЫЗОВА: `wbs = 8` при выращенном до 16 окне.
@@ -71,7 +71,7 @@ export const WINDOW_GROW_RSZ = 15;
  * даёт окно вызываемой — 8, то есть шестнадцать её регистров (`2·(16−8)`), куда влезает и её
  * собственный рост. Аргументы уезжают в `%r16`, оттуда же принимается результат (§3.56.3).
  */
-export const INNER_CALL_WBS = 8;
+export const INNER_CALL_WBS = 16;
 
 /** Носитель роста окна: его ставит конвейер в пролог процедуры, которая сама вызывает. */
 export const WINDOW_GROW_CARRIER = 'IR.window_grow';
