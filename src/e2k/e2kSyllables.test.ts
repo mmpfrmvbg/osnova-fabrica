@@ -193,13 +193,16 @@ describe('литералы и слоги управления: отказы на
   it('у каждой формы управления назван источник', () => {
     // Четыре прежние формы (ct/disp/return/call), затем sdisp и setbn (без них exit(42) недостижим),
     // setwd — размер окна регистров (`src/e2k/e2kWindow.test.ts`: байты сверены с ассемблером),
-    // и setmas — четыре значения `mas` по каналам 0/2/3/5 (`docs/hardware-debt.md` §3.29/§3.32;
-    // байты слога сверены с ассемблером формой `mas=` — `src/e2k/e2kSetmas.test.ts`).
-    expect(REAL_CONTROL_OPCODES.length).toBe(8);
+    // setmas — четыре значения `mas` по каналам 0/2/3/5 (`docs/hardware-debt.md` §3.29/§3.32;
+    // байты слога сверены с ассемблером формой `mas=` — `src/e2k/e2kSetmas.test.ts`),
+    // и getsp — указатель пользовательского стека (2026-09-29, §3.46.1/§3.68: 16 байт сверены
+    // с ассемблером МЦСТ и его дизассемблером, сторож `src/e2k/getspEncoding.test.ts`).
+    expect(REAL_CONTROL_OPCODES.length).toBe(9);
     expect(REAL_CONTROL_OPCODES.map((entry) => entry.mnemonic).sort()).toEqual([
       'call',
       'ct',
       'disp',
+      'getsp',
       'return',
       'sdisp',
       'setbn',

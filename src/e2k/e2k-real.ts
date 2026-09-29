@@ -826,8 +826,13 @@ export const CT_COND_ALWAYS = 0x20;
  * `return %ctpr3` → `01 40 00 00 00 00 00 f0`, `call %ctpr1, wbs=16` →
  * `12 90 00 00 20 04 00 c0 10 00 00 50 00 00 00 00`.
  */
-/** Источник формы `getsp`: замер ассемблером МЦСТ (§3.46.1). */
+/**
+ * Источник формы `getsp`. Раскладка полей — из дизассемблера МЦСТ (`opcodes/e2k-dis.c:944-951`,
+ * ветвь `templ->alopf == ALOPF12`: именно там форма ALOPF12 разбирается на src1/src2/dst),
+ * плюс замер ассемблером (§3.46.1). Байты сверены с обоими.
+ */
 const GETSP_SOURCE =
+  "opcodes/e2k-dis.c:944-951 (ветвь ALOPF12: разбор src1/src2/dst); " +
   "измерено: `getsp,0 -16, %db[10]` → 11 00 10 04 0a d4 ec 58 00 00 c0 01 00 00 f0 ff (docs/hardware-debt.md §3.46.1)";
 
 export const REAL_CONTROL_OPCODES: readonly RealControlEntry[] = [
@@ -838,6 +843,11 @@ export const REAL_CONTROL_OPCODES: readonly RealControlEntry[] = [
     size: 16,
     formSource: GETSP_SOURCE,
     source:
+      "gas/config/tc-e2k.c:4254 (у GETSP нужен ALES, хотя форма ALOPF12 — комментарий самих авторов: " +
+      "«It seems that GETSP needs ALES even though it is ALOPF2. We cannot understand why», " +
+      "и условие `alf->opc == 0x58`); opcodes/e2k-opc.h:2504 " +
+      "(`{\"getsp\", 0xff, parse_alf_args, NULL, ALOPF12, NO_MAS, 0x58, {1,0,0,0,0,0}, ARGS_SD, 0xec, 0xc0, 0x1}`); " +
+      "qemu/target/e2k/tcg/translate-al-c12.c:90 (e2k_translate_prep_GETSP), :157 (e2k_translate_exec_GETSP). " +
       "§3.46.1 (измерено ассемблером МЦСТ, подтверждено его дизассемблером): «getsp,0 -16, %db[10]» → " +
       "11 00 10 04 0a d4 ec 58 00 00 c0 01 00 00 f0 ff. Поля: опкод 0x58 (байт 7), форма ALOPF12, 16 байт, " +
       "канал ТОЛЬКО 0, приёмник — базовый (0x0a = %db[10]) или оконный (0x8a), литерал 16…32767 формой d4 " +
