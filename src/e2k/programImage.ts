@@ -988,7 +988,15 @@ export function imageOfCarriers(
     if (carrier.mnemonic === EXIT_CARRIER) {
       // ВЫХОД ПРОГРАММЫ: носитель, а не приписка — его байты раскладка посчитала заранее.
       const value = carrier.operands[1];
-      body.push(...exitCarrierInstructions(0, value?.kind === 'reg' ? value.index : undefined));
+      // КОД ВЫХОДА — ИЗ ОПЕРАНДА НОСИТЕЛЯ, а не константа: механизм один (подготовка образа),
+            // и ненулевой код обязан доходить до байтов (§3.81).
+            const exitCode = carrier.operands[0];
+            body.push(
+              ...exitCarrierInstructions(
+                exitCode !== undefined && exitCode.kind === 'imm' ? exitCode.value : 0,
+                value?.kind === 'reg' ? value.index : undefined,
+              ),
+            );
       exitEmitted = true;
       continue;
     }
