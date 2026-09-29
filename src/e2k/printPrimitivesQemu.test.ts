@@ -426,7 +426,10 @@ describe('ПЕЧАТЬ ИЗ ПРОЦЕДУРЫ: аргументы систем�
     const shared = `процедура печатать()\n  система.лог.вывести(7)\n  система.лог.вывести(8)\nконец_процедуры\n\n${wrapped('  печатать()')}`;
     const sharedImage = loweredProgram(shared);
     expect(sharedImage.refused.map((item) => item.reason).join(' '), 'разделённая печать из процедуры').toContain(
-      'разделённая печать из процедуры не проверена',
+      'ЗАФИКСИРОВАННАЯ ГРАНИЦА',
+    );
+    expect(sharedImage.refused.map((item) => item.reason).join(' '), 'причина границы называет замер').toContain(
+      'выращенного кадра',
     );
     const recursive = `процедура шаги(н: Число)\n  если н <= 0\n    вернуть 0\n  конец_если\n  система.лог.вывести(н)\n  вернуть шаги(н - 1)\nконец_процедуры\n\n${wrapped('  шаги(3)')}`;
     expect(loweredProgram(recursive).refused.map((item) => item.reason).join(' '), 'печать в самозовущей процедуре').toContain(

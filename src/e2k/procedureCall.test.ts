@@ -239,7 +239,7 @@ describe('вызов процедуры и возврат: адрес, форм�
 `;
     const refused = loweredProgram(printing).refused;
     expect(refused.length, 'разделённая печать из процедуры отказана').toBeGreaterThan(0);
-    expect(refused.map((item) => item.reason).join(' ')).toContain('разделённая печать из процедуры не проверена');
+    expect(refused.map((item) => item.reason).join(' ')).toContain('ЗАФИКСИРОВАННАЯ ГРАНИЦА');
 
     // Контроль: ВЫЗОВ-ЛИСТ с арифметикой собирается без отказов — граница не «вызов вообще».
     const leaf = loweredProgram(CALLER_CALLEE);
