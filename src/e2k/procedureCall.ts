@@ -156,6 +156,19 @@ export function arenaAllocInstructions(size: number, destination: number): AsmIn
     { mnemonic: "adds", channel: 0, operands: [base_(ARENA_POINTER_BASE), imm(size), base_(ARENA_POINTER_BASE)] },
   ];
 }
+
+/**
+ * Выделение с РАНТАЙМ-размером: размер приходит РЕГИСТРОМ (язык знает его только в рантайме).
+ *
+ * Форма — СУЩЕСТВУЮЩАЯ: `adds` с регистровыми операндами (`adds src1, src2, dst`), второго механизма
+ * не заводим. Указатель уезжает в приёмник ДО прибавления — иначе выделенный адрес потерялся бы.
+ */
+export function arenaAllocRegisterInstructions(size: number, destination: number): AsmInstruction[] {
+  return [
+    { mnemonic: "movts", channel: 0, operands: [base_(ARENA_POINTER_BASE), base_(destination)] },
+    { mnemonic: "adds", channel: 0, operands: [base_(ARENA_POINTER_BASE), base_(size), base_(ARENA_POINTER_BASE)] },
+  ];
+}
 /** Оператор f64 для movtd (адрес в память кладётся movtd, не movts). */
 const f64 = (value: bigint): Operand => ({ kind: 'imm64', value }) as unknown as Operand;
 export function bankLoadInstruction(destination: number): AsmInstruction {
