@@ -49,6 +49,8 @@ import { LOWERING_CODES, type LoweringRefusalCode } from './loweringRefusal';
 import { resolveEntryIndex } from '../oracle/parity';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
+/** Оконный регистр: форма, которой адресует выращенный кадр (базовая в вызываемой — ловушка). */
+const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
 
 /**
  * РОСТ ОКНА ПРОЦЕДУРЫ, КОТОРАЯ САМА ВЫЗЫВАЕТ: `setwd wsz=16`, затем `setbn rsz=15`, по одному разу.
@@ -72,6 +74,48 @@ export const WINDOW_GROW_RSZ = 31;
  * собственный рост. Аргументы уезжают в `%r16`, оттуда же принимается результат (§3.56.3).
  */
 export const INNER_CALL_WBS = 16;
+
+/**
+ * БАНК: верхняя половина окна выращенного кадра — постоянная память.
+ *
+ * Печать и рантайм массивов живут ниже `%b[15]` (их соглашение не трогаем), поэтому банк начинается с
+ * `%r16`. Указатель пользовательского стека кладёт туда РАНТАЙМ (`getsp`), а не язык: у языка
+ * `%r16..%r31` не адресуются вовсе — в этом и смысл банка (место для указателя, §3.63).
+ */
+export const BANK_FIRST_REGISTER = 16;
+/** Регистр банка, которым пользуется проба: середина банка, подальше от краёв. */
+export const BANK_SLOT_REGISTER = 26;
+
+/** Носитель: взять указатель стека (`getsp`) и положить его значение в регистр IR. Ставится В ТОЧКЕ ВХОДА. */
+export const GETSP_CARRIER = 'IR.getsp';
+/** Носитель: положить регистр IR в БАНК (оконная форма — базовая в вызываемой ловушка). */
+export const BANK_STORE_CARRIER = 'IR.bank_store';
+/** Носитель: прочитать БАНК в регистр IR. */
+export const BANK_LOAD_CARRIER = 'IR.bank_load';
+
+/**
+ * Команды `getsp`: ИЗМЕРЕННАЯ конфигурация (§3.46.1) плюс чтение приёмника ОКОННОЙ формой.
+ *
+ * `getsp,0 -16, %db[10]` кладёт указатель в БАЗОВЫЙ регистр 20 — базовая форма законна в точке входа.
+ * Читаем тот же физический регистр ОКОННОЙ формой: базовая `%b[20]` при `rsz = 7` вне области вращения
+ * и даёт ловушку (измерено, §3.65.1), а оконная `%r20` — работает.
+ */
+export function getspInstructions(destination: number): AsmInstruction[] {
+  return [
+    { mnemonic: 'getsp', channel: 0, operands: [imm(-16), imm(0x0a)] },
+    { mnemonic: 'movts', channel: 0, operands: [window_(20), window_(destination)] },
+  ];
+}
+
+/** Запись в банк: только ОКОННОЙ формой. */
+export function bankStoreInstruction(source: number): AsmInstruction {
+  return { mnemonic: 'movts', channel: 0, operands: [window_(source), window_(BANK_SLOT_REGISTER)] };
+}
+
+/** Чтение банка: только ОКОННОЙ формой. */
+export function bankLoadInstruction(destination: number): AsmInstruction {
+  return { mnemonic: 'movts', channel: 0, operands: [window_(BANK_SLOT_REGISTER), window_(destination)] };
+}
 
 /** Носитель роста окна: его ставит конвейер в пролог процедуры, которая сама вызывает. */
 export const WINDOW_GROW_CARRIER = 'IR.window_grow';

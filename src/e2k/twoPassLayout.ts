@@ -62,7 +62,12 @@ import {
   stringWriteInstructions,
 } from "./stringRuntime";
 import { isStringPrint, stringMarksOf } from "./stringPlan";
-import { WINDOW_GROW_CARRIER } from "./procedureCall";
+import {
+  BANK_LOAD_CARRIER,
+  BANK_STORE_CARRIER,
+  GETSP_CARRIER,
+  WINDOW_GROW_CARRIER,
+} from "./procedureCall";
 import { syscallFrameOfCarrier } from "./printCall";
 import {
   CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
@@ -551,6 +556,40 @@ function carrierFormWithReason(
   // РОСТ ОКНА у процедуры, которая сама вызывает: `setwd wsz=16` (CS1_SETWD, 16 байт — измерено
   // кодировщиком, `.tmp/osnova-setwd-encode.ts`) плюс `setbn rsz=15` (ALF2, 8 байт). Объявление
   // обязано совпасть с понижением — сторож в `src/e2k/procedureCall.test.ts` кодирует те же команды.
+  // БАНК: длины объявляются ТЕМ ЖЕ источником, что и понижение (§3.35 — форма обязана совпасть с
+  // байтами, иначе уезжают адреса). `IR.getsp` = 16 (getsp) + 8 (чтение приёмника оконной формой);
+  // запись и чтение банка — один `movts` по 8.
+  if (
+    instruction.mnemonic === GETSP_CARRIER ||
+    instruction.mnemonic === BANK_STORE_CARRIER ||
+    instruction.mnemonic === BANK_LOAD_CARRIER
+  ) {
+    const commands =
+      instruction.mnemonic === GETSP_CARRIER
+        ? [
+            {
+              mnemonic: 'getsp',
+              form: 'ALOPF12_GETSP' as const,
+              size: 16,
+              source: 'измерено: `getsp,0 -16, %db[10]` → 16 байт (docs/hardware-debt.md §3.46.1)',
+            },
+            {
+              mnemonic: 'movts',
+              form: 'ALF2' as const,
+              size: REAL_SHORT_FORM_SIZE,
+              source: 'ALF2, 8 байт — чтение приёмника оконной формой',
+            },
+          ]
+        : [
+            {
+              mnemonic: 'movts',
+              form: 'ALF2' as const,
+              size: REAL_SHORT_FORM_SIZE,
+              source: 'ALF2, 8 байт — запись/чтение банка оконной формой',
+            },
+          ];
+    return { form: { carrier: instruction.mnemonic, commands } };
+  }
   if (instruction.mnemonic === WINDOW_GROW_CARRIER) {
     return {
       form: {

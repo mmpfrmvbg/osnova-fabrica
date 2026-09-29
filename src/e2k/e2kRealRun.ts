@@ -67,7 +67,15 @@ import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
-import { windowGrowInstructions } from "./procedureCall";
+import {
+  BANK_LOAD_CARRIER,
+  BANK_STORE_CARRIER,
+  GETSP_CARRIER,
+  bankLoadInstruction,
+  bankStoreInstruction,
+  getspInstructions,
+  windowGrowInstructions,
+} from "./procedureCall";
 import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
 import { LOWERING_CODES, failureOf, type LoweringFailure } from "./loweringRefusal";
 import type { ShellEmitResult } from "./emitterOracle";
@@ -515,6 +523,31 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     return {
       ok: true,
       instructions: [{ mnemonic: "movts", channel: 0, operands: [imm(0), reg(destination.index)] }],
+    };
+  }
+
+  // БАНК: три носителя — указатель стека и запись/чтение постоянной памяти кадра (§3.69).
+  // `IR.getsp` ставится В ТОЧКЕ ВХОДА: его приёмник — базовая форма, а в вызываемой базовая форма
+  // ловушка (§3.65.1). Запись и чтение банка — всегда ОКОННОЙ формой.
+  if (
+    instruction.mnemonic === GETSP_CARRIER ||
+    instruction.mnemonic === BANK_STORE_CARRIER ||
+    instruction.mnemonic === BANK_LOAD_CARRIER
+  ) {
+    const operand = instruction.operands[0];
+    if (operand === undefined || operand.kind !== "reg") {
+      return failureOf(LOWERING_CODES.carrier, `«${instruction.mnemonic}»: ожидался регистр`);
+    }
+    if (instruction.mnemonic === GETSP_CARRIER) {
+      return { ok: true, instructions: getspInstructions(operand.index) };
+    }
+    return {
+      ok: true,
+      instructions: [
+        instruction.mnemonic === BANK_STORE_CARRIER
+          ? bankStoreInstruction(operand.index)
+          : bankLoadInstruction(operand.index),
+      ],
     };
   }
 
