@@ -65,6 +65,49 @@ export const WINDOW_FD_REGISTER = WINDOW_NUMBER_REGISTER + 1;
 export const WINDOW_BUFFER_REGISTER = WINDOW_NUMBER_REGISTER + 2;
 export const WINDOW_COUNT_REGISTER = WINDOW_NUMBER_REGISTER + 3;
 
+/**
+ * ГЕОМЕТРИЯ СИСТЕМНОГО ВЫЗОВА: ОН ИДЁТ ПО ПРАВИЛАМ ПРОЦЕДУРНОГО ПЕРЕХОДА, А ЗНАЧИТ — ОТНОСИТЕЛЬНО ОКНА.
+ *
+ * Измерено и подтверждено источником:
+ *
+ * | свидетель | что говорит |
+ * |---|---|
+ * | порт, `linux-user/e2k/cpu_loop.c:161-176` | номер вызова читается `e2k_try_get_window_reg_p(env, 0)`, аргументы — `window_reg(1..8)`; это **оконные** индексы: `e2k_calc_reg_idx_window` даёт `idx = wd_base_d + i` (`target/e2k/reg-index.h:55-81`) |
+ * | замер `.tmp/osnova-syscall-slot.ts` | в точке входа номер обязан лежать в оконном `%r8` — потому что `call wbs = 4` сдвигает окно на `2·4` и оконный `r0` ядра — это `%r8` вызывающего |
+ * | замер `.tmp/osnova-syscall-matrix.ts` | из процедуры с выросшим окном работает **только** `wbs = 8` и номер в оконном **`%r16`**; `%r8`, `%r0`, `%r12` — утверждение порта `op_descr->is_al` либо пустой кадр ядра. Повторная `setbn` (и `15`, и `7`) исход не меняет — код 77 |
+ *
+ * То есть syscall — это **вызов в ядро**: номер и аргументы обязаны попасть туда, где «вызываемый»
+ * (ядро) увидит их в СВОИХ оконных регистрах, а это `%r(2·wbs)`, `%r(2·wbs+1)`, … вызывающего.
+ * Поэтому окно у процедуры, которая печатает, обязано быть выращено (`setwd wsz=16` + `setbn rsz=15`,
+ * `IR.window_grow`), а `setbn` внутри системного вызова в таком кадре **не ставится** — окно уже
+ * поставлено прологом (`setwd` + повторная `setbn` → ловушка `0x100008`, §3.56.2).
+ */
+export interface SyscallFrame {
+  /** Ширина окна вызова в квадрословах: 4 в точке входа, 8 в выращенном кадре процедуры. */
+  readonly wbs: number;
+  /** Оконный индекс номера вызова: `2·wbs`. */
+  readonly base: number;
+  /** Ставить ли `setbn` перед вызовом: в выращенном кадре окно уже стоит прологом. */
+  readonly setbn: boolean;
+}
+
+/** Кадр точки входа: `wbs = 4`, окно ставится своим `setbn` (как `buildHelloProgram`). */
+export const ENTRY_SYSCALL_FRAME: SyscallFrame = { wbs: SYSCALL_WBS, base: 2 * SYSCALL_WBS, setbn: true };
+
+/**
+ * Кадр процедуры с выращенным окном: `wbs = 8`, номер и аргументы — с оконного `%r16`.
+ *
+ * `setbn` здесь ВСЁ РАВНО ставится (и это измерено): повторная `setbn` после `setwd` в этой форме
+ * не ловушка — матрица `.tmp/osnova-syscall-matrix.ts` даёт код 77 и с `setbn 15`, и с `setbn 7`.
+ * Так форма раскладки и понижение считают ОДНИ команды: разошлись бы — уехали адреса (§3.58).
+ */
+export const GROWN_SYSCALL_FRAME: SyscallFrame = { wbs: 8, base: 16, setbn: true };
+
+/** Оконный индекс `k`-го аргумента вызова в данном кадре. */
+export function syscallWindowOf(frame: SyscallFrame, k: number): number {
+  return frame.base + k;
+}
+
 /** Программа: инструкции, байты и текст, который обязан напечатать дизассемблер. */
 export interface SyscallProgram {
   readonly instructions: readonly AsmInstruction[];

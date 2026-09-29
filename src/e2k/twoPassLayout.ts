@@ -63,6 +63,7 @@ import {
 } from "./stringRuntime";
 import { isStringPrint, stringMarksOf } from "./stringPlan";
 import { WINDOW_GROW_CARRIER } from "./procedureCall";
+import { syscallFrameOfCarrier } from "./printCall";
 import {
   CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
 import {
@@ -543,6 +544,10 @@ function carrierFormWithReason(
   instruction: AsmInstruction,
   context: CarrierFormContext,
 ): CarrierFormOutcome {
+  // КАДР СИСТЕМНОГО ВЫЗОВА носителя печати: у процедуры с выращенным окном номер идёт в `%r16`,
+  // а не в `%r8` (§3.58). Длины команд от кадра НЕ зависят (те же команды, другие индексы) —
+  // поэтому формы одинаковы, но берутся ИЗ ТОГО ЖЕ источника, что и понижение: разойтись нечем.
+  const frame = syscallFrameOfCarrier(instruction);
   // РОСТ ОКНА у процедуры, которая сама вызывает: `setwd wsz=16` (CS1_SETWD, 16 байт — измерено
   // кодировщиком, `.tmp/osnova-setwd-encode.ts`) плюс `setbn rsz=15` (ALF2, 8 байт). Объявление
   // обязано совпасть с понижением — сторож в `src/e2k/procedureCall.test.ts` кодирует те же команды.
@@ -584,7 +589,9 @@ function carrierFormWithReason(
     return { form: { carrier: EXIT_CARRIER, commands: forms } };
   }
   if (instruction.mnemonic === PRINT_WRITE_CARRIER) {
-    const forms = printCarrierForms(printWriteInstructions(context.heapAddress ?? PRINT_HEAP_BY_CONVENTION));
+    const forms = printCarrierForms(
+      printWriteInstructions(context.heapAddress ?? PRINT_HEAP_BY_CONVENTION, frame),
+    );
     if (typeof forms === 'string') return { failure: failureOf(LOWERING_CODES.print, forms) };
     return { form: { carrier: PRINT_WRITE_CARRIER, commands: forms } };
   }
@@ -667,6 +674,7 @@ function carrierFormWithReason(
         address: argument.index,
         byteLength,
         newlineAddress,
+        frame,
       });
       const forms: CommandForm[] = [];
       for (const command of commands) {
@@ -696,7 +704,11 @@ function carrierFormWithReason(
       };
     }
     const printing: CommandForm[] = [];
-    for (const command of printCallInstructions(argument.index, context.heapAddress ?? PRINT_HEAP_BY_CONVENTION)) {
+    for (const command of printCallInstructions(
+      argument.index,
+      context.heapAddress ?? PRINT_HEAP_BY_CONVENTION,
+      frame,
+    )) {
       const form = printCommandForm(command);
       if (form === undefined) {
         return {

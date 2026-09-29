@@ -37,7 +37,13 @@
  */
 import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ } from './arrayRuntime';
-import { SYS_WRITE, STDOUT_FD, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
+import {
+  ENTRY_SYSCALL_FRAME,
+  SYS_WRITE,
+  STDOUT_FD,
+  syscallWindowOf,
+  type SyscallFrame,
+} from './syscallRuntime';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 const imm = (value: number): Operand => ({ kind: 'imm', value });
@@ -233,18 +239,22 @@ export function stringWriteInstructions(options: {
   readonly address: number;
   readonly byteLength: number;
   readonly newlineAddress: number;
+  /** Кадр: в точке входа окно ставится своим `setbn`, в выращенном — уже стоит прологом. */
+  readonly frame?: SyscallFrame;
 }): AsmInstruction[] {
+  const frame = options.frame ?? ENTRY_SYSCALL_FRAME;
   const write = (addressRegister: number, length: number): AsmInstruction[] => [
-    a('adds', [reg(addressRegister), reg(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 2)]),
-    a('movts', [imm(length), window_(WINDOW_NUMBER_REGISTER + 3)]),
-    a('movts', [imm(SYS_WRITE), window_(WINDOW_NUMBER_REGISTER)]),
-    a('movts', [imm(STDOUT_FD), window_(WINDOW_NUMBER_REGISTER + 1)]),
+    a('adds', [reg(addressRegister), reg(ARRAY_REGISTERS.zero), window_(syscallWindowOf(frame, 2))]),
+    a('movts', [imm(length), window_(syscallWindowOf(frame, 3))]),
+    a('movts', [imm(SYS_WRITE), window_(syscallWindowOf(frame, 0))]),
+    a('movts', [imm(STDOUT_FD), window_(syscallWindowOf(frame, 1))]),
     a('sdisp', [imm(1), imm(0)]),
-    a('call', [imm(1), imm(4)]),
+    a('call', [imm(1), imm(frame.wbs)]),
   ];
   return [
-    // Окно ставится как у рантайма массивов: без него системный вызов не принимается.
-    a('setbn', [imm(ARRAY_WINDOW_RSZ), imm(0), imm(0)]),
+    // Окно ставится как у рантайма массивов — но ТОЛЬКО в кадре точки входа: в выращенном кадре
+    // окно уже дал пролог, а повторная `setbn` после `setwd` — ловушка (§3.56.2).
+    ...(frame.setbn ? [a('setbn', [imm(ARRAY_WINDOW_RSZ), imm(0), imm(0)])] : []),
     ...write(options.address, options.byteLength),
     a('movtd', [literal(options.newlineAddress), reg(STRING_REGISTERS.first)]),
     ...write(STRING_REGISTERS.first, 1),

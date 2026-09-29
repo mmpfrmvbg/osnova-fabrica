@@ -30,7 +30,12 @@ import { allocateProgram } from './regAlloc';
 import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
 import { MINIMAL_BASE, SYSCALL_WBS, spillBaseOf } from './elfMinimal';
-import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
+import {
+  ENTRY_SYSCALL_FRAME,
+  GROWN_SYSCALL_FRAME,
+  SYS_EXIT,
+  WINDOW_NUMBER_REGISTER,
+} from './syscallRuntime';
 import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
 import { exitPrimitives, printAreaOf } from './printPrimitives';
@@ -493,6 +498,7 @@ export function loweredProgram(source: string): { bytes: Uint8Array; refused: re
 function windowGrowthAt(
   code: readonly AsmInstruction[],
   procedures: readonly ProcedureOffset[],
+  invokeNames: readonly string[],
 ): ReadonlyMap<number, readonly AsmInstruction[]> {
   const growth = new Map<number, readonly AsmInstruction[]>();
   if (procedures.length === 0) return growth;
@@ -504,8 +510,12 @@ function windowGrowthAt(
         .map((other) => other.codeOffset)
         .filter((offset) => offset > procedure.codeOffset)
         .sort((a, b) => a - b)[0] ?? code.length;
-    const calls = code.slice(procedure.codeOffset, end).some((carrier) => carrier.mnemonic === 'IR.call');
-    if (!calls) return;
+    // Пролог нужен и вызову, и СИСТЕМНОМУ ВЫЗОВУ (печати): syscall — тоже вызов в ядро, у него те же
+    // правила кольца окон (§3.58). Без роста окна его `wbs = 8` даёт пустой кадр ядра и порт аварийно
+    // завершается — измерено матрицей `.tmp/osnova-syscall-matrix.ts`.
+    const body2 = code.slice(procedure.codeOffset, end);
+    const needsGrowth = body2.some((carrier) => carrier.mnemonic === 'IR.call' || isPrintCarrier(carrier, invokeNames));
+    if (!needsGrowth) return;
     // ПРОЛОГ — ПЕРЕД первым носителем процедуры, а не ВМЕСТО него: `expandCarriers` заменяет
     // указанный носитель группой, поэтому первый носитель входит в группу вторым (иначе пролог
     // съел бы первую команду тела — так и случилось: у процедуры, начинавшейся с вызова,
@@ -564,7 +574,7 @@ export function imageOfCarriers(
   // РОСТ ОКНА: процедура, которая САМА вызывает, получает свой пролог `setwd wsz=16` + `setbn rsz=15`
   // (§3.56.5, правила 1–2) — иначе её внутренний вызов не имеет законного `wbs`. Растёт окно у той,
   // которая вызывает: точке входа оно не нужно (её вызовы идут с `wbs = 4`), листовой — тем более.
-  const growthAt = windowGrowthAt(strings.code, baseProcedures);
+  const growthAt = windowGrowthAt(strings.code, baseProcedures, strings.invokeNames);
   const grown = growthAt.size === 0 ? undefined : expandCarriers(strings.code, growthAt, baseProcedures);
   const growCode = grown?.code ?? strings.code;
   const growProcedures = grown?.procedures ?? baseProcedures;
@@ -629,7 +639,20 @@ export function imageOfCarriers(
   });
   // ГЛУБИНА ≥ 2: процедуры, которые САМИ вызывают (по потоку после всех вставок). Их носители
   // понижаются иначе: свой `wbs = 8` и порядок возврата «`return` → значение → `ct`» (§3.56.5, 3–5).
-  const depthTwo = new Set<number>(windowGrowthAt(planned, procedures).keys());
+  const depthTwo = new Set<number>(windowGrowthAt(planned, procedures, strings.invokeNames).keys());
+  // Процедуры, которые зовут СЕБЯ: печать в них не проверена (виснет) — названный отказ, не тишина.
+  const selfCalling = new Set<number>();
+  procedures.forEach((procedure, at) => {
+    const end =
+      procedures.map((other) => other.codeOffset).filter((offset) => offset > procedure.codeOffset).sort((a, b) => a - b)[0] ??
+      planned.length;
+    const selfCalls = planned.slice(procedure.codeOffset, end).some((carrier) => {
+      const payload = carrier.operands[3];
+      return carrier.mnemonic === 'IR.call' && payload !== undefined && payload.kind === 'imm' && payload.value === at;
+    });
+    if (!selfCalls) return;
+    for (let index = procedure.codeOffset; index < end; index++) selfCalling.add(index);
+  });
   // Возвраты, оставшиеся в потоке после подготовки, принадлежат ВЫЗЫВАЕМЫМ процедурам — значит
   // они ИСПОЛНЯЮТСЯ, и форма обязана считать пару (`procedureReturn`). Возвраты точки входа
   // помечены нулевыми (`zeroSize`): их место занимает её `exit`.
@@ -705,8 +728,16 @@ export function imageOfCarriers(
    * | системный вызов (и печать: она делает `write`) | тот же инвариант — системный вызов у нас тоже `call`, и номер идёт в `%r(2*wbs)`, то есть за границей окна процедуры. Замер с `wbs = 8`: вызов исполняется, но аргумент читается не оттуда — код **1** вместо 7 |
    * | вытеснение в памяти | смещением слота служит `%b[12]`: при окне 16 он ВНУТРИ окна — это ограничение снято; отказ держится лишь потому, что вытеснение в процедуре идёт вместе с рантаймом, а тот без системного вызова не работает |
    */
-  const calleeLimit = (carrier: AsmInstruction): { code: LoweringRefusal['code']; reason: string } | undefined => {
+  const calleeLimit = (
+    carrier: AsmInstruction,
+    frame: { readonly grown: boolean },
+  ): { code: LoweringRefusal['code']; reason: string } | undefined => {
     const mnemonic = carrier.mnemonic;
+    // ПЕЧАТЬ ИЗ ПРОЦЕДУРЫ — БОЛЬШЕ НЕ ОТКАЗ (§3.58): системный вызов идёт по общим правилам перехода,
+    // и в ВЫРАЩЕННОМ кадре он законен (номер в `%r16`, `wbs = 8`). Измерено матрицей
+    // `.tmp/osnova-syscall-matrix.ts` и приёмкой задачи 29.
+    if (frame.grown && (mnemonic === 'IR.print_write' || mnemonic === PRINT_TEXT_CARRIER)) return undefined;
+    if (frame.grown && mnemonic === 'IR.invoke') return undefined;
     // ВЛОЖЕННЫЙ ВЫЗОВ БОЛЬШЕ НЕ ОТКАЗ: он был отказом, пока окно вызывающей не росло (тогда
     // `wbs = 8` при `size_q = 8` упиралось в `psize_q`, §3.51–§3.52). С 2026-09-29 пролог
     // вызывающей процедуры растит окно (`setwd wsz=16` + `setbn rsz=15`), и `wbs = 8` законен —
@@ -746,10 +777,14 @@ export function imageOfCarriers(
     //   3. вызову не хватило адреса цели (`callAddresses`) — свой код;
     //   4. пара предикатов не составилась (`pairPredicates`) — код у сопоставления.
     const inCallee = procedures.length > 0 && procedureAt(procedures, index) !== entryAt;
-    const limit = inCallee ? calleeLimit(carrier) : undefined;
-    // На глубине ≥ 2 (процедура, которая сама вызывает) носители понижаются иначе — правила 3–5 §3.56.5.
+    // На глубине ≥ 2 (процедура с выращенным окном) носители понижаются иначе — правила 3–5 §3.56.5, §3.58.
     const procedureStart = procedures[procedureAt(procedures, index) ?? 0]?.codeOffset ?? 0;
     const onDepthTwo = inCallee && depthTwo.has(procedureStart);
+    /** Выращен ли кадр этой процедуры: в нём и вызов, и системный вызов идут иначе. */
+    const grownFrame = onDepthTwo;
+    /** Кадр системного вызова для этого носителя: выращенный — у процедуры, иначе кадр точки входа. */
+    const frame = inCallee && grownFrame ? GROWN_SYSCALL_FRAME : ENTRY_SYSCALL_FRAME;
+    const limit = inCallee ? calleeLimit(carrier, { grown: grownFrame }) : undefined;
     const problem =
       limit ??
       layout.unplaced.find((item) => item.index === index) ??
@@ -760,15 +795,28 @@ export function imageOfCarriers(
       refused.push(refusalOf(problem.code, `#${index} ${carrier.mnemonic}: ${problem.reason}`));
       continue;
     }
+    const inSelfCalling = selfCalling.has(index);
     const plan = printPlans.get(index);
     if (plan !== undefined) {
-      if (inCallee) {
+      if (inSelfCalling) {
         refused.push(
           refusalOf(
             LOWERING_CODES.print,
-            `#${index} ${carrier.mnemonic}: печать из вызываемой процедуры невозможна — она делает системный вызов ` +
-              '`write`, а номер вызова идёт в %r8, которого у восьмирегистрового окна вызываемой нет ' +
-              '(измерено: src/e2k/e2kCallWindowQemu.test.ts)',
+            `#${index} ${carrier.mnemonic}: печать из процедуры, которая зовёт СЕБЯ, не проверена — ` +
+              'на модели такой кадр ВИСНЕТ (docs/hardware-debt.md §3.58.6); нужен отдельный замер',
+          ),
+        );
+        continue;
+      }
+      if (inCallee && !grownFrame) {
+        // Печать из процедуры возможна ТОЛЬКО в выращенном кадре: её syscall идёт с `wbs = 8`, а без роста
+        // окна кадр ядра пуст (порт аварийно завершается). Рост ставит подготовка потока — если его нет,
+        // это дефект подготовки, а не программы.
+        refused.push(
+          refusalOf(
+            LOWERING_CODES.print,
+            `#${index} ${carrier.mnemonic}: печать из процедуры без выращенного окна — ` +
+              'пролог `IR.window_grow` обязан стоять (src/e2k/programImage.ts:windowGrowthAt)',
           ),
         );
         continue;
@@ -776,7 +824,7 @@ export function imageOfCarriers(
       // Развёртка целиком: сохранение живых → число в текст и `write` → восстановление. Выхода
       // здесь НЕТ: печатающая программа завершается один раз в конце образа (§3.39, запись `43`
       // печатает в цикле).
-      body.push(...printSiteInstructions(plan));
+      body.push(...printSiteInstructions(plan, frame));
       continue;
     }
     // ── СТРОКИ: вывод и две операции ─────────────────────────────────────────────────────────────
@@ -788,12 +836,12 @@ export function imageOfCarriers(
       })();
       const stringPrint = stringPrintPlans.get(index);
       if (stringPrint !== undefined) {
-        if (inCallee) {
+        if (inCallee && !grownFrame) {
           refused.push(
             refusalOf(
               LOWERING_CODES.print,
-              `#${index} ${String(name)}: печать строки из вызываемой процедуры невозможна — она делает ` +
-                'системный вызов `write`, а номер вызова идёт в %r8, которого у вызываемой нет',
+              `#${index} ${String(name)}: печать строки из процедуры без выращенного окна — пролог ` +
+                '`IR.window_grow` обязан стоять (src/e2k/programImage.ts:windowGrowthAt)',
             ),
           );
           continue;
@@ -815,7 +863,14 @@ export function imageOfCarriers(
             { mnemonic: 'std', channel: 2, operands: [base(item.register), base(stringPrint.scratch), base(ARRAY_REGISTERS.zero)] },
           );
         }
-        body.push(...stringWriteInstructions({ address: argument, byteLength, newlineAddress }));
+        body.push(
+          ...stringWriteInstructions({
+            address: argument,
+            byteLength,
+            newlineAddress,
+            frame,
+          }),
+        );
         for (const item of stringPrint.saved) {
           body.push(
             { mnemonic: 'movtd', channel: 0, operands: [imm(item.address), base(stringPrint.scratch)] },
@@ -899,16 +954,20 @@ export function imageOfCarriers(
     if (carrier.mnemonic === PRINT_WRITE_CARRIER) {
       // ХВОСТ `write` — у ВЫЗЫВАЮЩЕГО: только у него есть `%r8` под номер системного вызова.
       if (inCallee) {
+        // РАЗДЕЛЁННАЯ печать из процедуры НЕ ПРОВЕРЕНА (§3.58.6): одиночная печать в процедуре
+        // измерена и работает, а хвост `write` общего сайта — нет, и он ВИСНЕТ, а не отказывает.
+        // Поэтому здесь названный отказ, а не тишина: граница, пока её не сняли замером.
         refused.push(
           refusalOf(
             LOWERING_CODES.print,
-            `#${index} ${PRINT_WRITE_CARRIER}: хвост write попал в вызываемую процедуру — системный вызов ` +
-              'из неё невозможен (номер идёт в %r8, измерено: src/e2k/e2kCallWindowQemu.test.ts)',
+            `#${index} ${PRINT_WRITE_CARRIER}: разделённая печать из процедуры не проверена — ` +
+              'одиночная печать в процедуре работает (§3.58), а общий сайт с хвостом `write` в процедуре ' +
+              'на модели виснет; нужен отдельный замер',
           ),
         );
         continue;
       }
-      body.push(...printWriteInstructions(heapAddress));
+      body.push(...printWriteInstructions(heapAddress, frame));
       continue;
     }
     if (carrier.mnemonic === EXIT_CARRIER) {

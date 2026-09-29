@@ -73,7 +73,14 @@
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { MINIMAL_BASE, spillBaseOf } from './elfMinimal';
 import { ARRAY_WINDOW_RSZ } from './arrayRuntime';
-import { SYS_EXIT, SYS_WRITE, STDOUT_FD, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
+import {
+  ENTRY_SYSCALL_FRAME,
+  SYS_EXIT,
+  SYS_WRITE,
+  STDOUT_FD,
+  syscallWindowOf,
+  type SyscallFrame,
+} from './syscallRuntime';
 
 /** Десятичное основание. */
 export const PRINT_BASE = 10;
@@ -523,27 +530,33 @@ export function leanSequenceProblems(instructions: readonly AsmInstruction[]): s
  *   (`ARRAY_WINDOW_RSZ = 7`, шестнадцать единиц — `%b[0..15]`). Меньшее значение **сужает** окно и
  *   делает `%b[12..15]` недоступными, поэтому по умолчанию берётся прологовое.
  */
-export function writeTextPrimitives(heapAddress: number, windowRsz = ARRAY_WINDOW_RSZ): AsmInstruction[] {
+export function writeTextPrimitives(
+  heapAddress: number,
+  windowRsz = ARRAY_WINDOW_RSZ,
+  frame: SyscallFrame = ENTRY_SYSCALL_FRAME,
+): AsmInstruction[] {
   const r = PRINT_PRIMITIVE_REGISTERS;
   const area = printAreaOf(heapAddress);
   const startWord = area + PRINT_AREA_LAYOUT.startWord;
   const lengthWord = area + PRINT_AREA_LAYOUT.lengthWord;
   return [
-    setbn(windowRsz),
+    // В ВЫРАЩЕННОМ КАДРЕ `setbn` НЕ СТАВИТСЯ: окно уже дал пролог процедуры, а повторная `setbn`
+    // после `setwd` — ловушка `0x100008` (§3.56.2). В кадре точки входа — ставится, как раньше.
+    ...(frame.setbn ? [setbn(windowRsz)] : []),
     movts(0, r.zero), // ноль понадобится как «второе слагаемое» при пересылке в оконный регистр
     movtd(startWord, r.offset),
     ldd(r.offset, r.zero, r.value), // адрес текста
     // Аргумент 2 — в оконный `%r10`: форма `adds регистр, ноль, %rN` измерена на выходе всех
     // программ корпуса (`src/e2k/programImage.ts:126-129`). Оконный приёмник — не прихоть:
     // `movts` регистр→оконный регистр в дереве не проверен, а эта форма работает.
-    a('adds', [reg(r.value), reg(r.zero), window_(WINDOW_NUMBER_REGISTER + 2)]),
+    a('adds', [reg(r.value), reg(r.zero), window_(syscallWindowOf(frame, 2))]),
     movtd(lengthWord, r.offset),
     ldd(r.offset, r.zero, r.scratch), // длина
-    a('adds', [reg(r.scratch), reg(r.zero), window_(WINDOW_NUMBER_REGISTER + 3)]), // аргумент 3
-    a('movts', [imm(SYS_WRITE), window_(WINDOW_NUMBER_REGISTER)]),
-    a('movts', [imm(STDOUT_FD), window_(WINDOW_NUMBER_REGISTER + 1)]),
+    a('adds', [reg(r.scratch), reg(r.zero), window_(syscallWindowOf(frame, 3))]), // аргумент 3
+    a('movts', [imm(SYS_WRITE), window_(syscallWindowOf(frame, 0))]),
+    a('movts', [imm(STDOUT_FD), window_(syscallWindowOf(frame, 1))]),
     a('sdisp', [imm(1), imm(0)]),
-    a('call', [imm(1), imm(4)]), // wbs = 4 — минимум, который требует порт (`psize_q = 4`)
+    a('call', [imm(1), imm(frame.wbs)]), // ширина вызова из кадра: 4 в точке входа, 8 в выращенном
   ];
 }
 
@@ -557,10 +570,10 @@ export function writeTextPrimitives(heapAddress: number, windowRsz = ARRAY_WINDO
  * Окно здесь не ставится намеренно: его уже поставил либо {@link writeTextPrimitives}, либо пролог
  * образа. Отдельный `setbn` ставить **вредно**: он сужает окно (`docs/hardware-debt.md` §3.24).
  */
-export function exitPrimitives(code = 0): AsmInstruction[] {
+export function exitPrimitives(code = 0, frame: SyscallFrame = ENTRY_SYSCALL_FRAME): AsmInstruction[] {
   return [
-    a('movts', [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)]),
-    a('movts', [imm(code), window_(WINDOW_NUMBER_REGISTER + 1)]),
+    a('movts', [imm(SYS_EXIT), window_(syscallWindowOf(frame, 0))]),
+    a('movts', [imm(code), window_(syscallWindowOf(frame, 1))]),
     a('sdisp', [imm(1), imm(0)]),
     a('call', [imm(1), imm(4)]),
   ];

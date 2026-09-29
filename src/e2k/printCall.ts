@@ -73,7 +73,13 @@ import {
   numberToTextPrimitives,
   writeTextPrimitives,
 } from './printPrimitives';
-import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
+import {
+  ENTRY_SYSCALL_FRAME,
+  GROWN_SYSCALL_FRAME,
+  SYS_EXIT,
+  syscallWindowOf,
+  type SyscallFrame,
+} from './syscallRuntime';
 
 /** Каноническое имя вызова печати (алиасы сводит парсер). */
 export const PRINT_CALL = 'система.лог.вывести';
@@ -186,10 +192,14 @@ export function withPrintSaveCount(instruction: AsmInstruction, saveCount: numbe
  *
  * Выхода здесь нет намеренно (см. шапку): его ставит конвейер один раз в конце образа.
  */
-export function printCallInstructions(argument: number, heapAddress: number): AsmInstruction[] {
+export function printCallInstructions(
+  argument: number,
+  heapAddress: number,
+  frame: SyscallFrame = ENTRY_SYSCALL_FRAME,
+): AsmInstruction[] {
   return [
     ...numberToTextPrimitives(argument, heapAddress).instructions,
-    ...writeTextPrimitives(heapAddress),
+    ...writeTextPrimitives(heapAddress, undefined, frame),
   ];
 }
 
@@ -268,13 +278,13 @@ export function planPrintSite(options: {
  * Один источник байт и для раскладки (через {@link printCommandForm}), и для образа
  * (`src/e2k/programImage.ts`): разойтись им нечем.
  */
-export function printSiteInstructions(plan: PrintSitePlan): AsmInstruction[] {
+export function printSiteInstructions(plan: PrintSitePlan, frame: SyscallFrame = ENTRY_SYSCALL_FRAME): AsmInstruction[] {
   const zero = ARRAY_REGISTERS.zero;
   const instructions: AsmInstruction[] = [];
   for (const item of plan.saved) {
     instructions.push(movtd(item.address, plan.scratch), std(item.register, plan.scratch, zero));
   }
-  instructions.push(...printCallInstructions(plan.argument, plan.heapAddress));
+  instructions.push(...printCallInstructions(plan.argument, plan.heapAddress, frame));
   for (const item of plan.saved) {
     instructions.push(movtd(item.address, plan.scratch), ldd(plan.scratch, zero, item.register));
   }
@@ -298,6 +308,29 @@ export const PRINT_TEXT_CARRIER = 'IR.print_text';
 export const PRINT_WRITE_CARRIER = 'IR.print_write';
 
 /**
+ * ПОМЕТКА КАДРА: девятый операнд носителя печати, `1` — кадр процедуры с выращенным окном.
+ *
+ * Нужна раскладке: она считает формы команд ТЕМ ЖЕ кадром, что и понижение (иначе разойдутся длины
+ * и уедут адреса — класс §3.35). Шестой-восьмой операнды заняты у печати строки (длина, адрес
+ * перевода строки, число сохранённых), поэтому кадр живёт на девятом.
+ */
+export const PRINT_FRAME_OPERAND = 8;
+
+/** Кадр носителя: у печати из процедуры — выращенный, у прочих — кадр точки входа. */
+export function syscallFrameOfCarrier(instruction: AsmInstruction): SyscallFrame {
+  const mark = instruction.operands[PRINT_FRAME_OPERAND];
+  return mark !== undefined && mark.kind === 'imm' && mark.value === 1 ? GROWN_SYSCALL_FRAME : ENTRY_SYSCALL_FRAME;
+}
+
+/** Пометить носитель кадром (ставит конвейер до раскладки). */
+export function withPrintFrame(instruction: AsmInstruction, frame: SyscallFrame): AsmInstruction {
+  if (frame === ENTRY_SYSCALL_FRAME) return instruction;
+  const operands = [...instruction.operands];
+  operands[PRINT_FRAME_OPERAND] = { kind: 'imm', value: 1 };
+  return { ...instruction, operands };
+}
+
+/**
  * НОСИТЕЛЬ ВЫХОДА ПРОГРАММЫ: `exit(код)` или `exit(значение)`.
  *
  * Зачем отдельный носитель, а не «выход в конце образа»: выход — это КОМАНДЫ, и они занимают
@@ -312,14 +345,18 @@ export const PRINT_WRITE_CARRIER = 'IR.print_write';
 export const EXIT_CARRIER = 'IR.exit';
 
 /** Команды выхода: значением (если дан регистр) или кодом. */
-export function exitCarrierInstructions(code: number, valueRegister?: number): AsmInstruction[] {
-  if (valueRegister === undefined) return [...exitPrimitives(code)];
+export function exitCarrierInstructions(
+  code: number,
+  valueRegister?: number,
+  frame: SyscallFrame = ENTRY_SYSCALL_FRAME,
+): AsmInstruction[] {
+  if (valueRegister === undefined) return [...exitPrimitives(code, frame)];
   const zero = ARRAY_REGISTERS.zero;
   return [
     // Значение уезжает в оконный `%r9` (аргумент выхода) через ноль рантайма: форма измерена на
     // выходе всех программ корпуса (`src/e2k/programImage.ts`), и она же стоит в `e2kProgramRun`.
-    a('adds', [reg(valueRegister), reg(zero), window_(WINDOW_NUMBER_REGISTER + 1)]),
-    a('movts', [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)]),
+    a('adds', [reg(valueRegister), reg(zero), window_(syscallWindowOf(frame, 1))]),
+    a('movts', [imm(SYS_EXIT), window_(syscallWindowOf(frame, 0))]),
     a('sdisp', [imm(1), imm(0)]),
     a('call', [imm(1), imm(4)]),
   ];
@@ -351,8 +388,11 @@ export function printTextInstructions(heapAddress: number): AsmInstruction[] {
 }
 
 /** Команды хвоста `write` у вызывающего (слова площадки → системный вызов). */
-export function printWriteInstructions(heapAddress: number): AsmInstruction[] {
-  return [...writeTextPrimitives(heapAddress)];
+export function printWriteInstructions(
+  heapAddress: number,
+  frame: SyscallFrame = ENTRY_SYSCALL_FRAME,
+): AsmInstruction[] {
+  return [...writeTextPrimitives(heapAddress, undefined, frame)];
 }
 
 /** Формы команд носителя печати — тем же объявлением, что у развёртки (проверяет оракул). */

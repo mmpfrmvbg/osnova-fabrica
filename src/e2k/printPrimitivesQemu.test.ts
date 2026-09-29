@@ -42,6 +42,7 @@ import {
   numberToTextLeanPrimitives,
 } from './printPrimitives';
 import { buildShim, toWslPath } from '../scripts/e2kQemuExec';
+import { ENTRY_SYSCALL_FRAME, GROWN_SYSCALL_FRAME, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
@@ -361,5 +362,75 @@ describe('СТРОКИ НА ЦЕЛИ: кодпоинты, склейка, выв
     const overflow = image.refused.find((item) => item.reason.includes('склейка строк'));
     expect(overflow, 'причина обязана называть переполнение, а не отсутствие пометок').toBeDefined();
     expect(overflow?.reason, 'числа обязаны быть названы').toMatch(/2[0-9]/u);
+  });
+});
+
+/**
+ * ПЕЧАТЬ ИЗ ПРОЦЕДУРЫ: СИСТЕМНЫЙ ВЫЗОВ — ЭТО ВЫЗОВ В ЯДРО, АРГУМЕНТЫ ОТНОСИТЕЛЬНО ОКНА (§3.58).
+ *
+ * Порт читает номер из ОКОННОГО регистра 0 и аргументы из 1..8 (`linux-user/e2k/cpu_loop.c:161-176`),
+ * а `call wbs` сдвигает окно на `2·wbs` — поэтому номер обязан лежать в `%r(2·wbs)` вызывающего.
+ * В точке входа это `%r8` (wbs = 4), в процедуре с выращенным окном — `%r16` (wbs = 8).
+ */
+describe('ПЕЧАТЬ ИЗ ПРОЦЕДУРЫ: аргументы системного вызова относительно окна', () => {
+  const wrapped = (body: string): string => `процедура главная()\n${body}\nконец_процедуры\n`;
+  const runPipeline = (source: string, name: string): { stdout: Buffer; stderr: string; status: number | null } => {
+    const image = loweredProgram(source);
+    expect(image.refused, `программа «${name}» обязана понижаться без отказов`).toEqual([]);
+    return runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes, name);
+  };
+
+  it('ПРИЁМКА: система.лог.вывести ВНУТРИ процедуры — вывод побайтово, код 0', () => {
+    if (shim === undefined) return;
+    const source = `процедура печатать(ч: Число)\n  система.лог.вывести(ч)\nконец_процедуры\n\n${wrapped('  печатать(42)')}`;
+    const run = runPipeline(source, 'print-from-procedure');
+    const expected = Buffer.from('42\n', 'utf-8');
+    expect(hex(run.stdout)).toBe([...expected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '));
+    expect(run.status, 'печатающая программа завершается своим exit(0)').toBe(0);
+  });
+
+  it('печать СТРОКИ из процедуры — тем же путём', () => {
+    if (shim === undefined) return;
+    const source = `процедура имя()\n  система.лог.вывести("Аня")\nконец_процедуры\n\n${wrapped('  имя()')}`;
+    const run = runPipeline(source, 'string-from-procedure');
+    const expected = Buffer.from('Аня\n', 'utf-8');
+    expect(hex(run.stdout)).toBe([...expected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '));
+    expect(run.status).toBe(0);
+  });
+
+  it('СТРУКТУРНЫЙ СТОРОЖ: номер вызова идёт в оконный %r(2·wbs), а не в жёсткий %r8', () => {
+    // Окно кадра — то, чем понижение адресует syscall. Проверяем ОБА кадра по имени регистра:
+    // в точке входа 8, в выращенном 16. Прежняя редакция (жёсткий %r8 в любом кадре) на модели
+    // валит порт утверждением `op_descr->is_al` — то есть «тихой лжи» больше нет, но и числа нет.
+    const entry = writeTextPrimitives(HEAP);
+    const grown = writeTextPrimitives(HEAP, undefined, GROWN_SYSCALL_FRAME);
+    const windowIndexes = (instructions: readonly AsmInstruction[]): number[] =>
+      instructions.flatMap((instruction) =>
+        instruction.operands
+          .filter((operand) => operand.kind === 'reg' && operand.file === 'window')
+          .map((operand) => (operand as { index: number }).index),
+      );
+    expect(windowIndexes(entry), 'кадр точки входа: номер в %r8').toContain(WINDOW_NUMBER_REGISTER);
+    expect(windowIndexes(grown), 'кадр процедуры: номер в %r16 (оконный r0 ядра)').toContain(GROWN_SYSCALL_FRAME.base);
+    expect(windowIndexes(grown), 'и НЕ в жёстком %r8').not.toContain(WINDOW_NUMBER_REGISTER);
+    // Ширина вызова — из кадра: 4 в точке входа, 8 в выращенном.
+    const callWbs = (instructions: readonly AsmInstruction[]): number[] =>
+      instructions
+        .filter((instruction) => instruction.mnemonic === 'call')
+        .map((instruction) => (instruction.operands[1] as { value: number }).value);
+    expect(callWbs(entry)).toEqual([ENTRY_SYSCALL_FRAME.wbs]);
+    expect(callWbs(grown)).toEqual([GROWN_SYSCALL_FRAME.wbs]);
+  });
+
+  it('ГРАНИЦА НАЗВАНА: непроверенные формы печати из процедуры ОТКАЗЫВАЮТ, а не виснут', () => {
+    const shared = `процедура печатать()\n  система.лог.вывести(7)\n  система.лог.вывести(8)\nконец_процедуры\n\n${wrapped('  печатать()')}`;
+    const sharedImage = loweredProgram(shared);
+    expect(sharedImage.refused.map((item) => item.reason).join(' '), 'разделённая печать из процедуры').toContain(
+      'разделённая печать из процедуры не проверена',
+    );
+    const recursive = `процедура шаги(н: Число)\n  если н <= 0\n    вернуть 0\n  конец_если\n  система.лог.вывести(н)\n  вернуть шаги(н - 1)\nконец_процедуры\n\n${wrapped('  шаги(3)')}`;
+    expect(loweredProgram(recursive).refused.map((item) => item.reason).join(' '), 'печать в самозовущей процедуре').toContain(
+      'зовёт СЕБЯ',
+    );
   });
 });
