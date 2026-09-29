@@ -36,6 +36,7 @@ import { cfgLiveSets } from '../vliw/cfg';
 import { exitPrimitives, printAreaOf } from './printPrimitives';
 import { LOWERING_CODES, LoweringRefusalError, refusalOf, type LoweringRefusal } from './loweringRefusal';
 import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringMarksOf } from './stringPlan';
+import { INNER_CALL_WBS, WINDOW_GROW_CARRIER } from './procedureCall';
 import { STRING_CALLS } from './stringRuntime';
 import {
   STRING_PRINT_CLOBBERS,
@@ -483,6 +484,43 @@ export function loweredProgram(source: string): { bytes: Uint8Array; refused: re
 }
 
 /**
+ * РОСТ ОКНА: какие процедуры обязаны получить свой пролог (§3.56.5, правила 1–2).
+ *
+ * Пролог нужен ТОЙ процедуре, которая сама вызывает, — и только ей: точке входа он не нужен (её
+ * вызовы идут с `wbs = 4`, а её окно и так 16), а листовой вызываемой не нужен тем более. Признак
+ * берётся по факту: в диапазоне носителей процедуры есть `IR.call`.
+ */
+function windowGrowthAt(
+  code: readonly AsmInstruction[],
+  procedures: readonly ProcedureOffset[],
+): ReadonlyMap<number, readonly AsmInstruction[]> {
+  const growth = new Map<number, readonly AsmInstruction[]>();
+  if (procedures.length === 0) return growth;
+  const entryAt = entryProcedureIndex(procedures);
+  procedures.forEach((procedure, at) => {
+    if (at === entryAt) return;
+    const end =
+      procedures
+        .map((other) => other.codeOffset)
+        .filter((offset) => offset > procedure.codeOffset)
+        .sort((a, b) => a - b)[0] ?? code.length;
+    const calls = code.slice(procedure.codeOffset, end).some((carrier) => carrier.mnemonic === 'IR.call');
+    if (!calls) return;
+    // ПРОЛОГ — ПЕРЕД первым носителем процедуры, а не ВМЕСТО него: `expandCarriers` заменяет
+    // указанный носитель группой, поэтому первый носитель входит в группу вторым (иначе пролог
+    // съел бы первую команду тела — так и случилось: у процедуры, начинавшейся с вызова,
+    // вызов исчезал, и она возвращала мусор).
+    const first = code[procedure.codeOffset];
+    if (first === undefined) return;
+    growth.set(procedure.codeOffset, [
+      { mnemonic: WINDOW_GROW_CARRIER, channel: 0, operands: [] },
+      first,
+    ]);
+  });
+  return growth;
+}
+
+/**
  * Собрать образ из УЖЕ РАЗЛОЖЕННОГО потока носителей: раскладка адресов, пары «сравнение + переход»,
  * понижение, пролог рантайма массивов и выход через `exit`.
  *
@@ -523,20 +561,27 @@ export function imageOfCarriers(
     options.procedures === undefined || options.procedures.length === 0
       ? [{ name: 'главная', codeOffset: 0 }]
       : options.procedures;
+  // РОСТ ОКНА: процедура, которая САМА вызывает, получает свой пролог `setwd wsz=16` + `setbn rsz=15`
+  // (§3.56.5, правила 1–2) — иначе её внутренний вызов не имеет законного `wbs`. Растёт окно у той,
+  // которая вызывает: точке входа оно не нужно (её вызовы идут с `wbs = 4`), листовой — тем более.
+  const growthAt = windowGrowthAt(strings.code, baseProcedures);
+  const grown = growthAt.size === 0 ? undefined : expandCarriers(strings.code, growthAt, baseProcedures);
+  const growCode = grown?.code ?? strings.code;
+  const growProcedures = grown?.procedures ?? baseProcedures;
   // РАЗДЕЛЁННАЯ ПЕЧАТЬ: если сайтов печати больше одного, развёртка (≈1400 байт на КАЖДЫЙ сайт)
   // выносится в листовую процедуру, а у сайта остаётся вызов и `write` (см. `src/e2k/printCall.ts`).
   // Тогда площадка печати перестаёт быть потолком: десять печатей стоят ≈2900 байт вместо 14320.
   const sharing = sharePrintSites(
-    strings.code,
-    invokeNames,
+    growCode,
+    strings.invokeNames,
     heapAddress,
     options.spilledAddresses ?? [],
-    baseProcedures.length,
+    growProcedures.length,
   );
   const expanded =
-    sharing.groupAt.size === 0 ? undefined : expandCarriers(strings.code, sharing.groupAt, baseProcedures);
-  const sharedCode = expanded?.code ?? strings.code;
-  const sharedProcedures = expanded?.procedures ?? baseProcedures;
+    sharing.groupAt.size === 0 ? undefined : expandCarriers(growCode, sharing.groupAt, growProcedures);
+  const sharedCode = expanded?.code ?? growCode;
+  const sharedProcedures = expanded?.procedures ?? growProcedures;
   // Листовая процедура «число → текст» встаёт В КОНЕЦ потока: её тело — развёртка, её вызов — у сайтов.
   const withText = sharing.groupAt.size === 0 ? sharedCode : [...sharedCode, ...sharedTextCarriers()];
   const proceduresWithText =
@@ -582,6 +627,9 @@ export function imageOfCarriers(
     operands[STRING_MARK_OPERAND + 2] = imm(stringPlan.saved.length);
     return { ...carrier, operands };
   });
+  // ГЛУБИНА ≥ 2: процедуры, которые САМИ вызывают (по потоку после всех вставок). Их носители
+  // понижаются иначе: свой `wbs = 8` и порядок возврата «`return` → значение → `ct`» (§3.56.5, 3–5).
+  const depthTwo = new Set<number>(windowGrowthAt(planned, procedures).keys());
   // Возвраты, оставшиеся в потоке после подготовки, принадлежат ВЫЗЫВАЕМЫМ процедурам — значит
   // они ИСПОЛНЯЮТСЯ, и форма обязана считать пару (`procedureReturn`). Возвраты точки входа
   // помечены нулевыми (`zeroSize`): их место занимает её `exit`.
@@ -659,16 +707,11 @@ export function imageOfCarriers(
    */
   const calleeLimit = (carrier: AsmInstruction): { code: LoweringRefusal['code']; reason: string } | undefined => {
     const mnemonic = carrier.mnemonic;
-    if (mnemonic === 'IR.call') {
-      return {
-        code: LOWERING_CODES.runtime,
-        reason:
-          'вызов из вызываемой процедуры невозможен: кольцо окон требует для вложенного вызова ' +
-          'wbs ≥ psize_q = size_q = 8, то есть wbs = 8 ровно, а тогда вторая ступень получает ' +
-          'size_q = 0, а её аргументы легли бы в %r16 — за последним регистром окна вызывающей ' +
-          '(измерено: docs/hardware-debt.md §3.51, .tmp/osnova-nested-wbs2.ts)',
-      };
-    }
+    // ВЛОЖЕННЫЙ ВЫЗОВ БОЛЬШЕ НЕ ОТКАЗ: он был отказом, пока окно вызывающей не росло (тогда
+    // `wbs = 8` при `size_q = 8` упиралось в `psize_q`, §3.51–§3.52). С 2026-09-29 пролог
+    // вызывающей процедуры растит окно (`setwd wsz=16` + `setbn rsz=15`), и `wbs = 8` законен —
+    // измерено `.tmp/osnova-mainAB.ts` (V3, код 7), правила и числа — docs/hardware-debt.md §3.56.5,
+    // разбор — §3.57. Отказ `OSN-LOW-003` на рекурсию СНЯТ.
     if (mnemonic === 'IR.invoke') {
       return {
         code: LOWERING_CODES.runtime,
@@ -704,6 +747,9 @@ export function imageOfCarriers(
     //   4. пара предикатов не составилась (`pairPredicates`) — код у сопоставления.
     const inCallee = procedures.length > 0 && procedureAt(procedures, index) !== entryAt;
     const limit = inCallee ? calleeLimit(carrier) : undefined;
+    // На глубине ≥ 2 (процедура, которая сама вызывает) носители понижаются иначе — правила 3–5 §3.56.5.
+    const procedureStart = procedures[procedureAt(procedures, index) ?? 0]?.codeOffset ?? 0;
+    const onDepthTwo = inCallee && depthTwo.has(procedureStart);
     const problem =
       limit ??
       layout.unplaced.find((item) => item.index === index) ??
@@ -886,6 +932,9 @@ export function imageOfCarriers(
       // Возврат ИСПОЛНЯЕТСЯ только у вызываемой процедуры (возвраты точки входа убраны из потока
       // подготовкой), поэтому пара `return`+`ct` ставится там и только там.
       ...(inCallee ? { procedureReturn: true } : {}),
+      // На глубине ≥ 2 — свой `wbs = 8` (окно выращено прологом процедуры) и измеренный порядок
+      // возврата «`return` → значение → `ct`» (§3.56.3, V3 против V2).
+      ...(onDepthTwo ? { callWbs: INNER_CALL_WBS, returnAfterCall: true } : {}),
     });
     if (!lowered.ok) {
       refused.push(refusalOf(lowered.code, `#${index} ${carrier.mnemonic}: ${lowered.reason}`));

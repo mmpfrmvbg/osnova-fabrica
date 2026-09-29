@@ -62,8 +62,7 @@ import {
   stringWriteInstructions,
 } from "./stringRuntime";
 import { isStringPrint, stringMarksOf } from "./stringPlan";
-import {
-} from "./stringRuntime";
+import { WINDOW_GROW_CARRIER } from "./procedureCall";
 import {
   CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
 import {
@@ -544,6 +543,30 @@ function carrierFormWithReason(
   instruction: AsmInstruction,
   context: CarrierFormContext,
 ): CarrierFormOutcome {
+  // РОСТ ОКНА у процедуры, которая сама вызывает: `setwd wsz=16` (CS1_SETWD, 16 байт — измерено
+  // кодировщиком, `.tmp/osnova-setwd-encode.ts`) плюс `setbn rsz=15` (ALF2, 8 байт). Объявление
+  // обязано совпасть с понижением — сторож в `src/e2k/procedureCall.test.ts` кодирует те же команды.
+  if (instruction.mnemonic === WINDOW_GROW_CARRIER) {
+    return {
+      form: {
+        carrier: WINDOW_GROW_CARRIER,
+        commands: [
+          {
+            mnemonic: 'setwd',
+            form: 'CS1_SETWD',
+            size: 16,
+            source: 'измерено кодировщиком: `setwd wsz=16, nfx=0` → 16 байт (docs/hardware-debt.md §3.56.2)',
+          },
+          {
+            mnemonic: 'setbn',
+            form: 'ALF2',
+            size: REAL_SHORT_FORM_SIZE,
+            source: 'ALF2, 8 байт — REAL_CONTROL_OPCODES[setbn].size (src/e2k/e2k-real.ts)',
+          },
+        ],
+      },
+    };
+  }
   // РАЗДЕЛЁННАЯ ПЕЧАТЬ: два носителя, чьи команды — развёртка «число → текст» и хвост `write`
   // (`src/e2k/printCall.ts`). Длины берутся из той же таблицы форм, что у сайта печати: объявление
   // и понижение обязаны считать одни байты, иначе адреса уезжают (§3.35), и это стережёт оракул.

@@ -50,6 +50,40 @@ import { resolveEntryIndex } from '../oracle/parity';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 
+/**
+ * РОСТ ОКНА ПРОЦЕДУРЫ, КОТОРАЯ САМА ВЫЗЫВАЕТ: `setwd wsz=16`, затем `setbn rsz=15`, по одному разу.
+ *
+ * Зачем: вложенный вызов законен только при `wbs ≥ psize_q` (§9.5.3), а у вызываемой `psize_q`
+ * равно её окну — 8. Значит вызывающая обязана иметь окно 16, чтобы дать внутреннему вызову `wbs = 8`.
+ * Делает это её СВОЙ пролог: окно растёт у той, которая вызывает (§3.56.5, правило 2).
+ *
+ * Порядок и кратность — не стиль, а замер (§3.56.2): `setwd` ДО `setbn`; повторная `setbn` ПОСЛЕ
+ * `setwd` даёт ловушку `0x100008`. Верхняя граница — `wsz ≤ MAXSR_D / 2 = 112` (правило 6): 112
+ * работает, 128 и 255 — ловушка. Здесь ровно 16 — минимум, дающий `wbs = 8`.
+ */
+export const WINDOW_GROW_WSZ = 16;
+export const WINDOW_GROW_RSZ = 15;
+
+/**
+ * ШИРИНА ВНУТРЕННЕГО ВЫЗОВА: `wbs = 8` при выращенном до 16 окне.
+ *
+ * Законно ровно это значение: `wbs ≥ psize_q = 8` (§9.5.3) и `wbs ≤ size_q = 16`, а `size_q − wbs`
+ * даёт окно вызываемой — 8, то есть шестнадцать её регистров (`2·(16−8)`), куда влезает и её
+ * собственный рост. Аргументы уезжают в `%r16`, оттуда же принимается результат (§3.56.3).
+ */
+export const INNER_CALL_WBS = 8;
+
+/** Носитель роста окна: его ставит конвейер в пролог процедуры, которая сама вызывает. */
+export const WINDOW_GROW_CARRIER = 'IR.window_grow';
+
+/** Команды роста окна — ОДИН источник и для понижения, и для формы раскладки. */
+export function windowGrowInstructions(): AsmInstruction[] {
+  return [
+    { mnemonic: 'setwd', channel: 0, operands: [imm(WINDOW_GROW_WSZ), imm(0)] },
+    { mnemonic: 'setbn', channel: 0, operands: [imm(WINDOW_GROW_RSZ), imm(0), imm(0)] },
+  ];
+}
+
 /** Смещение процедуры в потоке носителей (`codeOffset`) и её имя. */
 export interface ProcedureOffset {
   readonly name: string;

@@ -12,9 +12,11 @@
  *    объявленный размер с длиной того, что реально выдаёт понижение.
  * 3. **Точка входа не обязана быть первой процедурой**: в начало потока встаёт переход к ней,
  *    и цели переходов при этом пересчитываются (иначе исполнение начнётся с чужой процедуры).
- * 4. **Границы вызываемой названы отказом, а не ловушкой в модели**: системный вызов (печать),
- *    вложенный вызов (рекурсия) и рантайм массивов в ней невозможны — окно вызываемой восемь
- *    регистров. Это ИЗМЕРЕНО оракулом окна, а здесь стережётся как отказ конвейера.
+ * 4. **Границы вызываемой названы отказом, а не ловушкой в модели.** Печать из процедуры и
+ *    рантайм массивов в ней по-прежнему отказывают (аргументы syscall адресуются относительно окна,
+ *    §3.52). А вот ВЛОЖЕННЫЙ ВЫЗОВ (рекурсия) с 2026-09-29 БОЛЬШЕ НЕ ОТКАЗ: пролог вызывающей растит
+ *    окно, вызов идёт с `wbs = 8`, возврат на глубине ≥ 2 — в порядке «`return` → значение → `ct`»
+ *    (§3.57). Здесь стережётся и то, и другое.
  * 5. **Возвраты точки входа не занимают места в образе** (`zeroSize`): их место — её `exit`,
  *    и раскладка обязана считать их нулевыми, иначе адреса процедур за ними уезжают.
  *
@@ -30,7 +32,14 @@ import { carrierFormOf, layoutOf } from './twoPassLayout';
 import { imageOfCarriers, loweredProgram, shellCarriers } from './programImage';
 import { LOWERING_CODES } from './loweringRefusal';
 import { EXIT_CARRIER } from './printCall';
-import { callAddresses, entryProcedureIndex, prepareImage, procedureAt } from './procedureCall';
+import {
+  WINDOW_GROW_CARRIER,
+  callAddresses,
+  entryProcedureIndex,
+  prepareImage,
+  procedureAt,
+  windowGrowInstructions,
+} from './procedureCall';
 
 const encoder = getEncoder('e2k');
 const imm = (value: number): Operand => ({ kind: 'imm', value });
@@ -180,18 +189,35 @@ describe('вызов процедуры и возврат: адрес, форм�
     expect(jump.operands[0]).toEqual(imm(1));
   });
 
-  it('границы вызываемой: вложенный вызов, печать и рантайм массивов — названные отказы', () => {
-    // Рекурсия: вызов внутри вызываемой процедуры.
+  it('вложенный вызов БОЛЬШЕ НЕ ОТКАЗ: рекурсия понижается, форма роста окна совпадает с понижением', () => {
+    // До §3.57 здесь стоял отказ «вызов из вызываемой процедуры невозможен: кольцо окон…». Теперь
+    // конвейер растит окно в прологе вызывающей (носитель IR.window_grow) и зовёт с `wbs = 8`, а
+    // возврат на глубине ≥ 2 идёт в порядке «return → значение → ct» — измерено `.tmp/osnova-mainAB.ts`
+    // (V2 против V3: 9 против 7) и прогоном факториала (120, код 0).
     const recursion = loweredProgram(RECURSION);
-    expect(recursion.refused.length).toBe(1);
-    expect(recursion.refused[0]!.code).toBe(LOWERING_CODES.runtime);
-    expect(recursion.refused[0]!.reason).toContain('вызов из вызываемой процедуры невозможен');
-    // Причина называет ФАКТ, а не прежнюю догадку: не «окно восемь регистров» (после S=12 это
-    // неверно, §3.49), а кольцо окон с числами — и замер, которым это снято (§3.51).
-    expect(recursion.refused[0]!.reason, 'причина называет кольцо окон числом').toContain('psize_q');
-    expect(recursion.refused[0]!.reason, 'причина называет замер').toContain('§3.51');
+    expect(recursion.refused, 'рекурсия обязана понижаться без отказов').toEqual([]);
+    expect(recursion.bytes.length).toBeGreaterThan(0);
 
-    // Печать из вызываемой: системный вызов невозможен — номер идёт в %r8, которого у неё нет.
+    // Сторож ФОРМЫ роста окна: объявленная длина обязана совпасть с тем, что выдаёт понижение.
+    // Разойдутся — адреса процедур за прологом уедут (класс §3.35), и это будет видно здесь.
+    const grow = carrier(WINDOW_GROW_CARRIER, []);
+    const form = carrierFormOf(grow, {});
+    expect(form, 'у роста окна обязана быть форма').toBeDefined();
+    const declared = form!.commands.reduce((sum, command) => sum + command.size, 0);
+    const emitted = windowGrowInstructions().reduce((sum, item) => sum + encoder.encode(item).length, 0);
+    expect(declared, 'форма роста окна (setwd 16 + setbn 8)').toBe(24);
+    expect(emitted, 'понижение роста окна выдаёт ровно те же байты').toBe(declared);
+    const lowered = lowerCarrier(grow, {});
+    expect(lowered.ok).toBe(true);
+    if (lowered.ok) {
+      expect(lowered.instructions.map((item) => item.mnemonic), 'setwd ДО setbn — порядок §3.56.2').toEqual([
+        'setwd',
+        'setbn',
+      ]);
+    }
+
+    // Печать из вызываемой: системный вызов по-прежнему невозможен — аргументы syscall адресуются
+    // ОТНОСИТЕЛЬНО ОКНА (§3.52, случай 23 реестра). Рекурсия снята — печать из процедуры НЕТ.
     const printing = `процедура печать_числа(ч: Число)
   система.лог.вывести(ч)
 конец_процедуры

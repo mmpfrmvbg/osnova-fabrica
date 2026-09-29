@@ -67,6 +67,7 @@ import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
+import { windowGrowInstructions } from "./procedureCall";
 import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
 import { LOWERING_CODES, failureOf, type LoweringFailure } from "./loweringRefusal";
 import type { ShellEmitResult } from "./emitterOracle";
@@ -353,6 +354,24 @@ export interface LoweringContext {
    * прежней: там носитель не исполняется, и сдвигать закреплённые числа нечем.
    */
   readonly procedureReturn?: boolean;
+  /**
+   * ШИРИНА ОКНА ВЫЗОВА (`wbs`) в квадрословах — по умолчанию {@link CALL_WBS} (4) для точки входа.
+   *
+   * Внутри процедуры, которая САМА вызывает, окно выращено её прологом (`IR.window_grow`:
+   * `setwd wsz=16` + `setbn rsz=15`), и тогда законная ширина — **8**: `wbs ≥ psize_q = 8` (§9.5.3)
+   * и `wbs ≤ size_q = 16`. Аргументы уезжают в `%r(2·wbs) = %r16`, оттуда же принимается результат —
+   * измерено в `.tmp/osnova-mainAB.ts` (V3), разбор — `docs/hardware-debt.md` §3.56.3/§3.56.5.
+   */
+  readonly callWbs?: number;
+  /**
+   * ПОРЯДОК ВОЗВРАТА НА ГЛУБИНЕ ≥ 2: `return %ctpr3` идёт ДО работы со значением.
+   *
+   * Измерено (V2 против V3, там же): если процедура сама делала вызов, идиом «значение → `return` →
+   * `ct`» даёт ловушку `0x100088` (код 9), а «`return` → значение → `ct`» возвращает управление
+   * (код 7). Причина: `call` стирает `ctpr` в пустой тег, поэтому подготовку возврата обязан сделать
+   * тот, кто вызывал. Флаг ставит конвейер — по факту «в этой процедуре есть вызов».
+   */
+  readonly returnAfterCall?: boolean;
 }
 
 /**
@@ -464,21 +483,23 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       );
     }
     const instructions: AsmInstruction[] = [];
+    // ШИРИНА ОКНА ВЫЗОВА: 4 у точки входа, 8 у процедуры, которая вырастила окно своим прологом.
+    const wbs = context.callWbs ?? CALL_WBS;
     for (let argument = 0; argument < argc; argument++) {
       const source = instruction.operands[1 + argument];
       if (source === undefined || source.kind !== "reg") {
         return failureOf(LOWERING_CODES.carrier, `«IR.call»: аргумент ${argument} не в регистре`);
       }
-      instructions.push(movts(source.index, CALL_WBS * 2 + argument));
+      instructions.push(movts(source.index, wbs * 2 + argument));
     }
     instructions.push({ mnemonic: "disp", channel: 0, operands: [imm(1), imm(context.callDisplacement)] });
-    instructions.push({ mnemonic: "call", channel: 0, operands: [imm(1), imm(CALL_WBS)] });
+    instructions.push({ mnemonic: "call", channel: 0, operands: [imm(1), imm(wbs)] });
     if (hasDestination) {
       const destination = instruction.operands[4];
       if (destination === undefined || destination.kind !== "reg") {
         return failureOf(LOWERING_CODES.carrier, '«IR.call»: флаг обещает результат, а регистра-приёмника нет');
       }
-      instructions.push(movts(CALL_WBS * 2, destination.index));
+      instructions.push(movts(wbs * 2, destination.index));
     }
     return { ok: true, instructions };
   }
@@ -497,28 +518,39 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     };
   }
 
+  if (instruction.mnemonic === "IR.window_grow") {
+    // РОСТ ОКНА у процедуры, которая сама вызывает: `setwd` до `setbn`, по одному разу (§3.56.2).
+    return { ok: true, instructions: windowGrowInstructions() };
+  }
+
   if (instruction.mnemonic === "IR.ret") {
     const flag = instruction.operands[0];
     if (flag === undefined || flag.kind !== "imm") {
       return failureOf(LOWERING_CODES.carrier, '«IR.ret»: операнд «есть значение» не число');
     }
-    const instructions: AsmInstruction[] = [];
-    if (flag.value === 1) {
-      const value = instruction.operands[1];
-      if (value === undefined || value.kind !== "reg") {
-        return failureOf(LOWERING_CODES.carrier, '«IR.ret»: флаг обещает значение, а регистра нет');
-      }
-      instructions.push(movts(value.index, 0));
+    const value = instruction.operands[1];
+    if (flag.value === 1 && (value === undefined || value.kind !== "reg")) {
+      return failureOf(LOWERING_CODES.carrier, '«IR.ret»: флаг обещает значение, а регистра нет');
     }
+    const result = flag.value === 1 ? movts((value as { index: number }).index, 0) : undefined;
     // ВОЗВРАТ ПРОЦЕДУРЫ — ПАРА, А НЕ ОДНА КОМАНДА. Измерено оракулом окна
     // (`src/e2k/e2kCallWindowQemu.test.ts`, шлюз `gate:qemu`): одна `return %ctpr3` (CS0) валит порт
     // утверждением `op_descr->is_al` (статус 134), одна `ct %ctpr3` (SS) — гостевым исключением на
     // самой `ct` (статус 9): `call` стирает ctpr в пустой тег. Управление возвращает ТОЛЬКО пара —
     // подготовка плюс переход. Это замер, а не догадка: `docs/e2k-return-port.md`, §3.24.
-    instructions.push({ mnemonic: "return", channel: 0, operands: [imm(3)] });
+    //
+    // ПОРЯДОК ЖЕ ЗАВИСИТ ОТ ГЛУБИНЫ (измерено `.tmp/osnova-mainAB.ts`, V2 против V3, §3.56.3):
+    // если процедура САМА вызывала, между её вызовом и возвратом `ctpr` пуст, и «значение → `return`
+    // → `ct`» даёт ловушку `0x100088`; работает «`return` → значение → `ct`» (код 7). У листа порядок
+    // прежний — он измерен корпусом.
+    const pair: AsmInstruction[] = [{ mnemonic: "return", channel: 0, operands: [imm(3)] }];
     if (context.procedureReturn === true) {
-      instructions.push({ mnemonic: "ct", channel: 0, operands: [imm(3), imm(CT_COND_ALWAYS)] });
+      pair.push({ mnemonic: "ct", channel: 0, operands: [imm(3), imm(CT_COND_ALWAYS)] });
     }
+    const instructions: AsmInstruction[] =
+      context.returnAfterCall === true && result !== undefined
+        ? [pair[0]!, result, ...pair.slice(1)]
+        : [...(result === undefined ? [] : [result]), ...pair];
     return { ok: true, instructions };
   }
 
