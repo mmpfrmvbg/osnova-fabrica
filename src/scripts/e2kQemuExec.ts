@@ -103,6 +103,13 @@ export function toWslPath(file: string): string {
 export interface QemuRun {
   /** Объединённый вывод QEMU (причина отказа пишется в stderr, код возврата при этом 0). */
   readonly output: string;
+  /**
+   * КАКИМ КАНАЛОМ ПРИШЁЛ ВЫВОД — раздельно: `write(1, …)` гостя виден в `stdout`, `write(2, …)` — в
+   * `stderr`. Нужно там, где канал и есть предмет проверки: отказ арены обязан идти в **stderr**, и
+   * «строка где-то в объединённом выводе» этого не доказывает (`docs/hardware-debt.md` §3.89).
+   */
+  readonly stdout: string;
+  readonly stderr: string;
   /** Код возврата процесса QEMU. */
   readonly status: number | null;
   /** Адрес инструкции, на которой эмулятор остановился с исключением. */
@@ -140,10 +147,16 @@ export function buildShim(): string | undefined {
 }
 
 /** Разобрать вывод QEMU: адрес исключения и код возврата гостя, если он есть. */
-export function parseQemuRun(output: string, status: number | null): QemuRun {
+export function parseQemuRun(
+  output: string,
+  status: number | null,
+  streams: { readonly stdout?: string; readonly stderr?: string } = {},
+): QemuRun {
   const ip = /exception at IP = (0x[0-9a-f]+)/.exec(output);
   return {
     output,
+    stdout: streams.stdout ?? '',
+    stderr: streams.stderr ?? '',
     status,
     ...(ip === null ? {} : { exceptionIp: Number.parseInt(ip[1]!, 16) }),
   };
@@ -173,5 +186,5 @@ export function runInQemu(
   );
   if (result.error !== undefined && result.status === null) return undefined;
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-  return parseQemuRun(output, result.status);
+  return parseQemuRun(output, result.status, { stdout: result.stdout ?? '', stderr: result.stderr ?? '' });
 }

@@ -447,7 +447,7 @@ export const DEFECTS_WIRING: readonly Defect[] = [
     id: '9.1',
     title: 'закрепление входящих снято — параметр уезжает в чужой регистр',
     file: 'src/e2k/regAlloc.ts',
-    from: '    const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));',
+    from: '    const free = ALLOCATABLE_REGISTERS.filter(\n      (register) => !incoming.includes(register) && !reserved.has(register),\n    );',
     to: '    const free = [...ALLOCATABLE_REGISTERS]; // ДЕФЕКТ 9.1: закрепление входящих снято',
     tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
     config: 'vitest.e2k.config.ts',

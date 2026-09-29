@@ -65,13 +65,10 @@ import { isStringPrint, stringMarksOf } from "./stringPlan";
 import {
   BANK_LOAD_CARRIER,
   BANK_STORE_CARRIER,
-  ARENA_ALLOC_CARRIER,
-  ARENA_INIT_CARRIER,
-  ARENA_LIMIT_CARRIER,
-  ARENA_POINTER_CARRIER,
   GETSP_CARRIER,
   WINDOW_GROW_CARRIER,
 } from "./procedureCall";
+import { arenaCarrierInstructions, isArenaCarrier } from "./arenaRuntime";
 import { syscallFrameOfCarrier } from "./printCall";
 import {
   CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
@@ -557,28 +554,26 @@ function carrierFormWithReason(
   // а не в `%r8` (§3.58). Длины команд от кадра НЕ зависят (те же команды, другие индексы) —
   // поэтому формы одинаковы, но берутся ИЗ ТОГО ЖЕ источника, что и понижение: разойтись нечем.
   const frame = syscallFrameOfCarrier(instruction);
-  // АРЕНА: длины — те же команды, что понижает конвейер (movtd по 8, movts/adds по 8).
-  if (instruction.mnemonic === ARENA_POINTER_CARRIER || instruction.mnemonic === ARENA_LIMIT_CARRIER) {
+  // АРЕНА: длины берутся ИЗ ТЕХ ЖЕ КОМАНД, что понижает конвейер (`arenaCarrierInstructions`), —
+  // форма обязана совпасть с байтами, иначе уедут адреса переходов и вызовов (§3.35). Прежняя
+  // редакция объявляла заведение (`movtd` с 64-битным литералом) двумя командами по 8 байт: это на
+  // 16 байт меньше правды, и сторож форм (`src/e2k/procedureCall.test.ts`) это ловит.
+  if (isArenaCarrier(instruction)) {
+    const commands = arenaCarrierInstructions(instruction);
+    const forms = commands?.map((command) => printCommandForm(command));
+    if (forms === undefined || forms.some((form) => form === undefined)) {
+      return {
+        failure: failureOf(
+          LOWERING_CODES.carrier,
+          `«${instruction.mnemonic}»: форму команды арены взять негде — ` +
+            "понижение арены обязано давать команды известных форм (src/e2k/arenaRuntime.ts)",
+        ),
+      };
+    }
     return {
       form: {
         carrier: instruction.mnemonic,
-        commands: [{ mnemonic: "movts", form: "ALF2", size: REAL_SHORT_FORM_SIZE, source: "ALF2, 8 байт — чтение арены" }],
-      },
-    };
-  }
-  if (instruction.mnemonic === ARENA_INIT_CARRIER || instruction.mnemonic === ARENA_ALLOC_CARRIER) {
-    const count = instruction.mnemonic === ARENA_INIT_CARRIER ? 2 : 2;
-    const mnemonic = instruction.mnemonic === ARENA_INIT_CARRIER ? "movtd" : "movts";
-    const size = 8;
-    return {
-      form: {
-        carrier: instruction.mnemonic,
-        commands: Array.from({ length: count }, () => ({
-          mnemonic,
-          form: "ALF2",
-          size,
-          source: "измерено: movtd/movts/adds — 8 байт (ALF2)",
-        })),
+        commands: forms.map((form) => form!),
       },
     };
   }

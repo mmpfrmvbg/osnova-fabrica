@@ -335,7 +335,17 @@ export function allocateProgram(
    * указателем кучи): тогда конвейер, замеры и шлюзовые образы считают **одни и те же** адреса, а
    * не каждый свои. `maxSlots: 0` выключает вытеснение — так проверяется негативный контроль.
    */
-  options: { readonly spill?: SpillOptions } = {},
+  options: {
+    readonly spill?: SpillOptions;
+    /**
+     * Регистры, которые операция языка держит САМА (в обход потока носителей) — например регистры
+     * состояния арены (`src/e2k/arenaRuntime.ts#ARENA_RESERVED_REGISTERS`). Раскладка их не отдаёт.
+     *
+     * По умолчанию список пуст, и это не «на всякий случай»: закреплённые числа пяти ядер
+     * (`docs/hardware-debt.md` §3.34.4) сняты именно при пустом списке.
+     */
+    readonly reserved?: readonly number[];
+  } = {},
 ): {
   readonly instructions: readonly AsmInstruction[];
   readonly procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[];
@@ -350,6 +360,7 @@ export function allocateProgram(
   // «Старый индекс потока модуля → новый»: по нему пересчитываются цели переходов ПОСЛЕ сборки.
   const movedTo = new Map<number, number>();
   const spillPlan: SpillOptions = options.spill ?? { base: DEFAULT_SPILL_BASE };
+  const reserved = new Set<number>(options.reserved ?? []);
   let removedCopies = 0;
   let materializedConstants = 0;
   procedures.forEach((procedure, index) => {
@@ -419,7 +430,12 @@ export function allocateProgram(
       [...rawPerVreg.keys()].filter((vreg) => (rawPerVreg.get(vreg) ?? 0) > (mergedPerVreg.get(vreg) ?? 0)),
     );
     // Закреплённые регистры не отдаются: иначе значение параметра уехало бы из своего регистра.
-    const free = ALLOCATABLE_REGISTERS.filter((register) => !incoming.includes(register));
+    // ЗАРЕЗЕРВИРОВАННЫЕ ПОД ОПЕРАЦИЮ (арена — `src/e2k/arenaRuntime.ts`) не отдаются тем более:
+    // их пишет и читает сама операция в обход потока носителей, и выданный туда vreg был бы затёрт
+    // молча. По умолчанию список пуст: закреплённые числа не двигаются.
+    const free = ALLOCATABLE_REGISTERS.filter(
+      (register) => !incoming.includes(register) && !reserved.has(register),
+    );
     const allocation = allocateSegments(
       segments.filter((segment) => !incoming.includes(segment.vreg)),
       free,

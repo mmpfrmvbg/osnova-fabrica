@@ -41,6 +41,7 @@
 
 import type { AsmInstruction } from "./backend";
 import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
+import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from "./procedureCall";
 
 /** Номер предиката, отданный парам: пары не переплетаются, поэтому одного достаточно. */
 export const PREDICATE_FOR_PAIRS = 0;
@@ -177,8 +178,7 @@ function registersOf(instruction: AsmInstruction): { known: boolean; reads: numb
     case "IR.ret":
       return known(regs([operands[1]!]), []);
     case "IR.call":
-    case "IR.invoke": {
-      // Аргументов ровно `argc = flags >> 1`: слот НЕсуществующего аргумента эмиттер всё равно несёт
+    case "IR.invoke": {      // Аргументов ровно `argc = flags >> 1`: слот НЕсуществующего аргумента эмиттер всё равно несёт
       // (пятый операнд — приёмник, четвёртый — payload), и там лежит заполнитель вида `%b[0]`.
       // Считать его чтением нельзя: именно так сравнение в встроенной свёртке получало «второго
       // читателя» (`#54 IR.invoke` при `argc = 1` читал `%r0` — регистр результата `IR.lt #42`) и
@@ -192,6 +192,25 @@ function registersOf(instruction: AsmInstruction): { known: boolean; reads: numb
       }
       return known(regs(argv), regs([operands[4]!]));
     }
+    // АРЕНА (`src/e2k/arenaRuntime.ts`): регистры состояния — физические и в операндах не названы.
+    // Без этих ветвей носители арены попадали в `known: false` — то есть в **барьер**, и сравнение
+    // сайта получало «читателей» из всех последующих сайтов: предикат не составлялся вовсе
+    // (измерено: «результат читают 2 инструкций (#9 IR.jmp_if_not, #18 IR.jmp_if_not)»).
+    case "IR.arena_init":
+      return known([], [ARENA_POINTER_BASE, ARENA_LIMIT_BASE]);
+    case "IR.arena_alloc": {
+      const size = operands[0];
+      const destination = operands[1];
+      const use = size !== undefined && size.kind === "reg" ? [size.index] : [];
+      const def = destination !== undefined && destination.kind === "reg" ? [destination.index] : [];
+      return known([...use, ARENA_POINTER_BASE], [...def, ARENA_POINTER_BASE]);
+    }
+    case "IR.arena_pointer":
+      return known([ARENA_POINTER_BASE], regs([operands[0]!]));
+    case "IR.arena_limit":
+      return known([ARENA_LIMIT_BASE], regs([operands[0]!]));
+    case "IR.arena_refusal":
+      return known([], []);
     default:
       return { known: false, reads: [], writes: [] };
   }

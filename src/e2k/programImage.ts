@@ -25,7 +25,7 @@ import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
 import { lowerCarrier } from './e2kRealRun';
-import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
+import { ARRAY_REGISTERS, SUPPORTED_ARRAY_CALLS, arrayPrologue } from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
 import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
@@ -42,6 +42,14 @@ import { exitPrimitives, printAreaOf } from './printPrimitives';
 import { LOWERING_CODES, LoweringRefusalError, refusalOf, type LoweringRefusal } from './loweringRefusal';
 import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringMarksOf } from './stringPlan';
 import { INNER_CALL_WBS, WINDOW_GROW_CARRIER } from './procedureCall';
+import {
+  ARENA_EXTRA_MEMORY,
+  ARENA_REFUSAL_TEXT,
+  arenaGroups,
+  arenaRefusalCarriers,
+  arenaReservedRegisters,
+  usesArena,
+} from './arenaRuntime';
 import { STRING_CALLS } from './stringRuntime';
 import {
   STRING_PRINT_CLOBBERS,
@@ -455,14 +463,24 @@ export function programBytes(
  * что в `e2kConvolutionQemu.test.ts`. Нужен там, где в программе есть ЦИКЛЫ: без раскладки адресов
  * у переходов нет смещений.
  */
-export function loweredProgram(source: string): { bytes: Uint8Array; refused: readonly LoweringRefusal[]; used: number } {
+export function loweredProgram(source: string): {
+  bytes: Uint8Array;
+  refused: readonly LoweringRefusal[];
+  used: number;
+  arena: { readonly used: boolean; readonly extraMemory: number };
+} {
   const built = regModuleOf(source);
   if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
   const emitted = emitShell(annotated, shellEncoder);
-  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
+  // АРЕНА ЗАБИРАЕТ РЕГИСТРЫ СЕБЕ: указатель, предел и ключ предиката она пишет и читает в обход
+  // потока носителей, поэтому раскладка не имеет права их отдать (иначе значение легло бы туда же
+  // и было бы затёрто молча). Список резервируется ТОЛЬКО тогда, когда образ ареной пользуется:
+  // у прочих программ он пуст, и закреплённые числа пяти ядер не двигаются.
+  const reserved = usesArena(emitted.instructions, emitted.image.invokeNames) ? arenaReservedRegisters() : [];
+  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, { reserved });
   const report = allocation.report[0]!;
   if (!report.ok) {
     // Отказ раскладки — тот же контракт, но канал другой: образ не собирается вовсе, поэтому
@@ -486,6 +504,24 @@ export function loweredProgram(source: string): { bytes: Uint8Array; refused: re
     }),
     used: report.used,
   };
+}
+
+/**
+ * Зовёт ли поток рантайм КУЧИ МАССИВОВ (`система.массив.*`) — по именам вызовов образа оболочки.
+ *
+ * Нужно ровно для одного: назвать отказ, когда в одной программе сошлись арена и куча массивов
+ * (они начинаются с одного адреса — `HEAP_OFFSET`).
+ */
+function usesArrayHeap(code: readonly AsmInstruction[], invokeNames: readonly string[]): boolean {
+  return code.some((carrier) => {
+    if (carrier.mnemonic !== 'IR.invoke') return false;
+    const payload = carrier.operands[3];
+    return (
+      payload !== undefined &&
+      payload.kind === 'imm' &&
+      SUPPORTED_ARRAY_CALLS.includes(invokeNames[payload.value] ?? '')
+    );
+  });
 }
 
 /**
@@ -553,12 +589,31 @@ export function imageOfCarriers(
      */
     readonly procedures?: readonly ProcedureOffset[];
   } = {},
-): { bytes: Uint8Array; refused: readonly LoweringRefusal[] } {
+): {
+  bytes: Uint8Array;
+  refused: readonly LoweringRefusal[];
+  /**
+   * Чем образ пользуется: арена требует БОЛЬШЕ ОТОБРАЖЁННОЙ ПАМЯТИ (`extraMemory`), и это знание
+   * обязано дойти до построения ELF — иначе арена окажется за отображённым и первое же обращение
+   * к ней даст исключение. `extraMemory` пишет только `p_memsz`, кода не касается.
+   */
+  readonly arena: { readonly used: boolean; readonly extraMemory: number };
+} {
   const heapAddress = options.heapAddress ?? MINIMAL_BASE + HEAP_OFFSET;
+  // АРЕНА: пользуется ли образ операцией `система.память.выделить` — по имени вызова в потоке.
+  // Строка отказа планируется ВМЕСТЕ со прочими статическими блоками: её адрес выведен из конца
+  // образа, и второй способ его считать разошёлся бы с первым (`src/e2k/stringPlan.ts`).
+  const arenaUsed = usesArena(code, invokeNames);
   // СТРОКИ: литералы становятся адресами статических байтов, `длина`/`объединить` — пометками,
   // по которым ОДНИ И ТЕ ЖЕ команды считают и раскладка (форма), и понижение (байты). Планирование
   // идёт ДО всего остального: адреса блобов сдвигают сторож места, а пул констант — длину `IR.const`.
-  const strings = planStrings(code, constants, invokeNames, heapAddress);
+  const strings = planStrings(
+    code,
+    constants,
+    invokeNames,
+    heapAddress,
+    arenaUsed ? { arenaRefusal: ARENA_REFUSAL_TEXT } : {},
+  );
   const stringContext = { constants: strings.constants, invokeNames: strings.invokeNames };
   // Дальше весь конвейер работает с ПЕРЕПИСАННЫМ потоком и РАСШИРЕННЫМ пулом: строковый литерал —
   // это уже адрес, а не строка (`src/e2k/stringPlan.ts`).
@@ -567,16 +622,48 @@ export function imageOfCarriers(
   // записи разделённая печать (она дописывает в поток свою процедуру) оставила бы носители точки
   // входа «ничьими»: принадлежность считается как «последняя процедура, чьё смещение ≤ индекса»,
   // и её отсутствие значило бы «вызываемая» — то есть системный вызов и вызов в вызываемой.
-  const baseProcedures: readonly ProcedureOffset[] =
+  const declaredProcedures: readonly ProcedureOffset[] =
     options.procedures === undefined || options.procedures.length === 0
       ? [{ name: 'главная', codeOffset: 0 }]
       : options.procedures;
+  // АРЕНА В ПОТОКЕ: заведение в прологе (один раз на программу), сайт вместо каждого вызова операции,
+  // блок отказа — в конце потока. Индексы и цели переходов пересчитывает `expandCarriers`: свой счёт
+  // индексов разошёлся бы с ним (класс `docs/hardware-debt.md` §3.35).
+  const arena = arenaUsed
+    ? arenaGroups(strings.code, strings.invokeNames, declaredProcedures[entryProcedureIndex(declaredProcedures)]?.codeOffset ?? 0)
+    : undefined;
+  const withArena =
+    arena === undefined ? { code: strings.code, procedures: declaredProcedures } : expandCarriers(strings.code, arena.groups, declaredProcedures);
+  const arenaRefusal =
+    arena === undefined || strings.arenaRefusal === undefined
+      ? undefined
+      : arenaRefusalCarriers(strings.arenaRefusal.address, strings.arenaRefusal.byteLength);
+  const withRefusal =
+    arenaRefusal === undefined || withArena.code.length === 0
+      ? withArena
+      : expandCarriers(
+          withArena.code,
+          new Map([
+            [
+              withArena.code.length - 1,
+              [...withArena.code.slice(withArena.code.length - 1), ...arenaRefusal],
+            ],
+          ]),
+          withArena.procedures,
+        );
+  const arenaCode = withRefusal.code;
+  const baseProcedures: readonly ProcedureOffset[] = withRefusal.procedures;
+  // Отчёт об арене — наружу, к построению ELF: арена лежит ВЫШЕ отображённых восьми килобайт,
+  // и без `extraMemory` первое же обращение к ней встало бы исключением.
+  const arenaReport = arenaUsed
+    ? { used: true, extraMemory: ARENA_EXTRA_MEMORY }
+    : { used: false, extraMemory: HEAP_OFFSET };
   // РОСТ ОКНА: процедура, которая САМА вызывает, получает свой пролог `setwd wsz=16` + `setbn rsz=15`
   // (§3.56.5, правила 1–2) — иначе её внутренний вызов не имеет законного `wbs`. Растёт окно у той,
   // которая вызывает: точке входа оно не нужно (её вызовы идут с `wbs = 4`), листовой — тем более.
-  const growthAt = windowGrowthAt(strings.code, baseProcedures, strings.invokeNames);
-  const grown = growthAt.size === 0 ? undefined : expandCarriers(strings.code, growthAt, baseProcedures);
-  const growCode = grown?.code ?? strings.code;
+  const growthAt = windowGrowthAt(arenaCode, baseProcedures, strings.invokeNames);
+  const grown = growthAt.size === 0 ? undefined : expandCarriers(arenaCode, growthAt, baseProcedures);
+  const growCode = grown?.code ?? arenaCode;
   const growProcedures = grown?.procedures ?? baseProcedures;
   // РАЗДЕЛЁННАЯ ПЕЧАТЬ: если сайтов печати больше одного, развёртка (≈1400 байт на КАЖДЫЙ сайт)
   // выносится в листовую процедуру, а у сайта остаётся вызов и `write` (см. `src/e2k/printCall.ts`).
@@ -609,7 +696,7 @@ export function imageOfCarriers(
   // у прочих поведение прежнее и измеренное («без возврата — код 134», §3.39).
   const prepared = prepareImage(withText, proceduresWithText, {
     exitOnVoidReturn:
-      sharing.groupAt.size > 0 || countPrintSites(strings.code, invokeNames) > 0 || strings.counts.prints > 0,
+      sharing.groupAt.size > 0 || countPrintSites(arenaCode, invokeNames) > 0 || strings.counts.prints > 0,
   });
   const plannedCode = prepared.code;
   const procedures = prepared.procedures;
@@ -703,6 +790,22 @@ export function imageOfCarriers(
     ...strings.problems.map((reason) => refusalOf(LOWERING_CODES.runtime, reason)),
     ...sharing.problems,
   ];
+  // АРЕНА И КУЧА МАССИВОВ В ОДНОЙ ПРОГРАММЕ НЕ РАЗВЕДЕНЫ — и это НАЗВАННЫЙ отказ, а не надежда.
+  // Числа: куча рантайма массивов начинается с `HEAP_OFFSET` = `0x102000` (`%b[15]` кладёт туда
+  // пролог), и арена начинается ТАМ ЖЕ (`src/e2k/arenaRuntime.ts#ARENA_BASE`) и растёт вверх.
+  // Первая же запись массива легла бы в выделенный ареной блок — молча. Развести их (или отдать
+  // арене другое место) — отдельная работа: `HEAP_OFFSET` приколот («равен `HEAP_OFFSET` всех
+  // шлюзовых образов»), и трогать его здесь нельзя.
+  if (arenaUsed && usesArrayHeap(code, invokeNames)) {
+    refused.push(
+      refusalOf(
+        LOWERING_CODES.runtime,
+        'арена и куча массивов в одной программе не разведены: обе начинаются с 0x102000 ' +
+          '(HEAP_OFFSET) и растут вверх — запись массива легла бы в выделенный ареной блок. ' +
+          'Разведение — отдельная работа (docs/hardware-debt.md §3.89)',
+      ),
+    );
+  }
   let exitEmitted = false;
   /** Печатает ли образ: инлайновые сайты ИЛИ разделённая печать (её хвост `write`). */
   const prints = printPlans.size > 0 || sharing.groupAt.size > 0;
@@ -1093,7 +1196,7 @@ export function imageOfCarriers(
     for (const blob of strings.blobs) {
       withStatics.set(Uint8Array.from(blob.bytes), blob.address - MINIMAL_BASE);
     }
-    return { bytes: withStatics, refused };
+    return { bytes: withStatics, refused, arena: arenaReport };
   }
-  return { bytes, refused };
+  return { bytes, refused, arena: arenaReport };
 }

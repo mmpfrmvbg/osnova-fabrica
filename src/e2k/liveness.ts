@@ -27,6 +27,9 @@
  * | `IR.jmp_if`, `IR.jmp_if_not` | `[условие, смещение]` | — | 0 |
  * | `IR.call`, `IR.invoke` | `[флаги, arg0, arg1, payload, приёмник]` | 4 (если `флаги & 1`) | `arg0…` (`флаги >> 1` штук) |
  * | `IR.ret` | `[есть значение, регистр]` | — | 1 (если флаг) |
+ * | `IR.arena_init` | `[база, предел]` | регистры состояния арены | — |
+ * | `IR.arena_alloc` | `[размер, приёмник]` | 1 и указатель арены | 0 и указатель арены |
+ * | `IR.arena_pointer`, `IR.arena_limit` | `[приёмник]` | 0 | регистр состояния арены |
  * | прочие (арифметика, сравнения) | `[d, a, b]` | 0 | 1, 2 |
  *
  * Групповые носители (`IR.gt`, `IR.add`, …) идут по последней строке: их раскладка в эмиттере
@@ -42,6 +45,7 @@
 
 import type { AsmInstruction } from './backend';
 import { cfgLiveSets, cfgRanges } from '../vliw/cfg';
+import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from './procedureCall';
 
 /** Что носитель пишет и что читает (номера vreg'ов). */
 export interface DefUse {
@@ -165,6 +169,25 @@ export function defUseOf(instruction: AsmInstruction): DefUse {
       };
     case 'IR.const':
       return { def: registers(registerAt(instruction, 0)), use: [] };
+    // АРЕНА (`src/e2k/arenaRuntime.ts`): регистры состояния — ФИЗИЧЕСКИЕ и в операндах не названы,
+    // поэтому их обязан назвать этот разбор. Иначе сайт печати не увидит их живыми и затрёт
+    // указатель арены своей развёрткой (`%b[0..11]`) — это класс «тихая ложь», а не мелочь.
+    // `IR.arena_init [база, предел]` — заведение: пишет оба регистра состояния.
+    case 'IR.arena_init':
+      return { def: [ARENA_POINTER_BASE, ARENA_LIMIT_BASE], use: [] };
+    // `IR.arena_alloc [размер, приёмник]` — читает размер и СТАРЫЙ указатель, пишет приёмник и новый.
+    case 'IR.arena_alloc':
+      return {
+        def: registers(registerAt(instruction, 1), ARENA_POINTER_BASE),
+        use: registers(registerAt(instruction, 0), ARENA_POINTER_BASE),
+      };
+    case 'IR.arena_pointer':
+      return { def: registers(registerAt(instruction, 0)), use: [ARENA_POINTER_BASE] };
+    case 'IR.arena_limit':
+      return { def: registers(registerAt(instruction, 0)), use: [ARENA_LIMIT_BASE] };
+    // Блок отказа: адрес и длина — литералы, регистров нет (аргументы `write` — оконные слоты кадра).
+    case 'IR.arena_refusal':
+      return { def: [], use: [] };
     case 'IR.move':
     case 'IR.not':
       return { def: registers(registerAt(instruction, 0)), use: registers(registerAt(instruction, 1)) };

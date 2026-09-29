@@ -118,28 +118,31 @@ export function bankStoreInstruction(source: number): AsmInstruction {
 /**
  * АРЕНА: память, живущая ДОЛЬШЕ вызова (строки, коллекции, всё, что возвращается наружу, §3.71.1).
  *
- * Указатель и предел живут в БАНКЕ (%b[16..31]) — там 16 регистров, и значение переживает вызов
- * (измерено, §3.70). Возврата памяти НЕТ: арена — счётчик на программу (§3.71.2), и это свойство,
- * а не долг. Исчерпание арены обязано стать НАЗВАННЫМ отказом — рантайм-проверка пока не сделана.
+ * Возврата памяти НЕТ: арена — счётчик на программу (§3.71.2), и это свойство, а не долг.
+ * Исчерпание арены — НАЗВАННЫЙ отказ: расширение операции в носители, проверка предела и блок
+ * отказа живут в `src/e2k/arenaRuntime.ts` (там же — почему регистры именно эти).
  */
 export const ARENA_INIT_CARRIER = 'IR.arena_init';
 export const ARENA_ALLOC_CARRIER = 'IR.arena_alloc';
-/** Регистры арены в банке: указатель и предел. */
-export const ARENA_POINTER_BANK = 28;
-export const ARENA_LIMIT_BANK = 30;
-/** БАЗОВАЯ форма (как отлаженный пролог массивов): пара %db[4] = %b[8]/%b[9] — указатель. */
-export const ARENA_POINTER_BASE = 8;
-/** БАЗОВАЯ форма: пара %db[5] = %b[10]/%b[11] — предел. */
-export const ARENA_LIMIT_BASE = 10;
-/** Заведение арены: два movtd — база и предел (арена одна на программу). */
+/**
+ * Регистры состояния арены — `%b[4]` (указатель) и `%b[6]` (предел), БАЗОВОЙ формой.
+ *
+ * Почему не прежние `%b[8]`/`%b[10]` и не банк `%b[16..31]`: приёмка требует, чтобы выделение
+ * пережило **вложенный вызов**, а окно вызываемой при `wbs = 4` — это `%b[8..23]` (её пул
+ * `%r0..%r9` = `%b[8..17]`), то есть всё от восьми и выше затирается. Банк потребовал бы роста
+ * окна точки входа (32/31) и `wbs = 16` — отдельная работа. Разбор — `src/e2k/arenaRuntime.ts`.
+ */
+export const ARENA_POINTER_BASE = 4;
+/** БАЗОВАЯ форма: `%db[3]` = `%b[6]`/`%b[7]` — предел арены. */
+export const ARENA_LIMIT_BASE = 6;
+/** Заведение арены: два `movtd` — база и предел (арена одна на программу). */
 export function arenaInitInstructions(base: number, limit: number): AsmInstruction[] {
   return [
     { mnemonic: "movtd", channel: 0, operands: [f64(BigInt(base)), base_(ARENA_POINTER_BASE)] },
     { mnemonic: "movtd", channel: 0, operands: [f64(BigInt(limit)), base_(ARENA_LIMIT_BASE)] },
   ];
 }
-/** Выделение: новый указатель = старый + размер, старый уезжает в приёмник. */
-/** Носители ЧТЕНИЯ арены: без них физические %b[8]/%b[10] языку носителей не видны (§3.75). */
+/** Носители ЧТЕНИЯ арены: без них физические регистры арены языку носителей не видны (§3.75). */
 export const ARENA_POINTER_CARRIER = 'IR.arena_pointer';
 export const ARENA_LIMIT_CARRIER = 'IR.arena_limit';
 /** Указатель арены → регистр IR. Читается СВЕЖИМ после каждого выделения: копия устаревает. */
@@ -149,12 +152,6 @@ export function arenaPointerInstructions(destination: number): AsmInstruction[] 
 /** Предел арены → регистр IR. */
 export function arenaLimitInstructions(destination: number): AsmInstruction[] {
   return [{ mnemonic: 'movts', channel: 0, operands: [base_(ARENA_LIMIT_BASE), base_(destination)] }];
-}
-export function arenaAllocInstructions(size: number, destination: number): AsmInstruction[] {
-  return [
-    { mnemonic: "movts", channel: 0, operands: [base_(ARENA_POINTER_BASE), window_(destination)] },
-    { mnemonic: "adds", channel: 0, operands: [base_(ARENA_POINTER_BASE), imm(size), base_(ARENA_POINTER_BASE)] },
-  ];
 }
 
 /**

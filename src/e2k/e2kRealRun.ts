@@ -72,10 +72,6 @@ import {
   ARENA_INIT_CARRIER,
   ARENA_LIMIT_CARRIER,
   ARENA_POINTER_CARRIER,
-  arenaAllocInstructions,
-  arenaInitInstructions,
-  arenaLimitInstructions,
-  arenaPointerInstructions,
   BANK_LOAD_CARRIER,
   BANK_STORE_CARRIER,
   GETSP_CARRIER,
@@ -84,6 +80,7 @@ import {
   getspInstructions,
   windowGrowInstructions,
 } from "./procedureCall";
+import { ARENA_REFUSAL_CARRIER, arenaCarrierInstructions } from "./arenaRuntime";
 import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
 import { LOWERING_CODES, failureOf, type LoweringFailure } from "./loweringRefusal";
 import type { ShellEmitResult } from "./emitterOracle";
@@ -559,35 +556,26 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     };
   }
 
-  // АРЕНА: заведение и выделение (§3.72). Возврата памяти нет — арена живёт до конца программы.
-  if (instruction.mnemonic === ARENA_INIT_CARRIER) {
-    const base = instruction.operands[0];
-    const limit = instruction.operands[1];
-    if (base === undefined || base.kind !== "imm" || limit === undefined || limit.kind !== "imm") {
-      return failureOf(LOWERING_CODES.carrier, "«IR.arena_init»: ожидались два числа — база и предел");
+  // АРЕНА: заведение, выделение, чтение и БЛОК ОТКАЗА (§3.88–§3.89). Возврата памяти нет — арена
+  // живёт до конца программы. Команды берутся ИЗ ОДНОГО ИСТОЧНИКА с формой носителя
+  // (`src/e2k/arenaRuntime.ts#arenaCarrierInstructions`): разойтись байтам и форме нечем (§3.35).
+  if (
+    instruction.mnemonic === ARENA_INIT_CARRIER ||
+    instruction.mnemonic === ARENA_POINTER_CARRIER ||
+    instruction.mnemonic === ARENA_LIMIT_CARRIER ||
+    instruction.mnemonic === ARENA_ALLOC_CARRIER ||
+    instruction.mnemonic === ARENA_REFUSAL_CARRIER
+  ) {
+    const instructions = arenaCarrierInstructions(instruction);
+    if (instructions === undefined) {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${instruction.mnemonic}»: операнды носителя не той формы — ` +
+          "заведение ждёт два числа (база и предел), выделение — размер-регистр и регистр-приёмник, " +
+          "чтение — регистр-приёмник, блок отказа — адрес и длину статического блоба от stringPlan",
+      );
     }
-    return { ok: true, instructions: arenaInitInstructions(base.value, limit.value) };
-  }
-  if (instruction.mnemonic === ARENA_POINTER_CARRIER || instruction.mnemonic === ARENA_LIMIT_CARRIER) {
-    const destination = instruction.operands[0];
-    if (destination === undefined || destination.kind !== "reg") {
-      return failureOf(LOWERING_CODES.carrier, "чтение арены: ожидался регистр-приёмник");
-    }
-    return {
-      ok: true,
-      instructions:
-        instruction.mnemonic === ARENA_POINTER_CARRIER
-          ? arenaPointerInstructions(destination.index)
-          : arenaLimitInstructions(destination.index),
-    };
-  }
-  if (instruction.mnemonic === ARENA_ALLOC_CARRIER) {
-    const size = instruction.operands[0];
-    const destination = instruction.operands[1];
-    if (size === undefined || size.kind !== "imm" || destination === undefined || destination.kind !== "reg") {
-      return failureOf(LOWERING_CODES.carrier, "«IR.arena_alloc»: ожидались размер числом и регистр-приёмник");
-    }
-    return { ok: true, instructions: arenaAllocInstructions(size.value, destination.index) };
+    return { ok: true, instructions };
   }
 
   if (instruction.mnemonic === "IR.window_grow") {

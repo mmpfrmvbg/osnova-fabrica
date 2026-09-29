@@ -52,6 +52,15 @@ const imm = (value: number): Operand => ({ kind: 'imm', value });
  */
 export const STRING_MARK_OPERAND = 6;
 
+/**
+ * Ключ статического блоба СТРОКИ ОТКАЗА АРЕНЫ (`src/e2k/arenaRuntime.ts`).
+ *
+ * Блоб планируется здесь же, вместе с прочими: его адрес выведен из конца образа (`printArea`),
+ * и второй способ его считать разошёлся бы с первым. Строится он только тогда, когда образ
+ * пользуется ареной, — у прочих программ статических байтов не прибавляется.
+ */
+export const ARENA_REFUSAL_BLOB_KEY = '⟨текст отказа арены⟩';
+
 /** Значение строки, как его видит конвейер: байты и их число плюс адрес (появляется при раскладке блobs). */
 interface StringValue {
   readonly bytes: readonly number[];
@@ -79,6 +88,13 @@ export interface StringPlan {
   readonly problems: readonly string[];
   /** Сколько строковых операций и печатей строк распознано — для отчёта и оракулов. */
   readonly counts: { readonly lengths: number; readonly concats: number; readonly prints: number; readonly strings: number };
+  /**
+   * Где лежит строка отказа арены и сколько в ней байт (`undefined` — образ ареной не пользуется).
+   *
+   * Ставится по запросу конвейера: арена заводится в прологе, и блок отказа обязан знать адрес
+   * ДО раскладки — иначе блоб и переход разошлись бы (класс `docs/hardware-debt.md` §3.35).
+   */
+  readonly arenaRefusal?: { readonly address: number; readonly byteLength: number };
 }
 
 /**
@@ -94,6 +110,11 @@ export function planStrings(
   constants: readonly unknown[],
   invokeNames: readonly string[],
   heapAddress: number,
+  /**
+   * Строка отказа арены, если образ ею пользуется (`src/e2k/arenaRuntime.ts#ARENA_REFUSAL_TEXT`).
+   * Адрес блоба возвращается в {@link StringPlan.arenaRefusal}.
+   */
+  options: { readonly arenaRefusal?: string } = {},
 ): StringPlan {
   const names = [...invokeNames];
   const concatPayload = ((): number => {
@@ -235,6 +256,9 @@ export function planStrings(
   }
   if (needsBuffer) ordered.push({ key: '⟨буфер склейки⟩', bytes: new Array<number>(STRING_BUFFER_BYTES).fill(0) });
   if (needsNewline) ordered.push({ key: '⟨перевод строки⟩', bytes: [STRING_NEWLINE] });
+  // СТРОКА ОТКАЗА АРЕНЫ — тем же порядком, что прочие блобы: адрес выведен из конца образа.
+  const refusalBytes = options.arenaRefusal === undefined ? undefined : utf8Bytes(options.arenaRefusal);
+  if (refusalBytes !== undefined) ordered.push({ key: ARENA_REFUSAL_BLOB_KEY, bytes: refusalBytes });
 
   const area = printAreaOf(heapAddress);
   let cursor = area;
@@ -306,6 +330,7 @@ export function planStrings(
     return { ...carrier, operands };
   });
 
+  const refusalAddress = addresses.get(ARENA_REFUSAL_BLOB_KEY);
   return {
     code: rewritten,
     constants: pool,
@@ -314,6 +339,9 @@ export function planStrings(
     staticStart: cursor,
     problems,
     counts: { lengths, concats, prints, strings: ordered.length },
+    ...(refusalAddress === undefined || refusalBytes === undefined
+      ? {}
+      : { arenaRefusal: { address: refusalAddress, byteLength: refusalBytes.length } }),
   };
 }
 

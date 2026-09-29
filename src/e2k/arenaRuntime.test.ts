@@ -1,0 +1,197 @@
+/**
+ * АРЕНА КАК ОПЕРАЦИЯ ЯЗЫКА: ФОРМА, ЖИЗНЬ РЕГИСТРОВ И ИНДЕКСЫ БЛОКА ОТКАЗА (без модели).
+ *
+ * Прогон на цели — `src/e2k/arenaQemu.test.ts` (шлюз `gate:qemu`). Здесь то, что обязано совпасть
+ * ДО прогона, иначе образ уедет молча:
+ *
+ * | что | почему это сторож, а не формальность |
+ * |---|---|
+ * | форма носителя равна байтам понижения | расхождение — уехавшие адреса переходов и вызовов (§3.35) |
+ * | регистры состояния арены живут для раскладки | сайт печати сохраняет живое, и если указатель арены не виден — развёртка затрёт его молча |
+ * | индекс блока отказа совпадает с целью переходов | переход в никуда или в чужое тело |
+ * | пара «сравнение + переход» СОСТАВЛЯЕТСЯ | без пары предиката нет, и понижение откажет (§3.80.1) |
+ */
+import { describe, it, expect } from 'vitest';
+import { getEncoder } from './backend';
+import type { AsmInstruction } from './backend';
+import {
+  ARENA_BASE,
+  ARENA_BYTES,
+  ARENA_EXTRA_MEMORY,
+  ARENA_FLAG_REGISTER,
+  ARENA_LIMIT,
+  ARENA_REFUSAL_CARRIER,
+  ARENA_REFUSAL_CODE,
+  ARENA_REFUSAL_TEXT,
+  arenaCarrierInstructions,
+  arenaGroups,
+  arenaRefusalCarriers,
+  arenaReservedRegisters,
+  arenaSiteCarriers,
+  usesArena,
+} from './arenaRuntime';
+import {
+  ARENA_ALLOC_CARRIER,
+  ARENA_INIT_CARRIER,
+  ARENA_LIMIT_BASE,
+  ARENA_LIMIT_CARRIER,
+  ARENA_POINTER_BASE,
+  ARENA_POINTER_CARRIER,
+} from './procedureCall';
+import { carrierFormOf } from './twoPassLayout';
+import { defUseOf } from './liveness';
+import { pairPredicates } from './predicatePairing';
+import { PRINT_PRIMITIVE_CLOBBERS } from './printPrimitives';
+import { planPrintSite } from './printCall';
+import { MINIMAL_BASE } from './elfMinimal';
+
+const encoder = getEncoder('e2k');
+const carrier = (mnemonic: string, operands: AsmInstruction['operands']): AsmInstruction => ({
+  mnemonic,
+  channel: 0,
+  operands,
+});
+const imm = (value: number) => ({ kind: 'imm', value }) as const;
+const reg = (index: number) => ({ kind: 'reg', index }) as const;
+
+/** Образцы носителей: те же, что ставит конвейер (`arenaGroups` + блок отказа). */
+const SAMPLES: readonly AsmInstruction[] = [
+  carrier(ARENA_INIT_CARRIER, [imm(ARENA_BASE), imm(ARENA_LIMIT)]),
+  carrier(ARENA_ALLOC_CARRIER, [reg(0), reg(1)]),
+  carrier(ARENA_POINTER_CARRIER, [reg(2)]),
+  carrier(ARENA_LIMIT_CARRIER, [reg(3)]),
+  // `IR.exit` блока отказа — носитель ПЕЧАТИ (`src/e2k/printCall.ts#EXIT_CARRIER`), у него своя
+  // форма и свой сторож; здесь только носители арены.
+  ...arenaRefusalCarriers(0x101e75, ARENA_REFUSAL_TEXT.length).filter(
+    (item) => item.mnemonic !== 'IR.exit',
+  ),
+];
+
+describe('арена: форма носителя обязана совпасть с байтами понижения', () => {
+  it('каждый носитель арены объявляет ровно те команды, что кодирует кодировщик', () => {
+    for (const sample of SAMPLES) {
+      const commands = arenaCarrierInstructions(sample);
+      expect(commands, `${sample.mnemonic}: понижение обязано давать команды`).toBeDefined();
+      const declared = carrierFormOf(sample, { invokeNames: [], constants: [] });
+      expect(declared, `${sample.mnemonic}: форма обязана быть известна раскладке`).toBeDefined();
+      const declaredBytes = declared!.commands.reduce((sum, command) => sum + command.size, 0);
+      const realBytes = commands!.reduce((sum, command) => sum + encoder.encode(command).length, 0);
+      expect(declaredBytes, `${sample.mnemonic}: объявлено ${String(declaredBytes)}, а байт ${String(realBytes)}`).toBe(
+        realBytes,
+      );
+    }
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: занижённое объявление расходится с байтами — сверка это ловит', () => {
+    const sample = carrier(ARENA_INIT_CARRIER, [imm(ARENA_BASE), imm(ARENA_LIMIT)]);
+    const commands = arenaCarrierInstructions(sample)!;
+    const realBytes = commands.reduce((sum, command) => sum + encoder.encode(command).length, 0);
+    // Прежняя редакция объявляла заведение двумя командами по 8 байт (16 вместо 32) — ровно этот
+    // дефект и был в дереве: `movtd` с 64-битным литералом несёт литеральное слово.
+    expect(realBytes).not.toBe(16);
+    expect(realBytes).toBe(32);
+  });
+});
+
+describe('арена: регистры состояния видны раскладке', () => {
+  it('носитель выделения читает и пишет указатель арены', () => {
+    const use = defUseOf(carrier(ARENA_ALLOC_CARRIER, [reg(0), reg(1)]));
+    expect(use.use).toContain(ARENA_POINTER_BASE);
+    expect(use.def).toContain(ARENA_POINTER_BASE);
+    expect(use.def, 'приёмник операции тоже определяется').toContain(1);
+  });
+
+  it('заведение пишет оба регистра состояния, блок отказа регистров не трогает', () => {
+    expect(defUseOf(carrier(ARENA_INIT_CARRIER, [imm(ARENA_BASE), imm(ARENA_LIMIT)])).def).toEqual([
+      ARENA_POINTER_BASE,
+      ARENA_LIMIT_BASE,
+    ]);
+    expect(defUseOf(carrier(ARENA_REFUSAL_CARRIER, [imm(0), imm(1)]))).toEqual({ def: [], use: [] });
+  });
+
+  it('САЙТ ПЕЧАТИ СОХРАНЯЕТ АРЕНУ: живой указатель и предел попадают в сохраняемые', () => {
+    // Живость приходит от раскладки (`cfgLiveSets` + `defUseOf`); здесь проверяется само правило:
+    // что живёт И что портит развёртка — то и сохраняется.
+    const plan = planPrintSite({
+      argument: 7,
+      heapAddress: MINIMAL_BASE + 0x2000,
+      liveAfter: [ARENA_POINTER_BASE, ARENA_LIMIT_BASE, 7],
+      clobbered: PRINT_PRIMITIVE_CLOBBERS,
+    });
+    const saved = plan.saved.map((item) => item.register);
+    expect(saved, 'указатель арены обязан пережить печать').toContain(ARENA_POINTER_BASE);
+    expect(saved, 'предел арены обязан пережить печать').toContain(ARENA_LIMIT_BASE);
+  });
+});
+
+describe('арена: расширение потока', () => {
+  const invoke = carrier('IR.invoke', [imm(3), reg(0), reg(0), imm(0), reg(1)]);
+
+  it('заведение встаёт прологом ТОЧКИ ВХОДА, а не началом потока', () => {
+    // Точка входа может стоять в модуле не первой: тогда конвейер ставит в начало переход к ней, и
+    // заведение, положенное в начало, осталось бы ЗА переходом (измерено: указатель читался мусором).
+    const groups = arenaGroups([reg(0) as never, invoke], ['система.память.выделить'], 1);
+    expect(groups.groups.has(0), 'пролог чужой процедуры не трогаем').toBe(false);
+    expect(groups.groups.get(1)?.[0]?.mnemonic).toBe(ARENA_INIT_CARRIER);
+  });
+
+  it('цель перехода сайта указывает РОВНО на блок отказа', () => {
+    const code: AsmInstruction[] = [invoke, invoke];
+    const groups = arenaGroups(code, ['система.память.выделить'], 0);
+    // Поток после расширения: заведение (1) + два сайта по три носителя + блок (2).
+    const lengthAfter = 1 + 2 * 3 + 2;
+    expect(groups.refusalIndex).toBe(lengthAfter - 2);
+    const site = groups.groups.get(1);
+    expect(site?.[2]?.mnemonic).toBe('IR.jmp_if_not');
+    expect(site?.[2]?.operands[1]).toEqual(imm(groups.refusalIndex));
+  });
+
+  it('пара «сравнение + условный переход» СОСТАВЛЯЕТСЯ конвейером', () => {
+    const site = arenaSiteCarriers(reg(0), reg(1), 5);
+    const pairing = pairPredicates(site);
+    expect(pairing.refusals, 'отказов сопоставления быть не должно').toEqual([]);
+    expect(pairing.pairs).toHaveLength(1);
+    expect(pairing.pairs[0]!.cmpMnemonic, 'условие пишется как есть (§3.80.1)').toBe('cmplesb');
+    expect(pairing.pairs[0]!.condition, 'переход — с отрицанием предиката').toBe(0x60);
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: носитель арены, неизвестный разбору регистров, ЛОМАЕТ пару', () => {
+    // Ровно это и было до правки: разбор живости (`src/e2k/predicatePairing.ts#registersOf`) не знал
+    // носителей арены, второй сайт вставал в промежутке БАРЬЕРОМ, и сравнение первого сайта
+    // получало «читателей» из последующих сайтов: «результат читают 2 инструкций
+    // (#9 IR.jmp_if_not, #18 IR.jmp_if_not)» — предикат не составлялся вовсе.
+    const first = arenaSiteCarriers(reg(0), reg(1), 99);
+    const second = arenaSiteCarriers(reg(0), reg(1), 99);
+    const unknown: AsmInstruction = { ...first[0]!, mnemonic: 'IR.arena_alloc_unknown' };
+    const pairing = pairPredicates([...first, unknown, ...second]);
+    expect(
+      pairing.pairs.map((pair) => pair.comparisonIndex),
+      'сравнение ПЕРВОГО сайта пары не образует: живость не доказана',
+    ).not.toContain(1);
+    expect(pairing.refusals.map((item) => item.reason).join(' ')).toContain('результат читают 2 инструкций');
+  });
+});
+
+describe('арена: границы решения', () => {
+  it('арена лежит выше площадки печати и ниже отображённого хвоста', () => {
+    expect(ARENA_BASE).toBe(MINIMAL_BASE + 0x2000);
+    expect(ARENA_LIMIT - ARENA_BASE).toBe(ARENA_BYTES);
+    expect(ARENA_EXTRA_MEMORY).toBeGreaterThanOrEqual(ARENA_LIMIT - MINIMAL_BASE);
+  });
+
+  it('признак «образ пользуется ареной» берётся по имени вызова, а не по наличию инструкций', () => {
+    const code = [carrier('IR.invoke', [imm(3), reg(0), reg(0), imm(0), reg(1)])];
+    expect(usesArena(code, ['система.лог.вывести'])).toBe(false);
+    expect(usesArena(code, ['система.память.выделить'])).toBe(true);
+  });
+
+  it('регистры состояния и ключ предиката зарезервированы, ключ в их числе', () => {
+    expect(arenaReservedRegisters()).toEqual([ARENA_POINTER_BASE, ARENA_FLAG_REGISTER, ARENA_LIMIT_BASE]);
+    expect(arenaReservedRegisters()).not.toContain(ARENA_LIMIT_BASE + 1);
+  });
+
+  it('код отказа наблюдаем 8-битным каналом', () => {
+    expect(ARENA_REFUSAL_CODE).toBeLessThan(256);
+    expect(ARENA_REFUSAL_CODE).toBe(231);
+  });
+});
