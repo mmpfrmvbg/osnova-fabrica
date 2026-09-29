@@ -68,6 +68,10 @@ import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
 import {
+  ARENA_ALLOC_CARRIER,
+  ARENA_INIT_CARRIER,
+  arenaAllocInstructions,
+  arenaInitInstructions,
   BANK_LOAD_CARRIER,
   BANK_STORE_CARRIER,
   GETSP_CARRIER,
@@ -549,6 +553,24 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
           : bankLoadInstruction(operand.index),
       ],
     };
+  }
+
+  // АРЕНА: заведение и выделение (§3.72). Возврата памяти нет — арена живёт до конца программы.
+  if (instruction.mnemonic === ARENA_INIT_CARRIER) {
+    const base = instruction.operands[0];
+    const limit = instruction.operands[1];
+    if (base === undefined || base.kind !== "imm" || limit === undefined || limit.kind !== "imm") {
+      return failureOf(LOWERING_CODES.carrier, "«IR.arena_init»: ожидались два числа — база и предел");
+    }
+    return { ok: true, instructions: arenaInitInstructions(base.value, limit.value) };
+  }
+  if (instruction.mnemonic === ARENA_ALLOC_CARRIER) {
+    const size = instruction.operands[0];
+    const destination = instruction.operands[1];
+    if (size === undefined || size.kind !== "imm" || destination === undefined || destination.kind !== "reg") {
+      return failureOf(LOWERING_CODES.carrier, "«IR.arena_alloc»: ожидались размер числом и регистр-приёмник");
+    }
+    return { ok: true, instructions: arenaAllocInstructions(size.value, destination.index) };
   }
 
   if (instruction.mnemonic === "IR.window_grow") {

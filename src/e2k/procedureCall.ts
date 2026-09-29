@@ -113,6 +113,34 @@ export function bankStoreInstruction(source: number): AsmInstruction {
 }
 
 /** Чтение банка: только ОКОННОЙ формой. */
+/**
+ * АРЕНА: память, живущая ДОЛЬШЕ вызова (строки, коллекции, всё, что возвращается наружу, §3.71.1).
+ *
+ * Указатель и предел живут в БАНКЕ (%b[16..31]) — там 16 регистров, и значение переживает вызов
+ * (измерено, §3.70). Возврата памяти НЕТ: арена — счётчик на программу (§3.71.2), и это свойство,
+ * а не долг. Исчерпание арены обязано стать НАЗВАННЫМ отказом — рантайм-проверка пока не сделана.
+ */
+export const ARENA_INIT_CARRIER = 'IR.arena_init';
+export const ARENA_ALLOC_CARRIER = 'IR.arena_alloc';
+/** Регистры арены в банке: указатель и предел. */
+export const ARENA_POINTER_BANK = 28;
+export const ARENA_LIMIT_BANK = 30;
+/** Заведение арены: два movtd — база и предел (арена одна на программу). */
+export function arenaInitInstructions(base: number, limit: number): AsmInstruction[] {
+  return [
+    { mnemonic: 'movtd', channel: 0, operands: [f64(BigInt(base)), window_(ARENA_POINTER_BANK)] },
+    { mnemonic: 'movtd', channel: 0, operands: [f64(BigInt(limit)), window_(ARENA_LIMIT_BANK)] },
+  ];
+}
+/** Выделение: новый указатель = старый + размер, старый уезжает в приёмник. */
+export function arenaAllocInstructions(size: number, destination: number): AsmInstruction[] {
+  return [
+    { mnemonic: 'movts', channel: 0, operands: [window_(ARENA_POINTER_BANK), window_(destination)] },
+    { mnemonic: 'adds', channel: 0, operands: [window_(ARENA_POINTER_BANK), imm(size), window_(ARENA_POINTER_BANK)] },
+  ];
+}
+/** Оператор f64 для movtd (адрес в память кладётся movtd, не movts). */
+const f64 = (value: bigint): Operand => ({ kind: 'imm64', value }) as unknown as Operand;
 export function bankLoadInstruction(destination: number): AsmInstruction {
   return { mnemonic: 'movts', channel: 0, operands: [window_(BANK_SLOT_REGISTER), window_(destination)] };
 }

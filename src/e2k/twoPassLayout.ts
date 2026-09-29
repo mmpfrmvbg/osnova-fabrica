@@ -65,6 +65,8 @@ import { isStringPrint, stringMarksOf } from "./stringPlan";
 import {
   BANK_LOAD_CARRIER,
   BANK_STORE_CARRIER,
+  ARENA_ALLOC_CARRIER,
+  ARENA_INIT_CARRIER,
   GETSP_CARRIER,
   WINDOW_GROW_CARRIER,
 } from "./procedureCall";
@@ -553,6 +555,23 @@ function carrierFormWithReason(
   // а не в `%r8` (§3.58). Длины команд от кадра НЕ зависят (те же команды, другие индексы) —
   // поэтому формы одинаковы, но берутся ИЗ ТОГО ЖЕ источника, что и понижение: разойтись нечем.
   const frame = syscallFrameOfCarrier(instruction);
+  // АРЕНА: длины — те же команды, что понижает конвейер (movtd по 8, movts/adds по 8).
+  if (instruction.mnemonic === ARENA_INIT_CARRIER || instruction.mnemonic === ARENA_ALLOC_CARRIER) {
+    const count = instruction.mnemonic === ARENA_INIT_CARRIER ? 2 : 2;
+    const mnemonic = instruction.mnemonic === ARENA_INIT_CARRIER ? "movtd" : "movts";
+    const size = 8;
+    return {
+      form: {
+        carrier: instruction.mnemonic,
+        commands: Array.from({ length: count }, () => ({
+          mnemonic,
+          form: "ALF2",
+          size,
+          source: "измерено: movtd/movts/adds — 8 байт (ALF2)",
+        })),
+      },
+    };
+  }
   // РОСТ ОКНА у процедуры, которая сама вызывает: `setwd wsz=16` (CS1_SETWD, 16 байт — измерено
   // кодировщиком, `.tmp/osnova-setwd-encode.ts`) плюс `setbn rsz=15` (ALF2, 8 байт). Объявление
   // обязано совпасть с понижением — сторож в `src/e2k/procedureCall.test.ts` кодирует те же команды.
