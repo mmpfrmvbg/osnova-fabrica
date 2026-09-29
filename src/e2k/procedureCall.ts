@@ -51,6 +51,8 @@ import { resolveEntryIndex } from '../oracle/parity';
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 /** Оконный регистр: форма, которой адресует выращенный кадр (базовая в вызываемой — ловушка). */
 const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
+/** Базовый регистр: форма отлаженного пролога массивов (movtd ... %db[15]). */
+const base_ = (index: number): Operand => ({ kind: 'reg', index });
 
 /**
  * РОСТ ОКНА ПРОЦЕДУРЫ, КОТОРАЯ САМА ВЫЗЫВАЕТ: `setwd wsz=16`, затем `setbn rsz=15`, по одному разу.
@@ -125,18 +127,22 @@ export const ARENA_ALLOC_CARRIER = 'IR.arena_alloc';
 /** Регистры арены в банке: указатель и предел. */
 export const ARENA_POINTER_BANK = 28;
 export const ARENA_LIMIT_BANK = 30;
+/** БАЗОВАЯ форма (как отлаженный пролог массивов): пара %db[4] = %b[8]/%b[9] — указатель. */
+export const ARENA_POINTER_BASE = 8;
+/** БАЗОВАЯ форма: пара %db[5] = %b[10]/%b[11] — предел. */
+export const ARENA_LIMIT_BASE = 10;
 /** Заведение арены: два movtd — база и предел (арена одна на программу). */
 export function arenaInitInstructions(base: number, limit: number): AsmInstruction[] {
   return [
-    { mnemonic: 'movtd', channel: 0, operands: [f64(BigInt(base)), window_(ARENA_POINTER_BANK)] },
-    { mnemonic: 'movtd', channel: 0, operands: [f64(BigInt(limit)), window_(ARENA_LIMIT_BANK)] },
+    { mnemonic: "movtd", channel: 0, operands: [f64(BigInt(base)), base_(ARENA_POINTER_BASE)] },
+    { mnemonic: "movtd", channel: 0, operands: [f64(BigInt(limit)), base_(ARENA_LIMIT_BASE)] },
   ];
 }
 /** Выделение: новый указатель = старый + размер, старый уезжает в приёмник. */
 export function arenaAllocInstructions(size: number, destination: number): AsmInstruction[] {
   return [
-    { mnemonic: 'movts', channel: 0, operands: [window_(ARENA_POINTER_BANK), window_(destination)] },
-    { mnemonic: 'adds', channel: 0, operands: [window_(ARENA_POINTER_BANK), imm(size), window_(ARENA_POINTER_BANK)] },
+    { mnemonic: "movts", channel: 0, operands: [base_(ARENA_POINTER_BASE), window_(destination)] },
+    { mnemonic: "adds", channel: 0, operands: [base_(ARENA_POINTER_BASE), imm(size), base_(ARENA_POINTER_BASE)] },
   ];
 }
 /** Оператор f64 для movtd (адрес в память кладётся movtd, не movts). */
