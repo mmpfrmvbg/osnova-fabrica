@@ -9,10 +9,13 @@
  * - `docs/e2k-syscall-abi.md` — каждый факт ABI со ссылкой `файл:строка`;
  * - `docs/e2k-syscalls-minimal.md` — «семь вызовов: read, write, open, close, brk, mmap, exit».
  *
- * Утверждение без проверки — не оракул. Тест проверяет четыре уровня: **структуру документов**
+ * Утверждение без проверки — не оракул. Тест проверяет пять уровней: **структуру документов**
  * (всегда), **совпадение со источником** (когда есть `.tmp/e2k-sources/`), **соответствие
- * документов друг другу** (номера минимального набора против сырой таблицы) и **негативный
- * контроль** (испорченный вход обязан ловиться, иначе оракул ничего не проверяет).
+ * документов друг другу** (номера минимального набора против сырой таблицы), **сверку с
+ * первоисточником** — ядром Linux 6.1 для e2k, опубликованным 2026-09-30 (когда оно в зеркале;
+ * до этой даты единственной таблицей номеров был порт QEMU, и его шапка ссылалась на файл ядра,
+ * которого в зеркале не было) — и **негативный контроль** (испорченный вход обязан ловиться,
+ * иначе оракул ничего не проверяет).
  *
  * # Что именно ловит
  *
@@ -44,6 +47,17 @@ const SOURCES = process.env.E2K_SOURCES_DIR ?? path.join(ROOT, ".tmp", "e2k-sour
 const QEMU = path.join(SOURCES, "qemu-e2k", "qemu");
 const SYS_NR = path.join(QEMU, "linux-user", "e2k", "syscall_nr.h");
 const X64_TBL = path.join(QEMU, "linux-user", "x86_64", "syscall_64.tbl");
+/**
+ * Первоисточник ABI — исходники ядра Linux 6.1 для Эльбрус (МЦСТ, опубликованы 2026-09-30;
+ * опись — `docs/e2k-sources-raw.md` §1, источник 5). До этой даты таблица номеров бралась
+ * только из порта QEMU, а её шапка ссылалась на файл `arch/e2k/include/uapi/asm/unistd.h`,
+ * которого в зеркале не было.
+ */
+const KERNEL = path.join(SOURCES, "linux-6.1.0-1.19-open");
+const KERNEL_NR = path.join(KERNEL, "arch", "e2k", "include", "uapi", "asm", "unistd.h");
+/** Ядро 5.10 (источник 6): из него распакована только таблица номеров, но она нужна как вторая колонка. */
+const KERNEL_510 = path.join(SOURCES, "linux-5.10.0-1.50.1-open");
+const KERNEL_510_NR = path.join(KERNEL_510, "arch", "e2k", "include", "uapi", "asm", "unistd.h");
 
 /** Маркеры сравнения с x86_64, допустимые в индексе §3 сырого документа. */
 const COMPARE_MARKERS = ["СОВПАЛ", "НОМЕР ИНОЙ", "СПЕЦИФИЧЕН", "АЛИАС", "МАРКЕР"] as const;
@@ -163,16 +177,189 @@ export function validateOrder(rows: readonly IndexRow[]): string[] {
   return problems;
 }
 
+/** Строка `#define __NR_<имя> <значение>` первоисточника (ядерной таблицы номеров). */
+export interface KernelDefine {
+  readonly line: number;
+  readonly name: string;
+  readonly value: string;
+}
+
+/** Разобрать таблицу номеров ядра. В отличие от порта, префикс здесь `__NR_`, а не `TARGET_NR_`. */
+export function parseKernelDefines(text: string): KernelDefine[] {
+  const defines: KernelDefine[] = [];
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    const match = /^\s*#define\s+__NR_(\S+)\s+(\S+)/.exec(lines[index]!);
+    if (match === null) continue;
+    defines.push({ line: index + 1, name: match[1]!, value: match[2]! });
+  }
+  return defines;
+}
+
+/**
+ * Маркер конца ядерной таблицы: `#define NR_syscalls <N>`.
+ *
+ * В ядре он **без** префикса `__NR_` (в порте — `TARGET_NR_syscalls`), поэтому в общий разбор
+ * `__NR_*` не попадает и разбирается отдельно: именно это значение объясняет маркер порта
+ * (см. тест «маркер порта объясняется таблицей 5.10»).
+ */
+export function parseKernelMarker(text: string): { readonly value: number; readonly line: number } | null {
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    const match = /^\s*#define\s+NR_syscalls\s+(\d+)\s*$/.exec(lines[index]!);
+    if (match === null) continue;
+    return { value: Number(match[1]), line: index + 1 };
+  }
+  return null;
+}
+
+/** Итог сверки номеров порта с первоисточником. */
+export interface NumberComparison {
+  /** Имена, присутствующие в обеих таблицах. */
+  readonly both: readonly string[];
+  /** Имена только в порте (в ядре такого вызова нет). */
+  readonly onlyPort: readonly string[];
+  /** Имена только в ядре. */
+  readonly onlyKernel: readonly string[];
+  /** Имена, у которых номера разошлись — обязан быть пустым. */
+  readonly mismatched: readonly string[];
+}
+
+/**
+ * Сверить номера двух таблиц по именам.
+ *
+ * Маркер конца таблицы (`TARGET_NR_syscalls` / `NR_syscalls`) вызовом не является и в сравнение
+ * имён не входит: иначе он вечно висел бы в «только в одной таблице». Сравниваются только
+ * числовые `#define`: алиасы (`TARGET_NR_clone2 = TARGET_NR_clone_thread`) сверяются отдельно, в
+ * тесте про хвост таблицы.
+ */
+export function compareWithKernel(
+  port: readonly SyscallDefine[],
+  kernel: readonly KernelDefine[],
+  portMarkerName = "syscalls",
+): NumberComparison {
+  const portNumbers = new Map(
+    port.filter((item) => /^\d+$/.test(item.value) && item.name !== portMarkerName).map((item) => [item.name, Number(item.value)]),
+  );
+  const kernelNumbers = new Map(
+    kernel.filter((item) => /^\d+$/.test(item.value)).map((item) => [item.name, Number(item.value)]),
+  );
+  return {
+    both: [...portNumbers.keys()].filter((name) => kernelNumbers.has(name)).sort(),
+    onlyPort: [...portNumbers.keys()].filter((name) => !kernelNumbers.has(name)).sort(),
+    onlyKernel: [...kernelNumbers.keys()].filter((name) => !portNumbers.has(name)).sort(),
+    mismatched: [...portNumbers.keys()]
+      .filter((name) => kernelNumbers.has(name) && kernelNumbers.get(name) !== portNumbers.get(name))
+      .sort(),
+  };
+}
+
+/**
+ * Закреплённые числа сверки с первоисточником (замер 2026-09-30, ядро 6.1 в зеркале).
+ *
+ * Сдвинулось — отдельный коммит с датой и объяснением, как и у прочих закреплённых чисел
+ * проекта. Числа эти получены скриптом-замером и перепроверяются тестом, а не взяты из прозы.
+ */
+export const KERNEL_TABLE_FACTS = {
+  /** `#define __NR_*` с числом в ядре 6.1. */
+  kernel6Numbers: 393,
+  /** Наибольший номер ядра 6.1 (в порте — 463). */
+  kernel6Max: 445,
+  /** `NR_syscalls` ядра 6.1 — маркер «сколько всего номеров». */
+  kernel6Marker: 446,
+  /** `#define __NR_*` с числом в ядре 5.10. */
+  kernel510Numbers: 418,
+  /** `NR_syscalls` ядра 5.10: ровно это число стоит в порте как `TARGET_NR_syscalls`. */
+  kernel510Marker: 436,
+  /** Имён в обеих таблицах. */
+  both: 387,
+  /** Имён только в порте. */
+  onlyPort: 55,
+  /** Имён только в ядре. */
+  onlyKernel: 6,
+  /** Из имён «только в порте» знакомы ядру 5.10 (устаревшие слоты, снятые в 6.1). */
+  onlyPortKnownTo510: 35,
+  /** Номеров порта выше наибольшего номера ядра 6.1 (446…463). */
+  beyondKernel6: 18,
+} as const;
+
+/**
+ * Имена порта, которых нет в ядре 6.1 (55).
+ *
+ * Разложение замером: 35 из них знакомы ядру 5.10 (устаревшие слоты вида `break`, `oldstat`;
+ * в 6.1 их `#define` сняты), 20 нет ни в одном опубликованном ядре — это `macctl` (223),
+ * `el_posix` (255) и 18 номеров 446…463, которых ядро 6.1 не знает вовсе.
+ */
+export const ONLY_PORT: readonly string[] = [
+  "_sysctl", "afs_syscall", "bdflush", "break", "cachestat", "core", "create_module", "el_posix",
+  "emergency", "fchmodat2", "file_getattr", "file_setattr", "ftime", "futex_requeue", "futex_wait",
+  "futex_wake", "get_kernel_syms", "getpmsg", "getxattrat", "gtty", "idle", "iopl", "listmount",
+  "listxattrat", "lock", "lsm_get_self_attr", "lsm_list_modules", "lsm_set_self_attr", "macctl",
+  "mcst_rt", "modify_ldt", "mpx", "mseal", "nfsservctl", "oldfstat", "oldlstat", "oldolduname",
+  "oldstat", "open_tree_attr", "prof", "profil", "putpmsg", "query_module", "removexattrat",
+  "setxattrat", "sigaction", "signal", "sigsuspend", "soft_debug", "statmount", "stty", "ulimit",
+  "vm86", "vm86old", "vserver",
+];
+
+/**
+ * Имена ядра, которых нет в порте (6): быстрые системные вызовы e2k.
+ *
+ * Это **отдельное пространство номеров** 0…5 (`LINUX_FAST_SYSCALL*_TRAPNUM` там же), а не
+ * пропуск в таблице порта: номера 0…5 в основной таблице заняты обычными вызовами.
+ */
+export const ONLY_KERNEL: readonly string[] = [
+  "fast_sys_clock_gettime",
+  "fast_sys_getcontext",
+  "fast_sys_getcpu",
+  "fast_sys_gettimeofday",
+  "fast_sys_set_return",
+  "fast_sys_siggetmask",
+];
+
+/**
+ * Якоря первоисточника: «в этом файле, в этой строке лежит это утверждение».
+ *
+ * Проверяются от корня дерева ядра (`verifyAnchors(anchors, KERNEL)`), а не от порта QEMU.
+ */
+export const KERNEL_ANCHORS: readonly Anchor[] = [
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 27, to: 27, contains: "__NR_exit", claim: "exit = 1" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 29, to: 29, contains: "__NR_read", claim: "read = 3" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 30, to: 30, contains: "__NR_write", claim: "write = 4" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 31, to: 31, contains: "__NR_open", claim: "open = 5" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 32, to: 32, contains: "__NR_close", claim: "close = 6" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 69, to: 69, contains: "__NR_brk", claim: "brk = 45" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 113, to: 113, contains: "__NR_mmap", claim: "mmap = 90" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 306, to: 306, contains: "__NR_exit_group", claim: "exit_group = 300" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 466, to: 466, contains: "NR_syscalls", claim: "маркер ядра 6.1 = 446" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 473, to: 478, contains: "fast_sys_gettimeofday", claim: "быстрые вызовы — отдельное пространство" },
+  { file: "arch/e2k/kernel/systable.c", from: 41, to: 41, contains: "sys_call_table[NR_syscalls]", claim: "карта «номер → обработчик»" },
+  { file: "arch/e2k/kernel/systable.c", from: 44, to: 44, contains: "sys_exit", claim: "номер 1 — sys_exit" },
+  { file: "arch/e2k/kernel/systable.c", from: 136, to: 136, contains: "sys_mmap", claim: "номер 90 — sys_mmap" },
+  { file: "arch/e2k/kernel/prot_syscall_synopsis.c", from: 34, to: 34, contains: "protected syscall arguments", claim: "таблица типов аргументов" },
+  { file: "arch/e2k/kernel/prot_syscall_synopsis.c", from: 101, to: 101, contains: "0xFFFFFF00010401", claim: "read — маска типов аргументов" },
+  { file: "arch/e2k/kernel/sys_e2k.c", from: 60, to: 60, contains: "SYSCALL_DEFINE6(mmap", claim: "подпись mmap" },
+  { file: "fs/read_write.c", from: 621, to: 621, contains: "SYSCALL_DEFINE3(read", claim: "подпись read" },
+  { file: "fs/read_write.c", from: 646, to: 646, contains: "SYSCALL_DEFINE3(write", claim: "подпись write" },
+  { file: "fs/open.c", from: 1340, to: 1340, contains: "SYSCALL_DEFINE3(open", claim: "подпись open" },
+  { file: "fs/open.c", from: 1450, to: 1450, contains: "SYSCALL_DEFINE1(close", claim: "подпись close" },
+  { file: "kernel/exit.c", from: 996, to: 996, contains: "SYSCALL_DEFINE1(exit", claim: "подпись exit" },
+  { file: "kernel/exit.c", from: 1040, to: 1040, contains: "SYSCALL_DEFINE1(exit_group", claim: "подпись exit_group" },
+  { file: "mm/mmap.c", from: 174, to: 174, contains: "SYSCALL_DEFINE1(brk", claim: "подпись brk" },
+];
+
 /**
  * Проверить якоря по локальной копии источников.
  *
  * Сравнение побуквенное (`includes`), без учёта пробелов по краям: `contains` — подстрока,
  * которая обязана лежать хотя бы в одной строке из объявленного диапазона.
+ *
+ * `root` — корень дерева, от которого отсчитываются пути якорей: по умолчанию порт QEMU,
+ * для якорёв первоисточника — дерево ядра.
  */
-export function verifyAnchors(anchors: readonly Anchor[]): string[] {
+export function verifyAnchors(anchors: readonly Anchor[], root: string = QEMU): string[] {
   const problems: string[] = [];
   for (const anchor of anchors) {
-    const file = path.join(QEMU, anchor.file);
+    const file = path.join(root, anchor.file);
     if (!fs.existsSync(file)) {
       problems.push(`нет файла ${anchor.file} (утверждение: ${anchor.claim})`);
       continue;
@@ -240,7 +427,36 @@ export const BARE_FILE_ROOTS: Readonly<Record<string, string>> = {
   "syscall_nr.h": "qemu-e2k/qemu/linux-user/e2k/syscall_nr.h",
   "syscall_64.tbl": "qemu-e2k/qemu/linux-user/x86_64/syscall_64.tbl",
   "user-internals.h": "qemu-e2k/qemu/linux-user/user-internals.h",
+  // Первоисточник ABI — ядро 6.1 (опись: `docs/e2k-sources-raw.md` §1, источник 5). Короткая
+  // форма ссылается на 6.1; когда важно «какое именно дерево», в документе пишется полный
+  // путь от `.tmp/e2k-sources/` — см. KERNEL_TREE_PREFIXES ниже.
+  "unistd.h": "linux-6.1.0-1.19-open/arch/e2k/include/uapi/asm/unistd.h",
+  "systable.c": "linux-6.1.0-1.19-open/arch/e2k/kernel/systable.c",
+  "prot_syscall_synopsis.c": "linux-6.1.0-1.19-open/arch/e2k/kernel/prot_syscall_synopsis.c",
+  "sys_e2k.c": "linux-6.1.0-1.19-open/arch/e2k/kernel/sys_e2k.c",
+  "e2k_syswork.c": "linux-6.1.0-1.19-open/arch/e2k/kernel/e2k_syswork.c",
+  "read_write.c": "linux-6.1.0-1.19-open/fs/read_write.c",
+  "open.c": "linux-6.1.0-1.19-open/fs/open.c",
+  "exit.c": "linux-6.1.0-1.19-open/kernel/exit.c",
+  "mmap.c": "linux-6.1.0-1.19-open/mm/mmap.c",
 };
+
+/**
+ * Префиксы ссылок, которые разрешаются от корня **дерева ядра**, а не от порта QEMU.
+ *
+ * В порте этих каталогов нет (`fs/`, `kernel/`, `mm/` — ядерные, `arch/e2k/` — архитектурная
+ * часть e2k), поэтому выбор корня по префиксу однозначен и не зависит от порядка проверок.
+ */
+export const KERNEL_PATH_PREFIXES = ["arch/e2k/", "fs/", "kernel/", "mm/"] as const;
+
+/**
+ * Префиксы ссылок, называющих **конкретное дерево** в зеркале.
+ *
+ * Нужны там, где деревьев два и перепутать их нельзя: счётчик `NR_syscalls` у 6.1 — 446, у
+ * 5.10 — 436, и короткая форма `unistd.h:467` проверилась бы по 6.1, то есть по не тому файлу.
+ * Такая ссылка пишется от `.tmp/e2k-sources/` и разрешается от корня зеркала.
+ */
+export const KERNEL_TREE_PREFIXES = ["linux-6.1.0-1.19-open/", "linux-5.10.0-1.50.1-open/"] as const;
 
 /** Проблемы ссылок: пустой список — все ссылки указывают на настоящие строки. */
 export function verifySourceRefs(refs: readonly SourceRef[]): string[] {
@@ -251,6 +467,10 @@ export function verifySourceRefs(refs: readonly SourceRef[]): string[] {
       file = path.join(ROOT, ref.path);
     } else if (BARE_FILE_ROOTS[ref.path] !== undefined) {
       file = path.join(SOURCES, BARE_FILE_ROOTS[ref.path]!);
+    } else if (KERNEL_TREE_PREFIXES.some((prefix) => ref.path.startsWith(prefix))) {
+      file = path.join(SOURCES, ref.path);
+    } else if (KERNEL_PATH_PREFIXES.some((prefix) => ref.path.startsWith(prefix))) {
+      file = path.join(KERNEL, ref.path);
     } else {
       file = path.join(QEMU, ref.path);
     }
@@ -392,6 +612,12 @@ describe("документы о системных вызовах e2k", () => {
   const minimalDoc = fs.existsSync(MINIMAL_DOC) ? fs.readFileSync(MINIMAL_DOC, "utf-8") : "";
   const defines = fs.existsSync(SYS_NR) ? parseDefines(fs.readFileSync(SYS_NR, "utf-8")) : [];
   const index = parseIndex(rawDoc);
+  const haveKernel = fs.existsSync(KERNEL_NR);
+  const kernelDefines = haveKernel ? parseKernelDefines(fs.readFileSync(KERNEL_NR, "utf-8")) : [];
+  const kernelMarker = haveKernel ? parseKernelMarker(fs.readFileSync(KERNEL_NR, "utf-8")) : null;
+  const haveKernel510 = fs.existsSync(KERNEL_510_NR);
+  const kernel510Defines = haveKernel510 ? parseKernelDefines(fs.readFileSync(KERNEL_510_NR, "utf-8")) : [];
+  const kernel510Marker = haveKernel510 ? parseKernelMarker(fs.readFileSync(KERNEL_510_NR, "utf-8")) : null;
 
   it("сырой документ: индекс совпадает с числом #define в источнике", () => {
     expect(fs.existsSync(RAW_DOC), "нет docs/e2k-syscalls-raw.md").toBe(true);
@@ -556,6 +782,90 @@ describe("документы о системных вызовах e2k", () => {
     expect(problems, problems.join("; ")).toEqual([]);
   });
 
+  it("первоисточник: номера порта подтверждены ядром 6.1, расхождения названы поимённо", () => {
+    if (!haveKernel) {
+      expect(
+        haveKernel,
+        "нет .tmp/e2k-sources/linux-6.1.0-1.19-open — сверка с первоисточником не выполнялась",
+      ).toBe(false);
+      return;
+    }
+    expect(
+      kernelDefines.filter((item) => /^\d+$/.test(item.value)).length,
+      "#define __NR_* с числом в ядре 6.1",
+    ).toBe(KERNEL_TABLE_FACTS.kernel6Numbers);
+    expect(kernelMarker?.value, "NR_syscalls ядра 6.1").toBe(KERNEL_TABLE_FACTS.kernel6Marker);
+
+    const comparison = compareWithKernel(defines, kernelDefines);
+    // Главное утверждение слоя: где имя знают обе таблицы, номер ОДИН И ТОТ ЖЕ. Это то,
+    // ради чего источник 5 появился в зеркале: до 2026-09-30 таблица порта была единственной.
+    expect(comparison.mismatched, `номера разошлись: ${comparison.mismatched.join(", ")}`).toEqual([]);
+    expect(comparison.both.length, "имён в обеих таблицах").toBe(KERNEL_TABLE_FACTS.both);
+    // Списки закреплены поимённо: если таблица порта похудеет или ядро сдвинет имя,
+    // тест назовёт это, а не «число совпало».
+    expect(comparison.onlyPort).toEqual([...ONLY_PORT]);
+    expect(comparison.onlyKernel).toEqual([...ONLY_KERNEL]);
+
+    // Хвост порта: номера выше наибольшего номера ядра 6.1 — их 18 и они идут подряд.
+    const portNumbers = defines
+      .filter((item) => /^\d+$/.test(item.value) && item.name !== "syscalls")
+      .map((item) => Number(item.value));
+    const beyond = portNumbers.filter((nr) => nr > KERNEL_TABLE_FACTS.kernel6Max).sort((a, b) => a - b);
+    expect(beyond.length, "номеров порта выше максимума ядра 6.1").toBe(KERNEL_TABLE_FACTS.beyondKernel6);
+    expect(beyond[0]).toBe(KERNEL_TABLE_FACTS.kernel6Max + 1);
+    expect(beyond[beyond.length - 1]).toBe(463);
+  });
+
+  it("первоисточник: маркер порта TARGET_NR_syscalls = 436 объясняется таблицей ядра 5.10", () => {
+    const portMarker = defines.find((item) => item.name === "syscalls");
+    expect(portMarker?.value, "маркер TARGET_NR_syscalls в порте").toBe(String(KERNEL_TABLE_FACTS.kernel510Marker));
+    if (!haveKernel510) {
+      expect(haveKernel510, "нет .tmp/e2k-sources/linux-5.10.0-1.50.1-open — вторая колонка не сверялась").toBe(false);
+      return;
+    }
+    // Ядро 5.10 — то самое, чей счётчик и остался в порте: 436, тогда как номера порта дошли до 463.
+    expect(kernel510Marker?.value, "NR_syscalls ядра 5.10").toBe(KERNEL_TABLE_FACTS.kernel510Marker);
+    expect(
+      kernel510Defines.filter((item) => /^\d+$/.test(item.value)).length,
+      "#define __NR_* с числом в ядре 5.10",
+    ).toBe(KERNEL_TABLE_FACTS.kernel510Numbers);
+    // Разложение расхождений: 35 имён, которых нет в 6.1, знакомы 5.10 — это устаревшие слоты.
+    const kernel510Names = new Set(kernel510Defines.filter((item) => /^\d+$/.test(item.value)).map((item) => item.name));
+    const knownTo510 = ONLY_PORT.filter((name) => kernel510Names.has(name));
+    expect(knownTo510.length, "имён порта, знакомых ядру 5.10").toBe(KERNEL_TABLE_FACTS.onlyPortKnownTo510);
+    const anchors = verifyAnchors(
+      [
+        { file: "arch/e2k/include/uapi/asm/unistd.h", from: 467, to: 467, contains: "NR_syscalls", claim: "маркер 5.10 = 436" },
+        { file: "arch/e2k/include/uapi/asm/unistd.h", from: 33, to: 33, contains: "__NR_exit", claim: "exit = 1 в 5.10" },
+        { file: "arch/e2k/include/uapi/asm/unistd.h", from: 122, to: 122, contains: "__NR_mmap", claim: "mmap = 90 в 5.10" },
+      ],
+      KERNEL_510,
+    );
+    expect(anchors, anchors.join("; ")).toEqual([]);
+  });
+
+  it("первоисточник: минимальный набор — номера, обработчики и подписи из дерева ядра", () => {
+    const files = [...new Set(KERNEL_ANCHORS.map((anchor) => anchor.file))];
+    const namedInDocs = [rawDoc, abiDoc, minimalDoc];
+    const unnamed = files.filter((file) => !namedInDocs.some((doc) => doc.includes(file)));
+    expect(unnamed, `файлы первоисточника не названы ни в одном документе: ${unnamed.join(", ")}`).toEqual([]);
+    if (!haveKernel) {
+      expect(haveKernel).toBe(false);
+      return;
+    }
+    const problems = verifyAnchors(KERNEL_ANCHORS, KERNEL);
+    expect(problems, problems.join("; ")).toEqual([]);
+
+    const kernelNumbers = new Map(
+      kernelDefines.filter((item) => /^\d+$/.test(item.value)).map((item) => [item.name, Number(item.value)]),
+    );
+    const wrong = MINIMAL_SYSCALLS.filter((item) => kernelNumbers.get(item.name) !== item.nr).map(
+      (item) => `${item.name}: в ядре ${String(kernelNumbers.get(item.name))}, в наборе ${item.nr}`,
+    );
+    expect(wrong, `номера минимального набора против ядра: ${wrong.join("; ")}`).toEqual([]);
+    expect(kernelNumbers.get("exit_group"), "exit_group в ядре").toBe(300);
+  });
+
   it("ни один документ не ссылается на несуществующий файл", () => {
     const docs = [RAW_DOC, ABI_DOC, MINIMAL_DOC];
     const problems: string[] = [];
@@ -655,6 +965,33 @@ describe("документы о системных вызовах e2k", () => {
       expect(checkMinimalClaims(withoutRead, defines).join(" ")).toMatch(/read/);
     } else {
       expect(withoutRead.includes("`read`")).toBe(false);
+    }
+
+    // 9. Первоисточник: подмена номера в ядре обязана быть поймана сверкой, иначе слой
+    //    «номера подтверждены» ничего не проверяет.
+    if (haveKernel) {
+      const corrupted = kernelDefines.map((item, position) =>
+        position === 0 ? { ...item, value: "9999" } : item,
+      );
+      expect(compareWithKernel(defines, corrupted).mismatched).toContain(kernelDefines[0]!.name);
+
+      // Пропавшее из ядра имя обязано всплыть как «только в порте».
+      expect(compareWithKernel(defines, kernelDefines.slice(1)).onlyPort.length).toBe(
+        KERNEL_TABLE_FACTS.onlyPort + 1,
+      );
+
+      const brokenKernelAnchor = verifyAnchors(
+        [{ file: "arch/e2k/include/uapi/asm/unistd.h", from: 27, to: 27, contains: "выдуманный текст", claim: "порча" }],
+        KERNEL,
+      );
+      expect(brokenKernelAnchor.join(" ")).toMatch(/не содержит/);
+
+      // Ссылка на ядерный файл разрешается от корня ядра и на выдуманном файле краснеет.
+      const kernelRefs = collectSourceRefs("Смотри `arch/e2k/kernel/no-such.c:1`.");
+      expect(kernelRefs.length).toBe(1);
+      expect(verifySourceRefs(kernelRefs).join(" ")).toMatch(/нет файла/);
+    } else {
+      expect(haveKernel).toBe(false);
     }
   });
 });

@@ -3,11 +3,11 @@
  *
  * # Зачем этот тест
  *
- * `docs/e2k-sources-raw.md` утверждает: четыре внешних источника скачаны, кодировка в них
- * лежит в конкретных файлах и строках. Утверждение без проверки — не оракул. Тест проверяет
+ * `docs/e2k-sources-raw.md` утверждает: шесть внешних источников скачаны, кодировка и ABI
+ * лежат в конкретных файлах и строках. Утверждение без проверки — не оракул. Тест проверяет
  * три уровня:
  *
- * 1. **Опись полна** — в документе есть все четыре источника, у каждого URL, дата, коммит или
+ * 1. **Опись полна** — в документе есть все шесть источников, у каждого URL, дата, коммит или
  *    хеш архива и локальный путь (проверяется всегда).
  * 2. **Ссылки «файл:строка» не выдуманы** — по списку якорей проверяется, что в названной
  *    строке названного файла лежит ожидаемый текст (проверяется, когда есть локальная копия).
@@ -35,6 +35,16 @@ import { createHash } from "crypto";
 const ROOT = path.resolve(__dirname, "..", "..");
 const DOC = path.join(ROOT, "docs", "e2k-sources-raw.md");
 const SOURCES_DIR = path.join(ROOT, ".tmp", "e2k-sources");
+
+/**
+ * Сколько источников обязана описывать опись.
+ *
+ * 1–4 — источники кодировки и форматов (binutils, llvm, порт QEMU, реверс-инжиниринг);
+ * 5–6 — исходники ядра Linux для e2k (6.1 и 5.10, опубликованы МЦСТ 2026-09-30): это
+ * первоисточник ABI (номера системных вызовов, подписи обработчиков), которого до той даты
+ * в зеркале не было — шапка таблицы порта QEMU ссылалась на файл ядра, которого не существовало.
+ */
+const SOURCE_COUNT = 6;
 
 /** Запись описи: одна строка таблицы §1. */
 export interface SourceRecord {
@@ -79,7 +89,9 @@ export function parseSourceTable(doc: string): SourceRecord[] {
 /** Проблемы описи: пустой список — опись полна. */
 export function validateSourceTable(records: readonly SourceRecord[]): string[] {
   const problems: string[] = [];
-  if (records.length !== 4) problems.push(`источников в описи: ${records.length}, ожидалось 4`);
+  if (records.length !== SOURCE_COUNT) {
+    problems.push(`источников в описи: ${records.length}, ожидалось ${SOURCE_COUNT}`);
+  }
   const seen = new Set<number>();
   for (const record of records) {
     if (seen.has(record.index)) problems.push(`источник ${record.index} записан дважды`);
@@ -133,14 +145,32 @@ const ANCHORS: ReadonlyArray<{ source: number; file: string; line: number; conta
   { source: 3, file: "target/e2k/opcode-tables.h", line: 41, contains: "E2K_ALF_OPCE_NONE" },
   { source: 4, file: "README.md", line: 285, contains: "Opcode" },
   { source: 4, file: "README.md", line: 197, contains: "8 bytes" },
+  // Источник 5 — ядро 6.1: первоисточник ABI, на который теперь опирается `e2kSyscalls.audit.test.ts`.
+  { source: 5, file: "arch/e2k/include/uapi/asm/unistd.h", line: 27, contains: "__NR_exit" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/unistd.h", line: 113, contains: "__NR_mmap" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/unistd.h", line: 466, contains: "NR_syscalls" },
+  { source: 5, file: "arch/e2k/kernel/systable.c", line: 41, contains: "sys_call_table[NR_syscalls]" },
+  { source: 5, file: "arch/e2k/kernel/prot_syscall_synopsis.c", line: 34, contains: "protected syscall arguments" },
+  { source: 5, file: "fs/read_write.c", line: 621, contains: "SYSCALL_DEFINE3(read" },
+  { source: 5, file: "mm/mmap.c", line: 174, contains: "SYSCALL_DEFINE1(brk" },
+  // Источник 6 — ядро 5.10: его счётчик `NR_syscalls` = 436 объясняет маркер порта QEMU.
+  { source: 6, file: "arch/e2k/include/uapi/asm/unistd.h", line: 467, contains: "NR_syscalls" },
+  { source: 6, file: "arch/e2k/include/uapi/asm/unistd.h", line: 122, contains: "__NR_mmap" },
 ];
+
+/**
+ * Подкаталог распакованного дерева, от которого отсчитываются файлы якорей.
+ *
+ * У источника 3 (архив порта QEMU) дерево лежит во вложенном каталоге `qemu/`; у источников
+ * 5 и 6 (ядра) распакованное дерево и есть корень, поэтому подкаталога для них нет.
+ */
+const EXTRACT_SUBDIR: Readonly<Record<number, string>> = { 3: "qemu" };
 
 /** Каталог, относительно которого проверяются файлы источника. */
 function fileRootOf(record: SourceRecord): string {
   const [first, second] = record.localPaths;
   if (first === undefined) return "";
-  // Архив (источник 3): файлы лежат во вложенном каталоге `qemu/` распакованного дерева.
-  if (second !== undefined) return path.join(ROOT, second, "qemu");
+  if (second !== undefined) return path.join(ROOT, second, EXTRACT_SUBDIR[record.index] ?? "");
   return path.join(ROOT, first);
 }
 
@@ -164,7 +194,8 @@ function checkLocalCopy(records: readonly SourceRecord[]): CopyCheck {
 
   for (const record of records) {
     const root = fileRootOf(record);
-    const archive = record.localPaths[0] !== undefined && path.extname(record.localPaths[0]) === ".gz";
+    const archive =
+      record.localPaths[0] !== undefined && /\.(?:tgz|tar\.gz|gz)$/.test(record.localPaths[0]!);
     if (!fs.existsSync(root)) {
       problems.push(`источник ${record.index}: нет локальной копии ${path.relative(ROOT, root)}`);
       continue;
@@ -232,14 +263,16 @@ describe("опись источников кодировки e2k", () => {
   const doc = fs.existsSync(DOC) ? fs.readFileSync(DOC, "utf-8") : "";
   const records = parseSourceTable(doc);
 
-  it("документ существует и описывает четыре источника", () => {
+  it("документ существует и описывает шесть источников", () => {
     expect(fs.existsSync(DOC), "нет docs/e2k-sources-raw.md").toBe(true);
     expect(validateSourceTable(records)).toEqual([]);
-    expect(records.map((record) => record.index)).toEqual([1, 2, 3, 4]);
+    expect(records.map((record) => record.index)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(records[0]!.url).toContain("OpenE2K/binutils-gdb");
     expect(records[1]!.url).toContain("e2k-ports/llvm-project");
     expect(records[2]!.url).toContain("qemu-e2k.tar.gz");
     expect(records[3]!.url).toContain("nrdmn/elbrus-docs");
+    expect(records[4]!.url).toContain("linux-6.1.0-1.19-open.tgz");
+    expect(records[5]!.url).toContain("linux-5.10.0-1.50.1-open.tgz");
   });
 
   it("в документе названы все восемь файлов-носителей кодировки", () => {
@@ -296,5 +329,13 @@ describe("опись источников кодировки e2k", () => {
     // что проверяльщик якорей видит несуществующий файл как проблему, а не молчит.
     const broken = checkLocalCopy([{ ...records[0]!, localPaths: [".tmp/e2k-sources/нет-такого"] }]);
     expect(broken.problems.join(" ")).toMatch(/нет локальной копии/);
+
+    // Архивы ядер имеют расширение `.tgz`, а не `.gz`: ветка «архив» обязана их узнавать.
+    // Проверяется поведением, а не чтением кода — испорченный хеш источника 5 обязан быть назван.
+    const kernelRecord = records.find((record) => record.index === 5);
+    if (kernelRecord !== undefined && fs.existsSync(path.join(ROOT, kernelRecord.localPaths[0]!))) {
+      const brokenHash = checkLocalCopy([{ ...kernelRecord, revision: `sha256:${"0".repeat(64)}` }]);
+      expect(brokenHash.problems.join(" ")).toMatch(/sha256 архива/);
+    }
   });
 });

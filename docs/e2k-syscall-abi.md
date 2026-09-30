@@ -266,13 +266,13 @@
 
 | чего нет | как проверено |
 |---|---|
-| **таблицы аргументов каждого syscall** (типы, порядок, имена) | в `linux-user/e2k/` только `syscall_nr.h` (номера); сигнатуры — общий `linux-user/syscall.c` |
+| **таблицы аргументов каждого syscall** (типы, порядок, имена) | **найдена 30.09.2026** в ядре 6.1: `arch/e2k/kernel/prot_syscall_synopsis.c:34` — легенда и маски шести аргументов; подписи — `fs/read_write.c:621`, `fs/open.c:1340`, `kernel/exit.c:996`, `mm/mmap.c:174`, `arch/e2k/kernel/sys_e2k.c:60`. В порте QEMU по-прежнему только `linux-user/e2k/syscall_nr.h` (номера) и общий `linux-user/syscall.c`; разобран минимальный набор семи (`docs/e2k-syscalls-minimal.md` §5) |
 | **явного «номер в оконном `r0`, аргументы в `r1..r8`» текстом** | формулировка собрана из кода `linux-user/e2k/cpu_loop.c:164-178`; систематического описания ABI в порте нет |
 | **имён регистров `%r0…%r8` в связи с syscall** | порт обращается к «оконному регистру с индексом N» (`target/e2k/reg-index.h:131-139`); имён `%rN` в этом коде нет |
-| **ABI ядра Linux/e2k** (исходники ядра) | в `.tmp/e2k-sources/` дерева ядра нет; `linux-user/e2k/syscall_nr.h:1-4` ссылается на `arch/e2k/include/uapi/asm/unistd.h`, файла нет |
+| ~~**ABI ядра Linux/e2k** (исходники ядра)~~ — **снято 30.09.2026** | дерево ядра 6.1 опубликовано МЦСТ и лежит в зеркале (опись — `docs/e2k-sources-raw.md` §1, источник 5): файл, на который ссылалась шапка порта, — `arch/e2k/include/uapi/asm/unistd.h`; сверка номеров — `docs/e2k-syscalls-raw.md` §6 |
 | **конвенции libc** (обёртки, `errno`) | libc в источнике нет |
-| **`e2k_syswork`, `el_posix`, `el_binary`, `access_hw_stacks` и прочая специфика МЦСТ** (22 номера) | в `linux-user/e2k/syscall_nr.h` есть только номера; реализации/назначения нет (`docs/e2k-syscalls-raw.md` §2) |
-| **почему `TARGET_NR_syscalls = 436` при максимальном номере 463** | `linux-user/e2k/syscall_nr.h:451`; поле не используется в дереве (`docs/e2k-syscalls-raw.md` §1) |
+| **`e2k_syswork`, `el_posix`, `el_binary`, `access_hw_stacks` и прочая специфика МЦСТ** (22 номера) | в `linux-user/e2k/syscall_nr.h` есть только номера (`docs/e2k-syscalls-raw.md` §2). Реализации найдены 30.09.2026 в ядре 6.1: `arch/e2k/kernel/e2k_syswork.c:3083` (`e2k_syswork`), `:3064` (`access_hw_stacks`), `arch/e2k/sec_space/sec_space.c:1098` (`el_binary`); `el_posix` = 255 и `macctl` = 223 не найдены ни в 6.1, ни в 5.10 |
+| ~~**почему `TARGET_NR_syscalls = 436` при максимальном номере 463**~~ — **объяснено 30.09.2026** | 436 — это `NR_syscalls` ядра 5.10 (`linux-5.10.0-1.50.1-open/arch/e2k/include/uapi/asm/unistd.h:467`): счётчик остался от таблицы той эпохи. В дереве QEMU поле по-прежнему не читается (`linux-user/e2k/syscall_nr.h:451`) — `docs/e2k-syscalls-raw.md` §6.1 |
 | **поведения `sdisp` при `psr.pm == osem[sdisp]`** (ставит `CTPEW` вместо `CTPSL`) | код есть (`target/e2k/tcg/translate-ctp.c:163-179`), **условие на практике не проверено** — прогон `exit(42)` шёл при ином сочетании |
 | **загрузка 64-битного адреса в оконный регистр** | **снято**: форма `movtd,0 _f64` 0xdc (16 байт), выбрана замером ассемблером (`docs/e2k-address-loading.md` §4.4) и подтверждена прогоном (§5) |
 | **реализации syscall'ов в нашем рантайме** | общего рантайма нет: `src/e2k/e2kRealRun.ts` только понижает IR; есть ровно два вызова — `write` и `exit` (`src/e2k/syscallRuntime.ts`), остальные НЕ РЕАЛИЗОВАНЫ |
@@ -335,6 +335,35 @@
 | старый `mmap` (структура из шести слов) — только i386/arm-32, m68k, microblaze, s390x; e2k в списке нет | `linux-user/syscall_defs.h:3135-3140` | `TARGET_ARCH_WANT_SYS_OLD_MMAP` |
 | флаги `open` для e2k берутся из общего заголовка | `linux-user/e2k/target_fcntl.h:9` | `../generic/fcntl.h` |
 | флаги `mmap` для e2k в порте есть | `linux-user/e2k/target_mman.h:8-22` | `TARGET_MAP_ANONYMOUS`, `TARGET_MAP_FIXED_NOREPLACE` |
+
+### 8.2. Якоря первоисточника (ядро 6.1, добавлены 30.09.2026)
+
+Это якоря **второго дерева** — ядра, а не порта: проверяются от корня
+`.tmp/e2k-sources/linux-6.1.0-1.19-open`. Короткие имена — `unistd.h` =
+`arch/e2k/include/uapi/asm/unistd.h`, остальные `.c` — по каталогам ядра (`systable.c` и
+`prot_syscall_synopsis.c` — `arch/e2k/kernel/`, `sys_e2k.c` — там же, `read_write.c`/`open.c` —
+`fs/`, `exit.c` — `kernel/`, `mmap.c` — `mm/`).
+
+| утверждение | файл:строка | фрагмент |
+|---|---|---|
+| `exit` = 1, `read` = 3, `write` = 4, `open` = 5, `close` = 6 | `unistd.h:27`, `:29`, `:30`, `:31`, `:32` | `__NR_exit`, `__NR_read`, `__NR_write`, `__NR_open`, `__NR_close` |
+| `brk` = 45, `mmap` = 90, `exit_group` = 300 | `unistd.h:69`, `:113`, `:306` | `__NR_brk`, `__NR_mmap`, `__NR_exit_group` |
+| маркер ядра 6.1 | `unistd.h:466` | `NR_syscalls` = 446 |
+| быстрые вызовы — отдельное пространство номеров | `unistd.h:473-478` | `fast_sys_gettimeofday` |
+| карта «номер → обработчик» | `systable.c:41` | `sys_call_table[NR_syscalls]` |
+| номер 1 — `sys_exit`, номер 90 — `sys_mmap` | `systable.c:44`, `:136` | `sys_exit`, `sys_mmap` |
+| устаревшие слоты помечены заглушкой | `systable.c:60` | `sys_ni_syscall` + `/* old sys_break */` |
+| таблица типов аргументов | `prot_syscall_synopsis.c:34` | `protected syscall arguments` |
+| `read` — маска типов аргументов | `prot_syscall_synopsis.c:101` | `0xFFFFFF00010401` |
+| подпись `mmap` — своя, e2k-шная | `sys_e2k.c:60` | `SYSCALL_DEFINE6(mmap` |
+| подписи `read`/`write` | `read_write.c:621`, `:646` | `SYSCALL_DEFINE3(read`, `SYSCALL_DEFINE3(write` |
+| подписи `open`/`close` | `open.c:1340`, `:1450` | `SYSCALL_DEFINE3(open`, `SYSCALL_DEFINE1(close` |
+| подписи `exit`/`exit_group` | `exit.c:996`, `:1040` | `SYSCALL_DEFINE1(exit`, `SYSCALL_DEFINE1(exit_group` |
+| подпись `brk` | `mmap.c:174` | `SYSCALL_DEFINE1(brk` |
+
+Проверка расхождений порта с ядром (55 имён, 6 быстрых вызовов, объяснение маркера 436) —
+не якоря, а закреплённые числа: они живут в `src/scripts/e2kSyscalls.audit.test.ts`
+(`KERNEL_TABLE_FACTS`), разбор — `docs/e2k-syscalls-raw.md` §6.
 
 Слабое место названо прямо: `.tmp/e2k-sources/` не коммитится, поэтому на чистой копии
 репозитория проверка якорей не выполняется — тест сообщает об этом, а не выдаёт пропуск за
