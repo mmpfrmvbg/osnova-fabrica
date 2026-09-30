@@ -345,6 +345,18 @@ export const KERNEL_ANCHORS: readonly Anchor[] = [
   { file: "kernel/exit.c", from: 996, to: 996, contains: "SYSCALL_DEFINE1(exit", claim: "подпись exit" },
   { file: "kernel/exit.c", from: 1040, to: 1040, contains: "SYSCALL_DEFINE1(exit_group", claim: "подпись exit_group" },
   { file: "mm/mmap.c", from: 174, to: 174, contains: "SYSCALL_DEFINE1(brk", claim: "подпись brk" },
+  // Доказательство маркера — значение обязано лежать на ТОЙ ЖЕ строке, а не «где-то в файле».
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 466, to: 466, contains: "446", claim: "маркер ядра 6.1 = 446 (там же)" },
+  // Быстрые вызовы (§6.2.1 сырого документа): ловушка, маска, таблица, диспетчер.
+  { file: "arch/e2k/include/asm/trap_def.h", from: 239, to: 239, contains: "LINUX_FAST_SYSCALL32_TRAPNUM", claim: "ловушка быстрых вызовов 32 = 5" },
+  { file: "arch/e2k/include/asm/trap_def.h", from: 240, to: 240, contains: "LINUX_FAST_SYSCALL64_TRAPNUM", claim: "ловушка быстрых вызовов 64 = 6" },
+  { file: "arch/e2k/include/asm/trap_def.h", from: 241, to: 241, contains: "LINUX_FAST_SYSCALL128_TRAPNUM", claim: "ловушка быстрых вызовов 128 = 7" },
+  { file: "arch/e2k/include/uapi/asm/unistd.h", from: 19, to: 19, contains: "LINUX_FAST_SYSCALL64_TRAPNUM", claim: "вторая запись той же ловушки (uapi)" },
+  { file: "arch/e2k/include/asm/unistd.h", from: 14, to: 14, contains: "NR_fast_syscalls_mask", claim: "маска номера быстрого вызова = 0x7" },
+  { file: "arch/e2k/include/asm/unistd.h", from: 16, to: 16, contains: "NR_fast_syscalls", claim: "слотов в таблице быстрых вызовов = 8" },
+  { file: "arch/e2k/fast_syscalls/fast_syscalls.c", from: 60, to: 60, contains: "fast_sys_calls_table[NR_fast_syscalls]", claim: "таблица быстрых вызовов (64-битная)" },
+  { file: "arch/e2k/kernel/trap_table.S", from: 705, to: 705, contains: "NR_fast_syscalls_mask", claim: "диспетчер ловушки 64-битных быстрых вызовов" },
+  { file: "arch/e2k/kernel/trap_table.S", from: 776, to: 776, contains: "ret_from_fast_sys_call", claim: "возврат из быстрого вызова" },
 ];
 
 /**
@@ -795,6 +807,8 @@ describe("документы о системных вызовах e2k", () => {
       "#define __NR_* с числом в ядре 6.1",
     ).toBe(KERNEL_TABLE_FACTS.kernel6Numbers);
     expect(kernelMarker?.value, "NR_syscalls ядра 6.1").toBe(KERNEL_TABLE_FACTS.kernel6Marker);
+    // Маркер доказывается строкой, а не памятью: и значение, и НОМЕР СТРОКИ закреплены.
+    expect(kernelMarker?.line, "строка маркера ядра 6.1").toBe(466);
 
     const comparison = compareWithKernel(defines, kernelDefines);
     // Главное утверждение слоя: где имя знают обе таблицы, номер ОДИН И ТОТ ЖЕ. Это то,
@@ -825,6 +839,7 @@ describe("документы о системных вызовах e2k", () => {
     }
     // Ядро 5.10 — то самое, чей счётчик и остался в порте: 436, тогда как номера порта дошли до 463.
     expect(kernel510Marker?.value, "NR_syscalls ядра 5.10").toBe(KERNEL_TABLE_FACTS.kernel510Marker);
+    expect(kernel510Marker?.line, "строка маркера ядра 5.10").toBe(467);
     expect(
       kernel510Defines.filter((item) => /^\d+$/.test(item.value)).length,
       "#define __NR_* с числом в ядре 5.10",
@@ -836,6 +851,8 @@ describe("документы о системных вызовах e2k", () => {
     const anchors = verifyAnchors(
       [
         { file: "arch/e2k/include/uapi/asm/unistd.h", from: 467, to: 467, contains: "NR_syscalls", claim: "маркер 5.10 = 436" },
+        // Значение — на той же строке, что и имя: иначе «436 — это NR_syscalls 5.10» держится на памяти.
+        { file: "arch/e2k/include/uapi/asm/unistd.h", from: 467, to: 467, contains: "436", claim: "значение маркера 5.10 = 436 (там же)" },
         { file: "arch/e2k/include/uapi/asm/unistd.h", from: 33, to: 33, contains: "__NR_exit", claim: "exit = 1 в 5.10" },
         { file: "arch/e2k/include/uapi/asm/unistd.h", from: 122, to: 122, contains: "__NR_mmap", claim: "mmap = 90 в 5.10" },
       ],

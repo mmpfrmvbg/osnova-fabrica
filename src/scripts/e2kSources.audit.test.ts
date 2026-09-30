@@ -46,6 +46,30 @@ const SOURCES_DIR = path.join(ROOT, ".tmp", "e2k-sources");
  */
 const SOURCE_COUNT = 6;
 
+/**
+ * Второй канал для файла ABI: копия `arch/e2k/include/uapi/asm/unistd.h` из `OpenE2K/linux`
+ * (ветка `master`), взятая через `raw.githubusercontent.com` с **обычной** проверкой цепочки —
+ * в отличие от архивов, пришедших с `dev.mcst.ru` Node-скриптом с отключённой проверкой.
+ *
+ * Зачем проверка: «номера системных вызовов подтверждены двумя каналами» — утверждение
+ * (`docs/verification-debt.md`, случай 25), и оно обязано краснеть, если копии разойдутся или
+ * если опись перестанет называть каналы. Байты **архивов** вторым каналом не подтверждены —
+ * это записано незакрытым, а не выдано за проверенное.
+ */
+const INDEPENDENT_COPY = path.join(SOURCES_DIR, "opene2k-linux-master-unistd.h");
+const INDEPENDENT_COPY_SHA256 = "054208985e28da4acdc45449c73c8875aebe70411bafc693ad327aba6f4c5881";
+const INDEPENDENT_COPY_CHANNEL = "raw.githubusercontent.com";
+const ARCHIVE_UNISTD = path.join(
+  SOURCES_DIR,
+  "linux-6.1.0-1.19-open",
+  "arch",
+  "e2k",
+  "include",
+  "uapi",
+  "asm",
+  "unistd.h",
+);
+
 /** Запись описи: одна строка таблицы §1. */
 export interface SourceRecord {
   readonly index: number;
@@ -299,6 +323,34 @@ describe("опись источников кодировки e2k", () => {
       return;
     }
     expect(check.problems, check.notes.join("; ")).toEqual([]);
+  });
+
+  it("второй канал: копия файла ABI из GitHub совпадает с копией из архива", () => {
+    // «Два канала» не должны жить только в отчёте сессии: опись обязана называть и канал,
+    // и сам хеш — иначе проверять нечего, кроме собственной памяти.
+    expect(doc, "опись не называет второй канал").toContain(INDEPENDENT_COPY_CHANNEL);
+    expect(doc, "опись не называет sha256 копии второго канала").toContain(INDEPENDENT_COPY_SHA256);
+    expect(doc, "опись не разделяет канал артефакта и канал эталона").toContain("канал эталона");
+    if (!fs.existsSync(INDEPENDENT_COPY)) {
+      expect(
+        fs.existsSync(INDEPENDENT_COPY),
+        `нет ${path.relative(ROOT, INDEPENDENT_COPY)} — сверка второго канала не выполнялась`,
+      ).toBe(false);
+      return;
+    }
+    const independent = fs.readFileSync(INDEPENDENT_COPY);
+    expect(createHash("sha256").update(independent).digest("hex"), "sha256 копии второго канала").toBe(
+      INDEPENDENT_COPY_SHA256,
+    );
+    expect(fs.existsSync(ARCHIVE_UNISTD), "нет таблицы ABI в распакованном архиве").toBe(true);
+    const fromArchive = fs.readFileSync(ARCHIVE_UNISTD);
+    expect(independent.equals(fromArchive), "копии двух каналов разошлись побайтово").toBe(true);
+
+    // Негативный контроль: испорченная копия обязана расходиться и с хешем, и с архивом.
+    const corrupted = Buffer.from(independent);
+    corrupted[0] = corrupted[0]! ^ 0xff;
+    expect(createHash("sha256").update(corrupted).digest("hex")).not.toBe(INDEPENDENT_COPY_SHA256);
+    expect(corrupted.equals(fromArchive)).toBe(false);
   });
 
   it("негативный контроль: испорченная опись не проходит", () => {

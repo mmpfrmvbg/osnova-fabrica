@@ -344,6 +344,12 @@
 `prot_syscall_synopsis.c` — `arch/e2k/kernel/`, `sys_e2k.c` — там же, `read_write.c`/`open.c` —
 `fs/`, `exit.c` — `kernel/`, `mmap.c` — `mm/`).
 
+**Канал.** Сам файл `arch/e2k/include/uapi/asm/unistd.h` получен **двумя** каналами: из архива
+МЦСТ (Node с отключённой проверкой цепочки — самоподписанный сертификат) и из `OpenE2K/linux`,
+ветка `master`, по обычному TLS GitHub; копии совпали **байт в байт** (12 579 Б, sha256
+`054208985e28da4acdc45449c73c8875aebe70411bafc693ad327aba6f4c5881`). Остальные файлы этого
+раздела — из архива, то есть **один канал**; разбор — `docs/verification-debt.md`, случай 25.
+
 | утверждение | файл:строка | фрагмент |
 |---|---|---|
 | `exit` = 1, `read` = 3, `write` = 4, `open` = 5, `close` = 6 | `unistd.h:27`, `:29`, `:30`, `:31`, `:32` | `__NR_exit`, `__NR_read`, `__NR_write`, `__NR_open`, `__NR_close` |
