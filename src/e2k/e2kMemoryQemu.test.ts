@@ -92,10 +92,10 @@ function exitCodeOf(value: number, readOffset: number, file: string): number | u
   const bytes = programBytes(value, readOffset);
   fs.writeFileSync(
     path.join(ROOT, '.tmp', file),
-    // Адрес данных — из СЕГМЕНТА ДАННЫХ (`DATA_SEGMENT_BASE`), а не «страницей после кода»: до
-    // 2026-09-30 проба писала по 0x102000, и с двумя сегментами этот адрес не отображён вовсе.
-    // Вопрос «нужен ли ещё `extraMemory`» — отдельная проверка отдельным коммитом (§3.93).
-    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: DATA_OFFSET }).bytes,
+    // `extraMemory` НЕ передаётся: область данных отображается СЕГМЕНТОМ (`p_filesz = 0`, `p_memsz`)
+    // — это и есть доказательство его избыточности (docs/hardware-debt.md §3.93.4). До 2026-09-30
+    // без этого числа страница данных не отображалась вовсе, и проба падала бы кодом 9.
+    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true }).bytes,
   );
   return runInQemu(path.join(ROOT, '.tmp', file), { shim: true })?.status;
 }
