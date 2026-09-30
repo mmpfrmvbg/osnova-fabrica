@@ -27,7 +27,7 @@ import * as path from 'path';
 import { type Operand } from './backend';
 import { HEAP_OFFSET, imageOfCarriers, loweredProgram, programBytes } from './programImage';
 import { allocateProgram } from './regAlloc';
-import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
+import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import {
   FIR_REFERENCE_COEFFICIENTS,
@@ -77,7 +77,7 @@ function exitCodeOf(source: string, file: string): number | undefined {
   expect(refused, `непонижённые носители: ${refused.join('; ')}`).toEqual([]);
   fs.writeFileSync(
     path.join(ROOT, '.tmp', file),
-    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes,
+    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes,
   );
   return runInQemu(path.join(ROOT, '.tmp', file), { shim: true })?.status;
 }
@@ -132,7 +132,7 @@ function exitOfLowered(source: string, file: string): number | undefined {
   expect(used, 'выдано регистров').toBeLessThanOrEqual(10);
   fs.writeFileSync(
     path.join(ROOT, '.tmp', file),
-    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes,
+    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes,
   );
   return runInQemu(path.join(ROOT, '.tmp', file), { shim: true, timeoutMs: 20_000 })?.status;
 }
@@ -280,7 +280,7 @@ describe('массивы в модели: настоящие обращения 
     expect(image.refused, 'непонижённые носители: вытеснение обязано понижаться').toEqual([]);
     fs.writeFileSync(
       path.join(ROOT, '.tmp', 'e2k-spill.elf'),
-      buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes,
+      buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes,
     );
     const code = runInQemu(path.join(ROOT, '.tmp', 'e2k-spill.elf'), { shim: true })?.status;
     if (code === undefined) {

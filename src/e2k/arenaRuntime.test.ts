@@ -42,8 +42,9 @@ import { carrierFormOf } from './twoPassLayout';
 import { defUseOf } from './liveness';
 import { pairPredicates } from './predicatePairing';
 import { PRINT_PRIMITIVE_CLOBBERS } from './printPrimitives';
+import { printAreaOf } from './printPrimitives';
 import { planPrintSite } from './printCall';
-import { MINIMAL_BASE } from './elfMinimal';
+import { IMAGE_TAIL_OFFSET, MINIMAL_BASE } from './elfMinimal';
 import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER } from './stringRuntime';
 
 const encoder = getEncoder('e2k');
@@ -217,10 +218,17 @@ describe('арена: расширение потока', () => {
 });
 
 describe('арена: границы решения', () => {
-  it('арена лежит выше площадки печати и ниже отображённого хвоста', () => {
-    expect(ARENA_BASE).toBe(MINIMAL_BASE + 0x2000);
+  it('арена стоит на СТРАНИЦЕ КУЧИ (0x111000), выше области записи, и отображена целиком', () => {
+    // Смещение хвоста — 0x11000, а не 0x2000 (замер 2026-09-29, §3.91): область записи обязана
+    // лежать на странице без кода, иначе запись в неё падает ACCERR, как только код войдёт в ту же
+    // страницу. Свойство §3.88.4 сохранено: арена начинается ТАМ ЖЕ, где куча массивов, — поэтому
+    // названная граница «арена и куча не разведены» остаётся верной.
+    expect(ARENA_BASE).toBe(MINIMAL_BASE + IMAGE_TAIL_OFFSET);
+    expect(ARENA_BASE, 'та же страница, что у кучи').toBe(ARENA_BASE - (ARENA_BASE % 0x1000));
     expect(ARENA_LIMIT - ARENA_BASE).toBe(ARENA_BYTES);
-    expect(ARENA_EXTRA_MEMORY).toBeGreaterThanOrEqual(ARENA_LIMIT - MINIMAL_BASE);
+    expect(ARENA_EXTRA_MEMORY, 'арена отображена целиком').toBeGreaterThanOrEqual(ARENA_LIMIT - MINIMAL_BASE);
+    expect(printAreaOf(ARENA_BASE), 'площадка печати — ниже арены, на своей странице').toBeLessThan(ARENA_BASE);
+    expect(printAreaOf(ARENA_BASE) - (printAreaOf(ARENA_BASE) % 0x1000)).toBeLessThan(ARENA_BASE);
   });
 
   it('признак «образ пользуется ареной» берётся по имени вызова, а не по наличию инструкций', () => {

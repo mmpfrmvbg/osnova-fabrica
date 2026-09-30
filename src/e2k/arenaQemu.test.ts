@@ -28,7 +28,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { MINIMAL_BASE, buildElfFromCode } from './elfMinimal';
+import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY, buildElfFromCode } from './elfMinimal';
 import { HEAP_OFFSET, loweredProgram } from './programImage';
 import { ARENA_BASE, ARENA_BYTES, ARENA_LIMIT, ARENA_REFUSAL_CODE, ARENA_REFUSAL_TEXT } from './arenaRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
@@ -230,15 +230,29 @@ describe('АРЕНА НА ЦЕЛИ: выделение переживает пе
   });
 
   it('числа арены названы и лежат там, где решено', () => {
-    expect([ARENA_BASE, ARENA_LIMIT, ARENA_BYTES]).toEqual([0x102000, 0x103000, 0x1000]);
+    // База арены — НАЧАЛО ХВОСТА ОБРАЗА (0x111000), и это свойство §3.88.4 сохранено: арена
+    // начинается там же, где куча массивов, поэтому названная граница «не разведены» остаётся верной.
+    // Смещение хвоста — 0x11000, а не 0x2000 (замер §3.91): область записи обязана лежать на
+    // странице без кода, иначе запись в неё падает `ACCERR`, как только код войдёт в ту же страницу.
+    expect([ARENA_BASE, ARENA_LIMIT, ARENA_BYTES]).toEqual([
+      MINIMAL_BASE + IMAGE_TAIL_OFFSET,
+      MINIMAL_BASE + IMAGE_TAIL_OFFSET + 0x1000,
+      0x1000,
+    ]);
+    expect(ARENA_BASE % 0x1000, 'арена начинается на границе страницы').toBe(0);
     expect(ARENA_REFUSAL_CODE).toBe(231);
   });
 
-  it('НЕГАТИВНЫЙ КОНТРОЛЬ: без арены регистры не резервируются и extraMemory прежний', () => {
-    // Сторож закреплённых чисел: расширение НЕ имеет права менять обычные программы.
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: без арены регистры не резервируются, а отображение — под запись', () => {
+    // Сторож закреплённых чисел: расширение НЕ имеет права менять обычные программы. Отображение у
+    // печатающей программы определяется ОБЛАСТЬЮ ЗАПИСИ (§3.91), и это не про арену: у программы без
+    // записи вовсе отображение остаётся началом хвоста.
     const plain = loweredProgram('процедура главная()\n  система.лог.вывести(7)\nконец_процедуры');
     expect(plain.arena.used).toBe(false);
-    expect(plain.arena.extraMemory).toBe(HEAP_OFFSET);
+    expect(plain.arena.extraMemory, 'печать — значит область записи').toBe(WRITE_ZONE_EXTRA_MEMORY);
+    const silent = loweredProgram('процедура главная()\n  пусть а = 1 + 1\nконец_процедуры');
+    expect(silent.arena.used).toBe(false);
+    expect(silent.arena.extraMemory, 'ничего не пишет — начало хвоста').toBe(HEAP_OFFSET);
   });
 });
 

@@ -28,7 +28,7 @@
  * пережила бы появления памяти, а развёртка переживает — адрес приходит регистром, а не константой.
  */
 import type { AsmInstruction, Operand } from './backend';
-import { printAreaOf } from './printPrimitives';
+import { spillBaseOf } from './elfMinimal';
 import {
   STRING_ARENA_CONCAT_CARRIER,
   STRING_BUFFER_BYTES,
@@ -65,6 +65,19 @@ export const STRING_MARK_OPERAND = 6;
  * пользуется ареной, — у прочих программ статических байтов не прибавляется.
  */
 export const ARENA_REFUSAL_BLOB_KEY = '⟨текст отказа арены⟩';
+
+/**
+ * ВЕРХ СТАТИЧЕСКОЙ ОБЛАСТИ — где кончаются статические байты (они растут ВНИЗ от него).
+ *
+ * Здесь только **читаемое**: литералы строк, таблица продолжений, перевод строки, текст отказа.
+ * Читать из страницы, где лежит код, можно — поэтому статика и остаётся под кодом, в файле образа.
+ * Писать сюда нельзя, и всё, что пишется, живёт в ОБЛАСТИ ЗАПИСИ на своей странице (§3.91):
+ * буфер склейки — там же, а не среди блобов.
+ *
+ * Величина **унаследована** от прежней раскладки (адрес площадки печати до переезда): так размеры
+ * образов не сдвинулись ни на байт, а закреплённые числа остались на месте.
+ */
+export const STATIC_AREA_TOP = 0x101ec0;
 
 /** Значение строки, как его видит конвейер: байты и их число плюс адрес (появляется при раскладке блobs). */
 interface StringValue {
@@ -299,14 +312,20 @@ export function planStrings(
     if (arenaValues.has(value.key)) continue;
     ordered.push({ key: value.key, bytes: value.bytes });
   }
-  if (needsBuffer) ordered.push({ key: '⟨буфер склейки⟩', bytes: new Array<number>(STRING_BUFFER_BYTES).fill(0) });
+  // БУФЕР СКЛЕЙКИ — НЕ БЛОБ: он лежит в ОБЛАСТИ ЗАПИСИ и объявляется адресом, а не байтами.
+  // Прежде он стоял среди статических байтов, то есть на странице, где может быть код, и запись в
+  // него падала бы так же, как запись разрядов (замер `docs/hardware-debt.md` §3.90.7). Место —
+  // младшие 32 байта блока площадки печати (`[площадка + 32, площадка + 64)`), которые не заняты:
+  // разрядник занимает первые 32.
   if (needsNewline) ordered.push({ key: '⟨перевод строки⟩', bytes: [STRING_NEWLINE] });
   // СТРОКА ОТКАЗА АРЕНЫ — тем же порядком, что прочие блобы: адрес выведен из конца образа.
   const refusalBytes = options.arenaRefusal === undefined ? undefined : utf8Bytes(options.arenaRefusal);
   if (refusalBytes !== undefined) ordered.push({ key: ARENA_REFUSAL_BLOB_KEY, bytes: refusalBytes });
 
-  const area = printAreaOf(heapAddress);
-  let cursor = area;
+  // СТАТИКА — ПОД КОДОМ, В ФАЙЛЕ: читать из страницы кода можно, писать — нет. Поэтому якорь
+  // статики не связан с кучей: он остаётся там, где был, и размеры образов от переезда области
+  // записи НЕ двигаются (§3.91).
+  let cursor = STATIC_AREA_TOP;
   const addresses = new Map<string, number>();
   const blobs: { address: number; bytes: readonly number[] }[] = [];
   for (const blob of ordered) {
@@ -314,19 +333,19 @@ export function planStrings(
     addresses.set(blob.key, cursor);
     blobs.push({ address: cursor, bytes: blob.bytes });
   }
+  const bufferAddress = needsBuffer ? spillBaseOf(heapAddress) - STRING_BUFFER_BYTES : undefined;
   // Адрес значения: у литерала — его собственные байты, у статической склейки — буфер (результат
   // живёт там). У склейки ЧЕРЕЗ АРЕНУ адреса нет и быть не может: он появляется в рантайме, и
   // значение живёт в регистре-приёмнике выделения.
   for (const value of values.values()) {
     const isJoined = value.key.includes('\u0000');
-    const address = isJoined ? addresses.get('⟨буфер склейки⟩') : addresses.get(value.key);
+    const address = isJoined ? bufferAddress : addresses.get(value.key);
     if (address !== undefined) value.address = address;
   }
 
   // ── Применение правок: пометки — числовые, ПОСЛЕ раскладки блобов (адреса уже известны) ───────
   const pool = [...constants];
   const tableAddress = addresses.get('⟨таблица продолжений⟩') ?? 0;
-  const bufferAddress = addresses.get('⟨буфер склейки⟩') ?? 0;
   const newlineAddress = addresses.get('⟨перевод строки⟩') ?? 0;
   const rewritten = code.map((carrier, index) => {
     const edit = edits.get(index);
@@ -386,13 +405,15 @@ export function planStrings(
             imm(0),
             imm(edit.marks[0]!),
             imm(edit.marks[1]!),
-            imm(bufferAddress),
+            imm(bufferAddress ?? 0),
           ],
         };
       }
       operands[STRING_MARK_OPERAND] = imm(edit.marks[0]!);
       operands[STRING_MARK_OPERAND + 1] = imm(edit.marks[1]!);
-      operands[STRING_MARK_OPERAND + 2] = imm(bufferAddress);
+      // Буфер объявлен у статической склейки всегда (`needsBuffer` = есть хоть одна такая): ноль
+      // здесь означал бы дефект планирования, а не «буфера нет» — и раскладка отказала бы по имени.
+      operands[STRING_MARK_OPERAND + 2] = imm(bufferAddress ?? 0);
     } else {
       operands[STRING_MARK_OPERAND] = imm(edit.marks[0]!);
       operands[STRING_MARK_OPERAND + 1] = imm(newlineAddress);

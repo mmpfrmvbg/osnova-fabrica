@@ -45,7 +45,7 @@
  */
 
 import type { AsmInstruction, Operand } from './backend';
-import { MINIMAL_BASE } from './elfMinimal';
+import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { ARRAY_WINDOW_RSZ } from './arrayRuntime';
 import {
   ARENA_ALLOC_CARRIER,
@@ -85,17 +85,17 @@ const a = (mnemonic: string, operands: readonly Operand[], channel = 0): AsmInst
 export const ARENA_CALL = 'система.память.выделить';
 
 /**
- * АРЕНА: адреса и размер — решение lead от 2026-09-29 (`docs/hardware-debt.md` §3.88.4).
+ * АРЕНА: адреса и размер — решение lead от 2026-09-29 (`docs/hardware-debt.md` §3.88.4, §3.91).
  *
- * `0x102000` — сразу за отображёнными восемью килобайтами и выше площадки печати (`0x101f00`).
+ * База — **та же, что у кучи массивов** (`MINIMAL_BASE + IMAGE_TAIL_OFFSET`): свойство §3.88.4
+ * сохранено, и вместе с ним остаётся верной названная граница — арена и куча массивов в одной
+ * программе **не разведены** (первая же запись массива легла бы в выделенный блок). Смещение хвоста
+ * (0x11000) выбрано замером: область записи обязана лежать на странице без кода (§3.90.7, §3.91).
+ *
  * 4096 байт, а не 256 (зазор): «256 — граница, а не бюджет» — программа чуть больше упрётся
  * немедленно.
- *
- * **Граница, названная здесь:** куча рантайма массивов начинается там же — `HEAP_OFFSET = 0x2000`,
- * то есть `0x102000`, и растёт вверх. Программа, которой нужны **и массивы, и арена**, в одной
- * редакции не разведена: это названный отказ раскладки (`src/e2k/programImage.ts`), а не надежда.
  */
-export const ARENA_BASE = MINIMAL_BASE + 0x2000;
+export const ARENA_BASE = MINIMAL_BASE + IMAGE_TAIL_OFFSET;
 export const ARENA_BYTES = 0x1000;
 export const ARENA_LIMIT = ARENA_BASE + ARENA_BYTES;
 
@@ -103,9 +103,10 @@ export const ARENA_LIMIT = ARENA_BASE + ARENA_BYTES;
  * Отображённая память образа: `p_memsz` = размер файла + `extraMemory`.
  *
  * `extraMemory` пишет **только** `p_memsz` (`src/e2k/elfMinimal.ts#buildElfFromCode`), кода не
- * касается — поэтому арена не двигает ни одного закреплённого числа.
+ * касается — поэтому область записи не двигает ни одного закреплённого числа. Величина — одна на всю
+ * область записи (страница площадки/слотов и страница кучи с ареной).
  */
-export const ARENA_EXTRA_MEMORY = 0x3000;
+export const ARENA_EXTRA_MEMORY = WRITE_ZONE_EXTRA_MEMORY;
 
 /** Ключ предиката сравнения: значения в нём не бывает, но раскладка не должна его отдавать. */
 export const ARENA_FLAG_REGISTER = 5;

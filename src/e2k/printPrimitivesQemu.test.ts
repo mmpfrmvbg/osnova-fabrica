@@ -27,7 +27,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
-import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
+import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
 import { HEAP_OFFSET, loweredProgram } from './programImage';
 import {
@@ -99,7 +99,7 @@ function printManyProgram(values: readonly number[]): AsmInstruction[] {
 /** Прогон модели с журналом системных вызовов: stdout — текст гостя, stderr — журнал. */
 function runWithJournal(instructions: readonly AsmInstruction[], name: string): { stdout: Buffer; stderr: string; status: number | null } {
   const elf = path.join(ROOT, '.tmp', `print-primitives-${name}.elf`);
-  fs.writeFileSync(elf, buildElfFromCode(pack(instructions), MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes);
+  fs.writeFileSync(elf, buildElfFromCode(pack(instructions), MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes);
   const result = spawnSync(
     'wsl',
     ['-d', 'e2k', '--', ...(shim === undefined ? [] : ['env', `LD_PRELOAD=${toWslPath(shim)}`]),
@@ -184,35 +184,29 @@ describe('печать на цели: число → текст, сверка б
     expect(run.stderr.match(/write\(1,/g)?.length, 'в журнале обязаны быть ДВА вызова write').toBe(2);
   });
 
-  it('ГРАНИЦА ИЗМЕРЕНА: три печати ПОДРЯД входят в СТРАНИЦУ площадки — и падают', () => {
+  it('ПРИЁМКА ПЕРЕЕЗДА: три печати ПОДРЯД (прежде — падение) печатают ВСЕ три строки', () => {
     if (shim === undefined) return;
-    // ПРИЧИНА НАЗВАНА ЗАМЕРОМ 2026-09-29 (§3.90.7). Падает не «код дошёл до площадки», а «код вошёл
-    // в её СТРАНИЦУ»: QEMU делает страницу переведённого кода защищённой (`src/e2k/elfMinimal.ts`),
-    // и запись разрядов в ту же страницу кончается ACCERR. Три прямые развёртки — конец кода
-    // 0x101120, страница площадки начинается на 0x101000: 0x101120 < 0x101ec0 (до АДРЕСА площадки
-    // код не дошёл), но страница уже его. Прежняя редакция этой проверки прибавляла файловое
-    // смещение 0x1000 и мерила 0x102120 — то есть проходила по неверному числу.
+    // БЫЛО (§3.90.7, замер): три прямые развёртки — конец кода 0x101138 — писали разряды в СТРАНИЦУ,
+    // где лежит код, и модель падала `QEMU internal SIGSEGV {code=ACCERR}` (код 139) после двух
+    // строк. Тот же образ и есть различающий: код входит в старую страницу площадки (0x101000), а
+    // работает — значит изменилась РАСКЛАДКА, а не программа.
     //
-    // Это и есть та «оговорка», которую сторож места держал открытой: замер §3.40.6 не сходился с
-    // адресной арифметикой именно потому, что граница — страничная.
+    // СТАЛО (§3.91): область записи вынесена на свою страницу (площадка 0x110EC0, куча и арена
+    // 0x111000), потолок раскладки — 64 КиБ кода. Предел МОДЕЛИ при этом назван отдельно: печать
+    // 76 сайтов (кода 17248) работает, 79 (17872) — утверждение порта `tb-maint.c: tb_record`, и
+    // оно НЕ про размер кода: 6000 арифметических носителей (48088 байт) проходят кодом 0
+    // (`docs/hardware-debt.md` §3.91).
     const three = printManyProgram([1, 2, 3]);
-    const codeBytes = pack(three).length;
-    const codeEnd = MINIMAL_BASE + codeBytes;
-    const page = AREA - (AREA % 0x1000);
-    expect(codeEnd, `код трёх печатей 0x${codeEnd.toString(16)} против страницы 0x${page.toString(16)}`).toBeGreaterThan(page);
-    expect(codeEnd, 'и до АДРЕСА площадки он при этом не доходит — граница не адресная').toBeLessThan(AREA);
+    const codeEnd = MINIMAL_BASE + pack(three).length;
+    expect(codeEnd, 'код обязан заходить в прежнюю страницу площадки (0x101000) — иначе опыт не тот').toBeGreaterThan(MINIMAL_BASE + 0x1000);
+    expect(codeEnd, 'но не доходить до самой площадки: 0x110EC0').toBeLessThan(AREA);
     const run = runWithJournal(three, 'three-calls');
-    expect(
-      hex(run.stdout),
-      'граница обязана быть видна поведением: третья строка НЕ печатается молча',
-    ).not.toBe('31 0a 32 0a 33 0a');
-    expect(run.status, 'запись в страницу своего кода обязана кончаться отказом, а не тихой ложью').not.toBe(0);
-    // СТОРОНА «ВЛЕЗАЕТ» — ЧИСЛОМ: две прямые развёртки остаются НИЖЕ страницы, и их поведение уже
-    // измерено рядом («два вызова подряд»: `31 0a 32 0a`, код 0). Стороны различает страница:
-    // две — ниже (0x100900), три — внутри (0x101080).
+    expect(hex(run.stdout), 'все три строки, побайтово').toBe('31 0a 32 0a 33 0a');
+    expect(run.status, 'и своё `exit(0)`, а не падение').toBe(0);
+    // Сторона «короче»: две развёртки — и они печатают обе строки (соседний случай «два вызова
+    // подряд»). Числом здесь показано только то, что сторон две и они разной длины.
     const two = printManyProgram([1, 2]);
-    const twoEnd = MINIMAL_BASE + pack(two).length;
-    expect(twoEnd, `две развёртки 0x${twoEnd.toString(16)} против страницы 0x${page.toString(16)}`).toBeLessThanOrEqual(page);
+    expect(MINIMAL_BASE + pack(two).length, 'две развёртки короче трёх').toBeLessThan(codeEnd);
   });
 
   it('НЕГАТИВНЫЙ КОНТРОЛЬ: подмена числа меняет байты вывода', () => {
@@ -298,12 +292,18 @@ describe('РАЗДЕЛЁННАЯ ПЕЧАТЬ: «число → текст» в 
       .join('\n')}\nконец_процедуры\n`;
     const image = loweredProgram(source);
     expect(image.refused, 'разделённая печать обязана понижаться без отказов').toEqual([]);
-    // Без разделения десять развёрток весили бы ≈14320 байт — это заведомо больше площадки (3776).
+    // ЧИСЛА ПОСЛЕ ПЕРЕЕЗДА ОБЛАСТИ ЗАПИСИ (§3.91): без разделения десять развёрток весили бы
+    // ≈14 320 байт, и прежде это был бы ОТКАЗ (потолок 4 КиБ). Теперь потолок — 64 КиБ, поэтому
+    // разделение перестало быть условием сборки и осталось тем, чем и было по смыслу: дешевизной
+    // (2 900 против 14 320) и независимостью от числа сайтов. Проверяется и то, и другое числом.
     const inline = values.length * pack(numberToTextPrimitives(PRINT_PRIMITIVE_REGISTERS.input, HEAP).instructions).length;
-    expect(MINIMAL_BASE + 0x1000 + inline, 'без разделения десять печатей НЕ влезают').toBeGreaterThan(AREA);
-    expect(MINIMAL_BASE + 0x1000 + image.bytes.length, 'с разделением — влезают').toBeLessThan(AREA);
+    const shared = image.bytes.length;
+    expect(inline, 'без разделения — тяжелее').toBeGreaterThan(shared);
+    expect(inline, 'и прежде это не влезало в площадку').toBeGreaterThan(0x1000);
+    expect(MINIMAL_BASE + shared, 'с разделением код остаётся ниже области записи').toBeLessThanOrEqual(printAreaOf(HEAP));
+    expect(MINIMAL_BASE + inline, 'а без разделения он тоже влез бы — потому что потолок теперь страница').toBeLessThan(printAreaOf(HEAP));
     // `loweredProgram` даёт БАЙТЫ КОДА: обёртка в ELF — тем же вызовом, что у ручных программ выше.
-    const run = runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes, 'shared-ten');
+    const run = runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes, 'shared-ten');
     const expected = Buffer.from(values.map((value) => `${String(value)}\n`).join(''), 'utf-8');
     expect(hex(run.stdout), 'десять печатей обязаны дать десять строк побайтово').toBe(
       [...expected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '),
@@ -323,7 +323,7 @@ describe('СТРОКИ НА ЦЕЛИ: кодпоинты, склейка, выв
   const runSource = (source: string, name: string): { stdout: Buffer; stderr: string; status: number | null } => {
     const image = loweredProgram(source);
     expect(image.refused, `строковая программа «${name}» обязана понижаться без отказов`).toEqual([]);
-    return runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes, name);
+    return runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes, name);
   };
   const wrapped = (body: string): string => `процедура главная()\n${body}\nконец_процедуры\n`;
 
@@ -395,7 +395,9 @@ describe('СТРОКИ НА ЦЕЛИ: кодпоинты, склейка, выв
       'string-buffer-20',
     );
     expect(statics.image.arena.used, 'двадцать байт — по-прежнему статический буфер').toBe(false);
-    expect(statics.image.arena.extraMemory, 'и отображение прежнее').toBe(HEAP_OFFSET);
+    // Отображение определяется ОБЛАСТЬЮ ЗАПИСИ (она выше кода, §3.91), а не ареной: у статической
+    // склейки арены нет, но печать есть — и площадке нужна отображённая память.
+    expect(statics.image.arena.extraMemory, 'отображение — под область записи').toBe(WRITE_ZONE_EXTRA_MEMORY);
     const staticsExpected = Buffer.from('0123456789012345678z\n', 'utf-8');
     expect(hex(statics.run.stdout), 'статика: вывод — ровно двадцать байт и перевод строки').toBe(
       [...staticsExpected].map((byte) => byte.toString(16).padStart(2, '0')).join(' '),
@@ -427,7 +429,7 @@ describe('ПЕЧАТЬ ИЗ ПРОЦЕДУРЫ: аргументы систем�
   const runPipeline = (source: string, name: string): { stdout: Buffer; stderr: string; status: number | null } => {
     const image = loweredProgram(source);
     expect(image.refused, `программа «${name}» обязана понижаться без отказов`).toEqual([]);
-    return runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes, name);
+    return runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes, name);
   };
 
   it('ПРИЁМКА: система.лог.вывести ВНУТРИ процедуры — вывод побайтово, код 0', () => {

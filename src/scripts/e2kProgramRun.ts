@@ -24,7 +24,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { buildElfFromCode, MINIMAL_BASE } from "../e2k/elfMinimal";
-import { HEAP_OFFSET, entryValueReturnsOf, loweredProgram } from "../e2k/programImage";
+import { entryValueReturnsOf, loweredProgram } from "../e2k/programImage";
 import { LOWERING_CODES, type LoweringRefusal } from "../e2k/loweringRefusal";
 import { buildShim, runInQemu } from "./e2kQemuExec";
 
@@ -44,6 +44,13 @@ export interface E2kImage {
   bytes: Uint8Array;
   refused: LoweringRefusal[];
   used: number;
+  /**
+   * Сколько памяти отображает сегмент СВЕРХ файла: область записи (куча, арена, площадка печати и
+   * слоты) лежит выше кода, и без этого числа обращение к ней — исключение. Берётся из отчёта
+   * образа, а не из константы: у программ с ареной и без неё отображение одно и то же, но знание об
+   * этом — у конвейера (`src/e2k/programImage.ts#imageOfCarriers`).
+   */
+  extraMemory: number;
 }
 
 /**
@@ -88,7 +95,7 @@ export function buildE2kImage(source: string): E2kImage {
   const returns = entryValueReturnsOf(source);
   if (returns > 1) throw new MultiReturnRefusal(returns);
   const built = loweredProgram(source);
-  return { bytes: built.bytes, refused: [...built.refused], used: built.used };
+  return { bytes: built.bytes, refused: [...built.refused], used: built.used, extraMemory: built.arena.extraMemory };
 }
 
 /** Результат прогона на цели: код возврата `exit` и что не понизилось. */
@@ -110,11 +117,11 @@ export interface E2kRun {
 
 /**
  * БАЙТЫ ОБРАЗА ELF — тем же вызовом, что у оракула цели
- * (`buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET })`).
+ * (`buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: image.extraMemory })`).
  */
 export function buildElfImage(source: string): Uint8Array {
   const image = buildE2kImage(source);
-  return buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes;
+  return buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: image.extraMemory }).bytes;
 }
 
 /**

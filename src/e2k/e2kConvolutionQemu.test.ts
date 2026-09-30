@@ -32,14 +32,14 @@ import { allocateProgram } from './regAlloc';
 import { layoutOf, secondPass } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
 import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
-import { buildElfFromCode, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
+import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SYSCALL_WBS, WRITE_ZONE_EXTRA_MEMORY, buildElfFromCode } from './elfMinimal';
 import { SYS_EXIT, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
 const shellEncoder = getEncoder('internal-shell');
-const HEAP_OFFSET = 0x2000;
+const HEAP_OFFSET = IMAGE_TAIL_OFFSET;
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
 
@@ -194,7 +194,7 @@ describe('свёртка: правка источника плюс встраи�
     // следующая запись падает с «UNKNOWN: unknown error, open …» (тот же класс, что случай 16
     // реестра проверяемости: проверки делили один изменяемый артефакт).
     const elf = path.join(ROOT, '.tmp', `e2k-convolution-inline-${String(process.pid)}.elf`);
-    fs.writeFileSync(elf, buildElfFromCode(built.bytes, MINIMAL_BASE, { writable: true, extraMemory: HEAP_OFFSET }).bytes);
+    fs.writeFileSync(elf, buildElfFromCode(built.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes);
     // Бюджет прогона короткий намеренно: здесь важно отличить «модель считает» от «модель встала»
     // (то же решение, что в `docs/e2k-setwd-memory.md` §2), а не измерить время.
     const run = runInQemu(elf, { shim: true, timeoutMs: 10_000 });

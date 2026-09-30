@@ -29,7 +29,7 @@ import { ARRAY_REGISTERS, SUPPORTED_ARRAY_CALLS, arrayPrologue } from './arrayRu
 import { allocateProgram } from './regAlloc';
 import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
-import { MINIMAL_BASE, SYSCALL_WBS, spillBaseOf } from './elfMinimal';
+import { MINIMAL_BASE, SYSCALL_WBS, WRITE_ZONE_EXTRA_MEMORY, IMAGE_TAIL_OFFSET, spillBaseOf } from './elfMinimal';
 import {
   ENTRY_SYSCALL_FRAME,
   GROWN_SYSCALL_FRAME,
@@ -44,7 +44,6 @@ import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringM
 import { INNER_CALL_WBS, WINDOW_GROW_CARRIER } from './procedureCall';
 import {
   ARENA_BASE,
-  ARENA_EXTRA_MEMORY,
   ARENA_REFUSAL_TEXT,
   arenaGroups,
   arenaRefusalCarriers,
@@ -88,8 +87,14 @@ import {
 const encoder = getEncoder('e2k');
 const shellEncoder = getEncoder('internal-shell');
 
-/** Куча — отдельная страница: запись в страницу кода даёт ACCERR (см. `e2kMemoryQemu.test.ts`). */
-export const HEAP_OFFSET = 0x2000;
+/**
+ * Куча — начало ХВОСТА ОБРАЗА, и величина берётся из `elfMinimal` (одно число, два имени).
+ *
+ * Смещение в 0x11000 (а не 0x2000) выбрано замером: вместе с кучей от него считаются слоты
+ * вытеснения, площадка печати и сохранения сайтов, то есть **вся область записи**, и она обязана
+ * лежать на странице, где нет кода (`docs/hardware-debt.md` §3.91, замер §3.90.7).
+ */
+export const HEAP_OFFSET = IMAGE_TAIL_OFFSET;
 
 /**
  * РАЗМЕР СТРАНИЦЫ, которой модель защищает переведённый код, — 4096 байт.
@@ -705,11 +710,6 @@ export function imageOfCarriers(
         );
   const arenaCode = withRefusal.code;
   const baseProcedures: readonly ProcedureOffset[] = withRefusal.procedures;
-  // Отчёт об арене — наружу, к построению ELF: арена лежит ВЫШЕ отображённых восьми килобайт,
-  // и без `extraMemory` первое же обращение к ней встало бы исключением.
-  const arenaReport = arenaUsed
-    ? { used: true, extraMemory: ARENA_EXTRA_MEMORY }
-    : { used: false, extraMemory: HEAP_OFFSET };
   // РОСТ ОКНА: процедура, которая САМА вызывает, получает свой пролог `setwd wsz=16` + `setbn rsz=15`
   // (§3.56.5, правила 1–2) — иначе её внутренний вызов не имеет законного `wbs`. Растёт окно у той,
   // которая вызывает: точке входа оно не нужно (её вызовы идут с `wbs = 4`), листовой — тем более.
@@ -1296,6 +1296,14 @@ export function imageOfCarriers(
   if (usesArrayHeap(code, invokeNames)) {
     writeTargets.push({ what: 'куча массивов', address: heapAddress });
   }
+  // ОТЧЁТ О ХВОСТЕ — наружу, к построению ELF: куча, арена и вся область записи лежат ВЫШЕ кода, и
+  // без `extraMemory` первое же обращение к ним встало бы исключением. Число одно на всю область
+  // записи (`src/e2k/elfMinimal.ts#WRITE_ZONE_EXTRA_MEMORY`): страница площадки/слотов и страница
+  // кучи с ареной. Образ, который НИКУДА не пишет, обходится началом хвоста.
+  const arenaReport = {
+    used: arenaUsed,
+    extraMemory: writeTargets.length > 0 ? WRITE_ZONE_EXTRA_MEMORY : HEAP_OFFSET,
+  };
   if (writeTargets.length > 0) {
     const pageOf = (address: number): number => address - (address % WRITE_PAGE_BYTES);
     const barrier = writeTargets.reduce((lowest, target) => Math.min(lowest, pageOf(target.address)), Number.MAX_SAFE_INTEGER);
@@ -1306,9 +1314,10 @@ export function imageOfCarriers(
         `место записи: код образа кончается на ${codeEnd.toString(16)} (кода ${String(bytes.length)} байт), а ` +
           `страница записи начинается на ${barrier.toString(16)} — в неё попадает «${lowest.what}» ` +
           `(${lowest.address.toString(16)}). Модель делает страницу переведённого кода защищённой, и запись ` +
-          'в неё падает ACCERR: замер 2026-09-29 — конец кода 0x101c60 при площадке 0x101ec0 падает, ' +
-          'а 0x1008d0 работает. Двигать страницу записи некуда: выше куча и арена — место записи надо ' +
-          'выносить на СВОЮ страницу (docs/hardware-debt.md §3.90.7)',
+          'в неё падает ACCERR (замер 2026-09-29: конец кода 0x101480 при площадке на той же странице — ' +
+          'исключение, 0x1008d0 — код 0). Область записи стоит на своей странице (0x110000), и упереться в ' +
+          'неё можно только кодом длиннее шестидесяти четырёх килобайт — тогда работу продолжает ' +
+          'разделение печати, а не молчание (docs/hardware-debt.md §3.91)',
       );
     }
   }
