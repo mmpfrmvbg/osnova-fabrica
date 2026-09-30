@@ -68,6 +68,7 @@ export default defineConfig({
       // Арена на цели: выделение переживает печать и вложенный вызов, исчерпание — код 231
       // и строка в stderr, а «арена заполнена ровно» — контроль (отказа нет).
       'src/e2k/arenaQemu.test.ts',
+      'src/e2k/memorySyscallsQemu.test.ts',
       // Корпус примеров на цели: примеры, объявленные исполняемыми на e2k,
       // сверяются с тем же expected.txt, что и VM (сквозная проверка).
       'src/scripts/examplesE2k.audit.test.ts',
