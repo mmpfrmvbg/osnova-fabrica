@@ -78,10 +78,33 @@ export const IMAGE_TAIL_OFFSET = 0x11000;
 /**
  * `extraMemory` образа, который ЧТО-ТО пишет: куча, арена и область записи — по одной странице.
  *
- * `p_memsz` считается от начала сегмента, поэтому «дописать страницу сверх начала хвоста» и есть
- * эта величина. Образ, который не пишет никуда, обходится {@link IMAGE_TAIL_OFFSET}.
+ * `p_memsz` сегмента данных считается от `DATA_SEGMENT_BASE`, и этой величины хватает и области
+ * записи (площадка, слоты, буфер склейки), и странице кучи с ареной за ней.
+ *
+ * **ОГОВОРКА 2026-09-30 (§3.93):** с появлением отдельного сегмента данных это число стало
+ * ИЗБЫТОЧНЫМ для отображения — сегмент данных отображается сам (`p_filesz = 0`). Здесь оно осталось
+ * затем, что им пользуется отчёт образа и кит; разбор «убрать или объяснить» — отдельная карточка,
+ * и вызовы `buildElfFromCode` его больше не требуют.
  */
 export const WRITE_ZONE_EXTRA_MEMORY = IMAGE_TAIL_OFFSET + 0x1000;
+
+/**
+ * НАЧАЛО СЕГМЕНТА ДАННЫХ — страница области записи, на страницу ниже кучи.
+ *
+ * Область записи считается от кучи: площадка печати — `куча − 0x140`, слоты вытеснения — `куча −
+ * 0x100`, буфер склейки — `куча − 0x14`. Все три попадают на страницу НИЖЕ кучи, поэтому начало
+ * сегмента данных и есть начало этой страницы. Число выведено из геометрии, а не выбрано: сдвинь
+ * куча — сдвинется и сегмент.
+ */
+export const DATA_SEGMENT_BASE = MINIMAL_BASE + IMAGE_TAIL_OFFSET - 0x1000;
+
+/**
+ * РАЗМЕР СЕГМЕНТА ДАННЫХ: страница области записи и страница кучи с ареной.
+ *
+ * Две страницы — потому что за областью записи сразу идёт куча массивов (`MINIMAL_BASE +
+ * IMAGE_TAIL_OFFSET`), и на той же странице начинается арена (§3.88.4: они начинаются там же).
+ */
+export const DATA_SEGMENT_BYTES = 0x2000;
 
 /**
  * Область слотов вытеснения — **под указателем кучи**, 256 байт (32 слота по 8).
@@ -329,14 +352,33 @@ export function buildElfFromCode(
   if (!Number.isInteger(extra) || extra < 0) {
     throw new Error(`дополнительная память сегмента обязана быть неотрицательным целым, получено ${String(extra)}`);
   }
-  file.writeUInt32LE(1, 0x40);
-  file.writeUInt32LE(options.writable === true ? 7 : 5, 0x44);
-  file.writeBigUInt64LE(BigInt(textOffset), 0x48);
-  file.writeBigUInt64LE(BigInt(base), 0x50);
-  file.writeBigUInt64LE(BigInt(base), 0x58);
-  file.writeBigUInt64LE(BigInt(segmentSize), 0x60);
-  file.writeBigUInt64LE(BigInt(segmentSize + extra), 0x68);
-  file.writeBigUInt64LE(0x1000n, 0x70);
+  // ── ДВА СЕГМЕНТА: КОД `R|X` И ДАННЫЕ `R|W` (замер `docs/hardware-debt.md` §3.92) ───────────────
+  //
+  // Было: ОДИН сегмент `R|W|X` — то есть writable там, где лежит код. Отсюда оба падения модели с
+  // одним корнем: `ACCERR` при записи в площадку печати (§3.90.7) и `assert(!(flags & PAGE_WRITE))`
+  // в книге блоков трансляции (§3.91.3, сам комментарий: «translator_loop() must have made all TB
+  // pages non-writable»). Замер: 79 сайтов печати — один сегмент: код 134 и 58 строк из 79; два
+  // сегмента: код 0 и все 79 строк (`.tmp/two-segment-probe.ts`).
+  //
+  // Статика (литералы строк, таблица продолжений) лежит в СЕГМЕНТЕ КОДА, сразу за командами, и это
+  // правильно: её только ЧИТАЮТ, а читать из `R|X` можно. Всё, что ПИШЕТСЯ (площадка печати, слоты
+  // вытеснения, буфер склейки, куча массивов, арена), живёт в сегменте данных на странице
+  // `DATA_SEGMENT_BASE` — там кода нет по построению, а не по договорённости (§3.91).
+  file.writeUInt16LE(2, 56); // e_phnum = 2
+  const phdr = (at: number, flags: number, offset: number, vaddr: number, filesz: number, memsz: number): void => {
+    file.writeUInt32LE(1, at); // PT_LOAD
+    file.writeUInt32LE(flags, at + 4);
+    file.writeBigUInt64LE(BigInt(offset), at + 8);
+    file.writeBigUInt64LE(BigInt(vaddr), at + 16);
+    file.writeBigUInt64LE(BigInt(vaddr), at + 24);
+    file.writeBigUInt64LE(BigInt(filesz), at + 32);
+    file.writeBigUInt64LE(BigInt(memsz), at + 40);
+    file.writeBigUInt64LE(0x1000n, at + 48);
+  };
+  // Первый: КОД. `p_offset % page == p_vaddr % page` — иначе загрузчик положит сегмент не туда.
+  phdr(0x40, 5, textOffset, base, segmentSize, segmentSize);
+  // Второй: ДАННЫЕ. В файле их нет (`p_filesz = 0`) — отображается нулями (`p_memsz`).
+  phdr(0x78, 6, 0, DATA_SEGMENT_BASE, 0, DATA_SEGMENT_BYTES);
 
   file.set(text, textOffset);
   file.set(symtab, symtabOffset);

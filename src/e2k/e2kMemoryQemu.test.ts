@@ -28,7 +28,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
-import { buildElfFromCode, MINIMAL_BASE, SYSCALL_WBS } from './elfMinimal';
+import { DATA_SEGMENT_BASE, MINIMAL_BASE, SYSCALL_WBS, buildElfFromCode } from './elfMinimal';
 import { SYS_EXIT, HELLO_SETBN_RSZ, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 
@@ -49,7 +49,10 @@ const f64 = (value: bigint): Operand => ({ kind: 'imm64', value }) as unknown as
  * код возврата равен записанному значению. Хвост сегмента отображается нулями и объявлен
  * `extraMemory` (`src/e2k/elfMinimal.ts:245-259`).
  */
-const DATA_OFFSET = 0x2000;
+// АДРЕС ОБЛАСТИ ДАННЫХ — ИЗ СЕГМЕНТА ДАННЫХ, а не «страницей после кода» (2026-09-30, §3.92):
+// образ собирается ДВУМЯ сегментами, код R|X, данные R|W, и всё, что пишется, лежит в данных.
+// Прежние 0x2000 (0x102000) после этого не отображены ВООБЩЕ — проба падала кодом 9 на первой записи.
+const DATA_OFFSET = DATA_SEGMENT_BASE - MINIMAL_BASE;
 
 /**
  * Программа: `b1` — адрес области, `b2` — нулевое смещение, `b3` — значение.
@@ -89,6 +92,9 @@ function exitCodeOf(value: number, readOffset: number, file: string): number | u
   const bytes = programBytes(value, readOffset);
   fs.writeFileSync(
     path.join(ROOT, '.tmp', file),
+    // Адрес данных — из СЕГМЕНТА ДАННЫХ (`DATA_SEGMENT_BASE`), а не «страницей после кода»: до
+    // 2026-09-30 проба писала по 0x102000, и с двумя сегментами этот адрес не отображён вовсе.
+    // Вопрос «нужен ли ещё `extraMemory`» — отдельная проверка отдельным коммитом (§3.93).
     buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: DATA_OFFSET }).bytes,
   );
   return runInQemu(path.join(ROOT, '.tmp', file), { shim: true })?.status;

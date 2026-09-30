@@ -29,7 +29,7 @@ import { spawnSync } from 'node:child_process';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
-import { HEAP_OFFSET, loweredProgram } from './programImage';
+import { HEAP_OFFSET, imageOfCarriers, loweredProgram } from './programImage';
 import {
   ASCII_NEWLINE,
   PRINT_AREA_LAYOUT,
@@ -41,6 +41,7 @@ import {
   printAreaOf,
   numberToTextLeanPrimitives,
 } from './printPrimitives';
+import { PRINT_CALL } from './printCall';
 import { buildShim, toWslPath } from '../scripts/e2kQemuExec';
 import { ENTRY_SYSCALL_FRAME, GROWN_SYSCALL_FRAME, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 
@@ -96,10 +97,15 @@ function printManyProgram(values: readonly number[]): AsmInstruction[] {
   return instructions;
 }
 
-/** Прогон модели с журналом системных вызовов: stdout — текст гостя, stderr — журнал. */
-function runWithJournal(instructions: readonly AsmInstruction[], name: string): { stdout: Buffer; stderr: string; status: number | null } {
+/** Прогон ГОТОВОГО образа модели с журналом: тем же путём, что `runWithJournal` для команд. */
+function runBytesWithJournal(bytes: Uint8Array, name: string): { stdout: Buffer; stderr: string; status: number | null } {
   const elf = path.join(ROOT, '.tmp', `print-primitives-${name}.elf`);
-  fs.writeFileSync(elf, buildElfFromCode(pack(instructions), MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes);
+  fs.writeFileSync(elf, buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes);
+  return spawnJournal(elf);
+}
+
+/** Запуск модели по адресу ELF: один и тот же вызов для команд и для готовых байт. */
+function spawnJournal(elf: string): { stdout: Buffer; stderr: string; status: number | null } {
   const result = spawnSync(
     'wsl',
     ['-d', 'e2k', '--', ...(shim === undefined ? [] : ['env', `LD_PRELOAD=${toWslPath(shim)}`]),
@@ -107,6 +113,13 @@ function runWithJournal(instructions: readonly AsmInstruction[], name: string): 
     { encoding: 'buffer', timeout: 120_000, maxBuffer: 8 * 1024 * 1024 },
   );
   return { stdout: result.stdout ?? Buffer.alloc(0), stderr: (result.stderr ?? Buffer.alloc(0)).toString('latin1'), status: result.status };
+}
+
+/** Прогон модели с журналом системных вызовов: stdout — текст гостя, stderr — журнал. */
+function runWithJournal(instructions: readonly AsmInstruction[], name: string): { stdout: Buffer; stderr: string; status: number | null } {
+  const elf = path.join(ROOT, '.tmp', `print-primitives-${name}.elf`);
+  fs.writeFileSync(elf, buildElfFromCode(pack(instructions), MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes);
+  return spawnJournal(elf);
 }
 
 /**
@@ -191,11 +204,10 @@ describe('печать на цели: число → текст, сверка б
     // строк. Тот же образ и есть различающий: код входит в старую страницу площадки (0x101000), а
     // работает — значит изменилась РАСКЛАДКА, а не программа.
     //
-    // СТАЛО (§3.91): область записи вынесена на свою страницу (площадка 0x110EC0, куча и арена
-    // 0x111000), потолок раскладки — 64 КиБ кода. Предел МОДЕЛИ при этом назван отдельно: печать
-    // 76 сайтов (кода 17248) работает, 79 (17872) — утверждение порта `tb-maint.c: tb_record`, и
-    // оно НЕ про размер кода: 6000 арифметических носителей (48088 байт) проходят кодом 0
-    // (`docs/hardware-debt.md` §3.91).
+    // СТАЛО (§3.91 и §3.92): область записи вынесена на свою страницу (площадка 0x110EC0, куча и
+    // арена 0x111000), а образ собирается ДВУМЯ сегментами — код R|X, данные R|W. Предел модели,
+    // названный в §3.91.3 (79 сайтов, `tb-maint.c: tb_record`), оказался следствием ОДНОГО сегмента
+    // R|W|X: код в нём был writable. Атрибуция §3.91.3 отозвана, корень — наш ELF (§3.92).
     const three = printManyProgram([1, 2, 3]);
     const codeEnd = MINIMAL_BASE + pack(three).length;
     expect(codeEnd, 'код обязан заходить в прежнюю страницу площадки (0x101000) — иначе опыт не тот').toBeGreaterThan(MINIMAL_BASE + 0x1000);
@@ -207,6 +219,30 @@ describe('печать на цели: число → текст, сверка б
     // подряд»). Числом здесь показано только то, что сторон две и они разной длины.
     const two = printManyProgram([1, 2]);
     expect(MINIMAL_BASE + pack(two).length, 'две развёртки короче трёх').toBeLessThan(codeEnd);
+  });
+
+  it('ПРИЁМКА ДВУХ СЕГМЕНТОВ: 79 сайтов печати (прежде — падение модели) дают 79 строк и код 0', () => {
+    if (shim === undefined) return;
+    // ЧИСЛО ИЗ КАРТОЧКИ (§3.92): при ОДНОМ сегменте `R|W|X` этот же образ давал код 134 и 58 строк
+    // из 79 — `assert(!(flags & PAGE_WRITE))`, потому что код был writable. С двумя сегментами
+    // (код `R|X`, данные `R|W`) — все 79 строк и код 0. Сайты здесь КОНВЕЙЕРНЫЕ (разделённая печать
+    // делит развёртку), поэтому 79 сайтов — это 17 872 байта кода, а не 79 развёрток.
+    const sites = 79;
+    const carriers: AsmInstruction[] = [
+      ...Array.from({ length: sites }, () => ({
+        mnemonic: 'IR.invoke',
+        channel: 0,
+        operands: [imm(3), reg(2), imm(0), imm(0), imm(0)],
+      })),
+      { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] },
+    ];
+    const image = imageOfCarriers(carriers, [], [PRINT_CALL]);
+    expect(image.refused.map((item) => item.reason).join(' | '), 'отказов раскладки быть не должно').toBe('');
+    const codeEnd = MINIMAL_BASE + image.bytes.length;
+    expect(codeEnd, 'код обязан быть ДЛИННЕЕ прежнего предела модели (17 248 байт)').toBeGreaterThan(MINIMAL_BASE + 17_248);
+    const run = runBytesWithJournal(image.bytes, `sites-${String(sites)}`);
+    expect(run.stdout.toString('utf-8').split('\n').filter((line) => line.length > 0), 'все 79 строк').toHaveLength(sites);
+    expect(run.status, 'и своё `exit(0)` — вместо кода 134').toBe(0);
   });
 
   it('НЕГАТИВНЫЙ КОНТРОЛЬ: подмена числа меняет байты вывода', () => {
