@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (67)
+## Фронтир и замеры (68)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -68,6 +68,7 @@
 - [docs/osnova-signature-spec.md](osnova-signature-spec.md)
 - [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md) ⚠
 - [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md)
+- [docs/osnova-spec.md](osnova-spec.md)
 - [docs/osnova-vision.md](osnova-vision.md)
 - [docs/register-ir-migration.md](register-ir-migration.md) ⚠
 - [docs/rfc/RFC-001-try-catch-avoidance.md](rfc/RFC-001-try-catch-avoidance.md)

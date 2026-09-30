@@ -14,6 +14,7 @@ docs/bytecode-v1.md: {status: stable, source-files: [src/runtime/vm/bytecode.ts,
 docs/system-api-v1.md: {status: stable, source-files: [src/runtime/vm/invokeRegistry.ts]}
 docs/language-contributing-v2.md: {status: stable, source-files: [src/compiler/language-schema.ts]}
 docs/language-registry.md: {status: stable, source-files: [src/compiler/language-registry.ts]}
+docs/osnova-spec.md: {status: active, source-files: [src/spec/osnova-spec.ts, src/spec/specification.test.ts]}
 docs/language-changelog-v2.md: {status: stable}
 docs/golden-schema.md: {status: stable, source-files: [src/runtime/goldenApps.ts]}
 docs/golden-tests.md: {status: stable, source-files: [docs/golden-tests.json]}
