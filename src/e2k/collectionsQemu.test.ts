@@ -34,8 +34,6 @@
  * работает только на VM, цели не достигает (§3.30: не измеримо — не считается).
  */
 import { describe, it, expect } from 'vitest';
-import * as fs from 'fs';
-import * as path from 'path';
 import { regModuleOf } from '../vliw/regOracle';
 import { RegVM } from '../runtime/vm/reginterpreter';
 import { createDefaultInvokeHandler } from '../runtime/vm/interpreter';
@@ -45,7 +43,6 @@ import { buildShim } from '../scripts/e2kQemuExec';
 import { COLLECTION_INVOKES } from '../runtime/vm/collectionCalls';
 
 const shim = buildShim();
-const ROOT = path.resolve(__dirname, '..', '..');
 
 /**
  * Правило записи: значение элемента по номеру — `номер + 1`, то есть 1..100.

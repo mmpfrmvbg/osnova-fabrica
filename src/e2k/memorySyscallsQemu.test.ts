@@ -28,7 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ARRAY_WINDOW_RSZ } from './arrayRuntime';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
-import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, buildElfFromCode } from './elfMinimal';
+import { MINIMAL_BASE, buildElfFromCode } from './elfMinimal';
 import { SYS_EXIT } from './syscallRuntime';
 import { MemoryRuntimeRefusal, brkInstructions, mmapInstructions } from './memoryRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
@@ -40,9 +40,6 @@ const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 const wreg = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
 const a = (mnemonic: string, operands: readonly Operand[], channel = 0): AsmInstruction => ({ mnemonic, channel, operands });
-
-/** Адрес данных из СЕГМЕНТА ДАННЫХ: с двумя сегментами иначе не отображено ничего (§3.93). */
-const SCRATCH = MINIMAL_BASE + IMAGE_TAIL_OFFSET + 0x2000;
 
 /** `exit(код)` — тот же вызов, что у остальных проб: номер 1, аргумент в оконном r1. */
 function exitWith(source: number): AsmInstruction[] {
