@@ -143,21 +143,21 @@ const ENTRY_POINTS: readonly EntryPoint[] = [
     covers: "src/cli.ts",
     args: () => [],
     command: (file, extra) =>
-      `npx tsx src/cli.ts compile "${file}"${extra.length > 0 ? " " + extra.join(" ") : ""}`,
+      `node --import tsx src/cli.ts compile "${file}"${extra.length > 0 ? " " + extra.join(" ") : ""}`,
   },
   {
     id: "src/cli/index.ts (npm run osnova)",
     covers: "src/cli/index.ts",
     args: () => [],
     command: (file, extra) =>
-      `npx tsx src/cli/index.ts compile "${file}"${extra.length > 0 ? " " + extra.join(" ") : ""}`,
+      `node --import tsx src/cli/index.ts compile "${file}"${extra.length > 0 ? " " + extra.join(" ") : ""}`,
   },
   {
     id: "src/compiler/cli.ts (osnova-compile)",
     covers: "src/compiler/cli.ts",
     args: () => [],
     command: (file, extra) =>
-      `npx tsx src/compiler/cli.ts "${file}"${extra.length > 0 ? " " + extra.join(" ") : ""}`,
+      `node --import tsx src/compiler/cli.ts "${file}"${extra.length > 0 ? " " + extra.join(" ") : ""}`,
   },
 ];
 
@@ -171,7 +171,14 @@ interface RunResult {
   readonly artifact: string;
 }
 
-/** Запуск точки входа подпроцессом. `node` — без оболочки, `npx tsx` — через неё. */
+/**
+ * ЗАМЕР 2026-10-01, ради которого здесь `node --import tsx`, а не `npx tsx`:
+ * `npx` на этой машине тратит **16.6 с** на один запуск (поиск пакета), тогда
+ * как `node --import tsx` — **0.6 с**. Разница не косметическая: проба
+ * «на ошибке парсера ни одна точка не молчит» гоняет четыре точки в подпроцессах
+ * и в полном прогоне упиралась в таймаут 120 с, то есть КРАСНЕЛА не по дефекту,
+ * а по способу запуска. Исполнитель тот же (tsx), меняется только способ вызова.
+ */
 function run(point: EntryPoint, file: string, extra: readonly string[] = []): RunResult {
   const direct = point.args(file, extra);
   const r =
