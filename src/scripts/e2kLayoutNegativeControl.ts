@@ -548,7 +548,7 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     id: '11.2',
     title: 'нужно регистров окна считается только по выданным (закреплённые забыты)',
     file: 'src/e2k/regAlloc.ts',
-    from: '    const windowRegistersNeeded = закреплено.length + allocation.allocation.used.length;',
+    from: '    const windowRegistersNeeded = pinnedInWindow.length + allocation.allocation.used.length;',
     to: '    const windowRegistersNeeded = allocation.allocation.used.length; // ДЕФЕКТ 11.2: закреплённые забыты',
     tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
     config: 'vitest.e2k.config.ts',
