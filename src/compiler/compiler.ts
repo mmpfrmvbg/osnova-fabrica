@@ -524,7 +524,15 @@ function typesCompatible(expected: TypeRef, actual: TypeRef): boolean {
   return primitiveAlias(expected.name) === primitiveAlias(actual.name);
 }
 
-function validateNamedTypesAndRewrite(ast: Module): string[] {
+/**
+ * Приводит AST к виду, который ждут кодогены: проверяет именованные типы и
+ * РАЗРЕШАЕТ нейтральные имена (`длина` — по типу операнда: строка или список).
+ *
+ * Экспортируется для v3-фронтенда: он отдаёт тот же AST, и ему нужен тот же
+ * проход. Порядок обязателен — до семантики и кодогена, иначе `длина` дойдёт до
+ * них как неизвестное имя.
+ */
+export function validateNamedTypesAndRewrite(ast: Module): string[] {
   const errors: string[] = [];
 
   const typeByName = new Map<string, TypeDeclaration>();
@@ -1243,6 +1251,130 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
       if (pt) env.set(proc.params[i]!, pt);
     }
     checkCallsInStmts(proc.body, env);
+  }
+
+  /**
+   * `длина` — НЕЙТРАЛЬНОЕ имя: один узел, а реализацию выбирает СЕМАНТИКА по типу
+   * операнда. `длина "абв"` → `система.строка.длина`, `длина [1,2]` →
+   * `система.массив.длина`.
+   *
+   * Зачем так, а не «в лексере сразу в массивную». В языке две длины, и различить
+   * их СИНТАКСИЧЕСКИ нельзя: `длина х` одинакова для строки и списка. Решать это
+   * должен слой, который ЗНАЕТ тип, — иначе строковая длина недостижима, а это
+   * блокер для прикладных программ (строки там везде: имена, описания).
+   *
+   * Если тип не выведен — остаётся массивная длина: это прежнее поведение, и
+   * молчаливая смена реализации была бы хуже явного `undefined`.
+   */
+  function resolveLength(expr: Expr, env: Env): void {
+    switch (expr.kind) {
+      case "вызов": {
+        if (expr.name === "длина" && expr.args.length === 1) {
+          const t = inferExprType(expr.args[0]!, env);
+          expr.name = t?.name === "Строка" ? "система.строка.длина" : "система.массив.длина";
+        }
+        for (const a of expr.args) resolveLength(a, env);
+        return;
+      }
+      case "бинарное":
+        resolveLength(expr.left, env);
+        resolveLength(expr.right, env);
+        return;
+      case "унарное":
+        resolveLength(expr.arg, env);
+        return;
+      case "поле":
+        resolveLength(expr.object, env);
+        return;
+      case "массив":
+        for (const э of expr.elements) resolveLength(э, env);
+        return;
+      case "объект":
+        for (const п of expr.entries) resolveLength(п.value, env);
+        return;
+      case "кортеж":
+        for (const э of expr.элементы) resolveLength(э, env);
+        return;
+      default:
+        return;
+    }
+  }
+
+  function resolveLengthInStmts(stmts: Stmt[], env: Env): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "пусть":
+          resolveLength(s.init, env);
+          if (s.typeAnnotation) env.set(s.name, s.typeAnnotation);
+          else {
+            const t = inferExprType(s.init, env);
+            if (t) env.set(s.name, t);
+          }
+          break;
+        case "присвоить":
+          resolveLength(s.value, env);
+          break;
+        case "поле_присвоить":
+          resolveLength(s.object, env);
+          resolveLength(s.value, env);
+          break;
+        case "выражение":
+          resolveLength(s.expr, env);
+          break;
+        case "вернуть":
+          if (s.value) resolveLength(s.value, env);
+          break;
+        case "выбросить":
+          resolveLength(s.value, env);
+          break;
+        case "если":
+          resolveLength(s.condition, env);
+          resolveLengthInStmts(s.body, new Map(env));
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) {
+            resolveLength(c.condition, env);
+            resolveLengthInStmts(c.body, new Map(env));
+          }
+          if (s.elseBody) resolveLengthInStmts(s.elseBody, new Map(env));
+          break;
+        case "пока":
+          resolveLength(s.condition, env);
+          resolveLengthInStmts(s.body, new Map(env));
+          break;
+        case "цикл":
+          resolveLengthInStmts(s.body, new Map(env));
+          break;
+        case "для_каждого":
+          resolveLength(s.source, env);
+          resolveLengthInStmts(s.body, new Map(env));
+          break;
+        case "когда":
+          resolveLength(s.scrutinee, env);
+          for (const arm of s.arms) {
+            resolveLength(arm.variant, env);
+            resolveLengthInStmts(arm.body, new Map(env));
+          }
+          if (s.elseBody) resolveLengthInStmts(s.elseBody, new Map(env));
+          break;
+        case "попробовать":
+          resolveLengthInStmts(s.body, new Map(env));
+          resolveLengthInStmts(s.catchBody, new Map(env));
+          break;
+        case "распаковать":
+          resolveLength(s.значение, env);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  for (const proc of ast.procedures) {
+    const env: Env = new Map();
+    for (let i = 0; i < proc.params.length; i++) {
+      const pt = proc.paramTypes?.[i];
+      if (pt) env.set(proc.params[i]!, pt);
+    }
+    resolveLengthInStmts(proc.body, env);
   }
 
   return errors;

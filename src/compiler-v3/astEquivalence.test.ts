@@ -21,7 +21,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Module } from "../compiler/ast";
-import { compileSource } from "../compiler/compiler";
+import { compileSource, validateNamedTypesAndRewrite } from "../compiler/compiler";
 import { tokenize } from "../compiler/lexer";
 import { parse } from "../compiler/parser";
 import { parseV3 } from "./index";
@@ -224,6 +224,13 @@ describe("оракул AST: v3 против v2 на источниках кор�
 
       const факт = разбор3.program!.modules[0]!;
       const эталон = модульV2(пара.v2, файл);
+
+      // Разрешение НЕЙТРАЛЬНЫХ имён — общий проход компилятора, а не часть парсера:
+      // `длина` выбирает реализацию по ТИПУ операнда (строка или список), а тип знает
+      // семантика, не фронтенд. Без этого прохода v3 отдал бы в кодоген слово `длина`,
+      // которого тот не знает.
+      const ошибкиРазрешения = [...validateNamedTypesAndRewrite(факт), ...validateNamedTypesAndRewrite(эталон)];
+      expect(ошибкиРазрешения).toEqual([]);
 
       // Главное утверждение шага: модуль ЦЕЛИКОМ, сравнение деревьев.
       expect(факт).toEqual(эталон);
