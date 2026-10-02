@@ -60,6 +60,11 @@ import { CT_COND_ALWAYS } from './e2k-real';
 import { WINDOW_REGISTERS_CALLEE } from './regAlloc';
 import { passportWindow, windowGeometryProblems } from './windowGeometry';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
+import { runOnE2k } from '../scripts/e2kProgramRun';
+import { regModuleOf } from '../vliw/regOracle';
+import { RegVM } from '../runtime/vm/reginterpreter';
+import { createDefaultInvokeHandler } from '../runtime/vm/interpreter';
+import { resolveEntryIndex } from '../oracle/parity';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
@@ -316,5 +321,49 @@ describe('модель окна на вызове процедуры: сколь
       result.status,
       'пара обязана вернуть управление (99); если здесь 134 — порт падает на утверждении, смотрите docs/e2k-return-port.md',
     ).toBe(99);
+  });
+});
+
+/**
+ * СТОРОЖ ВТОРОГО СЛУЧАЯ ТОГО ЖЕ МЕХАНИЗМА — на настоящей программе, а не на синтетическом теле.
+ *
+ * Фикстура `src/runtime/fixtures/cycle_nested.osnova` (вложенные циклы в двух вызываемых) давала на
+ * модели **92** против эталона **91** — разница ровно +1. Это тот же механизм, что
+ * `docs/hardware-debt.md` §3.96: выход программы считает `код = значение + %b[12]`, а `%b[4]`
+ * вызываемой — это ровно `%b[12]` вызывающего, и одна из вызываемых оставляла там **1**.
+ *
+ * Доказано откатом: со снятым бюджетом регистров вызываемой (`src/e2k/programImage.ts`) фикстура
+ * снова даёт 92, с бюджетом — 91. Замер — `.tmp/osnova-cycle-nested.ts`.
+ *
+ * ПОЧЕМУ СТОРОЖ ЗДЕСЬ, А НЕ В КОРПУСЕ. Фикстуры `src/runtime/fixtures/**` не входят в `examples/**`,
+ * и оракул корпуса (`src/scripts/examplesE2k.audit.test.ts`) их не видит: до этой проверки у
+ * `cycle_nested` на МОДЕЛИ не было ни одного сторожа — случай был измерен и ничем не держался.
+ *
+ * Эталон считается регистровой VM, а не берётся числом из комментария фикстуры: разойдись они —
+ * это находка, а не совпадение.
+ */
+describe('вложенные циклы в вызываемых: значение не портится бюджетом регистров', () => {
+  const ФИКСТУРА = path.join(ROOT, 'src', 'runtime', 'fixtures', 'cycle_nested.osnova');
+
+  it('эталон: регистровая VM даёт 91 (55 + 36)', async () => {
+    const source = fs.readFileSync(ФИКСТУРА, 'utf-8');
+    const built = regModuleOf(source);
+    expect(built, 'фикстура обязана компилироваться').not.toBeNull();
+    const entry = resolveEntryIndex(built!.module.procedures, undefined) ?? 0;
+    const vm = new RegVM(built!.module, { invoke: createDefaultInvokeHandler(), maxSteps: 500_000 });
+    const значение = Number(await vm.runProcedure(entry, []));
+    expect(значение, 'сумма квадратов 55 плюс таблица сумм 36').toBe(91);
+  });
+
+  it('модель даёт то же число 91 (со снятым бюджетом вызываемой — 92)', () => {
+    if (shim === undefined) return;
+    const source = fs.readFileSync(ФИКСТУРА, 'utf-8');
+    const прогон = runOnE2k(source, 'cycle-nested-guard.elf');
+    expect(прогон.refused, 'отказов понижения у этой фикстуры быть не должно').toEqual([]);
+    expect(
+      прогон.status,
+      'выход программы считает `код = значение + %b[12]`, а `%b[4]` вызываемой — это `%b[12]` ' +
+        'вызывающего: 92 здесь значит, что раскладка снова отдала вызываемой регистры вызывающего',
+    ).toBe(91);
   });
 });

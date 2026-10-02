@@ -571,6 +571,24 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     tests: ['src/compiler-v3/nativePathE2k.test.ts'],
     config: 'vitest.config.ts',
   },
+  {
+    // ТОТ ЖЕ дефект, ДРУГОЙ оракул: настоящая программа с вложенными циклами в вызываемых
+    // (`src/runtime/fixtures/cycle_nested.osnova`), а не выражение из трёх слагаемых. Она давала
+    // 92 против эталона 91 — тот же механизм (выход считает `код = значение + %b[12]`, а `%b[4]`
+    // вызываемой — это `%b[12]` вызывающего). Запись отдельная, потому что у оракула ДРУГОЙ конфиг:
+    // эта проба ходит в модель и живёт в шлюзе `gate:qemu`, а поле `config` у записи одно.
+    // Смысл отдельной записи — не дубль, а охват: фикстуры `src/runtime/fixtures/**` не входят в
+    // `examples/**`, и до 2026-10-02 у `cycle_nested` на модели не было НИ ОДНОГО сторожа.
+    id: '11.4',
+    title: 'бюджет вызываемой снят — фикстура с вложенными циклами даёт 92 вместо 91',
+    file: 'src/e2k/programImage.ts',
+    from: '    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),',
+    to:
+      '    freeFor: (at) => (at === entryAt ? undefined : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), ' +
+      '// ДЕФЕКТ 11.4: бюджет вызываемой снят',
+    tests: ['src/e2k/e2kCallWindowQemu.test.ts'],
+    config: 'vitest.qemu.config.ts',
+  },
 ];
 
 /**
