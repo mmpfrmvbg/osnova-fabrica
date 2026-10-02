@@ -42,6 +42,7 @@ import { createDefaultInvokeHandler } from '../runtime/vm/interpreter';
 import { resolveEntryIndex } from '../oracle/parity';
 import { runOnE2k } from '../scripts/e2kProgramRun';
 import { buildShim } from '../scripts/e2kQemuExec';
+import { COLLECTION_INVOKES } from '../runtime/vm/collectionCalls';
 
 const shim = buildShim();
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -76,7 +77,18 @@ async function наVM(source: string): Promise<number> {
   const built = regModuleOf(source);
   expect(built, 'программа обязана компилироваться').not.toBeNull();
   const entry = resolveEntryIndex(built!.module.procedures, undefined) ?? 0;
-  const vm = new RegVM(built!.module, { invoke: createDefaultInvokeHandler(), maxSteps: 2_000_000 });
+  const vm = new RegVM(built!.module, {
+    invoke: createDefaultInvokeHandler(),
+    // АРНОСТЬ ПЕРЕДАЁТСЯ ЯВНО, И ЭТО НАЗВАНО, А НЕ СПРЯТАНО. `система.коллекция.*` в реестре языка
+    // (`src/compiler/language-registry.ts`) ещё НЕ объявлены, поэтому `getInvokeArgCount` их не
+    // знает и VM отказала бы «Unknown invoke». Механизм для ровно этого случая в языке есть:
+    // `extraInvokes` — «хост-вызовы вне реестра `система.*`, не пишутся в language-registry»
+    // (`src/runtime/vm/interpreter.ts`). Арность приходит из того же источника, что у ЦЕЛИ
+    // (`src/e2k/collectionsRuntime.ts` читает её оттуда же), поэтому двух эталонов не заводится.
+    // Когда канон объявит операции, эту строку можно убрать — она станет избыточной, а не неверной.
+    extraInvokes: COLLECTION_INVOKES,
+    maxSteps: 2_000_000,
+  });
   return Number(await vm.runProcedure(entry, []));
 }
 
