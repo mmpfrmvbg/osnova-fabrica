@@ -479,6 +479,13 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           const loopScope = new Set(declared);
           const v = stmt.item ?? stmt.variable;
           loopScope.add(v);
+          // ИНДЕКС ПЕРЕБОРА — тоже объявленная переменная. Форма
+          // `для эл, инд в числа` есть и в реестре (`for_each_indexed`), и в AST
+          // (`index`), но в области видимости индекс не заводился: любая программа,
+          // которая им ПОЛЬЗУЕТСЯ, получала ложное «переменная 'инд' используется без
+          // объявления через пусть». Замерено: то же на v2, то есть дыра общая, а не
+          // v3-фронтенда — и молчаливая, пока индекс в теле не понадобится.
+          if (stmt.index !== undefined) loopScope.add(stmt.index);
           checkStmts(stmt.body, loopScope, true);
           break;
         }

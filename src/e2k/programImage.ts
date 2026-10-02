@@ -24,6 +24,7 @@ import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
+import type { CompileOptions } from '../compiler/compiler';
 import { lowerCarrier } from './e2kRealRun';
 import { ARRAY_REGISTERS, SUPPORTED_ARRAY_CALLS, arrayPrologue } from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
@@ -124,8 +125,11 @@ export function shellCarriers(source: string): readonly AsmInstruction[] {
  * процедура (чтобы её выход не провалился в следующую). Один вызов эмиттера на оба — потому что
  * второй вызов дал бы второе расписание, а два расписания расходятся (правило «один конвейер»).
  */
-function shellOf(source: string): { instructions: readonly AsmInstruction[]; procedures: readonly ProcedureOffset[] } {
-  const built = regModuleOf(source);
+function shellOf(
+  source: string,
+  options: CompileOptions = {},
+): { instructions: readonly AsmInstruction[]; procedures: readonly ProcedureOffset[] } {
+  const built = regModuleOf(source, options);
   if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
@@ -160,8 +164,8 @@ export function valueReturnsOf(source: string): number {
  * верна ровно одна точка выхода на один прогон. Считать возвраты по всему модулю (как было) значило
  * бы отказывать программе за ранний возврат ВЫЗЫВАЕМОЙ процедуры — то есть за то, что теперь работает.
  */
-export function entryValueReturnsOf(source: string): number {
-  const shell = shellOf(source);
+export function entryValueReturnsOf(source: string, options: CompileOptions = {}): number {
+  const shell = shellOf(source, options);
   const entry = shell.procedures[entryProcedureIndex(shell.procedures)];
   if (entry === undefined) return shell.instructions.filter(isValueReturn).length;
   const next =
@@ -479,13 +483,13 @@ export function programBytes(
  * что в `e2kConvolutionQemu.test.ts`. Нужен там, где в программе есть ЦИКЛЫ: без раскладки адресов
  * у переходов нет смещений.
  */
-export function loweredProgram(source: string): {
+export function loweredProgram(source: string, options: CompileOptions = {}): {
   bytes: Uint8Array;
   refused: readonly LoweringRefusal[];
   used: number;
   arena: { readonly used: boolean; readonly extraMemory: number };
 } {
-  const built = regModuleOf(source);
+  const built = regModuleOf(source, options);
   if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },

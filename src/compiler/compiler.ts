@@ -10,7 +10,7 @@
  * диспетчеризация шага — {@link import("../runtime/vm/interpreter").VM} / interpretInstruction.
  */
 
-import { tokenize } from './lexer';
+import { tokenize, type LexerError } from './lexer';
 import { parse, type ParseError, type ParseWarning } from './parser';
 import { compile, compileProgram } from './codegen';
 import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction } from '../runtime/vm/bytecode';
@@ -98,6 +98,16 @@ export interface CompileOptions {
   baseDir?: string;
   /** Имя входного файла для диагностики (например `игра.osnova`). */
   filename?: string;
+  /**
+   * ФРОНТЕНД (внедряется снаружи, по умолчанию — v2).
+   *
+   * Зачем параметр, а не импорт: конвейер компилятора не должен знать, каким
+   * синтаксисом написан исходник. v3-фронтенд (`src/compiler-v3`) выдаёт тот же
+   * `Module` формы v2 и подставляет себя здесь — тогда ВЕСЬ путь (`semantic` →
+   * кодоген → `regcodegen` → `vliw` → `e2k` → ELF) идёт без единой копии.
+   * Обратный импорт (`compiler` → `compiler-v3`) дал бы петлю и второй путь.
+   */
+  parse?: (source: string, filename: string) => { ast: Program | null; errors: string[] };
   /**
    * Хост-вызовы вне `система.*` (например `игра.очистить`).
    * Проверяются как syscall (имя + argc). Не добавляются в language-registry.
@@ -1460,13 +1470,41 @@ export function optimizeIrModule(ir: OsVbcModule): OsVbcModule {
 export function compileSource(source: string, options: CompileOptions = {}): CompileResult {
   const start = Date.now();
   const logs: CompileLog[] = [];
-  const { tokens, errors: lexerErrors } = tokenize(source);
-  const { ast: program, errors: parserErrors, warnings } = parse(tokens, {
-    warnDeprecated: options.warnDeprecated === true,
-    // Файл = модуль (БЛОК 3, пункт 1): когда шапки `модуль имя` нет, имя модуля
-    // берётся из имени файла — без него разбор назвал бы модуль «вход».
-    filename: options.filename,
-  });
+
+  // ФРОНТЕНД: по умолчанию v2 (лексер + парсер), но он может быть ПОДСТАВЛЕН
+  // снаружи (см. `CompileOptions.parse`). Компилятор о синтаксисе исходника не
+  // знает: на выходе в обоих случаях — `Program` формы v2, и дальше путь один.
+  let program: Program | null;
+  let parserErrors: ParseError[];
+  let lexerErrors: LexerError[];
+  let warnings: ParseWarning[] = [];
+  if (options.parse) {
+    const подставлено = options.parse(source, options.filename ?? "вход");
+    program = подставлено.ast;
+    // Сообщения фронтенда приходят строкой «файл:строка: текст» — раскладываем их
+    // на те же поля, что у v2-парсера, чтобы диагностика осталась единой.
+    parserErrors = подставлено.errors.map((сообщение) => {
+      const м = /^(.*?):(\d+):\s*(.*)$/.exec(сообщение);
+      // Без разобранной позиции строка всё равно нужна полем: диагностика ждёт
+      // `line` числом, поэтому называем первую строку, а не «неизвестно».
+      return м
+        ? { message: м[3]!, line: Number(м[2]), column: 1 }
+        : { message: сообщение, line: 1, column: 1 };
+    });
+    lexerErrors = [];
+  } else {
+    const лекс = tokenize(source);
+    lexerErrors = лекс.errors;
+    const разбор = parse(лекс.tokens, {
+      warnDeprecated: options.warnDeprecated === true,
+      // Файл = модуль (БЛОК 3, пункт 1): когда шапки `модуль имя` нет, имя модуля
+      // берётся из имени файла — без него разбор назвал бы модуль «вход».
+      filename: options.filename,
+    });
+    program = разбор.ast;
+    parserErrors = разбор.errors;
+    warnings = разбор.warnings;
+  }
 
   // Логирование ошибок лексера
   for (const err of lexerErrors) {
