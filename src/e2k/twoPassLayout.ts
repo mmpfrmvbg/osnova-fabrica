@@ -79,6 +79,7 @@ import {
 import {
   SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { REMAINDER_CARRIER, remainderInstructions } from "./remainderRuntime";
+import { COLLECTION_CALL_NAMES, lowerCollectionCall } from "./collectionsRuntime";
 import {
   EXIT_CARRIER,
   PRINT_HEAP_BY_CONVENTION,
@@ -951,13 +952,16 @@ function carrierFormWithReason(
   }
   const lowered = ((): readonly AsmInstruction[] | string => {
     try {
-      // Два рантайма по имени вызова — так же, как в понижении (`src/e2k/e2kRealRun.ts`): массивы
-      // (`src/e2k/arrayRuntime.ts`) и математика (`src/e2k/mathRuntime.ts`, остаток через `SMODX`).
-      // Длина понижения берётся из формы его команд, поэтому раскладка обязана знать оба рантайма:
-      // иначе вызов математики отвергается ещё до понижения.
+      // ТРИ рантайма по имени вызова — так же, как в понижении (`src/e2k/e2kRealRun.ts`): массивы
+      // (`src/e2k/arrayRuntime.ts`), математика (`src/e2k/mathRuntime.ts`, остаток через `SMODX`) и
+      // коллекции на `brk` (`src/e2k/collectionsRuntime.ts` — база блока берётся у границы кучи).
+      // Длина понижения берётся из формы его команд, поэтому раскладка обязана знать все три: иначе
+      // вызов отвергается ещё до понижения.
       return SUPPORTED_MATH_CALLS.includes(name)
         ? lowerMathCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined)
-        : lowerArrayCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined);
+        : COLLECTION_CALL_NAMES.includes(name)
+          ? lowerCollectionCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined)
+          : lowerArrayCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined);
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
@@ -965,17 +969,22 @@ function carrierFormWithReason(
   if (typeof lowered === 'string') return { failure: failureOf(LOWERING_CODES.runtime, lowered) };
   const commands: CommandForm[] = [];
   for (const command of lowered) {
-    const form = ARRAY_COMMAND_FORMS.get(command.mnemonic);
+    // ДВЕ таблицы форм, а не одна: рантайм коллекций собран из команд ДВУХ семейств — адресной
+    // арифметики рантайма массивов (`addd`, `std` — ADDD/ARRAY_COMMAND_FORMS) и системного вызова
+    // (`setbn`, `sdisp`, `movts`, `call` — printCommandForm, чьи размеры сверены с `as-new` побайтово,
+    // §3.40.5). Пересечение у таблиц одно (`ldd`, `std`) и размеры в нём совпадают; расхождение
+    // поймал бы оракул сверки форм, поэтому «вторая таблица» здесь названа, а не спрятана.
+    const form = ARRAY_COMMAND_FORMS.get(command.mnemonic) ?? printCommandForm(command);
     if (form === undefined) {
       return {
         failure: failureOf(
           LOWERING_CODES.carrier,
           `«${name}»: у команды понижения «${command.mnemonic}» нет формы в таблице раскладки — ` +
-            'длину взять негде (в рантаймах массивов и математики таких команд быть не должно)',
+            'длину взять негде (в рантаймах массивов, математики и коллекций таких команд быть не должно)',
         ),
       };
     }
-    commands.push(form);
+    commands.push({ mnemonic: form.mnemonic, form: form.form, size: form.size, source: form.source });
   }
   return { form: { carrier: 'IR.invoke', commands } };
 }

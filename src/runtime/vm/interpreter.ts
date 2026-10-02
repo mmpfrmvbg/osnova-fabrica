@@ -7,6 +7,11 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { OsVbcModule, RawInstruction, CodeElement } from "./bytecode";
 import { getInvokeArgCount, isKnownInvoke } from "./invokeRegistry";
+// Коллекции на `brk`: отказ и разбор целых — из общего модуля, чтобы эталон и цель не разошлись в
+// том, что считается отказом. Объявление арности для VM живёт ТАМ ЖЕ и объяснено: канон языка этих
+// операций ещё не несёт, поэтому арность едет `extraInvokes`, а не реестром (`invokeRegistry`).
+import { CollectionRefusal, collectionInteger } from "./collectionCalls";
+export { CollectionRefusal } from "./collectionCalls";
 import { isVliwPacket } from "./bytecode";
 import { codePointIndexOf, codePointLength, codePointSlice, orderedCompare } from "./stringUnits";
 import { RUNTIME_CODES, type RuntimeErrorCode } from "../runtimeCodes";
@@ -34,11 +39,46 @@ export const VM_ARENA_LIMIT = 65536;
 /** Строка отказа при исчерпании — ОДНА на VM и на цель (на цели её печатает stderr, код 231). */
 export const ARENA_EXHAUSTED_MESSAGE = "арена исчерпана: выделение сверх предела";
 
+/**
+ * КОЛЛЕКЦИИ НА `brk` В VM: ГЕОМЕТРИЯ БЛОКА — ОДНА НА VM И НА ЦЕЛЬ.
+ *
+ * Слова заголовка и элемента — по 8 байт: то же число, что у цели (`COLLECTION_WORD_REGISTER`,
+ * `src/e2k/collectionsRuntime.ts`). Адреса VM начинаются выше арены, чтобы «адрес арены» и «адрес
+ * коллекции» не путались в отчётах; на семантику это не влияет — сравниваются значения, а не адреса,
+ * но одна арифметика адресов нужна: ею проверяется, что два выделения подряд стоят ровно на
+ * `8 + ёмкость·8` друг от друга.
+ */
+export const VM_COLLECTIONS_BASE = 1 << 20;
+export const COLLECTION_HEADER_BYTES = 8;
+export const COLLECTION_ELEMENT_BYTES = 8;
+
 /** Обработчик по умолчанию (используется когда invoke не передан). */
 export function createDefaultInvokeHandler(): InvokeHandler {
   const storage = new Map<string, StackValue>();
   // Указатель арены: одна арена на прогон — как и на цели.
   let arenaNext = VM_ARENA_BASE;
+  // Коллекции на `brk`: указатель кучи и блоки. Адрес — просто число, но ШАГ тот же, что у цели
+  // (`COLLECTION_HEADER_BYTES + ёмкость·COLLECTION_ELEMENT_BYTES`), иначе «разность адресов двух
+  // выделений» нельзя было бы спросить у обеих сторон одним вопросом.
+  let collectionsNext = VM_COLLECTIONS_BASE;
+  const collections = new Map<number, { capacity: number; elements: StackValue[] }>();
+  const collectionBlockOf = (address: StackValue, op: string): { capacity: number; elements: StackValue[] } => {
+    const block = collections.get(Number(address));
+    if (block === undefined) {
+      throw new CollectionRefusal(
+        `коллекция.${op}: по адресу ${String(address)} блока нет — адрес не от «выделить» или не от «расширить»`,
+      );
+    }
+    return block;
+  };
+  const collectionCheckIndex = (index: number, capacity: number, op: string): void => {
+    if (index < 0 || index >= capacity) {
+      throw new CollectionRefusal(
+        `коллекция.${op}: индекс ${String(index)} вне ёмкости ${String(capacity)} — ` +
+          'это НАЗВАННЫЙ отказ, а не null: выход за границу обязан быть виден (§2.3)',
+      );
+    }
+  };
   const pad2 = (n: number): string => String(Math.trunc(n)).padStart(2, "0");
   return async (name: string, args: StackValue[]): Promise<StackValue | null> => {
     switch (name) {
@@ -89,6 +129,57 @@ export function createDefaultInvokeHandler(): InvokeHandler {
         return (target as Record<string, unknown>)[String(key)] as StackValue ?? null;
       }
       return null;
+    }
+    // ─── КОЛЛЕКЦИИ НА `brk`: ЭТАЛОН ЯЗЫКА ───────────────────────────────────────────────────────
+    //
+    // Растущий массив записей. Формат блока — ТОТ ЖЕ, что на цели, и это не совпадение, а условие
+    // сравнимости: `[ёмкость: 8 байт][элемент 0][элемент 1]…`, адрес следующего блока отстоит от
+    // предыдущего на `8 + ёмкость·8` (`src/e2k/collectionsRuntime.ts` — оттуда же и правило).
+    //
+    // Здесь адрес — просто число (у VM нет памяти), но АРИФМЕТИКА АДРЕСОВ та же: тогда «разность
+    // адресов двух выделений» — величина, которую можно спросить у обеих сторон одним вопросом, а не
+    // двумя похожими. Блок не освобождается никогда: `расширить` выделяет НОВЫЙ блок и возвращает его
+    // адрес, старое остаётся мёртвым — ровно как `brk` на цели (арена без возврата, §4.4).
+    //
+    // Незаписанный элемент читается нулём, и это НЕ произвол: свежая страница кучи на цели приходит
+    // от ядра нулевой, поэтому ноль — то же самое, что прочитала бы программа до первой записи.
+    case "система.коллекция.выделить": {
+      const capacity = collectionInteger(args[0], "выделить", "ёмкость");
+      if (capacity < 0) {
+        throw new CollectionRefusal(`коллекция.выделить: ёмкость ${String(capacity)} отрицательна`);
+      }
+      const address = collectionsNext;
+      collectionsNext += COLLECTION_HEADER_BYTES + capacity * COLLECTION_ELEMENT_BYTES;
+      collections.set(address, { capacity, elements: new Array<StackValue>(capacity).fill(0) });
+      return address;
+    }
+    case "система.коллекция.положить": {
+      const block = collectionBlockOf(args[0], "положить");
+      const index = collectionInteger(args[1], "положить", "индекс");
+      collectionCheckIndex(index, block.capacity, "положить");
+      block.elements[index] = args[2] as StackValue;
+      return null;
+    }
+    case "система.коллекция.взять": {
+      const block = collectionBlockOf(args[0], "взять");
+      const index = collectionInteger(args[1], "взять", "индекс");
+      collectionCheckIndex(index, block.capacity, "взять");
+      return block.elements[index] as StackValue;
+    }
+    case "система.коллекция.расширить": {
+      const block = collectionBlockOf(args[0], "расширить");
+      const capacity = collectionInteger(args[1], "расширить", "новая ёмкость");
+      if (capacity < 0) {
+        throw new CollectionRefusal(`коллекция.расширить: новая ёмкость ${String(capacity)} отрицательна`);
+      }
+      const address = collectionsNext;
+      collectionsNext += COLLECTION_HEADER_BYTES + capacity * COLLECTION_ELEMENT_BYTES;
+      // Копируются ВСЕ старые элементы, а не «сколько влезет»: пропуск последнего — тот самый
+      // негативный контроль, на котором сумма в сквозном прогоне перестаёт сходиться.
+      const elements = new Array<StackValue>(capacity).fill(0);
+      for (let at = 0; at < block.capacity && at < capacity; at++) elements[at] = block.elements[at] as StackValue;
+      collections.set(address, { capacity, elements });
+      return address;
     }
     case "система.строка.объединить": {
       // Тот же формат значения, что у `+` со строкой: иначе `+` и `объединить`

@@ -65,6 +65,7 @@ import { CT_COND_ALWAYS, REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from 
 import { CALL_WBS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
+import { COLLECTION_CALL_NAMES, lowerCollectionCall } from "./collectionsRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
 import {
@@ -680,10 +681,17 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       return failureOf(LOWERING_CODES.carrier, `«${name}»: у носителя нет регистра-приёмника, а флаг обещает результат`);
     }
     try {
-      // Два рантайма по ИМЕНИ вызова: массивы (`src/e2k/arrayRuntime.ts`) и математика
-      // (`src/e2k/mathRuntime.ts` — целочисленный остаток через `SMODX`). Имя, которого нет ни там,
-      // ни там, остаётся отказом с причиной: оператора `/` это не касается (решение владельца).
-      const call = SUPPORTED_MATH_CALLS.includes(name) ? lowerMathCall : lowerArrayCall;
+      // ТРИ рантайма по ИМЕНИ вызова, и третий — коллекции: массивы (`src/e2k/arrayRuntime.ts`),
+      // математика (`src/e2k/mathRuntime.ts` — целочисленный остаток) и коллекции на `brk`
+      // (`src/e2k/collectionsRuntime.ts` — растут у границы кучи, ёмкость лежит в заголовке блока).
+      // Имя, которого нет ни там, ни там, ни там, остаётся отказом с причиной: оператора `/` это не
+      // касается (решение владельца). Порядок ветвей не значим: имена не пересекаются, и это
+      // проверено оракулом (`src/e2k/collectionsNames.test.ts`).
+      const call = SUPPORTED_MATH_CALLS.includes(name)
+        ? lowerMathCall
+        : COLLECTION_CALL_NAMES.includes(name)
+          ? lowerCollectionCall
+          : lowerArrayCall;
       return {
         ok: true,
         instructions: call(

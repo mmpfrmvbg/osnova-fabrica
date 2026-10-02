@@ -52,6 +52,7 @@ import {
   usesArena,
 } from './arenaRuntime';
 import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, stringArenaCopyInstructions } from './stringRuntime';
+import { collectionReservedRegisters, usesCollections } from './collectionsRuntime';
 import {
   STRING_PRINT_CLOBBERS,
   stringConcatInstructions,
@@ -516,7 +517,17 @@ export function loweredProgram(source: string, options: CompileOptions = {}): {
   // ОСТАТОК (`IR.rem`) резервирует себе регистр САМ, внутри `allocateProgram`: раскладку зовут и
   // напрямую (оракулы), и «не забыть добавить резерв» был бы контрактом, который забудут молча —
   // `src/e2k/remainderRuntime.ts`.
-  const reserved = arenaReserved ? arenaReservedRegisters() : [];
+  //
+  // КОЛЛЕКЦИИ резервируют регистры ЗДЕСЬ и УСЛОВНО — только тому образу, который ими пользуется.
+  // Условно потому, что безусловный резерв отнял бы у ядер регистр и сдвинул закреплённые числа
+  // (458 / 53 / 511 / 8800, FIR 181) — ровно та причина, по которой условен резерв остатка.
+  // Здесь, а не в `allocateProgram`, потому что признак — ИМЯ вызова из таблицы образа, а её у
+  // раскладки нет. Тихая порча от забытого резерва закрыта отказом в самом рантайме
+  // (`collectionsRuntime.ts#checkRegister`), а не надеждой.
+  const reserved = [
+    ...(arenaReserved ? arenaReservedRegisters() : []),
+    ...(usesCollections(emitted.instructions, emitted.image.invokeNames) ? collectionReservedRegisters() : []),
+  ];
   // БЮДЖЕТ РЕГИСТРОВ ПО ПРОЦЕДУРАМ: точка входа распоряжается всем файлом раскладки
   // (`%b[0..9]`; `%b[10..15]` держит рантайм массивов), а ВЫЗЫВАЕМАЯ — только своей половиной кадра
   // (`CALLEE_REGISTERS`). Иначе её `%b[2..7]` — это `%b[10..15]` вызывающего, то есть чужой рантайм,
