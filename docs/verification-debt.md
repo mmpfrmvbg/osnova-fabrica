@@ -964,8 +964,8 @@ stdout нет.
 вызываемой (`docs/hardware-debt.md` §3.96).
 
 **Что произошло.** `npm test` зелёный — **210 файлов, 3505 проверок, 0 падений**, — а `npm run lint`
-красный: **1 ошибка** (`'SCRATCH' is assigned a value but never used`,
-`src/e2k/memorySyscallsQemu.test.ts:45`) и 21 предупреждение.
+красный: **1 ошибка** (`'SCRATCH' is assigned a value but never used`, файл
+`src/e2k/memorySyscallsQemu.test.ts`, объявление `SCRATCH`) и 21 предупреждение.
 
 **Почему это слепая зона, а не «долг, который видно».** Полный прогон (`src/scripts/testChain.ts`)
 состоит из трёх шагов: `vitest run`, `check:test-files`, `check:language-schema`. Ни один из них не
