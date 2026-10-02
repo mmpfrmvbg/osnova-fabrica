@@ -28,7 +28,7 @@ import type { CompileOptions } from '../compiler/compiler';
 import { lowerCarrier } from './e2kRealRun';
 import { ARRAY_REGISTERS, SUPPORTED_ARRAY_CALLS, arrayPrologue } from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
-import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
+import { CALLEE_REGISTERS, layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
 import { MINIMAL_BASE, SYSCALL_WBS, WRITE_ZONE_EXTRA_MEMORY, IMAGE_TAIL_OFFSET, spillBaseOf } from './elfMinimal';
 import {
@@ -514,7 +514,16 @@ export function loweredProgram(source: string, options: CompileOptions = {}): {
       MINIMAL_BASE + HEAP_OFFSET,
     ).counts.arenaConcats > 0;
   const reserved = arenaReserved ? arenaReservedRegisters() : [];
-  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, { reserved });
+  // БЮДЖЕТ РЕГИСТРОВ ПО ПРОЦЕДУРАМ: точка входа распоряжается всем файлом раскладки
+  // (`%b[0..9]`; `%b[10..15]` держит рантайм массивов), а ВЫЗЫВАЕМАЯ — только своей половиной кадра
+  // (`CALLEE_REGISTERS`). Иначе её `%b[2..7]` — это `%b[10..15]` вызывающего, то есть чужой рантайм,
+  // и выход программы (`код = значение + %b[12]`) отдаёт чужое число: «собралось, отказов 0,
+  // значение неверное». Замер — `docs/hardware-debt.md` §3.96, проба `.tmp/osnova-reread-which.ts`.
+  const entryAt = emitted.scheduled.procedures.length === 0 ? -1 : entryProcedureIndex(emitted.scheduled.procedures);
+  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
+    reserved,
+    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),
+  });
   const report = allocation.report[0]!;
   if (!report.ok) {
     // Отказ раскладки — тот же контракт, но канал другой: образ не собирается вовсе, поэтому

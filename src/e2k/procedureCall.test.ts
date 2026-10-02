@@ -28,8 +28,12 @@
 import { describe, it, expect } from 'vitest';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { lowerCarrier } from './e2kRealRun';
-import { carrierFormOf, layoutOf } from './twoPassLayout';
+import { carrierFormOf, layoutOf, CALL_WBS, CALLEE_REGISTERS } from './twoPassLayout';
 import { imageOfCarriers, loweredProgram, shellCarriers } from './programImage';
+import { allocateProgram } from './regAlloc';
+import { emitShell } from './emitterShell';
+import { annotateAtomRegions } from '../compiler/atomRegions';
+import { regModuleOf } from '../vliw/regOracle';
 import { LOWERING_CODES } from './loweringRefusal';
 import { EXIT_CARRIER } from './printCall';
 import {
@@ -42,6 +46,8 @@ import {
 } from './procedureCall';
 
 const encoder = getEncoder('e2k');
+/** Кодировщик оболочки: им собирается поток носителей, который получает раскладка. */
+const shellEncoder = getEncoder('internal-shell');
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 const carrier = (mnemonic: string, operands: readonly Operand[]): AsmInstruction => ({ mnemonic, channel: 0, operands });
@@ -271,5 +277,57 @@ describe('вызов процедуры и возврат: адрес, форм�
     );
     expect(image.refused, 'вызов размещён, адрес взят').toEqual([]);
     expect(image.bytes.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * БЮДЖЕТ РЕГИСТРОВ ВЫЗЫВАЕМОЙ — граница, на которой стояла ТИХАЯ ЛОЖЬ.
+ *
+ * `call wbs = 4` сдвигает окно вызываемой на `2*wbs` регистров, поэтому `%b[2..7]` вызываемой —
+ * это `%b[10..15]` вызывающего (рантайм массивов), а выход программы считает
+ * `код = значение + %b[12]`. Раскладка, отдавшая вызываемой младшую половину, затирала чужое
+ * состояние МОЛЧА: программа собиралась, отказов понижения 0, число было чужим.
+ *
+ * Замер и разбор — `docs/hardware-debt.md` §3.96; негативный контроль — запись 11.3
+ * (`src/scripts/e2kLayoutNegativeControl.ts`), она красит пробу-закрепитель в
+ * `src/compiler-v3/nativePathE2k.test.ts` откатом этой самой правки.
+ */
+describe('бюджет регистров вызываемой: только её собственная половина кадра', () => {
+  it('бюджет выведен из ширины вызова, а не записан числом', () => {
+    expect(CALLEE_REGISTERS.length, 'половина кадра — восемь регистров').toBe(8);
+    expect(CALLEE_REGISTERS[0], 'первый регистр бюджета — за сдвигом окна').toBe(2 * CALL_WBS);
+    expect(
+      CALLEE_REGISTERS.every((value) => Number.isInteger(value)),
+      'бюджет обязан быть целыми числами: вычисленный на загрузке модуля из чужой константы, ' +
+        'он становится NaN — и раскладка молча уходит в вытеснение вместо отказа',
+    ).toBe(true);
+    expect([...CALLEE_REGISTERS], 'нижняя половина кадра вызываемой — не её').not.toContain(0);
+    expect([...CALLEE_REGISTERS]).not.toContain(2 * CALL_WBS - 1);
+  });
+
+  it('раскладка не выдаёт вызываемой регистр ниже сдвига окна', () => {
+    // Программа, которой иначе хватило бы младшей половины: если бюджет снять, значения уедут
+    // в `%b[2..4]` — ровно те регистры, что у вызывающего держат рантайм массивов.
+    const built = regModuleOf(CALLER_CALLEE);
+    expect(built, 'программа обязана компилироваться').not.toBeNull();
+    const annotated = annotateAtomRegions(built!.module, [
+      { atom: 'A5', procedures: built!.module.procedures.map((procedure) => procedure.name) },
+    ]);
+    const emitted = emitShell(annotated, shellEncoder);
+    const entryAt = entryProcedureIndex(emitted.scheduled.procedures);
+    const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
+      freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),
+    });
+    const calleeAt = emitted.scheduled.procedures.findIndex((_, at) => at !== entryAt);
+    const callee = allocation.report[calleeAt];
+    expect(callee?.ok, callee?.reason ?? 'раскладка вызываемой').toBe(true);
+    const выдано = callee?.usedRegisters ?? [];
+    expect(выдано.length, 'вызываемой что-то выдано — иначе проверка пуста').toBeGreaterThan(0);
+    for (const register of выдано) {
+      expect(
+        register,
+        `вызываемой выдан %b[${register}] — это регистр ВЫЗЫВАЮЩЕГО (сдвиг окна ${2 * CALL_WBS})`,
+      ).toBeGreaterThanOrEqual(2 * CALL_WBS);
+    }
   });
 });

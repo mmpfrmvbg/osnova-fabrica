@@ -444,11 +444,15 @@ export const DEFECTS_WIRING: readonly Defect[] = [
     // Закрепление снято: входящий параметр (v0) раскладывается как обычное значение и уезжает в чужой
     // регистр. Оракул обязан это поймать — параметр приходит в своём регистре, и вызывающий смотрит
     // туда же.
+    // Якорь обновлён 2026-10-02 вместе с бюджетом регистров вызываемой (`CALLEE_REGISTERS`) и
+    // закреплением параметров по арности вызова (`argumentCountsOf`): прежде вычёркивался один
+    // фильтр `free`, теперь закрепление собрано в одно множество `pinned`, и снятие его снимает
+    // закрепление целиком — и входящих, и параметров. Смысл дефекта тот же.
     id: '9.1',
     title: 'закрепление входящих снято — параметр уезжает в чужой регистр',
     file: 'src/e2k/regAlloc.ts',
-    from: '    const free = ALLOCATABLE_REGISTERS.filter(\n      (register) => !incoming.includes(register) && !reserved.has(register),\n    );',
-    to: '    const free = [...ALLOCATABLE_REGISTERS]; // ДЕФЕКТ 9.1: закрепление входящих снято',
+    from: '    const pinned = new Set<number>([...incoming, ...parameters]);',
+    to: '    const pinned = new Set<number>(); // ДЕФЕКТ 9.1: закрепление входящих и параметров снято',
     tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
     config: 'vitest.e2k.config.ts',
   },
@@ -544,10 +548,28 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     id: '11.2',
     title: 'нужно регистров окна считается только по выданным (закреплённые забыты)',
     file: 'src/e2k/regAlloc.ts',
-    from: '    const windowRegistersNeeded = pinned.length + allocation.allocation.used.length;',
+    from: '    const windowRegistersNeeded = закреплено.length + allocation.allocation.used.length;',
     to: '    const windowRegistersNeeded = allocation.allocation.used.length; // ДЕФЕКТ 11.2: закреплённые забыты',
     tests: ['src/e2k/regAlloc.test.ts', 'src/e2k/e2kRealRun.test.ts'],
     config: 'vitest.e2k.config.ts',
+  },
+  {
+    // ТИХАЯ ЛОЖЬ, а не отказ: программа собирается, отказов понижения 0, а число чужое.
+    // `call wbs = 4` сдвигает окно вызываемой на 8 регистров, поэтому `%b[2..7]` вызываемой —
+    // это `%b[10..15]` вызывающего, то есть рантайм массивов; выход программы считает
+    // `код = значение + %b[12]` (`src/e2k/printCall.ts#exitCarrierInstructions`), а `%b[4]`
+    // вызываемой — ровно `%b[12]` вызывающего. Ловится ПРОГОНОМ В МОДЕЛИ: проба-закрепитель
+    // спрашивает модель и сверяет с эталоном языка (11), с откатом правки модель отдаёт 15.
+    // Замер различителем и разбор — `docs/hardware-debt.md` §3.96.
+    id: '11.3',
+    title: 'бюджет регистров вызываемой снят — ей снова отдан весь файл раскладки',
+    file: 'src/e2k/programImage.ts',
+    from: '    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),',
+    to:
+      '    freeFor: (at) => (at === entryAt ? undefined : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), ' +
+      '// ДЕФЕКТ 11.3: бюджет вызываемой снят',
+    tests: ['src/compiler-v3/nativePathE2k.test.ts'],
+    config: 'vitest.config.ts',
   },
 ];
 

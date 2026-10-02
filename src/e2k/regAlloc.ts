@@ -75,6 +75,45 @@ function countSegmentsByVreg(segments: readonly LiveInterval[]): ReadonlyMap<num
 export const ALLOCATABLE_REGISTERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /**
+ * СКОЛЬКО АРГУМЕНТОВ ПРИНИМАЕТ КАЖДАЯ ПРОЦЕДУРА — по носителям `IR.call`, которые её зовут.
+ *
+ * # Зачем это раскладке
+ *
+ * Соглашение ABI: `i`-й аргумент вызывающий кладёт в `%r(2*wbs + i)` СВОЕГО окна, то есть в
+ * `%b[i]` **вызываемой** (`src/e2k/e2kRealRun.ts`, правило `IR.call`). Значит регистры параметров
+ * вызываемой заданы не раскладкой, а вызовом: `%b[0..argc−1]`.
+ *
+ * # Почему нельзя доверить это `incomingRegisters`
+ *
+ * `incomingRegisters` называет параметром тот vreg, который **читается и нигде не определяется**.
+ * Параметр, которому тело ПРИСВАИВАЕТ значение (накопитель цикла: `н = н − 1`), под это правило не
+ * попадает — и раскладка вправе увезти его в любой регистр. Пока бюджет был `%b[0..9]`, линейный
+ * обход отдавал такому параметру первый свободный регистр, то есть `%b[0]`, и соглашение держалось
+ * СОВПАДЕНИЕМ. Как только бюджет вызываемой сузился до её собственной половины
+ * (`CALLEE_REGISTERS`), параметр уехал в `%b[8]` — туда, куда вызывающий его не клал: замер
+ * `.tmp/osnova-example47-where.ts` (пример `47-факториал-итерацией`: было «120», стало «1» —
+ * цикл не выполнялся ни разу, потому что условие читало пустой регистр).
+ *
+ * Арность берётся из самих вызовов, а не из имени процедуры и не из числа vreg'ов: другого канала,
+ * по которому раскладка узнала бы соглашение, нет.
+ */
+function argumentCountsOf(instructions: readonly AsmInstruction[]): ReadonlyMap<number, number> {
+  const counts = new Map<number, number>();
+  for (const instruction of instructions) {
+    if (instruction.mnemonic !== 'IR.call') continue;
+    const flags = instruction.operands[0];
+    // Операнд 3 — индекс вызываемой процедуры в списке процедур (`src/e2k/programImage.ts`:
+    // по нему же ищется вызов себя). Операнд 0 — признаки: `(есть приёмник) | (аргументов << 1)`.
+    const payload = instruction.operands[3];
+    if (flags === undefined || flags.kind !== 'imm') continue;
+    if (payload === undefined || payload.kind !== 'imm') continue;
+    const argc = flags.value >> 1;
+    counts.set(payload.value, Math.max(counts.get(payload.value) ?? 0, argc));
+  }
+  return counts;
+}
+
+/**
  * Регистров окна у **вызывающей** (точка входа) — `%r0..%r15`.
  *
  * Измерено прогоном (`.tmp/rsz-sweep.ts`; перемерено на `size_q = 12` — `.tmp/osnova-us-rsz.ts`):
@@ -293,8 +332,7 @@ export interface ProcedureAllocation {
 }
 
 /** Входящие vreg'и: читаются, но нигде в процедуре не определяются (параметры вызова). */
-export function incomingRegisters(instructions: readonly AsmInstruction[]): readonly number[] {
-  const defined = new Set<number>();
+export function incomingRegisters(instructions: readonly AsmInstruction[]): readonly number[] {  const defined = new Set<number>();
   const used = new Set<number>();
   for (const instruction of instructions) {
     const { def, use } = defUseOf(instruction);
@@ -345,6 +383,27 @@ export function allocateProgram(
      * (`docs/hardware-debt.md` §3.34.4) сняты именно при пустом списке.
      */
     readonly reserved?: readonly number[];
+    /**
+     * Какие регистры МОЖЕТ занимать процедура с этим номером (по умолчанию — {@link ALLOCATABLE_REGISTERS}).
+     *
+     * Зачем это вообще нужно. `call wbs = 4` сдвигает окно вызываемой на `2*wbs = 8` регистров,
+     * поэтому `%b[n]` **вызываемой** — это `%b[n + 8]` **вызывающего**. Значит младшая половина кадра
+     * вызываемой (`%b[0..7]`) — ЧУЖАЯ: `%b[0]`, `%b[1]` приходят аргументами, а `%b[2..7]` — это
+     * `%b[10..15]` вызывающего, то есть **рантайм массивов** (`ARRAY_REGISTERS`). Вызываемая,
+     * которой раскладка выдала `%b[2..7]`, затирает чужое состояние молча.
+     *
+     * Замер (`docs/hardware-debt.md` §3.96, проба `.tmp/osnova-reread-which.ts`): одна и та же
+     * арифметика `(а + 1) + б` = 11 на модели, временные регистры вызываемой —
+     * `%b[2..4]` → **15**, `%b[4..8]` → **14**, `%b[8..12]` → **11**, `%b[12..15]` → **11**.
+     * Разница в точности равна тому, что вызываемая оставила в СВОЁМ `%b[4]`: выход программы
+     * считает `код = значение + %b[12]` (`src/e2k/printCall.ts#exitCarrierInstructions`), а
+     * `%b[4]` вызываемой — это `%b[12]` вызывающего. Отсюда и «тихая ложь»: программа возвращает
+     * не своё значение.
+     *
+     * Собственные регистры вызываемой — только `%b[8..15]`: их вызывающий адресовать не может
+     * (его окно — `%b[0..15]`). Это и есть бюджет вызываемой.
+     */
+    readonly freeFor?: (procedureIndex: number) => readonly number[] | undefined;
   } = {},
 ): {
   readonly instructions: readonly AsmInstruction[];
@@ -361,6 +420,9 @@ export function allocateProgram(
   const movedTo = new Map<number, number>();
   const spillPlan: SpillOptions = options.spill ?? { base: DEFAULT_SPILL_BASE };
   const reserved = new Set<number>(options.reserved ?? []);
+  // Арность вызываемых — из самих вызовов, ДО обхода процедур: она нужна каждой вызываемой, а
+  // носители `IR.call` живут в потоке вызывающих (см. `argumentCountsOf`).
+  const argumentCounts = argumentCountsOf(instructions);
   let removedCopies = 0;
   let materializedConstants = 0;
   procedures.forEach((procedure, index) => {
@@ -405,6 +467,11 @@ export function allocateProgram(
     const analysisView = remapJumpTargets(stream, streamIndexOf);
     const liveness = liveIntervalsOf(analysisView.instructions);
     const incoming = incomingRegisters(stream);
+    // ПАРАМЕТРЫ — ЗАКРЕПЛЕНЫ СОГЛАШЕНИЕМ, а не живостью: `i`-й аргумент вызывающий положил в
+    // `%b[i]` вызываемой, и раскладка обязана оставить его там, даже если тело параметру
+    // ПРИСВАИВАЕТ значение (тогда `incoming` его не видит — см. `argumentCountsOf`).
+    const parameters = Array.from({ length: argumentCounts.get(index) ?? 0 }, (_, at) => at);
+    const pinned = new Set<number>([...incoming, ...parameters]);
     // Отрезки жизни — по ГРАФУ потока управления (`src/vliw/cfg.ts`), а не по линейному порядку:
     // в цикле значение, определённое в теле, живо в заголовке следующего витка, и линейная модель
     // этого не видит. Граф даёт точный пик (`docs/e2k-regalloc-debt.md` §13: у `фильтр` линейный
@@ -433,11 +500,12 @@ export function allocateProgram(
     // ЗАРЕЗЕРВИРОВАННЫЕ ПОД ОПЕРАЦИЮ (арена — `src/e2k/arenaRuntime.ts`) не отдаются тем более:
     // их пишет и читает сама операция в обход потока носителей, и выданный туда vreg был бы затёрт
     // молча. По умолчанию список пуст: закреплённые числа не двигаются.
-    const free = ALLOCATABLE_REGISTERS.filter(
-      (register) => !incoming.includes(register) && !reserved.has(register),
+    const budget = options.freeFor?.(index) ?? ALLOCATABLE_REGISTERS;
+    const free = budget.filter(
+      (register) => !pinned.has(register) && !reserved.has(register),
     );
     const allocation = allocateSegments(
-      segments.filter((segment) => !incoming.includes(segment.vreg)),
+      segments.filter((segment) => !pinned.has(segment.vreg)),
       free,
       { spill: spillPlan, loopCarried, instructions: stream },
     );
@@ -490,7 +558,7 @@ export function allocateProgram(
       fail(allocation.reason, allocation.conflicts, [], []);
       return;
     }
-    const applied = applySegments(stream, allocation.assigned, new Set(incoming), allocation.spilled, free);
+    const applied = applySegments(stream, allocation.assigned, pinned, allocation.spilled, free);
     // Вытеснение не состоялось (нет свободного регистра в точке сайта) — это отказ раскладки, а не
     // молчаливая потеря значения: поток уходит нерозыгранным, и причина названа.
     if (applied.problems.length > 0) {
@@ -499,8 +567,8 @@ export function allocateProgram(
     }
     // Сколько РЕГИСТРОВ ОКНА занимает процедура: закреплённые (параметры) плюс выданные раскладкой.
     // Закреплённые считаются по своим номерам: параметр приходит в регистре с этим номером.
-    const pinned = incoming.filter((vreg) => vreg < WINDOW_REGISTERS_ENTRY);
-    const windowRegistersNeeded = pinned.length + allocation.allocation.used.length;
+    const pinnedInWindow = [...pinned].filter((vreg) => vreg < WINDOW_REGISTERS_ENTRY);
+    const windowRegistersNeeded = pinnedInWindow.length + allocation.allocation.used.length;
     report.push({
       ...common,
       ok: true,
