@@ -69,6 +69,9 @@ export default defineConfig({
       // и строка в stderr, а «арена заполнена ровно» — контроль (отказа нет).
       'src/e2k/arenaQemu.test.ts',
       'src/e2k/memorySyscallsQemu.test.ts',
+      // КОЛЛЕКЦИИ НА `brk`: растущий массив записей. Оракул написан ДО реализации (§3.95.3) и до
+      // неё красный: сквозной прогон 100 записей, чтение каждой, сумма — и у VM, и у модели.
+      'src/e2k/collectionsQemu.test.ts',
       // Корпус примеров на цели: примеры, объявленные исполняемыми на e2k,
       // сверяются с тем же expected.txt, что и VM (сквозная проверка).
       'src/scripts/examplesE2k.audit.test.ts',
