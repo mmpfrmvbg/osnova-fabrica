@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (21). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (23). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -22,7 +22,7 @@
 - [docs/language-changelog-v2.md](language-changelog-v2.md)
 - [docs/language-contributing-v2.md](language-contributing-v2.md) ⚠
 - [docs/language-registry.md](language-registry.md) ⚠
-- [docs/language-v2.md](language-v2.md)
+- [docs/language-v2.md](language-v2.md) ⚠
 - [docs/release-process.md](release-process.md) ⚠
 - [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md) ⚠
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
@@ -69,7 +69,7 @@
 - [docs/osnova-signature-spec.md](osnova-signature-spec.md)
 - [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md) ⚠
 - [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md)
-- [docs/osnova-spec.md](osnova-spec.md)
+- [docs/osnova-spec.md](osnova-spec.md) ⚠
 - [docs/osnova-vision.md](osnova-vision.md)
 - [docs/register-ir-migration.md](register-ir-migration.md) ⚠
 - [docs/rfc/RFC-001-try-catch-avoidance.md](rfc/RFC-001-try-catch-avoidance.md)
