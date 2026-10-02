@@ -587,7 +587,18 @@ function windowGrowthAt(
     // правила кольца окон (§3.58). Без роста окна его `wbs = 8` даёт пустой кадр ядра и порт аварийно
     // завершается — измерено матрицей `.tmp/osnova-syscall-matrix.ts`.
     const body2 = code.slice(procedure.codeOffset, end);
-    const needsGrowth = body2.some((carrier) => carrier.mnemonic === 'IR.call' || isPrintCarrier(carrier, invokeNames));
+    // РОСТ ОКНА НУЖЕН И СИСТЕМНОМУ ВЫЗОВУ (`IR.invoke`), а не только `IR.call` и печати.
+    // `IR.invoke` — это `система.*`: номер и аргументы идут в `%r(2*wbs)`, то есть ЗА границей
+    // окна процедуры. Прежде `IR.invoke` в это условие не входил, и процедура, работающая с
+    // массивом (индекс/длина — это `IR.invoke`), окна не растила: тогда `calleeLimit` отказывал
+    // ей по `OSN-LOW-003`, хотя отказ снят именно для ВЫРАЩЕННОГО кадра (§3.57–§3.58).
+    // Замер: `cycle_array` — 7 отказов до правки.
+    const needsGrowth = body2.some(
+      (carrier) =>
+        carrier.mnemonic === 'IR.call' ||
+        carrier.mnemonic === 'IR.invoke' ||
+        isPrintCarrier(carrier, invokeNames),
+    );
     if (!needsGrowth) return;
     // ПРОЛОГ — ПЕРЕД первым носителем процедуры, а не ВМЕСТО него: `expandCarriers` заменяет
     // указанный носитель группой, поэтому первый носитель входит в группу вторым (иначе пролог
