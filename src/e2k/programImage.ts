@@ -513,6 +513,9 @@ export function loweredProgram(source: string, options: CompileOptions = {}): {
       emitted.image.invokeNames,
       MINIMAL_BASE + HEAP_OFFSET,
     ).counts.arenaConcats > 0;
+  // ОСТАТОК (`IR.rem`) резервирует себе регистр САМ, внутри `allocateProgram`: раскладку зовут и
+  // напрямую (оракулы), и «не забыть добавить резерв» был бы контрактом, который забудут молча —
+  // `src/e2k/remainderRuntime.ts`.
   const reserved = arenaReserved ? arenaReservedRegisters() : [];
   // БЮДЖЕТ РЕГИСТРОВ ПО ПРОЦЕДУРАМ: точка входа распоряжается всем файлом раскладки
   // (`%b[0..9]`; `%b[10..15]` держит рантайм массивов), а ВЫЗЫВАЕМАЯ — только своей половиной кадра
