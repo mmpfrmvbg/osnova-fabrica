@@ -78,6 +78,7 @@ import {
   lowerArrayCall } from "./arrayRuntime";
 import {
   SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
+import { REMAINDER_CARRIER, remainderInstructions } from "./remainderRuntime";
 import {
   EXIT_CARRIER,
   PRINT_HEAP_BY_CONVENTION,
@@ -729,6 +730,26 @@ function carrierFormWithReason(
     );
     if (typeof forms === 'string') return { failure: failureOf(LOWERING_CODES.print, forms) };
     return { form: { carrier: PRINT_WRITE_CARRIER, commands: forms } };
+  }
+  // ОСТАТОК: понижение — СЕРИЯ из трёх команд (`src/e2k/remainderRuntime.ts`), поэтому форма
+  // берётся из ТОГО ЖЕ источника команд, что и понижение: разойдись они — раскладка посчитала бы
+  // один носитель, а в образ ушло три команды, и адреса уехали бы молча (§3.35).
+  if (instruction.mnemonic === REMAINDER_CARRIER) {
+    const operands = instruction.operands;
+    const a = operands[1];
+    const b = operands[2];
+    const d = operands[0];
+    if (a?.kind !== 'reg' || b?.kind !== 'reg' || d?.kind !== 'reg') {
+      return {
+        failure: failureOf(
+          LOWERING_CODES.carrier,
+          '«IR.rem»: операнды обязаны быть регистрами (делимое, делитель, приёмник)',
+        ),
+      };
+    }
+    const forms = printCarrierForms(remainderInstructions(a.index, b.index, d.index));
+    if (typeof forms === 'string') return { failure: failureOf(LOWERING_CODES.carrier, forms) };
+    return { form: { carrier: REMAINDER_CARRIER, commands: forms } };
   }
   // `IR.const` — единственный носитель, чья длина зависит от ЗНАЧЕНИЯ (литерал из пула), поэтому
   // форма берётся отдельной ветвью, а не из статической таблицы CARRIER_FORMS.

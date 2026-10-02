@@ -6,7 +6,7 @@
  * 1. **Код есть у каждого отказа и он ИЗ ТАБЛИЦЫ.** Сторож проходит по потокам реальных
  *    программ и требует у каждой записи `refused` код из `LOWERING_CODES` — не «похожий», не
  *    пустой и не выдуманный на месте.
- * 2. **Код выбирает ПРОИЗВОДИТЕЛЬ, а не читатель.** Проверяется на живых отказах: `IR.rem` даёт
+ * 2. **Код выбирает ПРОИЗВОДИТЕЛЬ, а не читатель.** Проверяется на живых отказах: `IR.div` даёт
  *    `001`, дробная константа — `002`, вызов вне рантайма — `003`, переход без смещения —
  *    `004`, сайт печати без свободного регистра — `005`, два возврата со значением — `006`,
  *    носитель не той формы — `007`.
@@ -83,8 +83,8 @@ describe('контракт отказа понижения: код — личн�
   });
 
   it('001/002/004: коды называют понижение, константа и раскладка', () => {
-    // 001 — формы понижения нет (`IR.rem` в таблице понижения описан отказом).
-    const noForm = lowerCarrier(carrier('IR.rem', [reg(1)]));
+    // 001 — формы понижения нет (`IR.div` в таблице понижения описан отказом).
+    const noForm = lowerCarrier(carrier('IR.div', [reg(1)]));
     expect(noForm.ok).toBe(false);
     if (!noForm.ok) expect(noForm.code).toBe(LOWERING_CODES.noForm);
     expect(lowerInstruction(carrier('IR.нетТакого', [reg(1)])).ok).toBe(false);
@@ -161,15 +161,15 @@ describe('контракт отказа понижения: код — личн�
     expect(codeOfThrown(thrown)).toBe(LOWERING_CODES.wrapper);
   });
 
-  it('записи `refused` несут код: у шести записей печати — ноль отказов, у остатка — 001', () => {
+  it('записи `refused` несут код: у шести записей печати — ноль отказов, у деления — 001', () => {
     // Печать понижается: отказов нет вовсе.
     const printed = imageOfCarriers([carrier('IR.ret', [imm(0), reg(0)])], [], []);
     expect(printed.refused).toEqual([]);
-    // `IR.rem`: одна запись, и у неё код 001 — не строка без кода.
-    const image = loweredProgram('модуль О\nпроцедура главная()\n  вернуть 17 % 5\nконец\nконец\n');
+    // `IR.div`: одна запись, и у неё код 001 — не строка без кода.
+    const image = loweredProgram('модуль О\nпроцедура главная()\n  вернуть 7 / 2\nконец\nконец\n');
     expect(image.refused).toHaveLength(1);
     expect(image.refused[0]!.code).toBe(LOWERING_CODES.noForm);
-    expect(image.refused[0]!.reason).toContain('IR.rem');
+    expect(image.refused[0]!.reason).toContain('IR.div');
     for (const refusal of image.refused) expect(isLoweringRefusalCode(refusal.code)).toBe(true);
   });
 

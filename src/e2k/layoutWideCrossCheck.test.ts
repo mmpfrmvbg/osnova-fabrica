@@ -52,9 +52,15 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { layoutOf } from './twoPassLayout';
+import { carrierFormOf, layoutOf } from './twoPassLayout';
 import { wideStats } from './widePacker';
 import { kernelStreamOf } from './e2kWideFir.test';
+import { lowerCarrier } from './e2kRealRun';
+import { REMAINDER_CARRIER } from './remainderRuntime';
+import { getEncoder, type AsmInstruction, type Operand } from './backend';
+
+const encoder = getEncoder('e2k');
+const reg = (index: number): Operand => ({ kind: 'reg', index });
 
 /**
  * Измеренные величины по пяти ядрам.
@@ -243,5 +249,36 @@ describe('сверка раскладки с упаковщиком: пять я
       expect(row.wide, `${row.name}: пакетами меньше линейных на положительную величину`).toBeLessThan(row.linear);
       expect(row.linear - row.wide, `${row.name}: экономия упаковки`).toBeGreaterThan(0);
     }
+  });
+
+  it('3.7 носитель-СЕРИЯ: форма считает ровно те байты, что кодирует понижение', () => {
+    // ЗАЧЕМ ЭТА ПРОВЕРКА ОТДЕЛЬНО. У `IR.rem` форма — СЕРИЯ из трёх команд, а понижение выдаёт три
+    // команды из одного с ним источника (`src/e2k/remainderRuntime.ts`). Пока источник один, они
+    // совпадают по построению; но стоит взять форму короче — и раскладка посчитает 8 байт там, где
+    // в образ уйдут 24, и адреса после носителя уедут МОЛЧА (класс §3.35).
+    //
+    // ПОЧЕМУ НЕ ПРОГОН В МОДЕЛИ. Замер: прогон этого не видит — смещения считаются как РАЗНОСТЬ
+    // адресов, и если обе точки лежат за серией, ошибка длины сокращается (негативный контроль
+    // 14.1 на прогоне не краснел). Здесь она не сокращается: сравниваются БАЙТЫ формы и БАЙТЫ
+    // настоящего понижения — детерминированно и без внешнего ресурса.
+    const носитель: AsmInstruction = {
+      mnemonic: REMAINDER_CARRIER,
+      channel: 0,
+      operands: [reg(4), reg(2), reg(3)],
+    };
+    const форма = carrierFormOf(носитель, {});
+    expect(форма, 'у остатка обязана быть форма').toBeDefined();
+    expect(форма?.commands.length, 'серия остатка — три команды').toBe(3);
+
+    const понижение = lowerCarrier(носитель, { constants: [] });
+    expect(понижение.ok, 'остаток обязан понижаться').toBe(true);
+    const команды = понижение.ok ? понижение.instructions : [];
+    const байтФормы = (форма?.commands ?? []).reduce((sum, item) => sum + item.size, 0);
+    const байтПонижения = команды.reduce((sum, item) => sum + encoder.encode(item).length, 0);
+    expect(
+      байтФормы,
+      `форма обещает ${String(байтФормы)} байт, а понижение кодирует ${String(байтПонижения)} — ` +
+        'разойдись они, адреса после носителя уедут молча (§3.35)',
+    ).toBe(байтПонижения);
   });
 });

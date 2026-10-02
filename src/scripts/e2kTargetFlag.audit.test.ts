@@ -3,9 +3,9 @@
  *
  * # Что закрывается
  *
- * До этой правки замер давал: файл с телом `вернуть 17 % 5` (формы понижения у `IR.rem` нет) —
+ * До этой правки замер давал: файл с телом `вернуть 7 / 2` (формы понижения у `IR.div` нет) —
  * **код 0 и одна строка «Скомпилировано»** у обоих входов, при том что конвейер цели собирал образ
- * **112 байт с одним выброшенным носителем**. Программа «собралась», а число на цели будет неверным:
+ * **104 байта с одним выброшенным носителем**. Программа «собралась», а число на цели будет неверным:
  * самый дорогой класс расхождений — тихая ложь.
  *
  * # Три утверждения приёмки (все обязательны)
@@ -51,7 +51,7 @@ function source(body: string): string {
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'osnova-target-'));
-/** Проба с отказом понижения: `IR.rem` формы не имеет (замер: образ 112 байт, 1 отказ). */
+/** Проба с отказом понижения: `IR.div` формы не имеет (замер: образ 104 байта, 1 отказ). */
 const REFUSED = path.join(dir, 'отказ.osnova');
 /** Проба без отказов: контрольная арифметика. */
 const CLEAN = path.join(dir, 'чистая.osnova');
@@ -60,7 +60,7 @@ const OTHER_CLASS = path.join(dir, 'другой-класс.osnova');
 /** Та же проба с ДРУГИМ значением: текст причины другой, класс обязан совпасть. */
 const OTHER_CLASS_TWIN = path.join(dir, 'другой-класс-близнец.osnova');
 
-fs.writeFileSync(REFUSED, source('  вернуть 17 % 5'), 'utf-8');
+fs.writeFileSync(REFUSED, source('  вернуть 7 / 2'), 'utf-8');
 fs.writeFileSync(CLEAN, source('  вернуть 17 - 5'), 'utf-8');
 fs.writeFileSync(OTHER_CLASS, source('  пусть х = 1.5\n  вернуть х'), 'utf-8');
 fs.writeFileSync(OTHER_CLASS_TWIN, source('  пусть х = 2.25\n  вернуть х'), 'utf-8');
@@ -81,7 +81,7 @@ describe('флаг цели: человек узнаёт, что на e2k про
     const r = cli(MAIN_ENTRY, [REFUSED, '--target', 'e2k']);
     expect(r.code, `ожидался код 1, вывод: ${r.out}${r.err}`).toBe(1);
     expect(r.out).toContain('[носитель-без-формы]');
-    expect(r.out).toContain('#2 IR.rem');
+    expect(r.out).toContain('#2 IR.div');
     expect(r.out).toContain('формы понижения нет');
     expect(r.out).toContain('отказов 1');
     expect(r.out, 'предупреждение наблюдателя обязано дойти до человека').toContain(WARNING);
@@ -146,7 +146,7 @@ describe('флаг цели: человек узнаёт, что на e2k про
     expect(lines.length, `ожидалась одна запись, вывод: ${r.out}`).toBe(1);
     const record = JSON.parse(lines[0]!) as { class?: string; carrier?: string; index?: number; message?: string };
     expect(record.class).toBe('носитель-без-формы');
-    expect(record.carrier).toBe('IR.rem');
+    expect(record.carrier).toBe('IR.div');
     expect(record.index).toBe(2);
     expect(record.message).toContain('формы понижения нет');
     expect(r.out, 'человеческого предупреждения в машинном stdout быть не должно').not.toContain(WARNING);
@@ -169,8 +169,8 @@ describe('флаг цели: человек узнаёт, что на e2k про
     expect(classOfCode('OSN-LOW-999')).toBe('код-вне-контракта');
     // Разбор строки отказа не выдумывает место, когда его нет.
     expect(parseRefusalText('просто текст').index).toBeUndefined();
-    expect(parseRefusalText('#2 IR.rem: причина').carrier).toBe('IR.rem');
-    expect(parseRefusalText('#2 IR.rem: причина').index).toBe(2);
+    expect(parseRefusalText('#2 IR.div: причина').carrier).toBe('IR.div');
+    expect(parseRefusalText('#2 IR.div: причина').index).toBe(2);
   });
 
   it('(з) установленная команда (`dist/cli.js`) говорит то же — если артефакт есть и не устарел', () => {

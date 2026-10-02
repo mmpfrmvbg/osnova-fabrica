@@ -2,8 +2,8 @@
  * Оракул наблюдателя за понижением (`./e2kLoweringDiagnostics`).
  *
  * **Повод.** Отказ понижения видит только оракул корпуса — и только у записей,
- * объявленных «работает», и только в шлюзе `gate:qemu`. Замер 2026-09-28: `вернуть 17 % 5`
- * даёт образ 112 байт с ОДНИМ выброшенным носителем (`IR.rem`: формы понижения нет),
+ * объявленных «работает», и только в шлюзе `gate:qemu`. Замер 2026-09-28: `вернуть 7 / 2`
+ * даёт образ 104 байта с ОДНИМ выброшенным носителем (`IR.div`: формы понижения нет),
  * а `npx tsx src/cli.ts compile` на том же файле печатает «Скомпилировано» и выходит
  * нулём. Это класс «программа собралась, а число неверное».
  *
@@ -41,8 +41,13 @@ import { LOWERING_CODES, LOWERING_CODE_CLASSES } from "../e2k/loweringRefusal";
 
 /** Корпус 39 дословно: печать числа на цель. */
 const PRINT = "процедура главная()\n  система.лог.вывести(7 + 3)\nконец_процедуры\n";
-/** Носитель без формы понижения: `IR.rem`. */
-const REMAINDER = "модуль О\nпроцедура главная()\n  вернуть 17 % 5\nконец\nконец\n";
+/** Носитель без формы понижения: `IR.div` (вещественное деление языка; целочисленное — `idiv`).
+ *
+ * Прежде примером был ОСТАТОК (`вернуть 17 % 5`), и с 2026-10-02 он примером быть перестал: `%`
+ * понижается СЕРИЕЙ `sdivs` + `muls` + `subs` (`src/e2k/remainderRuntime.ts`,
+ * `docs/hardware-debt.md` §3.97). Замена равна по классу и по коду: одна запись, `OSN-LOW-001`,
+ * носитель `#2`; меньше только образ — 104 байта против 112. */
+const DIVISION = "модуль О\nпроцедура главная()\n  вернуть 7 / 2\nконец\nконец\n";
 /** Дробная константа: причина отказа, у которой есть код (`002`). Строки с 2026-09-28 понижаются. */
 /**
  * ДВЕ РАЗНЫЕ причины отказа в одной программе: дробная константа (`002`) и вызов, которого нет
@@ -65,14 +70,14 @@ describe("наблюдатель понижения: класс вместо с�
   });
 
   it("ТИХАЯ ЛОЖЬ названа: образ собран при выброшенном носителе", () => {
-    const report = loweringDiagnosticsOf(REMAINDER, "остаток.osnova");
+    const report = loweringDiagnosticsOf(DIVISION, "остаток.osnova");
     // Оба поля обязательны: «собран» и «есть отказы» вместе — и есть тихая ложь.
     expect(report.built, "образ собран").toBe(true);
     expect(report.refusedTotal, "отказов").toBe(1);
     const first = report.diagnostics[0]!;
     expect(first.code, "код контракта у отказа понижения").toBe(LOWERING_CODES.noForm);
     expect(first.class).toBe(LOWERING_CODE_CLASSES[LOWERING_CODES.noForm]);
-    expect(first.carrier).toBe("IR.rem");
+    expect(first.carrier).toBe("IR.div");
     expect(first.index).toBe(2);
   });
 
@@ -115,20 +120,20 @@ describe("наблюдатель понижения: класс вместо с�
   });
 
   it("разбор строки отказа не выдумывает место, когда его нет", () => {
-    expect(parseRefusalText("#2 IR.rem: причина")).toEqual({ index: 2, carrier: "IR.rem", reason: "причина" });
+    expect(parseRefusalText("#2 IR.div: причина")).toEqual({ index: 2, carrier: "IR.div", reason: "причина" });
     expect(parseRefusalText("раскладка отказала: причина")).toEqual({ reason: "раскладка отказала: причина" });
   });
 
   it("JSONL-запись несёт КОД контракта, а не только текст", () => {
-    const report = loweringDiagnosticsOf(REMAINDER, "остаток.osnova");
+    const report = loweringDiagnosticsOf(DIVISION, "остаток.osnova");
     const line = formatLoweringDiagnosticJson(report.diagnostics[0]!);
     const parsed = JSON.parse(line) as Record<string, unknown>;
     expect(parsed["class"]).toBe(LOWERING_CODE_CLASSES[LOWERING_CODES.noForm]);
-    expect(parsed["carrier"]).toBe("IR.rem");
+    expect(parsed["carrier"]).toBe("IR.div");
     // Код есть и он из контракта: до 2026-09-28 здесь стояло обратное утверждение —
     // «кода у понижения пока нет». Контракт его дал.
     expect(parsed["code"], "код обязан быть в записи").toBe(LOWERING_CODES.noForm);
-    expect(parsed["message"], "место отказа остаётся в тексте").toContain("IR.rem");
+    expect(parsed["message"], "место отказа остаётся в тексте").toContain("IR.div");
   });
 });
 

@@ -81,6 +81,7 @@ import {
   windowGrowInstructions,
 } from "./procedureCall";
 import { ARENA_REFUSAL_CARRIER, arenaCarrierInstructions } from "./arenaRuntime";
+import { REMAINDER_CARRIER, remainderInstructions } from "./remainderRuntime";
 import { allocateProgram, WINDOW_REGISTERS_CALLEE, type ProcedureAllocation } from "./regAlloc";
 import { LOWERING_CODES, failureOf, type LoweringFailure } from "./loweringRefusal";
 import type { ShellEmitResult } from "./emitterOracle";
@@ -295,8 +296,11 @@ export const REFUSALS: Readonly<Record<string, string>> = {
     "**отсекает** дробную часть (`truncate toward 0`) и даёт `exc_div` при делителе 0. Подставить одну " +
     "вместо другой нельзя, и решение принято: целочисленное деление языка — **отдельная** операция `idiv` " +
     "(`IR.idiv` → `sdivs`, БЛОК 2), а `IR.div` остаётся вещественным и по-прежнему не понижается",
-  "IR.rem":
-    "не понижается: IR-остаток вещественный, документированный (UMODx, SMODx) — целочисленный",
+  // `IR.rem` БОЛЬШЕ НЕ ОТКАЗ (2026-10-02): он понижается СЕРИЕЙ `sdivs` + `muls` + `subs`
+  // (`src/e2k/remainderRuntime.ts`), а не одной командой. Прежняя запись отказа говорила
+  // «IR-остаток вещественный, документированный (UMODx, SMODx) — целочисленный» — и это была
+  // посылка, которой нет: ОБЕ VM считают `a % b`, то есть остаток с отсечением к нулю (знак
+  // делимого), — ровно то, что даёт серия. Разбор — `docs/hardware-debt.md` §3.97.
   "IR.and": "семантика не совпадает: IR-логика булева (Boolean(a && b)), e2k ands — побитовая",
   "IR.or": "семантика не совпадает: IR-логика булева, e2k ors — побитовая",
   "IR.not": "семантика не совпадает: IR-отрицание булево, документированной унарной NOT в таблице опкодов нет",
@@ -581,6 +585,30 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
   if (instruction.mnemonic === "IR.window_grow") {
     // РОСТ ОКНА у процедуры, которая сама вызывает: `setwd` до `setbn`, по одному разу (§3.56.2).
     return { ok: true, instructions: windowGrowInstructions() };
+  }
+
+  if (instruction.mnemonic === REMAINDER_CARRIER) {
+    // ОСТАТОК — СЕРИЯ из трёх команд, а не одна: документированный `SMODX` не берём (у него свой
+    // дефект знака, пример `09`), а считаем остаток из целочисленного деления, которое уже
+    // понижается. Команды берутся из ТОГО ЖЕ источника, что и форма раскладки
+    // (`src/e2k/remainderRuntime.ts`) — разойдись они, адреса уехали бы молча (§3.35).
+    const divisor = instruction.operands[2];
+    const dividend = instruction.operands[1];
+    const destination = instruction.operands[0];
+    if (
+      dividend?.kind !== 'reg' ||
+      divisor?.kind !== 'reg' ||
+      destination?.kind !== 'reg'
+    ) {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        '«IR.rem»: операнды обязаны быть регистрами (делимое, делитель, приёмник)',
+      );
+    }
+    return {
+      ok: true,
+      instructions: [...remainderInstructions(dividend.index, divisor.index, destination.index)],
+    };
   }
 
   if (instruction.mnemonic === "IR.ret") {

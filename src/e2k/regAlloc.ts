@@ -35,6 +35,7 @@ import {
   type LiveInterval,
 } from './liveness';
 import { removeCopies } from './copyElim';
+import { REMAINDER_SCRATCH_REGISTER, needsRemainderScratch } from './remainderRuntime';
 import { rematerializeConstants } from './rematerialize';
 import { DEFAULT_SPILL_BASE } from './elfMinimal';
 import {
@@ -419,7 +420,15 @@ export function allocateProgram(
   // «Старый индекс потока модуля → новый»: по нему пересчитываются цели переходов ПОСЛЕ сборки.
   const movedTo = new Map<number, number>();
   const spillPlan: SpillOptions = options.spill ?? { base: DEFAULT_SPILL_BASE };
+  // РЕЗЕРВ ПОД СКРЫТЫЙ РЕГИСТР СЕРИИ. Носителю `IR.rem` нужен временный регистр под частное
+  // (`src/e2k/remainderRuntime.ts`), а раскладка о нём не знает: у носителя объявлены только
+  // `def = [d]` и `use = [a, b]`. Решение принимается ЗДЕСЬ, а не в конвейере, намеренно: конвейер
+  // — не единственный, кто зовёт раскладку (оракулы зовут её напрямую), и «не забыть добавить
+  // резерв» был бы контрактом, который забудут молча, — а забытый резерв это не отказ, а порча
+  // значения. Резерв УСЛОВНЫЙ: у программы без `IR.rem` он не берётся вовсе, поэтому закреплённые
+  // числа пяти ядер (458 / 53 / 511 / 8800, FIR 181) не двигаются.
   const reserved = new Set<number>(options.reserved ?? []);
+  if (needsRemainderScratch(instructions)) reserved.add(REMAINDER_SCRATCH_REGISTER);
   // Арность вызываемых — из самих вызовов, ДО обхода процедур: она нужна каждой вызываемой, а
   // носители `IR.call` живут в потоке вызывающих (см. `argumentCountsOf`).
   const argumentCounts = argumentCountsOf(instructions);
