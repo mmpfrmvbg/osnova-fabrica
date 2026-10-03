@@ -69,8 +69,8 @@ describe("негативный контроль кодировки: три де�
     const good = encode(SAMPLE);
     const short = Uint8Array.from(good.slice(0, INSTRUCTION_SIZE - 1));
     const long = Uint8Array.from([...good, 0x00]);
-    expect(() => decode(short), "потерянный байт не отвергнут").toThrow(/ожидалось 10 байт/);
-    expect(() => decode(long), "лишний байт не отвергнут").toThrow(/ожидалось 10 байт/);
+    expect(() => decode(short), "потерянный байт не отвергнут").toThrow(/ожидалось \d+ байт/);
+    expect(() => decode(long), "лишний байт не отвергнут").toThrow(/ожидалось \d+ байт/);
   });
 });
 
@@ -78,7 +78,7 @@ describe("негативный контроль кодировки: пять о�
   const good = encode(SAMPLE);
 
   it("1. усечённые байты отвергаются", () => {
-    expect(() => decode(good.slice(0, INSTRUCTION_SIZE - 1))).toThrow(/ожидалось 10 байт/);
+    expect(() => decode(good.slice(0, INSTRUCTION_SIZE - 1))).toThrow(/ожидалось \d+ байт/);
   });
 
   it("2. неизвестный код операции отвергается", () => {

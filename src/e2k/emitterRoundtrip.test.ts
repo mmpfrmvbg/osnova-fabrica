@@ -22,6 +22,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { describe, it, expect } from "vitest";
 import { getEncoder } from "./backend";
+import { INSTRUCTION_SIZE } from "./encoding";
 import { emitShell } from "./emitterShell";
 import { decodeShellImage, runShellImage } from "./emitterRoundtrip";
 import { sameRegInstruction } from "./emitterOracle";
@@ -119,7 +120,7 @@ describe("сквозной прогон: RegModule → эмиттер на об�
     for (const { name, atom } of KERNELS) {
       const module = annotatedKernel(name, atom);
       const emitted = emitShell(module, encoder);
-      expect(emitted.image.bytes.length, `${name}: байт`).toBe(module.code.length * 10);
+      expect(emitted.image.bytes.length, `${name}: байт`).toBe(module.code.length * INSTRUCTION_SIZE);
       expect(emitted.image.placement.length, `${name}: записей карты`).toBe(module.code.length);
       const decoded = decodeShellImage(emitted.image, encoder);
       expect(decoded.code.length, `${name}: слов после декодирования`).toBe(module.code.length);

@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from "vitest";
 import { auditEncoder, getEncoder, type AsmInstruction } from "./backend";
-import { OPCODES } from "./encoding";
+import { INSTRUCTION_SIZE, OPCODES } from "./encoding";
 import {
   IR_CARRIER_PREFIX,
   SHELL_IMAGE_FORMAT,
@@ -73,7 +73,7 @@ function withImage(result: ShellEmitResult, patch: Partial<ShellImage>): ShellEm
 describe("эмиттер на оболочке: оракул (написан до реализации)", () => {
   it("эмиттер вызывается на модуле с разметкой и отдаёт артефакт", () => {
     const { module, result } = emit();
-    expect(result.image.bytes.length).toBe(module.code.length * 10);
+    expect(result.image.bytes.length).toBe(module.code.length * INSTRUCTION_SIZE);
     expect(result.instructions).toHaveLength(module.code.length);
     expect(result.report.instructions).toBe(module.code.length);
   });
@@ -86,7 +86,7 @@ describe("эмиттер на оболочке: оракул (написан д�
     const indexes = result.image.placement.map((entry) => entry.codeIndex).sort((a, b) => a - b);
     expect(indexes).toEqual(module.code.map((_, i) => i));
     for (const entry of result.image.placement) {
-      expect(entry.end - entry.start, `инструкция ${entry.codeIndex}`).toBe(10);
+      expect(entry.end - entry.start, `инструкция ${entry.codeIndex}`).toBe(INSTRUCTION_SIZE);
     }
   });
 

@@ -105,10 +105,23 @@ describe('контракт отказа понижения: код — личн�
     const outside = lowerCarrier(invoke, { invokeNames: ['система.строка.длина'] });
     expect(outside.ok).toBe(false);
     if (!outside.ok) expect(outside.code).toBe(LOWERING_CODES.runtime);
-    // Арность вызова больше носителя — та же личность: обвязка этого не несёт.
-    const arity = lowerCarrier(carrier('IR.call', [imm(0b111), reg(1), reg(2), reg(3)]), { callDisplacement: 1 });
-    expect(arity.ok).toBe(false);
-    if (!arity.ok) expect(arity.code).toBe(LOWERING_CODES.runtime);
+    // СЛУЧАЙ «АРНОСТИ БОЛЬШЕ НОСИТЕЛЯ» ИСЧЕЗ, и это замер, а не умолчание: носитель несёт ТРИ
+    // аргумента с 2026-10-02, а поле признаков (`flags`) отводит под арность два бита — то есть
+    // выразить «больше трёх» носитель не может ВООБЩЕ. Прежняя редакция этой проверки подавала
+    // `flags = 0b111` (argc = 3) и ждала отказа; теперь три аргумента ЗАКОННЫ, и отказ приходит
+    // по другой причине — носитель не той формы (007). Проверка переписана на то, что осталось
+    // правдой: у ЗАКОННОЙ арности отказ обязан быть про форму, а не про язык.
+    const три = lowerCarrier(carrier('IR.call', [imm(0b111), reg(1), reg(2), imm(0), reg(3), reg(4)]), {
+      callDisplacement: 1,
+    });
+    expect(три.ok, 'три аргумента — законная арность').toBe(true);
+    // А носитель, у которого операндов МЕНЬШЕ, чем обещает арность, — отказ, и код у него
+    // «контракт конвейера»: обвязка собрала носитель не той формы.
+    const короткий = lowerCarrier(carrier('IR.call', [imm(0b111), reg(1), reg(2), imm(0), reg(3)]), {
+      callDisplacement: 1,
+    });
+    expect(короткий.ok).toBe(false);
+    if (!короткий.ok) expect(короткий.code).toBe(LOWERING_CODES.carrier);
   });
 
   it('007: носитель не той формы — «контракт конвейера», а не «язык не умеет»', () => {

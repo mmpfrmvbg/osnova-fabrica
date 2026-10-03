@@ -45,6 +45,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { describe, it, expect } from 'vitest';
 import { getEncoder } from './backend';
+import { INSTRUCTION_SIZE } from './encoding';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions, verifyAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
@@ -456,7 +457,7 @@ describe('симулятор на оболочке: форма отчёта', ()
     expect(typeof result.report.ticks).toBe('number');
     expect(typeof result.report.instructions).toBe('number');
     expect(Array.isArray(result.report.classes)).toBe(true);
-    expect(result.report.instructionSize).toBe(10);
+    expect(result.report.instructionSize).toBe(INSTRUCTION_SIZE);
     expect(result.report.staticInstructions).toBe(105);
     expect(result.report.tickModel).toMatch(/RAW/);
   });

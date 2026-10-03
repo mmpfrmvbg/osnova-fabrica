@@ -29,7 +29,7 @@ import {
   type EncoderDescription,
   type Operand,
 } from "./backend";
-import { OPCODES, mnemonicEntry, type OpcodeEntry } from "./encoding";
+import { OPCODES, mnemonicEntry, INSTRUCTION_SIZE, type OpcodeEntry } from "./encoding";
 
 const shell = getEncoder("internal-shell");
 const e2k = getEncoder("e2k");
@@ -350,6 +350,10 @@ describe("негативный контроль шлюза: подделки о�
 
   it("байты расхождения печатаются: сообщение пригодно для разбора", () => {
     const bytes = shell.encode(samples[0]!);
-    expect(toHex(bytes)).toMatch(/^([0-9a-f]{2} ){9}[0-9a-f]{2}$/);
+    // Ширина записи берётся У КОНСТАНТЫ, а не пишется числом: 2026-10-02 запись выросла с 10 до 11
+    // байт (поле `src3` — третий аргумент вызова), и зашитое `{9}` покраснело бы на верной правке,
+    // ничего не сказав о причине.
+    const groups = new RegExp(`^([0-9a-f]{2} ){${String(INSTRUCTION_SIZE - 1)}}[0-9a-f]{2}$`);
+    expect(toHex(bytes)).toMatch(groups);
   });
 });
