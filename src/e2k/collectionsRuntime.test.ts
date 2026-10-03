@@ -20,13 +20,17 @@ import {
   COLLECTION_FRAME_REGISTERS,
   COLLECTION_KEY_REGISTER,
   COLLECTION_REFUSAL_TEXTS,
+  COLLECTION_SITE_CAUSES,
   COLLECTION_WORD_REGISTER,
   COLLECTION_ZERO_REGISTER,
+  COLLECTION_REFUSAL_KINDS,
   CollectionRuntimeRefusal,
   brkInstructions,
   collectionAllocInstructions,
   collectionAllocSiteCarriers,
+  collectionCauseProblems,
   collectionCopyLoopCarriers,
+  collectionFormProblems,
   collectionGroups,
   collectionRefusalKinds,
   collectionReservedRegisters,
@@ -430,6 +434,41 @@ describe('коллекции на brk: сайты, хвост потока и с
     expect(loop[1]!.operands[1], 'выход из цикла — на его конец').toEqual(imm(34));
     expect(loop[6]!.operands[0], 'обратный переход — на начало').toEqual(imm(27));
     expect(loop[7]!.operands[0], 'продолжение — исходным индексом').toEqual(imm(3));
+  });
+
+  it('СТОРОЖ ФОРМЫ: в адресной арифметике коллекций НЕТ S-форм — и сторож это РАЗЛИЧАЕТ', () => {
+    // Класс дефекта: `adds` (форма S) пишет только младшую половину приёмника, а старшая остаётся
+    // прежней — для адреса это тихая ложь. Сторож обязан стоять там, где последовательность
+    // собирается, и обязан ЛОВИТЬ подмену: без второго наблюдения «нарушений нет» означало бы
+    // «сторож ничего не смотрит» (класс случая 22).
+    expect(collectionFormProblems(brkInstructions({ address: 3, result: 5 })), 'серия `brk` чиста').toEqual([]);
+    expect(collectionFormProblems(collectionAllocInstructions(4, 1)), 'серия выделения чиста').toEqual([]);
+    const подмена = collectionFormProblems([
+      { mnemonic: 'adds', channel: 0, operands: [reg(9), reg(12), reg(9)] },
+      { mnemonic: 'addd', channel: 0, operands: [reg(9), reg(12), reg(9)] },
+    ]);
+    expect(подмена, 'S-форма поймана').toHaveLength(1);
+    expect(подмена[0], 'и причина названа классом, а не «что-то не так»').toMatch(/МЛАДШУЮ половину/u);
+    // И СТОРОЖ СТОИТ НА СБОРЩИКЕ: подмени в `brkInstructions` форму — сборщик откажет, а не отдаст
+    // последовательность. Это проверяет негативный контроль 15.8 (стол), здесь — сама связь.
+    expect(() => brkInstructions({ address: 3, result: 5 })).not.toThrow();
+  });
+
+  it('СТОРОЖ СОГЛАСОВАННОСТИ ПРИЧИН: таблица операций, порядок и тексты — одно соответствие', () => {
+    expect(collectionCauseProblems(), 'таблица и тексты согласованы').toEqual([]);
+    // Различающая сторона: сторож обязан видеть ЛИШНИЙ текст (блоб без потребителя) и ПОВТОР текста
+    // (различение причин стало бы мнимым). Обе поломки — молчаливые, поэтому и нужен сторож.
+    const kinds = [...COLLECTION_REFUSAL_KINDS];
+    expect(kinds, 'три причины в порядке').toEqual(['index', 'capacity', 'memory']);
+    const texts = kinds.map((kind) => COLLECTION_REFUSAL_TEXTS[kind]);
+    expect(new Set(texts).size, 'тексты причин разные').toBe(texts.length);
+    for (const site of Object.keys(COLLECTION_SITE_CAUSES) as (keyof typeof COLLECTION_SITE_CAUSES)[]) {
+      expect(COLLECTION_SITE_CAUSES[site].length, `операция «${site}» назвала причины`).toBeGreaterThan(0);
+    }
+    // Каждая операция обслуживается ровно одним видом сайта — и это тот же источник, что у причин.
+    expect(collectionRefusalKinds([invoke(1, [2], 0, 1)], имена)).toEqual(['memory']);
+    expect(collectionRefusalKinds([invoke(3, [1, 3, 4], 1)], имена)).toEqual(['index']);
+    expect(collectionRefusalKinds([invoke(2, [1, 5], 2, 6)], имена)).toEqual(['capacity', 'memory']);
   });
 
   it('САЙТ ЧТЕНИЯ/ЗАПИСИ: первые четыре шага ОДНИ, различие — последний', () => {

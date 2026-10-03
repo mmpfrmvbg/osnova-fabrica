@@ -787,6 +787,31 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     tests: ['src/e2k/refusalStringsQemu.test.ts'],
     config: 'vitest.qemu.config.ts',
   },
+  // ── СТОРОЖА, ПОСТАВЛЕННЫЕ ПО РАЗБОРУ ВЛАДЕЛЬЦА (2026-10-03) ─────────────────
+  {
+    // ФОРМА, КОТОРАЯ МОЛЧА ТЕРЯЕТ СТАРШИЕ РАЗРЯДЫ. `adds` (форма S) пишет только младшую половину
+    // приёмника, а старшая остаётся ПРЕЖНЕЙ: для адреса это младшие 32 бита вместо 64 — тихая ложь,
+    // найденная замером поведения (случай 37). Сторож стоит НА СБОРЩИКЕ, поэтому мутация обязана
+    // уронить не только проверку сторожа, но и саму сборку серии.
+    id: '15.8',
+    title: 'граница кучи кладётся S-формой — старшие разряды запроса теряются молча',
+    file: 'src/e2k/collectionsRuntime.ts',
+    from: "    a('addd', [reg(options.address), reg(COLLECTION_ZERO_REGISTER), window_(syscallWindowOf(frame, 1))]),",
+    to: "    a('adds', [reg(options.address), reg(COLLECTION_ZERO_REGISTER), window_(syscallWindowOf(frame, 1))]), // ДЕФЕКТ 15.8",
+    tests: ['src/e2k/collectionsRuntime.test.ts'],
+    config: 'vitest.config.ts',
+  },
+  {
+    // СОГЛАСОВАННОСТЬ ПРИЧИН: причина пропала из ПОРЯДКА, а текст и требование операции остались.
+    // Молча это дало бы переход в блок, которого нет, либо блоб без потребителя — оба класса §3.35.
+    id: '15.9',
+    title: 'причина отказа пропала из порядка — блоков меньше, чем переходов в них',
+    file: 'src/e2k/collectionsRuntime.ts',
+    from: "export const COLLECTION_REFUSAL_KINDS: readonly CollectionRefusalKind[] = ['index', 'capacity', 'memory'];",
+    to: "export const COLLECTION_REFUSAL_KINDS: readonly CollectionRefusalKind[] = ['index', 'capacity']; // ДЕФЕКТ 15.9",
+    tests: ['src/e2k/collectionsRuntime.test.ts'],
+    config: 'vitest.config.ts',
+  },
 ];
 
 /**

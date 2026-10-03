@@ -273,10 +273,116 @@ function callNameOf(carrier: AsmInstruction, invokeNames: readonly string[]): st
 }
 
 /**
+ * КАКАЯ ОПЕРАЦИЯ КАКУЮ ПРИЧИНУ ОТКАЗА ТРЕБУЕТ — ОДНА ТАБЛИЦА НА ВСЁ.
+ *
+ * Прежде это знание жило в ДВУХ местах: `collectionRefusalKinds` (какие тексты планировать) и
+ * ветвление внутри `collectionGroups` (какие блоки дописывать). Разойдись они — переход вёл бы к
+ * блоку, которого нет, либо блоб планировался бы без потребителя; и то и другое молча (класс §3.35).
+ * Теперь оба читают ЭТУ таблицу, а согласованность её с текстами и порядком причин проверяет сторож
+ * {@link collectionCauseProblems}.
+ */
+export const COLLECTION_SITE_CAUSES: Readonly<Record<CollectionSiteKind, readonly CollectionRefusalKind[]>> = {
+  выделить: ['memory'],
+  положить: ['index'],
+  взять: ['index'],
+  расширить: ['capacity', 'memory'],
+};
+
+/**
+ * ИМЯ ОПЕРАЦИИ → ВИД САЙТА — тоже один источник.
+ *
+ * Диспетчер сборки сайтов и признак «какие причины нужны потоку» обязаны узнавать операцию
+ * ОДИНАКОВО: разойдись они — сайт строился бы одной операцией, а тексты планировались под другую.
+ */
+const SITE_KIND_OF_CALL: Readonly<Record<string, CollectionSiteKind>> = {
+  [COLLECTION_CALLS.allocate]: 'выделить',
+  [COLLECTION_CALLS.put]: 'положить',
+  [COLLECTION_CALLS.take]: 'взять',
+  [COLLECTION_CALLS.resize]: 'расширить',
+};
+
+/**
+ * СТОРОЖ ФОРМЫ: В АДРЕСНОЙ АРИФМЕТИКЕ КОЛЛЕКЦИЙ НЕТ `S`-ФОРМ.
+ *
+ * `adds`/`subs`/`muls`/`shls` — формы `S`: они пишут ТОЛЬКО МЛАДШУЮ половину приёмника, а старшая
+ * остаётся ПРЕЖНЕЙ. Для адреса или границы кучи это младшие 32 бита вместо 64 — и не отказ, а тихая
+ * ложь: адрес «верный», блок «выделен», память чужая.
+ *
+ * Так и было до 2026-10-03: `brkInstructions` клала и запрос, и ответ через `adds`, и спасало это
+ * только поведение МОДЕЛИ (она отказывает на запросах от ~2 ГиБ, §3.101.4) — то есть соглашение
+ * держалось совпадением, а не построением (случай 37 реестра проверяемости). Замер,
+ * `.tmp/probe-addd-window.ts`: оконный приёмник у `addd` кодируется, форма та же ALF1 — 8 байт.
+ *
+ * Сторож стоит НА СБОРЩИКЕ (`brkInstructions`), а не только в тесте: нарушение обязано отказать там,
+ * где последовательность собирается, — иначе оно снова уедет в образ и будет найдено замером через
+ * недели. Сайты из носителей (`IR.add`) под него не попадают: у них своя, УЖЕ НАЗВАННАЯ 32-битная
+ * адресация (§3.98.7), и это отдельная работа, а не эта правка.
+ */
+export function collectionFormProblems(instructions: readonly AsmInstruction[]): string[] {
+  const problems: string[] = [];
+  instructions.forEach((instruction, at) => {
+    if (!['adds', 'subs', 'muls', 'shls', 'divs'].includes(instruction.mnemonic)) return;
+    problems.push(
+      `#${String(at)} ${instruction.mnemonic}: форма S пишет только МЛАДШУЮ половину приёмника, а ` +
+        'старшая остаётся прежней — для адреса и границы кучи это младшие 32 бита вместо 64 ' +
+        '(случай 37 реестра проверяемости). Адресная арифметика обязана быть формой D (`addd`)',
+    );
+  });
+  return problems;
+}
+
+/**
+ * СТОРОЖ СОГЛАСОВАННОСТИ ПРИЧИН: таблица операций, порядок причин и тексты — одно соответствие.
+ *
+ * Проверяется ТО, ЧТО НЕВИДИМО ГЛАЗАМИ и ломается молча:
+ *
+ * | что | чем ломается |
+ * |---|---|
+ * | у каждой причины есть текст | пропавший текст = блок отказа без строки (или чужая строка) |
+ * | у каждого текста есть причина | лишний текст = блоб без потребителя (плата за ничто) |
+ * | каждая причина КЕМ-ТО требуется | причина, которой не требует ни одна операция, — мёртвая ветвь |
+ * | у каждой операции есть причины | операция без причины = отказ, который некуда направить |
+ * | порядок причин без повторов | повтор сдвинул бы блоки: цель уехала бы в чужой текст |
+ * | тексты РАЗНЫЕ | совпади они — различение причин стало бы мнимым (случай 34) |
+ */
+export function collectionCauseProblems(): string[] {
+  const problems: string[] = [];
+  const kinds = COLLECTION_REFUSAL_KINDS;
+  for (const kind of kinds) {
+    if (COLLECTION_REFUSAL_TEXTS[kind] === undefined) problems.push(`причина «${kind}» без текста`);
+  }
+  for (const kind of Object.keys(COLLECTION_REFUSAL_TEXTS) as CollectionRefusalKind[]) {
+    if (!kinds.includes(kind)) problems.push(`текст причины «${kind}» есть, а в порядке причин её нет`);
+  }
+  if (new Set(kinds).size !== kinds.length) problems.push('в порядке причин есть повторы');
+  const texts = kinds.map((kind) => COLLECTION_REFUSAL_TEXTS[kind]);
+  if (new Set(texts).size !== texts.length) {
+    problems.push('две причины названы ОДНИМ текстом — различение причин стало бы мнимым');
+  }
+  const siteKinds = Object.keys(COLLECTION_SITE_CAUSES) as CollectionSiteKind[];
+  for (const site of siteKinds) {
+    const causes = COLLECTION_SITE_CAUSES[site];
+    if (causes === undefined || causes.length === 0) {
+      problems.push(`операция «${site}» не назвала ни одной причины отказа`);
+      continue;
+    }
+    for (const cause of causes) {
+      if (!kinds.includes(cause)) problems.push(`операция «${site}» требует причину «${cause}», которой нет в порядке`);
+    }
+  }
+  for (const kind of kinds) {
+    if (!siteKinds.some((site) => COLLECTION_SITE_CAUSES[site].includes(kind))) {
+      problems.push(`причину «${kind}» не требует НИ ОДНА операция — мёртвая ветвь`);
+    }
+  }
+  return problems;
+}
+
+/**
  * Какие тексты отказа нужны ЭТОМУ потоку — по операциям, которые в нём есть.
  *
- * Один источник и для планирования блобов, и для раскладки блоков: если бы список причин считался
- * дважды (в конвейере и здесь), блоки и переходы разошлись бы молча (класс §3.35).
+ * Один источник и для планирования блобов, и для раскладки блоков: список причин берётся из
+ * {@link COLLECTION_SITE_CAUSES}, а не из второго похожего перечня.
  */
 export function collectionRefusalKinds(
   code: readonly AsmInstruction[],
@@ -285,9 +391,10 @@ export function collectionRefusalKinds(
   const needed = new Set<CollectionRefusalKind>();
   for (const carrier of code) {
     const name = callNameOf(carrier, invokeNames);
-    if (name === COLLECTION_CALLS.put || name === COLLECTION_CALLS.take) needed.add('index');
-    if (name === COLLECTION_CALLS.resize) needed.add('capacity');
-    if (name === COLLECTION_CALLS.allocate || name === COLLECTION_CALLS.resize) needed.add('memory');
+    if (name === undefined) continue;
+    const site = SITE_KIND_OF_CALL[name];
+    if (site === undefined) continue;
+    for (const cause of COLLECTION_SITE_CAUSES[site]) needed.add(cause);
   }
   return COLLECTION_REFUSAL_KINDS.filter((kind) => needed.has(kind));
 }
@@ -315,7 +422,7 @@ export function brkInstructions(options: {
   readonly frame?: SyscallFrame;
 }): AsmInstruction[] {
   const frame = options.frame ?? ENTRY_SYSCALL_FRAME;
-  return [
+  const sequence: AsmInstruction[] = [
     ...(frame.setbn ? [a('setbn', [imm(ARRAY_WINDOW_RSZ), imm(0), imm(0)])] : []),
     a('movts', [imm(SYS_BRK), window_(syscallWindowOf(frame, 0))]),
     a('addd', [reg(options.address), reg(COLLECTION_ZERO_REGISTER), window_(syscallWindowOf(frame, 1))]),
@@ -325,6 +432,14 @@ export function brkInstructions(options: {
     // окно на `2·wbs` — значит читается он базовой формой из `%b[2·wbs]`, то есть из `frame.base`.
     a('addd', [reg(frame.base), reg(COLLECTION_ZERO_REGISTER), reg(options.result)]),
   ];
+  // СТОРОЖ ФОРМЫ — ЗДЕСЬ, А НЕ В ТЕСТЕ: нарушение обязано отказать там, где последовательность
+  // собирается. Иначе оно уедет в образ и будет найдено замером через недели — так и было (`adds`
+  // вместо `addd`, случай 37).
+  const problems = collectionFormProblems(sequence);
+  if (problems.length > 0) {
+    throw new CollectionRuntimeRefusal(`brk: ${problems.join('; ')}`);
+  }
+  return sequence;
 }
 
 /**
@@ -705,16 +820,9 @@ export function collectionGroups(
   const sites: { readonly index: number; readonly kind: CollectionSiteKind }[] = [];
   code.forEach((carrier, index) => {
     const name = callNameOf(carrier, invokeNames);
-    const kind: CollectionSiteKind | undefined =
-      name === COLLECTION_CALLS.allocate
-        ? 'выделить'
-        : name === COLLECTION_CALLS.put
-          ? 'положить'
-          : name === COLLECTION_CALLS.take
-            ? 'взять'
-            : name === COLLECTION_CALLS.resize
-              ? 'расширить'
-              : undefined;
+    // Вид операции — из ТОЙ ЖЕ таблицы, что у признака нужных причин: второй диспетчер разошёлся бы
+    // с первым молча (сайт строился бы одной операцией, а тексты планировались под другую).
+    const kind = name === undefined ? undefined : SITE_KIND_OF_CALL[name];
     if (kind === undefined) return;
     const range = options.entryRange;
     if (range !== undefined && (index < range.from || index >= range.to)) {
@@ -741,12 +849,9 @@ export function collectionGroups(
   const blockAt = new Map<CollectionRefusalKind, number>();
   const blockCarriers: AsmInstruction[] = [];
   for (const kind of COLLECTION_REFUSAL_KINDS) {
-    const needed =
-      kind === 'index'
-        ? sites.some((site) => site.kind === 'положить' || site.kind === 'взять')
-        : kind === 'capacity'
-          ? sites.some((site) => site.kind === 'расширить')
-          : sites.some((site) => site.kind === 'выделить' || site.kind === 'расширить');
+    // Нужна ли причина — по ТОЙ ЖЕ таблице, что у признака нужных причин (`collectionRefusalKinds`):
+    // две похожие ветви разошлись бы, и блок либо не дописался, либо остался без потребителя.
+    const needed = sites.some((site) => COLLECTION_SITE_CAUSES[site.kind].includes(kind));
     if (!needed) continue;
     const blob = options.refusals?.[kind];
     if (blob === undefined) {
