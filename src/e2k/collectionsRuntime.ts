@@ -65,6 +65,8 @@ import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ, RESERVED_FROM } from './arrayRuntime
 import { SYS_BRK } from './memoryRuntime';
 import { ENTRY_SYSCALL_FRAME, syscallWindowOf, type SyscallFrame } from './syscallRuntime';
 import { COLLECTION_ARITY } from '../runtime/vm/collectionCalls';
+import { callArgumentOperands } from './shell';
+import { LOAD_CARRIER, STORE_CARRIER } from './memoryAccess';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 const imm = (value: number): Operand => ({ kind: 'imm', value });
@@ -112,6 +114,15 @@ export const SUPPORTED_COLLECTION_CALLS: readonly string[] = ['система.к
 export const COLLECTION_CALL_NAMES: readonly string[] = Object.keys(COLLECTION_ARITY);
 
 /**
+ * Строка отказа при выходе за границу — ОДНА на цель и на эталон, как у арены.
+ *
+ * Код возврата берётся у арены (ARENA_REFUSAL_CODE = 231) НАМЕРЕННО: владелец назвал приёмку
+ * «названный отказ через status+stderr (как арена, код 231)», и второй код для того же класса
+ * отказа развёл бы наблюдателя на два случая там, где случай один.
+ */
+export const COLLECTION_REFUSAL_TEXT = 'коллекция: индекс вне ёмкости блока';
+
+/**
  * Арность — ИЗ ОДНОГО ИСТОЧНИКА С ЭТАЛОНОМ (`src/runtime/vm/collectionCalls.ts`).
  *
  * Второй таблицы здесь нет намеренно: разойдись арность у цели и у VM — вызов с неверным числом
@@ -148,10 +159,13 @@ export function usesCollections(
   return code.some((carrier) => {
     if (carrier.mnemonic !== 'IR.invoke') return false;
     const payload = carrier.operands[3];
+    // ИМЕНА ВСЕ, А НЕ ТОЛЬКО РАЗВЁРНУТЫЕ: сайт положить/взять собирается из носителей и
+    // системного вызова не делает, но резерв обязан быть взят и под него — иначе признак
+    // «образ пользуется коллекциями» не сработал бы, и сайт остался бы без своих регистров.
     return (
       payload !== undefined &&
       payload.kind === 'imm' &&
-      SUPPORTED_COLLECTION_CALLS.includes(invokeNames[payload.value] ?? '')
+      COLLECTION_CALL_NAMES.includes(invokeNames[payload.value] ?? '')
     );
   });
 }
@@ -225,6 +239,151 @@ export function allocateInstructions(
     //    (`std(scratch2, registers[0], zero)`): форма `std` берёт смещение регистром.
     std(capacity, destination, COLLECTION_ZERO_REGISTER),
   ];
+}
+
+/**
+ * ТЕМПОРАЛЬНЫЕ РЕГИСТРЫ САЙТА — из полосы рантайма массивов (`%b[10..15]`).
+ *
+ * Почему оттуда: раскладка эту полосу **не отдаёт** (`RESERVED_REGISTERS`), значит они не стоят
+ * ничего — ни одного регистра у программы не отнято. И почему это законно: полосу держит рантайм
+ * МАССИВОВ, а его в программе с коллекциями нет; из шести регистров два (`%b[12]` ноль и `%b[14]`
+ * восемь) здесь ЧИТАЮТСЯ как константы пролога, а четыре остальных свободны.
+ *
+ * | регистр | полоса массивов | здесь |
+ * |---|---|---|
+ * | `%b[12]` | ноль | читается (смещение формы памяти) |
+ * | `%b[14]` | восемь | читается (шаг элемента и адрес заголовка) |
+ * | `%b[10]` | `scratch2` | **ёмкость**, прочитанная из заголовка |
+ * | `%b[11]` | `scratch` | **адрес элемента** |
+ * | `%b[13]` | единица | **ключ сравнения** (предикат) |
+ *
+ * Сайт держит их ВНУТРИ себя: ни одно значение не переживает сайт, поэтому соседний сайт массива
+ * (`scratch`/`scratch2`) их не испортит — и наоборот.
+ */
+export const COLLECTION_CAPACITY_REGISTER = 10;
+export const COLLECTION_ADDRESS_REGISTER = 11;
+export const COLLECTION_KEY_REGISTER = 13;
+
+/** Размер сайта в носителях — ОДИН на обе операции, и это не совпадение, а требование счёта. */
+const SITE_SIZE = 7;
+
+/**
+ * САЙТ ОПЕРАЦИИ: проверка границы и обращение по вычисленному адресу.
+ *
+ * Ряд — тот же приём, что у арены (`arenaSiteCarriers`): сравнение и переход идут ПАРОЙ, и цель
+ * перехода считает `expandCarriers`, а не понижение. Понижение работает ПОСЛЕ раскладки и индекса
+ * носителя не знает вовсе — поэтому прыжок из серии команд невыразим, и сайт обязан быть носителями.
+ *
+ * | шаг | носитель | что делает |
+ * |---|---|---|
+ * | 1 | `IR.load [база, ёмкость]` | читает ёмкость из ПЕРВЫХ 8 байт блока (соглашение §3.98) |
+ * | 2 | `IR.lt [ключ, индекс, ёмкость]` | «индекс < ёмкость» — условие КАК ЕСТЬ |
+ * | 3 | `IR.jmp_if_not [ключ, отказ]` | переход с ОТРИЦАНИЕМ предиката (эталон §3.80.1) |
+ * | 4–6 | `IR.mul`, `IR.add`, `IR.add` | адрес = база + 8 + индекс·8 |
+ * | 7 | `IR.store` / `IR.load` | запись / чтение |
+ *
+ * Адрес считается ПОСЛЕ проверки намеренно: при отказе он не нужен, а порядок делает отказ дешевле.
+ */
+export function collectionSiteCarriers(
+  operation: 'положить' | 'взять',
+  base: number,
+  index: number,
+  value: number,
+  destination: number | undefined,
+  refusalIndex: number,
+): AsmInstruction[] {
+  const zero = ARRAY_REGISTERS.zero;
+  const eight = ARRAY_REGISTERS.eight;
+  const capacity = COLLECTION_CAPACITY_REGISTER;
+  const address = COLLECTION_ADDRESS_REGISTER;
+  const key = COLLECTION_KEY_REGISTER;
+  // ПЕРВЫЕ ЧЕТЫРЕ ШАГА ОДНИ НА ОБЕ ОПЕРАЦИИ — и это не «похоже», а буквально один код: разойдись
+  // проверка у чтения и у записи, `взять` читал бы там, куда `положить` не пишет.
+  const site: AsmInstruction[] = [
+    { mnemonic: LOAD_CARRIER, channel: 0, operands: [reg(base), reg(capacity)] },
+    { mnemonic: 'IR.lt', channel: 0, operands: [reg(key), reg(index), reg(capacity)] },
+    { mnemonic: 'IR.jmp_if_not', channel: 0, operands: [reg(key), imm(refusalIndex)] },
+    { mnemonic: 'IR.mul', channel: 0, operands: [reg(address), reg(index), reg(eight)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(address), reg(address), reg(eight)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(address), reg(address), reg(base)] },
+  ];
+  if (operation === 'положить') {
+    if (value === undefined) throw new CollectionRuntimeRefusal('«положить»: нет регистра значения');
+    site.push({ mnemonic: STORE_CARRIER, channel: 0, operands: [reg(value), reg(address)] });
+  } else {
+    if (destination === undefined) throw new CollectionRuntimeRefusal('«взять»: нет регистра-приёмника');
+    site.push({ mnemonic: LOAD_CARRIER, channel: 0, operands: [reg(address), reg(destination)] });
+  }
+  if (site.length !== SITE_SIZE) {
+    // Счёт сайта — не украшение: он входит в вычисление индекса блока отказа, и разойдись они —
+    // переход уехал бы в середину чужого кода (класс §3.35).
+    throw new CollectionRuntimeRefusal(
+      `сайт «${operation}» длиной ${String(site.length)}, а счёт обещает ${String(SITE_SIZE)} — ` +
+        'индекс блока отказа считался бы неверно',
+    );
+  }
+  void zero;
+  return site;
+}
+
+/** Операции, у которых есть САЙТ (остальные разворачиваются прямо в понижении, как `выделить`). */
+export const COLLECTION_SITE_CALLS: readonly string[] = ['система.коллекция.положить', 'система.коллекция.взять'];
+
+/** Сколько сайтов в потоке — по именам вызовов, а не по тексту программы. */
+function siteKindsOf(
+  code: readonly AsmInstruction[],
+  invokeNames: readonly string[],
+): readonly ('положить' | 'взять')[] {
+  const kinds: ('положить' | 'взять')[] = [];
+  for (const carrier of code) {
+    if (carrier.mnemonic !== 'IR.invoke') continue;
+    const payload = carrier.operands[3];
+    if (payload === undefined || payload.kind !== 'imm') continue;
+    const name = invokeNames[payload.value];
+    if (name === 'система.коллекция.положить') kinds.push('положить');
+    if (name === 'система.коллекция.взять') kinds.push('взять');
+  }
+  return kinds;
+}
+
+/**
+ * ГРУППЫ САЙТОВ — тем же приёмом, что у арены (`arenaGroups`): картой групп, а не готовым потоком.
+ *
+ * Индексы и цели переходов пересчитывает `expandCarriers` (`src/e2k/procedureCall.ts`): свой счётчик
+ * разошёлся бы с ним (класс §3.35). Блок отказа дописывается СНАРУЖИ — как у арены, — и его индекс
+ * равен длине потока ПОСЛЕ расширения: сайт длиной 7 заменяет один носитель, то есть +6 на сайт.
+ */
+export function collectionGroups(
+  code: readonly AsmInstruction[],
+  invokeNames: readonly string[],
+): { readonly groups: ReadonlyMap<number, readonly AsmInstruction[]>; readonly sites: number; readonly refusalIndex: number } {
+  const kinds = siteKindsOf(code, invokeNames);
+  const refusalIndex = code.length + (SITE_SIZE - 1) * kinds.length;
+  const groups = new Map<number, readonly AsmInstruction[]>();
+  let site = 0;
+  code.forEach((carrier, index) => {
+    if (carrier.mnemonic !== 'IR.invoke') return;
+    const payload = carrier.operands[3];
+    if (payload === undefined || payload.kind !== 'imm') return;
+    const name = invokeNames[payload.value];
+    if (name === undefined || !COLLECTION_SITE_CALLS.includes(name)) return;
+    const kind = kinds[site]!;
+    const args = callArgumentOperands(carrier);
+    const [base, index_, value] = args;
+    const destination = carrier.operands[4];
+    if (base === undefined || base.kind !== 'reg' || index_ === undefined || index_.kind !== 'reg') return;
+    const refused = collectionSiteCarriers(
+      kind,
+      base.index,
+      index_.index,
+      value !== undefined && value.kind === 'reg' ? value.index : -1,
+      destination !== undefined && destination.kind === 'reg' ? destination.index : undefined,
+      refusalIndex,
+    );
+    groups.set(index, refused);
+    site += 1;
+  });
+  return { groups, sites: site, refusalIndex };
 }
 
 /**

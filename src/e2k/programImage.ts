@@ -52,7 +52,7 @@ import {
   usesArena,
 } from './arenaRuntime';
 import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, stringArenaCopyInstructions } from './stringRuntime';
-import { collectionReservedRegisters, usesCollections } from './collectionsRuntime';
+import { COLLECTION_REFUSAL_TEXT, collectionGroups, collectionReservedRegisters, usesCollections } from './collectionsRuntime';
 import {
   STRING_PRINT_CLOBBERS,
   stringConcatInstructions,
@@ -688,6 +688,8 @@ export function imageOfCarriers(
   // проход — РАЗВЕДКА (нужна ли образу строка отказа), второй — окончательный. Второй счётчик длин
   // не заводится: он разошёлся бы с планом (класс `docs/hardware-debt.md` §3.35).
   const arenaCall = usesArena(code, invokeNames);
+  // КОЛЛЕКЦИИ: сайт собирается из носителей ДО раскладки адресов — по именам вызовов, не по тексту.
+  const collectionsUsed = usesCollections(code, invokeNames);
   const probe = arenaCall ? undefined : planStrings(code, constants, invokeNames, heapAddress);
   const arenaUsed = arenaCall || (probe?.counts.arenaConcats ?? 0) > 0;
   // Строка отказа арены планируется ВМЕСТЕ со прочими статическими блоками: её адрес выведен из конца
@@ -703,9 +705,18 @@ export function imageOfCarriers(
         'а не программы (src/e2k/programImage.ts#loweredProgram)',
     );
   }
-  const strings = arenaUsed
-    ? planStrings(code, constants, invokeNames, heapAddress, { arenaRefusal: ARENA_REFUSAL_TEXT })
-    : probe!;
+  // СТРОКА ОТКАЗА НУЖНА И КОЛЛЕКЦИЯМ, а не только арене: их блок отказа печатает СВОЮ строку
+  // (выход за ёмкость блока), и планируется она тем же `planStrings`. ЗАМЕР: без этой ветви
+  // `strings.arenaRefusal` оставался неопределённым, блок отказа НЕ дописывался вовсе, и переход
+  // сайта уезжал за поток — «цель перехода #24 вне потока (инструкций 24)».
+  //
+  // ОДНА строка на программу — названная граница: программе, пользующейся И ареной, И коллекциями,
+  // оба отказа печатаются текстом арены. Развести их — отдельная работа (второй блоб в `stringPlan`).
+  const refusalText = collectionsUsed && !arenaUsed ? COLLECTION_REFUSAL_TEXT : ARENA_REFUSAL_TEXT;
+  const strings =
+    arenaUsed || collectionsUsed
+      ? planStrings(code, constants, invokeNames, heapAddress, { arenaRefusal: refusalText })
+      : probe!;
   // СТРОКИ: литералы становятся адресами статических байтов, `длина`/`объединить` — пометками,
   // по которым ОДНИ И ТЕ ЖЕ команды считают и раскладка (форма), и понижение (байты). Планирование
   // идёт ДО всего остального: адреса блобов сдвигают сторож места, а пул констант — длину `IR.const`.
@@ -746,14 +757,46 @@ export function imageOfCarriers(
           ]),
           withArena.procedures,
         );
+  // КОЛЛЕКЦИИ В ПОТОКЕ: сайт `положить`/`взять` — проверка границы и обращение по вычисленному
+  // адресу. Тем же приёмом, что арена: карта групп, а индексы и цели переходов пересчитывает
+  // `expandCarriers`. Ставится ДО роста окна, чтобы все последующие проходы видели готовый поток.
+  //
+  // Блок отказа ДОПИСЫВАЕТСЯ тем же приёмом, что у арены (расширяется последний носитель), и берёт
+  // ту же строку отказа, что планирует `planStrings`. ОДНА строка на программу, и это НАЗВАННАЯ
+  // граница: программе, которая пользуется И ареной, И коллекциями, оба отказа печатаются её
+  // текстом. Развести их — отдельная работа (второй блоб в `stringPlan`), и она не сделана.
   const arenaCode = withRefusal.code;
   const baseProcedures: readonly ProcedureOffset[] = withRefusal.procedures;
+  const collections = collectionsUsed ? collectionGroups(arenaCode, strings.invokeNames) : undefined;
+  const withCollections =
+    collections === undefined
+      ? { code: arenaCode, procedures: baseProcedures }
+      : expandCarriers(arenaCode, collections.groups, baseProcedures);
+  const collectionRefusal =
+    collections === undefined || strings.arenaRefusal === undefined
+      ? undefined
+      : arenaRefusalCarriers(strings.arenaRefusal.address, strings.arenaRefusal.byteLength);
+  const withCollectionRefusal =
+    collectionRefusal === undefined || withCollections.code.length === 0
+      ? withCollections
+      : expandCarriers(
+          withCollections.code,
+          new Map([
+            [
+              withCollections.code.length - 1,
+              [...withCollections.code.slice(-1), ...collectionRefusal],
+            ],
+          ]),
+          withCollections.procedures,
+        );
+  const collectionsCode = withCollectionRefusal.code;
+  const collectionsProcedures: readonly ProcedureOffset[] = withCollectionRefusal.procedures;
   // РОСТ ОКНА: процедура, которая САМА вызывает, получает свой пролог `setwd wsz=16` + `setbn rsz=15`
   // (§3.56.5, правила 1–2) — иначе её внутренний вызов не имеет законного `wbs`. Растёт окно у той,
   // которая вызывает: точке входа оно не нужно (её вызовы идут с `wbs = 4`), листовой — тем более.
-  const growthAt = windowGrowthAt(arenaCode, baseProcedures, strings.invokeNames);
-  const grown = growthAt.size === 0 ? undefined : expandCarriers(arenaCode, growthAt, baseProcedures);
-  const growCode = grown?.code ?? arenaCode;
+  const growthAt = windowGrowthAt(collectionsCode, collectionsProcedures, strings.invokeNames);
+  const grown = growthAt.size === 0 ? undefined : expandCarriers(collectionsCode, growthAt, collectionsProcedures);
+  const growCode = grown?.code ?? collectionsCode;
   const growProcedures = grown?.procedures ?? baseProcedures;
   // РАЗДЕЛЁННАЯ ПЕЧАТЬ: если сайтов печати больше одного, развёртка (≈1400 байт на КАЖДЫЙ сайт)
   // выносится в листовую процедуру, а у сайта остаётся вызов и `write` (см. `src/e2k/printCall.ts`).
@@ -786,7 +829,7 @@ export function imageOfCarriers(
   // у прочих поведение прежнее и измеренное («без возврата — код 134», §3.39).
   const prepared = prepareImage(withText, proceduresWithText, {
     exitOnVoidReturn:
-      sharing.groupAt.size > 0 || countPrintSites(arenaCode, invokeNames) > 0 || strings.counts.prints > 0,
+      sharing.groupAt.size > 0 || countPrintSites(collectionsCode, invokeNames) > 0 || strings.counts.prints > 0,
   });
   const plannedCode = prepared.code;
   const procedures = prepared.procedures;
