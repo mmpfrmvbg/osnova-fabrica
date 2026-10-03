@@ -682,9 +682,9 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
         `«IR.invoke»: в таблице имён нет записи с индексом ${payload.value} (всего имён ${names.length})`,
       );
     }
-    const argc = flags.value >> 1;
+    // Арность читается ИЗ ПРИЗНАКОВ, но сами операнды берутся одним источником: у вызова с тремя
+    // аргументами третий лежит в поле `src3`, а не следом за вторым.
     const hasDestination = (flags.value & 1) === 1;
-    // Аргументы — ОДНИМ источником: третий лежит в поле `src3`, а не следом за вторым.
     const args = callArgumentOperands(instruction);
     const destination = instruction.operands[4];
     if (hasDestination && (destination === undefined || destination.kind !== "reg")) {

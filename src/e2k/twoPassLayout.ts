@@ -792,7 +792,6 @@ function carrierFormWithReason(
       ),
     };
   }
-  const argc = flags.value >> 1;
   const hasDestination = (flags.value & 1) === 1;
   const destination = instruction.operands[4];
   // Аргументы — ОДНИМ источником: третий лежит в поле `src3`, а не следом за вторым.
