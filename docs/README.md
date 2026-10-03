@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (70)
+## Фронтир и замеры (69)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -50,7 +50,6 @@
 - [docs/e2k-opcodes-real.md](e2k-opcodes-real.md) ⚠
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
-- [docs/e2k-qemu-system.md](e2k-qemu-system.md)
 - [docs/e2k-real-run.md](e2k-real-run.md) ⚠
 - [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md) ⚠
 - [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md)
@@ -101,11 +100,12 @@
 - [docs/vliw-ilp-calibration.md](vliw-ilp-calibration.md)
 - [docs/vliw-phases-plan.md](vliw-phases-plan.md)
 
-## Заморожено (13)
+## Заморожено (14)
 
 - [ARCHITECTURE-AS-IS.md](../ARCHITECTURE-AS-IS.md)
 - [docs/app-manifest-v0.1.md](app-manifest-v0.1.md)
 - [docs/doc-status-plan.md](doc-status-plan.md)
+- [docs/e2k-qemu-system.md](e2k-qemu-system.md)
 - [docs/forge-blueprint-audit-report.md](forge-blueprint-audit-report.md)
 - [docs/llm-providers-v1.md](llm-providers-v1.md)
 - [docs/llm-routing-v1.md](llm-routing-v1.md)

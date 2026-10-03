@@ -109,7 +109,7 @@ docs/e2k-return-port.md: {status: active, source-files: [src/e2k/e2kRealRun.ts]}
 docs/e2k-real-run.md: {status: active, source-files: [src/e2k/e2kRealRun.ts]}
 docs/e2k-external-validation.md: {status: active, source-files: [src/e2k/emitterOracle.ts]}
 docs/e2k-external-as.md: {status: active, source-files: [src/e2k/emitterOracle.ts]}
-docs/e2k-qemu-system.md: {status: active, source-files: [tools/qemu-e2k/system/build-system.sh]}
+docs/e2k-qemu-system.md: {status: frozen, source-files: [tools/qemu-e2k/system/build-system.sh]}
 
 # --- Дизайн-слой «атом → подпись → эмиттер» (active, сент 2026) ---
 docs/osnova-atlas-v0.1.md: {status: active}
