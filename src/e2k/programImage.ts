@@ -23,7 +23,7 @@
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
-import { regModuleOf } from '../vliw/regOracle';
+import { regModuleWithRecordPlan } from './recordPlan';
 import type { CompileOptions } from '../compiler/compiler';
 import { lowerCarrier } from './e2kRealRun';
 import { ARRAY_REGISTERS, SUPPORTED_ARRAY_CALLS, arrayPrologue } from './arrayRuntime';
@@ -137,7 +137,7 @@ function shellOf(
   source: string,
   options: CompileOptions = {},
 ): { instructions: readonly AsmInstruction[]; procedures: readonly ProcedureOffset[] } {
-  const built = regModuleOf(source, options);
+  const built = regModuleWithRecordPlan(source, options);
   if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
@@ -424,7 +424,7 @@ export function programBytes(
   source: string,
   heapAddress: number,
 ): { bytes: Uint8Array; carriers: number; refused: LoweringRefusal[] } {
-  const built = regModuleOf(source);
+  const built = regModuleWithRecordPlan(source);
   if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
@@ -497,7 +497,7 @@ export function loweredProgram(source: string, options: CompileOptions = {}): {
   used: number;
   arena: { readonly used: boolean; readonly extraMemory: number };
 } {
-  const built = regModuleOf(source, options);
+  const built = regModuleWithRecordPlan(source, options);
   if (built === null) throw new Error('программа не компилируется');
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
