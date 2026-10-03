@@ -714,6 +714,18 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     tests: ['src/compiler-v3/nativePathE2k.test.ts'],
     config: 'vitest.config.ts',
   },
+  {
+    // ПРОВЕРКА ГРАНИЦЫ СНЯТА. Мутация убирает переход в блок отказа — и запись за ёмкостью
+    // происходит МОЛЧА (проба положит по индексу 5 при ёмкости 2). Ловится тем, что оракул требует
+    // НАЗВАННЫЙ отказ: код 231 и строку. Без этой записи «код 231» мог бы держаться на чём угодно.
+    id: '15.3',
+    title: 'переход в блок отказа снят — запись за ёмкостью идёт молча',
+    file: 'src/e2k/collectionsRuntime.ts',
+    from: "    { mnemonic: 'IR.jmp_if_not', channel: 0, operands: [reg(key), imm(refusalIndex)] },",
+    to: "    // ДЕФЕКТ 15.3: проверка границы снята",
+    tests: ['src/e2k/collectionsBrkQemu.test.ts'],
+    config: 'vitest.qemu.config.ts',
+  },
 ];
 
 /**
