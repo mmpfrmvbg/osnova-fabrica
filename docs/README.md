@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (26). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (25). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -50,7 +50,7 @@
 - [docs/e2k-opcodes-real.md](e2k-opcodes-real.md) ⚠
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
-- [docs/e2k-qemu-system.md](e2k-qemu-system.md) ⚠
+- [docs/e2k-qemu-system.md](e2k-qemu-system.md)
 - [docs/e2k-real-run.md](e2k-real-run.md) ⚠
 - [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md) ⚠
 - [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md)

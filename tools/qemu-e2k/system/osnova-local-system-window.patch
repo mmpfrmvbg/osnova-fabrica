@@ -1,0 +1,15 @@
+--- a/target/e2k/cpu.c
++++ b/target/e2k/cpu.c
+@@ -55,7 +55,11 @@
+     env->psr = PSR_PM;
+     env->upsr = UPSR_NMIE | UPSR_FE;
+     env->wd.base = 0;
+-    env->wd.size = 16;
++    /* OSNOVA-LOCAL-PATCH (2026-10-03): геометрия окна приведена к той, которой объявлены
++     * наши образы: psize_q = 4 -> psize = 8 регистров, size_q = 12 -> size = 24 (было 16,
++     * то есть size_q = 8 — сборка ДО нашей правки окна). См. src/e2k/qemuModelPassport.ts
++     * (поле window) и src/e2k/windowGeometry.ts. Единицы — регистры: helper-tcg.h:56-57. */
++    env->wd.size = 24;
+     env->wd.psize = 8;
+     env->bn.base = 8;
+     env->bn.size = 8;
