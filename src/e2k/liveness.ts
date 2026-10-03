@@ -46,6 +46,7 @@
 import type { AsmInstruction } from './backend';
 import { cfgLiveSets, cfgRanges } from '../vliw/cfg';
 import { ARRAY_REGISTERS } from './arrayRuntime';
+import { callArgumentOperands } from './shell';
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from './procedureCall';
 import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, STRING_REGISTERS } from './stringRuntime';
 
@@ -222,11 +223,12 @@ export function defUseOf(instruction: AsmInstruction): DefUse {
     case 'IR.call':
     case 'IR.invoke': {
       const flag = operands[0];
-      const argc = flag !== undefined && flag.kind === 'imm' ? flag.value >> 1 : 0;
       const hasDestination = flag !== undefined && flag.kind === 'imm' && (flag.value & 1) === 1;
+      // Аргументы — ОДНИМ источником: третий лежит в поле `src3`, а не следом за вторым, поэтому
+      // прежняя арифметика `1 + index` прочла бы нагрузку и объявила бы ЧТЕНИЕМ число.
       const use: number[] = [];
-      for (let index = 0; index < argc; index++) {
-        use.push(...registers(registerAt(instruction, 1 + index)));
+      for (const operand of callArgumentOperands(instruction)) {
+        if (operand.kind === 'reg') use.push(operand.index);
       }
       return { def: hasDestination ? registers(registerAt(instruction, 4)) : [], use };
     }

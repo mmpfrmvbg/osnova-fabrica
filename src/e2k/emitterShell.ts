@@ -145,8 +145,19 @@ const NO_CARRIER: Readonly<Record<string, string>> = {
 /** Типы констант пула в порядке поля `flags` носителя `IR.const`. */
 const CONST_TYPES: readonly string[] = ["i32", "f64", "str", "bool", "null"];
 
-/** Максимальное число аргументов, которое несёт носитель вызова. */
-const MAX_CALL_ARGS = 2;
+/**
+ * Максимальное число аргументов, которое несёт носитель вызова.
+ *
+ * Было **2** — и это был не предел архитектуры, а нехватка поля: у записи оболочки три регистровых
+ * поля (`dst`, `src1`, `src2`), из которых вызов занимает два аргументами и одно приёмником.
+ * Третьему аргументу места не оставалось, и оболочка отказывала **исключением** — то есть
+ * программа не компилировалась вовсе. Цена: у цели (DF) действия гномов имеют 3–5 аргументов.
+ *
+ * Стало **3**: третий аргумент едет своим полем `src3` (`src/e2k/encoding.ts`, 11-й байт записи).
+ * Пятиоперандная форма на два аргумента не изменилась — иначе поехали бы все собранные руками
+ * носители. Предел назван числом, и следующий шаг (4–5 аргументов под DF) — поднять его ещё раз.
+ */
+export const MAX_CALL_ARGS = 3;
 
 /** Поля инструкций IR, нужные понижению (единый вид вместо сужения объединения). */
 interface InsFields {
@@ -286,17 +297,18 @@ function lowerInstruction(
       payload = index;
     }
     const flags = (fields.d !== undefined ? 1 : 0) | (argc << 1);
-    return {
-      mnemonic: carrier,
-      channel,
-      operands: [
-        num(flags),
-        reg(requireRegister(args[0] ?? 0, op)),
-        reg(requireRegister(args[1] ?? 0, op)),
-        num(payload),
-        reg(requireRegister(fields.d ?? 0, op)),
-      ],
-    };
+    // ПЕРВЫЕ ПЯТЬ ОПЕРАНДОВ НЕ СДВИГАЮТСЯ НИКОГДА: `flags`, два аргумента, нагрузка, приёмник.
+    // Третий аргумент дописывается ШЕСТЫМ и только тогда, когда он есть, — так пятиоперандная
+    // форма остаётся ровно прежней, и все собранные руками носители продолжают работать.
+    const operands: Operand[] = [
+      num(flags),
+      reg(requireRegister(args[0] ?? 0, op)),
+      reg(requireRegister(args[1] ?? 0, op)),
+      num(payload),
+      reg(requireRegister(fields.d ?? 0, op)),
+    ];
+    if (argc >= 3) operands.push(reg(requireRegister(args[2] ?? 0, op)));
+    return { mnemonic: carrier, channel, operands };
   }
 
   if (op === "ret") {

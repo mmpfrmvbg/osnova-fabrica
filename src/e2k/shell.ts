@@ -117,7 +117,17 @@ export const IR_CARRIERS: Readonly<Record<string, number>> = {
 };
 
 /** Поля носителя, которые несёт инструкция оболочки. */
-type CarrierSlot = "dst" | "src1" | "src2" | "flags" | "imm";
+type CarrierSlot = "dst" | "src1" | "src2" | "src3" | "flags" | "imm";
+
+/**
+ * Поля-АРГУМЕНТЫ вызова, в порядке передачи.
+ *
+ * Один источник для всех, кто перебирает аргументы: понижение, раскладка, живость и сопоставление
+ * предикатов. Пока список аргументов выводился арифметикой `operands[1 + index]`, он совпадал с
+ * шаблоном СЛУЧАЙНО — и третье поле это совпадение сломало бы молча (индекс 2 указывал бы на
+ * `imm`-нагрузку, то есть на число, а не на регистр).
+ */
+const ARGUMENT_SLOTS: readonly CarrierSlot[] = ["src1", "src2", "src3"];
 
 /**
  * Список полей каждого носителя — **фиксированный и позиционный**.
@@ -148,8 +158,8 @@ const CARRIER_SLOTS: Readonly<Record<string, readonly CarrierSlot[]>> = {
   "IR.jmp": ["imm"],
   "IR.jmp_if": ["src1", "imm"],
   "IR.jmp_if_not": ["src1", "imm"],
-  "IR.call": ["flags", "src1", "src2", "imm", "dst"],
-  "IR.invoke": ["flags", "src1", "src2", "imm", "dst"],
+  "IR.call": ["flags", "src1", "src2", "imm", "dst", "src3"],
+  "IR.invoke": ["flags", "src1", "src2", "imm", "dst", "src3"],
   "IR.ret": ["flags", "src1"],
 };
 
@@ -171,13 +181,63 @@ export function carrierSlots(mnemonic: string): readonly CarrierSlot[] | undefin
   return CARRIER_SLOTS[mnemonic];
 }
 
+/** Вызов ли это (у него аргументы лежат в полях-регистрах, и третий — в `src3`). */
+function isCallLike(mnemonic: string): boolean {
+  return mnemonic === "IR.call" || mnemonic === "IR.invoke";
+}
+
+/** Сколько аргументов несёт носитель вызова по его признакам (`flags`). */
+export function callArgumentCount(mnemonic: string, operands: readonly Operand[]): number {
+  if (!isCallLike(mnemonic)) return 0;
+  const flags = operands[0];
+  return flags !== undefined && flags.kind === "imm" ? flags.value >> 1 : 0;
+}
+
+/**
+ * Сколько операндов несёт носитель — ЗАВИСИТ ОТ АРНОСТИ, и только у вызова.
+ *
+ * У всех прочих шаблон один и тот же. У вызова третий аргумент — отдельное поле `src3`, поэтому
+ * пятиоперандная форма (два аргумента) остаётся ровно такой, какой была: **прежние позиции не
+ * сдвигаются**, и все собранные руками носители продолжают работать без изменений. Сдвинься они —
+ * `payload` и приёмник читались бы из чужих слотов, и это была бы тихая ложь, а не отказ.
+ */
+export function expectedOperandCount(mnemonic: string, operands: readonly Operand[]): number | undefined {
+  const slots = CARRIER_SLOTS[mnemonic];
+  if (slots === undefined) return undefined;
+  if (!isCallLike(mnemonic)) return slots.length;
+  return callArgumentCount(mnemonic, operands) >= ARGUMENT_SLOTS.length ? slots.length : slots.length - 1;
+}
+
+/**
+ * Операнды-аргументы вызова в порядке передачи — ОДИН источник для всех читателей.
+ *
+ * Прежде каждый читатель выводил их арифметикой `operands[1 + index]`, и это совпадало с шаблоном
+ * лишь потому, что `src1`/`src2` шли подряд. С появлением `src3` (он стоит последним полем, чтобы
+ * не сдвинуть `imm` и `dst`) арифметика стала бы **ложной**: третий аргумент читался бы из нагрузки.
+ */
+export function callArgumentOperands(instruction: AsmInstruction): readonly Operand[] {
+  if (!isCallLike(instruction.mnemonic)) return [];
+  const argc = callArgumentCount(instruction.mnemonic, instruction.operands);
+  const slots = CARRIER_SLOTS[instruction.mnemonic]!;
+  const operands: Operand[] = [];
+  for (let index = 0; index < argc; index++) {
+    const slot = ARGUMENT_SLOTS[index];
+    if (slot === undefined) break;
+    const operand = instruction.operands[slots.indexOf(slot)];
+    if (operand !== undefined) operands.push(operand);
+  }
+  return operands;
+}
+
 /** Закодировать инструкцию-носитель IR в 10 байт оболочки. */
 function encodeCarrier(instruction: AsmInstruction): Uint8Array {
   const slots = CARRIER_SLOTS[instruction.mnemonic]!;
   const limit = CARRIER_FLAG_LIMIT[instruction.mnemonic] ?? 0;
+  const expected = expectedOperandCount(instruction.mnemonic, instruction.operands)!;
   let dst = 0;
   let src1 = 0;
   let src2 = 0;
+  let src3 = 0;
   let flags = 0;
   let imm = 0;
   instruction.operands.forEach((operand, index) => {
@@ -214,11 +274,12 @@ function encodeCarrier(instruction: AsmInstruction): Uint8Array {
     }
     if (slot === "dst") dst = operand.index;
     else if (slot === "src1") src1 = operand.index;
-    else src2 = operand.index;
+    else if (slot === "src2") src2 = operand.index;
+    else src3 = operand.index;
   });
-  if (instruction.operands.length !== slots.length) {
+  if (instruction.operands.length !== expected) {
     throw new EncodingError(
-      `носитель «${instruction.mnemonic}»: полей ${instruction.operands.length}, ожидалось ${slots.length}`,
+      `носитель «${instruction.mnemonic}»: полей ${instruction.operands.length}, ожидалось ${expected}`,
     );
   }
   if (!Number.isInteger(instruction.channel) || instruction.channel < 0 || instruction.channel > MAX_CHANNEL) {
@@ -236,6 +297,9 @@ function encodeCarrier(instruction: AsmInstruction): Uint8Array {
   bytes[7] = (imm >>> 8) & 0xff;
   bytes[8] = (imm >>> 16) & 0xff;
   bytes[9] = (imm >>> 24) & 0xff;
+  // ТРЕТИЙ АРГУМЕНТ — своим байтом. Пишется всегда, нулём у носителей без `src3`: поле, которого
+  // нет в шаблоне, обязано быть нулевым, и это проверяется на разборе (правило «не терять поле молча»).
+  bytes[10] = src3 & 0x3f;
   return bytes;
 }
 
@@ -250,6 +314,7 @@ function decodeCarrier(bytes: Uint8Array): AsmInstruction {
   for (const [name, index] of [["dst", 2], ["src1", 3], ["src2", 4]] as const) {
     if ((bytes[index]! & 0xc0) !== 0) throw new EncodingError(`резервные биты установлены в поле ${name}`);
   }
+  if ((bytes[10]! & 0xc0) !== 0) throw new EncodingError("резервные биты установлены в поле src3");
   const limit = CARRIER_FLAG_LIMIT[mnemonic] ?? 0;
   if (bytes[5]! > limit) {
     throw new EncodingError(
@@ -258,14 +323,21 @@ function decodeCarrier(bytes: Uint8Array): AsmInstruction {
   }
   const imm = (bytes[6]! | (bytes[7]! << 8) | (bytes[8]! << 16) | (bytes[9]! << 24)) | 0;
 
+  // АКТИВНЫЕ поля: у вызова с двумя аргументами `src3` не несётся, и тогда байт 10 обязан быть
+  // нулевым — иначе поле, которого шаблон не несёт, молча принялось бы (второй уровень контроля
+  // ослеп бы: подмена бита декодировалась бы в ту же инструкцию).
+  const activeSlots =
+    isCallLike(mnemonic) && (bytes[5]! >> 1) < ARGUMENT_SLOTS.length ? slots.slice(0, slots.length - 1) : slots;
+
   // «Не терять поле молча»: поле, которого нет в шаблоне носителя, обязано быть нулевым.
   // Иначе подмена бита в нём декодировалась бы в ту же инструкцию, и второй уровень контроля
   // (инъективность отображения) ослеп бы — ровно тот дефект, что найден на таблице e2k.
-  const used = new Set<CarrierSlot>(slots);
+  const used = new Set<CarrierSlot>(activeSlots);
   for (const [name, index, mask] of [
     ["dst", 2, 0x3f],
     ["src1", 3, 0x3f],
     ["src2", 4, 0x3f],
+    ["src3", 10, 0x3f],
   ] as const) {
     if (!used.has(name) && (bytes[index]! & mask) !== 0) {
       throw new EncodingError(
@@ -284,12 +356,13 @@ function decodeCarrier(bytes: Uint8Array): AsmInstruction {
     );
   }
 
-  const operands: Operand[] = slots.map((slot) => {
+  const operands: Operand[] = activeSlots.map((slot) => {
     if (slot === "flags") return { kind: "imm", value: bytes[5]! };
     if (slot === "imm") return { kind: "imm", value: imm };
     if (slot === "dst") return { kind: "reg", index: bytes[2]! & 0x3f };
     if (slot === "src1") return { kind: "reg", index: bytes[3]! & 0x3f };
-    return { kind: "reg", index: bytes[4]! & 0x3f };
+    if (slot === "src2") return { kind: "reg", index: bytes[4]! & 0x3f };
+    return { kind: "reg", index: bytes[10]! & 0x3f };
   });
   return { mnemonic, channel, operands };
 }

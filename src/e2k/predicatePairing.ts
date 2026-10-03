@@ -42,6 +42,7 @@
 import type { AsmInstruction } from "./backend";
 import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
 import { ARRAY_REGISTERS } from "./arrayRuntime";
+import { callArgumentOperands } from "./shell";
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from "./procedureCall";
 import { STRING_REGISTERS } from "./stringRuntime";
 
@@ -185,13 +186,10 @@ function registersOf(instruction: AsmInstruction): { known: boolean; reads: numb
       // Считать его чтением нельзя: именно так сравнение в встроенной свёртке получало «второго
       // читателя» (`#54 IR.invoke` при `argc = 1` читал `%r0` — регистр результата `IR.lt #42`) и
       // пара отвергалась по ложной причине (измерено, `.tmp/convolution-callers.ts`).
-      const flags = operands[0];
-      const argc = flags !== undefined && flags.kind === "imm" ? flags.value >> 1 : 0;
-      const argv: { kind: string; index?: number }[] = [];
-      for (let index = 0; index < argc; index++) {
-        const operand = operands[1 + index];
-        if (operand !== undefined) argv.push(operand);
-      }
+      //
+      // АРГУМЕНТЫ БЕРУТСЯ ОДНИМ ИСТОЧНИКОМ: третий аргумент лежит в поле `src3`, а не следом за
+      // вторым, — прежняя арифметика `1 + index` прочла бы на argc = 3 нагрузку-число.
+      const argv = callArgumentOperands(instruction).filter((operand) => operand !== undefined);
       return known(regs(argv), regs([operands[4]!]));
     }
     // АРЕНА (`src/e2k/arenaRuntime.ts`): регистры состояния — физические и в операндах не названы.

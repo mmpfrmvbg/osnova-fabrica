@@ -63,6 +63,8 @@ import type { AsmInstruction, Encoder, Operand } from "./backend";
 import { sameInstruction } from "./backend";
 import { CT_COND_ALWAYS, REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from "./e2k-real";
 import { CALL_WBS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
+import { callArgumentOperands } from "./shell";
+import { MAX_CALL_ARGS } from "./emitterShell";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
 import { COLLECTION_CALL_NAMES, lowerCollectionCall } from "./collectionsRuntime";
@@ -490,8 +492,12 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     }
     const argc = flags.value >> 1;
     const hasDestination = (flags.value & 1) === 1;
-    if (argc > 2) {
-      return failureOf(LOWERING_CODES.runtime, `«IR.call»: аргументов ${argc}, носитель несёт не больше двух`);
+    if (argc > MAX_CALL_ARGS) {
+      return failureOf(
+        LOWERING_CODES.runtime,
+        `«IR.call»: аргументов ${String(argc)}, носитель несёт не больше ${String(MAX_CALL_ARGS)} ` +
+          '(src/e2k/emitterShell.ts#MAX_CALL_ARGS)',
+      );
     }
     if (context.callDisplacement === undefined) {
       return failureOf(
@@ -503,8 +509,11 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     const instructions: AsmInstruction[] = [];
     // ШИРИНА ОКНА ВЫЗОВА: 4 у точки входа, 8 у процедуры, которая вырастила окно своим прологом.
     const wbs = context.callWbs ?? CALL_WBS;
+    // АРГУМЕНТЫ БЕРУТСЯ ОДНИМ ИСТОЧНИКОМ (`callArgumentOperands`): третий лежит в поле `src3`,
+    // а не следом за вторым, поэтому арифметика `operands[1 + argument]` прочла бы нагрузку.
+    const callArguments = callArgumentOperands(instruction);
     for (let argument = 0; argument < argc; argument++) {
-      const source = instruction.operands[1 + argument];
+      const source = callArguments[argument];
       if (source === undefined || source.kind !== "reg") {
         return failureOf(LOWERING_CODES.carrier, `«IR.call»: аргумент ${argument} не в регистре`);
       }
@@ -675,7 +684,8 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     }
     const argc = flags.value >> 1;
     const hasDestination = (flags.value & 1) === 1;
-    const args = [instruction.operands[1], instruction.operands[2]].slice(0, argc);
+    // Аргументы — ОДНИМ источником: третий лежит в поле `src3`, а не следом за вторым.
+    const args = callArgumentOperands(instruction);
     const destination = instruction.operands[4];
     if (hasDestination && (destination === undefined || destination.kind !== "reg")) {
       return failureOf(LOWERING_CODES.carrier, `«${name}»: у носителя нет регистра-приёмника, а флаг обещает результат`);

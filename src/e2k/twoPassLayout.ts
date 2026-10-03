@@ -79,6 +79,8 @@ import {
 import {
   SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { REMAINDER_CARRIER, remainderInstructions } from "./remainderRuntime";
+import { callArgumentOperands } from "./shell";
+import { MAX_CALL_ARGS } from "./emitterShell";
 import { COLLECTION_CALL_NAMES, lowerCollectionCall } from "./collectionsRuntime";
 import {
   EXIT_CARRIER,
@@ -507,9 +509,12 @@ function callForm(instruction: AsmInstruction): CarrierFormOutcome {
   if (flags === undefined) {
     return { failure: failureOf(LOWERING_CODES.carrier, '«IR.call»: операнд флагов не число — арность вызова неизвестна') };
   }
-  if (flags.argc > 2) {
+  if (flags.argc > MAX_CALL_ARGS) {
     return {
-      failure: failureOf(LOWERING_CODES.runtime, `«IR.call»: аргументов ${flags.argc}, носитель несёт не больше двух`),
+      failure: failureOf(
+        LOWERING_CODES.runtime,
+        `«IR.call»: аргументов ${String(flags.argc)}, носитель несёт не больше ${String(MAX_CALL_ARGS)}`,
+      ),
     };
   }
   const commands: CommandForm[] = [];
@@ -790,7 +795,8 @@ function carrierFormWithReason(
   const argc = flags.value >> 1;
   const hasDestination = (flags.value & 1) === 1;
   const destination = instruction.operands[4];
-  const args = [instruction.operands[1], instruction.operands[2]].slice(0, argc) as readonly Operand[];
+  // Аргументы — ОДНИМ источником: третий лежит в поле `src3`, а не следом за вторым.
+  const args = callArgumentOperands(instruction);
   // ── ПЕЧАТЬ: третий рантайм, и он единственный, чья длина — СОТНИ байт ──────────────────────────
   //
   // Развёртка «число → текст → `write`» (`src/e2k/printPrimitives.ts`, измерена: docs/hardware-debt.md
