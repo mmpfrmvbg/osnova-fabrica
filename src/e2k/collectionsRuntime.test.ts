@@ -45,6 +45,7 @@ import { SYS_BRK } from './memoryRuntime';
 import { createDefaultInvokeHandler, CollectionRefusal } from '../runtime/vm/interpreter';
 import { COLLECTION_ARITY } from '../runtime/vm/collectionCalls';
 import { isKnownInvoke } from '../runtime/vm/invokeRegistry';
+import { LANGUAGE_REGISTRY } from '../compiler/language-registry';
 import { expandCarriers } from './procedureCall';
 import { carrierFormOf } from './twoPassLayout';
 import type { AsmInstruction, Operand } from './backend';
@@ -258,9 +259,16 @@ describe('коллекции на brk: серия выделения и её а�
     expect(COLLECTION_ARITY['система.коллекция.положить']).toBe(3);
     expect(COLLECTION_ARITY['система.коллекция.взять']).toBe(2);
     expect(COLLECTION_ARITY['система.коллекция.расширить']).toBe(2);
-    // И признак того, что канон языка этих операций ещё НЕ несёт: если это станет ложью, значит
-    // владелец объявил их в `SYSCALLS_V01`, и `extraInvokes` в оракуле пора убрать.
-    expect(isKnownInvoke('система.коллекция.выделить'), 'канон языка операций пока не объявляет').toBe(false);
+    // ПРИЗНАК СТАЛ ИСТИНОЙ 2026-10-04: владелец ОБЪЯВИЛ эти четыре операции в каноне языка
+    // (`SYSCALLS_V01`, `src/compiler/language-registry.ts`) — долг §3.105.5 закрыт, потому что из
+    // v3 к ним не было ни одной дороги (цепочка из двух точек запрещена). Прежняя редакция этой
+    // строки утверждала `false` и была ПРАВА, пока канон молчал; теперь она снята, а не подогнана
+    // (§2.5) — и заменена на то, что обязано быть верным: имена ЗНАЕТ канон, и арность у канона,
+    // у цели и у эталона — ОДНО число.
+    expect(isKnownInvoke('система.коллекция.выделить'), 'канон языка операции объявляет').toBe(true);
+    for (const имя of [COLLECTION_CALLS.allocate, COLLECTION_CALLS.put, COLLECTION_CALLS.take, COLLECTION_CALLS.resize]) {
+      expect(LANGUAGE_REGISTRY.syscalls.find((с) => с.name === имя), `${имя} объявлено в каноне`).toBeDefined();
+    }
   });
 
   it('ПРИЗНАК «образ пользуется коллекциями» — по имени вызова, а не по тексту программы', () => {

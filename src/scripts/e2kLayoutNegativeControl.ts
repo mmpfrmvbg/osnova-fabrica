@@ -138,6 +138,38 @@ export const DEFECTS: readonly Defect[] = [
     tests: ['src/e2k/e2kPredicatePairs.test.ts'],
     config: 'vitest.e2k.config.ts',
   },
+  // ── ПЛОСКОСТЬ ЯЗЫКА: символ строки по индексу (2026-10-04, долг §3.105.4) ─────────────────────
+  //
+  // Дефекты внесены в ЯЗЫКОВУЮ плоскость, а не в e2k, и это намеренно: правка живёт в семантике и
+  // действует на ОБЕИХ VM. Ломать её надо там, где она есть, — иначе контроль проверял бы не тот
+  // слой, в котором величина живёт (признак 4 линии).
+  //
+  // Два дефекта, а не один: у правки ДВЕ половины, и они независимы. 16.1 проверяет, что символ
+  // вообще приходит; 16.2 — что выход за границу ОТКАЗЫВАЕТ. Реализация «символ есть, а за границей
+  // null» прошла бы 16.1 и провалила только 16.2 — а это и был исходный дефект (null складывался с
+  // числом как ноль, и лексер молча получил бы пустые токены).
+  {
+    id: '16.1',
+    title: 'разворот индекса по строке снят — `с[0]` снова даёт null',
+    file: 'src/compiler/compiler.ts',
+    from: '            expr.name = "система.строка.символ";',
+    to: '            // ДЕФЕКТ 16.1: разворот снят — строка снова индексируется как массив',
+    tests: ['src/self-host/stringIndex.test.ts'],
+    // Config назван ЯВНО, и сторож счёта проверок краснеет на записи без него — по делу: прогон с
+    // умолчанием может собрать НОЛЬ проверок, а такой контроль выглядит зелёным, ничего не проверив
+    // (docs/verification-debt.md, случай 22). Здесь полный прогон: оракул работает на обеих VM и
+    // внешних ресурсов не требует.
+    config: 'vitest.config.ts',
+  },
+  {
+    id: '16.2',
+    title: 'граница строки не проверяется — выход за конец молча даёт undefined',
+    file: 'src/runtime/vm/stringChar.ts',
+    from: '  if (i < 0 || i >= points.length) {',
+    to: '  if (false) { // ДЕФЕКТ 16.2: выход за границу не проверяется',
+    tests: ['src/self-host/stringIndex.test.ts'],
+    config: 'vitest.config.ts',
+  },
 ];
 
 /** sha256 файла — им сверяется «до» и «после». */
@@ -349,7 +381,7 @@ export const DEFECTS_WIDE: readonly Defect[] = [
     title: 'группировка снята — команд столько же, сколько инструкций',
     file: 'src/e2k/widePacker.ts',
     from: '        : dependent({ reads: groupReads, writes: groupWrites }, registers) ??',
-    to: '        : "ДЕФЕКТ 7.1: группировка снята" ?? //',
+    to: '        : "ДЕФЕКТ 16.1: группировка снята" ?? //',
     tests: ['src/e2k/widePackets.test.ts'],
     config: 'vitest.config.ts',
   },
@@ -359,7 +391,7 @@ export const DEFECTS_WIDE: readonly Defect[] = [
     title: 'проверка зависимостей снята — зависимые операции в одной команде',
     file: 'src/e2k/widePacker.ts',
     from: 'function dependent(a: { reads: string[]; writes: string[] }, b: { reads: string[]; writes: string[] }): string | undefined {',
-    to: 'function dependent(a: { reads: string[]; writes: string[] }, b: { reads: string[]; writes: string[] }): string | undefined {\n  return undefined; // ДЕФЕКТ 7.2: зависимости не проверяются',
+    to: 'function dependent(a: { reads: string[]; writes: string[] }, b: { reads: string[]; writes: string[] }): string | undefined {\n  return undefined; // ДЕФЕКТ 16.2: зависимости не проверяются',
     tests: ['src/e2k/e2kWideQemu.test.ts'],
     config: 'vitest.qemu.config.ts',
   },

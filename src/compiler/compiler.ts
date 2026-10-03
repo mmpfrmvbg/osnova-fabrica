@@ -723,6 +723,57 @@ export function validateNamedTypesAndRewrite(ast: Module): string[] {
 
   type Env = Map<string, TypeRef>;
 
+  /**
+   * ТИП ВОЗВРАТА СИСТЕМНОГО ВЫЗОВА — то, чего до этой правки не знал никто.
+   *
+   * # Почему это понадобилось именно здесь
+   *
+   * `inferExprType` выводил тип только для СВОИХ процедур (`returnTypeByProc`), а системные вызовы
+   * возвращали `undefined`. Пока это никого не задевало, потому что типы системных значений почти
+   * нигде не спрашиваются. Но `длина` спрашивает — и это её смысл: она выбирает реализацию по типу
+   * операнда, а при невыведенном типе ОТКАЗЫВАЕТ (названный отказ, а не догадка).
+   *
+   * Замер, который это показал (первый прогон `src/self-host/stringIndex.test.ts`):
+   * `пусть знак = с[1]` + `длина знак` → ««длина» требует известного типа операнда: у «знак» тип не
+   * выведен». То есть СИМВОЛ СТРОКИ был получен, а его длина — уже нет: законная программа
+   * отвергалась из-за пробела в выводе типов, а не из-за своего дефекта.
+   *
+   * # Границы карты
+   *
+   * Здесь только те вызовы, чей тип возврата ОПРЕДЕЛЁН каноном и не зависит от аргументов. Чего
+   * здесь нет намеренно: `система.массив.получить` (тип элемента известен только по типу массива —
+   * это вывод по контейнеру, отдельная работа), `система.json.*` (значение любого типа),
+   * `система.оценить` (то же). Пустое место честнее догадки: неизвестный тип остаётся `undefined`,
+   * и `длина` от него отказывает, как и раньше.
+   */
+  function syscallReturnType(name: string): TypeRef | undefined {
+    switch (name) {
+      case "система.строка.символ":
+      case "система.строка.подстрока":
+      case "система.строка.объединить":
+      case "система.строка.из_числа":
+      case "система.строка.в_верхний":
+      case "система.строка.в_нижний":
+      case "система.строка.обрезать":
+      case "система.строка.заменить":
+        return { name: "Строка", nullable: false };
+      case "система.строка.длина":
+      case "система.строка.найти":
+      case "система.массив.длина":
+        return { name: "Число", nullable: false };
+      // Файловые операции: `читать` даёт Строку, `открыть` — дескриптор-Число. Без этих двух строк
+      // `длина читать(д, 100)` отверглась бы с «тип не выведен» — ровно так уже было у символа
+      // строки, и разбор этого случая — в шапке `syscallReturnType`.
+      case "система.файлы.читать":
+        return { name: "Строка", nullable: false };
+      case "система.файлы.открыть":
+      case "система.файлы.писать":
+        return { name: "Число", nullable: false };
+      default:
+        return undefined;
+    }
+  }
+
   function inferExprType(expr: Expr, env: Env): TypeRef | undefined {
     switch (expr.kind) {
       case "число":
@@ -771,7 +822,7 @@ export function validateNamedTypesAndRewrite(ast: Module): string[] {
       case "унарное":
         return { name: "Логический", nullable: false };
       case "вызов":
-        return returnTypeByProc.get(expr.name);
+        return syscallReturnType(expr.name) ?? returnTypeByProc.get(expr.name);
       default:
         return undefined;
     }
@@ -1326,6 +1377,127 @@ export function validateNamedTypesAndRewrite(ast: Module): string[] {
     }
   }
 
+  /**
+   * `с[i]` — РАЗВОРОТ ПО ТИПУ ОПЕРАНДА, ровно как у `длина`.
+   *
+   * Парсер ставит форму `система.массив.получить(база, индекс)` — и это ПРАВИЛЬНО: `arr[i]` есть
+   * форма ОБРАЩЕНИЯ, одна для списка и для строки, а не сахар над массивной операцией. Различить
+   * их СИНТАКСИЧЕСКИ нечем: `с[0]` одинаково выглядит для строки и для списка. Значит решать
+   * обязан слой, который ЗНАЕТ тип, — то есть этот.
+   *
+   * Что было: у строки `система.массив.получить` возвращала **`null`**, и `"абв"[0] + 100` давало
+   * **100** — символ вёл себя как ноль. Для лексера это худший исход: буквы «читались» бы как нули,
+   * и поток токенов вышел бы пустым МОЛЧА (тихая ложь, а не отказ).
+   *
+   * Чего здесь НЕТ: отказа при невыведенном типе. У `длина` он есть, потому что там два РАЗНЫХ
+   * числа (длина строки и длина списка) и выбор молча дал бы неверное. Здесь выбор другой: строка →
+   * символ, всё остальное → прежняя массивная операция. Невыведенный тип означает «не строка», и
+   * это ровно прежнее поведение, а не догадка о новом.
+   */
+  function resolveStringIndex(expr: Expr, env: Env): void {
+    switch (expr.kind) {
+      case "вызов": {
+        if (expr.name === "система.массив.получить" && expr.args.length === 2) {
+          const t = inferExprType(expr.args[0]!, env);
+          if (t?.name === "Строка" && t.array !== true) {
+            expr.name = "система.строка.символ";
+          }
+        }
+        for (const a of expr.args) resolveStringIndex(a, env);
+        return;
+      }
+      case "бинарное":
+        resolveStringIndex(expr.left, env);
+        resolveStringIndex(expr.right, env);
+        return;
+      case "унарное":
+        resolveStringIndex(expr.arg, env);
+        return;
+      case "поле":
+        resolveStringIndex(expr.object, env);
+        return;
+      case "массив":
+        for (const э of expr.elements) resolveStringIndex(э, env);
+        return;
+      case "объект":
+        for (const п of expr.entries) resolveStringIndex(п.value, env);
+        return;
+      case "кортеж":
+        for (const э of expr.элементы) resolveStringIndex(э, env);
+        return;
+      default:
+        return;
+    }
+  }
+
+  function resolveStringIndexInStmts(stmts: Stmt[], env: Env): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "пусть":
+          resolveStringIndex(s.init, env);
+          if (s.typeAnnotation) env.set(s.name, s.typeAnnotation);
+          else {
+            const t = inferExprType(s.init, env);
+            if (t) env.set(s.name, t);
+          }
+          break;
+        case "присвоить":
+          resolveStringIndex(s.value, env);
+          break;
+        case "поле_присвоить":
+          resolveStringIndex(s.object, env);
+          resolveStringIndex(s.value, env);
+          break;
+        case "выражение":
+          resolveStringIndex(s.expr, env);
+          break;
+        case "вернуть":
+          if (s.value) resolveStringIndex(s.value, env);
+          break;
+        case "выбросить":
+          resolveStringIndex(s.value, env);
+          break;
+        case "если":
+          resolveStringIndex(s.condition, env);
+          resolveStringIndexInStmts(s.body, new Map(env));
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) {
+            resolveStringIndex(c.condition, env);
+            resolveStringIndexInStmts(c.body, new Map(env));
+          }
+          if (s.elseBody) resolveStringIndexInStmts(s.elseBody, new Map(env));
+          break;
+        case "пока":
+          resolveStringIndex(s.condition, env);
+          resolveStringIndexInStmts(s.body, new Map(env));
+          break;
+        case "для_каждого":
+          resolveStringIndex(s.source, env);
+          resolveStringIndexInStmts(s.body, new Map(env));
+          break;
+        case "цикл":
+          resolveStringIndexInStmts(s.body, new Map(env));
+          break;
+        case "когда":
+          resolveStringIndex(s.scrutinee, env);
+          for (const arm of s.arms) {
+            resolveStringIndex(arm.variant, env);
+            resolveStringIndexInStmts(arm.body, new Map(env));
+          }
+          if (s.elseBody) resolveStringIndexInStmts(s.elseBody, new Map(env));
+          break;
+        case "попробовать":
+          resolveStringIndexInStmts(s.body, new Map(env));
+          resolveStringIndexInStmts(s.catchBody, new Map(env));
+          break;
+        case "распаковать":
+          resolveStringIndex(s.значение, env);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
   function resolveLengthInStmts(stmts: Stmt[], env: Env): void {
     for (const s of stmts) {
       switch (s.kind) {
@@ -1392,6 +1564,29 @@ export function validateNamedTypesAndRewrite(ast: Module): string[] {
           break;
       }
     }
+  }
+
+  // ── ПОРЯДОК ПРОХОДОВ — ЧАСТЬ ПРАВКИ, А НЕ ОФОРМЛЕНИЕ ────────────────────────────────────────
+  //
+  // Символ строки разворачивается ПЕРВЫМ, и это замерено: при обратном порядке законная программа
+  //
+  //     пусть знак = с[1]
+  //     вернуть длина знак
+  //
+  // отвергалась с ««длина» требует известного типа операнда: у «знак» тип не выведен». Причина не в
+  // `длина` и не в выводе типов: к моменту её прохода `с[1]` был ещё `система.массив.получить`, а
+  // тип возврата этой операции намеренно НЕизвестен (элемент массива выводится по контейнеру —
+  // отдельная работа). Разворот ставит на его место `система.строка.символ`, у которого тип возврата
+  // определён каноном, и `длина` тут же получает Строку.
+  //
+  // То есть это не «порядок ради порядка»: первый проход ДОПИСЫВАЕТ имена, второй ЧИТАЕТ их типы.
+  for (const proc of ast.procedures) {
+    const env: Env = new Map();
+    for (let i = 0; i < proc.params.length; i++) {
+      const pt = proc.paramTypes?.[i];
+      if (pt) env.set(proc.params[i]!, pt);
+    }
+    resolveStringIndexInStmts(proc.body, env);
   }
 
   for (const proc of ast.procedures) {
