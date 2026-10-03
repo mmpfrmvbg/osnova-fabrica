@@ -149,6 +149,12 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
       'а адрес блока рантайм берёт у `brk` уже на цели; без прогона в модели величины не существует',
   },
   {
+    match: 'invokeArityQemu.test.ts',
+    reason:
+      'ресурсозависимый, живёт в gate:qemu: «третий аргумент доехал до памяти» формой носителя не доказывается — ' +
+      'нужен прогон в модели (форму держит src/e2k/invokeArity.test.ts в полном прогоне)',
+  },
+  {
     match: 'examplesE2k.audit.test.ts',
     reason:
       'ресурсозависимый, живёт в gate:qemu: исполняет на цели примеры корпуса, объявленные исполняемыми, и сверяет с тем же expected.txt (случай 12)',
