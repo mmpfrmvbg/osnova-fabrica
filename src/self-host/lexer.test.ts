@@ -35,7 +35,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tokenizeV3 } from '../compiler-v3/lexer';
 import { parseV3 } from '../compiler-v3/index';
-import { validateNamedTypesAndRewrite, compileSource } from '../compiler/compiler';
+import { validateNamedTypesAndRewrite } from '../compiler/compiler';
 import { compile } from '../compiler/codegen';
 import { compileToReg } from '../compiler/regcodegen';
 import { createDefaultInvokeHandler, VM } from '../runtime/vm/interpreter';
