@@ -43,8 +43,12 @@ const SOURCES_DIR = path.join(ROOT, ".tmp", "e2k-sources");
  * 5–6 — исходники ядра Linux для e2k (6.1 и 5.10, опубликованы МЦСТ 2026-09-30): это
  * первоисточник ABI (номера системных вызовов, подписи обработчиков), которого до той даты
  * в зеркале не было — шапка таблицы порта QEMU ссылалась на файл ядра, которого не существовало.
+ * 7 — glibc 2.29 E2K (02.10.2026): **пользовательская** сторона ABI. Ядра дают макрос вызова
+ * (`arch/e2k/include/uapi/asm/e2k_api.h`), но показывают точку зрения того, кто **принимает**
+ * вызов; libc показывает, что кладёт **вызывающий** — и именно оттуда видно, что номер ловушки
+ * для 64-битного вызова равен 3, а наш рантайм ставит 0 (`docs/e2k-syscalls-raw.md` §7.2).
  */
-const SOURCE_COUNT = 6;
+const SOURCE_COUNT = 7;
 
 /**
  * Второй канал для файла ABI: копия `arch/e2k/include/uapi/asm/unistd.h` из `OpenE2K/linux`
@@ -68,6 +72,27 @@ const ARCHIVE_UNISTD = path.join(
   "uapi",
   "asm",
   "unistd.h",
+);
+
+/**
+ * Второй канал для файла с **макросом вызова** — `arch/e2k/include/uapi/asm/e2k_api.h`.
+ *
+ * Тот же приём, что и с таблицей номеров: файл, на котором держится утверждение «конвенция
+ * вызова подтверждена первоисточником», взят ещё и из `OpenE2K/linux` (ветка `master`) по
+ * обычному TLS, и копии обязаны совпасть **байт в байт**. Без этого «подтверждено
+ * первоисточником» опиралось бы на архив, пришедший одним каналом с отключённой проверкой цепочки.
+ */
+const INDEPENDENT_API_COPY = path.join(SOURCES_DIR, "opene2k-linux-master-e2k_api.h");
+const INDEPENDENT_API_COPY_SHA256 = "725b98bb4e0106e6d6e4537f9b432484e24270bce43cdb35c9dc369d2b1391ca";
+const ARCHIVE_API = path.join(
+  SOURCES_DIR,
+  "linux-6.1.0-1.19-open",
+  "arch",
+  "e2k",
+  "include",
+  "uapi",
+  "asm",
+  "e2k_api.h",
 );
 
 /** Запись описи: одна строка таблицы §1. */
@@ -180,6 +205,39 @@ const ANCHORS: ReadonlyArray<{ source: number; file: string; line: number; conta
   // Источник 6 — ядро 5.10: его счётчик `NR_syscalls` = 436 объясняет маркер порта QEMU.
   { source: 6, file: "arch/e2k/include/uapi/asm/unistd.h", line: 467, contains: "NR_syscalls" },
   { source: 6, file: "arch/e2k/include/uapi/asm/unistd.h", line: 122, contains: "__NR_mmap" },
+  // Источник 5, конвенция вызова: макрос `E2K_SYSCALL` — то, что искали («был такой хедер
+  // e2k_api.h, в нём есть макрос вызова сисколлов»). Файл лежал в зеркале с 30.09.2026.
+  { source: 5, file: "arch/e2k/include/uapi/asm/e2k_api.h", line: 125, contains: "%%b[0]" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/e2k_api.h", line: 126, contains: "sdisp %%ctpr1, %[trap]" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/e2k_api.h", line: 128, contains: "wbs = %#" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/e2k_api.h", line: 129, contains: "%%b[0], %[res]" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/e2k_api.h", line: 311, contains: "E2K_SYSCALL(trap, sys_num, num_args" },
+  { source: 5, file: "arch/e2k/include/asm/e2k_api.h", line: 6951, contains: "E2K_SCALL_ARG7" },
+  { source: 5, file: "arch/e2k/include/asm/e2k_api.h", line: 6966, contains: "%%ctpr1, 0x" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/e2k_syswork.h", line: 60, contains: "E2K_SYSCALL(LINUX_SYSCALL_TRAPNUM" },
+  // Источник 5, номера ловушек: 3 (64-бит), 1 (32-бит), 4 (устаревшая), 5/6/7 (быстрые).
+  { source: 5, file: "arch/e2k/include/uapi/asm/unistd.h", line: 16, contains: "LINUX_SYSCALL32_TRAPNUM" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/unistd.h", line: 17, contains: "LINUX_SYSCALL64_TRAPNUM" },
+  { source: 5, file: "arch/e2k/include/uapi/asm/unistd.h", line: 473, contains: "__NR_fast_sys_gettimeofday" },
+  { source: 5, file: "arch/e2k/include/asm/trap_def.h", line: 237, contains: "LINUX_SYSCALL64_TRAPNUM" },
+  { source: 5, file: "arch/e2k/include/asm/traps.h", line: 144, contains: "LINUX_SYSCALL_TRAPNUM_OLD" },
+  { source: 5, file: "arch/e2k/include/asm/traps.h", line: 149, contains: "LINUX_SYSCALL64_TRAPNUM" },
+  // Источник 6 несёт ТОТ ЖЕ макрос: совпадение двух версий ядра — вторая независимая запись.
+  { source: 6, file: "arch/e2k/include/uapi/asm/e2k_api.h", line: 133, contains: "sdisp %%ctpr1, %[trap]" },
+  { source: 6, file: "arch/e2k/include/uapi/asm/e2k_api.h", line: 135, contains: "wbs = %#" },
+  // Источник 7 — glibc 2.29 E2K: пользовательская сторона той же конвенции.
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/sysdep.h", line: 128, contains: "%db[0]" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/sysdep.h", line: 115, contains: "cmpldb  %db[0], 0, %pred0" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/sysdep.h", line: 104, contains: "WBS 0x5" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/sysdep.h", line: 135, contains: "setwd   wsz = WSZ" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/sysdep.h", line: 136, contains: "setbn   rsz = WSZ - WBS - 1, rbs = WBS" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/sysdep.h", line: 139, contains: "sdisp   %ctpr1, __SYSCALL_TRAPNUM" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/sysdep.h", line: 141, contains: "call    %ctpr1, wbs = WBS" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/e2k64/sysdep.h", line: 38, contains: "__SYSCALL_TRAPNUM 3" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/e2k32/sysdep.h", line: 44, contains: "__SYSCALL_TRAPNUM 1" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/syscall.S", line: 26, contains: "setbn   rsz = 0x3, rbs = 0x5" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/syscall.S", line: 38, contains: "wbs = 0x5" },
+  { source: 7, file: "sysdeps/unix/sysv/linux/e2k/dl-auxv.h", line: 26, contains: "AT_FAST_SYSCALLS" },
 ];
 
 /**
@@ -219,7 +277,7 @@ function checkLocalCopy(records: readonly SourceRecord[]): CopyCheck {
   for (const record of records) {
     const root = fileRootOf(record);
     const archive =
-      record.localPaths[0] !== undefined && /\.(?:tgz|tar\.gz|gz)$/.test(record.localPaths[0]!);
+      record.localPaths[0] !== undefined && /\.(?:tgz|tar\.gz|gz|xz)$/.test(record.localPaths[0]!);
     if (!fs.existsSync(root)) {
       problems.push(`источник ${record.index}: нет локальной копии ${path.relative(ROOT, root)}`);
       continue;
@@ -287,16 +345,17 @@ describe("опись источников кодировки e2k", () => {
   const doc = fs.existsSync(DOC) ? fs.readFileSync(DOC, "utf-8") : "";
   const records = parseSourceTable(doc);
 
-  it("документ существует и описывает шесть источников", () => {
+  it("документ существует и описывает семь источников", () => {
     expect(fs.existsSync(DOC), "нет docs/e2k-sources-raw.md").toBe(true);
     expect(validateSourceTable(records)).toEqual([]);
-    expect(records.map((record) => record.index)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(records.map((record) => record.index)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(records[0]!.url).toContain("OpenE2K/binutils-gdb");
     expect(records[1]!.url).toContain("e2k-ports/llvm-project");
     expect(records[2]!.url).toContain("qemu-e2k.tar.gz");
     expect(records[3]!.url).toContain("nrdmn/elbrus-docs");
     expect(records[4]!.url).toContain("linux-6.1.0-1.19-open.tgz");
     expect(records[5]!.url).toContain("linux-5.10.0-1.50.1-open.tgz");
+    expect(records[6]!.url).toContain("free-src/free-src");
   });
 
   it("в документе названы все восемь файлов-носителей кодировки", () => {
@@ -325,32 +384,42 @@ describe("опись источников кодировки e2k", () => {
     expect(check.problems, check.notes.join("; ")).toEqual([]);
   });
 
-  it("второй канал: копия файла ABI из GitHub совпадает с копией из архива", () => {
+  it("второй канал: копии файлов ABI и макроса вызова из GitHub совпадают с копиями из архива", () => {
     // «Два канала» не должны жить только в отчёте сессии: опись обязана называть и канал,
     // и сам хеш — иначе проверять нечего, кроме собственной памяти.
     expect(doc, "опись не называет второй канал").toContain(INDEPENDENT_COPY_CHANNEL);
     expect(doc, "опись не называет sha256 копии второго канала").toContain(INDEPENDENT_COPY_SHA256);
+    expect(doc, "опись не называет sha256 копии макроса вызова").toContain(INDEPENDENT_API_COPY_SHA256);
     expect(doc, "опись не разделяет канал артефакта и канал эталона").toContain("канал эталона");
-    if (!fs.existsSync(INDEPENDENT_COPY)) {
-      expect(
-        fs.existsSync(INDEPENDENT_COPY),
-        `нет ${path.relative(ROOT, INDEPENDENT_COPY)} — сверка второго канала не выполнялась`,
-      ).toBe(false);
-      return;
-    }
-    const independent = fs.readFileSync(INDEPENDENT_COPY);
-    expect(createHash("sha256").update(independent).digest("hex"), "sha256 копии второго канала").toBe(
-      INDEPENDENT_COPY_SHA256,
-    );
-    expect(fs.existsSync(ARCHIVE_UNISTD), "нет таблицы ABI в распакованном архиве").toBe(true);
-    const fromArchive = fs.readFileSync(ARCHIVE_UNISTD);
-    expect(independent.equals(fromArchive), "копии двух каналов разошлись побайтово").toBe(true);
 
-    // Негативный контроль: испорченная копия обязана расходиться и с хешем, и с архивом.
-    const corrupted = Buffer.from(independent);
-    corrupted[0] = corrupted[0]! ^ 0xff;
-    expect(createHash("sha256").update(corrupted).digest("hex")).not.toBe(INDEPENDENT_COPY_SHA256);
-    expect(corrupted.equals(fromArchive)).toBe(false);
+    // Обе пары проверяются одним и тем же способом: хеш второго канала, байтовое равенство
+    // с копией из архива и негативный контроль на испорченную копию.
+    const pairs = [
+      { label: "таблица номеров", copy: INDEPENDENT_COPY, hash: INDEPENDENT_COPY_SHA256, archive: ARCHIVE_UNISTD },
+      { label: "макрос вызова", copy: INDEPENDENT_API_COPY, hash: INDEPENDENT_API_COPY_SHA256, archive: ARCHIVE_API },
+    ] as const;
+    for (const pair of pairs) {
+      if (!fs.existsSync(pair.copy)) {
+        expect(
+          fs.existsSync(pair.copy),
+          `нет ${path.relative(ROOT, pair.copy)} — сверка второго канала (${pair.label}) не выполнялась`,
+        ).toBe(false);
+        continue;
+      }
+      const independent = fs.readFileSync(pair.copy);
+      expect(createHash("sha256").update(independent).digest("hex"), `sha256 копии второго канала (${pair.label})`).toBe(
+        pair.hash,
+      );
+      expect(fs.existsSync(pair.archive), `нет ${pair.label} в распакованном архиве`).toBe(true);
+      const fromArchive = fs.readFileSync(pair.archive);
+      expect(independent.equals(fromArchive), `копии двух каналов разошлись побайтово (${pair.label})`).toBe(true);
+
+      // Негативный контроль: испорченная копия обязана расходиться и с хешем, и с архивом.
+      const corrupted = Buffer.from(independent);
+      corrupted[0] = corrupted[0]! ^ 0xff;
+      expect(createHash("sha256").update(corrupted).digest("hex")).not.toBe(pair.hash);
+      expect(corrupted.equals(fromArchive)).toBe(false);
+    }
   });
 
   it("негативный контроль: испорченная опись не проходит", () => {
@@ -384,10 +453,64 @@ describe("опись источников кодировки e2k", () => {
 
     // Архивы ядер имеют расширение `.tgz`, а не `.gz`: ветка «архив» обязана их узнавать.
     // Проверяется поведением, а не чтением кода — испорченный хеш источника 5 обязан быть назван.
+    //
+    // Копий может не быть (`.tmp/e2k-sources` не коммитится) — тогда эти проверки пропускаются,
+    // и пропуск назван. Но КОГДА копия есть, проверки обязаны выполниться: условие «нет копии»
+    // и условие «есть» разделены, иначе молчаливый пропуск выглядел бы зелёным (случай 22).
+    const haveCopies = fs.existsSync(SOURCES_DIR);
     const kernelRecord = records.find((record) => record.index === 5);
-    if (kernelRecord !== undefined && fs.existsSync(path.join(ROOT, kernelRecord.localPaths[0]!))) {
-      const brokenHash = checkLocalCopy([{ ...kernelRecord, revision: `sha256:${"0".repeat(64)}` }]);
-      expect(brokenHash.problems.join(" ")).toMatch(/sha256 архива/);
+    const glibcRecord = records.find((record) => record.index === 7);
+    const kernelArchive = kernelRecord === undefined ? "" : path.join(ROOT, kernelRecord.localPaths[0]!);
+    const glibcArchive = glibcRecord === undefined ? "" : path.join(ROOT, glibcRecord.localPaths[0]!);
+    if (!haveCopies) {
+      expect(haveCopies, "нет .tmp/e2k-sources — проверки по копии не выполнялись").toBe(false);
+    } else {
+      expect(fs.existsSync(kernelArchive), `нет архива источника 5: ${kernelArchive}`).toBe(true);
+      expect(fs.existsSync(glibcArchive), `нет архива источника 7: ${glibcArchive}`).toBe(true);
+      expect(
+        checkLocalCopy([{ ...kernelRecord!, revision: `sha256:${"0".repeat(64)}` }]).problems.join(" "),
+        "испорченный хеш архива .tgz не назван",
+      ).toMatch(/sha256 архива/);
+      // Источник 7 — `.tar.xz`. Без его ветки в регулярном выражении «архив» проверка ушла бы в
+      // ветку «git-клон» и упала на чтении `.git/HEAD` — то есть сторож краснел бы на исправной
+      // описи. Проверяется поведением: испорченный хеш обязан быть назван именно как хеш архива.
+      expect(
+        checkLocalCopy([{ ...glibcRecord!, revision: `sha256:${"0".repeat(64)}` }]).problems.join(" "),
+        "испорченный хеш архива .tar.xz не назван",
+      ).toMatch(/sha256 архива/);
+    }
+
+    // Якоря читают содержимое строки, а не только её наличие. Проверяется на синтетической копии
+    // из настоящих файлов источника 6 с ОДНОЙ испорченной строкой: без этого «якорь» мог бы
+    // файл не читать вовсе и всё равно выглядеть зелёным (случай 22, `docs/verification-debt.md`).
+    const realSix = records.find((record) => record.index === 6);
+    if (haveCopies) {
+      // Условие проверено ДО ветки: при наличии копии пропуск невозможен, а при отсутствии
+      // он назван строкой выше — «собралось ноль проверок» здесь краснеет, а не молчит.
+      expect(realSix !== undefined && fs.existsSync(fileRootOf(realSix)), "нет копии источника 6").toBe(true);
+      const negRoot = path.join(SOURCES_DIR, "neg-anchors");
+      const negArchive = path.join(SOURCES_DIR, "neg-anchors.tar.xz");
+      const relative = (file: string) => path.relative(ROOT, file).replace(/\\/g, "/");
+      const anchor = ANCHORS.find((item) => item.source === 6 && item.file.endsWith("e2k_api.h"))!;
+      fs.rmSync(negRoot, { recursive: true, force: true });
+      fs.cpSync(fileRootOf(realSix), negRoot, { recursive: true });
+      const target = path.join(negRoot, anchor.file);
+      const lines = fs.readFileSync(target, "utf-8").split(/\r?\n/);
+      lines[anchor.line - 1] = "/* строка испорчена негативным контролем */";
+      fs.writeFileSync(target, lines.join("\n"));
+      fs.writeFileSync(negArchive, Buffer.from("маркер: хеш сверяется, содержимое архива — нет"));
+      const sneaky: SourceRecord = {
+        index: 6,
+        title: "синтетический",
+        url: "https://example.invalid/neg",
+        date: "2026-10-02",
+        revision: `sha256:${createHash("sha256").update(fs.readFileSync(negArchive)).digest("hex")}`,
+        localPaths: [relative(negArchive), relative(negRoot)],
+      };
+      const caught = checkLocalCopy([sneaky]);
+      expect(caught.problems.join(" "), "порча строки якоря не поймана").toMatch(/e2k_api\.h:133/);
+      fs.rmSync(negArchive, { force: true });
+      fs.rmSync(negRoot, { recursive: true, force: true });
     }
   });
 });
