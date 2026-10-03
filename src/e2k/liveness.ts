@@ -47,6 +47,7 @@ import type { AsmInstruction } from './backend';
 import { cfgLiveSets, cfgRanges } from '../vliw/cfg';
 import { ARRAY_REGISTERS } from './arrayRuntime';
 import { callArgumentOperands } from './shell';
+import { LOAD_CARRIER, STORE_CARRIER } from './memoryAccess';
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from './procedureCall';
 import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, STRING_REGISTERS } from './stringRuntime';
 
@@ -170,6 +171,15 @@ export function defUseOf(instruction: AsmInstruction): DefUse {
         def: [],
         use: registers(registerAt(instruction, 0), registerAt(instruction, 1)),
       };
+    // ДОСТУП ПО АДРЕСУ-РЕГИСТРУ (`src/e2k/memoryAccess.ts`). Ветви обязательны: у этих носителей
+    // ДВА операнда, и порядок ролей обратный общему случаю `[d, a, b]` — умолчание прочло бы
+    // приёмник чтения как определение адреса, то есть объявило бы значением то, что является адресом.
+    // `IR.load [адрес, приёмник]` — читает адрес, пишет приёмник.
+    case LOAD_CARRIER:
+      return { def: registers(registerAt(instruction, 1)), use: registers(registerAt(instruction, 0)) };
+    // `IR.store [значение, адрес]` — читает и значение, и адрес; не пишет ничего.
+    case STORE_CARRIER:
+      return { def: [], use: registers(registerAt(instruction, 0), registerAt(instruction, 1)) };
     case 'IR.const':
       return { def: registers(registerAt(instruction, 0)), use: [] };
     // АРЕНА (`src/e2k/arenaRuntime.ts`): регистры состояния — ФИЗИЧЕСКИЕ и в операндах не названы,

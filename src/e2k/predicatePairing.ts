@@ -43,6 +43,7 @@ import type { AsmInstruction } from "./backend";
 import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
 import { ARRAY_REGISTERS } from "./arrayRuntime";
 import { callArgumentOperands } from "./shell";
+import { LOAD_CARRIER, STORE_CARRIER } from "./memoryAccess";
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from "./procedureCall";
 import { STRING_REGISTERS } from "./stringRuntime";
 
@@ -138,7 +139,7 @@ export interface PairingResult {
  * сравнения начинала считаться любая инструкция с тем же номером регистра дальше по потоку — то
  * есть пара отвергалась по ложной причине (измерено: `корреляция`, `.tmp/pair-refusal-debug.ts`).
  */
-function registersOf(instruction: AsmInstruction): { known: boolean; reads: number[]; writes: number[] } {
+export function registersOf(instruction: AsmInstruction): { known: boolean; reads: number[]; writes: number[] } {
   const regs = (operands: readonly { kind: string; index?: number }[]): number[] =>
     operands.filter((operand) => operand.kind === "reg").map((operand) => operand.index!);
   const operands = instruction.operands;
@@ -196,6 +197,12 @@ function registersOf(instruction: AsmInstruction): { known: boolean; reads: numb
     // Без этих ветвей носители арены попадали в `known: false` — то есть в **барьер**, и сравнение
     // сайта получало «читателей» из всех последующих сайтов: предикат не составлялся вовсе
     // (измерено: «результат читают 2 инструкций (#9 IR.jmp_if_not, #18 IR.jmp_if_not)»).
+    // ДОСТУП ПО АДРЕСУ-РЕГИСТРУ (`src/e2k/memoryAccess.ts`): роли операндов обратны общему случаю
+    // `[d, a, b]`, поэтому умолчание объявило бы адрес определением, а приёмник — чтением.
+    case LOAD_CARRIER: // [адрес, приёмник]
+      return known(regs([operands[0]!]), regs([operands[1]!]));
+    case STORE_CARRIER: // [значение, адрес]
+      return known(regs([operands[0]!, operands[1]!]), []);
     case "IR.arena_init":
       return known([], [ARENA_POINTER_BASE, ARENA_LIMIT_BASE]);
     case "IR.arena_alloc": {

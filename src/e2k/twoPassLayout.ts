@@ -81,6 +81,7 @@ import {
 import { REMAINDER_CARRIER, remainderInstructions } from "./remainderRuntime";
 import { callArgumentOperands } from "./shell";
 import { MAX_CALL_ARGS } from "./emitterShell";
+import { LOAD_CARRIER, STORE_CARRIER } from "./memoryAccess";
 import { COLLECTION_CALL_NAMES, lowerCollectionCall } from "./collectionsRuntime";
 import {
   EXIT_CARRIER,
@@ -215,6 +216,23 @@ export const CARRIER_FORMS: readonly CarrierForm[] = [
   {
     carrier: "IR.sub",
     commands: [{ mnemonic: "subs", form: "ALF1", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  },
+  {
+    /**
+     * `IR.load [адрес, приёмник]` — чтение по адресу-РЕГИСТРУ (`src/e2k/memoryAccess.ts`).
+     *
+     * Отличие от `IR.spill_ld` — в том, ЧТО адресуется: у вытеснения это ЛИТЕРАЛЬНЫЙ слот (понижение
+     * кладёт его в регистр `movtd`), здесь — регистр, пришедший готовым. Формы у обеих команд одни и
+     * те же (ALF3/ALF1), и длина та же — но форма берётся из ТОГО ЖЕ источника, что понижение, а не
+     * «похожая»: разойдись они, уехали бы адреса переходов (класс §3.35).
+     */
+    carrier: LOAD_CARRIER,
+    commands: [{ mnemonic: "ldd", form: "ALF1", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  },
+  {
+    /** `IR.store [значение, адрес]` — запись по адресу-РЕГИСТРУ; канал 2, как у всех `st*`. */
+    carrier: STORE_CARRIER,
+    commands: [{ mnemonic: "std", form: "ALF3", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
   },
   {
     // Целочисленное деление (БЛОК 2, оператор `div`). Форма объявлена 2026-09-25: правило понижения

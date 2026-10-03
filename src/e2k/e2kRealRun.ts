@@ -65,6 +65,7 @@ import { CT_COND_ALWAYS, REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from 
 import { CALL_WBS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { callArgumentOperands } from "./shell";
 import { MAX_CALL_ARGS } from "./emitterShell";
+import { LOAD_CARRIER, STORE_CARRIER, loadInstructions, storeInstructions } from "./memoryAccess";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
 import { COLLECTION_CALL_NAMES, lowerCollectionCall } from "./collectionsRuntime";
@@ -713,6 +714,31 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     } catch (error) {
       return failureOf(LOWERING_CODES.runtime, error instanceof Error ? error.message : String(error));
     }
+  }
+
+  // ── Чтение и запись по адресу-РЕГИСТРУ (`src/e2k/memoryAccess.ts`) ─────────────────────────────
+  //
+  // Отличие от вытеснения ниже: там адресуется ЛИТЕРАЛЬНЫЙ слот, и понижение само кладёт его в
+  // регистр; здесь адрес приходит готовым. Носители заведены замером: `IR.spill_ld`/`IR.spill_st`
+  // выразить `[база + индекс·8]` НЕ МОГУТ — их регистр-адрес затирается литералом слота.
+  if (instruction.mnemonic === LOAD_CARRIER || instruction.mnemonic === STORE_CARRIER) {
+    const operands = instruction.operands;
+    const expected = instruction.mnemonic === LOAD_CARRIER ? 'адрес и приёмник' : 'значение и адрес';
+    if (operands.length !== 2 || operands.some((operand) => operand.kind !== 'reg')) {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${instruction.mnemonic}»: ожидались два регистра (${expected}), получено [${operands
+          .map((operand) => operand.kind)
+          .join(', ')}]`,
+      );
+    }
+    const first = operands[0] as { index: number };
+    const second = operands[1] as { index: number };
+    const instructions =
+      instruction.mnemonic === LOAD_CARRIER
+        ? loadInstructions(first.index, second.index)
+        : storeInstructions(first.index, second.index);
+    return { ok: true, instructions };
   }
 
   // ── Вытеснение в память: чтение и запись слота (`src/vliw/spill.ts`) ─────────────────────────
