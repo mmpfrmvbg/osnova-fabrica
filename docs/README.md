@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (69)
+## Фронтир и замеры (70)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -50,6 +50,7 @@
 - [docs/e2k-opcodes-real.md](e2k-opcodes-real.md) ⚠
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
+- [docs/e2k-qemu-system.md](e2k-qemu-system.md)
 - [docs/e2k-real-run.md](e2k-real-run.md) ⚠
 - [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md) ⚠
 - [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md)
