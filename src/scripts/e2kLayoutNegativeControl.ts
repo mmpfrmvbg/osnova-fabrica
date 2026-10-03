@@ -701,6 +701,19 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     tests: ['src/e2k/invokeArity.test.ts'],
     config: 'vitest.config.ts',
   },
+  {
+    // ГРАНИЦА, А НЕ ПРАВКА. Предел арности — это ЧИСЛО (`MAX_CALL_ARGS`), и проба границы обязана
+    // краснеть, когда число возвращают назад: иначе она держит не границу, а своё собственное
+    // устройство. Мутация опускает предел до прежних двух — и положительная сторона пробы
+    // («три аргумента — законная арность») обязана упасть.
+    id: '15.2',
+    title: 'предел арности возвращён к двум — три аргумента снова не компилируются',
+    file: 'src/e2k/emitterShell.ts',
+    from: 'export const MAX_CALL_ARGS = 3;',
+    to: 'export const MAX_CALL_ARGS = 2; // ДЕФЕКТ 15.2: предел возвращён к прежнему',
+    tests: ['src/compiler-v3/nativePathE2k.test.ts'],
+    config: 'vitest.config.ts',
+  },
 ];
 
 /**
