@@ -49,6 +49,7 @@ import { ARRAY_REGISTERS } from './arrayRuntime';
 import { callArgumentOperands } from './shell';
 import { LOAD_CARRIER, STORE_CARRIER } from './memoryAccess';
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from './procedureCall';
+import { REFUSAL_CARRIER } from './refusalBlock';
 import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, STRING_REGISTERS } from './stringRuntime';
 
 /** Что носитель пишет и что читает (номера vreg'ов). */
@@ -199,7 +200,8 @@ export function defUseOf(instruction: AsmInstruction): DefUse {
     case 'IR.arena_limit':
       return { def: registers(registerAt(instruction, 0)), use: [ARENA_LIMIT_BASE] };
     // Блок отказа: адрес и длина — литералы, регистров нет (аргументы `write` — оконные слоты кадра).
-    case 'IR.arena_refusal':
+    // Носитель ОБЩИЙ у арены и у коллекций (`src/e2k/refusalBlock.ts`) — имя больше не арены.
+    case REFUSAL_CARRIER:
       return { def: [], use: [] };
     // САЙТ СКЛЕЙКИ В АРЕНЕ (`src/e2k/stringRuntime.ts#STRING_ARENA_CONCAT_CARRIER`) — до расширения:
     // `[первая, вторая, приёмник, байтов, байтов]`. Регистры состояния арены здесь НЕ трогаются:

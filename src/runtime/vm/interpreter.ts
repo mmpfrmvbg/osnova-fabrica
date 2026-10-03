@@ -172,6 +172,16 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       if (capacity < 0) {
         throw new CollectionRefusal(`коллекция.расширить: новая ёмкость ${String(capacity)} отрицательна`);
       }
+      // РАСШИРЕНИЕ — ЭТО РОСТ, А НЕ ПЕРЕЕЗД НА МЕСТО: «новая ёмкость не больше текущей» — НАЗВАННЫЙ
+      // отказ, и он есть у ОБЕИХ сторон (цель: своя строка, `COLLECTION_CAPACITY_REFUSAL_TEXT`).
+      // Молчаливый возврат того же блока был бы тихой ложью: программа считала бы, что ёмкость выросла,
+      // и первая же запись за старой границей ушла бы в чужую память (на цели — в чужой блок).
+      if (capacity <= block.capacity) {
+        throw new CollectionRefusal(
+          `коллекция.расширить: новая ёмкость ${String(capacity)} не больше текущей ` +
+            `${String(block.capacity)} — расширять некуда`,
+        );
+      }
       const address = collectionsNext;
       collectionsNext += COLLECTION_HEADER_BYTES + capacity * COLLECTION_ELEMENT_BYTES;
       // Копируются ВСЕ старые элементы, а не «сколько влезет»: пропуск последнего — тот самый

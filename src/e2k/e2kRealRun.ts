@@ -68,7 +68,7 @@ import { MAX_CALL_ARGS } from "./emitterShell";
 import { LOAD_CARRIER, STORE_CARRIER, loadInstructions, storeInstructions } from "./memoryAccess";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
-import { COLLECTION_CALL_NAMES, lowerCollectionCall } from "./collectionsRuntime";
+import { COLLECTION_ALLOC_CARRIER, COLLECTION_CALL_NAMES, collectionAllocInstructions, lowerCollectionCall } from "./collectionsRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
 import {
@@ -591,6 +591,25 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       );
     }
     return { ok: true, instructions };
+  }
+
+  // РАСШИРЕНИЕ КУЧИ ПОД КОЛЛЕКЦИЮ (§3.100): `brk(0)` → база, граница блока → аргумент системного
+  // вызова, `brk(граница)` → ответ. ЗАГОЛОВОК ЗДЕСЬ НЕ ПИШЕТСЯ: его ставит отдельный носитель ПОСЛЕ
+  // проверки ответа — до неё запись по `[база]` уходит за границу кучи. Команды берутся ИЗ ОДНОГО
+  // ИСТОЧНИКА с формой носителя (`src/e2k/collectionsRuntime.ts#collectionAllocInstructions`).
+  if (instruction.mnemonic === COLLECTION_ALLOC_CARRIER) {
+    const capacity = instruction.operands[0];
+    const destination = instruction.operands[1];
+    if (capacity === undefined || capacity.kind !== "reg" || destination === undefined || destination.kind !== "reg") {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${instruction.mnemonic}»: ожидались регистр ёмкости и регистр-приёмник — их ставит сайт коллекций`,
+      );
+    }
+    return {
+      ok: true,
+      instructions: collectionAllocInstructions(capacity.index, destination.index),
+    };
   }
 
   if (instruction.mnemonic === "IR.window_grow") {

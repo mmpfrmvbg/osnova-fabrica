@@ -67,6 +67,17 @@ export const STRING_MARK_OPERAND = 6;
 export const ARENA_REFUSAL_BLOB_KEY = '⟨текст отказа арены⟩';
 
 /**
+ * Ключ блоба СТРОКИ ОТКАЗА КОЛЛЕКЦИЙ — СВОЙ У КАЖДОЙ ПРИЧИНЫ (случай 34 реестра проверяемости).
+ *
+ * Причин у коллекций три: граница блока, ёмкость при переезде и ответ `brk`. Строка у каждой своя, и
+ * ключ обязан быть своим тоже: один ключ на три текста — это ровно тот дефект, из которого случай 34
+ * и вырос (программа с ареной И коллекциями печатала текст арены на отказе коллекции).
+ */
+export function collectionRefusalBlobKey(at: number): string {
+  return `⟨текст отказа коллекций ${String(at)}⟩`;
+}
+
+/**
  * ВЕРХ СТАТИЧЕСКОЙ ОБЛАСТИ — где кончаются статические байты (они растут ВНИЗ от него).
  *
  * Здесь только **читаемое**: литералы строк, таблица продолжений, перевод строки, текст отказа.
@@ -134,6 +145,13 @@ export interface StringPlan {
    */
   readonly arenaRefusal?: { readonly address: number; readonly byteLength: number };
   /**
+   * Где лежат СТРОКИ ОТКАЗА КОЛЛЕКЦИЙ — по одной на причину, в ТОМ ЖЕ порядке, в каком их попросили.
+   *
+   * Порядок — контракт, а не деталь: по нему конвейер сопоставляет блоб причине, и разойдись он —
+   * переход вёл бы к чужому тексту (класс §3.35: «соглашение, держащееся совпадением»).
+   */
+  readonly collectionRefusals?: readonly { readonly address: number; readonly byteLength: number }[];
+  /**
    * Адрес СТАТИЧЕСКОГО БУФЕРА СКЛЕЙКИ, если он объявлен (`undefined` — все склейки ушли в арену).
    *
    * Нужен наружу ровно затем, что это **место записи**: буфер лежит среди статических байтов, а
@@ -159,7 +177,14 @@ export function planStrings(
    * Строка отказа арены, если образ ею пользуется (`src/e2k/arenaRuntime.ts#ARENA_REFUSAL_TEXT`).
    * Адрес блоба возвращается в {@link StringPlan.arenaRefusal}.
    */
-  options: { readonly arenaRefusal?: string } = {},
+  options: {
+    readonly arenaRefusal?: string;
+    /**
+     * Строки отказа КОЛЛЕКЦИЙ — по одной на причину (`src/e2k/collectionsRuntime.ts`,
+     * `COLLECTION_REFUSAL_TEXTS`). Порядок входа = порядок {@link StringPlan.collectionRefusals}.
+     */
+    readonly collectionRefusals?: readonly string[];
+  } = {},
 ): StringPlan {
   const names = [...invokeNames];
   const concatPayload = ((): number => {
@@ -321,6 +346,12 @@ export function planStrings(
   // СТРОКА ОТКАЗА АРЕНЫ — тем же порядком, что прочие блобы: адрес выведен из конца образа.
   const refusalBytes = options.arenaRefusal === undefined ? undefined : utf8Bytes(options.arenaRefusal);
   if (refusalBytes !== undefined) ordered.push({ key: ARENA_REFUSAL_BLOB_KEY, bytes: refusalBytes });
+  // СТРОКИ ОТКАЗА КОЛЛЕКЦИЙ — каждый со СВОИМ ключом: причин три, и текст у каждой свой.
+  const collectionRefusalKeys = (options.collectionRefusals ?? []).map((text, at) => {
+    const key = collectionRefusalBlobKey(at);
+    ordered.push({ key, bytes: utf8Bytes(text) });
+    return key;
+  });
 
   // СТАТИКА — ПОД КОДОМ, В ФАЙЛЕ: читать из страницы кода можно, писать — нет. Поэтому якорь
   // статики не связан с кучей: он остаётся там, где был, и размеры образов от переезда области
@@ -422,6 +453,21 @@ export function planStrings(
   });
 
   const refusalAddress = addresses.get(ARENA_REFUSAL_BLOB_KEY);
+  // Блобы коллекций — ПО ТОМУ ЖЕ ПОРЯДКУ, в каком их попросили: сопоставление «причина → адрес»
+  // делает вызывающий, и порядок здесь — единственное, чем он может это сделать.
+  const collectionRefusals = collectionRefusalKeys.map((key) => {
+    const address = addresses.get(key);
+    const bytes = ordered.find((blob) => blob.key === key)?.bytes;
+    if (address === undefined || bytes === undefined) {
+      // Дефект планирования, а не программы: блоб только что положен в `ordered` и обязан быть в карте.
+      problems.push(`строка отказа коллекций «${key}» не получила адреса — дефект планирования строк`);
+      return undefined;
+    }
+    return { address, byteLength: bytes.length };
+  });
+  const collectionBlobs = collectionRefusals.every((blob) => blob !== undefined)
+    ? (collectionRefusals as { address: number; byteLength: number }[])
+    : undefined;
   return {
     code: rewritten,
     constants: pool,
@@ -434,6 +480,9 @@ export function planStrings(
     ...(refusalAddress === undefined || refusalBytes === undefined
       ? {}
       : { arenaRefusal: { address: refusalAddress, byteLength: refusalBytes.length } }),
+    ...(collectionBlobs === undefined || collectionBlobs.length === 0
+      ? {}
+      : { collectionRefusals: collectionBlobs }),
   };
 }
 

@@ -52,7 +52,14 @@ import {
   usesArena,
 } from './arenaRuntime';
 import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, stringArenaCopyInstructions } from './stringRuntime';
-import { COLLECTION_REFUSAL_TEXT, collectionGroups, collectionReservedRegisters, usesCollections } from './collectionsRuntime';
+import {
+  COLLECTION_REFUSAL_TEXTS,
+  collectionGroups,
+  collectionRefusalKinds,
+  collectionReservedRegisters,
+  usesCollections,
+  type CollectionRefusalKind,
+} from './collectionsRuntime';
 import {
   STRING_PRINT_CLOBBERS,
   stringConcatInstructions,
@@ -710,13 +717,28 @@ export function imageOfCarriers(
   // `strings.arenaRefusal` оставался неопределённым, блок отказа НЕ дописывался вовсе, и переход
   // сайта уезжал за поток — «цель перехода #24 вне потока (инструкций 24)».
   //
-  // ОДНА строка на программу — названная граница: программе, пользующейся И ареной, И коллекциями,
-  // оба отказа печатаются текстом арены. Развести их — отдельная работа (второй блоб в `stringPlan`).
-  const refusalText = collectionsUsed && !arenaUsed ? COLLECTION_REFUSAL_TEXT : ARENA_REFUSAL_TEXT;
+  // СТРОК ТЕПЕРЬ СТОЛЬКО, СКОЛЬКО ПРИЧИН (случай 34 реестра проверяемости): у арены своя, у коллекций
+  // три — граница блока, ёмкость при переезде и ответ `brk`. Прежняя редакция выбирала ОДНУ строку на
+  // программу по признаку «пользуется ли она коллекциями И не пользуется ли ареной», и программа с
+  // ОБОИМИ механизмами при отказе коллекции печатала текст арены — то есть называла чужой механизм.
+  const collectionRefusalKindsNeeded: readonly CollectionRefusalKind[] = collectionsUsed
+    ? collectionRefusalKinds(code, invokeNames)
+    : [];
   const strings =
     arenaUsed || collectionsUsed
-      ? planStrings(code, constants, invokeNames, heapAddress, { arenaRefusal: refusalText })
+      ? planStrings(code, constants, invokeNames, heapAddress, {
+          ...(arenaUsed ? { arenaRefusal: ARENA_REFUSAL_TEXT } : {}),
+          ...(collectionRefusalKindsNeeded.length === 0
+            ? {}
+            : { collectionRefusals: collectionRefusalKindsNeeded.map((kind) => COLLECTION_REFUSAL_TEXTS[kind]) }),
+        })
       : probe!;
+  // Адреса блобов — ПО ПРИЧИНАМ: порядок тот же, что у `collectionRefusalKinds` (один источник).
+  const collectionRefusals: Partial<Record<CollectionRefusalKind, { address: number; byteLength: number }>> = {};
+  collectionRefusalKindsNeeded.forEach((kind, at) => {
+    const blob = strings.collectionRefusals?.[at];
+    if (blob !== undefined) collectionRefusals[kind] = blob;
+  });
   // СТРОКИ: литералы становятся адресами статических байтов, `длина`/`объединить` — пометками,
   // по которым ОДНИ И ТЕ ЖЕ команды считают и раскладка (форма), и понижение (байты). Планирование
   // идёт ДО всего остального: адреса блобов сдвигают сторож места, а пул констант — длину `IR.const`.
@@ -757,40 +779,37 @@ export function imageOfCarriers(
           ]),
           withArena.procedures,
         );
-  // КОЛЛЕКЦИИ В ПОТОКЕ: сайт `положить`/`взять` — проверка границы и обращение по вычисленному
-  // адресу. Тем же приёмом, что арена: карта групп, а индексы и цели переходов пересчитывает
-  // `expandCarriers`. Ставится ДО роста окна, чтобы все последующие проходы видели готовый поток.
+  // КОЛЛЕКЦИИ В ПОТОКЕ: сайт операции — проверка границы (у `выделить`/`расширить` — ответа `brk`) и
+  // обращение по вычисленному адресу; у переезда ещё и цикл копирования. Тем же приёмом, что арена:
+  // САЙТЫ — картой групп, ХВОСТ (циклы и блоки отказа) дописывается группой последнего носителя, а
+  // индексы и цели переходов пересчитывает `expandCarriers`. Ставится ДО роста окна, чтобы все
+  // последующие проходы видели готовый поток.
   //
-  // Блок отказа ДОПИСЫВАЕТСЯ тем же приёмом, что у арены (расширяется последний носитель), и берёт
-  // ту же строку отказа, что планирует `planStrings`. ОДНА строка на программу, и это НАЗВАННАЯ
-  // граница: программе, которая пользуется И ареной, И коллекциями, оба отказа печатаются её
-  // текстом. Развести их — отдельная работа (второй блоб в `stringPlan`), и она не сделана.
+  // БЛОКИ ОТКАЗА — ПО ОДНОМУ НА ПРИЧИНУ, и строка у каждого своя (случай 34): переход сайта
+  // `положить`/`взять` ведёт в блок границы, переходы проверок `brk` — в блок памяти, проверки
+  // ёмкости — в блок переезда. Прежняя редакция дописывала ОДИН блок с текстом арены.
   const arenaCode = withRefusal.code;
   const baseProcedures: readonly ProcedureOffset[] = withRefusal.procedures;
-  const collections = collectionsUsed ? collectionGroups(arenaCode, strings.invokeNames) : undefined;
+  const entryOffset = declaredProcedures[entryProcedureIndex(declaredProcedures)]?.codeOffset ?? 0;
+  const nextProcedureOffset =
+    declaredProcedures
+      .map((procedure) => procedure.codeOffset)
+      .filter((offset) => offset > entryOffset)
+      .sort((a, b) => a - b)[0] ?? arenaCode.length;
+  const collections = collectionsUsed
+    ? collectionGroups(arenaCode, strings.invokeNames, {
+        refusals: collectionRefusals,
+        // ГРАНИЦА ТОЧКИ ВХОДА: коллекции живут там, где пролог образа завёл %b[12]/%b[13]/%b[14].
+        // Вызов в вызываемой — НАЗВАННЫЙ ОТКАЗ (поле `problems`), а не тихая порча чужого состояния.
+        entryRange: { from: entryOffset, to: nextProcedureOffset },
+      })
+    : undefined;
   const withCollections =
     collections === undefined
       ? { code: arenaCode, procedures: baseProcedures }
       : expandCarriers(arenaCode, collections.groups, baseProcedures);
-  const collectionRefusal =
-    collections === undefined || strings.arenaRefusal === undefined
-      ? undefined
-      : arenaRefusalCarriers(strings.arenaRefusal.address, strings.arenaRefusal.byteLength);
-  const withCollectionRefusal =
-    collectionRefusal === undefined || withCollections.code.length === 0
-      ? withCollections
-      : expandCarriers(
-          withCollections.code,
-          new Map([
-            [
-              withCollections.code.length - 1,
-              [...withCollections.code.slice(-1), ...collectionRefusal],
-            ],
-          ]),
-          withCollections.procedures,
-        );
-  const collectionsCode = withCollectionRefusal.code;
-  const collectionsProcedures: readonly ProcedureOffset[] = withCollectionRefusal.procedures;
+  const collectionsCode = withCollections.code;
+  const collectionsProcedures: readonly ProcedureOffset[] = withCollections.procedures;
   // РОСТ ОКНА: процедура, которая САМА вызывает, получает свой пролог `setwd wsz=16` + `setbn rsz=15`
   // (§3.56.5, правила 1–2) — иначе её внутренний вызов не имеет законного `wbs`. Растёт окно у той,
   // которая вызывает: точке входа оно не нужно (её вызовы идут с `wbs = 4`), листовой — тем более.
@@ -923,6 +942,10 @@ export function imageOfCarriers(
   const refused: LoweringRefusal[] = [
     ...strings.problems.map((reason) => refusalOf(LOWERING_CODES.runtime, reason)),
     ...sharing.problems,
+    // ОТКАЗЫ ПЛАНИРОВАНИЯ КОЛЛЕКЦИЙ: сайт не построился (операнды не той формы, регистр занят
+    // рантаймом, вызов в вызываемой). Без этой строки сайт просто отсутствовал бы, а наблюдатель
+    // получил бы «операция не развёрнута» — верное по букве и ложное по причине.
+    ...(collections?.problems ?? []).map((reason) => refusalOf(LOWERING_CODES.runtime, reason)),
   ];
   // АРЕНА И КУЧА МАССИВОВ В ОДНОЙ ПРОГРАММЕ НЕ РАЗВЕДЕНЫ — и это НАЗВАННЫЙ отказ, а не надежда.
   // Числа: куча рантайма массивов начинается с `HEAP_OFFSET` = `0x102000` (`%b[15]` кладёт туда

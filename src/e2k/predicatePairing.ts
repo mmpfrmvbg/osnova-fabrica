@@ -45,6 +45,8 @@ import { ARRAY_REGISTERS } from "./arrayRuntime";
 import { callArgumentOperands } from "./shell";
 import { LOAD_CARRIER, STORE_CARRIER } from "./memoryAccess";
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from "./procedureCall";
+import { REFUSAL_CARRIER } from "./refusalBlock";
+import { COLLECTION_ALLOC_CARRIER, COLLECTION_FRAME_REGISTERS } from "./collectionsRuntime";
 import { STRING_REGISTERS } from "./stringRuntime";
 
 /** Номер предиката, отданный парам: пары не переплетаются, поэтому одного достаточно. */
@@ -216,8 +218,34 @@ export function registersOf(instruction: AsmInstruction): { known: boolean; read
       return known([ARENA_POINTER_BASE], regs([operands[0]!]));
     case "IR.arena_limit":
       return known([ARENA_LIMIT_BASE], regs([operands[0]!]));
-    case "IR.arena_refusal":
+    case REFUSAL_CARRIER:
       return known([], []);
+    // ВЫХОД РАБОТЫ (`IR.exit`): читает значение, если оно есть, и не пишет ничего.
+    //
+    // ЗАЧЕМ ЭТА ВЕТВЬ — ЗАМЕР, А НЕ АККУРАТНОСТЬ. Без неё носитель попадал в умолчание
+    // (`known: false`), то есть в **БАРЬЕР**, и окно сравнения ВЫРОЖДАЛОСЬ: конец окна оставался
+    // `instructions.length`, и «читателями» результата становились все переходы с тем же ключом
+    // дальше по потоку. Замер (2026-10-03): у сайта `расширить` сравнение получило «читателей»
+    // `#12 jmp_if` и `#26 jmp_if_not` — вторым был переход ЦИКЛА КОПИРОВАНИЯ, стоящего за выходом
+    // точки входа; пара не составилась, и проба отказала `OSN-LOW-004`. Это ровно тот класс, что
+    // держал восемь заходов на арене (§3.89.3): там барьером были носители арены, здесь — выход.
+    case "IR.exit": {
+      const values = operands
+        .filter((operand) => operand.kind === "reg")
+        .map((operand) => operand.index!);
+      return known(values, []);
+    }
+    // РАСШИРЕНИЕ КУЧИ ПОД КОЛЛЕКЦИЮ (`src/e2k/collectionsRuntime.ts`): носитель называет ДВА
+    // регистра-операнда (ёмкость и приёмник), но пишет ещё и регистры кадра системного вызова —
+    // ОТВЕТ `brk` и ЗАПРОШЕННУЮ ГРАНИЦУ: их читает следующее за носителем сравнение. Без этой ветви
+    // носитель был бы БАРЬЕРОМ (`known: false`), и проверка ответа не составила бы пару с переходом.
+    case COLLECTION_ALLOC_CARRIER: {
+      const capacity = operands[0];
+      const destination = operands[1];
+      const use = capacity !== undefined && capacity.kind === "reg" ? [capacity.index] : [];
+      const def = destination !== undefined && destination.kind === "reg" ? [destination.index] : [];
+      return known([...use, ...COLLECTION_FRAME_REGISTERS], [...def, ...COLLECTION_FRAME_REGISTERS]);
+    }
     // СКЛЕЙКА В АРЕНЕ (`src/e2k/stringRuntime.ts`): сайт до расширения `[первая, вторая, приёмник,
     // байтов, байтов]` и копирование после `[первая, вторая, блок, байтов, байтов]`. Без этих ветвей
     // оба носителя стали бы БАРЬЕРОМ (`known: false`) — и сравнение сайта получило бы «читателей» из

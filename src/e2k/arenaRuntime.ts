@@ -46,7 +46,6 @@
 
 import type { AsmInstruction, Operand } from './backend';
 import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
-import { ARRAY_WINDOW_RSZ } from './arrayRuntime';
 import {
   ARENA_ALLOC_CARRIER,
   ARENA_INIT_CARRIER,
@@ -61,25 +60,17 @@ import {
   arenaPointerInstructions,
 } from './procedureCall';
 import { syscallFrameOfCarrier } from './printCall';
-import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER } from './stringRuntime';
 import {
-  ENTRY_SYSCALL_FRAME,
-  SYS_EXIT,
-  SYS_WRITE,
-  STDERR_FD,
-  syscallWindowOf,
-  type SyscallFrame,
-} from './syscallRuntime';
+  REFUSAL_CARRIER,
+  REFUSAL_CODE,
+  refusalCarrierInstructions,
+  refusalCarriers,
+  refusalInstructions,
+} from './refusalBlock';
+import { STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER } from './stringRuntime';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
-const window_ = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
-const f64 = (value: number): Operand => ({ kind: 'imm64', value: BigInt(value) }) as unknown as Operand;
-const a = (mnemonic: string, operands: readonly Operand[], channel = 0): AsmInstruction => ({
-  mnemonic,
-  channel,
-  operands,
-});
 
 /** Имя операции языка, которую расширяет этот модуль. */
 export const ARENA_CALL = 'система.память.выделить';
@@ -124,10 +115,21 @@ export function arenaReservedRegisters(): readonly number[] {
 
 /** Строка отказа — ДОСЛОВНО контракт исчерпания (`docs/hardware-debt.md` §3.74.2). */
 export const ARENA_REFUSAL_TEXT = 'арена исчерпана: выделение сверх предела';
-/** Код возврата отказа (наблюдаем: канал 8-битный, 231 < 256). */
-export const ARENA_REFUSAL_CODE = 231;
-/** Носитель блока отказа: вывод строки в stderr и выход с кодом. */
-export const ARENA_REFUSAL_CARRIER = 'IR.arena_refusal';
+/**
+ * Код возврата отказа (наблюдаем: канал 8-битный, 231 < 256).
+ *
+ * Число берётся у ОБЩЕГО блока отказа (`src/e2k/refusalBlock.ts`): код у арены и у коллекций один
+ * намеренно — различие несёт СТРОКА, и второй код развёл бы наблюдателя на два случая там, где
+ * случай один.
+ */
+export const ARENA_REFUSAL_CODE = REFUSAL_CODE;
+/**
+ * Носитель блока отказа: вывод строки в stderr и выход с кодом.
+ *
+ * Имя носителя — ОБЩЕЕ (`IR.refusal`), а не арены: тем же носителем пользуются коллекции, и прежнее
+ * `IR.arena_refusal` называло чужой механизм своим текстом (случай 34 реестра проверяемости).
+ */
+export const ARENA_REFUSAL_CARRIER = REFUSAL_CARRIER;
 /** Ключ статического блоба строки отказа (`src/e2k/stringPlan.ts`). */
 export const ARENA_REFUSAL_BLOB_KEY = '⟨текст отказа арены⟩';
 
@@ -170,42 +172,16 @@ export function arenaInitCarrier(): AsmInstruction {
   return { mnemonic: ARENA_INIT_CARRIER, channel: 0, operands: [imm(ARENA_BASE), imm(ARENA_LIMIT)] };
 }
 
-/** Блок отказа: два носителя, которые никто не проходит насквозь (после выхода управления нет). */
-export function arenaRefusalCarriers(address: number, byteLength: number): AsmInstruction[] {
-  return [
-    { mnemonic: ARENA_REFUSAL_CARRIER, channel: 0, operands: [imm(address), imm(byteLength)] },
-    { mnemonic: 'IR.exit', channel: 0, operands: [imm(ARENA_REFUSAL_CODE)] },
-  ];
-}
-
 /**
- * Команды блока отказа: строка в **stderr** (`STDERR_FD = 2`) и `exit(231)`.
+ * Блок отказа арены: два носителя, которые никто не проходит насквозь (после выхода управления нет).
  *
- * Строка — статический блоб (его планирует `stringPlan`), поэтому адрес приходит числом: `movtd`
- * несёт 64-битный литерал, `movts` такой константы не несёт (измерено, §3.40).
- *
- * Порядок — как у «hello» и у хвоста печати: `setbn` (окно вращаемых регистров) → аргументы →
- * `sdisp` (тег `CTPSL`) → `call`. Аргументы идут в **оконные** регистры кадра.
+ * Машинерия — ОБЩАЯ (`src/e2k/refusalBlock.ts`), и это не «похоже», а буквально один код: разойдись
+ * блоки у арены и у коллекций — наблюдатель видел бы два разных отказа там, где причина одна.
  */
-export function arenaRefusalInstructions(
-  address: number,
-  byteLength: number,
-  frame: SyscallFrame = ENTRY_SYSCALL_FRAME,
-): AsmInstruction[] {
-  return [
-    ...(frame.setbn ? [a('setbn', [imm(ARRAY_WINDOW_RSZ), imm(0), imm(0)])] : []),
-    a('movts', [imm(SYS_WRITE), window_(syscallWindowOf(frame, 0))]),
-    a('movts', [imm(STDERR_FD), window_(syscallWindowOf(frame, 1))]),
-    a('movtd', [f64(address), window_(syscallWindowOf(frame, 2))]),
-    a('movts', [imm(byteLength), window_(syscallWindowOf(frame, 3))]),
-    a('sdisp', [imm(1), imm(0)]),
-    a('call', [imm(1), imm(frame.wbs)]),
-    a('movts', [imm(SYS_EXIT), window_(syscallWindowOf(frame, 0))]),
-    a('movts', [imm(ARENA_REFUSAL_CODE), window_(syscallWindowOf(frame, 1))]),
-    a('sdisp', [imm(1), imm(0)]),
-    a('call', [imm(1), imm(frame.wbs)]),
-  ];
-}
+export const arenaRefusalCarriers = refusalCarriers;
+
+/** Команды блока отказа — тот же источник, что у носителя (разойтись нечем). */
+export const arenaRefusalInstructions = refusalInstructions;
 
 /** Команды заведения арены — тот же источник, что у носителя (разойтись нечем). */
 export function arenaPrologueInstructions(): AsmInstruction[] {
@@ -269,12 +245,9 @@ export function arenaCarrierInstructions(carrier: AsmInstruction): AsmInstructio
       return arenaLimitInstructions(destination.index);
     }
     case ARENA_REFUSAL_CARRIER: {
-      const address = operands[0];
-      const byteLength = operands[1];
-      if (address === undefined || address.kind !== 'imm' || byteLength === undefined || byteLength.kind !== 'imm') {
-        return undefined;
-      }
-      return arenaRefusalInstructions(address.value, byteLength.value, syscallFrameOfCarrier(carrier));
+      // Кадр читается у самого носителя: блок отказа у ВЫЗЫВАЕМОЙ процедуры кладёт аргументы в её
+      // оконные номера (`%r16…`), а не в `%r8…` (§3.58).
+      return refusalCarrierInstructions(carrier, syscallFrameOfCarrier(carrier));
     }
     default:
       return undefined;

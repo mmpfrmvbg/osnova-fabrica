@@ -82,7 +82,7 @@ import { REMAINDER_CARRIER, remainderInstructions } from "./remainderRuntime";
 import { callArgumentOperands } from "./shell";
 import { MAX_CALL_ARGS } from "./emitterShell";
 import { LOAD_CARRIER, STORE_CARRIER } from "./memoryAccess";
-import { COLLECTION_CALL_NAMES, lowerCollectionCall } from "./collectionsRuntime";
+import { COLLECTION_ALLOC_CARRIER, COLLECTION_CALL_NAMES, collectionAllocInstructions, lowerCollectionCall } from "./collectionsRuntime";
 import {
   EXIT_CARRIER,
   PRINT_HEAP_BY_CONVENTION,
@@ -636,6 +636,31 @@ function carrierFormWithReason(
         commands: forms.map((form) => form!),
       },
     };
+  }
+  // РАСШИРЕНИЕ КУЧИ ПОД КОЛЛЕКЦИЮ (`src/e2k/collectionsRuntime.ts#COLLECTION_ALLOC_CARRIER`): длины
+  // берутся ИЗ ТЕХ ЖЕ КОМАНД, что понижает конвейер (`collectionAllocInstructions`), — форма обязана
+  // совпасть с байтами, иначе уедут адреса переходов и вызовов (§3.35). Команды здесь ДВУХ семейств
+  // (`addd` — адресная арифметика рантайма массивов, `movts`/`sdisp`/`call` — системный вызов), и это
+  // то же разделение, что у понижения вызова: пересечение таблиц одно (`ldd`/`std`) и размеры в нём
+  // совпадают, а расхождение поймал бы оракул сверки форм.
+  if (instruction.mnemonic === COLLECTION_ALLOC_CARRIER) {
+    const capacity = instruction.operands[0];
+    const destination = instruction.operands[1];
+    const shaped = capacity?.kind === 'reg' && destination?.kind === 'reg';
+    const commands = shaped
+      ? collectionAllocInstructions(capacity.index, destination.index, syscallFrameOfCarrier(instruction))
+      : undefined;
+    const forms = commands?.map((command) => ARRAY_COMMAND_FORMS.get(command.mnemonic) ?? printCommandForm(command));
+    if (forms === undefined || forms.some((form) => form === undefined)) {
+      return {
+        failure: failureOf(
+          LOWERING_CODES.carrier,
+          `«${instruction.mnemonic}»: форму команды расширения кучи взять негде — операнды носителя ` +
+            'или команды понижения разошлись (src/e2k/collectionsRuntime.ts)',
+        ),
+      };
+    }
+    return { form: { carrier: instruction.mnemonic, commands: forms.map((form) => form!) } };
   }
   // СКЛЕЙКА СВЕРХ СТАТИЧЕСКОГО БУФЕРА (БЛОК АРЕНЫ): длины берутся ИЗ ТЕХ ЖЕ КОМАНД, что понижает
   // конвейер (`src/e2k/stringRuntime.ts#stringArenaCopyInstructions`) — форма обязана совпасть с

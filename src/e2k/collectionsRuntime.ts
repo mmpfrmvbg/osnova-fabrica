@@ -25,6 +25,42 @@
  * адреса уедут молча (класс §3.35). Импортировать их из `e2kRealRun.ts` нельзя: он сам импортирует
  * `twoPassLayout`, вышел бы цикл.
  *
+ * # ЧЕТЫРЕ ОПЕРАЦИИ, А САЙТОВ — ТРИ (и почему так)
+ *
+ * | операция | чем разворачивается | что в ней трудного |
+ * |---|---|---|
+ * | `выделить(ёмкость) → адрес` | сайт из 4 носителей | **ответ `brk` сравнивается с запрошенной границей** — иначе отказ ядра неотличим от успеха |
+ * | `положить(база, индекс, значение)` | сайт из 7 носителей | проверка границы по заголовку |
+ * | `взять(база, индекс) → значение` | тот же сайт, последний шаг — чтение | то же |
+ * | `расширить(база, новая_ёмкость) → адрес` | сайт из 15 носителей + **цикл копирования** (8) в конце потока | переезд: новый блок, копия старых элементов, заголовок с НОВОЙ ёмкостью |
+ *
+ * Сайт — не «серия команд в понижении», а **носители**: переходы внутри сайта обязаны быть видны
+ * раскладке, а она работает ДО понижения. Поэтому сайт собирается здесь картой групп, а индексы и
+ * цели переходов пересчитывает `src/e2k/procedureCall.ts#expandCarriers` — свой счётчик разошёлся бы
+ * с ним (класс §3.35).
+ *
+ * # ГДЕ ЖИВЁТ ЦИКЛ КОПИРОВАНИЯ И ПОЧЕМУ ИМЕННО ТАМ
+ *
+ * Цикл — это ОБРАТНЫЙ переход, а цель обратного перехода внутри группы носителей невыразима: у
+ * группы нет «своих» индексов, `expandCarriers` знает только индекс носителя, который группа
+ * ЗАМЕНИЛА. Поэтому цикл стоит НЕ в сайте, а В КОНЦЕ ПОТОКА (там же, где блоки отказа): его
+ * абсолютный индекс больше длины потока, и пересчёт его не трогает. Сайт заканчивается переходом на
+ * цикл, а из цикла ведёт переход на следующий носитель ЗА вызовом — уже по ИСХОДНОМУ индексу, чтобы
+ * пересчёт сдвинул его вместе с потоком.
+ *
+ * # ТРИ ПРИЧИНЫ ОТКАЗА — ТРИ ТЕКСТА
+ *
+ * Блок отказа — ОБЩАЯ машинерия (`src/e2k/refusalBlock.ts`), но текст у каждой причины СВОЙ
+ * (случай 34 реестра проверяемости: программа с ареной И коллекциями печатала текст арены на отказе
+ * коллекции). Причин у коллекций три, и путать их нельзя — «индекс вне ёмкости» на отказе `brk`
+ * уводит отладку не туда:
+ *
+ * | причина | текст |
+ * |---|---|
+ * | индекс вне ёмкости блока | `коллекция: индекс вне ёмкости блока` |
+ * | новая ёмкость не больше текущей | `коллекция: новая ёмкость не больше текущей` |
+ * | `brk` не дал запрошенную границу | `коллекция: куча не выросла — brk не дал запрошенную границу` |
+ *
  * # Регистры: что занято и что берём себе
  *
  * Рантайм массивов держит `%b[10..15]` ЦЕЛИКОМ, и это замер, а не догадка (`ARRAY_REGISTERS`):
@@ -32,7 +68,7 @@
  * | регистр | что держит | можно ли занять под временный |
  * |---|---|---|
  * | `%b[12]` | ноль | **нет** — но его можно ЧИТАТЬ (нулевое смещение адреса) |
- * | `%b[13]` | единица | нет |
+ * | `%b[13]` | единица | нет по значению, но он же — КЛЮЧ ПРЕДИКАТА сравнений (файл предикатов отдельный) |
  * | `%b[14]` | восемь | **нет** — но его можно ЧИТАТЬ (размер заголовка и элемента) |
  * | `%b[15]` | указатель кучи массивов | нет |
  * | `%b[11]`, `%b[10]` | `scratch`, `scratch2` — рантайм массивов их ПОРТИТ | **нет**: заняты, а не свободны |
@@ -51,22 +87,24 @@
  *
  * # Границы этого захода (названы заранее, а не умолчаны)
  *
- * 1. Коллекции работают **в точке входа**. Регистры `%b[12]`/`%b[14]` заводит пролог ОБРАЗА, то есть
- *    у ВЫЗЫВАЕМОЙ процедуры их никто не заводил: там свои `%b[10..15]` — это `%b[2..7]`
- *    вызывающего, чужие. Граница та же, что у рантайма массивов, и она не размывается.
- * 2. `положить`/`взять`/`расширить` в этом модуле НЕТ. Оракул владельца требует их, но носитель
- *    `IR.invoke` несёт не больше ДВУХ аргументов (`src/e2k/emitterShell.ts#MAX_CALL_ARGS`, названо в
- *    `docs/e2k-emitter-shell.md`), а `положить(база, индекс, значение)` — три. Это отдельная работа
- *    (расширение носителя), и она не смешивается с первой операцией.
+ * 1. Коллекции работают **в точке входа**. Регистры `%b[12]`/`%b[13]`/`%b[14]` заводит пролог ОБРАЗА,
+ *    то есть у ВЫЗЫВАЕМОЙ процедуры их никто не заводил: там свои `%b[8..15]` — это `%b[8..15]`
+ *    вызываемой, а `%b[2..7]` — `%b[10..15]` вызывающего. Граница та же, что у рантайма массивов, и
+ *    она не размывается: вызов коллекции в вызываемой — НАЗВАННЫЙ ОТКАЗ
+ *    ({@link collectionGroups}, поле `problems`), а не тихая порча чужого состояния.
+ * 2. Обращения к памяти коллекций идут `ldd`/`std` — то есть **32-битной адресацией** при 64-битном
+ *    адресе: это названный долг (§3.98.7), а не умолчание. Цена сегодняшняя: куча живёт ниже 2 ГиБ.
  */
 
 import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ, RESERVED_FROM } from './arrayRuntime';
 import { SYS_BRK } from './memoryRuntime';
+import { LOWERING_CODES, LoweringRefusalError } from './loweringRefusal';
 import { ENTRY_SYSCALL_FRAME, syscallWindowOf, type SyscallFrame } from './syscallRuntime';
 import { COLLECTION_ARITY } from '../runtime/vm/collectionCalls';
 import { callArgumentOperands } from './shell';
 import { LOAD_CARRIER, STORE_CARRIER } from './memoryAccess';
+import { REFUSAL_BLOCK_SIZE, refusalCarriers, type RefusalBlob } from './refusalBlock';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 const imm = (value: number): Operand => ({ kind: 'imm', value });
@@ -84,13 +122,6 @@ const addd = (src1: number, src2: number, dst: number): AsmInstruction => ({
   operands: [reg(src1), reg(src2), reg(dst)],
 });
 
-/** `std значение, база, смещение` — порядок операндов текстовый (измерено: `.tmp/std-order.ts`). */
-const std = (value: number, base: number, offset: number): AsmInstruction => ({
-  mnemonic: 'std',
-  channel: 2, // `st*` разрешены только в каналах 2 и 5 (opcodes/e2k-opc.h:969-984)
-  operands: [reg(value), reg(base), reg(offset)],
-});
-
 /** Отказ рантайма коллекций: причина называется, а не замалчивается. */
 export class CollectionRuntimeRefusal extends Error {
   constructor(message: string) {
@@ -99,36 +130,82 @@ export class CollectionRuntimeRefusal extends Error {
   }
 }
 
-/** Операции языка, которые этот рантайм умеет заменять настоящими обращениями к памяти. */
-export const SUPPORTED_COLLECTION_CALLS: readonly string[] = ['система.коллекция.выделить'];
+/** Имена операций — ОДНИМ источником: по ним и признак «образ пользуется коллекциями», и диспетчер. */
+export const COLLECTION_CALLS = {
+  allocate: 'система.коллекция.выделить',
+  put: 'система.коллекция.положить',
+  take: 'система.коллекция.взять',
+  resize: 'система.коллекция.расширить',
+} as const;
+
+/** Имя операции коллекций — из подписи владельца (§3.95.3), четыре штуки. */
+export type CollectionCallName = (typeof COLLECTION_CALLS)[keyof typeof COLLECTION_CALLS];
 
 /**
  * ВСЕ имена коллекций, известные языку, — а не только развёрнутые.
  *
- * Различие существенно для диагностики: `взять` и `расширить` развёрнуты ещё НЕТ, и отказ обязан
- * назвать ЭТУ причину. Пока диспетчер узнавал только развёрнутые имена, `система.коллекция.взять`
- * уходил в рантайм МАССИВОВ, и отказ говорил «у рантайма массивов нет такой операции» — верное по
- * букве и ЛОЖНОЕ по существу: причина не в массивах, а в том, что операция коллекций ещё не
- * развёрнута. Такую причину следующая сессия ищет заново (замер: оракул владельца, контроль 1).
+ * Различие существенно для диагностики: пока диспетчер узнавал только развёрнутые имена,
+ * `система.коллекция.взять` уходил в рантайм МАССИВОВ, и отказ говорил «у рантайма массивов нет такой
+ * операции» — верное по букве и ЛОЖНОЕ по существу. Второй источник здесь не заводится: список
+ * берётся у арности, которую читает и эталон (`src/runtime/vm/collectionCalls.ts`).
  */
 export const COLLECTION_CALL_NAMES: readonly string[] = Object.keys(COLLECTION_ARITY);
 
 /**
+ * Операции, которые этот рантайм разворачивает в настоящие обращения к памяти.
+ *
+ * Все четыре, и НИ ОДНА не понижается «в одно место»: `положить`/`взять` — сайтом из 7 носителей,
+ * `выделить` — сайтом из 4 (проверка ответа `brk` — это переход), `расширить` — сайтом из 15 плюс
+ * цикл копирования. Поэтому имя списка означает «операции обслуживаются», а не «понижаются одной
+ * серией команд» ({@link lowerCollectionCall} это и говорит, когда носитель дошёл до него).
+ */
+export const SUPPORTED_COLLECTION_CALLS: readonly string[] = Object.values(COLLECTION_CALLS);
+
+/**
  * Строка отказа при выходе за границу — ОДНА на цель и на эталон, как у арены.
  *
- * Код возврата берётся у арены (ARENA_REFUSAL_CODE = 231) НАМЕРЕННО: владелец назвал приёмку
- * «названный отказ через status+stderr (как арена, код 231)», и второй код для того же класса
+ * Код возврата берётся у ОБЩЕГО блока отказа (`REFUSAL_CODE` = 231) НАМЕРЕННО: владелец назвал
+ * приёмку «названный отказ через status+stderr (как арена, код 231)», и второй код для того же класса
  * отказа развёл бы наблюдателя на два случая там, где случай один.
  */
 export const COLLECTION_REFUSAL_TEXT = 'коллекция: индекс вне ёмкости блока';
 
 /**
- * Арность — ИЗ ОДНОГО ИСТОЧНИКА С ЭТАЛОНОМ (`src/runtime/vm/collectionCalls.ts`).
+ * Отказ РАСШИРЕНИЯ: новая ёмкость не больше текущей.
  *
- * Второй таблицы здесь нет намеренно: разойдись арность у цели и у VM — вызов с неверным числом
- * аргументов понижался бы на одной стороне и отвергался на другой, и это не отказ, а расхождение
- * двух эталонов. Там же объяснено, ПОЧЕМУ арность едет `extraInvokes`, а не реестром языка.
+ * Отдельный текст, а не общий с индексом: «индекс вне ёмкости» на этой причине — ЛОЖНАЯ диагностика
+ * (случай 28 в одежде случая 34). Расширять некуда — это свойство ОПЕРАЦИИ, и наблюдатель обязан
+ * видеть именно его.
  */
+export const COLLECTION_CAPACITY_REFUSAL_TEXT = 'коллекция: новая ёмкость не больше текущей';
+
+/**
+ * Отказ ПАМЯТИ: `brk` не дал запрошенную границу (ответ ядра меньше запрошенного — в том числе
+ * `-ENOMEM`).
+ *
+ * Здесь же живёт и ответ на вопрос «почему не молчание»: до этой проверки отказ ядра был НЕОТЛИЧИМ от
+ * успеха — блок «выделялся» по адресу, которого нет, и первая же запись в заголовок уходила за
+ * границу кучи.
+ */
+export const COLLECTION_BRK_REFUSAL_TEXT = 'коллекция: куча не выросла — brk не дал запрошенную границу';
+
+/** Тексты по причинам — и это ОДИН источник для планирования блобов и для блоков отказа. */
+export const COLLECTION_REFUSAL_TEXTS = {
+  index: COLLECTION_REFUSAL_TEXT,
+  capacity: COLLECTION_CAPACITY_REFUSAL_TEXT,
+  memory: COLLECTION_BRK_REFUSAL_TEXT,
+} as const;
+
+/** Причина отказа коллекций: `index` — граница блока, `capacity` — переезд, `memory` — ответ `brk`. */
+export type CollectionRefusalKind = keyof typeof COLLECTION_REFUSAL_TEXTS;
+
+/**
+ * Порядок причин — ОДИН на всё: по нему планируются блобы строк, по нему же раскладываются блоки
+ * отказа. Второй порядок разошёлся бы с первым, и переход уехал бы в чужой текст (класс §3.35).
+ */
+export const COLLECTION_REFUSAL_KINDS: readonly CollectionRefusalKind[] = ['index', 'capacity', 'memory'];
+
+/** Арность — ИЗ ОДНОГО ИСТОЧНИКА С ЭТАЛОНОМ (`src/runtime/vm/collectionCalls.ts`). */
 const ARITY: Readonly<Record<string, number>> = COLLECTION_ARITY;
 
 /** Размер слова заголовка и элемента — читается у рантайма массивов, а не заводится вторым числом. */
@@ -140,14 +217,31 @@ export const COLLECTION_ZERO_REGISTER = ARRAY_REGISTERS.zero;
  * Регистры, которые рантайм коллекций держит САМ, — регистры окна системного вызова.
  *
  * Берутся из кадра, а не из чисел: `%b[8]` и `%b[9]` — это `система.коллекция` лишь потому, что
- * `fram`e` вызова такой. Смена кадра (например, выращенное окно процедуры) обязана тянуть за собой и
+ * `frame` вызова такой. Смена кадра (например, выращенное окно процедуры) обязана тянуть за собой и
  * этот список, иначе раскладка отдаст эти регистры под значение, и номер вызова затрёт чужое.
+ *
+ * ОТВЕТ `brk` и ЗАПРОШЕННАЯ ГРАНИЦА живут ровно здесь же: `brk` кладёт ответ в оконный ноль кадра, а
+ * граница считается во втором оконном регистре — поэтому проверка ответа не требует ни одного
+ * регистра сверх уже закреплённых.
  */
 export function collectionReservedRegisters(frame: SyscallFrame = ENTRY_SYSCALL_FRAME): readonly number[] {
-  // Номер вызова и первый аргумент — ровно те два, которыми пользуется `brk`. Больше рантайму
-  // коллекций ничего не нужно: адрес считается в первом аргументе, ответ читается из нулевого.
   return [syscallWindowOf(frame, 0), syscallWindowOf(frame, 1)];
 }
+
+/**
+ * Регистры кадра, которые трогает РАСШИРЕНИЕ КУЧИ: ОТВЕТ `brk` и ЗАПРОШЕННАЯ ГРАНИЦА.
+ *
+ * Знает о них не только понижение, но и сопоставление пар (`src/e2k/predicatePairing.ts`): сравнение
+ * «ответ < запрошенного» читает ИМЕННО их, и носитель без этой записи был бы барьером — пара не
+ * составилась бы, и проверка ответа `brk` осталась бы без предиката (отказ `OSN-LOW-004`).
+ *
+ * Числа — кадра ТОЧКИ ВХОДА, и это не произвол: сайты коллекций строит `collectionGroups` именно в
+ * нём (коллекции живут в точке входа, граница названа в шапке).
+ */
+export const COLLECTION_FRAME_REGISTERS: readonly number[] = [
+  syscallWindowOf(ENTRY_SYSCALL_FRAME, 0),
+  syscallWindowOf(ENTRY_SYSCALL_FRAME, 1),
+];
 
 /** Пользуется ли образ коллекциями — по имени вызова в потоке носителей. */
 export function usesCollections(
@@ -159,7 +253,7 @@ export function usesCollections(
   return code.some((carrier) => {
     if (carrier.mnemonic !== 'IR.invoke') return false;
     const payload = carrier.operands[3];
-    // ИМЕНА ВСЕ, А НЕ ТОЛЬКО РАЗВЁРНУТЫЕ: сайт положить/взять собирается из носителей и
+    // ИМЕНА ВСЕ, А НЕ ТОЛЬКО РАЗВЁРНУТЫЕ: сайт `положить`/`взять` собирается из носителей и
     // системного вызова не делает, но резерв обязан быть взят и под него — иначе признак
     // «образ пользуется коллекциями» не сработал бы, и сайт остался бы без своих регистров.
     return (
@@ -170,12 +264,47 @@ export function usesCollections(
   });
 }
 
+/** Какая операция у носителя — по ИМЕНИ из таблицы образа, а не по тексту программы. */
+function callNameOf(carrier: AsmInstruction, invokeNames: readonly string[]): string | undefined {
+  if (carrier.mnemonic !== 'IR.invoke') return undefined;
+  const payload = carrier.operands[3];
+  if (payload === undefined || payload.kind !== 'imm') return undefined;
+  return invokeNames[payload.value];
+}
+
+/**
+ * Какие тексты отказа нужны ЭТОМУ потоку — по операциям, которые в нём есть.
+ *
+ * Один источник и для планирования блобов, и для раскладки блоков: если бы список причин считался
+ * дважды (в конвейере и здесь), блоки и переходы разошлись бы молча (класс §3.35).
+ */
+export function collectionRefusalKinds(
+  code: readonly AsmInstruction[],
+  invokeNames: readonly string[],
+): readonly CollectionRefusalKind[] {
+  const needed = new Set<CollectionRefusalKind>();
+  for (const carrier of code) {
+    const name = callNameOf(carrier, invokeNames);
+    if (name === COLLECTION_CALLS.put || name === COLLECTION_CALLS.take) needed.add('index');
+    if (name === COLLECTION_CALLS.resize) needed.add('capacity');
+    if (name === COLLECTION_CALLS.allocate || name === COLLECTION_CALLS.resize) needed.add('memory');
+  }
+  return COLLECTION_REFUSAL_KINDS.filter((kind) => needed.has(kind));
+}
+
 /**
  * `brk(адрес)` — новое значение границы кучи; `brk(0)` возвращает текущее.
  *
- * Ряд — **измеренный** (§3.94): `movts` номера → `adds` аргумента → `sdisp` → `call` → чтение ответа из
- * оконного нуля. Отличие от `memoryRuntime.brkInstructions` одно и оно названо в шапке модуля:
+ * Ряд — **измеренный** (§3.94): `movts` номера → кладка аргумента → `sdisp` → `call` → чтение ответа
+ * из оконного нуля. Отличие от `memoryRuntime.brkInstructions` одно и оно названо в шапке модуля:
  * слагаемым идёт регистр нуля рантайма массивов, а не `%b[0]`.
+ *
+ * И АРГУМЕНТ, И ОТВЕТ ИДУТ `addd`, А НЕ `adds` (правка 2026-10-03), и это не стиль: `adds` — форма
+ * `S`, то есть пишет только МЛАДШУЮ половину приёмника, а старшая остаётся ПРЕЖНЕЙ. Для `brk(0)` это
+ * значило бы мусор в старших разрядах ЗАПРОСА, если в оконном регистре до этого лежала большая
+ * граница (её считает `addd`-цепочка и она же уходит в тот же регистр); для ответа — мусор в старших
+ * разрядах АДРЕСА БЛОКА. `addd` пишет обе половины, а оконный приёмник у него кодируется (замер
+ * `.tmp/probe-addd-window.ts`: `addd %b[9], %b[12], %r9` → 8 байт, `01 00 00 04 89 0c 09 11`).
  *
  * `setbn` ставится как в измеренном образце: пролог образа даёт `rsz = 7`, и повторная та же
  * `setbn` — не сужение окна (сузила бы `rsz = 5`: `%b[11]` и `%b[12]` перестали бы адресоваться).
@@ -189,17 +318,17 @@ export function brkInstructions(options: {
   return [
     ...(frame.setbn ? [a('setbn', [imm(ARRAY_WINDOW_RSZ), imm(0), imm(0)])] : []),
     a('movts', [imm(SYS_BRK), window_(syscallWindowOf(frame, 0))]),
-    a('adds', [reg(options.address), reg(COLLECTION_ZERO_REGISTER), window_(syscallWindowOf(frame, 1))]),
+    a('addd', [reg(options.address), reg(COLLECTION_ZERO_REGISTER), window_(syscallWindowOf(frame, 1))]),
     a('sdisp', [imm(1), imm(0)]),
     a('call', [imm(1), imm(frame.wbs)]),
     // Ответ ядра лежит в оконном нуле ВЫЗЫВАЮЩЕГО (`linux-user/e2k/cpu_loop.c`), а `call` сдвигает
     // окно на `2·wbs` — значит читается он базовой формой из `%b[2·wbs]`, то есть из `frame.base`.
-    a('movts', [reg(frame.base), reg(options.result)]),
+    a('addd', [reg(frame.base), reg(COLLECTION_ZERO_REGISTER), reg(options.result)]),
   ];
 }
 
 /**
- * `выделить(ёмкость) → база`: блок из заголовка и `ёмкость` элементов.
+ * РАСШИРЕНИЕ КУЧИ: блок из заголовка и `ёмкость` элементов, БЕЗ записи заголовка.
  *
  * ПОРЯДОК ЗДЕСЬ — ЧАСТЬ СМЫСЛА, а не стиль:
  *
@@ -207,15 +336,15 @@ export function brkInstructions(options: {
  * 2. Граница блока считается как `база + 8 + ёмкость·8` **в регистре-аргументе системного вызова**:
  *    второго временного регистра не нужно, потому что `×8` идёт удвоением `addd` с приёмником в
  *    конце цепочки, а не с отдельной копией входа.
- * 3. `brk(граница)` — РАСШИРЕНИЕ, и только после него пишется заголовок: до расширения `[база]` лежит
- *    за границей кучи, и запись туда — порча чужой памяти, а не заголовок.
- * 4. Заголовок — `ёмкость` в первые 8 байт. Он пишется ПЕРВЫМ словом блока, потому что `положить` и
- *    `взять` смогут узнать ёмкость только отсюда.
+ * 3. `brk(граница)` — РАСШИРЕНИЕ, и его ОТВЕТ остаётся в оконном нуле кадра: его сравнивает с
+ *    запрошенной границей САЙТ (`collectionAllocSiteCarriers`). Заголовок пишется только ПОСЛЕ этой
+ *    проверки: до неё `[база]` лежит за границей кучи, и запись туда — порча чужой памяти, а не
+ *    заголовок.
  *
  * `ёмкость × 8` — тремя `addd` (удвоение), а не `shls`: `shls` в таблице МЦСТ есть, но прогоном не
  * проверен, а удвоение проверено (`arrayRuntime.ts`, шапка).
  */
-export function allocateInstructions(
+export function collectionAllocInstructions(
   capacity: number,
   destination: number,
   frame: SyscallFrame = ENTRY_SYSCALL_FRAME,
@@ -233,13 +362,20 @@ export function allocateInstructions(
     addd(argument, argument, argument),
     addd(argument, COLLECTION_WORD_REGISTER, argument),
     addd(argument, destination, argument),
-    // 3. Расширение кучи до границы блока.
+    // 3. Расширение кучи до границы блока. ОТВЕТ не перекладывается: он уже в `answer`, и оттуда его
+    //    читает проверка сайта. Заголовок пишет сайт — ПОСЛЕ проверки (см. `collectionAllocSiteCarriers`).
     ...brkInstructions({ address: argument, result: answer, frame }),
-    // 4. Заголовок: ёмкость в первые 8 байт блока. Смещение — РЕГИСТР нуля, как у рантайма массивов
-    //    (`std(scratch2, registers[0], zero)`): форма `std` берёт смещение регистром.
-    std(capacity, destination, COLLECTION_ZERO_REGISTER),
   ];
 }
+
+/**
+ * Носитель САЙТА ВЫДЕЛЕНИЯ: `brk`-расширение кучи как ОДИН носитель.
+ *
+ * Операнды: `[ёмкость, приёмник]`. Расширяется он в {@link collectionAllocInstructions} — то есть в
+ * те же команды, что раньше выпускало понижение, — и это не совпадение, а требование: форму (байты)
+ * раскладка берёт ОТТУДА ЖЕ (`src/e2k/twoPassLayout.ts`).
+ */
+export const COLLECTION_ALLOC_CARRIER = 'IR.collection_alloc';
 
 /**
  * ТЕМПОРАЛЬНЫЕ РЕГИСТРЫ САЙТА — из полосы рантайма массивов (`%b[10..15]`).
@@ -253,8 +389,8 @@ export function allocateInstructions(
  * |---|---|---|
  * | `%b[12]` | ноль | читается (смещение формы памяти) |
  * | `%b[14]` | восемь | читается (шаг элемента и адрес заголовка) |
- * | `%b[10]` | `scratch2` | **ёмкость**, прочитанная из заголовка |
- * | `%b[11]` | `scratch` | **адрес элемента** |
+ * | `%b[10]` | `scratch2` | **ёмкость**, прочитанная из заголовка; в цикле — приёмник копии |
+ * | `%b[11]` | `scratch` | **адрес элемента**; в цикле — сам элемент |
  * | `%b[13]` | единица | **ключ сравнения** (предикат) |
  *
  * Сайт держит их ВНУТРИ себя: ни одно значение не переживает сайт, поэтому соседний сайт массива
@@ -264,11 +400,100 @@ export const COLLECTION_CAPACITY_REGISTER = 10;
 export const COLLECTION_ADDRESS_REGISTER = 11;
 export const COLLECTION_KEY_REGISTER = 13;
 
-/** Размер сайта в носителях — ОДИН на обе операции, и это не совпадение, а требование счёта. */
+/**
+ * Регистры ЦИКЛА КОПИРОВАНИЯ — четыре, и все четыре уже наши.
+ *
+ * `источник` и `конец` — регистры окна системного вызова: они закреплены за рантаймом коллекций
+ * ({@link collectionReservedRegisters}), а после проверки ответа `brk` в них уже нечего хранить.
+ * `приёмник` и `элемент` — временные полосы массивов. Ни один регистр сверх закреплённых не нужен —
+ * и это не украшение: каждый лишний пришлось бы отнимать у программы.
+ */
+export const COLLECTION_COPY_SOURCE_REGISTER = syscallWindowOf(ENTRY_SYSCALL_FRAME, 0);
+export const COLLECTION_COPY_END_REGISTER = syscallWindowOf(ENTRY_SYSCALL_FRAME, 1);
+export const COLLECTION_COPY_TARGET_REGISTER = COLLECTION_CAPACITY_REGISTER;
+export const COLLECTION_COPY_ELEMENT_REGISTER = COLLECTION_ADDRESS_REGISTER;
+
+/** Размер сайта чтения/записи в носителях — ОДИН на обе операции, и это не совпадение, а требование счёта. */
 const SITE_SIZE = 7;
+/** Размер сайта выделения: `brk`-носитель, сравнение, переход, заголовок. */
+const ALLOC_SITE_SIZE = 4;
+/** Размер сайта переезда: чтение ёмкости, две проверки, `brk`, заголовок, подготовка цикла, переход. */
+const RESIZE_SITE_SIZE = 15;
+/** Размер цикла копирования в носителях. */
+const LOOP_SIZE = 8;
+
+/** Операция, у которой есть САЙТ. */
+export type CollectionSiteKind = 'выделить' | 'положить' | 'взять' | 'расширить';
+
+/** Размер каждого сайта — ОДНИМ источником: по нему считаются абсолютные индексы хвоста потока. */
+const SITE_SIZES: Readonly<Record<CollectionSiteKind, number>> = {
+  выделить: ALLOC_SITE_SIZE,
+  положить: SITE_SIZE,
+  взять: SITE_SIZE,
+  расширить: RESIZE_SITE_SIZE,
+};
 
 /**
- * САЙТ ОПЕРАЦИИ: проверка границы и обращение по вычисленному адресу.
+ * САЙТ ВЫДЕЛЕНИЯ: `brk`-расширение, ПРОВЕРКА ОТВЕТА и заголовок.
+ *
+ * | шаг | носитель | что делает |
+ * |---|---|---|
+ * | 1 | `IR.collection_alloc` | `brk(0)` → приёмник; граница → оконный аргумент; `brk(граница)`; ответ → оконный ноль |
+ * | 2 | `IR.ne [ключ, ответ, граница]` | «ответ НЕ РАВЕН запрошенной границе» — условие КАК ЕСТЬ |
+ * | 3 | `IR.jmp_if [ключ, отказ]` | переход, если условие истинно (ядро не дало границу) |
+ * | 4 | `IR.store [ёмкость, приёмник]` | заголовок блока: ёмкость в первые 8 байт |
+ *
+ * ПОЧЕМУ ПРОВЕРКА, А НЕ НАДЕЖДА: `brk` возвращает новую границу при успехе, и прежнюю (или `-ENOMEM`)
+ * при отказе. Без сравнения «успех» и «отказ ядра» неотличимы: программа получает адрес, которого
+ * нет, пишет в него заголовок — и падает исключением модели там, где обязан быть названный отказ.
+ *
+ * ПОЧЕМУ `NE`, А НЕ `LT`: успешный рост возвращает РОВНО запрошенное (измерено
+ * `.tmp/probe-brk-limit.ts` на запросе `8192 + 0x1234` — сдвиг ровно на неё, без округления к
+ * странице). Значит контракт — равенство, и `NE` ловит ОБЕ стороны расхождения: и `-ENOMEM`
+ * (`answer < запрошенного`), и отказ на уменьшение, когда ядро оставляет прежнюю границу
+ * (`answer > запрошенного`).
+ *
+ * ГДЕ ЭТО НАБЛЮДАЕТСЯ (замер 2026-10-03, `.tmp/probe-huge-alloc.ts`, прогон настоящих программ):
+ *
+ * | ёмкость | сдвиг границы | наблюдение |
+ * |---|---|---|
+ * | `2^24` | 128 МиБ | отказ НЕ срабатывает, программа кончается своим выходом |
+ * | `2^28` | 2 ГиБ | **отказ СРАБАТЫВАЕТ**: код 231 и текст «куча не выросла — brk не дал запрошенную границу» |
+ *
+ * То есть сторона «проверка срабатывает» достижима НАСТОЯЩЕЙ программой, и подмены регистров для
+ * этого не нужно.
+ *
+ * ЗАГОЛОВОК — ПОСЛЕ ПРОВЕРКИ. Это не порядок ради порядка: до неё запись по `[база]` уходит за
+ * границу кучи, то есть в память, которой у программы нет.
+ */
+export function collectionAllocSiteCarriers(
+  capacity: number,
+  destination: number,
+  memoryRefusal: number,
+  frame: SyscallFrame = ENTRY_SYSCALL_FRAME,
+): AsmInstruction[] {
+  return [
+    {
+      mnemonic: COLLECTION_ALLOC_CARRIER,
+      channel: 0,
+      operands: [reg(capacity), reg(destination)],
+    },
+    {
+      mnemonic: 'IR.ne',
+      channel: 0,
+      operands: [
+        reg(COLLECTION_KEY_REGISTER),
+        reg(syscallWindowOf(frame, 0)),
+        reg(syscallWindowOf(frame, 1)),
+      ],
+    },
+    { mnemonic: 'IR.jmp_if', channel: 0, operands: [reg(COLLECTION_KEY_REGISTER), imm(memoryRefusal)] },
+    { mnemonic: STORE_CARRIER, channel: 0, operands: [reg(capacity), reg(destination)] },
+  ];
+}
+
+/**
+ * САЙТ ОПЕРАЦИИ ЧТЕНИЯ/ЗАПИСИ: проверка границы и обращение по вычисленному адресу.
  *
  * Ряд — тот же приём, что у арены (`arenaSiteCarriers`): сравнение и переход идут ПАРОЙ, и цель
  * перехода считает `expandCarriers`, а не понижение. Понижение работает ПОСЛЕ раскладки и индекса
@@ -326,64 +551,345 @@ export function collectionSiteCarriers(
   return site;
 }
 
-/** Операции, у которых есть САЙТ (остальные разворачиваются прямо в понижении, как `выделить`). */
-export const COLLECTION_SITE_CALLS: readonly string[] = ['система.коллекция.положить', 'система.коллекция.взять'];
-
-/** Сколько сайтов в потоке — по именам вызовов, а не по тексту программы. */
-function siteKindsOf(
-  code: readonly AsmInstruction[],
-  invokeNames: readonly string[],
-): readonly ('положить' | 'взять')[] {
-  const kinds: ('положить' | 'взять')[] = [];
-  for (const carrier of code) {
-    if (carrier.mnemonic !== 'IR.invoke') continue;
-    const payload = carrier.operands[3];
-    if (payload === undefined || payload.kind !== 'imm') continue;
-    const name = invokeNames[payload.value];
-    if (name === 'система.коллекция.положить') kinds.push('положить');
-    if (name === 'система.коллекция.взять') kinds.push('взять');
+/**
+ * САЙТ ПЕРЕЕЗДА: `расширить(база, новая_ёмкость) → адрес`.
+ *
+ * | шаг | носитель | что делает |
+ * |---|---|---|
+ * | 1 | `IR.load [база, %b[10]]` | текущая ёмкость из заголовка СТАРОГО блока |
+ * | 2–3 | `IR.lt`, `IR.jmp_if_not` | «текущая < новая» — иначе НАЗВАННЫЙ отказ (свой текст) |
+ * | 4–7 | сайт выделения | новый блок, проверка ответа `brk`, заголовок = НОВАЯ ёмкость |
+ * | 8–9 | `IR.add` ×2 | `источник = новая база + 8`, `приёмник = новая база + 8` |
+ * | 10–13 | `IR.add` ×4 | `конец = старая база + 8 + текущая_ёмкость·8` |
+ * | 14 | `IR.jmp [цикл]` | переход в цикл копирования (в конце потока) |
+ *
+ * ПОЧЕМУ КОНЕЦ СЧИТАЕТСЯ ОТ СТАРОЙ БАЗЫ, А НЕ ОТ ДЛИНЫ: длина копии — ТЕКУЩАЯ ЁМКОСТЬ, а она лежит в
+ * заголовке и на сборке неизвестна. Указатель конца — единственный способ обойтись без счётчика:
+ * сравнивать указатели (`источник < конец`) умеет `IR.lt`, а «сколько осталось» пришлось бы считать
+ * ещё одним регистром.
+ */
+export function collectionResizeSiteCarriers(
+  base: number,
+  newCapacity: number,
+  destination: number,
+  refusal: { readonly capacity: number; readonly memory: number },
+  loopIndex: number,
+  frame: SyscallFrame = ENTRY_SYSCALL_FRAME,
+): AsmInstruction[] {
+  const capacity = COLLECTION_CAPACITY_REGISTER;
+  const source = COLLECTION_COPY_SOURCE_REGISTER;
+  const end = COLLECTION_COPY_END_REGISTER;
+  const target = COLLECTION_COPY_TARGET_REGISTER;
+  const eight = COLLECTION_WORD_REGISTER;
+  const key = COLLECTION_KEY_REGISTER;
+  const site: AsmInstruction[] = [
+    { mnemonic: LOAD_CARRIER, channel: 0, operands: [reg(base), reg(capacity)] },
+    { mnemonic: 'IR.lt', channel: 0, operands: [reg(key), reg(capacity), reg(newCapacity)] },
+    { mnemonic: 'IR.jmp_if_not', channel: 0, operands: [reg(key), imm(refusal.capacity)] },
+    ...collectionAllocSiteCarriers(newCapacity, destination, refusal.memory, frame),
+    // РАЗДЕЛЕНИЕ ТРУДА С ЦИКЛОМ: сайт готовит указатели, цикл только копирует. Так у цикла три
+    // входа-регистра и ни одного лишнего вычисления на каждой итерации.
+    //
+    // ИСТОЧНИК ИДЁТ ОТ СТАРОЙ БАЗЫ, приёмник — от новой: перепутать их значит скопировать блок в
+    // СЕБЯ (и `источник < конец` окажется ложью сразу — цикл не сделает ни одного шага, а программа
+    // промолчит: адрес верный, блок новый, элементы пусты).
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(source), reg(base), reg(eight)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(end), reg(capacity), reg(capacity)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(end), reg(end), reg(end)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(end), reg(end), reg(end)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(end), reg(end), reg(eight)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(end), reg(end), reg(base)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(target), reg(destination), reg(eight)] },
+    { mnemonic: 'IR.jmp', channel: 0, operands: [imm(loopIndex)] },
+  ];
+  if (site.length !== RESIZE_SITE_SIZE) {
+    throw new CollectionRuntimeRefusal(
+      `сайт «расширить» длиной ${String(site.length)}, а счёт обещает ${String(RESIZE_SITE_SIZE)} — ` +
+        'абсолютные индексы хвоста потока считались бы неверно',
+    );
   }
-  return kinds;
+  return site;
+}
+
+/**
+ * ЦИКЛ КОПИРОВАНИЯ — ВОСЕМЬ носителей, и живёт он В КОНЦЕ ПОТОКА (почему — в шапке модуля).
+ *
+ * | шаг | носитель | что делает |
+ * |---|---|---|
+ * | 0–1 | `IR.lt [ключ, источник, конец]`, `IR.jmp_if_not [ключ, выход]` | «скопировано всё?» |
+ * | 2 | `IR.load [источник, элемент]` | элемент из СТАРОГО блока |
+ * | 3 | `IR.store [элемент, приёмник]` | он же в НОВЫЙ блок |
+ * | 4–5 | `IR.add` ×2 | оба указателя — на слово вперёд |
+ * | 6 | `IR.jmp [начало]` | назад, на шаг 0 |
+ * | 7 | `IR.jmp [продолжение]` | за цикл: следующий носитель ЗА ВЫЗОВОМ |
+ *
+ * ВЫХОД ИЗ ЦИКЛА — ПЕРЕХОДОМ, а не «провалом»: за циклом стоит область блоков отказа, и провал в неё
+ * означал бы, что успешный переезд печатает отказ.
+ *
+ * @param loopIndex абсолютный индекс первого носителя цикла (он же — цель обратного перехода)
+ * @param continuation индекс носителя, с которого программа продолжается
+ */
+export function collectionCopyLoopCarriers(loopIndex: number, continuation: number): AsmInstruction[] {
+  const source = COLLECTION_COPY_SOURCE_REGISTER;
+  const end = COLLECTION_COPY_END_REGISTER;
+  const target = COLLECTION_COPY_TARGET_REGISTER;
+  const element = COLLECTION_COPY_ELEMENT_REGISTER;
+  const eight = COLLECTION_WORD_REGISTER;
+  const key = COLLECTION_KEY_REGISTER;
+  const loop: AsmInstruction[] = [
+    { mnemonic: 'IR.lt', channel: 0, operands: [reg(key), reg(source), reg(end)] },
+    { mnemonic: 'IR.jmp_if_not', channel: 0, operands: [reg(key), imm(loopIndex + LOOP_SIZE - 1)] },
+    { mnemonic: LOAD_CARRIER, channel: 0, operands: [reg(source), reg(element)] },
+    { mnemonic: STORE_CARRIER, channel: 0, operands: [reg(element), reg(target)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(source), reg(source), reg(eight)] },
+    { mnemonic: 'IR.add', channel: 0, operands: [reg(target), reg(target), reg(eight)] },
+    { mnemonic: 'IR.jmp', channel: 0, operands: [imm(loopIndex)] },
+    { mnemonic: 'IR.jmp', channel: 0, operands: [imm(continuation)] },
+  ];
+  if (loop.length !== LOOP_SIZE) {
+    throw new CollectionRuntimeRefusal(
+      `цикл копирования длиной ${String(loop.length)}, а счёт обещает ${String(LOOP_SIZE)} — ` +
+        'цели переходов хвоста потока считались бы неверно',
+    );
+  }
+  return loop;
+}
+
+/** Что построилось по потоку носителей: группы для `expandCarriers`, счёт сайтов и НАЗВАННЫЕ причины. */
+export interface CollectionPlan {
+  readonly groups: ReadonlyMap<number, readonly AsmInstruction[]>;
+  /** Сколько сайтов построено — для отчёта и сторожей. */
+  readonly sites: number;
+  /** Сколько блоков отказа дописано — их число входит в длину хвоста потока. */
+  readonly blocks: number;
+  /**
+   * Причины, по которым сайт НЕ построен: их кладёт в отказы понижения конвейер
+   * (`src/e2k/programImage.ts`). Отказ здесь НАЗВАН, а не пропущен молча: пропущенный сайт оставил бы
+   * вызов в потоке, и он ушёл бы в понижение как «операция не развёрнута» — верное по букве и ЛОЖНОЕ
+   * по причине.
+   */
+  readonly problems: readonly string[];
+}
+
+/** Что нужно знать сборке сайтов, кроме самого потока. */
+export interface CollectionPlanOptions {
+  /** Тексты отказов по причинам: их планирует `stringPlan`, сюда приходят адрес и длина. */
+  readonly refusals?: Partial<Record<CollectionRefusalKind, RefusalBlob>>;
+  /**
+   * ГРАНИЦА ТОЧКИ ВХОДА: диапазон носителей `[from, to)`, где сайты вообще возможны.
+   *
+   * Коллекции живут в точке входа, и это не удобство, а следствие регистров: пролог ОБРАЗА заводит
+   * `%b[12]`/`%b[13]`/`%b[14]`, а у вызываемой процедуры этих значений нет — там свои `%b[8..15]`.
+   * Вызов коллекции в вызываемой обязан быть ОТКАЗОМ, а не тихой порчей чужого состояния.
+   */
+  readonly entryRange?: { readonly from: number; readonly to: number };
 }
 
 /**
  * ГРУППЫ САЙТОВ — тем же приёмом, что у арены (`arenaGroups`): картой групп, а не готовым потоком.
  *
  * Индексы и цели переходов пересчитывает `expandCarriers` (`src/e2k/procedureCall.ts`): свой счётчик
- * разошёлся бы с ним (класс §3.35). Блок отказа дописывается СНАРУЖИ — как у арены, — и его индекс
- * равен длине потока ПОСЛЕ расширения: сайт длиной 7 заменяет один носитель, то есть +6 на сайт.
+ * разошёлся бы с ним (класс §3.35).
+ *
+ * ХВОСТ ПОТОКА (циклы копирования и блоки отказа) дописывается СНАРУЖИ — группой последнего носителя,
+ * как у арены. Его абсолютные индексы БОЛЬШЕ длины потока, поэтому пересчёт их не трогает; цели же на
+ * носители ВНУТРИ потока выражаются ИСХОДНЫМИ индексами, и пересчёт сдвигает их вместе с потоком.
+ * Оба свойства — не совпадение, а то, на чём держится вся эта раскладка.
  */
 export function collectionGroups(
   code: readonly AsmInstruction[],
   invokeNames: readonly string[],
-): { readonly groups: ReadonlyMap<number, readonly AsmInstruction[]>; readonly sites: number; readonly refusalIndex: number } {
-  const kinds = siteKindsOf(code, invokeNames);
-  const refusalIndex = code.length + (SITE_SIZE - 1) * kinds.length;
-  const groups = new Map<number, readonly AsmInstruction[]>();
-  let site = 0;
+  options: CollectionPlanOptions = {},
+): CollectionPlan {
+  const problems: string[] = [];
+  const sites: { readonly index: number; readonly kind: CollectionSiteKind }[] = [];
   code.forEach((carrier, index) => {
-    if (carrier.mnemonic !== 'IR.invoke') return;
-    const payload = carrier.operands[3];
-    if (payload === undefined || payload.kind !== 'imm') return;
-    const name = invokeNames[payload.value];
-    if (name === undefined || !COLLECTION_SITE_CALLS.includes(name)) return;
-    const kind = kinds[site]!;
-    const args = callArgumentOperands(carrier);
-    const [base, index_, value] = args;
-    const destination = carrier.operands[4];
-    if (base === undefined || base.kind !== 'reg' || index_ === undefined || index_.kind !== 'reg') return;
-    const refused = collectionSiteCarriers(
-      kind,
-      base.index,
-      index_.index,
-      value !== undefined && value.kind === 'reg' ? value.index : -1,
-      destination !== undefined && destination.kind === 'reg' ? destination.index : undefined,
-      refusalIndex,
-    );
-    groups.set(index, refused);
-    site += 1;
+    const name = callNameOf(carrier, invokeNames);
+    const kind: CollectionSiteKind | undefined =
+      name === COLLECTION_CALLS.allocate
+        ? 'выделить'
+        : name === COLLECTION_CALLS.put
+          ? 'положить'
+          : name === COLLECTION_CALLS.take
+            ? 'взять'
+            : name === COLLECTION_CALLS.resize
+              ? 'расширить'
+              : undefined;
+    if (kind === undefined) return;
+    const range = options.entryRange;
+    if (range !== undefined && (index < range.from || index >= range.to)) {
+      problems.push(
+        `#${String(index)} ${name}: коллекции работают только в ТОЧКЕ ВХОДА, а вызов стоит в ` +
+          'ВЫЗЫВАЕМОЙ процедуре — там свои %b[8..15], и пролог образа её регистров не заводил ' +
+          '(граница названа в шапке src/e2k/collectionsRuntime.ts)',
+      );
+      return;
+    }
+    sites.push({ index, kind });
   });
-  return { groups, sites: site, refusalIndex };
+  const expansion = sites.reduce((sum, site) => sum + (SITE_SIZES[site.kind] - 1), 0);
+  // ── ХВОСТ ПОТОКА: сперва циклы, затем блоки отказа ────────────────────────────────────────────
+  //
+  // Порядок внутри хвоста — часть счёта: индексы блоков зависят от числа циклов перед ними.
+  let cursor = code.length + expansion;
+  const loopAt = new Map<number, number>();
+  for (const site of sites) {
+    if (site.kind !== 'расширить') continue;
+    loopAt.set(site.index, cursor);
+    cursor += LOOP_SIZE;
+  }
+  const blockAt = new Map<CollectionRefusalKind, number>();
+  const blockCarriers: AsmInstruction[] = [];
+  for (const kind of COLLECTION_REFUSAL_KINDS) {
+    const needed =
+      kind === 'index'
+        ? sites.some((site) => site.kind === 'положить' || site.kind === 'взять')
+        : kind === 'capacity'
+          ? sites.some((site) => site.kind === 'расширить')
+          : sites.some((site) => site.kind === 'выделить' || site.kind === 'расширить');
+    if (!needed) continue;
+    const blob = options.refusals?.[kind];
+    if (blob === undefined) {
+      // Это дефект КОНВЕЙЕРА, а не программы: причины отказов считает `collectionRefusalKinds`, и
+      // блоб обязан быть запланирован для каждой. Молчаливый пропуск оставил бы переход в никуда.
+      throw new LoweringRefusalError(
+        LOWERING_CODES.runtime,
+        `коллекции: причина отказа «${kind}» нужна потоку, а статический текст для неё не запланирован — ` +
+          'это дефект конвейера (src/e2k/programImage.ts: план строк и `collectionRefusalKinds` разошлись)',
+      );
+    }
+    blockAt.set(kind, cursor);
+    blockCarriers.push(...refusalCarriers(blob.address, blob.byteLength));
+    cursor += REFUSAL_BLOCK_SIZE;
+  }
+  // ── САЙТЫ ─────────────────────────────────────────────────────────────────────────────────────
+  const groups = new Map<number, readonly AsmInstruction[]>();
+  let built = 0;
+  code.forEach((carrier, index) => {
+    const site = sites.find((item) => item.index === index);
+    if (site === undefined) return;
+    const args = callArgumentOperands(carrier);
+    const destination = carrier.operands[4];
+    const first = args[0];
+    const second = args[1];
+    const third = args[2];
+    const registerOf = (operand: Operand | undefined): number | undefined =>
+      operand !== undefined && operand.kind === 'reg' ? operand.index : undefined;
+    const refusalFor = (kind: CollectionRefusalKind): number | undefined => blockAt.get(kind);
+    // Операнды не той формы — сайт НЕ строится, и причина называется здесь. Иначе носитель ушёл бы в
+    // понижение, и отказ говорил бы «операция не развёрнута»: верное по букве, ложное по причине.
+    const badForm = (what: string): void => {
+      problems.push(`#${String(index)} коллекция.${site.kind}: ${what} — сайт не построен`);
+    };
+    try {
+      switch (site.kind) {
+        case 'выделить': {
+          const capacity = registerOf(first);
+          const target = registerOf(destination);
+          const refusal = refusalFor('memory');
+          if (capacity === undefined || target === undefined || refusal === undefined) {
+            badForm('нужны регистр ёмкости, регистр-приёмник и блок отказа памяти');
+            return;
+          }
+          checkRegister(reg(capacity), site.kind, 'ёмкость');
+          checkRegister(reg(target), site.kind, 'приёмник');
+          groups.set(index, collectionAllocSiteCarriers(capacity, target, refusal));
+          built += 1;
+          return;
+        }
+        case 'положить':
+        case 'взять': {
+          const base = registerOf(first);
+          const offset = registerOf(second);
+          const refusal = refusalFor('index');
+          if (base === undefined || offset === undefined || refusal === undefined) {
+            badForm('нужны регистр базы, регистр индекса и блок отказа границы');
+            return;
+          }
+          checkRegister(reg(base), site.kind, 'база');
+          checkRegister(reg(offset), site.kind, 'индекс');
+          const value = registerOf(third);
+          const target = registerOf(destination);
+          if (site.kind === 'положить' && value === undefined) {
+            badForm('нет регистра значения');
+            return;
+          }
+          if (site.kind === 'взять' && target === undefined) {
+            badForm('нет регистра-приёмника');
+            return;
+          }
+          if (value !== undefined) checkRegister(reg(value), site.kind, 'значение');
+          if (target !== undefined) checkRegister(reg(target), site.kind, 'приёмник');
+          groups.set(
+            index,
+            collectionSiteCarriers(site.kind, base, offset, value ?? -1, target, refusal),
+          );
+          built += 1;
+          return;
+        }
+        case 'расширить': {
+          const base = registerOf(first);
+          const capacity = registerOf(second);
+          const target = registerOf(destination);
+          const capacityRefusal = refusalFor('capacity');
+          const memoryRefusal = refusalFor('memory');
+          const loopIndex = loopAt.get(index);
+          if (
+            base === undefined ||
+            capacity === undefined ||
+            target === undefined ||
+            capacityRefusal === undefined ||
+            memoryRefusal === undefined ||
+            loopIndex === undefined
+          ) {
+            badForm('нужны регистры базы и новой ёмкости, приёмник, два блока отказа и место цикла');
+            return;
+          }
+          checkRegister(reg(base), site.kind, 'база');
+          checkRegister(reg(capacity), site.kind, 'новая ёмкость');
+          checkRegister(reg(target), site.kind, 'приёмник');
+          groups.set(
+            index,
+            collectionResizeSiteCarriers(
+              base,
+              capacity,
+              target,
+              { capacity: capacityRefusal, memory: memoryRefusal },
+              loopIndex,
+            ),
+          );
+          built += 1;
+          return;
+        }
+        default:
+          return;
+      }
+    } catch (error) {
+      // Отказ сторожа операндов (`checkRegister`) — это причина НЕ строить сайт; она обязана дойти до
+      // наблюдателя текстом, а не исключением из середины сборки образа.
+      badForm(error instanceof Error ? error.message : String(error));
+      return;
+    }
+  });
+  // ── ХВОСТ: циклы копирования и блоки отказа за последним носителем потока ──────────────────────
+  const trailing: AsmInstruction[] = [];
+  for (const site of sites) {
+    const loopIndex = loopAt.get(site.index);
+    if (loopIndex === undefined) continue;
+    // ПРОДОЛЖЕНИЕ — следующий носитель ЗА ВЫЗОВОМ, выраженный ИСХОДНЫМ индексом: пересчёт сдвинет
+    // его вместе с потоком. Если за вызовом ничего нет (вызов — последний носитель), продолжением
+    // служит то, что стоит за циклом: программа, кончающаяся вызовом, обязана завершаться своим
+    // выходом — та же граница, что у сайтов чтения/записи, упирающихся в тот же блок.
+    const continuation = site.index + 1 < code.length ? site.index + 1 : loopIndex + LOOP_SIZE;
+    trailing.push(...collectionCopyLoopCarriers(loopIndex, continuation));
+  }
+  trailing.push(...blockCarriers);
+  if (trailing.length > 0 && code.length > 0) {
+    const last = code.length - 1;
+    const existing = groups.get(last);
+    groups.set(last, existing === undefined ? [code[last]!, ...trailing] : [...existing, ...trailing]);
+  }
+  return { groups, sites: built, blocks: blockAt.size, problems };
 }
 
 /**
@@ -393,7 +899,7 @@ export function collectionGroups(
  * `collectionReservedRegisters` в `reserved`), то номер системного вызова ляжет ПОВЕРХ значения — и
  * это не отказ, а тихая ложь. Отказ называется здесь, у причины.
  */
-function checkRegister(operand: Operand, name: string, role: string, frame: SyscallFrame): void {
+function checkRegister(operand: Operand, name: string, role: string, frame: SyscallFrame = ENTRY_SYSCALL_FRAME): void {
   if (operand.kind !== 'reg') {
     throw new CollectionRuntimeRefusal(`«${name}»: ${role} обязан быть регистром, а не ${operand.kind}`);
   }
@@ -416,9 +922,14 @@ function checkRegister(operand: Operand, name: string, role: string, frame: Sysc
 /**
  * Понизить вызов коллекции в настоящие команды e2k.
  *
- * @param name имя хост-вызова (`система.коллекция.*`) — семантику несёт имя, а не код операции
- * @param args регистры аргументов в порядке вызова
- * @param dst регистр приёмника
+ * ЗДЕСЬ БОЛЬШЕ НЕ ПОНИЖАЕТСЯ НИ ОДНА ОПЕРАЦИЯ КОЛЛЕКЦИЙ, и это не регресс, а следствие: у всех
+ * четырёх есть ПЕРЕХОД (проверка границы или ответа `brk`, а у переезда — ещё и цикл), а цель
+ * перехода считается ДО раскладки (`expandCarriers`), тогда как понижение работает ПОСЛЕ. Значит
+ * каждая операция разворачивается САЙТОМ носителей ({@link collectionGroups}), и носитель, дошедший
+ * сюда, означает одно: сайт не построился, и причина уже названа (`CollectionPlan.problems`).
+ *
+ * Поэтому отказ говорит ИМЕННО это, а не «операция не развёрнута»: прежняя формулировка была верна по
+ * букве и уводила от причины — искать надо не «не сделано», а «почему не построился сайт».
  */
 export function lowerCollectionCall(
   name: string,
@@ -432,41 +943,15 @@ export function lowerCollectionCall(
       `«${name}»: у рантайма коллекций нет такой операции — он умеет ${SUPPORTED_COLLECTION_CALLS.join(', ')}`,
     );
   }
-  // ПОДДЕРЖКА ПРОВЕРЯЕТСЯ ПЕРВОЙ, до арности и приёмника: иначе «положить» (три аргумента, результата
-  // нет) упиралось бы в «нет приёмника» — верное по форме и НЕВЕРНОЕ по причине: причина в носителе,
-  // который не может донести третий аргумент, а не в отсутствии приёмника. Отказ обязан называть
-  // настоящую причину, иначе следующая сессия ищет её заново.
-  if (!SUPPORTED_COLLECTION_CALLS.includes(name)) {
-    // ПРИЧИНА БОЛЬШЕ НЕ В АРНОСТИ — и текст обязан это сказать. Носитель с 2026-10-02 несёт ТРИ
-    // аргумента (`src/e2k/shell.ts#src3`), предел снят. Настоящая причина у всех трёх операций
-    // одна: им нужен ПЕРЕХОД (проверка границы с блоком отказа, а у переезда — цикл копирования),
-    // а цель перехода считает `expandCarriers` ДО раскладки, тогда как понижение работает ПОСЛЕ —
-    // из серии команд прыжок не выражается. Машинерия для этого есть у арены (`arenaGroups`), и
-    // следующий шаг идёт ею.
-    //
-    // Текст НЕ поминает ни ёмкости, ни индекса: иначе он случайно удовлетворил бы контроль
-    // оракула владельца, ищущий `/ёмкост|индекс/` (замер: §3.98.10, ложное зелёное).
-    throw new CollectionRuntimeRefusal(
-      `«${name}»: операция ещё не развёрнута в настоящие обращения к памяти — ей нужен ПЕРЕХОД ` +
-        '(проверка границы с блоком отказа, у переезда — цикл копирования), а цель перехода считается ' +
-        'до раскладки, тогда как понижение работает после: из серии команд прыжок не выражается. ' +
-        'Машинерия для этого есть у арены (src/e2k/arenaRuntime.ts#arenaGroups) — это следующий шаг',
-    );
-  }
   if (args.length !== arity) {
     throw new CollectionRuntimeRefusal(`«${name}»: аргументов ${String(args.length)}, по источнику ${String(arity)}`);
   }
   args.forEach((operand, index) => checkRegister(operand, name, `аргумент ${index}`, frame));
-  if (dst === undefined) {
-    throw new CollectionRuntimeRefusal(`«${name}»: без регистра-приёмника операция смысла не имеет`);
-  }
-  checkRegister(reg(dst), name, 'приёмник', frame);
-  const registers = args.map((operand) => (operand as { index: number }).index);
-
-  switch (name) {
-    case 'система.коллекция.выделить':
-      return allocateInstructions(registers[0]!, dst, frame);
-    default:
-      throw new CollectionRuntimeRefusal(`«${name}»: ветвь не описана`);
-  }
+  if (dst !== undefined) checkRegister(reg(dst), name, 'приёмник', frame);
+  throw new CollectionRuntimeRefusal(
+    `«${name}»: носитель остался БЕЗ САЙТА — операция разворачивается сайтом носителей (проверка границы ` +
+      'и ответа `brk` — это переходы, а цель перехода считается до раскладки), и причина, по которой ' +
+      'сайт не построился, названа в отказах планирования коллекций ' +
+      '(src/e2k/collectionsRuntime.ts#collectionGroups, поле `problems`)',
+  );
 }
