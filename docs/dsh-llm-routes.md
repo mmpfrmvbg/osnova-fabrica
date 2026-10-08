@@ -349,6 +349,10 @@ Jev **работает**, но **DSH не умеет его нативно**: к
 |---|---|
 | `@welsione/dsh-model-router` 0.0.10 | установлен, строка `dsh-model-router` в композиции; **нужен перезапуск** `dsh web` для монтирования |
 | `@shawnkung/dsh-balance-monitor` 0.2.3 | установлен, строка **выключена** (`disabled: true`) — модуль падает на `.volatile()` (§6.2); включается снятием `disabled` после перехода на линию 0.2.x |
+
+При включении монитора сверить три поля: канал `teamo`, ссылку на ключ `teamoApiKeyRef` →
+`TEAMOROUTER_API_KEY` (по умолчанию `TEAMO_API_KEY`), и `teamoBaseUrl` — по умолчанию там
+`https://teamorouter.cn`, тогда как наш шлюз `https://api.teamorouter.com`.
 | `dsh-autotier` 0.2.15 | **снят** (`dsh plugin --profile web remove dsh-autotier`) — падал при загрузке |
 
 ### 6.5. Как проверить после перезапуска
