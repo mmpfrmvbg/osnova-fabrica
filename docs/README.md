@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (69)
+## Фронтир и замеры (70)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -38,6 +38,7 @@
 - [README.md](../README.md)
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/diagnostics-v1.md](diagnostics-v1.md)
+- [docs/dsh-llm-routes.md](dsh-llm-routes.md)
 - [docs/e2k-array-literals.md](e2k-array-literals.md) ⚠
 - [docs/e2k-backend.md](e2k-backend.md) ⚠
 - [docs/e2k-dsp-instructions.md](e2k-dsp-instructions.md) ⚠

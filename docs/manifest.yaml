@@ -61,6 +61,7 @@ README.md: {status: active}
 OSNOVA.md: {status: active}
 OSNOVA-CLI.md: {status: active}
 docs/token-cost-report.md: {status: active}
+docs/dsh-llm-routes.md: {status: active}
 docs/language-v2-requirements.md: {status: active}
 docs/trace-failure-report.md: {status: active}
 docs/diagnostics-v1.md: {status: active, source-files: [src/compiler/diagnosticCatalogue.ts, src/runtime/runtimeCodes.ts, src/compiler/compileDiagnostics.ts, src/trace/traceStore.ts]}
