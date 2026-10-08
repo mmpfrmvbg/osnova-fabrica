@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (25). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (24). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -47,7 +47,7 @@
 - [docs/e2k-external-validation.md](e2k-external-validation.md)
 - [docs/e2k-hardware-access.md](e2k-hardware-access.md)
 - [docs/e2k-landscape.md](e2k-landscape.md)
-- [docs/e2k-minimal-elf.md](e2k-minimal-elf.md) ⚠
+- [docs/e2k-minimal-elf.md](e2k-minimal-elf.md)
 - [docs/e2k-opcodes-real.md](e2k-opcodes-real.md) ⚠
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠

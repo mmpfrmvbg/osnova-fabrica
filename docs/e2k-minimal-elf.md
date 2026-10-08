@@ -24,7 +24,7 @@
 | `e_ident[EI_DATA]` | 1 (`ELFDATA2LSB`) | порядок байтов e2k — младший вперёд (`qemu/target/e2k/syllab-format.h`, раскладка полей) |
 | `e_type` | 2 (`ET_EXEC`) | статический исполняемый файл |
 | `e_machine` | **175** (`EM_E2K`) | `qemu/include/elf.h:195` = `EM_MCST_ELBRUS` (`binutils-gdb/include/elf/common.h:295`) |
-| `e_flags` | `0x13000000` | машина `bfd_mach_e2k_8c = 19` (`binutils-gdb/include/elf/e2k.h:114-115`) в старшем байте |
+| `e_flags` | **`0x05000000`** | **уровень ISA** `E_E2K_MACH_EV5 = 5` (`binutils-gdb/include/elf/e2k.h:113-115`) в старшем байте. **Было `0x13000000`** (`bfd_mach_e2k_8c = 19`) — но 19 это код **`-mtune=elbrus-8c`**, то есть кристалла, а не уровня ISA (`e2k.h:135`); ядро e2k такой ELF **отвергало** (`ENOEXEC`, код 126) и принимает с 5 — измерено на живой машине, разбор `docs/hardware-debt.md` §3.108 |
 | `e_entry` | `0x100000` | **наше решение**: у linux-user загрузчика адрес свободный; `.text` начинается там же |
 | `e_phoff` / `e_phnum` | `0x40` / 1 | один сегмент `PT_LOAD` |
 | `e_shoff` / `e_shnum` / `e_shstrndx` | `0x1098` / 5 / 4 | null, `.text`, `.symtab`, `.strtab`, `.shstrtab` (сдвиг с `0x1088` — программа стала на 8 байт короче, §2) |

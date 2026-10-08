@@ -4,7 +4,7 @@
  *
  * # Что проверяется
  *
- * 1. **Заголовок.** `ELFCLASS64`, `ELFDATA2LSB`, `e_machine = 175`, `e_flags` с машиной 8c,
+ * 1. **Заголовок.** `ELFCLASS64`, `ELFDATA2LSB`, `e_machine = 175`, `e_flags` с уровнем ISA v5,
  *    точка входа в начале `.text`, заголовок программы `PT_LOAD`.
  * 2. **Код кодируется извлечёнными формами**: короткая непосредственная (номер вызова),
  *    литерал LTS (аргумент) и передача управления (SS). Формы названы замером, а не выбором.
@@ -27,7 +27,7 @@ import { spawnSync } from 'child_process';
 import { getEncoder } from './backend';
 import {
   EM_E2K,
-  MACH_8C,
+  MACH_V5,
   MINIMAL_BASE,
   SYSCALL_ARGUMENT_REGISTER,
   SYSCALL_NUMBER_REGISTER,
@@ -52,7 +52,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 describe('минимальный ELF: заголовок и код', () => {
   const elf = buildMinimalElf(42);
 
-  it('заголовок: ELFCLASS64, ELFDATA2LSB, e_machine = 175, машина 8c', () => {
+  it('заголовок: ELFCLASS64, ELFDATA2LSB, e_machine = 175, уровень ISA v5', () => {
     const header = readElfHeader(elf.bytes);
     expect(header.magic).toBe('\u007fELF');
     expect(header.elfClass).toBe(2);
@@ -60,7 +60,11 @@ describe('минимальный ELF: заголовок и код', () => {
     expect(header.type).toBe(2); // ET_EXEC
     expect(header.machine).toBe(EM_E2K);
     expect(header.machine).toBe(175);
-    expect(header.flags).toBe(MACH_8C << 24);
+    expect(header.flags).toBe(MACH_V5 << 24);
+    // Число пришпилено замером на живом железе e2k (docs/hardware-debt.md §3.108): ядро
+    // ПРИНИМАЕТ 0x05000000 (`elbrus-v5`, уровень ISA) и ОТВЕРГАЕТ 0x13000000
+    // (`elbrus-8c`, код `-mtune`) как ENOEXEC с кодом возврата 126.
+    expect(header.flags).toBe(0x05000000);
     expect(header.entry).toBe(MINIMAL_BASE);
     expect(header.phoff).toBe(0x40);
     expect(header.shnum).toBe(5); // null, .text, .symtab, .strtab, .shstrtab

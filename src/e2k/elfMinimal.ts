@@ -134,8 +134,28 @@ export const DEFAULT_SPILL_BASE = spillBaseOf(MINIMAL_BASE + IMAGE_TAIL_OFFSET);
 /** `e_machine = 175` — `EM_E2K` (`qemu/include/elf.h:195`) = `EM_MCST_ELBRUS` (`binutils-gdb/include/elf/common.h:295`). */
 export const EM_E2K = 175;
 
-/** Номер машины в `e_flags` (`binutils-gdb/include/elf/e2k.h:114-115`): `bfd_mach_e2k_8c = 19`. */
-export const MACH_8C = 19;
+/**
+ * Номер машины в `e_flags` — **уровень ISA**, биты 24..31 (`binutils-gdb/include/elf/e2k.h:113-115`,
+ * `E_E2K_MACH_EV5 = 5`). Номера `bfd_mach_e2k_*` совпадают с `E_E2K_MACH_*` ПО ЗНАЧЕНИЮ
+ * («It's crucial that the underlying `bfd_mach_e2k*' have the same values as the corresponding
+ * `E_E2K_MACH_*'s», `bfd/bfd-in2.h:1783-1784`) — поэтому одно и то же число здесь значит одно и то же.
+ *
+ * **БЫЛО `MACH_8C = 19`, и это был дефект.** Заголовок разделяет два рода кодов:
+ * `E_E2K_MACH_EV2…EV7 = 2…7` помечены как «`-march=…` code» (уровень ISA), а
+ * `E_E2K_MACH_8C = 19` (`e2k.h:135`), `1CPLUS = 20`, `12C = 21`… — как «`-mtune=…` code»
+ * (конкретный кристалл). В `e_flags` стоит код ПЕРВОГО рода; мы клали код второго.
+ *
+ * **Почему 5, а не 19 — замерено на живом железе e2k, разбор `docs/hardware-debt.md` §3.108:**
+ * ядро отвергает ELF с 19 (`ENOEXEC`, код возврата 126) и принимает с 5; LCC на той же машине
+ * пишет в свои бинари 5 (`elbrus-v5`), и все её бинари несут 5; `-march=elbrus-8c` тулчейн
+ * вовсе не принимает, а `-mtune=elbrus-8c` линковщик объявляет несовместимым с выходом
+ * `elbrus-v5`. Плюс 5 согласуется с нашим же кодом: `AS_CPU_OPTION = -mcpu=elbrus-v5`
+ * (`src/scripts/e2kExternalAs.ts`) — заголовок перестаёт противоречить содержимому.
+ *
+ * Смена значения на внешний дизассемблер НЕ влияет: `objdump -d` на одном и том же образе
+ * с 19 и с 5 даёт посимвольно один и тот же разбор (107 строк-команд, отличий нет).
+ */
+export const MACH_V5 = 5;
 
 /** Номер системного вызова `exit` в e2k Linux — `qemu/linux-user/e2k/syscall_nr.h:9`. */
 export const SYS_EXIT = 1;
@@ -329,7 +349,7 @@ export function buildElfFromCode(
   file.writeBigUInt64LE(BigInt(base), 24); // e_entry
   file.writeBigUInt64LE(0x40n, 32); // e_phoff
   file.writeBigUInt64LE(BigInt(shoff), 40);
-  file.writeUInt32LE(MACH_8C << 24, 48); // e_flags
+  file.writeUInt32LE(MACH_V5 << 24, 48); // e_flags: уровень ISA (5 = elbrus-v5), не -mtune-код
   file.writeUInt16LE(64, 52);
   file.writeUInt16LE(56, 54);
   file.writeUInt16LE(1, 56);

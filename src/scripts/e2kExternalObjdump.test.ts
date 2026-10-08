@@ -7,8 +7,7 @@
  * **чужому** дизассемблеру — `objdump` из binutils МЦСТ, собранного в WSL. Тест проверяет:
  *
  * 1. **Упаковка.** Адреса раскладки идут подряд с выравниванием до 16 байт, размеры совпадают
- *    с образцами, `e_machine` и `e_flags` — те, что нужны (`EM_E2K = 175`, машина 8c → уровень
- *    ISA 4).
+ *    с образцами, `e_machine` и `e_flags` — те, что нужны (`EM_E2K = 175`, уровень ISA v5).
  * 2. **Разбор вывода.** Вывод дизассемблера необычен: адрес печатается **без** байтов, текст
  *    инструкции — следующей строкой. Разбор проверяется негативным контролем на подложенном
  *    тексте (в том числе на пустом и на чужом формате).
@@ -72,12 +71,15 @@ describe('внешняя проверка: упаковка образцов в 
   const samples = buildSamples();
   const elf = buildE2kElf(samples);
 
-  it('ELF: EM_E2K = 175, машина 8c в e_flags, секция .text на месте', () => {
+  it('ELF: EM_E2K = 175, уровень ISA v5 в e_flags, секция .text на месте', () => {
     const header = elf.bytes;
     expect(header.subarray(0, 4).toString('latin1')).toBe('\u007fELF');
     expect(header[4]).toBe(2); // ELFCLASS64
     expect(header.readUInt16LE(18)).toBe(175); // e_machine
-    expect(header.readUInt32LE(48)).toBe(19 << 24); // e_flags: bfd_mach_e2k_8c
+    // Число пришпилено замером на живой машине (docs/hardware-debt.md §3.108): 0x05000000
+    // (`elbrus-v5`) ядро принимает, 0x13000000 (`elbrus-8c`) отвергает как ENOEXEC.
+    expect(header.readUInt32LE(48)).toBe(5 << 24); // e_flags: E_E2K_MACH_EV5
+    expect(header.readUInt32LE(48)).toBe(0x05000000);
     const shoff = Number(header.readBigUInt64LE(40));
     expect(shoff).toBeGreaterThan(0);
     // Таблица секций: [0] пустая, [1] .text, [2] .shstrtab (`\0.text\0.shstrtab\0`).

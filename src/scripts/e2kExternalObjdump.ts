@@ -55,12 +55,18 @@ export const ELF_BASE = 0x100000;
 const EM_E2K = 175;
 
 /**
- * Номер машины в `e_flags`: биты 24..31 (`binutils-gdb/include/elf/e2k.h:114-115`),
- * значение `bfd_mach_e2k_8c = 19` (`binutils-gdb/bfd/bfd-in2.h:1783-1796`).
- * Из него дизассемблер берёт уровень ISA (`opcodes/e2k-dis.c:2632`), для 19 это 4 —
- * при таком уровне распознаются маски наборов 0xff, 0xfc, 0xfe (бит `1 << 3`).
+ * Номер машины в `e_flags`: биты 24..31 (`binutils-gdb/include/elf/e2k.h:113-115`),
+ * значение `E_E2K_MACH_EV5 = 5` — это **уровень ISA** (номера `bfd_mach_e2k_ev5` и
+ * `E_E2K_MACH_EV5` совпадают по значению: `bfd/bfd-in2.h:1783-1784`).
+ *
+ * **БЫЛО 19** (`bfd_mach_e2k_8c`). 19 — код **`-mtune=elbrus-8c`** (`e2k.h:135`), то есть
+ * кристалла, а не уровня ISA; такой ELF ядро e2k **отвергает** (`ENOEXEC`, код возврата 126)
+ * и принимает с 5 — измерено на живой машине, разбор `docs/hardware-debt.md` §3.108.
+ *
+ * На разбор здешнего ELF смена НЕ влияет, и это замерено там же: `objdump -d` на одном и том же
+ * образе с 19 и с 5 даёт посимвольно один и тот же вывод (107 строк-команд, отличий нет).
  */
-const MACH_8C = 19;
+const MACH_V5 = 5;
 
 /** Один образец в раскладке ELF. */
 export interface ElfLayoutEntry {
@@ -134,7 +140,7 @@ export function buildE2kElf(samples: readonly E2kSample[]): E2kElf {
     entry: ELF_BASE,
     phoff: 0x40,
     shoff,
-    flags: MACH_8C << 24,
+    flags: MACH_V5 << 24,
     ehsize: 64,
     phentsize: 56,
     phnum: 1,
