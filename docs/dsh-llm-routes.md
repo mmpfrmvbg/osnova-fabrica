@@ -496,6 +496,7 @@ agent/pre-step ──► agent/request ──► llm.prepareCall ──► llm.s
 | Jev-заглушка «сложная» | `/v1/systemone` → `claude-sonnet-5-5` (маршрут `anthropic-messages`) |
 | **Живой Jev TeamoRouter** | задача про планировщик VLIW → `сложная conf=0.97 1471 ms` → сразу `claude-sonnet-5-5` |
 | Учёт расходов | `cost: … model=…/claude-sonnet-5-5 in=41 out=3 price=$0.000025 rate=0.564/1M today=$0.000025` |
+| **Живой TeamoRouter целиком** | сессия на `glm-5.3-flash-free`: ответ получен, 402 нет, переключения нет; учёт записал настоящий расход `in=12779 out=36 price=$0.0000013` |
 
 Пробы идут в **изолированном** профиле `rtrtest` (headless) против подставного
 шлюза `test/fake-gateway.mjs`, который отдаёт ровно `HTTP 402
