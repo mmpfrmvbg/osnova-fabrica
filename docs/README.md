@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (27). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (25). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -18,11 +18,11 @@
 - [docs/golden-app-todo.md](golden-app-todo.md)
 - [docs/golden-app-viewer.md](golden-app-viewer.md)
 - [docs/golden-schema.md](golden-schema.md) ⚠
-- [docs/golden-tests.md](golden-tests.md) ⚠
+- [docs/golden-tests.md](golden-tests.md)
 - [docs/language-changelog-v2.md](language-changelog-v2.md)
 - [docs/language-contributing-v2.md](language-contributing-v2.md) ⚠
 - [docs/language-registry.md](language-registry.md) ⚠
-- [docs/language-v2.md](language-v2.md) ⚠
+- [docs/language-v2.md](language-v2.md)
 - [docs/release-process.md](release-process.md) ⚠
 - [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md) ⚠
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
