@@ -49,6 +49,7 @@ import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import {
   ARRAY_REGISTERS,
   ARRAY_WINDOW_RSZ,
+  ARRAY_WINDOW_WSZ,
   arrayPrologue,
   checkArraySequence,
   lowerArrayCall,
@@ -152,20 +153,24 @@ describe('рантайм массивов: последовательности 
 describe('рантайм массивов: пролог и контракт регистров', () => {
   it('пролог задаёт ноль, единицу, размер элемента и указатель кучи', () => {
     const prologue = arrayPrologue(0x102000);
-    expect(mnemonics(prologue)).toEqual(['setbn', 'movts', 'movts', 'movts', 'movtd']);
-    // Окно ставит `setbn`: в окне по умолчанию (`rsz = 7`) доступны `%b[0..15]`, и регистры
-    // рантайма взяты с верхнего края. Расширить окно через `setwd` **можно** (байты сверены с
-    // ассемблером, регистры `%b[20]`/`%b[31]` в модели становятся доступны — §7.7
-    // docs/e2k-opcodes-real.md), но программа с расширенным окном И памятью в модели зависает;
-    // поэтому рантайм работает в окне по умолчанию.
-    expect(prologue[0]!.mnemonic, 'окно ставится первым').toBe('setbn');
-    expect(prologue[0]!.operands[0]).toEqual({ kind: 'imm', value: ARRAY_WINDOW_RSZ });
-    expect(prologue[1]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.zero));
-    expect(prologue[2]!.operands[1], 'единица: длина растёт на элемент').toEqual(reg(ARRAY_REGISTERS.one));
-    expect(prologue[3]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.eight));
-    expect(prologue[4]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.heap));
+    expect(mnemonics(prologue)).toEqual(['setwd', 'setbn', 'movts', 'movts', 'movts', 'movtd']);
+    // Окно ставится ДВУМЯ командами, и это измерено на железе (§3.116): без `setwd` входное окно
+    // `wsz = 4`, а `setbn rsz = 7` требует `rbs + rsz + 1 = 8 ≤ wsz` — окно негодно ЦЕЛИКОМ, и
+    // падает первое же обращение (`movts … %b[12]` на 0x100008, код 139) — так падали все 38
+    // образов кита. `wsz = 12` не минимум годности (хватило бы восьми), а ширина, при которой
+    // вызываемая получает `2·(12 − 4) = 16` единиц — бюджет раскладки (`CALLEE_REGISTERS`);
+    // замер различает значения: `8` даёт на модели 9 вместо 91, `12` — 91. Ширину `0xc` железо
+    // принимает: она обычна у `bash`, `lcc`, `as`, `ld` (числа — в комментарии константы).
+    expect(prologue[0]!.mnemonic, 'ширина окна ставится первой').toBe('setwd');
+    expect(prologue[0]!.operands[0]).toEqual({ kind: 'imm', value: ARRAY_WINDOW_WSZ });
+    expect(prologue[1]!.mnemonic, 'область вращения — сразу за шириной').toBe('setbn');
+    expect(prologue[1]!.operands[0]).toEqual({ kind: 'imm', value: ARRAY_WINDOW_RSZ });
+    expect(prologue[2]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.zero));
+    expect(prologue[3]!.operands[1], 'единица: длина растёт на элемент').toEqual(reg(ARRAY_REGISTERS.one));
+    expect(prologue[4]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.eight));
+    expect(prologue[5]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.heap));
     // Куча — внешняя память, а не литерал: адрес 64-битный (форма 0xdc).
-    expect(prologue[4]!.operands[0]!.kind).toBe('imm64');
+    expect(prologue[5]!.operands[0]!.kind).toBe('imm64');
     for (const instruction of prologue) encoder.encode(instruction);
   });
 
