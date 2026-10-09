@@ -63,7 +63,7 @@
  */
 import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_REGISTERS } from './arrayRuntime';
-import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SPILL_AREA_BYTES, spillBaseOf } from './elfMinimal';
+import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SPILL_AREA_BYTES, SYSCALL_TRAP, spillBaseOf } from './elfMinimal';
 import { LOWERING_CODES } from './loweringRefusal';
 import { IMM_SHORT_MAX, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from './e2k-real';
 import {
@@ -357,7 +357,7 @@ export function exitCarrierInstructions(
     // выходе всех программ корпуса (`src/e2k/programImage.ts`), и она же стоит в `e2kProgramRun`.
     a('adds', [reg(valueRegister), reg(zero), window_(syscallWindowOf(frame, 1))]),
     a('movts', [imm(SYS_EXIT), window_(syscallWindowOf(frame, 0))]),
-    a('sdisp', [imm(1), imm(0)]),
+    a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(4)]),
   ];
 }

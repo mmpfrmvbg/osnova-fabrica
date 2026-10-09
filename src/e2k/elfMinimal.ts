@@ -167,10 +167,35 @@ export const ABI_NUMBER_REGISTER = 'r0';
  * Сдвиг окна на системном вызове, в квадрословах (`call …, wbs=N`).
  *
  * Требование порта: `psize_q ≤ wbs ≤ size_q` (`translate-ct.c:908-917`), а начальные значения —
- * `psize_q = 4`, `size_q = 8` (`linux-user/e2k/cpu_loop.c:301-303`). Берётся минимальный, чтобы
- * окно после вызова осталось как можно шире.
+ * `psize_q = 4`, `size_q = 12` (паспорт). Стоит **`4`**, и это НЕ оптимум, а ЗАВИСИМОСТЬ.
+ *
+ * ЧТО ИЗМЕРЕНО 2026-10-09 (§3.117), когда `wbs` пробовали поднять до `8` при нашей базе вращения
+ * (`rbs + rcur = 0`):
+ *
+ * | плоскость | что сказала про `wbs = 8` |
+ * |---|---|
+ * | **железо** | ловушку берёт и отдаёт **42** (проба `zb-post-nosetbn`), но при законном `wsz = 12` закон `wsz − wbs = 4` требует ровно `8`: с `wbs = 4` проба `za-w12-t3-wbs4` даёт **137** |
+ * | **модель** | **ломается**: массивы 5/11, кадр вызова 3/8, печать 20/27 красные; сторож возвращает **92** вместо 91 — то есть после вызова `%b[]` вызывающего СДВИНУЛСЯ |
+ *
+ * Разгадка в вендорском коде: в `/lib64/libc.so.6` `wbs` сайта системного вызова РАВЕН `rbs + rcur`
+ * (`longjmp`: `setbn rbs = 0x5` → `call wbs = 0x5` — 169 раз; `0x6` — 77 раз). Именно это совпадение
+ * и держит `%b[]` на месте после вызова: оконный `r0` ядра — ровно `%b[0]` вызывающего. Наша
+ * раскладка построена на обратном (`rbs + rcur = 0`, то есть `%b[N]` = единица `N`), поэтому поднять
+ * `wbs` без сдвига базы вращения нельзя, а сдвиг базы — переработка раскладки (отложенный путь Б).
+ * Проба `zp-kadr-trap3` это показывала заранее: 42 выходит при `rcur = 4`, то есть при `wbs = rbs + rcur`.
  */
 export const SYSCALL_WBS = 4;
+
+/**
+ * Номер ловушки в `sdisp` (`sdisp %ctpr1, <номер>`), то есть какой вход ядра дёргается.
+ *
+ * **`3`, а не `0`** — измерено на железе: с нулём порт/машина опознаёт команду как недопустимую
+ * (`SIGILL`, `ILL_ILLOPC`) и до вызова дело не доходит — так умирали все 38 образов кита (§3.116.3).
+ * У вендора эта же тройка: в `/lib64/libc.so.6` **517** раз `sdisp %ctpr1, 0x3` и лишь 4 раза
+ * `sdisp %ctpr1, 0x6`; в `/bin/true`, `/usr/bin/ld`, `/usr/bin/as`, `/bin/bash`, `/bin/ls`
+ * системных вызовов нет вовсе (они в libc) (§3.117.1).
+ */
+export const SYSCALL_TRAP = 3;
 
 /**
  * Номер регистра, в который кладётся номер вызова, **в окне вызываемого**.
@@ -233,7 +258,7 @@ export function buildMinimalProgram(exitCode = 42): MinimalProgram {
     { mnemonic: 'setbn', channel: 0, operands: [imm(SYSCALL_SETBN_RSZ), imm(0), imm(0)] },
     { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), wreg(SYSCALL_NUMBER_REGISTER)] },
     { mnemonic: 'movts', channel: 0, operands: [imm(exitCode), wreg(SYSCALL_ARGUMENT_REGISTER)] },
-    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(SYSCALL_TRAP)] },
     { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
   ];
   const chunks = instructions.map((instruction) => encoder.encode(instruction));

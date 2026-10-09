@@ -30,7 +30,7 @@ import { ARRAY_REGISTERS, SUPPORTED_ARRAY_CALLS, arrayPrologue } from './arrayRu
 import { allocateProgram } from './regAlloc';
 import { CALLEE_REGISTERS, layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
-import { MINIMAL_BASE, SYSCALL_WBS, WRITE_ZONE_EXTRA_MEMORY, IMAGE_TAIL_OFFSET, spillBaseOf } from './elfMinimal';
+import { MINIMAL_BASE, SYSCALL_TRAP, SYSCALL_WBS, WRITE_ZONE_EXTRA_MEMORY, IMAGE_TAIL_OFFSET, spillBaseOf } from './elfMinimal';
 import {
   ENTRY_SYSCALL_FRAME,
   GROWN_SYSCALL_FRAME,
@@ -471,7 +471,7 @@ export function programBytes(
             operands: [base(returnRegister), base(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 1)],
           } satisfies AsmInstruction,
           { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
-          { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+          { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(SYSCALL_TRAP)] },
           { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
         ]),
   ];

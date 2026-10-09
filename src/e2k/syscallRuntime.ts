@@ -37,7 +37,9 @@
  */
 
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
-import { MINIMAL_BASE, SYSCALL_WBS, SYSCALL_SETBN_RSZ } from './elfMinimal';
+import { MINIMAL_BASE, SYSCALL_TRAP, SYSCALL_WBS, SYSCALL_SETBN_RSZ } from './elfMinimal';
+// Номер ловушки переэкспортируется: сайты вызова живут в модулях, знающих только этот модуль.
+export { SYSCALL_TRAP };
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const wreg = (index: number): Operand => ({ kind: 'reg', index, file: 'window' });
@@ -155,12 +157,12 @@ export function buildHelloProgram(text = 'hello', exitCode = 0): SyscallProgram 
     { mnemonic: 'movts', channel: 0, operands: [imm(STDOUT_FD), wreg(WINDOW_FD_REGISTER)] },
     { mnemonic: 'movtd', channel: 0, operands: [f64(BigInt(textAddress)), wreg(WINDOW_BUFFER_REGISTER)] },
     { mnemonic: 'movts', channel: 0, operands: [imm(text.length), wreg(WINDOW_COUNT_REGISTER)] },
-    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(SYSCALL_TRAP)] },
     { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
     // exit(exitCode)
     { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), wreg(WINDOW_NUMBER_REGISTER)] },
     { mnemonic: 'movts', channel: 0, operands: [imm(exitCode), wreg(WINDOW_FD_REGISTER)] },
-    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(SYSCALL_TRAP)] },
     { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
   ];
 

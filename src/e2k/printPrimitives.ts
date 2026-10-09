@@ -71,7 +71,7 @@
  */
 
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
-import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, spillBaseOf } from './elfMinimal';
+import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SYSCALL_TRAP, spillBaseOf } from './elfMinimal';
 import { ARRAY_WINDOW_RSZ } from './arrayRuntime';
 import {
   ENTRY_SYSCALL_FRAME,
@@ -553,7 +553,7 @@ export function writeTextPrimitives(
     a('adds', [reg(r.scratch), reg(r.zero), window_(syscallWindowOf(frame, 3))]), // аргумент 3
     a('movts', [imm(SYS_WRITE), window_(syscallWindowOf(frame, 0))]),
     a('movts', [imm(STDOUT_FD), window_(syscallWindowOf(frame, 1))]),
-    a('sdisp', [imm(1), imm(0)]),
+    a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]), // ширина вызова из кадра: 4 в точке входа, 8 в выращенном
   ];
 }
@@ -572,7 +572,7 @@ export function exitPrimitives(code = 0, frame: SyscallFrame = ENTRY_SYSCALL_FRA
   return [
     a('movts', [imm(SYS_EXIT), window_(syscallWindowOf(frame, 0))]),
     a('movts', [imm(code), window_(syscallWindowOf(frame, 1))]),
-    a('sdisp', [imm(1), imm(0)]),
+    a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(4)]),
   ];
 }

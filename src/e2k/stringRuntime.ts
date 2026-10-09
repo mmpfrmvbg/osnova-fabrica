@@ -42,6 +42,7 @@ import {
   ENTRY_SYSCALL_FRAME,
   SYS_WRITE,
   STDOUT_FD,
+  SYSCALL_TRAP,
   syscallWindowOf,
   type SyscallFrame,
 } from './syscallRuntime';
@@ -323,7 +324,7 @@ export function stringWriteInstructions(options: {
     a('movts', [imm(length), window_(syscallWindowOf(frame, 3))]),
     a('movts', [imm(SYS_WRITE), window_(syscallWindowOf(frame, 0))]),
     a('movts', [imm(STDOUT_FD), window_(syscallWindowOf(frame, 1))]),
-    a('sdisp', [imm(1), imm(0)]),
+    a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]),
   ];
   return [

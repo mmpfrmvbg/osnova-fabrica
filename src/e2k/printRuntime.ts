@@ -163,7 +163,7 @@
  */
 
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
-import { MINIMAL_BASE, spillBaseOf, SYSCALL_WBS } from './elfMinimal';
+import { MINIMAL_BASE, SYSCALL_TRAP, spillBaseOf, SYSCALL_WBS } from './elfMinimal';
 import { SYS_WRITE, STDOUT_FD, WINDOW_NUMBER_REGISTER } from './syscallRuntime';
 import { ARRAY_REGISTERS } from './arrayRuntime';
 import { CTCOND_NEG_PRED, CTCOND_PRED, PREDICATE_FOR_PAIRS } from './predicatePairing';
@@ -689,7 +689,7 @@ function writeTail(assembly: PrintAssembly, buffer: number): void {
     { mnemonic: 'movts', channel: 0, operands: [imm(STDOUT_FD), window_(WINDOW_NUMBER_REGISTER + 1)] },
     movtsWindow(value, WINDOW_NUMBER_REGISTER + 2),
     movtsWindow(accumulator, WINDOW_NUMBER_REGISTER + 3),
-    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(0)] },
+    { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(SYSCALL_TRAP)] },
     { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
   );
 }
