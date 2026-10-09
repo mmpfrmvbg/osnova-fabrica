@@ -22,11 +22,14 @@
  * `"%%%sr%d"` — `:575`). Это обозначение чужого инструмента, и оно **измерено**: значение
  * литерала и приёмник сверяются отдельно (`disasmFacts`, `src/scripts/e2kExternalObjdump.ts`).
  *
- * # Почему именно `sdisp %ctpr1, 0`, а не 3
+ * # Почему у `sdisp` иммедиат 3 (`SYSCALL_TRAP`), а не 0
  *
- * Ноль — **измеренное** значение: именно с ним `exit(42)` доведён до конца (`src/e2k/elfMinimal.ts`,
- * `docs/e2k-minimal-elf.md` §7). В постановке называлось `3`; беру измеренное и говорю об этом
- * прямо, а не подгоняю одно под другое.
+ * Так в байтах, и это ИЗМЕРЕНО у внешнего дизассемблера 2026-10-09 (`.tmp/probe-sdisp.ts`): он
+ * печатает `sdisp %ctpr1, 0x3`, а следом `ipd 3 call %ctpr1, wbs = 0x4`. Прежняя редакция этой
+ * шапки утверждала, что измеренное значение — **ноль**; ноль был из первой редакции «hello»
+ * (`docs/e2k-minimal-elf.md` §7) и с тех пор разошёлся с кодом: закреп `[0, 0]` в
+ * `src/e2k/e2kSyscallRuntime.test.ts` стоял красным на HEAD и найден замером 2026-10-09.
+ * Ловушку порт берёт по тегу `CTPSL` (`translate-ctp.c:174`), а иммедиат — часть формы команды.
  *
  * # Чего этот модуль НЕ делает
  *
@@ -92,25 +95,101 @@ export const WINDOW_COUNT_REGISTER = WINDOW_NUMBER_REGISTER + 3;
  * поставлено прологом (`setwd` + повторная `setbn` → ловушка `0x100008`, §3.56.2).
  */
 export interface SyscallFrame {
-  /** Ширина окна вызова в квадрословах: 4 в точке входа, 8 в выращенном кадре процедуры. */
+  /** Ширина окна вызова в квадрословах: 4 в точке входа, 16 в выращенном кадре процедуры. */
   readonly wbs: number;
   /** Оконный индекс номера вызова: `2·wbs`. */
   readonly base: number;
   /** Ставить ли `setbn` перед вызовом: в выращенном кадре окно уже стоит прологом. */
   readonly setbn: boolean;
+  /**
+   * Размер ОКНА, в котором стоит сайт (не кадра вызова): 12 у точки входа, 32 у выращенной
+   * процедуры. Из него берётся закрытие пути ① (`syscallCallClose`) — вернуть окно прежним.
+   */
+  readonly wsz: number;
 }
 
-/** Кадр точки входа: `wbs = 4`, окно ставится своим `setbn` (как `buildHelloProgram`). */
-export const ENTRY_SYSCALL_FRAME: SyscallFrame = { wbs: SYSCALL_WBS, base: 2 * SYSCALL_WBS, setbn: true };
+/**
+ * Окно точки входа: пролог образа ставит `setwd wsz = 0xc` (`src/e2k/arrayRuntime.ts`,
+ * `ARRAY_WINDOW_WSZ`) — ширина измерена у bash/lcc/as/ld (§3.116).
+ */
+export const SYSCALL_ENTRY_WSZ = 12;
 
 /**
- * Кадр процедуры с выращенным окном: `wbs = 8`, номер и аргументы — с оконного `%r16`.
+ * Окно выращенной процедуры: `IR.window_grow` ставит `setwd wsz = 0x20`
+ * (`src/e2k/procedureCall.ts`, `WINDOW_GROW_WSZ`). Число продублировано намеренно — импорт дал бы
+ * цикл (`procedureCall` → `syscallRuntime`), а равенство стережёт оракул
+ * `src/e2k/syscallLocalWindow.test.ts`.
+ */
+export const SYSCALL_GROWN_WSZ = 32;
+
+/** Кадр точки входа: `wbs = 4`, окно ставится своим `setbn` (как `buildHelloProgram`). */
+export const ENTRY_SYSCALL_FRAME: SyscallFrame = {
+  wbs: SYSCALL_WBS,
+  base: 2 * SYSCALL_WBS,
+  setbn: true,
+  wsz: SYSCALL_ENTRY_WSZ,
+};
+
+/**
+ * Кадр процедуры с выращенным окном: `wbs = 16`, номер и аргументы — с оконного `%r32`.
  *
  * `setbn` здесь ВСЁ РАВНО ставится (и это измерено): повторная `setbn` после `setwd` в этой форме
  * не ловушка — матрица `.tmp/osnova-syscall-matrix.ts` даёт код 77 и с `setbn 15`, и с `setbn 7`.
  * Так форма раскладки и понижение считают ОДНИ команды: разошлись бы — уехали адреса (§3.58).
  */
-export const GROWN_SYSCALL_FRAME: SyscallFrame = { wbs: 16, base: 32, setbn: true };
+export const GROWN_SYSCALL_FRAME: SyscallFrame = {
+  wbs: 16,
+  base: 32,
+  setbn: true,
+  wsz: SYSCALL_GROWN_WSZ,
+};
+
+/**
+ * ПУТЬ ①, ОТКРЫТИЕ: `setwd wsz = wbs + 4` — ПЕРЕД `sdisp`.
+ *
+ * Закон железа `wsz − wbs = 4` (§3.116.4, §3.118.1: `zc-a-w8` → 42, `zc-a-w9` → 137) требует,
+ * чтобы у системного вызова окно было ровно на четыре квадрослова шире кадра. Наш сайт вызова
+ * исторически стоял при `wsz = 12` и `wbs = 4`, то есть закон не соблюдался и машина отвечала 137.
+ *
+ * Годность узкого окна: `rbs + rsz + 1 ≤ wsz` (§3.118.1). У сайта в выращенном кадре область
+ * вращения к этому месту уже `rsz = 7` — её ставит `setbn` носителя, — поэтому `8 ≤ 20` и местное
+ * окно годно; `wsz ≥ 32` не требуется (замер `.tmp/zc-splice-write.ts` → 42).
+ */
+export function syscallCallOpen(frame: SyscallFrame): AsmInstruction[] {
+  return [{ mnemonic: 'setwd', channel: 0, operands: [imm(frame.wbs + 4), imm(0)] }];
+}
+
+/**
+ * ПУТЬ ①, ЗАКРЫТИЕ: `setwd wsz = frame.wsz` — ЗА `call`.
+ *
+ * `call` — ШЕСТНАДЦАТЬ байт (два слога), поэтому закрытие ставится со сдвигом +16 от начала
+ * вызова. Вставка внутрь вызова — разбор мусора: модель печатает в журнале трансляции
+ * `CT %ctpr1  IPD 3  SETWD wsz = 0x0` там, где эмиссия ставит `CALL %ctpr1, wbs = 0x10`
+ * (§3.119.3, замер `.tmp/zc-splice-write.ts`).
+ */
+export function syscallCallClose(frame: SyscallFrame): AsmInstruction[] {
+  if (frame.wsz === frame.wbs + 4) return [];
+  return [{ mnemonic: 'setwd', channel: 0, operands: [imm(frame.wsz), imm(0)] }];
+}
+
+/**
+ * ФОРМА ЧТЕНИЯ ОТВЕТА ЯДРА: базовая в точке входа, оконная в выращенном кадре.
+ *
+ * Базовая форма `%b[N]` адресует регистры 0…31 (`E2K_RF_GLOB_IDX_MAX`, `qemu/target/e2k/cpu.h:90`),
+ * а в выращенном кадре номер вызова и ответ лежат в `%r32` — базовой формой это не адресуется
+ * ВООБЩЕ, и кодировщик отказывает (`%b[32] в модели не существует`), а не портит байты.
+ *
+ * * кадр точки входа (`base = 8`) — **базовая** форма: она ИЗМЕРЕНА, на ней стоит рантайм массивов и
+ *   коллекций; менять её на оконную без замера нельзя;
+ * * выращенный кадр (`base = 32`) — **оконная**, ровно та, которой номер туда и кладётся
+ *   (`syscallWindowOf`). Эту ветвь корпус сегодня НЕ проходит (у семейства памяти/коллекций кадр
+ *   всегда `ENTRY`: `collectionsRuntime.collectionAllocInstructions` зовётся без кадра) — она
+ *   названа непромеренной и не выдаётся за проверенную.
+ */
+export function syscallReplyRegister(frame: SyscallFrame): Operand {
+  return frame.base < 32 ? { kind: 'reg', index: frame.base } : { kind: 'reg', index: frame.base, file: 'window' };
+}
+
 
 /** Оконный индекс `k`-го аргумента вызова в данном кадре. */
 export function syscallWindowOf(frame: SyscallFrame, k: number): number {
@@ -157,13 +236,18 @@ export function buildHelloProgram(text = 'hello', exitCode = 0): SyscallProgram 
     { mnemonic: 'movts', channel: 0, operands: [imm(STDOUT_FD), wreg(WINDOW_FD_REGISTER)] },
     { mnemonic: 'movtd', channel: 0, operands: [f64(BigInt(textAddress)), wreg(WINDOW_BUFFER_REGISTER)] },
     { mnemonic: 'movts', channel: 0, operands: [imm(text.length), wreg(WINDOW_COUNT_REGISTER)] },
+    // ПУТЬ ①: местное окно `wsz = wbs + 4 = 8` перед вызовом и возврат окна точки входа за `call`.
+    ...syscallCallOpen(ENTRY_SYSCALL_FRAME),
     { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(SYSCALL_TRAP)] },
     { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+    ...syscallCallClose(ENTRY_SYSCALL_FRAME),
     // exit(exitCode)
     { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), wreg(WINDOW_NUMBER_REGISTER)] },
     { mnemonic: 'movts', channel: 0, operands: [imm(exitCode), wreg(WINDOW_FD_REGISTER)] },
+    ...syscallCallOpen(ENTRY_SYSCALL_FRAME),
     { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(SYSCALL_TRAP)] },
     { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+    ...syscallCallClose(ENTRY_SYSCALL_FRAME),
   ];
 
   const instructions = build(0);
@@ -190,12 +274,16 @@ export function buildHelloProgram(text = 'hello', exitCode = 0): SyscallProgram 
       // наших обозначений, а не замер; исправлено по замеру (`.tmp/hello-dis.ts`).
       `movtd,0 _f64 0x${textAddress.toString(16)}, %dr${WINDOW_BUFFER_REGISTER}`,
       `movts,0 0x${text.length.toString(16)}, %r${WINDOW_COUNT_REGISTER}`,
+      `setwd wsz = 0x8, nfx = 0x0, dbl = 0x0`,
       'sdisp %ctpr1',
       'call %ctpr1, wbs = 0x4',
+      `setwd wsz = 0xc, nfx = 0x0, dbl = 0x0`,
       `movts,0 0x${SYS_EXIT.toString(16)}, %r${WINDOW_NUMBER_REGISTER}`,
       `movts,0 0x${exitCode.toString(16)}, %r${WINDOW_FD_REGISTER}`,
+      `setwd wsz = 0x8, nfx = 0x0, dbl = 0x0`,
       'sdisp %ctpr1',
       'call %ctpr1, wbs = 0x4',
+      `setwd wsz = 0xc, nfx = 0x0, dbl = 0x0`,
     ],
     blockers: [
       'окружение: на WSL1 нужен шим для mmap — без него QEMU не размещает гостя ' +

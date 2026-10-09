@@ -36,6 +36,8 @@ import {
   GROWN_SYSCALL_FRAME,
   SYS_EXIT,
   WINDOW_NUMBER_REGISTER,
+  syscallCallClose,
+  syscallCallOpen,
 } from './syscallRuntime';
 import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
@@ -471,8 +473,10 @@ export function programBytes(
             operands: [base(returnRegister), base(ARRAY_REGISTERS.zero), window_(WINDOW_NUMBER_REGISTER + 1)],
           } satisfies AsmInstruction,
           { mnemonic: 'movts', channel: 0, operands: [imm(SYS_EXIT), window_(WINDOW_NUMBER_REGISTER)] },
+          ...syscallCallOpen(ENTRY_SYSCALL_FRAME),
           { mnemonic: 'sdisp', channel: 0, operands: [imm(1), imm(SYSCALL_TRAP)] },
           { mnemonic: 'call', channel: 0, operands: [imm(1), imm(SYSCALL_WBS)] },
+          ...syscallCallClose(ENTRY_SYSCALL_FRAME),
         ]),
   ];
 

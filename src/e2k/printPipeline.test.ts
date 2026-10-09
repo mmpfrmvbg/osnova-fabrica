@@ -230,15 +230,22 @@ describe('печать: шесть записей корпуса собираю�
     // раскладки — 64 КиБ кода. Замер: 300 сайтов собираются (кода 63840, конец 0x10f960), 320 —
     // НАЗВАННЫЙ отказ (кода 68000, конец 0x1109a0). Предел оттого и назван числом: он не «сколько
     // влезло», а страница.
+    //
+    // ПЕРЕМЕР 2026-10-09 ПОСЛЕ ПУТИ ① (§3.119.5, §3.120.4): у каждого сайта появились `setwd`
+    // открытия и закрытия — это **+32 байта на сайт**, сайт подорожал с ≈213 до ≈246 байт. Граница
+    // страницы съехала: **266 сайтов** собираются (кода 65 328, конец 0x10ff30), **267** — названный
+    // отказ. Прежние 300 больше не влезают — поэтому сторож и стоит числом, а не «на глаз».
+    // Замер: `.tmp/probe-print-ceiling.ts` (перебор), тот же путь, что и у теста.
     const sites = (count: number): AsmInstruction[] => [
       ...Array.from({ length: count }, () => printingCarrier(2)),
       { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] },
     ];
-    expect(() => imageOfCarriers(sites(320), [], [PRINT_CALL])).toThrow(PrintCallRefusal);
-    expect(() => imageOfCarriers(sites(320), [], [PRINT_CALL])).toThrow(/место записи/iu);
-    // Сторона «влезает»: триста сайтов — 63 840 байт кода, вдвое больше прежнего потолка (4 КиБ).
-    const fits = imageOfCarriers(sites(300), [], [PRINT_CALL]);
-    expect(fits.refused, 'триста сайтов обязаны собираться').toEqual([]);
+    expect(() => imageOfCarriers(sites(267), [], [PRINT_CALL])).toThrow(PrintCallRefusal);
+    expect(() => imageOfCarriers(sites(267), [], [PRINT_CALL])).toThrow(/место записи/iu);
+    // Сторона «влезает»: 266 сайтов — 65 328 байт кода, конец 0x10ff30 (до пути ① влезало 300).
+    const fits = imageOfCarriers(sites(266), [], [PRINT_CALL]);
+    expect(fits.refused, 'двести шестьдесят шесть сайтов обязаны собираться').toEqual([]);
+    expect(fits.bytes.length, 'и это ровно измеренная длина').toBe(65328);
     const fitsEnd = MINIMAL_BASE + fits.bytes.length;
     expect(fitsEnd, 'и не входить в страницу записи').toBeLessThanOrEqual(pageOf(printAreaOf(HEAP)));
     expect(fitsEnd, 'но и не быть крошечным: прежний потолок в 4 КиБ пройден').toBeGreaterThan(MINIMAL_BASE + 0x1000);

@@ -57,11 +57,24 @@ describe('память от системы: номера вызовов и их 
       { kind: 'reg', index: ENTRY_SYSCALL_FRAME.base },
       { kind: 'reg', index: 5 },
     ]);
-    // Выращенный кадр: номер идёт в %r16, ответ — из %b[16].
+    // Выращенный кадр: номер идёт в `%r32`, и ответ читается **оконной** формой — базовой `%b[32]`
+    // не существует (базовых регистров 32, `E2K_RF_GLOB_IDX_MAX`), кодировщик на ней отказывает.
+    // Здесь прежде стояла базовая форма с индексом 32: ожидание стерегло дефект, а не форму
+    // (найдено оракулом размещения пути ① 2026-10-09, `src/e2k/syscallLocalWindow.test.ts`).
+    //
+    // ЗДЕСЬ ЖЕ ПОЧИНЕНА СКЛЕЙКА СТРОК: у трёх строк ниже вместо переводов строки стояли литеральные
+    // `\n`, поэтому весь хвост — включая `expect` про `setbn` — лежал ВНУТРИ комментария, то есть
+    // проверка была мертва (класс случая 22 реестра). Найдено 2026-10-09 при разборе падений пути ①.
     const grown = mmapInstructions({ length: 3, result: 5, frame: GROWN_SYSCALL_FRAME });
     expect(grown[1]?.operands[1]?.index).toBe(GROWN_SYSCALL_FRAME.base);
-    expect(grown.at(-1)?.operands[0]).toEqual({ kind: 'reg', index: GROWN_SYSCALL_FRAME.base });
-    // setbn в выращенном кадре СТАВИТСЯ — и это измерено (.tmp/osnova-syscall-matrix.ts: код 77 и с\n    // setbn 15, и с setbn 7): так форма раскладки и понижение считают ОДНИ команды (§3.58).\n    expect(grown[0]?.mnemonic, 'в выращенном кадре setbn тоже ставится — измерено').toBe('setbn');
+    expect(grown.at(-1)?.operands[0]).toEqual({
+      kind: 'reg',
+      index: GROWN_SYSCALL_FRAME.base,
+      file: 'window',
+    });
+    // setbn в выращенном кадре СТАВИТСЯ — и это измерено (.tmp/osnova-syscall-matrix.ts: код 77 и с
+    // setbn 15, и с setbn 7): так форма раскладки и понижение считают ОДНИ команды (§3.58).
+    expect(grown[0]?.mnemonic, 'в выращенном кадре setbn тоже ставится — измерено').toBe('setbn');
   });
 });
 

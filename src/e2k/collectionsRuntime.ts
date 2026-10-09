@@ -100,7 +100,15 @@ import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ, RESERVED_FROM } from './arrayRuntime';
 import { SYS_BRK } from './memoryRuntime';
 import { LOWERING_CODES, LoweringRefusalError } from './loweringRefusal';
-import { ENTRY_SYSCALL_FRAME, SYSCALL_TRAP, syscallWindowOf, type SyscallFrame } from './syscallRuntime';
+import {
+  ENTRY_SYSCALL_FRAME,
+  SYSCALL_TRAP,
+  syscallCallClose,
+  syscallCallOpen,
+  syscallReplyRegister,
+  syscallWindowOf,
+  type SyscallFrame,
+} from './syscallRuntime';
 import { COLLECTION_ARITY } from '../runtime/vm/collectionCalls';
 import { callArgumentOperands } from './shell';
 import { LOAD_CARRIER, STORE_CARRIER } from './memoryAccess';
@@ -426,11 +434,13 @@ export function brkInstructions(options: {
     ...(frame.setbn ? [a('setbn', [imm(ARRAY_WINDOW_RSZ), imm(0), imm(0)])] : []),
     a('movts', [imm(SYS_BRK), window_(syscallWindowOf(frame, 0))]),
     a('addd', [reg(options.address), reg(COLLECTION_ZERO_REGISTER), window_(syscallWindowOf(frame, 1))]),
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]),
+    ...syscallCallClose(frame),
     // Ответ ядра лежит в оконном нуле ВЫЗЫВАЮЩЕГО (`linux-user/e2k/cpu_loop.c`), а `call` сдвигает
     // окно на `2·wbs` — значит читается он базовой формой из `%b[2·wbs]`, то есть из `frame.base`.
-    a('addd', [reg(frame.base), reg(COLLECTION_ZERO_REGISTER), reg(options.result)]),
+    a('addd', [syscallReplyRegister(frame), reg(COLLECTION_ZERO_REGISTER), reg(options.result)]),
   ];
   // СТОРОЖ ФОРМЫ — ЗДЕСЬ, А НЕ В ТЕСТЕ: нарушение обязано отказать там, где последовательность
   // собирается. Иначе оно уедет в образ и будет найдено замером через недели — так и было (`adds`

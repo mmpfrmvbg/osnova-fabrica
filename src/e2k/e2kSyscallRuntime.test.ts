@@ -28,6 +28,7 @@ import {
   textBytes,
   SYS_WRITE,
   HELLO_SETBN_RSZ,
+  SYSCALL_TRAP,
   WINDOW_BUFFER_REGISTER,
 } from './syscallRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
@@ -123,7 +124,7 @@ describe('hello без libc: образ читается дизассембле�
    * непосредственной формы (`0xc0 | N`) код стал на 32 байта короче, строка уехала следом
    * (было 0x100098; замер `.tmp/measure-hello.ts`).
    */
-  it('значения из образа: литерал 0x100070 в %dr10, rsz = 5, wbs = 4, sdisp = 0', () => {
+  it('значения из образа: литерал 0x1000b0 в %dr10, rsz = 5, wbs = 4, sdisp = 3', () => {
     const seen = disasm();
     if ('missing' in seen) {
       expect(seen.missing.length).toBeGreaterThan(20);
@@ -132,17 +133,26 @@ describe('hello без libc: образ читается дизассембле�
     const program = buildHelloProgram('hello');
     const facts = disasmFacts(seen.lines);
     expect(facts.literalValue, 'литерал адреса строки не прочитан из образа').toBeDefined();
-    // Главная проверка: значение в байтах против измеренной константы (код 117 байт, база 0x100000).
-    expect(facts.literalValue, 'адрес строки в образе').toBe(0x100070n);
+    // Главная проверка: значение в байтах против измеренной константы (база 0x100000).
+    // ПЕРЕМЕР 2026-10-09 — путь ① (§3.119.5): у каждого сайта вызова `setwd` открытия (8) и `setwd`
+    // закрытия (12) по 16 байт, то есть **+32 байта на сайт**; сайтов в «hello» два — образ вырос
+    // ровно на 64 байта, и строка уехала следом: было 0x100070, стало 0x1000b0 (= 176 = 112 + 64).
+    expect(facts.literalValue, 'адрес строки в образе').toBe(0x1000b0n);
     expect(facts.literalValue, 'адрес строки равен вычисленному сборщиком').toBe(BigInt(program.textAddress));
     // Приёмник: дизассемблер печатает двойной регистр как `%drN` (`opcodes/e2k-dis.c:407,575`).
     expect(facts.literalRegister, 'приёмник литерала').toBe(`%dr${WINDOW_BUFFER_REGISTER}`);
     // Значения остальных полей: round-trip через чужой разбор (пригодность rsz=5 для ABI это не доказывает).
     expect(facts.rsz, 'rsz в образе').toBe(HELLO_SETBN_RSZ);
     expect(facts.wbs, 'wbs обоих вызовов').toEqual([SYSCALL_WBS, SYSCALL_WBS]);
-    expect(facts.sdisp, 'иммедиаты sdisp').toEqual([0, 0]);
-    // Литерал указывает на строку: смещение строки в образе — те самые 0x70, а не совпадение.
-    expect(program.textAddress - MINIMAL_BASE, 'смещение строки в образе').toBe(0x70);
+    // ИММЕДИАТ `sdisp` — 3, и это ПЕРЕМЕРЕНО у внешнего дизассемблера 2026-10-09: он печатает
+    // `sdisp %ctpr1, 0x3` (следом `ipd 3 call %ctpr1, wbs = 0x4`), то есть в байтах лежит
+    // `SYSCALL_TRAP = 3`. Здесь стояло `[0, 0]` — значение первой редакции «hello», когда trap был
+    // нулём. Закреп **был красен уже на HEAD** (`bebdc7e`) и стоял в тени: та же проверка падала
+    // раньше, на адресе строки, и до этой строки исполнение не доходило. Найдено замером
+    // 2026-10-09 (`.tmp/probe-sdisp.ts`), а не приписано пути ①.
+    expect(facts.sdisp, 'иммедиаты sdisp').toEqual([SYSCALL_TRAP, SYSCALL_TRAP]);
+    // Литерал указывает на строку: смещение строки в образе — те самые 0xb0, а не совпадение.
+    expect(program.textAddress - MINIMAL_BASE, 'смещение строки в образе').toBe(0xb0);
   });
 });
 
@@ -187,7 +197,9 @@ describe('hello без libc: исполнение в QEMU', () => {
     // Адрес строки от кода возврата не зависит только в том случае, когда форма `movts` одна и та же;
     // здесь `exit(42)` требует литеральной формы (16 байт) вместо короткой (8), поэтому строка
     // сдвигается на 8 байт: 0x78 против 0x70 у `hello` без кода возврата (перемер 2026-09-24).
-    expect(program.textAddress - MINIMAL_BASE, 'смещение строки с литеральным кодом возврата').toBe(0x78);
+    // ПЕРЕМЕР 2026-10-09 — путь ①: оба сайта несут `setwd` открытия и закрытия (по 16 байт каждый),
+    // поэтому к обоим смещениям прибавилось 64: 0x70 → 0xb0 и 0x78 → 0xb8.
+    expect(program.textAddress - MINIMAL_BASE, 'смещение строки с литеральным кодом возврата').toBe(0xb8);
     const file = path.join(ROOT, '.tmp', 'e2k-hello-42.elf');
     fs.writeFileSync(file, buildElfFromCode(program.code, MINIMAL_BASE).bytes);
     const result = runInQemu(file, { shim: true });

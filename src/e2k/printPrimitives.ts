@@ -78,6 +78,8 @@ import {
   SYS_EXIT,
   SYS_WRITE,
   STDOUT_FD,
+  syscallCallClose,
+  syscallCallOpen,
   syscallWindowOf,
   type SyscallFrame,
 } from './syscallRuntime';
@@ -553,8 +555,12 @@ export function writeTextPrimitives(
     a('adds', [reg(r.scratch), reg(r.zero), window_(syscallWindowOf(frame, 3))]), // аргумент 3
     a('movts', [imm(SYS_WRITE), window_(syscallWindowOf(frame, 0))]),
     a('movts', [imm(STDOUT_FD), window_(syscallWindowOf(frame, 1))]),
+    // ПУТЬ ①: закон железа `wsz − wbs = 4` (§3.116.4, §3.118.1) — окно сужается перед вызовом и
+    // возвращается ЗА `call` (шестнадцать байт, два слога; внутрь вызова ставить нельзя).
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
-    a('call', [imm(1), imm(frame.wbs)]), // ширина вызова из кадра: 4 в точке входа, 8 в выращенном
+    a('call', [imm(1), imm(frame.wbs)]), // ширина вызова из кадра: 4 в точке входа, 16 в выращенной
+    ...syscallCallClose(frame),
   ];
 }
 
@@ -572,8 +578,12 @@ export function exitPrimitives(code = 0, frame: SyscallFrame = ENTRY_SYSCALL_FRA
   return [
     a('movts', [imm(SYS_EXIT), window_(syscallWindowOf(frame, 0))]),
     a('movts', [imm(code), window_(syscallWindowOf(frame, 1))]),
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
-    a('call', [imm(1), imm(4)]),
+    // Ширина вызова ИЗ КАДРА, а не константой: с выращенным кадром четвёрка разошлась бы с тем, где
+    // лежит номер вызова (`%r32`), — это ловит `src/e2k/syscallLocalWindow.test.ts`.
+    a('call', [imm(1), imm(frame.wbs)]),
+    ...syscallCallClose(frame),
   ];
 }
 

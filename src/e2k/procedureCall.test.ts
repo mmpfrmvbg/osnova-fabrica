@@ -159,13 +159,15 @@ describe('вызов процедуры и возврат: адрес, форм�
       carrier('IR.ret', [imm(0), reg(0)]),
     ];
     const prepared = prepareImage(code, [{ name: 'главная', codeOffset: 0 }]);
-    // Первый возврат — носитель ВЫХОДА (реальные байты: 4 команды = 40), второй — нулевой.
+    // Первый возврат — носитель ВЫХОДА (реальные байты: 6 команд = 72 после пути ① 2026-10-09;
+    // было 4 команды = 40: прибавились `setwd` открытия и закрытия местного окна, по 16 байт),
+    // второй — нулевой.
     expect(prepared.code[1]!.mnemonic).toBe(EXIT_CARRIER);
     expect(prepared.code[1]!.operands[1], 'выход значением — из регистра возврата').toEqual(reg(1));
     expect(prepared.zeroSize).toEqual([2]);
     const layout = layoutOf(prepared.code, { procedureReturn: true, zeroSize: prepared.zeroSize });
     const exitBytes = layout.entries.find((entry) => entry.index === 1)!.size;
-    expect(exitBytes, 'выход — не приписка, а байты, которые раскладка видит').toBe(40);
+    expect(exitBytes, 'выход — не приписка, а байты, которые раскладка видит').toBe(72);
     expect(layout.addresses.get(2), 'нулевой носитель стоит по адресу следующего').toBe(8 + exitBytes);
     expect(layout.totalBytes, 'и в размер образа не входит').toBe(8 + exitBytes);
   });

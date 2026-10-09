@@ -35,6 +35,8 @@ import {
   SYS_WRITE,
   STDERR_FD,
   SYSCALL_TRAP,
+  syscallCallClose,
+  syscallCallOpen,
   syscallWindowOf,
   type SyscallFrame,
 } from './syscallRuntime';
@@ -97,12 +99,16 @@ export function refusalInstructions(
     a('movts', [imm(STDERR_FD), window_(syscallWindowOf(frame, 1))]),
     a('movtd', [f64(address), window_(syscallWindowOf(frame, 2))]),
     a('movts', [imm(byteLength), window_(syscallWindowOf(frame, 3))]),
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]),
+    ...syscallCallClose(frame),
     a('movts', [imm(SYS_EXIT), window_(syscallWindowOf(frame, 0))]),
     a('movts', [imm(REFUSAL_CODE), window_(syscallWindowOf(frame, 1))]),
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]),
+    ...syscallCallClose(frame),
   ];
 }
 

@@ -43,6 +43,8 @@ import {
   SYS_WRITE,
   STDOUT_FD,
   SYSCALL_TRAP,
+  syscallCallClose,
+  syscallCallOpen,
   syscallWindowOf,
   type SyscallFrame,
 } from './syscallRuntime';
@@ -324,8 +326,10 @@ export function stringWriteInstructions(options: {
     a('movts', [imm(length), window_(syscallWindowOf(frame, 3))]),
     a('movts', [imm(SYS_WRITE), window_(syscallWindowOf(frame, 0))]),
     a('movts', [imm(STDOUT_FD), window_(syscallWindowOf(frame, 1))]),
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]),
+    ...syscallCallClose(frame),
   ];
   return [
     // Окно ставится как у рантайма массивов — но ТОЛЬКО в кадре точки входа: в выращенном кадре

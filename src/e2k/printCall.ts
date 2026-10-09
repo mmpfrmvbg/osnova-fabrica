@@ -77,6 +77,8 @@ import {
   ENTRY_SYSCALL_FRAME,
   GROWN_SYSCALL_FRAME,
   SYS_EXIT,
+  syscallCallClose,
+  syscallCallOpen,
   syscallWindowOf,
   type SyscallFrame,
 } from './syscallRuntime';
@@ -357,8 +359,12 @@ export function exitCarrierInstructions(
     // выходе всех программ корпуса (`src/e2k/programImage.ts`), и она же стоит в `e2kProgramRun`.
     a('adds', [reg(valueRegister), reg(zero), window_(syscallWindowOf(frame, 1))]),
     a('movts', [imm(SYS_EXIT), window_(syscallWindowOf(frame, 0))]),
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
-    a('call', [imm(1), imm(4)]),
+    // Ширина вызова ИЗ КАДРА (было жёстко 4): с выращенным кадром номер вызова лежит в `%r32`, и
+    // константа разошлась бы с местом номера молча.
+    a('call', [imm(1), imm(frame.wbs)]),
+    ...syscallCallClose(frame),
   ];
 }
 
@@ -476,6 +482,11 @@ export function printCommandForm(instruction: AsmInstruction): PrintCommandForm 
       return short('ALF3 (ldd/ldb — ALF1)');
     case 'setbn':
       return short('ALF2');
+    case 'setwd':
+      // ПУТЬ ①: `setwd` — форма CS1_SETWD, **16 байт** (кодировщик: `.tmp/osnova-setwd-encode.ts`;
+      // та же форма объявлена в раскладке — `src/e2k/twoPassLayout.ts:745`). Без этой записи
+      // понижение отказывает ПО ИМЕНИ (`OSN-LOW-005`), а не берёт длину с потолка — так и задумано.
+      return long('CS1_SETWD');
     case 'sdisp':
       return short('CS0 (C0F2)');
     case 'movtd':

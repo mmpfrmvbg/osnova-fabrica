@@ -36,7 +36,15 @@
  */
 import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_WINDOW_RSZ } from './arrayRuntime';
-import { ENTRY_SYSCALL_FRAME, SYSCALL_TRAP, syscallWindowOf, type SyscallFrame } from './syscallRuntime';
+import {
+  ENTRY_SYSCALL_FRAME,
+  SYSCALL_TRAP,
+  syscallCallClose,
+  syscallCallOpen,
+  syscallReplyRegister,
+  syscallWindowOf,
+  type SyscallFrame,
+} from './syscallRuntime';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
@@ -112,10 +120,12 @@ export function mmapInstructions(options: {
     a('movts', [imm(flags), window_(syscallWindowOf(frame, 4))]),
     a('movts', [imm(MMAP_NO_FD), window_(syscallWindowOf(frame, 5))]),
     a('movts', [imm(offset), window_(syscallWindowOf(frame, 6))]),
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]),
+    ...syscallCallClose(frame),
     // Ответ — в оконном регистре 0 ВЫЗЫВАЮЩЕГО (`%b[2·wbs]`); читаем базовой формой: после `ct` окно вернулось.
-    a('movts', [reg(frame.base), reg(options.result)]),
+    a('movts', [syscallReplyRegister(frame), reg(options.result)]),
   ];
 }
 
@@ -130,9 +140,11 @@ export function brkInstructions(options: {
     ...(frame.setbn ? [a('setbn', [imm(ARRAY_WINDOW_RSZ), imm(0), imm(0)])] : []),
     a('movts', [imm(SYS_BRK), window_(syscallWindowOf(frame, 0))]),
     a('adds', [reg(options.address), reg(0), window_(syscallWindowOf(frame, 1))]),
+    ...syscallCallOpen(frame),
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]),
-    a('movts', [reg(frame.base), reg(options.result)]),
+    ...syscallCallClose(frame),
+    a('movts', [syscallReplyRegister(frame), reg(options.result)]),
   ];
 }
 
