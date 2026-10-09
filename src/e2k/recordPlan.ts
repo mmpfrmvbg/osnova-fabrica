@@ -151,8 +151,14 @@ function stmts(list: Stmt[], env: Map<string, TypeRef>, ast: Module, layout: Rec
       case 'поле_присвоить': {
         // `т.х = 5` → `система.массив.установить(т, 0, 5)`. Замена СТАТЕМЕНТА на выражение —
         // потому что запись элемента у языка уже есть вызовом, и второго пути заводить не надо.
+        //
+        // ТИП БЕРЁТСЯ У ИСХОДНОГО УЗЛА, А НЕ У ПЕРЕПИСАННОГО (правка 2026-10-09, вложенная запись).
+        // После разворота внутреннего поля выражение становится ВЫЗОВОМ `система.массив.получить`,
+        // а `typeOf` типа вызова знает только у СВОИХ процедур (`returnType`), у системной — нет.
+        // Поэтому тип, снятый с результата разворота, терялся, и второй уровень вложенности оставался
+        // `obj.set` → отказ оболочки. Замер до правки — `.tmp/probe-nested-record.ts`.
+        const тип = typeOf(s.object, env, ast);
         const объект = выражение(s.object, env, ast, layout, undefined);
-        const тип = typeOf(объект, env, ast);
         if (isRecord(layout, тип)) {
           const индекс = индексПоля(layout.get(тип!.name)!, s.field, тип!.name, 'запись поля');
           const значение = выражение(s.value, env, ast, layout, fieldTypeOf(ast, тип!.name, s.field));
@@ -229,8 +235,13 @@ function выражение(
 ): Expr {
   switch (expr.kind) {
     case 'поле': {
+      // ВЛОЖЕННАЯ ЗАПИСЬ: тип поля снимается с ИСХОДНОГО узла (`expr.object`), а не с результата
+      // разворота. Причина та же, что у `поле_присвоить`: `т.начало` после разворота — вызов
+      // `система.массив.получить`, типа которого `typeOf` не знает, поэтому `т.начало.х` оставался
+      // `obj.get`. Замер: до правки — «операция obj.get не выражается оболочкой», после — код 1
+      // (`.tmp/probe-nested-record.ts`).
+      const тип = typeOf(expr.object, env, ast);
       const объект = выражение(expr.object, env, ast, layout, undefined);
-      const тип = typeOf(объект, env, ast);
       if (isRecord(layout, тип)) {
         const индекс = индексПоля(layout.get(тип!.name)!, expr.field, тип!.name, 'чтение поля');
         return { kind: 'вызов', name: GET, args: [объект, { kind: 'число', value: индекс }] };
@@ -307,5 +318,13 @@ export function regModuleWithRecordPlan(
   const compiled = compileSource(source, options);
   if (compiled.module === null || compiled.moduleAst === undefined) return null;
   planRecords(compiled.moduleAst);
-  return { module: compileToReg(compiled.moduleAst), compiled };
+  // `values-first` — ПОЧЕМУ ЗДЕСЬ, А НЕ В ОБЩЕМ КОДОГЕНЕРАТОРЕ (замер 2026-10-09, вложенные записи):
+  // куча массивов на цели — один растущий вверх указатель, и адрес элемента считается
+  // `массив + 8 + индекс*8`. Если массив создан раньше значений, вложенный литерал
+  // (`{ начало: { х: 1, у: 2 } }`) выделяет свой блок ровно там, куда затем пишет `добавить`
+  // родителя, и первый элемент вложенного блока затирается (`о.начало.х` → 40 — адрес соседа).
+  // Эталонная плоскость остаётся на `create-first`: её пошаговый паритет со стековой VM наблюдаем
+  // и без этого, а на VM литерал массива — объект языка. Разбор — `src/compiler/regcodegen.ts`
+  // (`emitArrayLiteral`) и `docs/hardware-debt.md` §3.122.
+  return { module: compileToReg(compiled.moduleAst, { arrayLiteralOrder: 'values-first' }), compiled };
 }

@@ -64,6 +64,17 @@ export class RegCodegenError extends Error {
   }
 }
 
+/**
+ * Порядок разворота литерала массива.
+ *
+ * `create-first` — массив раньше значений (исторический, умолчание: на нём стоит эталонная
+ * плоскость и её пошаговый паритет со стековой VM).
+ * `values-first` — значения раньше массива (требование ПЛОСКОСТИ ЦЕЛИ: куча массивов там — один
+ * растущий указатель, и блок, созданный между `создать` и `добавить`, затирается первым же
+ * элементом родителя). Разбор и замер — у `ProcedureCodegen#emitArrayLiteral`.
+ */
+export type ArrayLiteralOrder = 'create-first' | 'values-first';
+
 /** Соответствие «оператор языка → регистровый опкод» (совпадает со стековым набором). */
 const REG_BINARY_OP: Record<string, RegOp> = {
   "+": "add",
@@ -277,6 +288,8 @@ class ProcedureCodegen {
     code: RegInstruction[],
     constants: unknown[],
     procedureIndex: ReadonlyMap<string, number>,
+    /** Порядок разворота литерала массива — см. {@link ArrayLiteralOrder}. */
+    private readonly arrayLiteralOrder: ArrayLiteralOrder = 'create-first',
   ) {
     this.code = code;
     this.constants = constants;
@@ -497,8 +510,39 @@ class ProcedureCodegen {
     this.allocator.freeTo(mark);
   }
 
+  /**
+   * Литерал массива. Порядок «значения или массив первым» — не стиль, а РАЗНЫЕ ТРЕБОВАНИЯ ПЛОСКОСТЕЙ.
+   *
+   * `create-first` (умолчание) — массив создаётся до вычисления элементов. Так разворот устроен с
+   * самого начала, и на нём стоит ЭТАЛОННАЯ плоскость: оракул паритета (`src/oracle/parity.ts`)
+   * сверяет трассу регистровой VM со стековой ПОШАГОВО, а стековая создаёт массив первым. Смена
+   * порядка на этой плоскости покраснила бы паритет, а за ним — закреплённые позиции читателей
+   * (`src/vliw/regGraphWar.test.ts`, `docs/e2k-array-literals.md`). На VM литерал массива — объект
+   * языка, и порядок там наблюдаем только трассой.
+   *
+   * `values-first` — элементы вычисляются до создания массива. Этого требует ЦЕЛЬ и только она:
+   * куча массивов там — ОДИН растущий вверх указатель, а адрес элемента считается как
+   * `массив + 8 + индекс*8`, то есть элементы обязаны лежать вплотную за заголовком. Если массив
+   * создать первым, любой элемент, который сам создаёт массив (вложенная запись
+   * `{ начало: { х: 1, у: 2 } }`), выделит свой блок В ПРОМЕЖУТКЕ — и первый же `добавить` родителя
+   * запишет в него. Замер до правки (`.tmp/probe-nested-record.ts`): `о.начало.х` давало **40** —
+   * адрес второго вложенного блока, затёрший первый элемент первого, при верных `о.начало.у` (2) и
+   * `о.финиш.*` (3 и 4); литерал, собранный ОТДЕЛЬНЫМ оператором, читался верно и до правки.
+   *
+   * `values-first` зовёт ровно один: `src/e2k/recordPlan.ts#regModuleWithRecordPlan` — плоскость цели.
+   */
   private emitArrayLiteral(elements: Expr[], d: number): void {
     const mark = this.allocator.mark();
+    if (this.arrayLiteralOrder === 'values-first') {
+      // Значения — ДО массива: элемент вправе сам создать массив (вложенный литерал).
+      const значения = elements.map((element) => this.emitExpr(element));
+      this.emit({ op: "invoke", d, name: "система.массив.создать", args: [], argc: 0 });
+      for (const value of значения) {
+        this.emit({ op: "invoke", d: undefined, name: "система.массив.добавить", args: [d, value], argc: 2 });
+      }
+      this.allocator.freeTo(mark);
+      return;
+    }
     // `d` держит массив: он не должен попасть в пул временных, иначе следующее
     // выделение вернёт тот же регистр. Поэтому вызовы идут через свежие регистры.
     this.emit({ op: "invoke", d, name: "система.массив.создать", args: [], argc: 0 });
@@ -988,7 +1032,15 @@ class ProcedureCodegen {
 }
 
 /** Компиляция одного модуля AST в регистровый модуль. */
-export function compileToReg(ast: Module): RegModule {
+export function compileToReg(
+  ast: Module,
+  /**
+   * Порядок разворота литералов массива. Умолчание — `create-first`: эталонная (регистровая) VM
+   * обязана оставаться пошагово сверяемой со стековой, а `values-first` — требование ПЛОСКОСТИ ЦЕЛИ
+   * (куча массивов — один растущий указатель). Причину и замер см. у `emitArrayLiteral`.
+   */
+  options: { readonly arrayLiteralOrder?: ArrayLiteralOrder } = {},
+): RegModule {
   const constants: unknown[] = [];
   const code: RegInstruction[] = [];
   const procedures: RegProcedure[] = [];
@@ -996,7 +1048,7 @@ export function compileToReg(ast: Module): RegModule {
   ast.procedures.forEach((p, i) => procedureIndex.set(p.name, i));
 
   for (const proc of ast.procedures) {
-    const gen = new ProcedureCodegen(proc, code, constants, procedureIndex);
+    const gen = new ProcedureCodegen(proc, code, constants, procedureIndex, options.arrayLiteralOrder);
     const { codeOffset, vregs, returnsValue } = gen.generate();
     procedures.push({
       name: proc.name,
