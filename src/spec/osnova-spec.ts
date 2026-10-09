@@ -203,6 +203,25 @@ export class Parser {
   private пик(n = 0): Token { return this.t[Math.min(this.p + n, this.t.length - 1)]!; }
   private съесть(): Token { return this.t[this.p++]!; }
   private эт(k: Kind): boolean { return this.пик().kind === k; }
+  /**
+   * Позиция ИМЕНИ ПОЛЯ: годится и КЛЮЧЕВОЕ СЛОВО — роль слова решает контекст.
+   *
+   * Позиций три, все «после разделителя»: поле объявления типа (`{`…`,`), ключ литерала записи
+   * (`{`…`,`) и доступ через точку (`.`). В начале инструкции `конец` остаётся закрытием блока.
+   * То же правило у эталона v2 (`isFieldNameToken`) и у парсера v3 (`этИмяПоля`); иначе AST не
+   * собрать — его имена полей (`тип`, `вид`, `значение`, `левый`, `правый`, `тело`) ключевые.
+   */
+  private этИмяПоля(): boolean {
+    const т = this.пик();
+    return т.kind === "имя" || KEYWORDS[т.lexeme] !== undefined;
+  }
+
+  /** Имя поля: съесть имя ИЛИ ключевое слово (см. {@link этИмяПоля}). */
+  private съестьИмяПоля(что: string): string {
+    if (!this.этИмяПоля()) throw this.ошибка(`ожидается ${что}, получено «${this.пик().lexeme}»`);
+    const т = this.съесть();
+    return String(т.value ?? т.lexeme);
+  }
   private ждём(k: Kind, что: string): Token {
     if (!this.эт(k)) throw this.ошибка(`ожидается ${что}, получено «${this.пик().lexeme}»`);
     return this.съесть();
@@ -286,7 +305,7 @@ export class Parser {
     this.пустые();
     const поля: { имя: string; тип: TypeRef }[] = [];
     while (!this.эт("}")) {
-      const имяПоля = String(this.ждём("имя", "имя поля").value);
+      const имяПоля = this.съестьИмяПоля("имя поля");
       this.ждём(":", "«:»");
       поля.push({ имя: имяПоля, тип: this.тип() });
       this.пустые();
@@ -686,7 +705,7 @@ export class Parser {
         // Ключом записи может быть имя поля, а словаря — строка: { "хлеб": 40 }.
         const ключ = this.эт("строка")
           ? String(this.съесть().value)
-          : String(this.ждём("имя", "имя поля или строку-ключ").value);
+          : this.съестьИмяПоля("имя поля или строку-ключ");
         this.ждём(":", "«:»");
         пары.push([ключ, this.выражение()]); this.пустые();
         if (this.эт(",")) { this.съесть(); this.пустые(); }
@@ -927,7 +946,7 @@ export class Parser {
     for (;;) {
       if (this.эт(".")) {
         this.съесть();
-        const поле = String(this.ждём("имя", "имя поля").value);
+        const поле = this.съестьИмяПоля("имя поля");
         в = { k: "поле", объект: в, поле };
         continue;
       }

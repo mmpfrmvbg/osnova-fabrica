@@ -46,7 +46,7 @@ import { resolveSyscallAlias } from "../runtime/vm/invokeRegistry";
 // Файловые операции: имена, режимы и их числа — ОДНО место на разбор, обе VM и цель
 // (`src/runtime/vm/fileCalls.ts`). Здесь только подстановка, своей таблицы чисел нет.
 import { FILE_CALLS, FILE_MODE_FLAGS, FILE_MODE_WORDS } from "../runtime/vm/fileCalls";
-import { formatV3Error, type V3Token, type V3TokenKind } from "./lexer";
+import { formatV3Error, ВИДЫ_КЛЮЧЕВЫХ_СЛОВ, type V3Token, type V3TokenKind } from "./lexer";
 
 /** Результат разбора v3: либо дерево, либо ошибки (формат `файл:строка: текст`). */
 export interface V3Result {
@@ -303,6 +303,31 @@ class Разбор {
     return new ОшибкаРазбора(formatV3Error(this.файл, this.пик().line, сообщение));
   }
 
+  /**
+   * Позиция ИМЕНИ ПОЛЯ: здесь годится и КЛЮЧЕВОЕ СЛОВО — роль слова решает контекст.
+   *
+   * Позиций ровно три, и все они «после разделителя»: объявление поля типа (`{`…`,`), ключ
+   * литерала записи (`{`…`,`) и доступ через точку (`.`). В начале инструкции `конец` остаётся
+   * ЗАКРЫТИЕМ блока — послабление не общее, а позиционное, поэтому `конецИнструкции` и стоп-наборы
+   * тела не тронуты.
+   *
+   * Замер 2026-10-09 (до правки): `тип Отрезок { начало: Число, конец: Число }` — v2 «ок»,
+   * v3 «ожидается имя поля, получено «конец»»; `{ конец: 2 }` и `о.конец` — то же; программа
+   * «всё вместе» на v2 даёт 21. Правило не выдумано: это `isFieldNameToken` эталона
+   * (`src/compiler/parser.ts`). Оракул — `astEquivalence.test.ts`, раздел «имя поля = ключевое
+   * слово: v3 не отстаёт от эталона v2».
+   */
+  private этИмяПоля(): boolean {
+    const т = this.пик();
+    return т.kind === "имя" || ВИДЫ_КЛЮЧЕВЫХ_СЛОВ.has(т.kind);
+  }
+
+  /** Имя поля: съесть имя ИЛИ ключевое слово (см. {@link этИмяПоля}). */
+  private съестьИмяПоля(что: string): string {
+    if (!this.этИмяПоля()) throw this.ошибка(`ожидается ${что}, получено «${this.пик().lexeme}»`);
+    return String(this.съесть().lexeme);
+  }
+
   private ждём(вид: V3TokenKind, что: string): V3Token {
     if (!this.эт(вид)) throw this.ошибка(`ожидается ${что}, получено «${this.пик().lexeme}»`);
     return this.съесть();
@@ -465,7 +490,7 @@ class Разбор {
     this.пустые();
     const fields: TypeField[] = [];
     while (!this.эт("}")) {
-      const имяПоля = String(this.ждём("имя", "имя поля").lexeme);
+      const имяПоля = this.съестьИмяПоля("имя поля");
       this.ждём(":", "«:» после имени поля");
       fields.push({ name: имяПоля, type: this.типСсылка() });
       this.пустые();
@@ -1316,7 +1341,7 @@ class Разбор {
         // Ключом записи может быть имя поля, словаря — строка: `{ "хлеб": 40 }`.
         const key = this.эт("строка")
           ? String(this.съесть().value)
-          : String(this.ждём("имя", "имя поля или строку-ключ").lexeme);
+          : this.съестьИмяПоля("имя поля или строку-ключ");
         this.ждём(":", "«:» после ключа");
         this.пустые();
         entries.push({ key, value: this.выражение() });
@@ -1472,7 +1497,7 @@ class Разбор {
     for (;;) {
       if (this.эт(".")) {
         this.съесть();
-        const field = String(this.ждём("имя", "имя поля").lexeme);
+        const field = this.съестьИмяПоля("имя поля");
         в = { kind: "поле", object: в, field };
         continue;
       }
