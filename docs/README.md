@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (28). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (27). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -39,7 +39,7 @@
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/diagnostics-v1.md](diagnostics-v1.md)
 - [docs/dsh-llm-routes.md](dsh-llm-routes.md)
-- [docs/e2k-array-literals.md](e2k-array-literals.md) ⚠
+- [docs/e2k-array-literals.md](e2k-array-literals.md)
 - [docs/e2k-backend.md](e2k-backend.md) ⚠
 - [docs/e2k-dsp-instructions.md](e2k-dsp-instructions.md) ⚠
 - [docs/e2k-encoding.md](e2k-encoding.md) ⚠
