@@ -50,6 +50,7 @@ import {
   ARRAY_REGISTERS,
   ARRAY_WINDOW_RSZ,
   ARRAY_WINDOW_WSZ,
+  ENTRY_ARRAY_BASE,
   arrayPrologue,
   checkArraySequence,
   lowerArrayCall,
@@ -59,13 +60,28 @@ import {
 const encoder = getEncoder('e2k');
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 
+/**
+ * БАЗА БЛОКА — ОБЯЗАТЕЛЬНЫЙ АРГУМЕНТ ПОНИЖЕНИЯ С §3.128, и здесь она названа явно.
+ *
+ * `lowerArrayCall` без базы отказывает по имени («раскладка не выдала базу блока рантайма — обращение
+ * ушло бы в чужие клетки»): без базы рантайм взял бы клетки ТОЧКИ ВХОДА, а в вызываемой они чужие
+ * (§3.127 — тихий путь, закрытый сторожами). Этот файл меряет ПОСЛЕДОВАТЕЛЬНОСТИ команд, а не место
+ * блока, поэтому берёт измеренную базу точки входа: клетки `%b[10..14]` — ровно те, именами которых
+ * (`ARRAY_REGISTERS`) записаны ожидания ниже.
+ */
+const низвести = (
+  имя: string,
+  аргументы: readonly Operand[],
+  приёмник: number | undefined,
+): readonly AsmInstruction[] => lowerArrayCall(имя, аргументы, приёмник, { base: ENTRY_ARRAY_BASE });
+
 /** Мнемоники последовательности — для читаемых ожиданий. */
 const mnemonics = (instructions: readonly AsmInstruction[]): string[] =>
   instructions.map((instruction) => instruction.mnemonic);
 
 describe('рантайм массивов: последовательности команд', () => {
   it('длина: одно чтение слова длины', () => {
-    const sequence = lowerArrayCall('система.массив.длина', [reg(1)], 2);
+    const sequence = низвести('система.массив.длина', [reg(1)], 2);
     expect(mnemonics(sequence)).toEqual(['ldd']);
     // Адрес = a + 0: база — сам массив, смещение — зарезервированный ноль.
     expect(sequence[0]!.operands).toEqual([
@@ -76,7 +92,7 @@ describe('рантайм массивов: последовательности 
   });
 
   it('создать: взять указатель кучи, обнулить длину, сдвинуть кучу на заголовок', () => {
-    const sequence = lowerArrayCall('система.массив.создать', [], 3);
+    const sequence = низвести('система.массив.создать', [], 3);
     expect(mnemonics(sequence)).toEqual(['addd', 'std', 'addd']);
     // Первая команда кладёт указатель кучи в приёмник, вторая пишет нулевую длину, третья
     // двигает указатель кучи на слово заголовка.
@@ -86,14 +102,14 @@ describe('рантайм массивов: последовательности 
   });
 
   it('получить: индекс без сдвигов — удвоением, затем адрес и чтение', () => {
-    const sequence = lowerArrayCall('система.массив.получить', [reg(4), reg(5)], 6);
+    const sequence = низвести('система.массив.получить', [reg(4), reg(5)], 6);
     // Три удвоения (×2, ×4, ×8), плюс заголовок, плюс база, затем чтение.
     expect(mnemonics(sequence)).toEqual(['addd', 'addd', 'addd', 'addd', 'addd', 'ldd']);
     expect(sequence.at(-1)!.operands[2], 'приёмник чтения').toEqual(reg(6));
   });
 
   it('добавить: обновить длину, вычислить адрес элемента, записать значение, сдвинуть кучу', () => {
-    const sequence = lowerArrayCall('система.массив.добавить', [reg(7), reg(8)], undefined);
+    const sequence = низвести('система.массив.добавить', [reg(7), reg(8)], undefined);
     // чтение длины, +1, запись новой длины, три удвоения, заголовок, база, запись значения и сдвиг
     // указателя кучи на элемент (последняя команда — она и разводит блоки двух массивов).
     expect(mnemonics(sequence)).toEqual([
@@ -111,8 +127,8 @@ describe('рантайм массивов: последовательности 
     // «Согласованы» здесь значит: за заголовок платит `создать`, за каждый элемент — `добавить`.
     // Иначе блоки массивов накладываются друг на друга (измерено: FIR 177 вместо 181, §12
     // `docs/e2k-regalloc-debt.md`).
-    const create = lowerArrayCall('система.массив.создать', [], 3);
-    const append = lowerArrayCall('система.массив.добавить', [reg(7), reg(8)], undefined);
+    const create = низвести('система.массив.создать', [], 3);
+    const append = низвести('система.массив.добавить', [reg(7), reg(8)], undefined);
     const advances = (sequence: readonly AsmInstruction[]): number =>
       sequence.filter(
         (instruction) =>
@@ -138,7 +154,7 @@ describe('рантайм массивов: последовательности 
       // Приёмник есть у всех, кроме `установить` и `добавить`: у них результат уходит в память,
       // и обещание приёмника — названный отказ, а не тихая подстановка.
       const producesValue = name !== 'система.массив.установить' && name !== 'система.массив.добавить';
-      for (const instruction of lowerArrayCall(name, args, producesValue ? 9 : undefined)) {
+      for (const instruction of низвести(name, args, producesValue ? 9 : undefined)) {
         try {
           encoder.encode(instruction);
         } catch (error) {
@@ -178,11 +194,22 @@ describe('рантайм массивов: пролог и контракт ре
     // Контракт: рантайм пишет только их, чужой код в них не пишет. Пересечение невозможно.
     const reserved = Object.values(ARRAY_REGISTERS);
     expect(new Set(reserved).size).toBe(reserved.length);
-    // Операция массива не имеет права принимать операнд из зарезервированной области: иначе она
-    // затрёт указатель кучи или ноль.
-    expect(() => lowerArrayCall('система.массив.длина', [reg(ARRAY_REGISTERS.heap)], 2)).toThrow(
-      /зарезервирован/,
+    // КЛЕТКИ САМОГО БЛОКА запрещены ЛЮБОЙ операции: она затёрла бы ноль/единицу/восемь или временную.
+    // Сторона отказа с §3.128 называется «попал в блок рантайма массивов» — прежний сторож пропускал
+    // аргументы ниже `RESERVED_FROM`, и они терялись молча (`src/e2k/arrayRuntime.ts#checkOperand`).
+    expect(() => низвести('система.массив.длина', [reg(ARRAY_REGISTERS.zero)], 2)).toThrow(
+      /попал в блок рантайма массивов/,
     );
+    // УКАЗАТЕЛЬ КУЧИ запрещён только ВЫДЕЛЯЮЩИМ операциям (`создать`/`добавить` — те, что его двигают;
+    // `src/e2k/arrayRuntime.ts`, `reservedCells`). `длина` его не пишет, и запрещать ей его — шире
+    // контракта; обе стороны названы, чтобы проверка не ослабла незаметно.
+    expect(() => низвести('система.массив.создать', [], ARRAY_REGISTERS.heap)).toThrow(
+      /попал в блок рантайма массивов/,
+    );
+    expect(
+      низвести('система.массив.длина', [reg(ARRAY_REGISTERS.heap)], 2).length,
+      '«длина» кучи не двигает — аргумент в её клетке допустим',
+    ).toBe(1);
   });
 
   it('неподдержанные вызовы — отказ с причиной, а не молчание', () => {
@@ -197,7 +224,7 @@ describe('рантайм массивов: пролог и контракт ре
     for (const name of unsupported) {
       let thrown: Error | undefined;
       try {
-        lowerArrayCall(name, [reg(1), reg(2)], 3);
+        низвести(name, [reg(1), reg(2)], 3);
       } catch (error) {
         thrown = error as Error;
       }
@@ -209,7 +236,7 @@ describe('рантайм массивов: пролог и контракт ре
 
 describe('рантайм массивов: сторож последовательности (негативный контроль)', () => {
   it('снятый сдвиг кучи в «создать» ловится сторожем', () => {
-    const honest = lowerArrayCall('система.массив.создать', [], 3);
+    const honest = низвести('система.массив.создать', [], 3);
     expect(checkArraySequence('система.массив.создать', honest)).toEqual([]);
     // Дефект: указатель кучи не сдвинут — два массива лягут на один адрес.
     const broken = honest.filter((_, index) => index !== 2);
@@ -218,7 +245,7 @@ describe('рантайм массивов: сторож последовател
   });
 
   it('потерянная запись длины в «добавить» ловится сторожем', () => {
-    const honest = lowerArrayCall('система.массив.добавить', [reg(7), reg(8)], undefined);
+    const honest = низвести('система.массив.добавить', [reg(7), reg(8)], undefined);
     expect(checkArraySequence('система.массив.добавить', honest)).toEqual([]);
     // Дефект: длину не обновляем — следующий «добавить» перезапишет тот же элемент.
     const broken = honest.filter((instruction, index) => !(index === 2 && instruction.mnemonic === 'std'));
@@ -229,7 +256,7 @@ describe('рантайм массивов: сторож последовател
   it('снятый сдвиг кучи в «добавить» ловится сторожем', () => {
     // Это ровно тот дефект, из-за которого FIR давал 177: без сдвига блок следующего массива
     // начинается на первом элементе этого.
-    const honest = lowerArrayCall('система.массив.добавить', [reg(7), reg(8)], undefined);
+    const honest = низвести('система.массив.добавить', [reg(7), reg(8)], undefined);
     expect(checkArraySequence('система.массив.добавить', honest)).toEqual([]);
     const broken = honest.slice(0, -1);
     const problems = checkArraySequence('система.массив.добавить', broken);

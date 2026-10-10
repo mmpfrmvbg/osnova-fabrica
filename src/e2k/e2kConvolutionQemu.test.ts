@@ -29,7 +29,9 @@ import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
 import { lowerCarrier } from './e2kRealRun';
 import { allocateProgram } from './regAlloc';
-import { layoutOf, secondPass } from './twoPassLayout';
+import { CALLEE_REGISTERS, layoutOf, secondPass } from './twoPassLayout';
+import { SUPPORTED_ARRAY_CALLS } from './arrayRuntime';
+import { entryProcedureIndex } from './procedureCall';
 import { pairPredicates } from './predicatePairing';
 import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
 import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SYSCALL_WBS, WRITE_ZONE_EXTRA_MEMORY, buildElfFromCode } from './elfMinimal';
@@ -93,7 +95,35 @@ function buildImage(source: string): Built {
   ]);
   const emitted = emitShell(annotated, shellEncoder);
   const context = { constants: emitted.scheduled.constants, invokeNames: emitted.image.invokeNames };
-  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
+  // Конфигурация ТА ЖЕ, что у компилятора (§3.131): процедуры с обращениями к массивам помечены,
+  // точке входа — её пул, вызываемой — `CALLEE_REGISTERS`; контекст плоскости идёт и в понижение.
+  // Прежде раскладка звалась БЕЗ опций, и обращения к массивам отказывали все подряд (14 из 14) —
+  // то есть проба мерила программу, которой компилятор не выдаёт (третий порок случая 45).
+  const entryAt = entryProcedureIndex(emitted.scheduled.procedures);
+  const arrayProcedures = emitted.scheduled.procedures
+    .map((procedure, at) => {
+      const to = emitted.scheduled.procedures[at + 1]?.codeOffset ?? emitted.instructions.length;
+      const usesArrays = emitted.instructions.slice(procedure.codeOffset, to).some((carrier) => {
+        if (carrier.mnemonic !== 'IR.invoke') return false;
+        const payload = carrier.operands[3];
+        const name = payload !== undefined && payload.kind === 'imm' ? emitted.image.invokeNames[payload.value] : undefined;
+        return name !== undefined && SUPPORTED_ARRAY_CALLS.includes(name);
+      });
+      return usesArrays ? at : undefined;
+    })
+    .filter((at): at is number => at !== undefined);
+  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
+    arrayProcedures,
+    freeFor: (at: number) => (at === entryAt ? undefined : CALLEE_REGISTERS),
+  });
+  const contextAt = new Map<number, { arrayBase?: number; inCallee: boolean }>();
+  allocation.procedures.forEach((procedure, at) => {
+    const to = allocation.procedures[at + 1]?.codeOffset ?? allocation.instructions.length;
+    for (let index = procedure.codeOffset; index < to; index++) {
+      const arrayBase = allocation.arrayBases[at];
+      contextAt.set(index, { ...(arrayBase === undefined ? {} : { arrayBase }), inCallee: at !== entryAt });
+    }
+  });
   const report = allocation.report[0]!;
   if (!report.ok) throw new Error(`раскладка отказала: ${report.reason ?? 'причина не названа'}`);
   const code = allocation.instructions;
@@ -130,6 +160,7 @@ function buildImage(source: string): Built {
     }
     const lowered = lowerCarrier(carrier, {
       ...context,
+      ...(contextAt.get(index) ?? {}),
       ...(displacementAt.get(index) === undefined ? {} : { displacement: displacementAt.get(index)! }),
       ...(predicateAt.get(index) === undefined ? {} : { predicate: predicateAt.get(index)! }),
       ...(conditionAt.get(index) === undefined ? {} : { condition: conditionAt.get(index)! }),

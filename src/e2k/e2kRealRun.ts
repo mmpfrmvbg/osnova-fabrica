@@ -62,12 +62,20 @@
 import type { AsmInstruction, Encoder, Operand } from "./backend";
 import { sameInstruction } from "./backend";
 import { CT_COND_ALWAYS, REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from "./e2k-real";
-import { CALL_WBS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
+import { CALL_WBS, CALLEE_REGISTERS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { callArgumentOperands } from "./shell";
 import { MAX_CALL_ARGS } from "./emitterShell";
 import { LOAD_CARRIER, STORE_CARRIER, loadInstructions, storeInstructions } from "./memoryAccess";
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
-import { lowerArrayCall, ARRAY_REGISTERS } from "./arrayRuntime";
+import {
+  lowerArrayCall,
+  arrayValuePrologue,
+  ARRAY_REGISTERS,
+  ARRAY_BASE_OPERAND,
+  ARRAY_VALUES_CARRIER,
+  ENTRY_ARRAY_BASE,
+  SUPPORTED_ARRAY_CALLS,
+} from "./arrayRuntime";
 import { COLLECTION_ALLOC_CARRIER, COLLECTION_CALL_NAMES, collectionAllocInstructions, lowerCollectionCall } from "./collectionsRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
 import { SPILL_LOAD, SPILL_STORE } from "../vliw/spill";
@@ -81,6 +89,7 @@ import {
   GETSP_CARRIER,
   bankLoadInstruction,
   bankStoreInstruction,
+  entryProcedureIndex,
   getspInstructions,
   windowGrowInstructions,
 } from "./procedureCall";
@@ -376,6 +385,17 @@ export interface LoweringContext {
    */
   readonly procedureReturn?: boolean;
   /**
+   * Понижается тело ВЫЗЫВАЕМОЙ процедуры. Зачем это знать рантайму массивов: её обращения к памяти
+   * идут оконной формой (`%rN`), а указатель кучи живёт в плоскости точки входа — значит `создать` и
+   * `добавить` здесь обязаны отказать по имени, а не двигать чужую клетку (§3.128).
+   */
+  readonly inCallee?: boolean;
+  /**
+   * БАЗА БЛОКА РАНТАЙМА МАССИВОВ в ЭТОЙ процедуре — её выдала раскладка (`allocateProgram`,
+   * поле `arrayBases`). Базы нет — обращение к массиву отказывает по имени (§3.128).
+   */
+  readonly arrayBase?: number;
+  /**
    * ШИРИНА ОКНА ВЫЗОВА (`wbs`) в квадрословах — по умолчанию {@link CALL_WBS} (4) для точки входа.
    *
    * Внутри процедуры, которая САМА вызывает, окно выращено её прологом (`IR.window_grow`:
@@ -617,6 +637,16 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     return { ok: true, instructions: windowGrowInstructions() };
   }
 
+  if (instruction.mnemonic === ARRAY_VALUES_CARRIER) {
+    // ПРОЛОГ ЗНАЧЕНИЙ РАНТАЙМА МАССИВОВ — в блок ЭТОЙ процедуры. Здесь носитель, а не готовая
+    // команда в потоке: у вызываемой конвейер переведёт его в оконную форму вместе с остальным телом.
+    const base = instruction.operands[0];
+    return {
+      ok: true,
+      instructions: arrayValuePrologue(base !== undefined && base.kind === 'imm' ? base.value : ENTRY_ARRAY_BASE),
+    };
+  }
+
   if (instruction.mnemonic === REMAINDER_CARRIER) {
     // ОСТАТОК — СЕРИЯ из трёх команд, а не одна: документированный `SMODX` не берём (у него свой
     // дефект знака, пример `09`), а считаем остаток из целочисленного деления, которое уже
@@ -717,6 +747,19 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       // Имя, которого нет ни там, ни там, ни там, остаётся отказом с причиной: оператора `/` это не
       // касается (решение владельца). Порядок ветвей не значим: имена не пересекаются, и это
       // проверено оракулом (`src/e2k/collectionsNames.test.ts`).
+      // МАССИВЫ — ОТДЕЛЬНОЙ ВЕТВЬЮ: им нужна БАЗА БЛОКА, которую выдала раскладка (операнд
+      // `ARRAY_BASE_OPERAND` носителя), и признак вызываемой процедуры. Базы нет — `lowerArrayCall`
+      // отказывает по имени; именно это закрывает тихий путь §3.127 (аргументы 8/9 у вызываемой).
+      const destinationIndex = hasDestination ? (destination as { index: number }).index : undefined;
+      if (SUPPORTED_ARRAY_CALLS.includes(name)) {
+        return {
+          ok: true,
+          instructions: lowerArrayCall(name, args as readonly Operand[], destinationIndex, {
+            ...(context.arrayBase === undefined ? {} : { base: context.arrayBase }),
+            ...(context.inCallee === true ? { inCallee: true } : {}),
+          }),
+        };
+      }
       const call = SUPPORTED_MATH_CALLS.includes(name)
         ? lowerMathCall
         : COLLECTION_CALL_NAMES.includes(name)
@@ -724,11 +767,7 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
           : lowerArrayCall;
       return {
         ok: true,
-        instructions: call(
-          name,
-          args as readonly Operand[],
-          hasDestination ? (destination as { index: number }).index : undefined,
-        ),
+        instructions: call(name, args as readonly Operand[], destinationIndex),
       };
     } catch (error) {
       return failureOf(LOWERING_CODES.runtime, error instanceof Error ? error.message : String(error));
@@ -1079,8 +1118,45 @@ export function runKernelThroughRealEncoding(
   // пар и понижение идут дальше по нему, а не по `emitted.instructions`: иначе адреса, смещения
   // переходов и номера пар считались бы по другому потоку, чем тот, который кодируется. Цели
   // переходов внутри укороченного потока пересчитывает сама раскладка (`remapJumpTargets`).
-  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
+  // БЛОК РАНТАЙМА МАССИВОВ ВЫДАЁТ РАСКЛАДКА, и путь оракула обязан повторять конфигурацию КОМПИЛЯТОРА
+  // (§3.131). Прежде вызов стоял без опций — то есть НИ ОДНА процедура с массивами не была помечена,
+  // и с §3.128 (понижение `IR.invoke` требует базы) все обращения к массивам отказывали: замер
+  // 2026-10-10 показал `покрытие 372` против закреплённых `458` (`src/e2k/e2kPredicatePairs.test.ts`),
+  // 86 носителей не доходили до байтов. Причина отказа была названа честно, но закреплённое число
+  // мерило уже не тот поток, который выдаёт компилятор. Здесь повторено то же, что делает конвейер
+  // (`src/e2k/programImage.ts#loweredProgram`): процедуры с обращениями к массивам помечены,
+  // точке входа — её пул, вызываемой — `CALLEE_REGISTERS`.
+  const entryAt = entryProcedureIndex(emitted.scheduled.procedures);
+  const arrayProcedures = emitted.scheduled.procedures
+    .map((procedure, at) => {
+      const to = emitted.scheduled.procedures[at + 1]?.codeOffset ?? emitted.instructions.length;
+      const usesArrays = emitted.instructions.slice(procedure.codeOffset, to).some((carrier) => {
+        if (carrier.mnemonic !== 'IR.invoke') return false;
+        const payload = carrier.operands[3];
+        const name = payload !== undefined && payload.kind === 'imm' ? emitted.image.invokeNames[payload.value] : undefined;
+        return name !== undefined && SUPPORTED_ARRAY_CALLS.includes(name);
+      });
+      return usesArrays ? at : undefined;
+    })
+    .filter((at): at is number => at !== undefined);
+  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
+    arrayProcedures,
+    freeFor: (at: number) => (at === entryAt ? undefined : CALLEE_REGISTERS),
+  });
   const code = allocation.instructions;
+  // Контекст понижения — ПО ПРОЦЕДУРАМ: базу блока знает та процедура, которой её выдала раскладка, и
+  // признак вызываемой — свойство плоскости (в ней `создать`/`добавить` отказывают по имени §3.128).
+  const procedureContextAt = new Map<number, { arrayBase?: number; inCallee: boolean }>();
+  allocation.procedures.forEach((procedure, at) => {
+    const to = allocation.procedures[at + 1]?.codeOffset ?? code.length;
+    for (let index = procedure.codeOffset; index < to; index++) {
+      const arrayBase = allocation.arrayBases[at];
+      procedureContextAt.set(index, {
+        ...(arrayBase === undefined ? {} : { arrayBase }),
+        inCallee: at !== entryAt,
+      });
+    }
+  });
   // ── Раскладка: адрес каждой инструкции, затем смещение каждого перехода ──────
   //
   // Контекст обязателен: длина `IR.invoke` зависит от имени вызова, и без списка имён носитель не
@@ -1122,6 +1198,7 @@ export function runKernelThroughRealEncoding(
     const callDisplacement = callDisplacementAt.get(index);
     const lowered = lowerCarrier(code[index]!, {
       ...baseContext,
+      ...(procedureContextAt.get(index) ?? {}),
       ...(displacement === undefined ? {} : { displacement }),
       ...(predicate === undefined ? {} : { predicate }),
       ...(condition === undefined ? {} : { condition }),

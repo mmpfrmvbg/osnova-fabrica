@@ -75,6 +75,8 @@ import { syscallFrameOfCarrier } from "./printCall";
 import {
   CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
 import {
+  ARRAY_VALUES_CARRIER,
+  arrayValuePrologue,
   lowerArrayCall } from "./arrayRuntime";
 import {
   SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
@@ -736,6 +738,26 @@ function carrierFormWithReason(
           ];
     return { form: { carrier: instruction.mnemonic, commands } };
   }
+  // ПРОЛОГ ЗНАЧЕНИЙ МАССИВА В ПЛОСКОСТИ ПРОЦЕДУРЫ (`src/e2k/arrayRuntime.ts#ARRAY_VALUES_CARRIER`): три
+  // `movts` 0/1/8 в клетки блока. Длины берутся ИЗ ТЕХ ЖЕ команд, что понижает конвейер
+  // (`arrayValuePrologue`), а база стоит в САМОМ носителе (первый операнд) — поэтому форма не зависит
+  // от того, какой процедуре носитель достался (§3.130: без этой ветви раскладка отказывала
+  // «формы понижения нет», и образ с блоком собирался усечённым).
+  if (instruction.mnemonic === ARRAY_VALUES_CARRIER) {
+    const base = instruction.operands[0];
+    const commands = base?.kind === 'imm' ? arrayValuePrologue(base.value) : undefined;
+    const forms = commands?.map((command) => ARRAY_COMMAND_FORMS.get(command.mnemonic) ?? printCommandForm(command));
+    if (forms === undefined || forms.some((form) => form === undefined)) {
+      return {
+        failure: failureOf(
+          LOWERING_CODES.carrier,
+          `«${ARRAY_VALUES_CARRIER}»: форму пролога значений взять негде — первый операнд носителя обязан ` +
+            'быть литералом базы блока (src/e2k/arrayRuntime.ts#arrayValuePrologue)',
+        ),
+      };
+    }
+    return { form: { carrier: ARRAY_VALUES_CARRIER, commands: forms.map((form) => form!) } };
+  }
   if (instruction.mnemonic === WINDOW_GROW_CARRIER) {
     return {
       form: {
@@ -1009,7 +1031,16 @@ function carrierFormWithReason(
         ? lowerMathCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined)
         : COLLECTION_CALL_NAMES.includes(name)
           ? lowerCollectionCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined)
-          : lowerArrayCall(name, args, hasDestination && destination?.kind === 'reg' ? destination.index : undefined);
+          // Рантайму массивов здесь нужна ТОЛЬКО длина (§3.130): `forForm` снимает семантические
+          // сторожа (базу блока и недоступность кучи в вызываемой) — их держит понижение, а раскладке
+          // длина нужна раньше её. Прежде сторожа звались и отсюда, и вызов отвергался ДО понижения:
+          // так правка §3.128 получила 4–7 отказов на образ и «пустую программу» вместо замера.
+          : lowerArrayCall(
+              name,
+              args,
+              hasDestination && destination?.kind === 'reg' ? destination.index : undefined,
+              { forForm: true },
+            );
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }

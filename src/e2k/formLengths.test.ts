@@ -22,6 +22,7 @@ import { regModuleOf } from '../vliw/regOracle';
 import { lowerCarrier } from './e2kRealRun';
 import { carrierFormOf, layoutOf, secondPass } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
+import { ENTRY_ARRAY_BASE } from './arrayRuntime';
 
 const encoder = getEncoder('e2k');
 const shellEncoder = getEncoder('internal-shell');
@@ -50,7 +51,17 @@ function mismatches(source: string): string[] {
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
   const emitted = emitShell(annotated, shellEncoder);
-  const context = { constants: emitted.scheduled.constants, invokeNames: emitted.image.invokeNames };
+  // БАЗА БЛОКА НАЗВАНА ЯВНО (§3.128): своего понижения без базы больше нет — оно отказывает
+  // («обращение ушло бы в чужие клетки»), и тогда «длина кодировщика» стала бы `undefined` у всех
+  // обращений к массиву, а оракул сравнивал бы число с пустотой. Здесь поток ещё НЕ разложен
+  // (`allocateProgram` не зван), поэтому берётся измеренная база точки входа — те же клетки, что
+  // берёт и форма (`forForm`), а длины команд от номера клетки не зависят: все клетки блока —
+  // регистровые операнды одной формы (см. `carrierFormOf`, `src/e2k/twoPassLayout.ts`).
+  const context = {
+    constants: emitted.scheduled.constants,
+    invokeNames: emitted.image.invokeNames,
+    arrayBase: ENTRY_ARRAY_BASE,
+  };
   const code: readonly AsmInstruction[] = emitted.instructions;
   const layout = layoutOf(code, { invokeNames: emitted.image.invokeNames, constants: emitted.scheduled.constants });
   const resolved = secondPass(code, layout.addresses);

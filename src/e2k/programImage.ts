@@ -26,7 +26,13 @@ import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleWithRecordPlan } from './recordPlan';
 import type { CompileOptions } from '../compiler/compiler';
 import { lowerCarrier } from './e2kRealRun';
-import { ARRAY_REGISTERS, SUPPORTED_ARRAY_CALLS, arrayPrologue } from './arrayRuntime';
+import {
+  ARRAY_REGISTERS,
+  ARRAY_VALUES_CARRIER,
+  ENTRY_ARRAY_BASE,
+  SUPPORTED_ARRAY_CALLS,
+  arrayPrologue,
+} from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
 import { CALLEE_REGISTERS, layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
@@ -432,7 +438,14 @@ export function programBytes(
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
   const emitted = emitShell(annotated, shellEncoder);
-  const context = { constants: emitted.scheduled.constants, invokeNames: emitted.image.invokeNames };
+  const context = {
+    constants: emitted.scheduled.constants,
+    invokeNames: emitted.image.invokeNames,
+    // ПУТЬ БЕЗ РАСКЛАДКИ: процедур здесь нет (пролог образа растит окно сам), значит плоскость одна —
+    // плоскость точки входа, и её блок рантайма фиксирован (§3.128). Вызываемых в этом потоке быть не
+    // может: раскладку, которая одна выдаёт базы, этот сборщик не зовёт вовсе.
+    arrayBase: ENTRY_ARRAY_BASE,
+  };
 
   const body: AsmInstruction[] = [];
   const refused: LoweringRefusal[] = [];
@@ -548,6 +561,12 @@ export function loweredProgram(source: string, options: CompileOptions = {}): {
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
     reserved,
     freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),
+    // Блок рантайма массивов — по процедурам, которые с массивами работают (§3.128).
+    arrayProcedures: arrayProceduresOf(
+      emitted.instructions,
+      emitted.scheduled.procedures,
+      emitted.image.invokeNames,
+    ),
   });
   const report = allocation.report[0]!;
   if (!report.ok) {
@@ -569,6 +588,8 @@ export function loweredProgram(source: string, options: CompileOptions = {}): {
         name: procedure.name,
         codeOffset: procedure.codeOffset,
       })),
+      // БАЗЫ БЛОКОВ РАНТАЙМА МАССИВОВ — из раскладки: она решала, чьи клетки процедура занимает.
+      arrayBases: allocation.arrayBases,
       // Слово о закреплении регистров — тому, кто раскладывал: разойдись оно с нуждой образа,
       // конвейер откажет по имени, а не соберёт образ с мусором вместо указателя арены.
       arenaReserved,
@@ -596,6 +617,25 @@ function usesArrayHeap(code: readonly AsmInstruction[], invokeNames: readonly st
 }
 
 /**
+ * ПРОЦЕДУРЫ, РАБОТАЮЩИЕ С МАССИВАМИ (`система.массив.*`): им раскладка выдаёт блок рантайма (§3.128).
+ *
+ * Список строится ДО раскладки и передаётся ей: у самой раскладки имён хост-вызовов нет (они живут в
+ * таблице образа оболочки), а поиск «в диапазоне процедуры есть вызов массива» нужен именно ей.
+ */
+function arrayProceduresOf(
+  code: readonly AsmInstruction[],
+  procedures: readonly ProcedureOffset[],
+  invokeNames: readonly string[],
+): number[] {
+  const found: number[] = [];
+  procedures.forEach((procedure, at) => {
+    const to = procedures[at + 1]?.codeOffset ?? code.length;
+    if (usesArrayHeap(code.slice(procedure.codeOffset, to), invokeNames)) found.push(at);
+  });
+  return found;
+}
+
+/**
  * РОСТ ОКНА: какие процедуры обязаны получить свой пролог (§3.56.5, правила 1–2).
  *
  * Пролог нужен ТОЙ процедуре, которая сама вызывает, — и только ей: точке входа он не нужен (её
@@ -606,6 +646,7 @@ function windowGrowthAt(
   code: readonly AsmInstruction[],
   procedures: readonly ProcedureOffset[],
   invokeNames: readonly string[],
+  arrayBases: readonly (number | undefined)[] = [],
 ): ReadonlyMap<number, readonly AsmInstruction[]> {
   const growth = new Map<number, readonly AsmInstruction[]>();
   if (procedures.length === 0) return growth;
@@ -640,8 +681,17 @@ function windowGrowthAt(
     // вызов исчезал, и она возвращала мусор).
     const first = code[procedure.codeOffset];
     if (first === undefined) return;
+    // ПРОЛОГ ЗНАЧЕНИЙ РАНТАЙМА МАССИВОВ — В ПЛОСКОСТИ ЭТОЙ ПРОЦЕДУРЫ (§3.128).
+    //
+    // Он идёт НОСИТЕЛЕМ и в той же группе, что рост окна: группа заменяет первый носитель процедуры,
+    // поэтому `setwd`/`setbn` окажутся ПЕРЕД значениями (а `movts … %b[N]` требует годного окна), а
+    // конвейер переведёт их в оконную форму вместе с остальным телом вызываемой. Базу взяла раскладка.
+    const arrayBase = arrayBases[at];
     growth.set(procedure.codeOffset, [
       { mnemonic: WINDOW_GROW_CARRIER, channel: 0, operands: [] },
+      ...(arrayBase === undefined
+        ? []
+        : [{ mnemonic: ARRAY_VALUES_CARRIER, channel: 0, operands: [imm(arrayBase)] }]),
       first,
     ]);
   });
@@ -670,6 +720,12 @@ export function imageOfCarriers(
      * Без них поток считается ОДНОЙ процедурой — как было до появления вызовов.
      */
     readonly procedures?: readonly ProcedureOffset[];
+    /**
+     * БАЗЫ БЛОКОВ РАНТАЙМА МАССИВОВ по процедурам — как их выдала раскладка (`allocateProgram`,
+     * поле `arrayBases`). Нет базы — обращение к массиву в этой процедуре отказывает по имени, а не
+     * угадывает клетки (§3.128).
+     */
+    readonly arrayBases?: readonly (number | undefined)[];
     /**
      * ЗАКРЕПЛЕНЫ ЛИ РЕГИСТРЫ АРЕНЫ у этого потока — слово того, кто раскладывал регистры.
      *
@@ -817,7 +873,7 @@ export function imageOfCarriers(
   // РОСТ ОКНА: процедура, которая САМА вызывает, получает свой пролог `setwd wsz=16` + `setbn rsz=15`
   // (§3.56.5, правила 1–2) — иначе её внутренний вызов не имеет законного `wbs`. Растёт окно у той,
   // которая вызывает: точке входа оно не нужно (её вызовы идут с `wbs = 4`), листовой — тем более.
-  const growthAt = windowGrowthAt(collectionsCode, collectionsProcedures, strings.invokeNames);
+  const growthAt = windowGrowthAt(collectionsCode, collectionsProcedures, strings.invokeNames, options.arrayBases ?? []);
   const grown = growthAt.size === 0 ? undefined : expandCarriers(collectionsCode, growthAt, collectionsProcedures);
   const growCode = grown?.code ?? collectionsCode;
   const growProcedures = grown?.procedures ?? baseProcedures;
@@ -1041,6 +1097,16 @@ export function imageOfCarriers(
     //   3. вызову не хватило адреса цели (`callAddresses`) — свой код;
     //   4. пара предикатов не составилась (`pairPredicates`) — код у сопоставления.
     const inCallee = procedures.length > 0 && procedureAt(procedures, index) !== entryAt;
+    // БАЗА БЛОКА РАНТАЙМА МАССИВОВ для этой процедуры: её выдала раскладка (§3.128). `undefined` —
+    // массивов в процедуре нет либо раскладку звали без списка процедур с массивами; тогда понижение
+    // откажет по имени, а не угадает клетки.
+    const arrayBase = (options.arrayBases ?? [])[procedureAt(procedures, index) ?? 0];
+    if (process.env.OSN_DEBUG_BASE !== undefined && index < 14) {
+      console.log(
+        `[отладка базы] #${index} ${carrier.mnemonic}: процедура=${String(procedureAt(procedures, index))} ` +
+          `процедур=${procedures.length} баз=${JSON.stringify(options.arrayBases ?? null)} выбрано=${String(arrayBase)}`,
+      );
+    }
     // На глубине ≥ 2 (процедура с выращенным окном) носители понижаются иначе — правила 3–5 §3.56.5, §3.58.
     const procedureStart = procedures[procedureAt(procedures, index) ?? 0]?.codeOffset ?? 0;
     const onDepthTwo = inCallee && depthTwo.has(procedureStart);
@@ -1340,6 +1406,10 @@ export function imageOfCarriers(
       // Возврат ИСПОЛНЯЕТСЯ только у вызываемой процедуры (возвраты точки входа убраны из потока
       // подготовкой), поэтому пара `return`+`ct` ставится там и только там.
       ...(inCallee ? { procedureReturn: true } : {}),
+      // Рантайм массивов узнаёт, что понижается ВЫЗЫВАЕМАЯ процедура: её куча недоступна, обращения
+      // идут оконной формой. Без этого признака `создать`/`добавить` двигали бы чужую клетку (§3.127).
+      ...(inCallee ? { inCallee: true } : {}),
+      ...(arrayBase === undefined ? {} : { arrayBase }),
       // На глубине ≥ 2 — свой `wbs = 8` (окно выращено прологом процедуры) и измеренный порядок
       // возврата «`return` → значение → `ct`» (§3.56.3, V3 против V2).
       ...(onDepthTwo ? { callWbs: INNER_CALL_WBS, returnAfterCall: true } : {}),

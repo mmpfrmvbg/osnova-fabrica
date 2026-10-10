@@ -36,10 +36,21 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { ARRAY_REGISTERS, arrayPrologue, lowerArrayCall } from './arrayRuntime';
+import { ARRAY_REGISTERS, ENTRY_ARRAY_BASE, arrayPrologue, lowerArrayCall } from './arrayRuntime';
 import type { AsmInstruction, Operand } from './backend';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
+
+/**
+ * БАЗА БЛОКА — ОБЯЗАТЕЛЬНЫЙ АРГУМЕНТ ПОНИЖЕНИЯ С §3.128. Файл меряет КУЧУ (адреса блоков в памяти
+ * модели), а не место самого блока в кадре, поэтому база берётся измеренная — база точки входа
+ * (`%b[10..14]`): имена этих клеток и держат ожидания (`ARRAY_REGISTERS`).
+ */
+const низвести = (
+  имя: string,
+  аргументы: readonly Operand[],
+  приёмник: number | undefined,
+): readonly AsmInstruction[] => lowerArrayCall(имя, аргументы, приёмник, { base: ENTRY_ARRAY_BASE });
 
 /** Куча в модели — внешняя страница, как в прогоне (`e2kArraysQemu.test.ts`). */
 const HEAP = 0x102000;
@@ -140,23 +151,23 @@ function twoArrays(first: readonly number[], second: readonly number[] | null): 
   const indexRegister = 5;
   const result = 6;
 
-  machine.run(lowerArrayCall('система.массив.создать', [], pointerA), 'создать(a)');
+  machine.run(низвести('система.массив.создать', [], pointerA), 'создать(a)');
   const firstPointer = machine.at(pointerA);
   first.forEach((element) => {
     machine.registers.set(value, element);
-    machine.run(lowerArrayCall('система.массив.добавить', [reg(pointerA), reg(value)], undefined), `добавить(a, ${String(element)})`);
+    machine.run(низвести('система.массив.добавить', [reg(pointerA), reg(value)], undefined), `добавить(a, ${String(element)})`);
   });
 
-  if (second !== null) machine.run(lowerArrayCall('система.массив.создать', [], pointerB), 'создать(b)');
+  if (second !== null) machine.run(низвести('система.массив.создать', [], pointerB), 'создать(b)');
   const secondPointer = second === null ? firstPointer : machine.at(pointerB);
   (second ?? []).forEach((element) => {
     machine.registers.set(value, element);
-    machine.run(lowerArrayCall('система.массив.добавить', [reg(pointerB), reg(value)], undefined), `добавить(b, ${String(element)})`);
+    machine.run(низвести('система.массив.добавить', [reg(pointerB), reg(value)], undefined), `добавить(b, ${String(element)})`);
   });
 
   const read = (pointer: number, at: number): number => {
     machine.registers.set(indexRegister, at);
-    machine.run(lowerArrayCall('система.массив.получить', [reg(pointer), reg(indexRegister)], result), 'получить');
+    machine.run(низвести('система.массив.получить', [reg(pointer), reg(indexRegister)], result), 'получить');
     return machine.at(result);
   };
 
@@ -224,15 +235,15 @@ describe('куча массивов: блоки двух массивов не �
     // (`docs/e2k-regalloc-debt.md` §12, `docs/hardware-debt.md` §3.22) надо переписать.
     const machine = new Machine();
     machine.run(arrayPrologue(HEAP), 'пролог');
-    machine.run(lowerArrayCall('система.массив.создать', [], 1), 'создать(a)');
-    machine.run(lowerArrayCall('система.массив.создать', [], 3), 'создать(b)');
+    machine.run(низвести('система.массив.создать', [], 1), 'создать(a)');
+    machine.run(низвести('система.массив.создать', [], 3), 'создать(b)');
     machine.registers.set(2, 1);
-    machine.run(lowerArrayCall('система.массив.добавить', [reg(1), reg(2)], undefined), 'добавить(a, 1)');
+    machine.run(низвести('система.массив.добавить', [reg(1), reg(2)], undefined), 'добавить(a, 1)');
     machine.registers.set(4, 2);
-    machine.run(lowerArrayCall('система.массив.добавить', [reg(3), reg(4)], undefined), 'добавить(b, 2)');
+    machine.run(низвести('система.массив.добавить', [reg(3), reg(4)], undefined), 'добавить(b, 2)');
     const readElement = (pointer: number, at: number): number => {
       machine.registers.set(5, at);
-      machine.run(lowerArrayCall('система.массив.получить', [reg(pointer), reg(5)], 6), 'получить');
+      machine.run(низвести('система.массив.получить', [reg(pointer), reg(5)], 6), 'получить');
       return machine.at(6);
     };
     const a = machine.at(1);

@@ -70,29 +70,76 @@ import type { AsmInstruction, Operand } from './backend';
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 
 /**
- * Зарезервированные регистры рантайма.
+ * ПОМЕТКА НОСИТЕЛЯ: номер базы блока рантайма кладёт РАСКЛАДКА.
  *
- * `scratch` и `scratch2` рантайм **портит** — это часть контракта, а не случайность.
+ * Приём тот же, что у печати (`PRINT_SAVE_COUNT_OPERAND`): конвейер оставляет пометку «базы нет»,
+ * раскладка заменяет её номером. Операнд ШЕСТОЙ: первые пять (`flags`, два аргумента, нагрузка,
+ * приёмник) не сдвигаются, третий аргумент занимает шестой (индекс 5) — но у вызовов массива
+ * аргументов не больше трёх, значит индекс 6 свободен всегда.
+ */
+export const ARRAY_BASE_OPERAND = 6;
+
+/** Пометка «базу ещё не выдала раскладка»: её ставит эмиттер оболочки, снимает раскладка. */
+export const ARRAY_BASE_UNASSIGNED = -1;
+
+/**
+ * Носитель пролога значений: `IR.array_values` с базой блока в операнде 0.
+ *
+ * Пролог идёт НОСИТЕЛЕМ, а не готовыми командами в потоке, ровно по одной причине: форму регистров
+ * выбирает конвейер. У вызываемой весь её понижённый код переводится в оконную форму (`%rN`) одним
+ * преобразованием, и вставленная в поток готовая команда осталась бы базовой (`%b[N]`) — то есть
+ * писала бы в клетки ЧУЖОЙ плоскости (это и есть механизм §3.127).
+ */
+export const ARRAY_VALUES_CARRIER = 'IR.array_values';
+
+/** Размер блока рантайма в клетках: ноль, единица, восемь, временный, второй временный. */
+export const ARRAY_BLOCK_SIZE = 5;
+
+/**
+ * БАЗА БЛОКА РАНТАЙМА В ТОЧКЕ ВХОДА: клетки `%b[10..14]` (куча — 15).
+ *
+ * Номера ролей внутри этой пятёрки — НЕ произвольные и НЕ по порядку базы (см.
+ * {@link ENTRY_ARRAY_CELLS}): попытка выровнять их по базе (ноль в 10, единица в 11, восемь в 12)
+ * ломает работающую точку входа — измерено 2026-10-10: проба `.tmp/recon-wall-mechanism.ts` давала
+ * 6 на прежних клетках и 0 на выровненных, при том же коде операций. Поэтому точка входа сохраняет
+ * свои клетки, а непрерывный блок `base..base+4` — это то, что раскладка выдаёт ВЫЗЫВАЕМОЙ.
+ */
+export const ENTRY_ARRAY_BASE = 10;
+
+/**
+ * Клетки рантайма в точке входа — как измерено (§3.126, `.tmp/rsz-sweep.ts`): ноль 12, единица 13,
+ * восемь 14, временные 11 и 10. Инвариант: множество — ровно `%b[10..14]`, роли переставлены.
+ */
+export const ENTRY_ARRAY_CELLS = {
+  zero: 12,
+  one: 13,
+  eight: 14,
+  scratch: 11,
+  scratch2: 10,
+} as const;
+
+/** Клетки непрерывного блока по его базе: `base+0` ноль, `+1` единица, `+2` восемь, `+3`/`+4` временные. */
+export function arrayCells(base: number): {
+  readonly zero: number;
+  readonly one: number;
+  readonly eight: number;
+  readonly scratch: number;
+  readonly scratch2: number;
+} {
+  return { zero: base, one: base + 1, eight: base + 2, scratch: base + 3, scratch2: base + 4 };
+}
+
+/**
+ * Зарезервированные регистры рантайма **точки входа** (роли внутри `%b[10..14]`).
+ *
+ * Все прочие рантаймы (печать, строки, арена, коллекции) читают ноль/единицу/восемь/временные
+ * ОТСЮДА, поэтому перестановка ролей согласована по всему дереву — но не внутри модели, и потому
+ * проверяется замером, а не рассуждением. Куча — состояние и осталась в `%b[15]`.
  */
 export const ARRAY_REGISTERS = {
-  /**
-   * Регистры взяты с **верхнего края окна**, и это вынужденно: `%b[N]` существует только внутри
-   * текущего окна (`qemu/target/e2k/reg-index.h:55-81`), а модель при `rsz = 7` даёт всего
-   * `%b[0..15]` — измерено (`.tmp/rsz-sweep.ts`). Поэтому территория рантайма — `%b[10..15]`;
-   * код, которому этого мало, получает **отказ**, а не тихую порчу указателя кучи.
-   */
-  /** Ноль: нулевое смещение адреса (`ldd база, ноль, приёмник`). */
-  zero: 12,
-  /** Единица: длина растёт **на элемент**, а «+1» из ниоткуда не берётся. */
-  one: 13,
-  /** Восемь: размер элемента и слова заголовка. */
-  eight: 14,
+  ...ENTRY_ARRAY_CELLS,
   /** Указатель кучи: растёт вверх по 8 байт на массив. */
   heap: 15,
-  /** Временный (`×8` и адрес элемента) — рантайм **портит**. */
-  scratch: 11,
-  /** Второй временный (новая длина и адрес записи) — рантайм **портит**. */
-  scratch2: 10,
 } as const;
 
 /**
@@ -164,16 +211,24 @@ const ARITY: Readonly<Record<string, number>> = {
   'система.массив.установить': 3,
 };
 
-/** Проверить, что операнд не попал в зарезервированную область. */
-function checkOperand(operand: Operand, name: string, role: string): void {
+/**
+ * Проверить операнд: регистр, и **не клетка блока рантайма**.
+ *
+ * Прежняя редакция отказывала всему, что ≥ `RESERVED_FROM`, и закрывала тихий путь лишь наполовину:
+ * у вызываемой бюджет `%b[8..15]`, поэтому её аргументы 8 и 9 проходили сторож, программа собиралась
+ * — и считала неверно (замерено §3.127). Теперь отказ называет СОВПАДЕНИЕ с блоком, а не номер: он
+ * верен и для точки входа (`%b[10..14]`), и для вызываемой (её собственный блок).
+ */
+function checkOperand(operand: Operand, name: string, role: string, reserved: readonly number[]): void {
   if (operand.kind !== 'reg') {
     throw new ArrayRuntimeRefusal(`«${name}»: ${role} обязан быть регистром, а не ${operand.kind}`);
   }
-  if (operand.index >= RESERVED_FROM) {
+  if (reserved.includes(operand.index)) {
     throw new ArrayRuntimeRefusal(
-      `«${name}»: регистр %b[${operand.index}] зарезервирован рантаймом массивов (с %b[${RESERVED_FROM}] ` +
-        'и выше: куча, размер элемента, ноль и временные — src/e2k/arrayRuntime.ts); ' +
-        'операция зарезервировала бы их',
+      `«${name}»: ${role} — %b[${operand.index}] — попал в блок рантайма массивов ` +
+        `(%b[${reserved[0]!}..%b[${reserved[reserved.length - 1]!}]): операция затёрла бы свои же клетки ` +
+        '(src/e2k/arrayRuntime.ts). Прежний сторож пропускал аргументы ниже `RESERVED_FROM`, и они ' +
+        'терялись молча — теперь это названный отказ',
     );
   }
 }
@@ -321,8 +376,16 @@ function timesEight(src: number, dst: number): AsmInstruction[] {
  * @param name имя хост-вызова (`система.массив.*`) — семантику несёт имя, а не код операции
  * @param args регистры аргументов в порядке вызова
  * @param dst регистр приёмника (у `добавить` результата нет — `undefined`)
+ * @param options база блока рантайма (её выдала раскладка, операнд {@link ARRAY_BASE_OPERAND}) и
+ * признак вызываемой процедуры: у неё обращения идут оконной формой, а куча недоступна
  */
-export function lowerArrayCall(name: string, args: readonly Operand[], dst: number | undefined): AsmInstruction[] {
+export function lowerArrayCall(
+  name: string,
+  args: readonly Operand[],
+  dst: number | undefined,
+  options: { readonly base?: number; readonly inCallee?: boolean; readonly forForm?: boolean } = {},
+): AsmInstruction[] {
+  const forForm = options.forForm === true;
   const arity = ARITY[name];
   if (arity === undefined) {
     throw new ArrayRuntimeRefusal(
@@ -333,15 +396,51 @@ export function lowerArrayCall(name: string, args: readonly Operand[], dst: numb
   if (args.length !== arity) {
     throw new ArrayRuntimeRefusal(`«${name}»: аргументов ${args.length}, по источнику ${arity} (invokeRegistry.ts:44-50)`);
   }
-  args.forEach((operand, index) => checkOperand(operand, name, `аргумент ${index}`));
-  const registers = args.map((operand) => (operand as { index: number }).index);
-  const { zero, one, eight, heap, scratch, scratch2 } = ARRAY_REGISTERS;
-
-  if (dst !== undefined && dst >= RESERVED_FROM) {
+  // ФОРМА (раскладке нужна ДЛИНА, а не смысл): семантические сторожа ниже не в счёт — их держит
+  // понижение, — а базой берётся точка входа. Длины команд от НОМЕРА клетки не зависят: все клетки
+  // блока — регистровые операнды одной формы, поэтому форма одна на любую базу. Это утверждение не
+  // догадка: формы сверяет оракул раскладки (`src/e2k/layoutWideCrossCheck.test.ts`, §1.2).
+  // ТИХИЙ ПУТЬ ЗАКРЫТ ЗДЕСЬ. Прежде отказ знал только «регистр ≥ RESERVED_FROM», поэтому у
+  // вызываемой (бюджет `%b[8..15]`) аргументы 8 и 9 проходили сторож, операция уходила в клетки
+  // пролога образа — и значение терялось молча (замерено §3.127: `а[1]` давал элемент[0]).
+  // Теперь обязательна ВЫДАННАЯ РАСКЛАДКОЙ база: нет её — отказ по имени, а не догадка о клетках.
+  if (!forForm && (options.base === undefined || options.base === ARRAY_BASE_UNASSIGNED)) {
     throw new ArrayRuntimeRefusal(
-      `«${name}»: приёмник %b[${dst}] зарезервирован рантаймом массивов (с %b[${RESERVED_FROM}])`,
+      `«${name}»: раскладка не выдала базу блока рантайма (операнд ${ARRAY_BASE_OPERAND} носителя) — ` +
+        'обращение ушло бы в чужие клетки; базу кладёт `allocateProgram` (src/e2k/regAlloc.ts)',
     );
   }
+  // Форме база не нужна (длина от номера клетки не зависит), но она обязана быть числом: подставляем
+  // точку входа — при `forForm` в дело идут ЕЁ клетки (`blockCells` ниже).
+  const base = options.base ?? ENTRY_ARRAY_BASE;
+  // ВЫДЕЛЕНИЕ В ВЫЗЫВАЕМОЙ — НАЗВАННЫЙ ОТКАЗ, а не тихая порча. Указатель кучи живёт в плоскости
+  // точки входа (`%b[15]` её окна); в плоскости вызываемой его нет, и `создать`/`добавить` двигали бы
+  // чужую клетку. Перенос кучи в память (A4) — отдельная работа; до неё граница называется здесь.
+  if (options.inCallee === true && (name === 'система.массив.создать' || name === 'система.массив.добавить') && !forForm) {
+    throw new ArrayRuntimeRefusal(
+      `«${name}»: выделение в вызываемой процедуре — указатель кучи живёт в плоскости точки входа ` +
+        '(перенос в память не сделан, A4 §3.127); отказ вместо тихой порчи чужого блока',
+    );
+  }
+  // КЛЕТКИ БЛОКА: у точки входа — ИЗМЕРЕННАЯ раскладка ролей (`ENTRY_ARRAY_CELLS`, §3.126), у
+  // вызываемой — непрерывный `base..base+4` из её собственного бюджета, который выдала раскладка.
+  const blockCells = forForm || options.inCallee !== true ? ENTRY_ARRAY_CELLS : arrayCells(base);
+  const reservedCells = [
+    blockCells.zero,
+    blockCells.one,
+    blockCells.eight,
+    blockCells.scratch,
+    blockCells.scratch2,
+    ...(name === 'система.массив.создать' || name === 'система.массив.добавить' ? [ARRAY_REGISTERS.heap] : []),
+  ];
+  if (!forForm) {
+    args.forEach((operand, index) => checkOperand(operand, name, `аргумент ${index}`, reservedCells));
+  }
+  const registers = args.map((operand) => (operand as { index: number }).index);
+  const { zero, one, eight, scratch, scratch2 } = blockCells;
+  const heap = ARRAY_REGISTERS.heap;
+
+  if (dst !== undefined && !forForm) checkOperand(reg(dst), name, 'приёмник', reservedCells);
 
   switch (name) {
     case 'система.массив.длина':
@@ -412,11 +511,33 @@ export function lowerArrayCall(name: string, args: readonly Operand[], dst: numb
  * должна быть записываемой и лежать **не в странице кода** — запись в страницу кода кончается
  * `QEMU internal SIGSEGV {code=ACCERR}` (измерено, `src/e2k/e2kMemoryQemu.test.ts`).
  */
+/**
+ * ЗНАЧЕНИЯ рантайма в плоскости ОДНОЙ процедуры: ноль, единица, восемь — в её собственный блок.
+ *
+ * Зачем отдельно от {@link arrayPrologue}: `%b[N]` адресуется только внутри **текущего** окна, и у
+ * вызываемой процедуры оно своё (`setwd`/`setbn` её пролога роста). Пролог образа заполняет клетки
+ * СВОЕЙ плоскости; в плоскости вызываемой те же номера — другие клетки, и там `%b[14]` (`eight`)
+ * остаётся нулём, отчего адрес элемента уезжает на слово назад (§3.127, замер М2/М3/М4).
+ *
+ * Форму регистров выбирает конвейер: у вызываемой весь её понижённый код переводится в оконную
+ * (`%rN`) одним преобразованием, поэтому пролог значений обязан идти НОСИТЕЛЕМ (как `IR.window_grow`),
+ * а не готовой командой в потоке.
+ */
+export function arrayValuePrologue(base: number): AsmInstruction[] {
+  const { zero, one, eight } = arrayCells(base);
+  return [
+    { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 0 }, reg(zero)] },
+    { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 1 }, reg(one)] },
+    { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 8 }, reg(eight)] },
+  ];
+}
+
 export function arrayPrologue(heapAddress: number): AsmInstruction[] {
   if (!Number.isInteger(heapAddress) || heapAddress < 0) {
     throw new ArrayRuntimeRefusal(`адрес кучи обязан быть неотрицательным целым, получено ${String(heapAddress)}`);
   }
-  const { zero, one, eight, heap } = ARRAY_REGISTERS;
+  const heap = ARRAY_REGISTERS.heap;
+  const { zero, one, eight } = ARRAY_REGISTERS;
   return [
     // ОКНО СТАВИТСЯ `setwd` — и это измерено на железе (§3.116): без `setwd` входное окно
     // `wsz = 4`, а `setbn rbs=0, rsz=7` требует `rbs + rsz + 1 = 8 ≤ wsz` — окно негодно ЦЕЛИКОМ,
