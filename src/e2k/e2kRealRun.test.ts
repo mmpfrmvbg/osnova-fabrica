@@ -43,8 +43,10 @@ import { CT_COND_ALWAYS } from './e2k-real';
 import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
 import { disassembleElf, findExternalTool, parseObjdumpOutput } from '../scripts/e2kExternalObjdump';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
-import { layoutOf, secondPass, type Displacement } from './twoPassLayout';
+import { CALLEE_REGISTERS, layoutOf, secondPass, type Displacement } from './twoPassLayout';
 import { allocateProgram } from './regAlloc';
+import { SUPPORTED_ARRAY_CALLS } from './arrayRuntime';
+import { entryProcedureIndex } from './procedureCall';
 import { callDisplacementsOf } from './e2kRealRun';
 import { pairPredicates } from './predicatePairing';
 import {
@@ -187,11 +189,15 @@ describe('сквозной прогон: понижение и кодирова�
       // вещественного `IR.div` ядра `iir` (формы нет — решение владельца). Свёртке нужно было четыре
       // вытеснения, а предел был два; требование взято замером (`.tmp/convolution-spill-need.ts`).
       const expectedBlocking: Readonly<Record<string, readonly string[]>> = {
-        fir: [],
-        iir: [],
-        fft: [],
-        convolution: [],
-        correlation: [],
+        // ПЕРЕМЕР 2026-10-10 (§3.131): у КАЖДОГО ядра остались мешающие носители — обращения к
+        // массивам в вызываемых процедурах. Их собственная половина кадра занята значениями, пятёрке
+        // блока рантайма места нет, и понижение отказывает ПО ИМЕНИ (причина ниже). Прежде список был
+        // пуст у всех пяти: обращения понижались «тихо» по клеткам плоскости точки входа (§3.127).
+        fir: ['IR.invoke'],
+        iir: ['IR.invoke'],
+        fft: ['IR.invoke'],
+        convolution: ['IR.invoke'],
+        correlation: ['IR.invoke'],
       };
       expect([...carriers].sort(), `${name}: мешающие носители`).toEqual([...(expectedBlocking[name] ?? [])].sort());
       // Полнота прогона — это ровно «нет мешающих носителей», и она проверяется тем же измерением.
@@ -208,7 +214,12 @@ describe('сквозной прогон: понижение и кодирова�
       // есть, её негде взять из-за зарезервированных регистров или неподдерживаемой операции.
       const invokeBlocking = report.blocking.find((item) => item.carrier === 'IR.invoke');
       if (invokeBlocking !== undefined) {
-        expect(invokeBlocking.reason, `${name}: причина отказа IR.invoke`).toMatch(/зарезервирован|нет такой операции/);
+        // ПЕРЕМЕР 2026-10-10 (§3.131): к прежним двум причинам добавлена третья — «раскладка не
+        // выдала базу блока рантайма». Она и есть штатная причина для обращения в вызываемой
+        // процедуре: форма есть, а клеток под блок в её собственной половине кадра не нашлось.
+        expect(invokeBlocking.reason, `${name}: причина отказа IR.invoke`).toMatch(
+          /зарезервирован|нет такой операции|раскладка не выдала базу блока рантайма/,
+        );
         // Отговорка «формы понижения нет» здесь недопустима: форма ЕСТЬ (её даёт `carrierFormOf`),
         // просто взять её негде — операнд в зарезервированной области или операция не массива.
         expect(invokeBlocking.reason, `${name}: отговорка вместо причины`).not.toMatch(/формы понижения нет/);
@@ -349,6 +360,7 @@ describe('сквозной прогон: переходы понижены — �
     constants?: readonly unknown[],
     invokeNames?: readonly string[],
     procedures?: readonly { readonly name: string; readonly codeOffset: number }[],
+    contextAt?: ReadonlyMap<number, { readonly arrayBase?: number; readonly inCallee: boolean }>,
   ): {
     bytes: Uint8Array;
     addresses: Map<number, number>;
@@ -393,6 +405,9 @@ describe('сквозной прогон: переходы понижены — �
       const lowered = lowerCarrier(instruction, {
         ...(constants === undefined ? {} : { constants }),
         ...(invokeNames === undefined ? {} : { invokeNames }),
+        // Контекст плоскости обязателен для обращений к массивам (§3.131): базу блока выдаёт
+        // раскладка КОНКРЕТНОЙ процедуре, и без контекста отказывают ВСЕ обращения — не 8 из 22.
+        ...(contextAt?.get(index) ?? {}),
         ...(displacement === undefined ? {} : { displacement }),
         ...(predicate === undefined ? {} : { predicate }),
         ...(condition === undefined ? {} : { condition }),
@@ -453,9 +468,21 @@ describe('сквозной прогон: переходы понижены — �
     expect(instructions).toBe(458);
     expect(eliminated, 'разница носителей эмиттера и потока').toBe(53);
     expect(instructions + eliminated, 'носителей эмиттера').toBe(511);
-    expect(encoded, 'покрытие пяти ядер').toBe(458);
-    expect(refused, 'отказов').toBe(0);
-    expect([...byCarrier.entries()].sort((a, b) => b[1] - a[1]), 'отказов понижения нет ни одного').toEqual([]);
+    // ── ПЕРЕМЕР 2026-10-10 (§3.131): ПОКРЫТИЕ 413, ОТКАЗОВ 45, И КАЖДЫЙ НАЗВАН ───────────────────
+    //
+    // Прежде: покрытие 458, отказов 0. Числа 458/53/511 — свойства потока эмиттера и раскладки — НЕ
+    // сдвинулись; сдвинулось покрытие, и причина измерена: 45 обращений к массивам лежат в ВЫЗЫВАЕМЫХ
+    // процедурах, а их собственная половина кадра (`%b[8..15]`, восемь клеток) занята значениями —
+    // пятёрке блока рантайма места нет, базы нет, понижение отказывает ПО ИМЕНИ (`OSN-LOW-003`).
+    // До §3.128 эти обращения понижались «тихо» по клеткам плоскости точки входа (тихий путь §3.127):
+    // отсюда и «отказов 0», и байты 8800 вместо 6856 — мерилась конфигурация, которой компилятор не
+    // выдаёт. Разбор — `docs/hardware-debt.md` §3.131.
+    expect(encoded, 'покрытие пяти ядер').toBe(413);
+    expect(refused, 'отказов').toBe(45);
+    expect(
+      [...byCarrier.entries()].sort((a, b) => b[1] - a[1]),
+      'отказы названы: все — обращения к массивам вызываемых процедур',
+    ).toEqual([['IR.invoke', 45]]);
     // Переход понижён целиком: 12 из 12.
     const jumps = [...REPORTS.values()].flatMap((report) =>
       report.carriers.filter((carrier) => carrier.carrier === 'IR.jmp'),
@@ -492,21 +519,54 @@ describe('сквозной прогон: переходы понижены — �
 
   it('образ ядра fir читается MCST-objdump: у каждого disp тот же адрес цели, что в раскладке', () => {
     const image0 = kernelImage('fir', 'A5');
-    // Образ собирается из РАЗЛОЖЕННОГО потока — того же, что идёт в понижение: без раскладки регистров
-    // хост-вызовы `фильтр` не получают формы (их операнды попадают в зарезервированную область), и
-    // адреса первой команды процедуры просто нет — тогда и вызову некуда указывать.
-    const allocation = allocateProgram(image0.instructions, image0.scheduled.procedures);
+    // Образ собирается из РАЗЛОЖЕННОГО потока — того же, что идёт в понижение, и в ТОЙ ЖЕ
+    // конфигурации, что у компилятора (`src/e2k/programImage.ts#loweredProgram`): процедуры с
+    // обращениями к массивам помечены, точке входа — её пул, вызываемой — `CALLEE_REGISTERS`.
+    // Без пометки базы нет НИ У ОДНОЙ процедуры, и отказывают все 22 обращения (в компиляторе — 8:
+    // остальные 14 лежат в точке входа, которой база выдана). §3.131.
+    const entryAt = entryProcedureIndex(image0.scheduled.procedures);
+    const arrayProcedures = image0.scheduled.procedures
+      .map((procedure, at) => {
+        const to = image0.scheduled.procedures[at + 1]?.codeOffset ?? image0.instructions.length;
+        const usesArrays = image0.instructions.slice(procedure.codeOffset, to).some((carrier) => {
+          if (carrier.mnemonic !== 'IR.invoke') return false;
+          const payload = carrier.operands[3];
+          const name =
+            payload !== undefined && payload.kind === 'imm' ? image0.image.invokeNames[payload.value] : undefined;
+          return name !== undefined && SUPPORTED_ARRAY_CALLS.includes(name);
+        });
+        return usesArrays ? at : undefined;
+      })
+      .filter((at): at is number => at !== undefined);
+    const allocation = allocateProgram(image0.instructions, image0.scheduled.procedures, {
+      arrayProcedures,
+      freeFor: (at: number) => (at === entryAt ? undefined : CALLEE_REGISTERS),
+    });
+    const contextAt = new Map<number, { arrayBase?: number; inCallee: boolean }>();
+    allocation.procedures.forEach((procedure, at) => {
+      const to = allocation.procedures[at + 1]?.codeOffset ?? allocation.instructions.length;
+      for (let index = procedure.codeOffset; index < to; index++) {
+        const arrayBase = allocation.arrayBases[at];
+        contextAt.set(index, { ...(arrayBase === undefined ? {} : { arrayBase }), inCallee: at !== entryAt });
+      }
+    });
     const carriers = allocation.instructions;
     const image = laidOutImage(
       carriers,
       image0.scheduled.constants,
       image0.image.invokeNames,
       allocation.procedures,
+      contextAt,
     );
-    // Непонижённых размещённых носителей у fir БОЛЬШЕ НЕТ: процедура `фильтр` раскладывается
-    // (минимальное вытеснение в память), поэтому и её `IR.invoke`, и `IR.call` получают понижение, а
-    // вызову есть откуда взять адрес цели. Перемер 2026-09-24 (`.tmp/measure-realrun.ts`).
-    expect(image.refusals.map((item) => item.mnemonic), 'непонижённые размещённые носители fir').toEqual([]);
+    // ПЕРЕМЕР 2026-10-10 (§3.131): непонижённые размещённые носители у fir ЕСТЬ — восемь обращений к
+    // массивам вызываемых процедур (`OSN-LOW-003`): их собственная половина кадра занята значениями.
+    // Прежде их не было: обращения понижались «тихо» по клеткам плоскости точки входа (§3.127).
+    // Проверка не ослаблена: список обязан состоять ТОЛЬКО из `IR.invoke` и их число названо.
+    expect(
+      [...new Set(image.refusals.map((item) => item.mnemonic))],
+      'мнемоники непонижённых размещённых носителей fir',
+    ).toEqual(['IR.invoke']);
+    expect(image.refusals.length, 'непонижённых носителей fir').toBe(8);
     // В fir шесть переходов: три безусловных и три условных — смещение нужно каждому.
     expect(image.displacements.length, 'в fir шесть переходов').toBe(6);
     // Смещения ведут в адрес цели — проверяется арифметикой до внешнего инструмента.
@@ -685,10 +745,13 @@ describe('сквозной прогон: раскладка регистров �
     // Входящие v0 и v1 — параметры процедуры: они приходят в своих регистрах, и раскладка не имеет
     // права их переносить (иначе вызывающий положил бы значение не туда).
     expect(filter.incoming, 'входящие vreg названы').toEqual([0, 1]);
-    // Измерено: свободны восемь регистров (`%b[2..9]`), и заняты все восемь — раскладка укладывается
-    // впритык: самый тесный момент требует восьми отрезков одновременно.
+    // Измерено: свободны восемь регистров вызываемой (`CALLEE_REGISTERS = %b[8..15]` — своя половина
+    // кадра при `call wbs = 4`), и заняты все восемь: раскладка укладывается впритык, самый тесный
+    // момент требует восьми отрезков одновременно. НОМЕРА сдвинулись с `%b[2..9]` на `%b[8..15]`
+    // (§3.131): прежде прогон звал раскладку без `freeFor`, и вызываемая получала пул точки входа;
+    // теперь прогон повторяет конфигурацию компилятора.
     expect(filter.used, 'занято регистров').toBe(8);
-    expect(filter.usedRegisters, 'занятые регистры').toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(filter.usedRegisters, 'занятые регистры').toEqual([8, 9, 10, 11, 12, 13, 14, 15]);
     expect(filter.unmapped, 'неотображённые vreg').toEqual([]);
     // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): исправленный граф даёт процедуре
     // ТОЧНЫЕ отрезки (26 → 35), и её точная граница выросла (10 → 11 живых), поэтому вытесняются
@@ -811,22 +874,24 @@ describe('сквозной прогон: раскладка регистров �
     ).toBe(false);
   });
 
-  it('покрытие FIR: 104 из 104 — ядро понижается ЦЕЛИКОМ, но вызвать его процедуру всё ещё нельзя', () => {
-    // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): правка раскладки добавила
-    // процедуре `фильтр` второе вытеснение, поэтому носителей 102 → 104; все 104 (включая шесть
-    // `IR.invoke` и один `IR.call`) понижены — отказов нет. Прежде (2026-09-24, `.tmp/measure-realrun.ts`)
-    // было 102 из 102, а до минимального вытеснения — 92 из 99 с отказами `['IR.call', 'IR.invoke']`.
-    // Исполнения это по-прежнему НЕ обещает, и причина не в понижении: окно вызываемой — восемь
+  it('покрытие FIR: 96 из 104 — восемь обращений к массивам вызываемых отказывают, вызвать процедуру всё ещё нельзя', () => {
+    // ПЕРЕМЕР 2026-10-10 (§3.131): носителей 104 и снято копий 12 — как было (это свойства эмиттера
+    // и раскладки). Сдвинулось ПОКРЫТИЕ: 104 → 96, отказано 8 — это обращения к массивам внутри
+    // вызываемых процедур: их собственная половина кадра (`%b[8..15]`) занята значениями, пятёрке
+    // блока рантайма места нет, и понижение отказывает по имени (`OSN-LOW-003`). Прежде здесь стояло
+    // «104 из 104, отказов 0» — на конфигурации, где обращения понижались «тихо» по клеткам плоскости
+    // точки входа (§3.127).
+    //
+    // Исполнения это по-прежнему НЕ обещает, и причина не только в понижении: окно вызываемой — восемь
     // регистров, а `фильтр` требует десять (`docs/e2k-opcodes-real.md` §7.10,
-    // `docs/hardware-debt.md` §3.17–3.18). Вытеснение сократило требование с двенадцати до десяти —
-    // и всё равно больше восьми.
+    // `docs/hardware-debt.md` §3.17–3.18).
     const report = REPORTS.get('fir')!;
     expect(report.instructions, 'носителей в FIR после снятия копий').toBe(104);
     expect(report.removedCopies, 'снято копий').toBe(12);
-    expect(report.encoded, 'понижено').toBe(104);
-    expect(report.refused, 'отказов').toBe(0);
-    expect(report.blocking.map((item) => item.carrier), 'мешающие носители у FIR').toEqual([]);
-    expect(report.executableThroughReal, 'сквозной прогон через реальную кодировку').toBe(true);
+    expect(report.encoded, 'понижено').toBe(96);
+    expect(report.refused, 'отказов').toBe(8);
+    expect(report.blocking.map((item) => item.carrier), 'мешающие носители у FIR').toEqual(['IR.invoke']);
+    expect(report.executableThroughReal, 'сквозной прогон через реальную кодировку').toBe(false);
     // И вызывать `фильтр` теперь МОЖНО: при `size_q = 12` окно вызываемой 16 ≥ 10 (§3.49).
     // Числа этого не сдвинуло — ни носители (104), ни требование окна (10).
     const filter = report.calleeWindow.find((item) => item.procedure === 'фильтр')!;

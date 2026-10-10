@@ -52,7 +52,7 @@ import {
   secondPass,
   sizeOfCarrier,
 } from './twoPassLayout';
-import { lowerArrayCall } from './arrayRuntime';
+import { ENTRY_ARRAY_BASE, lowerArrayCall } from './arrayRuntime';
 import { allocateProgram } from './regAlloc';
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -167,7 +167,16 @@ describe('раскладка: IR.invoke получает длину от ран�
     ];
     for (const item of cases) {
       const form = carrierFormOf(invoke(item.payload, item.flags, [0, 1], 2), { invokeNames: INVOKE_NAMES })!;
-      const lowered = lowerArrayCall(INVOKE_NAMES[item.payload]!, [reg(0), reg(1)].slice(0, item.flags >> 1), 2);
+      // База блока теперь ОБЯЗАТЕЛЬНА на пути понижения (§3.128): раскладке она не нужна (длины
+      // последовательностей от неё не зависят, поэтому форма берётся с `forForm`), а понижению —
+      // нужна, иначе обращение отказывает по имени. Здесь сравнивается ФОРМА с ПОНИЖЕНИЕМ, поэтому
+      // база названа явно: точка входа, её измеренная клетка.
+      const lowered = lowerArrayCall(
+        INVOKE_NAMES[item.payload]!,
+        [reg(0), reg(1)].slice(0, item.flags >> 1),
+        2,
+        { base: ENTRY_ARRAY_BASE },
+      );
       expect(form.commands.map((command) => command.mnemonic)).toEqual(lowered.map((command) => command.mnemonic));
       form.commands.forEach((command, at) => {
         expect(command.size, `${command.mnemonic}: таблица против кодировщика`).toBe(realEncoder.encode(lowered[at]!).length);
@@ -188,7 +197,7 @@ describe('раскладка: IR.invoke получает длину от ран�
     expect(table.unplaced[0]!.reason, 'причина отказа').toMatch(/рантайм|операции/);
   });
 
-  it('FIR: все 22 носителя IR.invoke размещаются — но только ПОСЛЕ раскладки регистров', () => {
+  it('FIR: все 22 носителя IR.invoke размещаются, и форма берётся ДО раскладки регистров', () => {
     const source = fs.readFileSync(path.join(KERNELS_DIR, 'fir.osnova'), 'utf-8');
     const built = regModuleOf(source)!;
     const annotated = annotateAtomRegions(built.module, [
@@ -209,15 +218,25 @@ describe('раскладка: IR.invoke получает длину от ран�
     // `docs/e2k-regalloc-debt.md` §5 — точная живость по CFG либо вытеснение.
     expect(placed, 'размещено IR.invoke после раскладки').toBe(22);
     expect(table.unplaced.filter((item) => item.carrier === 'IR.invoke').length, 'не размещено IR.invoke').toBe(0);
-    // И обратное: на НЕразложенном потоке часть носителей формы не получает — причина от рантайма,
-    // а не «формы нет». Это и есть измеренная зависимость шага 2 от шага 1.
+    // ── ПЕРЕМЕР 2026-10-10 (§3.131): ЗАВИСИМОСТЬ ФОРМЫ ОТ РАСКЛАДКИ СНЯТА, И ЭТО СДЕЛАНО НАРОЧНО ────
+    //
+    // Прежде здесь утверждалось ОБРАТНОЕ: на неразложенном потоке часть носителей формы не получает
+    // («16 из 22», причина — «зарезервированные регистры рантайма»), и это подавалось как измеренная
+    // зависимость шага 2 от шага 1. Замер §3.130 показал цену этой зависимости: раскладка отказывала
+    // «формы понижения нет» ДО понижения, образ с блоком собирался УСЕЧЁННЫМ, и оракул мерил не ту
+    // программу. Поэтому форма `IR.invoke` к массивам берётся теперь БЕЗ семантических сторожей
+    // (`{ forForm: true }` в `src/e2k/twoPassLayout.ts#carrierFormWithReason`): длины
+    // последовательностей от базы блока не зависят, а сторожа держит понижение — там база есть.
+    //
+    // Проверка не ослаблена, а перевёрнута в ту сторону, которая ловит регресс: если форма снова
+    // начнёт зависеть от раскладки, она перестанет размещаться на сыром потоке и тест покраснеет.
     const raw = layoutOf(emitted.instructions, { invokeNames: names });
     const rawPlaced = raw.entries.filter((entry) => entry.carrier === 'IR.invoke').length;
-    expect(rawPlaced, 'без раскладки часть IR.invoke не размещается').toBeLessThan(22);
+    expect(rawPlaced, 'форма IR.invoke берётся и без раскладки регистров').toBe(22);
     expect(
-      raw.unplaced.some((item) => item.carrier === 'IR.invoke' && /зарезервирован/.test(item.reason)),
-      'причина отказа обязана называть зарезервированные регистры рантайма',
-    ).toBe(true);
+      raw.unplaced.filter((item) => item.carrier === 'IR.invoke').length,
+      'неразмещённых IR.invoke на сыром потоке',
+    ).toBe(0);
   });
 });
 

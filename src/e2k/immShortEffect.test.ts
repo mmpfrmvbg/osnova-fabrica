@@ -60,20 +60,30 @@ export const IMM_SHORT_EFFECT: readonly ImmShortRow[] = [
   // Перемер 2026-09-24 (`.tmp/measure-literal-imm.ts`) после минимального вытеснения в память:
   // команд у `fir` 259 (было 221), у `correlation` 196 (было 155). Коротких форм и экономии это
   // не меняет: вытеснение кладёт адрес слота в `movtd` (`imm64`), а не в `movts`.
-  { name: 'fir', commands: 263, short: 20, shortLiterals: 20, saved: 160 },
-  { name: 'iir', commands: 158, short: 10, shortLiterals: 10, saved: 80 },
-  { name: 'fft', commands: 228, short: 14, shortLiterals: 14, saved: 112 },
-  { name: 'convolution', commands: 218, short: 16, shortLiterals: 16, saved: 128 },
-  { name: 'correlation', commands: 197, short: 14, shortLiterals: 14, saved: 112 },
+  // ПЕРЕМЕР 2026-10-10 (§3.131): сдвинулись ТОЛЬКО `commands` — поток понижен ЧАСТЬЮ, потому что
+  // базу блока рантайма массивов раскладка выдаёт вызываемой процедуре лишь тогда, когда пятёрка
+  // клеток влезает в её собственную половину кадра (`%b[8..15]`), а у рабочих процедур DSP-ядер там
+  // восемь живых значений. Обращения к массивам вызываемых отказывают по имени (`OSN-LOW-003`):
+  // 1064 → 821 команда, 45 носителей названы отказом. Короткие формы (74) и экономия (592) НЕ
+  // изменились: усечение снимает `addd`/`ldd`/`std` рантайма, а короткие формы — литеральные `movts`
+  // потока эмиттера.
+  { name: 'fir', commands: 229, short: 20, shortLiterals: 20, saved: 160 },
+  { name: 'iir', commands: 131, short: 10, shortLiterals: 10, saved: 80 },
+  { name: 'fft', commands: 114, short: 14, shortLiterals: 14, saved: 112 },
+  { name: 'convolution', commands: 184, short: 16, shortLiterals: 16, saved: 128 },
+  { name: 'correlation', commands: 163, short: 14, shortLiterals: 14, saved: 112 },
 ];
 
 /**
  * Текущая база: линейные байты пяти ядер после вытеснения в память.
  *
- * Перемер 2026-09-27 (task-4): 8944 → 8800 — вместе с числами §2 `docs/e2k-real-run.md` (правка
- * раскладки: `convolution` 1984 → 1816, `correlation` 1664 → 1640, `fir` 2120 → 2168).
+ * ПЕРЕМЕР 2026-10-10 (§3.131): 8800 → 6856 вместе с усечением потока (821 команда вместо 1064).
+ * Прежнее число 8800 снималось в конфигурации, которой компилятор не выдаёт (обращения к массивам
+ * понижались «тихо» по клеткам плоскости точки входа, §3.127 → §3.131), поэтому оно и не могло
+ * удержаться; та же величина 6856 стоит в замере корпуса
+ * (`src/e2k/e2kPredicatePairs.test.ts`, «сквозной прогон»).
  */
-export const LINEAR_BYTES_BASELINE = 8800;
+export const LINEAR_BYTES_BASELINE = 6856;
 
 const encoder = getEncoder('e2k');
 
@@ -83,10 +93,12 @@ describe('эффект короткой формы: измерение по пя
     const saved = IMM_SHORT_EFFECT.reduce((sum, row) => sum + row.saved, 0);
     expect(short, 'коротких форм').toBe(74);
     expect(saved, 'экономия байт').toBe(592);
-    // Доля образа: 592 из 8944 = 0.066 (перемер 2026-09-25: у `iir` трюк через остаток заменён на
-    // `div`, база чуть уменьшилась — было 592 из 8968). Экономия та же, знаменатель другой.
+    // Доля образа: 592 из 6856 = 0.086 (ПЕРЕМЕР 2026-10-10, §3.131: знаменатель — линейные байты
+    // ПОНИЖЕННОЙ части потока; было 592 из 8800 = 0.067, пока поток понижался целиком). Верхняя
+    // граница сдвинута вместе со знаменателем: величина та же, а образ стал короче на 1944 байта
+    // названных отказов — доля от него поэтому ВЫШЕ, и это не рост экономии.
     expect(saved / LINEAR_BYTES_BASELINE, 'доля образа').toBeGreaterThan(0.06);
-    expect(saved / LINEAR_BYTES_BASELINE, 'доля образа').toBeLessThan(0.07);
+    expect(saved / LINEAR_BYTES_BASELINE, 'доля образа').toBeLessThan(0.09);
   });
 
   it('1.2 измеренное число коротких форм совпадает с таблицей и с числом малых литералов', () => {
@@ -153,13 +165,14 @@ describe('эффект короткой формы: измерение по пя
   });
 
   it('1.5 сверка баз: закреплённые числа шага 2 перемерены на текущем потоке', () => {
-    // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): база 1076 → 1064 вместе с таблицей
-    // барьеров. Прежде (2026-09-25): 1076 (было 1079) после замены трюка через остаток на `div`.
+    // ПЕРЕМЕР 2026-10-10 (§3.131): база 1064 → 821 вместе с усечением потока (разбор — в шапке
+    // `IMM_SHORT_EFFECT`). Прежние перемеры: 1076 (2026-09-25, замена трюка через остаток на `div`),
+    // 1076 → 1064 (2026-09-27, task-4).
     const sum = (pick: (row: { commands: number }) => number): number =>
       LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
     const effectSum = IMM_SHORT_EFFECT.reduce((total, row) => total + row.commands, 0);
-    expect(sum((row) => row.commands), 'таблица барьеров').toBe(1064);
-    expect(effectSum, 'таблица эффекта').toBe(1064);
+    expect(sum((row) => row.commands), 'таблица барьеров').toBe(821);
+    expect(effectSum, 'таблица эффекта').toBe(821);
     expect(sum((row) => row.commands), 'оба оракула на одной базе').toBe(effectSum);
     // Экономия от сдвига базы не зависит: она считается по числу коротких форм.
     expect(IMM_SHORT_EFFECT.reduce((total, row) => total + row.short, 0) * 8, 'экономия').toBe(592);

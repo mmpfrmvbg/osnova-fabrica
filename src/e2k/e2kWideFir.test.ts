@@ -38,10 +38,12 @@ import { getEncoder, type AsmInstruction } from './backend';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleOf } from '../vliw/regOracle';
-import { layoutOf, secondPass } from './twoPassLayout';
+import { layoutOf, secondPass, CALLEE_REGISTERS } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
 import { callDisplacementsOf, lowerCarrier, type LoweringContext } from './e2kRealRun';
 import { allocateProgram } from './regAlloc';
+import { SUPPORTED_ARRAY_CALLS } from './arrayRuntime';
+import { entryProcedureIndex } from './procedureCall';
 import { wideStats } from './widePacker';
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -95,11 +97,45 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
     { atom, procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
   const emitted = emitShell(annotated, getEncoder('internal-shell'));
-  // Поток берётся ТОТ ЖЕ, что идёт в понижение в конвейере: сначала раскладка регистров (устранение
-  // копий + отрезки), затем раскладка адресов с именами хост-вызовов и смещениями вызовов. Иначе
-  // измерялся бы не тот поток, который кодируется.
-  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures);
+  // ── КОНФИГУРАЦИЯ РАСКЛАДКИ — КОНФИГУРАЦИЯ КОМПИЛЯТОРА (§3.131) ────────────────────────────────
+  //
+  // Прежде раскладка звалась БЕЗ ОПЦИЙ. С §3.128 этого мало, и это выяснилось замером: понижение
+  // `IR.invoke` к массивам требует БАЗЫ БЛОКА, которую выдаёт раскладка, — а без пометки процедур
+  // базы не получал НИКТО, и все 22 обращения ядра отказывали (команд 263 → 103: мерилась не та
+  // конфигурация, что выдаёт компилятор). Здесь повторено ровно то, что делает конвейер
+  // (`src/e2k/programImage.ts#loweredProgram`): процедуры с обращениями к массивам помечены, точке
+  // входа — её пул, вызываемой — `CALLEE_REGISTERS`.
+  const entryAt = entryProcedureIndex(emitted.scheduled.procedures);
+  const arrayProcedures = emitted.scheduled.procedures
+    .map((procedure, at) => {
+      const to = emitted.scheduled.procedures[at + 1]?.codeOffset ?? emitted.instructions.length;
+      const usesArrays = emitted.instructions.slice(procedure.codeOffset, to).some((carrier) => {
+        if (carrier.mnemonic !== 'IR.invoke') return false;
+        const payload = carrier.operands[3];
+        const name = payload !== undefined && payload.kind === 'imm' ? emitted.image.invokeNames[payload.value] : undefined;
+        return name !== undefined && SUPPORTED_ARRAY_CALLS.includes(name);
+      });
+      return usesArrays ? at : undefined;
+    })
+    .filter((at): at is number => at !== undefined);
+  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
+    arrayProcedures,
+    freeFor: (at: number) => (at === entryAt ? undefined : CALLEE_REGISTERS),
+  });
   const stream = allocation.instructions;
+  // Контекст понижения — ПО ПРОЦЕДУРАМ, как в конвейере: базу блока знает только процедура, которой
+  // её выдала раскладка, и признак вызываемой тоже её (куча и оконная форма — свойства плоскости).
+  const procedureContextAt = new Map<number, { arrayBase?: number; inCallee: boolean }>();
+  allocation.procedures.forEach((procedure, at) => {
+    const to = allocation.procedures[at + 1]?.codeOffset ?? stream.length;
+    for (let index = procedure.codeOffset; index < to; index++) {
+      const base = allocation.arrayBases[at];
+      procedureContextAt.set(index, {
+        ...(base === undefined ? {} : { arrayBase: base }),
+        inCallee: at !== entryAt,
+      });
+    }
+  });
   const layout = layoutOf(stream, { invokeNames: emitted.image.invokeNames });
   const resolved = secondPass(stream, layout.addresses);
   const pairing = pairPredicates(stream);
@@ -116,6 +152,15 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
 
   const commands: AsmInstruction[] = [];
   const refusals = new Map<string, string>();
+  /**
+   * СКОЛЬКО НОСИТЕЛЕЙ НАЗВАНО ОТКАЗОМ — по мнемонике, а не «есть отказ или нет» (§3.131).
+   *
+   * `refusals` хранит ПРИЧИНУ по мнемонике, поэтому две тысячи отказов `IR.invoke` выглядели бы там
+   * одной записью. Числа упаковки считаются по ПОНИЖЕННОЙ части потока, и без этого счётчика
+   * «команд 229» читалось бы как «столько команд в ядре», тогда как 13 обращений к массивам в
+   * вызываемых процедурах не понижены вовсе.
+   */
+  const refusedCarriers = new Map<string, number>();
   const commandIndices: number[] = [];
   for (let index = 0; index < stream.length; index++) {
     const carrier = resolved.instructions[index]!;
@@ -127,6 +172,7 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
     const context: LoweringContext = {
       constants: emitted.scheduled.constants,
       invokeNames: emitted.image.invokeNames,
+      ...(procedureContextAt.get(index) ?? {}),
       ...(displacementAt.has(index) ? { displacement: displacementAt.get(index)! } : {}),
       ...(callDisplacementAt.has(index) ? { callDisplacement: callDisplacementAt.get(index)! } : {}),
       ...(predicateAt.has(index) ? { predicate: predicateAt.get(index)! } : {}),
@@ -135,6 +181,7 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
     const lowered = lowerCarrier(carrier, context);
     if (!lowered.ok) {
       refusals.set(carrier.mnemonic, lowered.reason);
+      refusedCarriers.set(carrier.mnemonic, (refusedCarriers.get(carrier.mnemonic) ?? 0) + 1);
       continue;
     }
     commandIndices.push(index);
@@ -144,6 +191,8 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
     carriers: emitted.instructions.length,
     commands,
     refusals,
+    refusedCarriers,
+    refusedTotal: [...refusedCarriers.values()].reduce((sum, count) => sum + count, 0),
     carrierStream: stream,
     invokeNames: emitted.image.invokeNames,
     commandIndices,
@@ -154,67 +203,64 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
 const FIR = kernelStreamOf('fir', 'A5');
 
 describe('замер: FIR через группировку', () => {
-  it('поток FIR понижается ЦЕЛИКОМ: 111 носителей → 263 команды, отказов понижения нет', () => {
+  it('поток FIR понижается ЧАСТЬЮ: 111 носителей → 229 команд, 8 обращений к массивам названы отказом', () => {
     expect(FIR.carriers, 'носителей эмиттера в ядре FIR').toBe(111);
-    // Перемер 2026-09-24 (`.tmp/measure-wide-pins.ts`, `.tmp/measure-realrun.ts`): ядро понижается
-    // ЦЕЛИКОМ. Причина сдвига — минимальное вытеснение в память (`src/vliw/spill.ts`): рабочая
-    // процедура `фильтр` наконец раскладывается (одно значение уезжает в слот), поэтому её 22
-    // носителя `IR.invoke` и 1 `IR.call` перестали отказывать. Было: 221 команда и отказы
-    // `['IR.call', 'IR.invoke']` — то есть до вытеснения «байты собраны» не означало «понижено».
+    // ── ПЕРЕМЕР 2026-10-10 (§3.131): ЧАСТЬ ПОТОКА НЕ ПОНИЖАЕТСЯ, И ЭТО ИЗМЕРЕНО ──────────────────
     //
-    // Перемер 2026-09-27 (task-4, `src/e2k/regAlloc.ts`): цели переходов пересчитываются ДО анализа
-    // живости (`docs/hardware-debt.md` §3.35/§3.37). Исправленный граф даёт процедуре `фильтр`
-    // ТОЧНЫЕ отрезки (26 → 35), и её точная граница выросла (10 → 11 живых): вытесняется два значения
-    // вместо одного (+2 носителя: чтение и запись слота). Отсюда 259 → 263 команды и 2120 → 2168
-    // линейных байт; упаковка считает уже этот поток, поэтому её числа тоже сдвинулись.
-    expect(FIR.commands.length, 'команд e2k после понижения').toBe(263);
-    expect([...FIR.refusals.keys()].sort(), 'отказы понижения').toEqual([]);
+    // Было 263 команды и «отказов понижения нет». Числа 263/205/2048/95 снимались в конфигурации,
+    // которой компилятор НЕ выдаёт: раскладка звалась без `arrayProcedures`, то есть ни одна
+    // процедура не была помечена как работающая с массивами, а до §3.128 обращение к массиву
+    // понижалось «тихо» — по клеткам ПЛОСКОСТИ ТОЧКИ ВХОДА, где бы процедура ни лежала. С §3.128
+    // базу блока выдаёт раскладка, и вызываемая процедура получает её только если пятёрка клеток
+    // помещается в ЕЁ СОБСТВЕННУЮ половину кадра (клетки `%b[8..15]` при `call wbs = 4`).
+    //
+    // Замер `filter` ядра FIR: восемь живых значений занимают все восемь клеток своей половины —
+    // пятёрке блока места нет, базы нет, 8 обращений к массивам отказывают ПО ИМЕНИ (`OSN-LOW-003`,
+    // «раскладка не выдала базу блока рантайма»). Стенд (пул `%b[0..9]`) находил пятёрку в клетках
+    // 2..6 — а это `%b[10..14]` ВЫЗЫВАЮЩЕГО: пролог значений вызываемой писал ЕДИНИЦУ в его клетку 12,
+    // и выход считал `значение + %b[12]` (М3 давало 7 вместо 6, К3 — 8 вместо 7).
+    //
+    // Итог: 229 команд — это команды ПОНИЖЕННОЙ части (они верны), и рядом стоит счёт отказавших
+    // носителей. Восстановить полный поток можно только одним из двух: выровнять блок вызываемой по
+    // РОЛЯМ вызывающего (тогда клетки 2..6 = клетки блока вызывающего, и константы 0/1/8
+    // перезаписываются теми же значениями — это работает на глубине 1 и НЕ работает глубже) или
+    // расширить кадр вызываемой (A1′, §3.125). Ни то, ни другое здесь не сделано.
+    expect(FIR.commands.length, 'команд e2k после понижения').toBe(229);
+    expect([...FIR.refusedCarriers.entries()], 'названные отказы понижения').toEqual([['IR.invoke', 8]]);
+    // Код `OSN-LOW-003` присваивает конвейер (`src/e2k/programImage.ts#loweredProgram`), а здесь
+    // видно САМУ причину понижения — по ней код и ставится.
+    expect(FIR.refusals.get('IR.invoke') ?? '', 'причина отказа').toContain('раскладка не выдала базу блока рантайма');
   });
 
   it('группировка сокращает число команд и байтов', () => {
     const stats = wideStats(FIR.commands);
-    expect(stats.linearCommands, 'команд линейно').toBe(263);
-    // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): исправленные отрезки раскладки
-    // (см. выше) добавили `fir` четыре команды — с ними поехали ВСЕ числа упаковки: пакетов
-    // 203 → 205, байт линейно 2120 → 2168, байт пакетами 1992 → 2048, слогов в многоместных
-    // 91 → 95. Литералов у `fir` по-прежнему 20, из них 20 «малых» (0…15), управляющих 22.
-    //
-    // Перемер 2026-09-27: литерал ВКЛЮЧЁН в упаковщик (раскладка измерена, `src/e2k/e2kWideSsLts.test.ts`);
-    // прежде он был барьером пакетов. Тогда сдвинулись ТОЛЬКО числа упаковки: пакетов 220 → 203,
-    // байт пакетами 2040 → 1992, слогов в многоместных 66 → 91. Байты линейно (2120) и команды (259)
-    // не двигались — упаковка их не касается.
-    //
-    // Прежние перемеры: 2026-09-24 (`.tmp/measure-wide-pins.ts`) после минимального вытеснения:
-    // команд 259 (было 221), байт линейно 2120 (было 1784), пакетами 2040 (было 1704), пакетов 220,
-    // слогов 66. До этого — после перехода на CFG-отрезки: 184 пакета и 63 слога при 221 команде.
-    expect(stats.packets, 'пакетов').toBe(205);
-    expect(stats.bytesLinear, 'байт линейно').toBe(2168);
-    expect(stats.bytesWide, 'байт пакетами').toBe(2048);
-    expect(stats.packedSlots, 'слогов в многоместных пакетах').toBe(95);
+    expect(stats.linearCommands, 'команд линейно').toBe(229);
+    // Перемер 2026-10-10 вместе с усечением потока (см. выше): 205 → 177 пакетов, 2168 → 1896 байт
+    // линейно, 2048 → 1792 байтами, 95 → 87 слогов. Литеральные колонки НЕ сдвинулись (20 и 20,
+    // управляющих 22, длинных форм 1): они считаются по потоку эмиттера, а усечение — по раскладке.
+    expect(stats.packets, 'пакетов').toBe(177);
+    expect(stats.bytesLinear, 'байт линейно').toBe(1896);
+    expect(stats.bytesWide, 'байт пакетами').toBe(1792);
+    expect(stats.packedSlots, 'слогов в многоместных пакетах').toBe(87);
     expect(stats.refused, 'отказов кодировщика среди понижённых команд').toBe(0);
   });
 
   it('материал группировки — пересылки: арифметики в потоке мало', () => {
     // Это и есть честный ответ на вопрос «почему выигрыш скромный»: DSP-счёт ядра уходит в
-    // `IR.invoke` (обращения к массивам) и до кодировщика не доезжает.
+    // `IR.invoke` (обращения к массивам) и до кодировщика не доезжает. С §3.131 это видно и числом:
+    // восемь обращений не понижены вовсе, поэтому адресной арифметики 88, а не 112.
     const counts = new Map<string, number>();
     for (const command of FIR.commands) counts.set(command.mnemonic, (counts.get(command.mnemonic) ?? 0) + 1);
-    // Перемер 2026-09-24 вместе с полным понижением ядра: пересылок 60 (было 57), сложений-адресации
-    // 117 (было 98), арифметики 120 (было 101) — вытеснение добавляет свои `movtd`/`ldd`/`std`.
-    //
-    // Перемер 2026-09-27 (`docs/hardware-debt.md` §3.30): адресная арифметика рантайма массивов
-    // переведена с `adds` (форма `S`, младшая половина) на `addd` (форма `D`, регистр целиком).
-    // Сдвинулись ТОЛЬКО ИМЕНА команд: `adds` 117 → 5 (остались от понижения `IR.add`), `addd` 0 → 112.
-    // Сумма арифметики та же — 120, и это ожидаемо: команды те же, изменился лишь код операции
-    // (`adds` 0x10 → `addd` 0x11), обе — ALF1 по 8 байт. Поэтому числа выше (263 команды, 2168 байт)
-    // не сдвинулись, а «сдвинулось число» здесь означает ровно замену кода операции, не пересчёт.
+    // Прежние числа: пересылок 60, адресной арифметики 112, сложений 5, сумма арифметики 120.
+    // Пересылки (`movts` 60) и сложения `adds` 5 НЕ сдвинулись: усечение снимает последовательности
+    // рантайма массивов, а они состояли из `addd`/`ldd`/`std` (плюс `movtd` адресов слотов).
     expect(counts.get('movts'), 'пересылок movts').toBe(60);
-    expect(counts.get('addd'), 'адресной арифметики рантайма массивов (форма D, %db)').toBe(112);
+    expect(counts.get('addd'), 'адресной арифметики рантайма массивов (форма D, %db)').toBe(88);
     expect(counts.get('adds'), 'сложений от понижения IR.add (форма S)').toBe(5);
     expect(
       (counts.get('adds') ?? 0) + (counts.get('addd') ?? 0) + (counts.get('subs') ?? 0) + (counts.get('muls') ?? 0),
       'арифметики',
-    ).toBe(120);
+    ).toBe(96);
   });
 });
 
@@ -222,7 +268,13 @@ describe('замер: пять ядер', () => {
   const rows = KERNELS.map(({ name, atom }) => {
     const stream = kernelStreamOf(name, atom);
     const stats = wideStats(stream.commands);
-    return { name, ...stats, carriers: stream.carriers, commands: stream.commands.length };
+    return {
+      name,
+      ...stats,
+      carriers: stream.carriers,
+      commands: stream.commands.length,
+      refusedTotal: stream.refusedTotal,
+    };
   });
 
   it('у каждого ядра пакетов меньше, чем команд', () => {
@@ -233,20 +285,27 @@ describe('замер: пять ядер', () => {
   it('ни у одного ядра нет отказов КОДИРОВЩИКА, и у каждого число команд названо', () => {
     const problems = rows.filter((row) => row.refused !== 0).map((row) => row.name);
     expect(problems, 'ядра с отказами кодировщика').toEqual([]);
-    // Перемер 2026-09-25: у `iir` 158 команд (было 161) — трюк `(a - a % b) / b` заменён оператором
-    // `div`, из потока ушли вызов остатка и вычитание.
+    // ── ПЕРЕМЕР 2026-10-10 (§3.131) ───────────────────────────────────────────────────────────────
     //
-    // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): исправленные отрезки раскладки
-    // сдвинули команды у трёх ядер — `fir` 259 → 263 (на одно вытеснение больше у процедуры `фильтр`),
-    // `convolution` 232 → 218 и `correlation` 199 → 197 (наоборот, вытеснений меньше: 4 → 2 и
-    // сегментов короче). `iir` и `fft` не сдвинулись.
-    expect(rows.map((row) => `${row.name}:${row.carriers}→${row.commands}`)).toEqual([
-      'fir:111→263',
-      'iir:85→158',
-      'fft:105→228',
-      'convolution:110→218',
-      'correlation:100→197',
+    // Было: fir 263, iir 158, fft 228, convolution 218, correlation 197 (сумма 1064) — и ни одного
+    // отказа понижения. Эти числа снимались в конфигурации, которой компилятор не выдаёт (см. разбор
+    // у FIR выше): раскладка звалась без пометки процедур с массивами, обращения к массивам
+    // понижались «тихо» по клеткам плоскости точки входа. С §3.128 база блока выдаётся раскладкой, и
+    // вызываемая процедура получает её только если пятёрка помещается в её собственную половину
+    // кадра (`%b[8..15]`); у рабочих процедур DSP-ядер там живут восемь значений — пятёрке места нет.
+    //
+    // Отсюда: понижена ЧАСТЬ потока, и число отказавших носителей стоит рядом с числом команд —
+    // 45 на пять ядер (`fir` 8, `iir` 6, `fft` 15, `convolution` 8, `correlation` 8), все `IR.invoke`
+    // с причиной `OSN-LOW-003`. Прежнее «команд 1064» читалось как полный поток; теперь это
+    // 821 команда понижённой части и 45 названных отказов.
+    expect(rows.map((row) => `${row.name}:${row.carriers}→${row.commands} (отказано ${row.refusedTotal})`)).toEqual([
+      'fir:111→229 (отказано 8)',
+      'iir:85→131 (отказано 6)',
+      'fft:105→114 (отказано 15)',
+      'convolution:110→184 (отказано 8)',
+      'correlation:100→163 (отказано 8)',
     ]);
+    expect(rows.reduce((total, row) => total + row.refusedTotal, 0), 'отказано носителей на пять ядер').toBe(45);
   });
 
   it('байтов в пакетах меньше, чем линейно, у каждого ядра', () => {

@@ -122,29 +122,39 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   // `iir` и `fft` по командам те же. Литеральные колонки (`literals`, `tinyLiterals`, `control`,
   // `longForm`) НЕ двигались — правка меняет решения раскладки, а не состав операций.
   // Замер: `.tmp/osnova-fix-remer.ts` (тот же путь, что у `kernelStreamOf` + `wideStats`).
-  { name: 'fir', commands: 263, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 205, emptySlots: 967 },
-  // Перемер 2026-09-25: у `iir` 158 команд (было 161) — трюк `(a - a % b) / b` заменён на `div`.
-  { name: 'iir', commands: 158, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 118, emptySlots: 550 },
-  { name: 'fft', commands: 228, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 185, emptySlots: 882 },
+  // ПЕРЕМЕР 2026-10-10 (§3.131): сдвинулись ТОЛЬКО размерные колонки (`commands`, `packets`,
+  // `emptySlots`), и причина названа — поток понижен ЧАСТЬЮ. С §3.128 базу блока рантайма массивов
+  // выдаёт раскладка, и вызываемая процедура получает её только если пятёрка клеток помещается в её
+  // собственную половину кадра (`%b[8..15]` при `call wbs = 4`); у рабочих процедур DSP-ядер там
+  // восемь живых значений. Поэтому обращения к массивам вызываемых отказывают ПО ИМЕНИ
+  // (`OSN-LOW-003`), и последовательности рантайма в поток не попадают: было 1064 команды, стало 821,
+  // отказано 45 носителей (`fir` 8, `iir` 6, `fft` 15, `convolution` 8, `correlation` 8).
+  //
+  // Литеральные колонки (`literals`, `tinyLiterals`, `control`, `longForm`) НЕ СДВИНУЛИСЬ — и это
+  // содержательная проверка: усечение снимает `addd`/`ldd`/`std` рантайма, а литералы и управляющие
+  // команды приходят из потока эмиттера.
+  { name: 'fir', commands: 229, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 177, emptySlots: 833 },
+  { name: 'iir', commands: 131, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 96, emptySlots: 445 },
+  { name: 'fft', commands: 114, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 92, emptySlots: 438 },
   {
     name: 'convolution',
-    commands: 218,
+    commands: 184,
     literals: 16,
     tinyLiterals: 16,
     control: 26,
     longForm: 1,
-    packets: 170,
-    emptySlots: 802,
+    packets: 142,
+    emptySlots: 668,
   },
   {
     name: 'correlation',
-    commands: 197,
+    commands: 163,
     literals: 14,
     tinyLiterals: 14,
     control: 22,
     longForm: 1,
-    packets: 153,
-    emptySlots: 721,
+    packets: 127,
+    emptySlots: 599,
   },
 ];
 
@@ -238,36 +248,30 @@ describe('LTS-барьеры: что именно разрывает пакет�
     expect(problems, 'короткая непосредственная форма').toEqual([]);
   });
 
-  it('1.5 итог: 78 литеральных из 1064 команд, управляющих 106', () => {
+  it('1.5 итог: 78 литеральных из 821 команды, управляющих 106', () => {
     const sum = (pick: (row: LiteralBarrierRow) => number): number => LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
-    // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): раскладка регистров исправлена,
-    // команды 1076 → 1064 (`fir` +4, `convolution` −14, `correlation` −2). Литеральных 78 и «малых»
-    // 74, управляющих 106, длинных форм 5 — НЕ двигались: правка меняет решения раскладки, а не
-    // состав операций. Прежде (2026-09-25, замена трюка на `div`): команд 1076 (было 1079).
-    expect(sum((row) => row.commands), 'команд').toBe(1064);
+    // ПЕРЕМЕР 2026-10-10 (§3.131): команд 1064 → 821 — поток понижен ЧАСТЬЮ (45 обращений к массивам
+    // вызываемых процедур отказывают по имени, разбор — в шапке таблицы выше). Литеральных 78 и
+    // «малых» 74, управляющих 106, длинных форм 5 — НЕ двигались: усечение снимает последовательности
+    // рантайма массивов (`addd`/`ldd`/`std`), а литералы и управляющие приходят из потока эмиттера.
+    expect(sum((row) => row.commands), 'команд').toBe(821);
     expect(sum((row) => row.literals), 'литеральных').toBe(78);
     expect(sum((row) => row.tinyLiterals), 'со значением 0..15').toBe(74);
     expect(sum((row) => row.control), 'управляющих').toBe(106);
     expect(sum((row) => row.longForm), 'длинных форм').toBe(5);
   });
 
-  it('1.6 пустые слоты: 3922 из 4986 — пакетов стало меньше, слогов тоже', () => {
+  it('1.6 пустые слоты: 2983 из 3804 — пакетов стало меньше, слогов тоже', () => {
     const packets = LITERAL_BARRIERS.reduce((sum, row) => sum + row.packets, 0);
     const empty = LITERAL_BARRIERS.reduce((sum, row) => sum + row.emptySlots, 0);
-    // Перемер 2026-09-27 (task-4, `docs/hardware-debt.md` §3.37): раскладка регистров исправлена,
-    // пакетов 855 → 831 (по ядрам: `fir` 203 → 205, `iir` 120 → 118, `fft` 187 → 185,
-    // `convolution` 191 → 170, `correlation` 154 → 153), пустых слотов 4054 → 3922, слогов всего
-    // 5130 → 4986. Занятых слотов 1064 — ровно число команд, и оно сходится: 831 · 6 − 3922 = 1064.
-    // Замер: `.tmp/osnova-fix-remer.ts`.
-    // Прежде (task-5, литеральная ПАРА едет в одной команде): пакетов 857 → 855, пустых 4066 → 4054,
-    // слогов 5142 → 5130, занятых 1076. До этого (литерал включён в упаковщик): 857 / 4066 / 5142,
-    // ещё раньше 924 / 4468 / 5544 (поток с вытеснением и трюком через остаток у `iir`),
-    // 783 / 3759 / 4698 — поток до вытеснения.
-    expect(packets, 'пакетов').toBe(831);
-    expect(empty, 'пустых слотов').toBe(3922);
-    expect(packets * 6, 'слогов всего').toBe(4986);
-    expect(packets * 6 - empty, 'занятых слотов').toBe(1064);
-    expect(packets, 'пакетов на потоке интеграции').toBe(831);
+    // ПЕРЕМЕР 2026-10-10 (§3.131): вместе с усечением потока пакетов 831 → 634, пустых слотов
+    // 3922 → 2983, слогов всего 4986 → 3804. Занятых слотов 821 — ровно число понижённых команд, и
+    // оно сходится: 634 · 6 − 2983 = 821.
+    expect(packets, 'пакетов').toBe(634);
+    expect(empty, 'пустых слотов').toBe(2983);
+    expect(packets * 6, 'слогов всего').toBe(3804);
+    expect(packets * 6 - empty, 'занятых слотов').toBe(821);
+    expect(packets, 'пакетов на потоке интеграции').toBe(634);
   });
 });
 
