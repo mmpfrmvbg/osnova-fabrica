@@ -34,6 +34,9 @@ import { getEncoder, type AsmInstruction, type Operand } from '../e2k/backend';
 import { MINIMAL_BASE, buildElfFromCode, DATA_SEGMENT_BASE } from '../e2k/elfMinimal';
 import { SYS_EXIT, ENTRY_SYSCALL_FRAME, syscallWindowOf } from '../e2k/syscallRuntime';
 import { buildShim, runInQemu, toWslPath } from '../scripts/e2kQemuExec';
+import { parseV3 } from '../compiler-v3/index';
+import { tokenizeV3 } from '../compiler-v3/lexer';
+import { loweredProgram } from '../e2k/programImage';
 import {
   O_RDONLY,
   SYS_CLOSE,
@@ -290,5 +293,135 @@ describe('файловые системные вызовы на цели: что
     );
     const прогон = run('конец-файла', bytes);
     expect(прогон.код, 'первое чтение — 3 байта, второе (за концом) — 0, а не ошибка').toBe(3);
+  });
+});
+
+/**
+ * ЛЕКСЕР v3 НА ЦЕЛИ: ЧТО УЖЕ ИСПОЛНЯЕТСЯ, А ЧТО — СТЕНА (§3.132, замер 2026-10-10).
+ *
+ * Лексер целиком на цель ещё НЕ собирается, и это названо числом, а не «почти получилось»: код
+ * образа 8064 байта при статических строках, начинающихся на 6938, — то есть код дорос до области
+ * строк (стена — `docs/hardware-debt.md` §3.48), а до неё понижение отказывает на трёх операциях
+ * (`система.строка.символ`, `система.строка.содержит`, склейка трёх строк в вызываемой —
+ * перечислены в `src/e2k/booleanLiterals.test.ts`).
+ *
+ * Здесь спрашивается то, что РАБОТАЕТ, и спрашивается у ЭТАЛОНА — TS-лексера v3:
+ * форматирование токена — это шаг лексера (`с_токеном`), а не «похожая программа».
+ */
+describe('лексер v3 на цели: первые куски (сверка с TS-лексером)', () => {
+  const опцииV3 = (src: string) => {
+    const р = parseV3(src, 'лексер-проба.osnova');
+    return { filename: 'лексер-проба.osnova', parse: () => ({ ast: р.program ?? null, errors: р.errors }) };
+  };
+
+  /** Собрать программу на Основе для цели и исполнить в модели: либо отказы, либо ответ. */
+  function прогонНаЦели(имя: string, src: string): { код: number | undefined; отказы: string[]; беда: string | undefined } {
+    let образ;
+    try {
+      образ = loweredProgram(src, опцииV3(src));
+    } catch (error) {
+      return { код: undefined, отказы: [], беда: error instanceof Error ? error.message : String(error) };
+    }
+    if (образ.refused.length > 0) {
+      return { код: undefined, отказы: образ.refused.map((item) => item.reason), беда: undefined };
+    }
+    const elf = path.join(ROOT, '.tmp', `self-host-лексер-${имя}.elf`);
+    fs.writeFileSync(
+      elf,
+      buildElfFromCode(образ.bytes, MINIMAL_BASE, { writable: true, extraMemory: образ.arena.extraMemory }).bytes,
+    );
+    const результат = runInQemu(elf, { shim: true, timeoutMs: 30_000 });
+    return { код: результат?.status ?? undefined, отказы: [], беда: undefined };
+  }
+
+  it('ЛОГИКА: выражение v3 с `и`/`или` считается на цели (до правки §3.132 не собиралось вовсе)', () => {
+    if (shim === undefined) return;
+    const итог = прогонНаЦели(
+      'логика',
+      `действие главная()
+  пусть а = 3
+  пусть б = 5
+  пусть н = 0
+  если а < 4 и б < 6
+    н = н + 1
+  конец если
+  если 1 > 2 или б == 5
+    н = н + 10
+  конец если
+  вернуть н
+конец
+`,
+    );
+    expect(итог.отказы, 'отказов быть не должно').toEqual([]);
+    expect(итог.код, '1 + 10 = 11').toBe(11);
+  });
+
+  it('ЛОГИКА: `нет` и `не` на цели (булева константа — числом из пула)', () => {
+    if (shim === undefined) return;
+    const итог = прогонНаЦели(
+      'нет',
+      `действие главная()
+  пусть т = нет
+  пусть н = 0
+  если не т
+    н = 7
+  конец если
+  вернуть н
+конец
+`,
+    );
+    expect(итог.отказы).toEqual([]);
+    expect(итог.код).toBe(7);
+  });
+
+  it('ТОКЕН ЛЕКСЕРА: строка `вид|лексема` строится в рантайме и её длина равна эталону TS', () => {
+    if (shim === undefined) return;
+    // Эталон берётся у TS-лексера, а не выписан числом: `kind|lexeme` + перевод строки.
+    const токены = tokenizeV3('пусть сумма = 1\n', 'проба.osnova').tokens;
+    const строкаТокена = `${токены[1]!.kind}|${токены[1]!.lexeme}\n`;
+    const итог = прогонНаЦели(
+      'токен',
+      `действие главная()
+  пусть вид = "имя"
+  пусть лексема = "сумма"
+  пусть строка = вид + "|" + лексема + "\\n"
+  вернуть длина строка
+конец
+`,
+    );
+    expect(итог.отказы).toEqual([]);
+    expect(итог.код, `длина «${строкаТокена.replace('\n', '\\n')}» по TS-лексеру`).toBe([...строкаТокена].length);
+  });
+
+  it('ХВОСТ ЛЕКСЕРА: последний токен потока (`конец_файла|<конец файла>`) равен эталону TS', () => {
+    if (shim === undefined) return;
+    const итог = прогонНаЦели(
+      'хвост',
+      `действие главная()
+  пусть хвост = "конец_файла" + "|" + "<конец файла>"
+  вернуть длина хвост
+конец
+`,
+    );
+    expect(итог.отказы).toEqual([]);
+    expect(итог.код).toBe([...'конец_файла|<конец файла>'].length);
+  });
+
+  it('СТЕНА НАЗВАНА: лексер целиком в образ не влезает — код дорос до статических строк', () => {
+    if (shim === undefined) return;
+    const текст = fs.readFileSync(path.join(ROOT, 'src', 'self-host', 'lexer.osnova'), 'utf-8');
+    const безФайла = текст.slice(0, текст.indexOf('// ЛЕКСИРОВАТЬ ФАЙЛ'));
+    const итог = прогонНаЦели(
+      'целиком',
+      `${безФайла}
+действие главная()
+  пусть т = лексировать("пусть а = 1\\n")
+  вернуть длина т
+конец
+`,
+    );
+    // Стена обязана быть НАЗВАНА: либо место образа (код против статических строк), либо отказ
+    // по имени. Молчаливой подстановки здесь быть не может — иначе проверка выше была бы не о том.
+    expect(итог.беда ?? итог.отказы.join('\n')).toMatch(/код дорос до них|система\.строка\.(символ|содержит)/);
   });
 });

@@ -938,6 +938,14 @@ function literalOf(
   if (context.constants === undefined) {
     return `«${instruction.mnemonic}»: пул констант не передан, значение #${poolIndex} взять негде`;
   }
+  if (typeof value === "boolean") {
+    // ЛОГИЧЕСКАЯ КОНСТАНТА — ЭТО 0 ИЛИ 1, и другого представления у цели нет: булева литерала в
+    // e2k не существует, а в регистре логическое значение и так живёт нулём/единицей — ровно тем,
+    // что кладут сравнения (`IR.eq` и родня) и что читает `jmp_if`. Поэтому `да`/`нет` в пуле
+    // отражаются числом, а не отказом: измерено 2026-10-10 — без этого программа с `нет` в
+    // источнике не собиралась на цель вовсе (`лог-нет` в `.tmp/lexer-e2k-kit.ts`).
+    return value ? 1 : 0;
+  }
   if (typeof value !== "number" || !Number.isInteger(value)) {
     return (
       `«${instruction.mnemonic}»: константа пула #${poolIndex} = ${String(value)} ` +

@@ -396,11 +396,18 @@ class ProcedureCodegen {
         this.emit({ op: "const", d, type: "str", k: this.constIndex(expr.value) });
         return;
       }
+      // ЛОГИЧЕСКИЕ И ПУСТОЙ ЛИТЕРАЛЫ ИДУТ ЧЕРЕЗ ПУЛ, как числа и строки, а не своими операциями
+      // `const.true`/`const.false`/`const.null`. Причина измерена 2026-10-10: у этих трёх операций
+      // НЕТ НОСИТЕЛЯ ни в одной оболочке — так и записано в `src/e2k/emitterShell.ts` («литеральные
+      // константы языка отражаются через пул (`const`), отдельного носителя нет»), — и потому любая
+      // программа с `и`/`или`/`нет` (короткое замыкание заводит временную булеву) не собиралась на
+      // цель вовсе: останов `const.false` вместо понижения. Пул умеет `bool` и `null` с самого
+      // начала (`CONST_TYPES`), виртуальные машины читают значение по индексу (`constants[k]`).
       case "булево":
-        this.emit({ op: expr.value ? "const.true" : "const.false", d });
+        this.emit({ op: "const", d, type: "bool", k: this.constIndex(expr.value) });
         return;
       case "пусто":
-        this.emit({ op: "const.null", d });
+        this.emit({ op: "const", d, type: "null", k: this.constIndex(null) });
         return;
       case "вариант": {
         const lit = `${expr.typeName}.${expr.variant}`;
