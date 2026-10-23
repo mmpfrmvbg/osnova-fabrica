@@ -509,7 +509,23 @@ export function programBytes(
  * что в `e2kConvolutionQemu.test.ts`. Нужен там, где в программе есть ЦИКЛЫ: без раскладки адресов
  * у переходов нет смещений.
  */
-export function loweredProgram(source: string, options: CompileOptions = {}): {
+export function loweredProgram(
+  source: string,
+  options: CompileOptions & {
+    /**
+     * ЗАМЕРНАЯ ручка: считать, что раскладка ЗАКРЕПИЛА регистры арены, даже если разведка этого не
+     * увидела. Только в эту сторону (`true`): закрепить лишнее безопасно, а «не закрепить нужное» —
+     * ровно тот дефект, который стережёт утверждение ниже.
+     *
+     * Зачем она в коде, а не в `.tmp`-пробе: ею ИЗМЕРЯЕТСЯ СЛЕДУЮЩАЯ стена программы, у которой
+     * разведка арены расходится с потоком (случай 46 реестра проверяемости) — иначе число «сколько
+     * кода и сколько отказов, когда арена не мешает» нечем воспроизвести, а невоспроизводимое число
+     * перестаёт быть замером. Так измерен лексер: код **8184** байта, отказов **144**
+     * (`docs/hardware-debt.md` §3.134, `src/self-host/foundationE2k.test.ts`).
+     */
+    readonly assumeArenaReserved?: true;
+  } = {},
+): {
   bytes: Uint8Array;
   refused: readonly LoweringRefusal[];
   used: number;
@@ -532,6 +548,7 @@ export function loweredProgram(source: string, options: CompileOptions = {}): {
   // разошёлся бы с планом. Разойдись разведка с потоком после раскладки, `imageOfCarriers` откажет
   // по имени (`arenaReserved`), а не соберёт образ с мусором вместо указателя арены.
   const arenaReserved =
+    options.assumeArenaReserved === true ||
     usesArena(emitted.instructions, emitted.image.invokeNames) ||
     planStrings(
       emitted.instructions,
