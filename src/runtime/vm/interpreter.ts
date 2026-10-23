@@ -14,7 +14,7 @@ import { CollectionRefusal, collectionInteger } from "./collectionCalls";
 export { CollectionRefusal } from "./collectionCalls";
 // Символ строки: разбор индекса и НАЗВАННЫЙ отказ живут в общем модуле — тот же приём, что у
 // коллекций, и по той же причине: у обеих VM и у цели причина отказа обязана быть ОДНОЙ.
-import { stringCharAt } from "./stringChar";
+import { stringCodeAt } from "./stringChar";
 import { isVliwPacket } from "./bytecode";
 import { codePointIndexOf, codePointLength, codePointSlice, orderedCompare } from "./stringUnits";
 import { RUNTIME_CODES, type RuntimeErrorCode } from "../runtimeCodes";
@@ -251,10 +251,10 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       return codePointSlice(s, start, end);
     }
     case "система.строка.символ":
-      // Символ по индексу в КОДОВЫХ ТОЧКАХ. Отказ (а не `null`) — из общего модуля, чтобы у обеих
-      // VM и у цели причина была ОДНА: `null` сложился бы с числом как ноль, и лексер «прочитал» бы
-      // буквы как нули молча (`src/runtime/vm/stringChar.ts`).
-      return stringCharAt(args[0] as StackValue, args[1] as StackValue);
+      // КОД символа по индексу в КОДОВЫХ ТОЧКАХ (решение владельца 2026-10-10). Отказ (а не `null`)
+      // — из общего модуля, чтобы у обеих VM и у цели причина была ОДНА: `null` сложился бы с числом
+      // как ноль, и лексер «прочитал» бы буквы как нули молча (`src/runtime/vm/stringChar.ts`).
+      return stringCodeAt(args[0] as StackValue, args[1] as StackValue);
     case "система.строка.в_верхний": {
       return String(args[0] ?? "").toUpperCase();
     }
