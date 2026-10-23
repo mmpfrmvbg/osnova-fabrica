@@ -61,6 +61,7 @@ import {
   stringArenaCopyInstructions,
   stringConcatInstructions,
   stringLengthInstructions,
+  stringSymbolInstructions,
   stringWriteInstructions,
 } from "./stringRuntime";
 import { isStringPrint, stringMarksOf } from "./stringPlan";
@@ -957,7 +958,7 @@ function carrierFormWithReason(
   // команд: проход по байтам за длиной в кодпоинтах и копирование байтов при склейке. Длину
   // раскладка берёт из ТОЙ ЖЕ функции, что и понижение, а числа (сколько байт у строки, где таблица,
   // где буфер) — из пометок носителя, которые ставит конвейер ДО раскладки (`src/e2k/stringPlan.ts`).
-  if (name === STRING_CALLS.length || name === STRING_CALLS.concat) {
+  if (name === STRING_CALLS.length || name === STRING_CALLS.concat || name === STRING_CALLS.symbol) {
     const marks = stringMarksOf(instruction);
     const destinationRegister = hasDestination && destination?.kind === 'reg' ? destination.index : undefined;
     const argumentRegister = instruction.operands[1];
@@ -967,7 +968,25 @@ function carrierFormWithReason(
       };
     }
     let commands: readonly AsmInstruction[];
-    if (name === STRING_CALLS.length) {
+    if (name === STRING_CALLS.symbol) {
+      const [codePoints, tableAddress] = marks;
+      const indexRegister = instruction.operands[2];
+      if (codePoints === undefined || tableAddress === undefined || indexRegister?.kind !== 'reg') {
+        return {
+          failure: failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: носитель не несёт число кодпоинтов, адрес таблицы кодов или регистр индекса — их ставит ` +
+              'конвейер (src/e2k/stringPlan.ts)',
+          ),
+        };
+      }
+      commands = stringSymbolInstructions({
+        index: indexRegister.index,
+        destination: destinationRegister,
+        codePoints,
+        tableAddress,
+      });
+    } else if (name === STRING_CALLS.length) {
       const [byteLength, tableAddress] = marks;
       if (byteLength === undefined || tableAddress === undefined) {
         return {

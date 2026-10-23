@@ -72,6 +72,7 @@ import {
   STRING_PRINT_CLOBBERS,
   stringConcatInstructions,
   stringLengthInstructions,
+  stringSymbolInstructions,
   stringWriteInstructions,
 } from './stringRuntime';
 import {
@@ -1209,6 +1210,42 @@ export function imageOfCarriers(
             { mnemonic: 'ldd', channel: 0, operands: [base(stringPrint.scratch), base(ARRAY_REGISTERS.zero), base(item.register)] },
           );
         }
+        continue;
+      }
+      if (name === STRING_CALLS.symbol) {
+        if (inCallee) {
+          refused.push(
+            refusalOf(
+              LOWERING_CODES.runtime,
+              `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — её рантайм держит ` +
+                'состояние в %b[10..13], а окно вызываемой — %b[0..7]',
+            ),
+          );
+          continue;
+        }
+        const destination = carrier.operands[4];
+        const indexRegister = carrier.operands[2];
+        const [codePoints, tableAddress] = marks;
+        if (destination?.kind !== 'reg' || indexRegister?.kind !== 'reg') {
+          refused.push(
+            refusalOf(LOWERING_CODES.runtime, `#${index} ${name}: индекс или приёмник не регистр — выбрать код нечем`),
+          );
+          continue;
+        }
+        if (codePoints === undefined || tableAddress === undefined) {
+          refused.push(
+            refusalOf(LOWERING_CODES.runtime, `#${index} ${name}: нет числа кодпоинтов или адреса таблицы кодов`),
+          );
+          continue;
+        }
+        body.push(
+          ...stringSymbolInstructions({
+            index: indexRegister.index,
+            destination: destination.index,
+            codePoints,
+            tableAddress,
+          }),
+        );
         continue;
       }
       if (name === STRING_CALLS.length || name === STRING_CALLS.concat) {

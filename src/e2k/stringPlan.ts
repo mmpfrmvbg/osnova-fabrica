@@ -29,15 +29,17 @@
  */
 import type { AsmInstruction, Operand } from './backend';
 import { spillBaseOf } from './elfMinimal';
-import {
-  STRING_ARENA_CONCAT_CARRIER,
+import {  STRING_ARENA_CONCAT_CARRIER,
   STRING_BUFFER_BYTES,
   STRING_CALLS,
   STRING_NEWLINE,
+  STRING_SYMBOL_ENTRY_BYTES,
   STRING_TABLE_BYTES,
   codePointCount,
+  codePointsOfBytes,
   concatFitsBuffer,
   continuationTable,
+  symbolTableBytesOf,
   utf8Bytes,
 } from './stringRuntime';
 
@@ -101,6 +103,14 @@ interface StringValue {
 type StringEdit =
   | { readonly kind: 'const'; readonly index: number; readonly poolIndex: number; readonly value: StringValue }
   | { readonly kind: 'length'; readonly index: number; readonly value: StringValue; readonly marks: number[] }
+  | {
+      readonly kind: 'symbol';
+      readonly index: number;
+      readonly value: StringValue;
+      readonly marks: number[];
+      /** Ключ блоба таблицы кодов: адрес подставляется ПОСЛЕ раскладки, как у таблицы продолжений. */
+      readonly tableKey: string;
+    }
   | { readonly kind: 'concat'; readonly index: number; readonly first: StringValue; readonly second: StringValue; readonly marks: number[]; readonly payload: number; readonly fromAdd: boolean }
   | {
       readonly kind: 'arena_concat';
@@ -125,6 +135,13 @@ export interface StringPlan {
   /** Сколько строковых операций и печатей строк распознано — для отчёта и оракулов. */
   readonly counts: {
     readonly lengths: number;
+    /**
+     * Сколько раз спрошен КОД СИМВОЛА (`с[и]` по строке, `система.строка.символ`).
+     *
+     * Отдельно от `lengths`: у этих операций разные развёртки, и общий счётчик скрыл бы, что образ
+     * пользуется таблицей кодов (§3.133).
+     */
+    readonly symbols: number;
     readonly concats: number;
     readonly prints: number;
     readonly strings: number;
@@ -192,12 +209,26 @@ export function planStrings(
     return at >= 0 ? at : names.push(STRING_CALLS.concat) - 1;
   })();
   const byRegister = new Map<number, StringValue>();
+  /**
+   * ЧИСЛА, известные на сборке, по регистрам: только чтобы ОТКАЗАТЬ по имени на константном выходе
+   * за границу. Значения кодов из этого не подставляются — выбор всё равно делает рантайм.
+   */
+  const numbersOf = new Map<number, number>();
   const values = new Map<string, StringValue>();
   /** Значения, собранные ареной: статических байтов у них нет и в образ они не кладутся. */
   const arenaValues = new Set<string>();
   const edits = new Map<number, StringEdit>();
+  /**
+   * ТАБЛИЦЫ КОДОВ СИМВОЛОВ — по одной на ЗНАЧЕНИЕ строки, которую индексируют.
+   *
+   * Ключ = `⟨коды символов⟩` + ключ значения: у строк «абв» и «abc» байты разные, и таблицы разные.
+   * Ключ НЕ равен ключу байтов значения — иначе раскладка положила бы два разных блоба по одному
+   * адресу (байты значения совпали бы с таблицей кодов, и рантайм прочитал бы не то).
+   */
+  const symbolTables = new Map<string, number[]>();
   const problems: string[] = [];
   let lengths = 0;
+  let symbols = 0;
   let concats = 0;
   let staticConcats = 0;
   let arenaConcats = 0;
@@ -232,7 +263,14 @@ export function planStrings(
       const poolIndex = carrier.operands[1];
       if (destination?.kind !== 'reg' || poolIndex?.kind !== 'imm') return;
       const raw = constants[poolIndex.value];
-      if (typeof raw !== 'string') return;
+      if (typeof raw !== 'string') {
+        // Не строка — значит число: запоминается ТОЛЬКО ради проверки константного индекса
+        // (выход за границу обязан быть отказом на СБОРКЕ, когда индекс — литерал).
+        if (typeof raw === 'number') numbersOf.set(destination.index, raw);
+        else numbersOf.delete(destination.index);
+        return;
+      }
+      numbersOf.delete(destination.index);
       const value = valueOf(raw);
       byRegister.set(destination.index, value);
       edits.set(index, { kind: 'const', index, poolIndex: poolIndex.value, value });
@@ -246,6 +284,10 @@ export function planStrings(
       const value = registerOf(source);
       if (value === undefined) byRegister.delete(destination.index);
       else byRegister.set(destination.index, value);
+      // Число едет тем же путём — иначе константный индекс, проехавший пересылкой, не опознался бы.
+      const number = source !== undefined && source.kind === 'reg' ? numbersOf.get(source.index) : undefined;
+      if (number === undefined) numbersOf.delete(destination.index);
+      else numbersOf.set(destination.index, number);
       return;
     }
     if (carrier.mnemonic !== 'IR.invoke' && carrier.mnemonic !== 'IR.add') return;
@@ -274,6 +316,45 @@ export function planStrings(
       if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
       lengths += 1;
       edits.set(index, { kind: 'length', index, value, marks: [value.bytes.length] });
+      return;
+    }
+    if (name === STRING_CALLS.symbol) {
+      // КОД СИМВОЛА: `с[и]` по строке (§3.133). Значение строки известно здесь — значит известны и
+      // коды её кодпоинтов, и таблица кодов кладётся статическим блобом. Индекс при этом остаётся
+      // РАНТАЙМОВЫМ: выбирает рантайм.
+      const value = registerOf(carrier.operands[1]);
+      const indexOperand = carrier.operands[2];
+      if (value === undefined) {
+        problems.push(`#${String(index)} ${name}: аргумент не строка — код символа взять не от чего`);
+        edits.set(index, { kind: 'none', index, reason: 'аргумент не строка' });
+        return;
+      }
+      const points = codePointsOfBytes(value.bytes);
+      // КОНСТАНТНЫЙ ИНДЕКС ЗА ГРАНИЦЕЙ — ОТКАЗ НА СБОРКЕ, а не «-1 в рантайме»: у цели нет
+      // исключений, но литерал виден сборке, и молчать там, где ответ известен, незачем.
+      const constant =
+        indexOperand === undefined
+          ? undefined
+          : indexOperand.kind === 'imm'
+            ? indexOperand.value
+            : indexOperand.kind === 'reg'
+              ? numbersOf.get(indexOperand.index)
+              : undefined;
+      if (constant !== undefined && (constant < 0 || constant >= points.length)) {
+        problems.push(
+          `#${String(index)} ${name}: индекс ${String(constant)} вне длины ${String(points.length)} — ` +
+            'выход за границу назван отказом (у цели индекс за концом дал бы −1)',
+        );
+        edits.set(index, { kind: 'none', index, reason: 'константный индекс за границей' });
+        return;
+      }
+      if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
+      // Таблица кодов — СВОЙ блоб на каждое ЗНАЧЕНИЕ строки: у двух строк с разными буквами и коды
+      // разные. Ключ не совпадает с ключом байтов значения, иначе два блоба слились бы в один адрес.
+      const tableKey = `⟨коды символов⟩\u0000${value.key}`;
+      if (!symbolTables.has(tableKey)) symbolTables.set(tableKey, symbolTableBytesOf(value.bytes));
+      symbols += 1;
+      edits.set(index, { kind: 'symbol', index, value, marks: [points.length, 0], tableKey });
       return;
     }
     if (name === STRING_CALLS.concat) {
@@ -328,7 +409,7 @@ export function planStrings(
   // арену, и объявлять под неё статические 20 байт значило бы платить за неиспользуемое.
   const needsBuffer = staticConcats > 0;
   const needsNewline = prints > 0;
-  const ordered: { readonly key: string; readonly bytes: readonly number[] }[] = [];
+  const ordered: { readonly key: string; readonly bytes: readonly number[]; readonly align?: number }[] = [];
   if (needsTable) ordered.push({ key: '⟨таблица продолжений⟩', bytes: continuationTable() });
   for (const value of values.values()) {
     // Буфер склейки — значение того же вида, что литерал: его байты лежат статически.
@@ -342,6 +423,14 @@ export function planStrings(
   // него падала бы так же, как запись разрядов (замер `docs/hardware-debt.md` §3.90.7). Место —
   // младшие 32 байта блока площадки печати (`[площадка + 32, площадка + 64)`), которые не заняты:
   // разрядник занимает первые 32.
+  // ТАБЛИЦЫ КОДОВ СИМВОЛОВ — те же статические байты, что и прочее: их читает рантайм, пишет сборка.
+  //
+  // ВЫРАВНИВАНИЕ — не украшение, а условие работы: таблицу читает `ldd` (загрузка двойного слова), а
+  // она требует кратности восьми. Замер: у программы `"абв"[0]` таблица легла на `0x101F02` — блоб
+  // отодвинул курсор на шесть байт строки, — и модель встала (код 206 / утверждение порта), потому
+  // что чтение по нечётному адресу даёт исключение выравнивания. Байтовые блобы (`ldb` у длины и
+  // склейки) кратности не требуют, поэтому выравнивание объявлено у ОДНОГО вида блоба, а не у всех.
+  for (const [key, bytes] of symbolTables) ordered.push({ key, bytes, align: STRING_SYMBOL_ENTRY_BYTES });
   if (needsNewline) ordered.push({ key: '⟨перевод строки⟩', bytes: [STRING_NEWLINE] });
   // СТРОКА ОТКАЗА АРЕНЫ — тем же порядком, что прочие блобы: адрес выведен из конца образа.
   const refusalBytes = options.arenaRefusal === undefined ? undefined : utf8Bytes(options.arenaRefusal);
@@ -360,6 +449,11 @@ export function planStrings(
   const addresses = new Map<string, number>();
   const blobs: { address: number; bytes: readonly number[] }[] = [];
   for (const blob of ordered) {
+    // ВЫРАВНИВАНИЕ БЛОБА: курсор опускается до кратности ПЕРЕД вычитанием длины — блоб занимает
+    // байты [адрес, адрес + длина), и его начало обязано попасть на границу. Промежуток между
+    // блобами не теряется для читателя: адреса берутся из этой же карты.
+    const align = blob.align ?? 1;
+    if (align > 1) cursor -= cursor % align;
     cursor -= blob.bytes.length;
     addresses.set(blob.key, cursor);
     blobs.push({ address: cursor, bytes: blob.bytes });
@@ -396,6 +490,16 @@ export function planStrings(
     if (edit.kind === 'length') {
       operands[STRING_MARK_OPERAND] = imm(edit.marks[0]!);
       operands[STRING_MARK_OPERAND + 1] = imm(tableAddress);
+    } else if (edit.kind === 'symbol') {
+      // Помечаются ДВЕ величины: сколько кодпоинтов (= размер каждой плоскости таблицы) и где сама
+      // таблица. Как и у длины, это ЧИСЛА в операндах: у носителя нет ни типа, ни адреса.
+      const table = addresses.get(edit.tableKey);
+      if (table === undefined) {
+        problems.push(`#${String(index)} ${STRING_CALLS.symbol}: таблица кодов не получила адреса — дефект планирования строк`);
+        return carrier;
+      }
+      operands[STRING_MARK_OPERAND] = imm(edit.marks[0]!);
+      operands[STRING_MARK_OPERAND + 1] = imm(table);
     } else if (edit.kind === 'arena_concat') {
       // СКЛЕЙКА СВЕРХ СТАТИЧЕСКОГО БУФЕРА: носитель СМЕНЁН, а не помечен. Пометки здесь не годятся:
       // у операции меняется не одна длина, а способ — «выделить блок у арены и скопировать байты».
@@ -475,7 +579,7 @@ export function planStrings(
     blobs,
     staticStart: cursor,
     problems,
-    counts: { lengths, concats, prints, strings: ordered.length, arenaConcats },
+    counts: { lengths, symbols, concats, prints, strings: ordered.length, arenaConcats },
     ...(needsBuffer ? { bufferAddress } : {}),
     ...(refusalAddress === undefined || refusalBytes === undefined
       ? {}
@@ -486,9 +590,19 @@ export function planStrings(
   };
 }
 
-/** Сколько байт занимает статическая область целиком (для сторожа места и отчёта). */
+/**
+ * Сколько байт занимает статическая область целиком (для сторожа места и отчёта).
+ *
+ * Считается как ОТРЕЗОК от младшего блоба до старшего, а не как сумма длин: у выровненных блобов
+ * между соседями остаётся промежуток (таблица кодов кратна восьми), и сумма длин дала бы буфер
+ * короче области — запись статики уехала бы за его конец (`RangeError: offset is out of bounds`).
+ * Без промежутков отрезок равен сумме, то есть прежнее число не сдвигается.
+ */
 export function staticBytesOf(plan: StringPlan): number {
-  return plan.blobs.reduce((sum, blob) => sum + blob.bytes.length, 0);
+  if (plan.blobs.length === 0) return 0;
+  const start = Math.min(...plan.blobs.map((blob) => blob.address));
+  const end = Math.max(...plan.blobs.map((blob) => blob.address + blob.bytes.length));
+  return end - start;
 }
 
 /** Нужны ли образу статические байты вовсе. */
