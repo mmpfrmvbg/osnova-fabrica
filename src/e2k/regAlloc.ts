@@ -37,7 +37,7 @@ import {
 import { removeCopies } from './copyElim';
 import { REMAINDER_SCRATCH_REGISTER, needsRemainderScratch } from './remainderRuntime';
 import {
-  ARRAY_BLOCK_SIZE,
+  CALLEE_ARRAY_BLOCK_SIZE,
   ENTRY_ARRAY_BASE,
 } from './arrayRuntime';
 /**
@@ -518,7 +518,10 @@ export function allocateProgram(
   ): number | undefined => {
     const taken = new Set<number>(forbidden);
     for (const start of [...pool].sort((a, b) => a - b)) {
-      const cells = Array.from({ length: ARRAY_BLOCK_SIZE }, (_, offset) => start + offset);
+      // A4 (§3.135): блок ВЫЗЫВАЕМОЙ — три временных клетки, а не пятёрка «0, 1, 8, временный,
+      // второй». Постоянные в её плоскости материализуются на месте операции (`movts`), поэтому
+      // платить за них клетками бюджета незачем — именно на этой плате пятёрка и не влезала.
+      const cells = Array.from({ length: CALLEE_ARRAY_BLOCK_SIZE }, (_, offset) => start + offset);
       if (cells.some((cell) => cell < ownFrom)) continue;
       if (cells.every((cell) => pool.includes(cell) && !taken.has(cell))) return start;
     }

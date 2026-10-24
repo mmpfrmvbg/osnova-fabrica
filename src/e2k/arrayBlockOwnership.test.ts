@@ -42,7 +42,7 @@ import { getEncoder } from './backend';
 import { emitShell } from './emitterShell';
 import { allocateProgram } from './regAlloc';
 import { CALL_WBS, CALLEE_REGISTERS } from './twoPassLayout';
-import { ARRAY_BLOCK_SIZE, ENTRY_ARRAY_BASE, arrayCells } from './arrayRuntime';
+import { CALLEE_ARRAY_BLOCK_SIZE, ENTRY_ARRAY_BASE, arrayCells, calleeArrayCells } from './arrayRuntime';
 import { entryProcedureIndex } from './procedureCall';
 import { regModuleWithRecordPlan } from './recordPlan';
 import { parseV3 } from '../compiler-v3/index';
@@ -138,11 +138,17 @@ function разложить(
   };
 }
 
-/** Клетки блока по базе; `undefined` — базы нет. */
+/**
+ * Клетки блока по базе; `undefined` — базы нет.
+ *
+ * У вызываемой блок — ТРИ клетки (ноль, восемь, временный), а не пятёрка (A4, §3.135): единица и
+ * второй временный нужны только `добавить`, а `добавить` в вызываемой отказывает — указатель кучи
+ * живёт в плоскости точки входа.
+ */
 function клетки(база: number | undefined): readonly number[] {
   if (база === undefined) return [];
-  const { zero, one, eight, scratch, scratch2 } = arrayCells(база);
-  return [zero, one, eight, scratch, scratch2];
+  const { zero, eight, scratch } = calleeArrayCells(база);
+  return [zero, eight, scratch];
 }
 
 describe('блок рантайма массивов не пересекается с живыми клетками вызывающего', () => {
@@ -153,7 +159,7 @@ describe('блок рантайма массивов не пересекаетс
     for (const [at, база] of базы.entries()) {
       if (at === вход || база === undefined) continue;
       const cells = клетки(база);
-      expect(cells.length, 'клеток в блоке').toBe(ARRAY_BLOCK_SIZE);
+      expect(cells.length, 'клеток в блоке').toBe(CALLEE_ARRAY_BLOCK_SIZE);
       for (const клетка of cells) {
         expect(
           клетка,
@@ -208,3 +214,4 @@ describe('блок рантайма массивов не пересекаетс
     ).toEqual([]);
   });
 });
+

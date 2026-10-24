@@ -96,6 +96,53 @@ export const ARRAY_VALUES_CARRIER = 'IR.array_values';
 export const ARRAY_BLOCK_SIZE = 5;
 
 /**
+ * РАЗМЕР БЛОКА РАНТАЙМА В ВЫЗЫВАЕМОЙ: три клетки, БЕЗ постоянной единицы (A4, §3.135).
+ *
+ * # Почему это не «на единицу меньше»
+ *
+ * Точка входа держит в клетках `%b[12]`, `%b[13]`, `%b[14]` **постоянные** 0, 1, 8 — их читают и
+ * другие рантаймы (печать, строки, коллекции), и там они окупаются: константа ставится один раз на
+ * программу, а операций много. У вызываемой эта сделка **не работает**: её плоскость — СВОЯ, пролог
+ * образа заполняет клетки своей плоскости, поэтому ради пяти клеток отдаётся больше половины
+ * бюджета (`%b[8..15]` — восемь клеток), а рядом живут значения записи — и пятёрка в бюджет НЕ
+ * ВЛЕЗАЕТ.
+ *
+ * Замер 2026-10-24 (`.tmp/osnova-3135-k1k2.ts`): **то же самое чтение** `вернуть а[1]` в вызываемой
+ * понижается (пятёрка влезает), а `а[0] = 7` + `вернуть а[0]` — НЕТ (не влезает, `OSN-LOW-003`
+ * «раскладка не выдала базу блока рантайма»). Стена РАЗМЕРНАЯ.
+ *
+ * # Что вместо постоянных
+ *
+ * Сами последовательности операций НЕ меняются (иначе раскладка, берущая длину понижения без
+ * плоскости, разошлась бы с понижением — §3.35). Постоянные ставит **пролог значений вызываемой**
+ * ({@link arrayValuePrologue}) — два `movts` вместо трёх, потому что единица нужна только
+ * `добавить`, а `добавить` в вызываемой отказывает (куча живёт в плоскости точки входа).
+ * Временных — одно (`scratch`), а не два: второй нужен ровно той же операции `добавить`.
+ *
+ * Итог: **три клетки вместо пяти**, и в бюджете вызываемой остаётся пять под значения вместо трёх.
+ * Постоянные 0/1/8 в точке входа не тронуты: их читают другие рантаймы, и сдвиг этих клеток сдвинул
+ * бы закреплённые числа пяти ядер (§3.34.4).
+ */
+export const CALLEE_ARRAY_BLOCK_SIZE = 3;
+
+/**
+ * Клетки блока вызываемой — по РОЛЯМ, как у точки входа, но без единицы и второго временного.
+ *
+ * `one` и `scratch2` — псевдонимы, а не клетки: их читают только `создать` и `добавить`, а эти две
+ * операции в вызываемой отказывают по имени (указатель кучи живёт в плоскости точки входа). Общие
+ * имена оставлены, чтобы разбор ролей в `lowerArrayCall` был один и тот же для обеих плоскостей.
+ */
+export function calleeArrayCells(base: number): {
+  readonly zero: number;
+  readonly one: number;
+  readonly eight: number;
+  readonly scratch: number;
+  readonly scratch2: number;
+} {
+  return { zero: base, one: base, eight: base + 1, scratch: base + 2, scratch2: base + 2 };
+}
+
+/**
  * БАЗА БЛОКА РАНТАЙМА В ТОЧКЕ ВХОДА: клетки `%b[10..14]` (куча — 15).
  *
  * Номера ролей внутри этой пятёрки — НЕ произвольные и НЕ по порядку базы (см.
@@ -423,24 +470,37 @@ export function lowerArrayCall(
     );
   }
   // КЛЕТКИ БЛОКА: у точки входа — ИЗМЕРЕННАЯ раскладка ролей (`ENTRY_ARRAY_CELLS`, §3.126), у
-  // вызываемой — непрерывный `base..base+4` из её собственного бюджета, который выдала раскладка.
-  const blockCells = forForm || options.inCallee !== true ? ENTRY_ARRAY_CELLS : arrayCells(base);
-  const reservedCells = [
-    blockCells.zero,
-    blockCells.one,
-    blockCells.eight,
-    blockCells.scratch,
-    blockCells.scratch2,
-    ...(name === 'система.массив.создать' || name === 'система.массив.добавить' ? [ARRAY_REGISTERS.heap] : []),
-  ];
+  // вызываемой — ТРИ временных клетки её собственного бюджета (A4, §3.135): постоянных там нет,
+  // 0/1/8 материализуются на месте операции.
+  const inCallee = !forForm && options.inCallee === true;
+  const reservedCells = inCallee
+    ? (() => {
+        const cells = calleeArrayCells(base);
+        return [cells.zero, cells.eight, cells.scratch];
+      })()
+    : [
+        ENTRY_ARRAY_CELLS.zero,
+        ENTRY_ARRAY_CELLS.one,
+        ENTRY_ARRAY_CELLS.eight,
+        ENTRY_ARRAY_CELLS.scratch,
+        ENTRY_ARRAY_CELLS.scratch2,
+        ...(name === 'система.массив.создать' || name === 'система.массив.добавить' ? [ARRAY_REGISTERS.heap] : []),
+      ];
   if (!forForm) {
     args.forEach((operand, index) => checkOperand(operand, name, `аргумент ${index}`, reservedCells));
   }
   const registers = args.map((operand) => (operand as { index: number }).index);
-  const { zero, one, eight, scratch, scratch2 } = blockCells;
-  const heap = ARRAY_REGISTERS.heap;
 
   if (dst !== undefined && !forForm) checkOperand(reg(dst), name, 'приёмник', reservedCells);
+
+  // КЛЕТКИ РОЛЕЙ: у точки входа — ИЗМЕРЕННАЯ раскладка (§3.126), у вызываемой — три её СВОИХ клетки
+  // (A4, §3.135), которые заполняет ЕЁ пролог значений. Формы операций от плоскости НЕ зависят —
+  // и это не мелочь: раскладка берёт длину понижения ЗАРАНЕЕ и без плоскости
+  // (`src/e2k/twoPassLayout.ts#carrierFormWithReason`, `{ forForm: true }`), поэтому разойдись
+  // последовательности числом команд — носители после них уехали бы на разницу и программа упала бы
+  // не отказом, а исключением модели (это и случилось первым прогоном A4).
+  const { zero, one, eight, scratch, scratch2 } = inCallee ? calleeArrayCells(base) : ENTRY_ARRAY_CELLS;
+  const heap = ARRAY_REGISTERS.heap;
 
   switch (name) {
     case 'система.массив.длина':
@@ -504,6 +564,7 @@ export function lowerArrayCall(
   }
 }
 
+
 /**
  * Пролог: ноль, размер элемента и указатель кучи.
  *
@@ -512,7 +573,7 @@ export function lowerArrayCall(
  * `QEMU internal SIGSEGV {code=ACCERR}` (измерено, `src/e2k/e2kMemoryQemu.test.ts`).
  */
 /**
- * ЗНАЧЕНИЯ рантайма в плоскости ОДНОЙ процедуры: ноль, единица, восемь — в её собственный блок.
+ * ЗНАЧЕНИЯ рантайма в плоскости ОДНОЙ ВЫЗЫВАЕМОЙ: ноль и восемь — в её собственный блок (A4, §3.135).
  *
  * Зачем отдельно от {@link arrayPrologue}: `%b[N]` адресуется только внутри **текущего** окна, и у
  * вызываемой процедуры оно своё (`setwd`/`setbn` её пролога роста). Пролог образа заполняет клетки
@@ -522,12 +583,16 @@ export function lowerArrayCall(
  * Форму регистров выбирает конвейер: у вызываемой весь её понижённый код переводится в оконную
  * (`%rN`) одним преобразованием, поэтому пролог значений обязан идти НОСИТЕЛЕМ (как `IR.window_grow`),
  * а не готовой командой в потоке.
+ *
+ * ЕДИНИЦЫ ЗДЕСЬ НЕТ, и это не потеря: она нужна только `добавить`, а `добавить` в вызываемой
+ * отказывает по имени — указатель кучи живёт в плоскости точки входа. Вместе с отказом от второго
+ * временного это и даёт блок в ТРИ клетки вместо пяти, который влезает в бюджет вызываемой вместе с
+ * значениями записи (случай К1/К2, `src/e2k/e2kArraysQemu.test.ts`).
  */
 export function arrayValuePrologue(base: number): AsmInstruction[] {
-  const { zero, one, eight } = arrayCells(base);
+  const { zero, eight } = calleeArrayCells(base);
   return [
     { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 0 }, reg(zero)] },
-    { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 1 }, reg(one)] },
     { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 8 }, reg(eight)] },
   ];
 }
@@ -675,3 +740,7 @@ export function memoryOperandPairProblems(instructions: readonly AsmInstruction[
   });
   return problems;
 }
+
+
+
+

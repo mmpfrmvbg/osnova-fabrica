@@ -1115,6 +1115,20 @@ export const DEFECTS_STEP6: readonly Defect[] = [
     tests: ['src/e2k/arrayBlockOwnership.test.ts'],
     config: 'vitest.config.ts',
   },
+  // ── Дефект РАЗМЕРА БЛОКА РАНТАЙМА В ВЫЗЫВАЕМОЙ (A4, §3.135) ─────────────────
+  {
+    // Откат A4: блок вызываемой снова пятёрка (`0, 1, 8, временный, второй`). Тогда пятёрке нет
+    // места в её половине кадра, где рядом живут значения записи, — и `а[0] = 7` в процедуре снова
+    // отказывает («раскладка не выдала базу блока рантайма») вместо кода 7. Краснеет ровно проба К1
+    // (`src/e2k/e2kArraysQemu.test.ts`), то есть оракул A4, а не общий сторож размещения.
+    id: '18.1',
+    title: 'блок вызываемой снова пятёрка — запись в массив из вызываемой отказывает (A4 откатан)',
+    file: 'src/e2k/arrayRuntime.ts',
+    from: 'export const CALLEE_ARRAY_BLOCK_SIZE = 3;',
+    to: 'export const CALLEE_ARRAY_BLOCK_SIZE = 5; // ДЕФЕКТ 18.1: блок вызываемой снова пятёрка',
+    tests: ['src/e2k/e2kArraysQemu.test.ts'],
+    config: 'vitest.qemu.config.ts',
+  },
 ];
 
 if (require.main === module) {

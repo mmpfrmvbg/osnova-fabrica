@@ -654,6 +654,45 @@ function arrayProceduresOf(
 }
 
 /**
+ * ГЛУБИНА ВЫЗОВА каждой процедуры от точки входа (A4, §3.135).
+ *
+ * Ребро — носитель `IR.call`: цель лежит в его четвёртом операнде (проверено `regAlloc`-оракулом
+ * блока рантайма, `src/e2k/arrayBlockOwnership.test.ts`). Глубина — длина КРАТЧАЙШЕГО пути: первый
+ * обход её и даёт, второго смысла у неё нет (нужна граница «плоскость 1 или глубже», а не число).
+ *
+ * Зачем понадобилась: стена «окно вызываемой» измерялась как свойство ОДНОЙ процедуры (`inCallee`),
+ * а замер 2026-10-24 показал, что у записи в массив она зависит от ГЛУБИНЫ — в плоскости 1 она
+ * проходит, в плоскости 2 зацикливает модель. Различить это без графа вызовов нечем.
+ */
+function callDepths(
+  instructions: readonly AsmInstruction[],
+  procedures: readonly ProcedureOffset[],
+  entryAt: number,
+): ReadonlyMap<number, number> {
+  const targets: number[][] = procedures.map((procedure, at) => {
+    const end = procedures[at + 1]?.codeOffset ?? instructions.length;
+    const found: number[] = [];
+    for (const carrier of instructions.slice(procedure.codeOffset, end)) {
+      if (carrier.mnemonic !== 'IR.call') continue;
+      const payload = carrier.operands[3];
+      if (payload !== undefined && payload.kind === 'imm') found.push(payload.value);
+    }
+    return found;
+  });
+  const depth = new Map<number, number>([[entryAt, 0]]);
+  const queue: number[] = [entryAt];
+  while (queue.length > 0) {
+    const at = queue.shift()!;
+    for (const to of targets[at] ?? []) {
+      if (depth.has(to)) continue;
+      depth.set(to, (depth.get(at) ?? 0) + 1);
+      queue.push(to);
+    }
+  }
+  return depth;
+}
+
+/**
  * РОСТ ОКНА: какие процедуры обязаны получить свой пролог (§3.56.5, правила 1–2).
  *
  * Пролог нужен ТОЙ процедуре, которая сама вызывает, — и только ей: точке входа он не нужен (её
@@ -707,6 +746,10 @@ function windowGrowthAt(
     const arrayBase = arrayBases[at];
     growth.set(procedure.codeOffset, [
       { mnemonic: WINDOW_GROW_CARRIER, channel: 0, operands: [] },
+      // ПРОЛОГ ЗНАЧЕНИЙ — ДВЕ КОМАНДЫ ВМЕСТО ТРЁХ (A4, §3.135): ноль и восемь в блок вызываемой.
+      // Единицы нет намеренно: она нужна только `добавить`, а `добавить` в вызываемой отказывает
+      // (куча живёт в плоскости точки входа). Вместе с отказом от второго временного блок стал
+      // ТРИ клетки вместо пяти — и запись в массив из вызываемой перестала быть отказом.
       ...(arrayBase === undefined
         ? []
         : [{ mnemonic: ARRAY_VALUES_CARRIER, channel: 0, operands: [imm(arrayBase)] }]),
@@ -957,6 +1000,9 @@ export function imageOfCarriers(
   // ГЛУБИНА ≥ 2: процедуры, которые САМИ вызывают (по потоку после всех вставок). Их носители
   // понижаются иначе: свой `wbs = 8` и порядок возврата «`return` → значение → `ct`» (§3.56.5, 3–5).
   const depthTwo = new Set<number>(windowGrowthAt(planned, procedures, strings.invokeNames).keys());
+  // ГЛУБИНА ВЫЗОВА каждой процедуры от точки входа: нужна границе A4 (§3.135) — запись в массив из
+  // вызываемой ГЛУБИНЫ ≥ 2 зацикливает модель (замер 2026-10-24), и это отказ по имени, а не петля.
+  const depthOf = callDepths(planned, procedures, entryAt);
   // Процедуры, которые зовут СЕБЯ: печать в них не проверена (виснет) — названный отказ, не тишина.
   const selfCalling = new Set<number>();
   procedures.forEach((procedure, at) => {
@@ -1128,6 +1174,8 @@ export function imageOfCarriers(
     // На глубине ≥ 2 (процедура с выращенным окном) носители понижаются иначе — правила 3–5 §3.56.5, §3.58.
     const procedureStart = procedures[procedureAt(procedures, index) ?? 0]?.codeOffset ?? 0;
     const onDepthTwo = inCallee && depthTwo.has(procedureStart);
+    /** Глубина вызова этой процедуры от точки входа (0 — сама точка входа). */
+    const depth = depthOf.get(procedureAt(procedures, index) ?? 0) ?? 0;
     /** Выращен ли кадр этой процедуры: в нём и вызов, и системный вызов идут иначе. */
     const grownFrame = onDepthTwo;
     /** Кадр системного вызова для этого носителя: выращенный — у процедуры, иначе кадр точки входа. */
@@ -1227,6 +1275,27 @@ export function imageOfCarriers(
             { mnemonic: 'ldd', channel: 0, operands: [base(stringPrint.scratch), base(ARRAY_REGISTERS.zero), base(item.register)] },
           );
         }
+        continue;
+      }
+      if (name === 'система.массив.установить' && inCallee && depth >= 2) {
+        // ЗАПИСЬ В МАССИВ ИЗ ГЛУБИНЫ ≥ 2 — ОТКАЗ ПО ИМЕНИ, А НЕ ПЕТЛЯ (A4, §3.135).
+        //
+        // Замер 2026-10-24 (`.tmp/osnova-3135-deep.ts`, `.tmp/osnova-3135-discriminate.ts`):
+        //   • `а[0] = 7` в вызываемой ГЛУБИНЫ 1 — код 7 (работает);
+        //   • ЧТЕНИЕ `а[0]` из ТОЙ ЖЕ клетки в глубине 2 — работает, и блок при этом стоит в тех же
+        //     клетках (`%b[12..14]`), что у записи: различие не в месте блока и не в адресе;
+        //   • запись из глубины 2 — ни выхода, ни исключения за 90 с (модель зацикливается).
+        // Причина НЕ установлена, поэтому она и названа «не установлена», а не выдана за найденную;
+        // граница возвращается отказом, как и до A4, — но теперь блок втрое меньше, и запись из
+        // плоскости 1 работает (случай К1 в `src/e2k/e2kArraysQemu.test.ts`).
+        refused.push(
+          refusalOf(
+            LOWERING_CODES.layout,
+            `#${index} ${name}: запись в массив из вызываемой глубины ${String(depth)} зацикливает ` +
+              'модель (замер 2026-10-24: чтение из тех же клеток проходит, запись из плоскости 1 ' +
+              'проходит; причина не установлена) — отказ вместо петли (A4 §3.135)',
+          ),
+        );
         continue;
       }
       if (name === STRING_CALLS.symbol) {
