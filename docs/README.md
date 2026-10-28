@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (70)
+## Фронтир и замеры (71)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -36,6 +36,7 @@
 - [OSNOVA-CLI.md](../OSNOVA-CLI.md)
 - [OSNOVA.md](../OSNOVA.md)
 - [README.md](../README.md)
+- [docs/abi-v3-draft.md](abi-v3-draft.md)
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/diagnostics-v1.md](diagnostics-v1.md)
 - [docs/dsh-llm-routes.md](dsh-llm-routes.md)

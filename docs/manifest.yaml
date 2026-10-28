@@ -84,6 +84,7 @@ docs/e2k-hardware-access.md: {status: active}
 
 # --- e2k: подтверждённые/текущие (active) ---
 docs/e2k-backend.md: {status: active, source-files: [src/e2k/backend.ts]}
+docs/abi-v3-draft.md: {status: active, source-files: [src/e2k/arrayRuntime.ts, src/e2k/procedureCall.ts, src/e2k/programImage.ts]}
 # --- e2k: извлечение семантики из чужих источников (scratch: разведка, не замер) ---
 docs/e2k-loop-mode.md: {status: scratch}
 docs/e2k-spec-bit.md: {status: scratch}
