@@ -133,9 +133,17 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   // Литеральные колонки (`literals`, `tinyLiterals`, `control`, `longForm`) НЕ СДВИНУЛИСЬ — и это
   // содержательная проверка: усечение снимает `addd`/`ldd`/`std` рантайма, а литералы и управляющие
   // команды приходят из потока эмиттера.
-  { name: 'fir', commands: 255, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 177, emptySlots: 833 },
-  { name: 'iir', commands: 142, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 96, emptySlots: 445 },
-  { name: 'fft', commands: 123, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 92, emptySlots: 438 },
+  // ПЕРЕМЕР 2026-10-29 (§3.137, A4 срез 3): срез 2 перемерил `commands` (821 → 895), но колонки
+  // `packets`/`emptySlots` остались снимком потока В 821 КОМАНДУ — и таблица стала противоречить
+  // САМА СЕБЕ: `fir` 177 пакетов против 209 в `src/e2k/e2kWideFir.test.ts`, а тождество
+  // `packets · 6 − emptySlots = commands` давало 821 против 895 команд. Источник истины — ЖИВОЙ
+  // замер (`wideStats(kernelStreamOf(...))`, перемер снят `.tmp/a4s3-packets.test.ts`): пакетов
+  // 634 → **733**, пустых слотов 2983 → **3503**, слогов 3804 → **4398**, занятых 821 → **895** —
+  // тождество снова сходится, и уже ПО ЖИВЫМ числам. Двигались ТОЛЬКО эти две колонки: состав
+  // потока (`commands`, `literals`, `tinyLiterals`, `control`, `longForm`) не менялся с §3.131.
+  { name: 'fir', commands: 255, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 209, emptySlots: 999 },
+  { name: 'iir', commands: 142, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 112, emptySlots: 530 },
+  { name: 'fft', commands: 123, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 105, emptySlots: 507 },
   {
     name: 'convolution',
     commands: 198,
@@ -143,8 +151,8 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
     tinyLiterals: 16,
     control: 26,
     longForm: 1,
-    packets: 142,
-    emptySlots: 668,
+    packets: 161,
+    emptySlots: 768,
   },
   {
     name: 'correlation',
@@ -153,8 +161,8 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
     tinyLiterals: 14,
     control: 22,
     longForm: 1,
-    packets: 127,
-    emptySlots: 599,
+    packets: 146,
+    emptySlots: 699,
   },
 ];
 
@@ -248,7 +256,7 @@ describe('LTS-барьеры: что именно разрывает пакет�
     expect(problems, 'короткая непосредственная форма').toEqual([]);
   });
 
-  it('1.5 итог: 78 литеральных из 821 команды, управляющих 106', () => {
+  it('1.5 итог: 78 литеральных из 895 команд, управляющих 106', () => {
     const sum = (pick: (row: LiteralBarrierRow) => number): number => LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
     // ПЕРЕМЕР 2026-10-10 (§3.131): команд 1064 → 821 — поток понижен ЧАСТЬЮ (45 обращений к массивам
     // вызываемых процедур отказывают по имени, разбор — в шапке таблицы выше). Литеральных 78 и
@@ -261,17 +269,18 @@ describe('LTS-барьеры: что именно разрывает пакет�
     expect(sum((row) => row.longForm), 'длинных форм').toBe(5);
   });
 
-  it('1.6 пустые слоты: 2983 из 3804 — пакетов стало меньше, слогов тоже', () => {
+  it('1.6 пустые слоты: 3503 из 4398 — пакетов стало меньше, слогов тоже', () => {
     const packets = LITERAL_BARRIERS.reduce((sum, row) => sum + row.packets, 0);
     const empty = LITERAL_BARRIERS.reduce((sum, row) => sum + row.emptySlots, 0);
     // ПЕРЕМЕР 2026-10-10 (§3.131): вместе с усечением потока пакетов 831 → 634, пустых слотов
-    // 3922 → 2983, слогов всего 4986 → 3804. Занятых слотов 821 — ровно число понижённых команд, и
-    // оно сходится: 634 · 6 − 2983 = 821.
-    expect(packets, 'пакетов').toBe(634);
-    expect(empty, 'пустых слотов').toBe(2983);
-    expect(packets * 6, 'слогов всего').toBe(3804);
-    expect(packets * 6 - empty, 'занятых слотов').toBe(821);
-    expect(packets, 'пакетов на потоке интеграции').toBe(634);
+    // 3922 → 2983, слогов всего 4986 → 3804. Занятых слотов 821 — ровно число понижённых команд.
+    // ПЕРЕМЕР 2026-10-29 (§3.137): колонки упаковки отстали от `commands` на срез 2 и перемерены
+    // живым замером — пакетов 634 → 733, пустых 2983 → 3503, слогов 3804 → 4398, занятых 895.
+    expect(packets, 'пакетов').toBe(733);
+    expect(empty, 'пустых слотов').toBe(3503);
+    expect(packets * 6, 'слогов всего').toBe(4398);
+    expect(packets * 6 - empty, 'занятых слотов').toBe(895);
+    expect(packets, 'пакетов на потоке интеграции').toBe(733);
   });
 });
 
