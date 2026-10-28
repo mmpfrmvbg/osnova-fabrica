@@ -105,11 +105,11 @@ export const KERNEL_BYTES: readonly KernelByteRow[] = [
   // `%b[8..15]`, где у рабочих процедур DSP-ядер живут восемь значений). Отсюда
   // `refusedBytes = layout − linear` по ядрам: 272 / 216 / 912 / 272 / 272 (всего 1944).
   // Прежние числа: linear и layout совпадали (8800 на пять ядер), wide 8256.
-  { name: 'fir', carriers: 111, commands: 229, layout: 2168, linear: 1896, wide: 1792, refusedBytes: 272 },
-  { name: 'iir', carriers: 85, commands: 131, layout: 1336, linear: 1120, wide: 992, refusedBytes: 216 },
-  { name: 'fft', carriers: 105, commands: 114, layout: 1840, linear: 928, wide: 864, refusedBytes: 912 },
-  { name: 'convolution', carriers: 110, commands: 184, layout: 1816, linear: 1544, wide: 1456, refusedBytes: 272 },
-  { name: 'correlation', carriers: 100, commands: 163, layout: 1640, linear: 1368, wide: 1280, refusedBytes: 272 },
+  { name: 'fir', carriers: 111, commands: 255, layout: 2400, linear: 2104, wide: 2000, refusedBytes: 296 },
+  { name: 'iir', carriers: 85, commands: 142, layout: 1448, linear: 1208, wide: 1112, refusedBytes: 240 },
+  { name: 'fft', carriers: 105, commands: 123, layout: 2048, linear: 1000, wide: 960, refusedBytes: 1048 },
+  { name: 'convolution', carriers: 110, commands: 198, layout: 1952, linear: 1656, wide: 1592, refusedBytes: 296 },
+  { name: 'correlation', carriers: 100, commands: 177, layout: 1776, linear: 1480, wide: 1416, refusedBytes: 296 },
 ];
 
 /** Размер носителей, размещённых раскладкой, но не попавших в команды. */
@@ -228,19 +228,19 @@ describe('сверка раскладки с упаковщиком: пять я
     }
   });
 
-  it('3.5 итог по пяти ядрам: раскладка 8800, линейно 6856, пакетами 6384', () => {
+  it('3.5 итог по пяти ядрам: раскладка 9624, линейно 7448, пакетами 7080', () => {
     const sum = (pick: (row: KernelByteRow) => number): number => KERNEL_BYTES.reduce((total, row) => total + pick(row), 0);
     // ПЕРЕМЕР 2026-10-10 (§3.131): раскладка (байты носителей) НЕ сдвинулась — 8800. Линейные и
     // пакетные байты считаются по пониженной части: 8800 → 6856 и 8256 → 6384, потому что 45
     // обращений к массивам вызываемых процедур названы отказом (1944 байта носителей не дошли до
     // команд). Поэтому «выигрыш упаковки» выражен через ЛИНЕЙНЫЕ байты той же части
-    // (6856 − 6384 = 472), а не через раскладку: 8800 − 6384 = 2416 смешивало бы отвергнутое с
+    // (7448 − 7080 = 368), а не через раскладку: 9624 − 7080 = 2544 смешивало бы отвергнутое с
     // упакованным. Прежние числа: 8800 / 8800 / 8256, выигрыш 544.
-    expect(sum((row) => row.layout), 'раскладка').toBe(8800);
-    expect(sum((row) => row.linear), 'линейно').toBe(6856);
-    expect(sum((row) => row.wide), 'пакетами').toBe(6384);
-    expect(sum((row) => row.linear) - sum((row) => row.wide), 'выигрыш упаковки').toBe(472);
-    expect(sum((row) => row.refusedBytes), 'отвергнуто байт носителей').toBe(1944);
+    expect(sum((row) => row.layout), 'раскладка').toBe(9624);
+    expect(sum((row) => row.linear), 'линейно').toBe(7448);
+    expect(sum((row) => row.wide), 'пакетами').toBe(7080);
+    expect(sum((row) => row.linear) - sum((row) => row.wide), 'выигрыш упаковки').toBe(368);
+    expect(sum((row) => row.refusedBytes), 'отвергнуто байт носителей').toBe(2176);
   });
 
   it('3.6 проверка не проходит при нулевой упаковке: равенство «пакетами = линейно» запрещено явно', () => {

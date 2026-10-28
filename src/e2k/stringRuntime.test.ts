@@ -113,7 +113,7 @@ describe('строки: байты, кодпоинты и границы', () =>
     // И порча кучи обязана быть видна.
     const damaged = [
       ...length,
-      { mnemonic: 'adds', channel: 0, operands: [{ kind: 'reg', index: ARRAY_REGISTERS.heap }, { kind: 'imm', value: 1 }, { kind: 'reg', index: ARRAY_REGISTERS.heap }] },
+      { mnemonic: 'adds', channel: 0, operands: [{ kind: 'reg', index: ARRAY_REGISTERS.heapSlot }, { kind: 'imm', value: 1 }, { kind: 'reg', index: ARRAY_REGISTERS.heapSlot }] },
     ];
     expect(stringSequenceProblems(damaged as never), 'порча кучи обязана быть видна').not.toEqual([]);
     // Различающий контроль арены: у неё восстанавливается ЕДИНИЦА (смещение записи), а ноль — нет:

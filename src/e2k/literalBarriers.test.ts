@@ -133,12 +133,12 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   // Литеральные колонки (`literals`, `tinyLiterals`, `control`, `longForm`) НЕ СДВИНУЛИСЬ — и это
   // содержательная проверка: усечение снимает `addd`/`ldd`/`std` рантайма, а литералы и управляющие
   // команды приходят из потока эмиттера.
-  { name: 'fir', commands: 229, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 177, emptySlots: 833 },
-  { name: 'iir', commands: 131, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 96, emptySlots: 445 },
-  { name: 'fft', commands: 114, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 92, emptySlots: 438 },
+  { name: 'fir', commands: 255, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 177, emptySlots: 833 },
+  { name: 'iir', commands: 142, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 96, emptySlots: 445 },
+  { name: 'fft', commands: 123, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 92, emptySlots: 438 },
   {
     name: 'convolution',
-    commands: 184,
+    commands: 198,
     literals: 16,
     tinyLiterals: 16,
     control: 26,
@@ -148,7 +148,7 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   },
   {
     name: 'correlation',
-    commands: 163,
+    commands: 177,
     literals: 14,
     tinyLiterals: 14,
     control: 22,
@@ -254,7 +254,7 @@ describe('LTS-барьеры: что именно разрывает пакет�
     // вызываемых процедур отказывают по имени, разбор — в шапке таблицы выше). Литеральных 78 и
     // «малых» 74, управляющих 106, длинных форм 5 — НЕ двигались: усечение снимает последовательности
     // рантайма массивов (`addd`/`ldd`/`std`), а литералы и управляющие приходят из потока эмиттера.
-    expect(sum((row) => row.commands), 'команд').toBe(821);
+    expect(sum((row) => row.commands), 'команд').toBe(895);
     expect(sum((row) => row.literals), 'литеральных').toBe(78);
     expect(sum((row) => row.tinyLiterals), 'со значением 0..15').toBe(74);
     expect(sum((row) => row.control), 'управляющих').toBe(106);

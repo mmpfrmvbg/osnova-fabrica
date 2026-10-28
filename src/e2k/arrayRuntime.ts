@@ -143,7 +143,7 @@ export function calleeArrayCells(base: number): {
 }
 
 /**
- * БАЗА БЛОКА РАНТАЙМА В ТОЧКЕ ВХОДА: клетки `%b[10..14]` (куча — 15).
+ * БАЗА БЛОКА РАНТАЙМА В ТОЧКЕ ВХОДА: клетки `%b[10..14]`, а `%b[15]` — АДРЕС ЯЧЕЙКИ КУЧИ.
  *
  * Номера ролей внутри этой пятёрки — НЕ произвольные и НЕ по порядку базы (см.
  * {@link ENTRY_ARRAY_CELLS}): попытка выровнять их по базе (ноль в 10, единица в 11, восемь в 12)
@@ -152,6 +152,31 @@ export function calleeArrayCells(base: number): {
  * свои клетки, а непрерывный блок `base..base+4` — это то, что раскладка выдаёт ВЫЗЫВАЕМОЙ.
  */
 export const ENTRY_ARRAY_BASE = 10;
+
+/**
+ * Сколько слов области кучи занимает СЛУЖЕБНАЯ ЯЧЕЙКА УКАЗАТЕЛЯ (A4 §3.136).
+ *
+ * Ячейка стоит В САМОЙ области кучи, первым словом: адрес ячейки — `heapAddress` (он же
+ * `HEAP_OFFSET`), а куча начинается со второго слова. Так у ячейки нет «своего» адреса, который мог
+ * бы разойтись с раскладкой памяти: и ячейку, и кучу выдаёт один и тот же `heapAddress`.
+ */
+export const ARRAY_HEAP_SLOT_WORDS = 1;
+
+/**
+ * ЯЧЕЙКА УКАЗАТЕЛЯ КУЧИ — ПЕРВОЕ СЛОВО САМОЙ ОБЛАСТИ КУЧИ (`heapAddress`, он же `HEAP_OFFSET`),
+ * а куча начинается со ВТОРОГО слова: `heapAddress + 8`.
+ *
+ * Отдельной константы адреса здесь НЕТ намеренно: она была бы вторым источником истины о том, где
+ * кончается код и начинается куча. Первая редакция это и доказала — литерал `0x110000` попал в
+ * СТРАНИЦУ ЗАПИСИ (площадку печати, `DATA_SEGMENT_BASE`) и был бы затёрт первой же печатью
+ * (`src/e2k/printPipeline.test.ts`, сторож места). Адрес ячейки берётся у того, кто её выдаёт —
+ * `arrayPrologue(heapAddress)`.
+ *
+ * Зачем ячейка, а не регистр (A4, срез 2): `%b[N]` адресуется только внутри СВОЕГО окна, у
+ * вызываемой окно своё (`setwd`/`setbn` её пролога роста), поэтому состояние, общее для процедур,
+ * регистром плоскости не выражается. В регистре остаётся только АДРЕС ячейки — величина постоянная
+ * и одинаковая во всех окнах; её кладёт пролог (`movtd`), а сам указатель кучи живёт в памяти.
+ */
 
 /**
  * Клетки рантайма в точке входа — как измерено (§3.126, `.tmp/rsz-sweep.ts`): ноль 12, единица 13,
@@ -181,12 +206,13 @@ export function arrayCells(base: number): {
  *
  * Все прочие рантаймы (печать, строки, арена, коллекции) читают ноль/единицу/восемь/временные
  * ОТСЮДА, поэтому перестановка ролей согласована по всему дереву — но не внутри модели, и потому
- * проверяется замером, а не рассуждением. Куча — состояние и осталась в `%b[15]`.
+ * проверяется замером, а не рассуждением. Куча — состояние, и с A4 (§3.136) она живёт в ЯЧЕЙКЕ
+ * ПАМЯТИ (`ARRAY_HEAP_SLOT`): в `%b[15]` лежит только её адрес.
  */
 export const ARRAY_REGISTERS = {
   ...ENTRY_ARRAY_CELLS,
-  /** Указатель кучи: растёт вверх по 8 байт на массив. */
-  heap: 15,
+  /** Адрес ячейки кучи (A4 §3.136): сама куча — в памяти, здесь постоянная величина `0x110000`. */
+  heapSlot: 15,
 } as const;
 
 /**
@@ -463,10 +489,15 @@ export function lowerArrayCall(
   // ВЫДЕЛЕНИЕ В ВЫЗЫВАЕМОЙ — НАЗВАННЫЙ ОТКАЗ, а не тихая порча. Указатель кучи живёт в плоскости
   // точки входа (`%b[15]` её окна); в плоскости вызываемой его нет, и `создать`/`добавить` двигали бы
   // чужую клетку. Перенос кучи в память (A4) — отдельная работа; до неё граница называется здесь.
+  // ВЫЗЫВАЕМОЙ — ОТКАЗ (A4, срез 2): куча теперь в памяти, но её адресует постоянный указатель
+  // `%b[15]` (`heapSlot`), а он лежит в блоке ТОЧКИ ВХОДА. В окне вызываемой `%b[15]` — ЧУЖАЯ клетка
+  // (закон окна: `%b[n]` вызываемой = `%b[n+8]` вызывающего), и 64-битный литерал адреса внутрь
+  // последовательности класть нельзя: её форму раскладка берёт заранее и без плоскости (§3.135).
+  // Отказ по имени вместо тихой порчи чужого блока.
   if (options.inCallee === true && (name === 'система.массив.создать' || name === 'система.массив.добавить') && !forForm) {
     throw new ArrayRuntimeRefusal(
-      `«${name}»: выделение в вызываемой процедуре — указатель кучи живёт в плоскости точки входа ` +
-        '(перенос в память не сделан, A4 §3.127); отказ вместо тихой порчи чужого блока',
+      `«${name}»: выделение в вызываемой процедуре — указатель на ячейку кучи живёт в блоке точки ` +
+        'входа (`%b[15]`), а в окне вызываемой это чужая клетка (A4 §3.136); отказ вместо тихой порчи',
     );
   }
   // КЛЕТКИ БЛОКА: у точки входа — ИЗМЕРЕННАЯ раскладка ролей (`ENTRY_ARRAY_CELLS`, §3.126), у
@@ -484,7 +515,7 @@ export function lowerArrayCall(
         ENTRY_ARRAY_CELLS.eight,
         ENTRY_ARRAY_CELLS.scratch,
         ENTRY_ARRAY_CELLS.scratch2,
-        ...(name === 'система.массив.создать' || name === 'система.массив.добавить' ? [ARRAY_REGISTERS.heap] : []),
+        ...(name === 'система.массив.создать' || name === 'система.массив.добавить' ? [ARRAY_REGISTERS.heapSlot] : []),
       ];
   if (!forForm) {
     args.forEach((operand, index) => checkOperand(operand, name, `аргумент ${index}`, reservedCells));
@@ -500,15 +531,26 @@ export function lowerArrayCall(
   // последовательности числом команд — носители после них уехали бы на разницу и программа упала бы
   // не отказом, а исключением модели (это и случилось первым прогоном A4).
   const { zero, one, eight, scratch, scratch2 } = inCallee ? calleeArrayCells(base) : ENTRY_ARRAY_CELLS;
-  const heap = ARRAY_REGISTERS.heap;
+  const heapSlot = ARRAY_REGISTERS.heapSlot;
 
   switch (name) {
     case 'система.массив.длина':
       // Длина лежит в первом слове блока: адрес = массив + 0.
       return [ldd(registers[0]!, zero, dst!)];
     case 'система.массив.создать':
-      // Указатель кучи — в приёмник, длина = 0, куча сдвинута на слово заголовка.
-      return [addd(heap, zero, dst!), std(zero, dst!, zero), addd(heap, eight, heap)];
+      // КУЧА — В ПАМЯТИ (A4 §3.136): `%b[15]` несёт только АДРЕС ячейки, значение читается и
+      // записывается `ldd`/`std`. ПРИЁМНИК — ЭТО АДРЕС БЛОКА, и он НЕ сдвигается: сдвигается
+      // ВРЕМЕННЫЙ, и уже он ложится в ячейку. Ошибка, которая здесь стояла, дала указатель за словом
+      // длины: `создать` возвращало куча+8, длина писалась на слово раньше указателя, а каждый
+      // следующий блок начинался на 8 байт раньше конца предыдущего — при двух массивах заголовок
+      // второго ложился ровно на последний элемент первого (измерено
+      // `.tmp/osnova-a4-slot-trace.ts`: указатель 102008 вместо 102000).
+      return [
+        ldd(heapSlot, zero, dst!),
+        std(zero, dst!, zero),
+        addd(dst!, eight, scratch),
+        std(scratch, heapSlot, zero),
+      ];
     case 'система.массив.получить': {
       // Адрес элемента = массив + 8 + индекс*8.
       const steps = timesEight(registers[1]!, scratch);
@@ -551,12 +593,16 @@ export function lowerArrayCall(
         addd(scratch2, eight, scratch2),
         addd(scratch2, registers[0]!, scratch2),
         std(registers[1]!, scratch2, zero),
-        // Указатель кучи двигается на элемент: без этого блок СЛЕДУЮЩЕГО массива ляжет на первый
-        // элемент этого (замер: `вход` и `коэффициенты` в FIR перекрывались, `получить(вход, i)` при
+        // УКАЗАТЕЛЬ КУЧИ ДВИГАЕТСЯ НА ЭЛЕМЕНТ, и он лежит в ЯЧЕЙКЕ ПАМЯТИ (A4 §3.136): `%b[15]` —
+        // только адрес ячейки. Без этого сдвига блок СЛЕДУЮЩЕГО массива ляжет на первый элемент
+        // этого (замер: `вход` и `коэффициенты` в FIR перекрывались, `получить(вход, i)` при
         // i = 0…7 давал `[длина(коэф), коэф[0..3], вход[5..7]]`, FIR давал 177 вместо 181 —
         // docs/e2k-regalloc-debt.md §12). Адресация выше считается от ДЛИНЫ массива, поэтому сдвиг
-        // кучи на неё не влияет — он нужен следующему `создать`.
-        addd(heap, eight, heap),
+        // кучи на неё не влияет — он нужен следующему `создать`. Второй временный здесь уже свободен:
+        // адрес элемента записан, и он переиспользуется под значение кучи.
+        ldd(heapSlot, zero, scratch2),
+        addd(scratch2, eight, scratch2),
+        std(scratch2, heapSlot, zero),
       ];
     }
     default:
@@ -601,7 +647,6 @@ export function arrayPrologue(heapAddress: number): AsmInstruction[] {
   if (!Number.isInteger(heapAddress) || heapAddress < 0) {
     throw new ArrayRuntimeRefusal(`адрес кучи обязан быть неотрицательным целым, получено ${String(heapAddress)}`);
   }
-  const heap = ARRAY_REGISTERS.heap;
   const { zero, one, eight } = ARRAY_REGISTERS;
   return [
     // ОКНО СТАВИТСЯ `setwd` — и это измерено на железе (§3.116): без `setwd` входное окно
@@ -620,7 +665,24 @@ export function arrayPrologue(heapAddress: number): AsmInstruction[] {
     { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 0 }, reg(zero)] },
     { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 1 }, reg(one)] },
     { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 8 }, reg(eight)] },
-    { mnemonic: 'movtd', channel: 0, operands: [{ kind: 'imm64', value: BigInt(heapAddress) } as Operand, reg(heap)] },
+    // АДРЕС ЯЧЕЙКИ КУЧИ — ПЕРВОЕ СЛОВО ОБЛАСТИ КУЧИ, ЗНАЧЕНИЕ кучи — со второго слова (A4 §3.136).
+    // Пролог — единственное место, где адрес кладётся 64-битным литералом: в последовательностях
+    // операций литерала нет (их форму раскладка берёт заранее, без плоскости, §3.135), там работают
+    // только `ldd`/`std` через `%b[15]`. Временный `%b[11]` нужен лишь на время пролога.
+    {
+      mnemonic: 'movtd',
+      channel: 0,
+      operands: [{ kind: 'imm64', value: BigInt(heapAddress) } as Operand, reg(ARRAY_REGISTERS.heapSlot)],
+    },
+    {
+      mnemonic: 'movtd',
+      channel: 0,
+      operands: [
+        { kind: 'imm64', value: BigInt(heapAddress + ARRAY_HEAP_SLOT_WORDS * 8) } as Operand,
+        reg(ARRAY_REGISTERS.scratch),
+      ],
+    },
+    std(ARRAY_REGISTERS.scratch, ARRAY_REGISTERS.heapSlot, zero),
   ];
 }
 
@@ -636,21 +698,35 @@ export function checkArraySequence(name: string, instructions: readonly AsmInstr
   const kinds = instructions.map((instruction) => instruction.mnemonic);
 
   /**
-   * Сдвигает ли последовательность указатель кучи на месте (`addd …, %b[heap]` в приёмник).
+   * Кладёт ли последовательность значение в ЯЧЕЙКУ КУЧИ — то есть двигает ли она указатель кучи.
    *
-   * Проверяются ОБЕ операции, выделяющие память: `создать` (заголовок) и `добавить` (элемент).
-   * Общий сторож нужен потому, что снятие сдвига в любой из них даёт один и тот же дефект —
-   * два массива ложатся друг на друга, — и раньше `добавить` этого сдвига не делал.
+   * С A4 (§3.136) куча живёт в памяти (`ARRAY_HEAP_SLOT`), а `%b[15]` (`heapSlot`) несёт только её
+   * АДРЕС, поэтому признак сдвига — `std` со ЗНАЧЕНИЕМ-РЕГИСТРОМ в базу `%b[15]`, а не `addd` с
+   * регистром кучи. Проверяются ОБЕ операции, выделяющие память: `создать` (слово заголовка) и
+   * `добавить` (элемент) — снятие сдвига в любой из них даёт один и тот же дефект: два массива
+   * ложатся друг на друга.
    */
   function advancesHeap(sequence: readonly AsmInstruction[]): boolean {
+    const slotStore = sequence.find(
+      (instruction) =>
+        instruction.mnemonic === 'std' &&
+        instruction.operands[0]?.kind === 'reg' &&
+        instruction.operands[1]?.kind === 'reg' &&
+        (instruction.operands[1] as { readonly index: number }).index === ARRAY_REGISTERS.heapSlot,
+    );
+    if (slotStore === undefined) return false;
+    const stored = (slotStore.operands[0] as { readonly index: number }).index;
+    // В ячейку обязано лечь ИМЕННО «блок + 8»: значение должно быть результатом `addd …, eight`.
+    // Иначе `создать` вернуло бы программе указатель ЗА словом длины, а куча встала бы не на конец
+    // блока — ровно этот дефект и был измерен пробой `.tmp/osnova-a4-slot-trace.ts` (102008 вместо
+    // 102000, и заголовок второго массива лёг на последний элемент первого).
     return sequence.some(
       (instruction) =>
         instruction.mnemonic === 'addd' &&
-        instruction.operands.some(
-          (operand) => operand.kind === 'reg' && operand.index === ARRAY_REGISTERS.heap,
-        ) &&
+        instruction.operands[1]?.kind === 'reg' &&
+        (instruction.operands[1] as { readonly index: number }).index === ARRAY_REGISTERS.eight &&
         instruction.operands[2]?.kind === 'reg' &&
-        (instruction.operands[2] as { index: number }).index === ARRAY_REGISTERS.heap,
+        (instruction.operands[2] as { readonly index: number }).index === stored,
     );
   }
 
@@ -665,6 +741,28 @@ export function checkArraySequence(name: string, instructions: readonly AsmInstr
     }
     case 'система.массив.добавить': {
       if (!kinds.includes('ldd')) problems.push('«добавить»: длина не прочитана');
+      // ПЕРВАЯ ЗАПИСЬ ОБЯЗАНА БЫТЬ ДЛИНОЙ — именно «прочитанная + 1». Прежний счёт «`std` не меньше
+      // двух» с A4 (§3.136) перестал что-либо значить: в последовательности три записи (длина,
+      // элемент, ячейка кучи), и снятие записи длины он пропускал — это и поймал негативный контроль
+      // `src/e2k/e2kArrays.test.ts`.
+      const incrementedLength = instructions.find(
+        (instruction) =>
+          instruction.mnemonic === 'addd' &&
+          instruction.operands[1]?.kind === 'reg' &&
+          (instruction.operands[1] as { readonly index: number }).index === ARRAY_REGISTERS.one &&
+          instruction.operands[2]?.kind === 'reg',
+      )?.operands[2];
+      const firstStore = instructions.find((instruction) => instruction.mnemonic === 'std');
+      const storesLength =
+        incrementedLength !== undefined &&
+        incrementedLength.kind === 'reg' &&
+        firstStore !== undefined &&
+        firstStore.operands[0]?.kind === 'reg' &&
+        (firstStore.operands[0] as { readonly index: number }).index ===
+          (incrementedLength as { readonly index: number }).index;
+      if (!storesLength) {
+        problems.push('«добавить»: новая длина не записана — следующий элемент ляжет на тот же адрес');
+      }
       if (kinds.filter((kind) => kind === 'std').length < 2) {
         problems.push('«добавить»: длина не записана или значение не записано — нужны обе записи');
       }

@@ -539,7 +539,7 @@ export function stringSequenceProblems(instructions: readonly AsmInstruction[]):
   for (const [index, instruction] of instructions.entries()) {
     for (const operand of instruction.operands) {
       if (operand.kind !== 'reg') continue;
-      if (operand.index === ARRAY_REGISTERS.eight || operand.index === ARRAY_REGISTERS.heap) {
+      if (operand.index === ARRAY_REGISTERS.eight || operand.index === ARRAY_REGISTERS.heapSlot) {
         problems.push(
           `#${String(index)} ${instruction.mnemonic}: тронут %b[${String(operand.index)}] — это ` +
             'постоянные рантайма массивов (восемь и куча), их строковый рантайм не трогает',

@@ -91,14 +91,19 @@ describe('рантайм массивов: последовательности 
     ]);
   });
 
-  it('создать: взять указатель кучи, обнулить длину, сдвинуть кучу на заголовок', () => {
+  it('создать: взять указатель кучи из ЯЧЕЙКИ, обнулить длину, сдвинуть куче на заголовок', () => {
     const sequence = низвести('система.массив.создать', [], 3);
-    expect(mnemonics(sequence)).toEqual(['addd', 'std', 'addd']);
-    // Первая команда кладёт указатель кучи в приёмник, вторая пишет нулевую длину, третья
-    // двигает указатель кучи на слово заголовка.
-    expect(sequence[0]!.operands[0]).toEqual(reg(ARRAY_REGISTERS.heap));
+    expect(mnemonics(sequence)).toEqual(['ldd', 'std', 'addd', 'std']);
+    // С A4 (§3.136) указатель кучи живёт в ЯЧЕЙКЕ ПАМЯТИ, а `%b[15]` несёт только её адрес:
+    // первая команда читает значение кучи в приёмник (он и есть адрес блока), вторая пишет нулевую
+    // длину, третья сдвигает ВРЕМЕННЫЙ на слово заголовка, четвёртая кладёт сдвинутое в ячейку.
+    // Приёмник НЕ сдвигается: иначе программа получила бы указатель за словом длины.
+    expect(sequence[0]!.operands[0], 'база чтения — адрес ячейки кучи').toEqual(reg(ARRAY_REGISTERS.heapSlot));
+    expect(sequence[0]!.operands[2], 'приёмник — адрес блока').toEqual(reg(3));
     expect(sequence[1]!.mnemonic).toBe('std');
-    expect(sequence[2]!.operands[2]).toEqual(reg(ARRAY_REGISTERS.heap));
+    expect(sequence[2]!.operands[2], 'сдвигается временный, а не приёмник').not.toEqual(reg(3));
+    expect(sequence[2]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.eight));
+    expect(sequence[3]!.operands[1], 'в ячейку').toEqual(reg(ARRAY_REGISTERS.heapSlot));
   });
 
   it('получить: индекс без сдвигов — удвоением, затем адрес и чтение', () => {
@@ -113,14 +118,17 @@ describe('рантайм массивов: последовательности 
     // чтение длины, +1, запись новой длины, три удвоения, заголовок, база, запись значения и сдвиг
     // указателя кучи на элемент (последняя команда — она и разводит блоки двух массивов).
     expect(mnemonics(sequence)).toEqual([
-      'ldd', 'addd', 'std', 'addd', 'addd', 'addd', 'addd', 'addd', 'std', 'addd',
+      'ldd', 'addd', 'std', 'addd', 'addd', 'addd', 'addd', 'addd', 'std', 'ldd', 'addd', 'std',
     ]);
-    expect(sequence.at(-2)!.operands[0], 'записывается значение').toEqual(reg(8));
-    // Сдвиг кучи: приёмник — сам указатель кучи, и он не перепутан с адресом записи (тот лежит в
-    // scratch2 и в последней команде не участвует).
-    expect(sequence.at(-1)!.operands[0], 'сдвиг кучи: от чего').toEqual(reg(ARRAY_REGISTERS.heap));
-    expect(sequence.at(-1)!.operands[1], 'сдвиг кучи: на размер элемента').toEqual(reg(ARRAY_REGISTERS.eight));
-    expect(sequence.at(-1)!.operands[2], 'сдвиг кучи: куда').toEqual(reg(ARRAY_REGISTERS.heap));
+    expect(sequence.at(-4)!.operands[0], 'записывается значение').toEqual(reg(8));
+    // Сдвиг кучи с A4 (§3.136) — ТРИ команды: прочитать значение из ячейки, сдвинуть на размер
+    // элемента, положить назад. Значение и ячейка не перепутаны с адресом записи (тот лежит в
+    // scratch2 и в последних трёх командах не участвует как адрес).
+    expect(sequence.at(-3)!.mnemonic, 'сдвиг кучи: чтение ячейки').toBe('ldd');
+    expect(sequence.at(-3)!.operands[0]).toEqual(reg(ARRAY_REGISTERS.heapSlot));
+    expect(sequence.at(-2)!.operands[1], 'сдвиг кучи: на размер элемента').toEqual(reg(ARRAY_REGISTERS.eight));
+    expect(sequence.at(-1)!.mnemonic, 'сдвиг кучи: запись ячейки').toBe('std');
+    expect(sequence.at(-1)!.operands[1]).toEqual(reg(ARRAY_REGISTERS.heapSlot));
   });
 
   it('создать и добавить согласованы: обе операции двигают кучи на размер своего блока', () => {
@@ -132,9 +140,9 @@ describe('рантайм массивов: последовательности 
     const advances = (sequence: readonly AsmInstruction[]): number =>
       sequence.filter(
         (instruction) =>
-          instruction.mnemonic === 'addd' &&
-          instruction.operands[2]?.kind === 'reg' &&
-          (instruction.operands[2] as { index: number }).index === ARRAY_REGISTERS.heap,
+          instruction.mnemonic === 'std' &&
+          instruction.operands[1]?.kind === 'reg' &&
+          (instruction.operands[1] as { index: number }).index === ARRAY_REGISTERS.heapSlot,
       ).length;
     expect(advances(create), 'создать двигает кучи один раз — на заголовок').toBe(1);
     expect(advances(append), 'добавить двигает кучи один раз — на элемент').toBe(1);
@@ -169,7 +177,9 @@ describe('рантайм массивов: последовательности 
 describe('рантайм массивов: пролог и контракт регистров', () => {
   it('пролог задаёт ноль, единицу, размер элемента и указатель кучи', () => {
     const prologue = arrayPrologue(0x102000);
-    expect(mnemonics(prologue)).toEqual(['setwd', 'setbn', 'movts', 'movts', 'movts', 'movtd']);
+    expect(mnemonics(prologue)).toEqual([
+      'setwd', 'setbn', 'movts', 'movts', 'movts', 'movtd', 'movtd', 'std',
+    ]);
     // Окно ставится ДВУМЯ командами, и это измерено на железе (§3.116): без `setwd` входное окно
     // `wsz = 4`, а `setbn rsz = 7` требует `rbs + rsz + 1 = 8 ≤ wsz` — окно негодно ЦЕЛИКОМ, и
     // падает первое же обращение (`movts … %b[12]` на 0x100008, код 139) — так падали все 38
@@ -184,9 +194,13 @@ describe('рантайм массивов: пролог и контракт ре
     expect(prologue[2]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.zero));
     expect(prologue[3]!.operands[1], 'единица: длина растёт на элемент').toEqual(reg(ARRAY_REGISTERS.one));
     expect(prologue[4]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.eight));
-    expect(prologue[5]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.heap));
-    // Куча — внешняя память, а не литерал: адрес 64-битный (форма 0xdc).
+    expect(prologue[5]!.operands[1], 'адрес ячейки кучи — в %b[15]').toEqual(reg(ARRAY_REGISTERS.heapSlot));
+    // Куча — внешняя ПАМЯТЬ, а не литерал: адрес ячейки 64-битный (форма 0xdc).
     expect(prologue[5]!.operands[0]!.kind).toBe('imm64');
+    // Значение кучи кладётся В ЯЧЕЙКУ отдельным `movtd` (адрес начала кучи бывает и не 21-битным).
+    expect(prologue[6]!.operands[0]!.kind, 'начало кучи — 64-битный литерал').toBe('imm64');
+    expect(prologue[7]!.mnemonic, 'значение кучи ложится в ячейку').toBe('std');
+    expect(prologue[7]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.heapSlot));
     for (const instruction of prologue) encoder.encode(instruction);
   });
 
@@ -200,14 +214,14 @@ describe('рантайм массивов: пролог и контракт ре
     expect(() => низвести('система.массив.длина', [reg(ARRAY_REGISTERS.zero)], 2)).toThrow(
       /попал в блок рантайма массивов/,
     );
-    // УКАЗАТЕЛЬ КУЧИ запрещён только ВЫДЕЛЯЮЩИМ операциям (`создать`/`добавить` — те, что его двигают;
-    // `src/e2k/arrayRuntime.ts`, `reservedCells`). `длина` его не пишет, и запрещать ей его — шире
-    // контракта; обе стороны названы, чтобы проверка не ослабла незаметно.
-    expect(() => низвести('система.массив.создать', [], ARRAY_REGISTERS.heap)).toThrow(
+    // АДРЕС ЯЧЕЙКИ КУЧИ запрещён только ВЫДЕЛЯЮЩИМ операциям (`создать`/`добавить` — те, что её
+    // двигают; `src/e2k/arrayRuntime.ts`, `reservedCells`). `длина` её не пишет, и запрещать ей —
+    // шире контракта; обе стороны названы, чтобы проверка не ослабла незаметно.
+    expect(() => низвести('система.массив.создать', [], ARRAY_REGISTERS.heapSlot)).toThrow(
       /попал в блок рантайма массивов/,
     );
     expect(
-      низвести('система.массив.длина', [reg(ARRAY_REGISTERS.heap)], 2).length,
+      низвести('система.массив.длина', [reg(ARRAY_REGISTERS.heapSlot)], 2).length,
       '«длина» кучи не двигает — аргумент в её клетке допустим',
     ).toBe(1);
   });
