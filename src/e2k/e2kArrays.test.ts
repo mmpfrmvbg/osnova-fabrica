@@ -48,10 +48,12 @@ import { describe, it, expect } from 'vitest';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import {
   ARRAY_REGISTERS,
+  ARRAY_SLOT_CARRIER,
   ARRAY_WINDOW_RSZ,
   ARRAY_WINDOW_WSZ,
   ENTRY_ARRAY_BASE,
   arrayPrologue,
+  arraySlotPrologue,
   checkArraySequence,
   lowerArrayCall,
   SUPPORTED_ARRAY_CALLS,
@@ -275,5 +277,78 @@ describe('рантайм массивов: сторож последовател
     const broken = honest.slice(0, -1);
     const problems = checkArraySequence('система.массив.добавить', broken);
     expect(problems.join(' '), 'снятый сдвиг кучи не пойман').toMatch(/куч/);
+  });
+});
+
+/**
+ * СТОРОЖ ПРОЛОГА АДРЕСА ЯЧЕЙКИ КУЧИ (A4, срез 3, §3.137) — и ГРАНИЦЫ, которые он стережёт.
+ *
+ * Здесь три подмены, каждая из которых «собирается» и молчит: адрес уехал в другую клетку, в `%b[15]`
+ * легло ЗНАЧЕНИЕ (регистр) вместо адреса, адрес дан коротким литералом. Негативный контроль — в этом
+ * же файле (подмены строятся из честного пролога), а поведение границ спрашивается у модели в
+ * `src/e2k/arrayCalleeCreate.test.ts`.
+ */
+describe('рантайм массивов: пролог адреса ячейки кучи (негативный контроль)', () => {
+  const ЧЕСТНЫЙ = arraySlotPrologue(0x202000);
+
+  it('честный пролог: одно `movtd` с 64-битным литералом в %b[15]', () => {
+    expect(checkArraySequence(ARRAY_SLOT_CARRIER, ЧЕСТНЫЙ)).toEqual([]);
+    expect(ЧЕСТНЫЙ.map((instruction) => instruction.mnemonic)).toEqual(['movtd']);
+    expect(ЧЕСТНЫЙ[0]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.heapSlot));
+  });
+
+  it('адрес уехал в другую клетку — поймано', () => {
+    const broken = [{ ...ЧЕСТНЫЙ[0]!, operands: [ЧЕСТНЫЙ[0]!.operands[0]!, reg(12)] }];
+    const problems = checkArraySequence(ARRAY_SLOT_CARRIER, broken);
+    expect(problems.join(' '), 'чужая клетка не поймана').toMatch(/15|другой клетке/);
+  });
+
+  it('в %b[15] положено ЗНАЧЕНИЕ (регистр), а не адрес — поймано', () => {
+    // «Значение вместо адреса» дальше выглядит обычной командой: `ldd`/`std` пошли бы по мусорному
+    // адресу, и это тихая порча памяти, а не отказ.
+    const broken = [{ ...ЧЕСТНЫЙ[0]!, operands: [reg(3), reg(ARRAY_REGISTERS.heapSlot)] }];
+    const problems = checkArraySequence(ARRAY_SLOT_CARRIER, broken);
+    expect(problems.join(' '), 'значение вместо адреса не поймано').toMatch(/imm64|ЛИТЕРАЛОМ/);
+  });
+
+  it('адрес дан коротким литералом (`movts`) — поймано', () => {
+    const broken: AsmInstruction[] = [
+      { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 0x202000 }, reg(ARRAY_REGISTERS.heapSlot)] },
+    ];
+    const problems = checkArraySequence(ARRAY_SLOT_CARRIER, broken);
+    expect(problems.join(' '), 'короткий литерал не пойман').toMatch(/movtd|imm64/);
+  });
+
+  it('граница: `создать` в вызываемой БЕЗ пролога адреса — отказ по имени', () => {
+    // Слово «адрес закреплён» даёт конвейер (`heapSlotReady`). Без слова `создать` в вызываемой
+    // обязано отказать: `%b[15]` вызываемой — ЧУЖАЯ клетка (закон окна), и куча у процедур разошлась бы.
+    let без: Error | undefined;
+    try {
+      lowerArrayCall('система.массив.создать', [], 3, { base: 12, inCallee: true });
+    } catch (error) {
+      без = error as Error;
+    }
+    expect(без, '`создать` в вызываемой без пролога прошло молча').toBeDefined();
+    expect(без!.message, 'причина не названа').toMatch(/IR\.array_slot|ячейки кучи/);
+
+    // А со словом — понижается, и приёмник не сдвигается (урок §3.136).
+    const со = lowerArrayCall('система.массив.создать', [], 3, { base: 12, inCallee: true, heapSlotReady: true });
+    expect(со.map((instruction) => instruction.mnemonic)).toEqual(['ldd', 'std', 'addd', 'std']);
+    expect(со[0]!.operands[0]).toEqual(reg(ARRAY_REGISTERS.heapSlot));
+  });
+
+  it('граница: `добавить` в вызываемой — отказ РАЗМЕРНЫЙ (пяти ролям нужно пять клеток)', () => {
+    let отказ: Error | undefined;
+    try {
+      lowerArrayCall('система.массив.добавить', [reg(8), reg(9)], undefined, {
+        base: 12,
+        inCallee: true,
+        heapSlotReady: true,
+      });
+    } catch (error) {
+      отказ = error as Error;
+    }
+    expect(отказ, '`добавить` в вызываемой прошло').toBeDefined();
+    expect(отказ!.message, 'причина не названа клетками').toMatch(/ТРИ клетки|пять/);
   });
 });

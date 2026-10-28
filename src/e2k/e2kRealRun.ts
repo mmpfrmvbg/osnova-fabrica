@@ -69,9 +69,11 @@ import { LOAD_CARRIER, STORE_CARRIER, loadInstructions, storeInstructions } from
 import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
 import {
   lowerArrayCall,
+  arraySlotPrologue,
   arrayValuePrologue,
   ARRAY_REGISTERS,
   ARRAY_BASE_OPERAND,
+  ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
   ENTRY_ARRAY_BASE,
   SUPPORTED_ARRAY_CALLS,
@@ -386,10 +388,20 @@ export interface LoweringContext {
   readonly procedureReturn?: boolean;
   /**
    * Понижается тело ВЫЗЫВАЕМОЙ процедуры. Зачем это знать рантайму массивов: её обращения к памяти
-   * идут оконной формой (`%rN`), а указатель кучи живёт в плоскости точки входа — значит `создать` и
-   * `добавить` здесь обязаны отказать по имени, а не двигать чужую клетку (§3.128).
+   * идут оконной формой (`%rN`), а состояние кучи живёт в плоскости точки входа — значит операции,
+   * которым нужны ЧУЖИЕ постоянные, здесь обязаны отказать по имени, а не двигать чужую клетку
+   * (§3.128). С A4 §3.137 `создать` исключено из этого правила ровно тогда, когда адрес ячейки кучи
+   * положил пролог роста этой процедуры (`heapSlotReady`).
    */
   readonly inCallee?: boolean;
+  /**
+   * АДРЕС ЯЧЕЙКИ КУЧИ В ОКНЕ ЭТОЙ ВЫЗЫВАЕМОЙ ПРОЦЕДУРЫ ЗАКРЕПЛЁН (A4 §3.137).
+   *
+   * Слово того, кто собирал поток: он положил носитель `IR.array_slot` в пролог роста процедуры
+   * (`src/e2k/programImage.ts#windowGrowthAt`) и тем самым закрепил `%b[15]` за раскладкой
+   * (`allocateProgram`, условный резерв). Без слова `создать` в вызываемой — названный отказ.
+   */
+  readonly heapSlotReady?: boolean;
   /**
    * БАЗА БЛОКА РАНТАЙМА МАССИВОВ в ЭТОЙ процедуре — её выдала раскладка (`allocateProgram`,
    * поле `arrayBases`). Базы нет — обращение к массиву отказывает по имени (§3.128).
@@ -647,6 +659,21 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     };
   }
 
+  if (instruction.mnemonic === ARRAY_SLOT_CARRIER) {
+    // АДРЕС ЯЧЕЙКИ КУЧИ В ПЛОСКОСТИ ВЫЗЫВАЕМОЙ (A4 §3.137): `%b[15]` вызываемой несёт АДРЕС ячейки —
+    // тогда `создать` в вызываемой читает и двигает ту же ячейку, что точка входа. Носитель, а не
+    // готовая команда в потоке: у вызываемой конвейер переведёт его в оконную форму вместе с телом.
+    const address = instruction.operands[0];
+    if (address === undefined || address.kind !== 'imm64') {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${ARRAY_SLOT_CARRIER}»: ожидался 64-битный литерал адреса ячейки кучи (первый операнд носителя) — ` +
+          'короткий литерал адреса не несёт, а значение из регистра было бы уже не адресом',
+      );
+    }
+    return { ok: true, instructions: arraySlotPrologue(Number(address.value)) };
+  }
+
   if (instruction.mnemonic === REMAINDER_CARRIER) {
     // ОСТАТОК — СЕРИЯ из трёх команд, а не одна: документированный `SMODX` не берём (у него свой
     // дефект знака, пример `09`), а считаем остаток из целочисленного деления, которое уже
@@ -757,6 +784,10 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
           instructions: lowerArrayCall(name, args as readonly Operand[], destinationIndex, {
             ...(context.arrayBase === undefined ? {} : { base: context.arrayBase }),
             ...(context.inCallee === true ? { inCallee: true } : {}),
+            // АДРЕС ЯЧЕЙКИ КУЧИ В ОКНЕ ВЫЗЫВАЕМОЙ (A4 §3.137): слово того, кто собирал поток, — он
+            // положил носитель `IR.array_slot` в пролог роста И закрепил `%b[15]` за раскладкой.
+            // Без слова `создать` в вызываемой остаётся названным отказом (см. `lowerArrayCall`).
+            ...(context.heapSlotReady === true ? { heapSlotReady: true } : {}),
           }),
         };
       }

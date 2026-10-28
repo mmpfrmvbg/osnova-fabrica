@@ -76,7 +76,9 @@ import { syscallFrameOfCarrier } from "./printCall";
 import {
   CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
 import {
+  ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
+  arraySlotPrologue,
   arrayValuePrologue,
   lowerArrayCall } from "./arrayRuntime";
 import {
@@ -758,6 +760,24 @@ function carrierFormWithReason(
       };
     }
     return { form: { carrier: ARRAY_VALUES_CARRIER, commands: forms.map((form) => form!) } };
+  }
+  if (instruction.mnemonic === ARRAY_SLOT_CARRIER) {
+    // АДРЕС ЯЧЕЙКИ КУЧИ В ПЛОСКОСТИ ВЫЗЫВАЕМОЙ (A4 §3.137): ровно одна `movtd` с 64-битным литералом.
+    // Длина берётся ИЗ ТОЙ ЖЕ команды, что понижает конвейер (`arraySlotPrologue`), и от плоскости не
+    // зависит: литерал адреса — тот же, а форма `movtd` от номера клетки не меняется.
+    const address = instruction.operands[0];
+    const commands = address?.kind === 'imm64' ? arraySlotPrologue(Number(address.value)) : undefined;
+    const forms = commands?.map((command) => ARRAY_COMMAND_FORMS.get(command.mnemonic) ?? printCommandForm(command));
+    if (forms === undefined || forms.some((form) => form === undefined)) {
+      return {
+        failure: failureOf(
+          LOWERING_CODES.carrier,
+          `«${ARRAY_SLOT_CARRIER}»: форму шага адреса ячейки кучи взять негде — первый операнд носителя ` +
+            'обязан быть 64-битным литералом адреса (src/e2k/arrayRuntime.ts#arraySlotPrologue)',
+        ),
+      };
+    }
+    return { form: { carrier: ARRAY_SLOT_CARRIER, commands: forms.map((form) => form!) } };
   }
   if (instruction.mnemonic === WINDOW_GROW_CARRIER) {
     return {

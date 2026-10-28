@@ -28,6 +28,7 @@ import type { CompileOptions } from '../compiler/compiler';
 import { lowerCarrier } from './e2kRealRun';
 import {
   ARRAY_REGISTERS,
+  ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
   ENTRY_ARRAY_BASE,
   SUPPORTED_ARRAY_CALLS,
@@ -566,16 +567,35 @@ export function loweredProgram(
   // Здесь, а не в `allocateProgram`, потому что признак — ИМЯ вызова из таблицы образа, а её у
   // раскладки нет. Тихая порча от забытого резерва закрыта отказом в самом рантайме
   // (`collectionsRuntime.ts#checkRegister`), а не надеждой.
-  const reserved = [
-    ...(arenaReserved ? arenaReservedRegisters() : []),
-    ...(usesCollections(emitted.instructions, emitted.image.invokeNames) ? collectionReservedRegisters() : []),
-  ];
   // БЮДЖЕТ РЕГИСТРОВ ПО ПРОЦЕДУРАМ: точка входа распоряжается всем файлом раскладки
   // (`%b[0..9]`; `%b[10..15]` держит рантайм массивов), а ВЫЗЫВАЕМАЯ — только своей половиной кадра
   // (`CALLEE_REGISTERS`). Иначе её `%b[2..7]` — это `%b[10..15]` вызывающего, то есть чужой рантайм,
   // и выход программы (`код = значение + %b[12]`) отдаёт чужое число: «собралось, отказов 0,
   // значение неверное». Замер — `docs/hardware-debt.md` §3.96, проба `.tmp/osnova-reread-which.ts`.
   const entryAt = emitted.scheduled.procedures.length === 0 ? -1 : entryProcedureIndex(emitted.scheduled.procedures);
+  // АДРЕС ЯЧЕЙКИ КУЧИ В ОКНЕ ВЫЗЫВАЕМОЙ (A4, срез 3, §3.137): процедуры, которые ВЫДЕЛЯЮТ массив
+  // (`система.массив.создать`), получают `%b[15]` = адрес ячейки кучи — оттуда его читает `создать`.
+  // Резерв УСЛОВНЫЙ, как у арены и коллекций: у программ без выделения в вызываемой клетка 15
+  // остаётся рабочей, и закреплённые числа пяти ядер не двигаются.
+  //
+  // Слово «резерв сделан» уезжает в `imageOfCarriers` (`heapSlotReserved`): там из потока ПОСЛЕ
+  // раскладки ещё раз считается тот же список, и разойдись он с резервом — `создать` в вызываемой
+  // останется НАЗВАННЫМ отказом, а не прочтёт чужую клетку.
+  const heapSlotAt = heapSlotProcedures(
+    emitted.instructions,
+    emitted.scheduled.procedures,
+    emitted.image.invokeNames,
+    entryAt,
+  );
+  const heapSlotReserved = heapSlotAt.size > 0;
+  const reserved = [
+    ...(arenaReserved ? arenaReservedRegisters() : []),
+    ...(usesCollections(emitted.instructions, emitted.image.invokeNames) ? collectionReservedRegisters() : []),
+    // АДРЕС ЯЧЕЙКИ КУЧИ — резерв по той же логике: он закреплён ЗА РАНТАЙМОМ МАССИВОВ, а не за
+    // значениями программы (иначе пролог роста положил бы адрес, а раскладка отдала бы ту же клетку
+    // под значение, и адрес был бы затёрт молча).
+    ...(heapSlotReserved ? [ARRAY_REGISTERS.heapSlot] : []),
+  ];
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
     reserved,
     freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),
@@ -611,6 +631,8 @@ export function loweredProgram(
       // Слово о закреплении регистров — тому, кто раскладывал: разойдись оно с нуждой образа,
       // конвейер откажет по имени, а не соберёт образ с мусором вместо указателя арены.
       arenaReserved,
+      // Слово о закреплении `%b[15]` за адресом ячейки кучи — по той же причине (A4 §3.137).
+      heapSlotReserved,
     }),
     used: report.used,
   };
@@ -649,6 +671,41 @@ function arrayProceduresOf(
   procedures.forEach((procedure, at) => {
     const to = procedures[at + 1]?.codeOffset ?? code.length;
     if (usesArrayHeap(code.slice(procedure.codeOffset, to), invokeNames)) found.push(at);
+  });
+  return found;
+}
+
+/**
+ * ПРОЦЕДУРЫ, КОТОРЫМ НУЖЕН АДРЕС ЯЧЕЙКИ КУЧИ В ИХ ОКНЕ (A4, срез 3, §3.137), — те, что ВЫДЕЛЯЮТ
+ * массив (`система.массив.создать`).
+ *
+ * Зачем список отдельно от {@link arrayProceduresOf}: работа с массивом и ВЫДЕЛЕНИЕ памяти — разные
+ * нужды. Чтение (`получить`) и запись (`установить`) обходятся блоком в три клетки и `%b[15]` не
+ * трогают вовсе; `создать` же читает и двигает ЯЧЕЙКУ КУЧИ по адресу в `%b[15]`, и адрес этот в
+ * плоскости вызываемой никто, кроме её пролога роста, положить не может.
+ *
+ * Точка входа в список не входит: у неё адрес кладёт пролог ОБРАЗА (`arrayPrologue`).
+ */
+function heapSlotProcedures(
+  code: readonly AsmInstruction[],
+  procedures: readonly ProcedureOffset[],
+  invokeNames: readonly string[],
+  entryAt: number,
+): Set<number> {
+  const found = new Set<number>();
+  procedures.forEach((procedure, at) => {
+    if (at === entryAt) return;
+    const to = procedures[at + 1]?.codeOffset ?? code.length;
+    const allocates = code.slice(procedure.codeOffset, to).some((carrier) => {
+      if (carrier.mnemonic !== 'IR.invoke') return false;
+      const payload = carrier.operands[3];
+      return (
+        payload !== undefined &&
+        payload.kind === 'imm' &&
+        invokeNames[payload.value] === 'система.массив.создать'
+      );
+    });
+    if (allocates) found.add(at);
   });
   return found;
 }
@@ -704,6 +761,8 @@ function windowGrowthAt(
   procedures: readonly ProcedureOffset[],
   invokeNames: readonly string[],
   arrayBases: readonly (number | undefined)[] = [],
+  heapSlotAt: ReadonlySet<number> = new Set<number>(),
+  heapAddress = 0,
 ): ReadonlyMap<number, readonly AsmInstruction[]> {
   const growth = new Map<number, readonly AsmInstruction[]>();
   if (procedures.length === 0) return growth;
@@ -753,6 +812,12 @@ function windowGrowthAt(
       ...(arrayBase === undefined
         ? []
         : [{ mnemonic: ARRAY_VALUES_CARRIER, channel: 0, operands: [imm(arrayBase)] }]),
+      // АДРЕС ЯЧЕЙКИ КУЧИ — ПОСЛЕ роста окна и значений (A4 §3.137): `movtd … %b[15]` требует
+      // ГОДНОГО окна этой плоскости, а годным его делает `setwd`/`setbn` выше. Носитель нужен ровно
+      // тем процедурам, которые выделяют массив; у прочих его нет, и `создать` в них отказывает.
+      ...(heapSlotAt.has(at)
+        ? [{ mnemonic: ARRAY_SLOT_CARRIER, channel: 0, operands: [{ kind: 'imm64', value: BigInt(heapAddress) } as Operand] }]
+        : []),
       first,
     ]);
   });
@@ -797,6 +862,15 @@ export function imageOfCarriers(
      * НАЗВАННЫЙ отказ, а не тихая порча: иначе выделение взяло бы мусор вместо указателя.
      */
     readonly arenaReserved?: boolean;
+    /**
+     * ЗАКРЕПЛЕНА ЛИ КЛЕТКА `%b[15]` ЗА АДРЕСОМ ЯЧЕЙКИ КУЧИ — слово того, кто раскладывал регистры
+     * (A4, срез 3, §3.137).
+     *
+     * Нужен ровно там, где адрес кладёт пролог роста вызываемой: если раскладка не знала о нужде в
+     * этой клетке, адрес и значение программы встали бы в один регистр, и адрес был бы затёрт МОЛЧА.
+     * `false` (или отсутствие слова) при нужде — НАЗВАННЫЙ отказ `создать` в вызываемой, а не порча.
+     */
+    readonly heapSlotReserved?: boolean;
   } = {},
 ): {
   bytes: Uint8Array;
@@ -934,7 +1008,22 @@ export function imageOfCarriers(
   // РОСТ ОКНА: процедура, которая САМА вызывает, получает свой пролог `setwd wsz=16` + `setbn rsz=15`
   // (§3.56.5, правила 1–2) — иначе её внутренний вызов не имеет законного `wbs`. Растёт окно у той,
   // которая вызывает: точке входа оно не нужно (её вызовы идут с `wbs = 4`), листовой — тем более.
-  const growthAt = windowGrowthAt(collectionsCode, collectionsProcedures, strings.invokeNames, options.arrayBases ?? []);
+  //
+  // АДРЕС ЯЧЕЙКИ КУЧИ (A4 §3.137) кладётся В ТУ ЖЕ ГРУППУ — и только тем процедурам, которые
+  // выделяют массив, и только если раскладка знает об этой клетке (`heapSlotReserved`). Слово
+  // проверяется ЗДЕСЬ, потому что здесь же видно, нужен ли адрес на самом деле: разойдись резерв и
+  // нужда — `создать` в вызываемой обязан отказать по имени, а не прочесть чужую клетку.
+  const heapSlotAt = heapSlotProcedures(
+    collectionsCode,
+    collectionsProcedures,
+    strings.invokeNames,
+    collectionsProcedures.length === 0 ? -1 : entryProcedureIndex(collectionsProcedures),
+  );
+  const heapSlotReadyAt: ReadonlySet<number> =
+    heapSlotAt.size > 0 && options.heapSlotReserved !== true
+      ? new Set<number>()
+      : heapSlotAt;
+  const growthAt = windowGrowthAt(collectionsCode, collectionsProcedures, strings.invokeNames, options.arrayBases ?? [], heapSlotReadyAt, heapAddress);
   const grown = growthAt.size === 0 ? undefined : expandCarriers(collectionsCode, growthAt, collectionsProcedures);
   const growCode = grown?.code ?? collectionsCode;
   const growProcedures = grown?.procedures ?? baseProcedures;
@@ -1176,6 +1265,12 @@ export function imageOfCarriers(
     const onDepthTwo = inCallee && depthTwo.has(procedureStart);
     /** Глубина вызова этой процедуры от точки входа (0 — сама точка входа). */
     const depth = depthOf.get(procedureAt(procedures, index) ?? 0) ?? 0;
+    /**
+     * ЗАКРЕПЛЁН ЛИ АДРЕС ЯЧЕЙКИ КУЧИ В ОКНЕ ЭТОЙ ПРОЦЕДУРЫ (A4 §3.137): носитель `IR.array_slot`
+     * стоит в её прологе роста, и `%b[15]` у неё занят адресом. Тогда `создать` в вызываемой
+     * понижается, а не отказывает.
+     */
+    const heapSlotReady = inCallee && heapSlotReadyAt.has(procedureAt(procedures, index) ?? 0);
     /** Выращен ли кадр этой процедуры: в нём и вызов, и системный вызов идут иначе. */
     const grownFrame = onDepthTwo;
     /** Кадр системного вызова для этого носителя: выращенный — у процедуры, иначе кадр точки входа. */
@@ -1277,23 +1372,37 @@ export function imageOfCarriers(
         }
         continue;
       }
-      if (name === 'система.массив.установить' && inCallee && depth >= 2) {
-        // ЗАПИСЬ В МАССИВ ИЗ ГЛУБИНЫ ≥ 2 — ОТКАЗ ПО ИМЕНИ, А НЕ ПЕТЛЯ (A4, §3.135).
+      if (
+        (name === 'система.массив.установить' || name === 'система.массив.создать') &&
+        inCallee &&
+        depth >= 2
+      ) {
+        // ЗАПИСЬ В ПАМЯТЬ РАНТАЙМА МАССИВОВ ИЗ ГЛУБИНЫ ≥ 2 — ОТКАЗ ПО ИМЕНИ, А НЕ ПЕТЛЯ (§3.135, §3.137).
         //
         // Замер 2026-10-24 (`.tmp/osnova-3135-deep.ts`, `.tmp/osnova-3135-discriminate.ts`):
         //   • `а[0] = 7` в вызываемой ГЛУБИНЫ 1 — код 7 (работает);
         //   • ЧТЕНИЕ `а[0]` из ТОЙ ЖЕ клетки в глубине 2 — работает, и блок при этом стоит в тех же
         //     клетках (`%b[12..14]`), что у записи: различие не в месте блока и не в адресе;
         //   • запись из глубины 2 — ни выхода, ни исключения за 90 с (модель зацикливается).
-        // Причина НЕ установлена, поэтому она и названа «не установлена», а не выдана за найденную;
-        // граница возвращается отказом, как и до A4, — но теперь блок втрое меньше, и запись из
-        // плоскости 1 работает (случай К1 в `src/e2k/e2kArraysQemu.test.ts`).
+        //
+        // ЗАМЕР 2026-10-29, ТРАССА ПОРТА ПО АДРЕСАМ (`.tmp/osnova-a4s3-low004-ШАГ2.md`, проба `к`,
+        // ELF sha256 52f8755ae4090e97): петля стоит РОВНО на `std` записи элемента (pc = 0x1000d0) —
+        // до неё дошли (исполнены пролог вызываемой и все пять `addd` вычисления адреса), после неё
+        // (`movts`, `return`, `ct`) — ни разу за 6 с; тот же `std` с ТЕМИ ЖЕ операндами и в тех же
+        // клетках при входе с `wbs = 4` (глубина 1) завершается. Единственные измеренные различия —
+        // вход `call wbs = 16` (`INNER_CALL_WBS`) и ширина кадра вызывающего (`rsz = 0x1f` против
+        // `0x7`). Механизм (почему `std` не завершается именно в таком входе) НЕ УСТАНОВЛЕН —
+        // поэтому причина и названа «не установлена», а не выдана за найденную.
+        //
+        // `создать` здесь ПОТОМУ ЖЕ: его последовательность тоже пишет `std` (слово длины и ячейка
+        // кучи), и глубина ≥ 2 — тот же вход. Иначе снятие отказа для `создать` открыло бы петлю.
         refused.push(
           refusalOf(
             LOWERING_CODES.layout,
-            `#${index} ${name}: запись в массив из вызываемой глубины ${String(depth)} зацикливает ` +
-              'модель (замер 2026-10-24: чтение из тех же клеток проходит, запись из плоскости 1 ' +
-              'проходит; причина не установлена) — отказ вместо петли (A4 §3.135)',
+            `#${index} ${name}: запись в память рантайма массивов из плоскости, вошедшей выращенным ` +
+              `кадром (глубина ${String(depth)}) — трасса 2026-10-29: модель зацикливается РОВНО на ` +
+              '`std` (0x1000d0: до записи доходит, после — ни разу), при входе `wbs = 4` та же запись ' +
+              'исполняется; причина не установлена — отказ вместо петли (A4 §3.135/§3.137)',
           ),
         );
         continue;
@@ -1532,6 +1641,9 @@ export function imageOfCarriers(
       // Рантайм массивов узнаёт, что понижается ВЫЗЫВАЕМАЯ процедура: её куча недоступна, обращения
       // идут оконной формой. Без этого признака `создать`/`добавить` двигали бы чужую клетку (§3.127).
       ...(inCallee ? { inCallee: true } : {}),
+      // Адрес ячейки кучи в этой плоскости закреплён прологом роста (A4 §3.137) — тогда `создать`
+      // в вызываемой понижается; нет слова — отказ по имени внутри `lowerArrayCall`.
+      ...(heapSlotReady ? { heapSlotReady: true } : {}),
       ...(arrayBase === undefined ? {} : { arrayBase }),
       // На глубине ≥ 2 — свой `wbs = 8` (окно выращено прологом процедуры) и измеренный порядок
       // возврата «`return` → значение → `ct`» (§3.56.3, V3 против V2).

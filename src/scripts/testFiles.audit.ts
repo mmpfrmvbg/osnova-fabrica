@@ -131,6 +131,12 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
       'спрашиваются у модели, вынесено в gate:qemu по случаю 12',
   },
   {
+    match: 'arrayCalleeCreate.test.ts',
+    reason:
+      'создание массива из вызываемой процедуры (§3.137): числа 7 и 11 и обе границы (глубина 2, ' +
+      '`добавить` в вызываемой) отвечает только модель, вынесено в gate:qemu по случаю 12',
+  },
+  {
     match: 'e2kCallWindowQemu.test.ts',
     reason: 'измеряет окно вызываемой процедуры и `return` прогоном в QEMU, вынесен в gate:qemu по случаю 12',
   },
