@@ -125,6 +125,12 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     reason: 'исполняет массивы (память вместо invoke) в QEMU, вынесен в gate:qemu по случаю 12',
   },
   {
+    match: 'arrayWriteDepthTwo.test.ts',
+    reason:
+      'минимальное репро петли записи в массив на глубине 2 (§3.137): петля и различающий контроль ' +
+      'спрашиваются у модели, вынесено в gate:qemu по случаю 12',
+  },
+  {
     match: 'e2kCallWindowQemu.test.ts',
     reason: 'измеряет окно вызываемой процедуры и `return` прогоном в QEMU, вынесен в gate:qemu по случаю 12',
   },
