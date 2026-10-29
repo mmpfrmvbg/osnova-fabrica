@@ -75,6 +75,7 @@ import { arenaCarrierInstructions, isArenaCarrier } from "./arenaRuntime";
 import { syscallFrameOfCarrier } from "./printCall";
 import {
   CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
+import { comparisonMnemonicOf, isMaterializingComparison, pairPredicates } from "./predicatePairing";
 import {
   ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
@@ -171,6 +172,20 @@ const CT_COMMAND_SOURCE =
 const CMP_COMMAND_SOURCE =
   `ALF7, 8 байт — REAL_SHORT_FORM_SIZE; запись сравнения и её источник — src/e2k/e2k-real.ts ` +
   `(opcodes/e2k-opc.h:999,1019,1024); обязательное поле nop = 2 — gas/config/tc-e2k.c:5923`;
+/**
+ * Материализация значения сравнения: перенос под предикатом-условием (`psrc`), 16 байт.
+ *
+ * Измерено ассемблером МЦСТ 2.41 (WSL, `/root/build-gas/gas/as-new`, 2026-10-29):
+ * `movts,0 1, %b[1] ? %pred0` → `11 00 01 04 01 c1 c0 60 00 00 00 00 00 00 60 04`, то есть
+ * HS + ALS (короткая непосредственная форма `0xc1 = 0xc0 | 1` — в слове ALS) + нулевое слово 2 +
+ * слог-условие (`CDS`) в слове 3. Наш кодировщик даёт те же байты побайтово
+ * (`.tmp/k5form-encode.ts`), и ту же длину объявляет здесь.
+ */
+const COMPARISON_VALUE_COMMAND_SOURCE =
+  `ALF2 + слог-условие (CDS), 16 байт — REAL_LONG_FORM_SIZE; измерено ассемблером МЦСТ ` +
+  `(movts,0 1, %b[1] ? %pred0 → 11 00 01 04 01 c1 c0 60 00 00 00 00 00 00 60 04) и сверено ` +
+  `кодировщиком (.tmp/k5form-encode.ts); запись psrc — src/e2k/e2k-real.ts, CDS — ` +
+  `docs/e2k-syllables-real.md §«слог-условие»`;
 const SDIV_COMMAND_SOURCE =
   `ALF1, 8 байт — REAL_SHORT_FORM_SIZE; канал ТОЛЬКО пятый (opcodes/e2k-opc.h:69, ARGS_SSS); ` +
   `измерено кодировщиком (.tmp/idiv-form-size.ts): sdivs %b[1], %b[2], %b[3] → 01 00 00 80 03 02 01 42`;
@@ -846,6 +861,25 @@ function carrierFormWithReason(
   // `IR.const` — единственный носитель, чья длина зависит от ЗНАЧЕНИЯ (литерал из пула), поэтому
   // форма берётся отдельной ветвью, а не из статической таблицы CARRIER_FORMS.
   if (instruction.mnemonic === 'IR.const') return { form: constForm(instruction, context) };
+  // СРАВНЕНИЕ, ЗНАЧЕНИЕ КОТОРОГО НУЖНО ЕЩЁ И КАК ЗНАЧЕНИЕ (срез A4-5а): у него длина не одной
+  // команды, а трёх — само сравнение плюс два переноса 0/1 под предикатом (материализация).
+  // Признак — пометка сопоставления (`pairPredicates`); она же читается понижением, поэтому форма
+  // и байты берутся из ОДНОГО решения и разойтись не могут. Без пометки — прежняя статическая форма
+  // (8 байт), поэтому закреплённые числа пяти ядер не двигаются.
+  if (comparisonMnemonicOf(instruction.mnemonic) !== undefined && isMaterializingComparison(instruction)) {
+    const staticForm = carrierForm(instruction.mnemonic);
+    if (staticForm === undefined) return {};
+    return {
+      form: {
+        carrier: instruction.mnemonic,
+        commands: [
+          ...staticForm.commands,
+          { mnemonic: 'movts', form: 'ALF2 + CDS (psrc)', size: REAL_LONG_FORM_SIZE, source: COMPARISON_VALUE_COMMAND_SOURCE },
+          { mnemonic: 'movts', form: 'ALF2 + CDS (psrc, ~%predN)', size: REAL_LONG_FORM_SIZE, source: COMPARISON_VALUE_COMMAND_SOURCE },
+        ],
+      },
+    };
+  }
   if (instruction.mnemonic === 'IR.call') return callForm(instruction);
   if (instruction.mnemonic === 'IR.ret') return retForm(instruction, context.procedureReturn === true);
   if (instruction.mnemonic !== 'IR.invoke') {
@@ -1307,6 +1341,12 @@ export function layoutOf(
   // получают размер 0 — иначе раскладка резервирует байты под то, чего в образе не будет, и адреса
   // всего, что стоит дальше, уезжают. Список приходит от конвейера: он знает, чьи это возвраты.
   const zeroSize = new Set(context.zeroSize ?? []);
+  // ПОМЕТКИ МАТЕРИАЛИЗАЦИИ — ДО ФОРМ. Длина носителя сравнения зависит от того, нужно ли его значение
+  // ещё и как значение, а решает это сопоставление пар (`pairPredicates`) — единственное место, где
+  // судьба пары известна целиком. Форму раскладка берёт заранее и без плоскости (§3.135), поэтому
+  // признак обязан стоять на самом носителе: пометку сопоставление кладёт по тождеству объекта, а
+  // читают её и раскладка (здесь), и понижение — разойтись им нечем.
+  pairPredicates(instructions);
   let offset = 0;
   instructions.forEach((instruction, index) => {
     if (zeroSize.has(index)) {

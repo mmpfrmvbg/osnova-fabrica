@@ -53,7 +53,7 @@ import { layoutOf, secondPass } from './twoPassLayout';
 import { lowerCarrier, runKernelThroughRealEncoding } from './e2kRealRun';
 import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 import { CT_COND_ALWAYS } from './e2k-real';
-import { PREDICATE_FOR_PAIRS, comparisonMnemonicOf, pairPredicates } from './predicatePairing';
+import { PREDICATE_FOR_PAIRS, comparisonMnemonicOf, isMaterializingComparison, pairPredicates } from './predicatePairing';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const KERNELS = [
@@ -124,36 +124,44 @@ describe('сопоставление пары: 1. на пяти ядрах', () 
 });
 
 describe('сопоставление пары: 2. предпосылка проверяется, а не предполагается', () => {
-  const CMP = ir('IR.lt', [reg(5), reg(3), reg(4)]);
+  // Сравнение — НОВЫЙ объект на проверку: пометка материализации живёт в `WeakSet` по тождеству и
+  // общий объект протёк бы из проверки в проверку (тогда «не помечено» перестало бы что-то значить).
+  const cmp = (): AsmInstruction => ir('IR.lt', [reg(5), reg(3), reg(4)]);
   const JUMP_NOT = (cond: number): AsmInstruction => ir('IR.jmp_if_not', [reg(cond), imm(3)]);
 
-  it('другой читатель результата — пара не составляется, причина названа', () => {
+  it('другой читатель результата — пара СОСТАВЛЕНА, а значение уезжает в регистр (срез A4-5а)', () => {
     const stream: readonly AsmInstruction[] = [
-      CMP,
+      cmp(),
       JUMP_NOT(5),
       ir('IR.move', [reg(9), reg(5)]), // читает результат сравнения — значение обязано жить в регистре
       ir('IR.move', [reg(9), reg(9)]),
     ];
     const pairing = pairPredicates(stream);
-    expect(pairing.pairs, 'пара составлена, хотя результат нужен ещё кому-то').toEqual([]);
-    // Отказов два, и каждый назван: сравнение (лишний читатель) и осиротевший переход.
-    expect(pairing.refusals.length).toBe(2);
-    expect(pairing.refusals[0]!.index).toBe(0);
-    expect(pairing.refusals[0]!.reason, 'не назван лишний читатель').toMatch(/чита|значение/i);
-    expect(pairing.refusals[1]!.index).toBe(1);
-    expect(pairing.refusals[1]!.reason, 'переход без пары не назван').toMatch(/сравнени/i);
+    // БЫЛО (до A4-5а): «другой читатель результата» — отказ, потому что предикат значения не несёт.
+    // СТАЛО: сравнение помечается материализующим, значение кладут две predicated `movts`, и лишний
+    // читатель-значение больше НЕ отказ. Отказ остался бы там, где значение некуда положить.
+    expect(pairing.refusals, 'лишний читатель-значение снова отказ').toEqual([]);
+    expect(pairing.pairs.map((пара) => пара.comparisonIndex), 'пара потеряна — переход остался бы без предиката').toEqual([
+      0,
+    ]);
+    expect(isMaterializingComparison(stream[0]!), 'значение не материализуется — цель прочтёт мусор').toBe(true);
   });
 
-  it('два читателя-перехода — отказ; ноль читателей — тоже отказ', () => {
-    const twoJumps: readonly AsmInstruction[] = [CMP, JUMP_NOT(5), JUMP_NOT(5)];
+  it('два читателя-перехода — пара не составляется и ОБА перехода отказали; ноль читателей — тоже отказ', () => {
+    const twoJumps: readonly AsmInstruction[] = [cmp(), JUMP_NOT(5), JUMP_NOT(5)];
     const pairing = pairPredicates(twoJumps);
+    // Предикат у пары один, а переходов-читателей два: пары нет. Значение при этом кладёт
+    // материализация (срез A4-5а), а каждый осиротевший переход отказывает ПО ИМЕНИ — молчания нет.
     expect(pairing.pairs).toEqual([]);
-    expect(pairing.refusals[0]!.reason).toMatch(/чита/);
+    expect(isMaterializingComparison(twoJumps[0]!), 'значение обязано уехать в регистр').toBe(true);
+    expect(pairing.refusals.map((отказ) => отказ.index), 'оба перехода обязаны быть названы').toEqual([1, 2]);
+    for (const отказ of pairing.refusals) expect(отказ.reason).toMatch(/сравнени/i);
 
-    const none: readonly AsmInstruction[] = [CMP, ir('IR.move', [reg(9), reg(9)])];
+    const none: readonly AsmInstruction[] = [cmp(), ir('IR.move', [reg(9), reg(9)])];
     const unread = pairPredicates(none);
     expect(unread.pairs).toEqual([]);
     expect(unread.refusals[0]!.reason, 'не сказано, что результат никем не читается').toMatch(/никем|нет читател/i);
+    expect(isMaterializingComparison(none[0]!), 'нечитанное значение материализовать нечего').toBe(false);
   });
 
   it('условие перехода пришло не из сравнения — отказ с причиной', () => {

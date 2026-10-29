@@ -17,12 +17,30 @@
  *
  * | случай | что делает проход |
  * |---|---|
- * | у результата есть другой читатель | отказ: значение обязано жить в регистре |
+ * | у результата есть другой читатель (кроме одного перехода) | пара + **материализация** значения (§ниже) |
  * | читателей нет вовсе | отказ: предикат некуда деть |
- * | читателей несколько (в том числе два перехода) | отказ: предикат один |
- * | условие перехода пришло не из сравнения | отказ: предикат взять неоткуда |
+ * | читателей-переходов несколько | материализация: предикат один, переходы получают свой отказ |
+ * | условие перехода пришло не из сравнения | материализация (пара не составляется) |
  * | в промежутке операции с неизвестными операндами | отказ: живость не доказана |
- * | значение живо на РЕБРЕ ВЗЯТОГО перехода | отказ: см. §«Ребро взятого перехода» ниже |
+ * | значение живо на РЕБРЕ ВЗЯТОГО перехода (не «склейка») | пара + **материализация** значения |
+ * | «склейка» короткого замыкания расходится | отказ: один `ct` не выражает два ребра |
+ *
+ * # Значение в регистре: новая форма носителя (срез A4-5а, 2026-10-29)
+ *
+ * `cmp*` пишет **только** предикат: значения сравнения в регистре нет вовсе. Поэтому случай «значение
+ * нужно ещё и как значение» решается не отказом, а **материализацией**: понижение кладёт рядом с
+ * сравнением два переноса под предикатом (`movts 1` / `movts 0`, форма `16` байт каждый — измерено
+ * ассемблером МЦСТ), и значение сравнения живёт в регистре как обычное число 0/1. Пара при этом
+ * **сохраняется**: `ct` по-прежнему скачет по предикату того же сравнения.
+ *
+ * Помеченное здесь сравнение узнаёт понижение ({@link isMaterializingComparison}) — и раскладка
+ * ({@link import("./twoPassLayout").layoutOf}), которой длину носителя надо знать ЗАРАНЕЕ и БЕЗ
+ * плоскости (§3.135). Пометка — **тождество носителя** (`WeakSet`), а не поле: так она не течёт ни в
+ * отчёты, ни в сериализацию, ни в сравнения форм, и не может разойтись с потоком, который понижается.
+ *
+ * Отказы, которые при этом НЕ снимаются: «склейка» расходится (материализация не спасает мир
+ * предиката), значение мертво/никем не читается, живость не доказана. Материализация снимает ровно
+ * те отказы, причина которых — «значение обязано жить в регистре».
  *
  * # Ребро взятого перехода: окно живости — ЛИНЕЙНОЕ, а значение течёт и по ребру (K5, 2026-10-29)
  *
@@ -68,6 +86,21 @@ import { STRING_REGISTERS } from "./stringRuntime";
 
 /** Номер предиката, отданный парам: пары не переплетаются, поэтому одного достаточно. */
 export const PREDICATE_FOR_PAIRS = 0;
+
+/**
+ * Сравнения, значение которых обязано лечь в РЕГИСТР (материализация) — помечены по тождеству.
+ *
+ * Ставит пометку {@link pairPredicates} (единственное место, где решается судьба пары), читают
+ * понижение и раскладка. Тождество, а не поле носителя: поток, который считает раскладка, — тот же
+ * самый массив объектов, что понижается (`planned`), поэтому пометка не может «отстать» от потока,
+ * а в отчёты и сериализацию не попадает вовсе.
+ */
+const MATERIALIZING = new WeakSet<AsmInstruction>();
+
+/** Материализует ли понижение значение этого сравнения в регистр (см. {@link MATERIALIZING}). */
+export function isMaterializingComparison(instruction: AsmInstruction): boolean {
+  return MATERIALIZING.has(instruction);
+}
 
 /** Код условия «по предикату» (`CTC OND_PRED`): передать, когда предикат истинен. */
 export const CTCOND_PRED = 0x40;
@@ -297,6 +330,8 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
   const pairs: PredicatePair[] = [];
   const refusals: PairingRefusal[] = [];
   const pairedJump = new Set<number>();
+  /** Индексы сравнений, значение которых обязано лечь в регистр (см. §«Значение в регистре»). */
+  const materialize = new Set<number>();
   /**
    * Отказ сопоставления: КОД один и назван здесь, а не у каждой формулировки.
    *
@@ -345,24 +380,21 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
       refuse(index, `«${instruction.mnemonic}» #${index}: результат никем не читается — предикат некуда деть`);
       return;
     }
-    if (readers.length > 1) {
-      refuse(
-        index,
-        `«${instruction.mnemonic}» #${index}: результат читают ${readers.length} инструкций ` +
-          `(${readers.map((at) => `#${at} ${instructions[at]!.mnemonic}`).join(", ")}) — значение обязано жить в регистре`,
-      );
+    // ПАРА СОСТАВЛЯЕТСЯ ТОЛЬКО С ОДНИМ ПЕРЕХОДОМ: предикат у пары один. Читатели, которые не
+    // условие перехода, значения не отменяют — их обслуживает материализация (см. заголовок).
+    const jumpReaders = readers.filter((at) => conditionRegisterOf(instructions[at]!) === result);
+    if (jumpReaders.length !== 1) {
+      // Ни одного перехода-читателя либо их несколько: пары нет. Сравнение всё равно понижаемо —
+      // оно обязано положить значение в регистр. Переходы-читатели (если они есть) получат СВОЙ
+      // названный отказ ниже, в общем проходе.
+      materialize.add(index);
       return;
     }
-    const jumpIndex = readers[0]!;
+    // У результата есть читатель-ЗНАЧЕНИЕ (кроме перехода): одной пары мало — сравнение обязано
+    // ещё и положить значение в регистр, иначе цель прочтёт мусор (тихая ложь среза 5).
+    if (readers.length > 1) materialize.add(index);
+    const jumpIndex = jumpReaders[0]!;
     const jump = instructions[jumpIndex]!;
-    if (conditionRegisterOf(jump) !== result) {
-      refuse(
-        index,
-        `«${instruction.mnemonic}» #${index}: единственный читатель результата — #${jumpIndex} ${jump.mnemonic}, ` +
-          "и это не чтение условия перехода — предикат подставить некуда",
-      );
-      return;
-    }
     const inverted = (jump.mnemonic === "IR.jmp_if_not") !== comparison.flipped;
     pairs.push({
       comparisonIndex: index,
@@ -393,12 +425,25 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
     for (const pair of [...pairs]) {
       const problem = takenEdgeProblem(instructions, pair, pairByJump);
       if (problem === undefined) continue;
+      // ЗНАЧЕНИЕ, нужное КАК ЗНАЧЕНИЕ: пара не снимается — сравнение материализует результат.
+      // Иначе на ребре взятого перехода цель читала бы мусор (срез 5: `7` вместо `3`).
+      if (problem.kind === "value") {
+        materialize.add(pair.comparisonIndex);
+        continue;
+      }
       pairs.splice(pairs.indexOf(pair), 1);
       pairByJump.delete(pair.jumpIndex);
       pairedJump.delete(pair.jumpIndex);
-      refuse(pair.comparisonIndex, `«${pair.comparison}» #${pair.comparisonIndex}: ${problem}`);
+      refuse(pair.comparisonIndex, `«${pair.comparison}» #${pair.comparisonIndex}: ${problem.reason}`);
       dropped = true;
     }
+  }
+
+  // ПОМЕТКА МАТЕРИАЛИЗАЦИИ — отсюда и только отсюда: до этого места судьба пары ещё менялась
+  // (цикл неподвижной точки), и пометка на снятой паре разошлась бы с отказом.
+  for (const at of materialize) {
+    const instruction = instructions[at];
+    if (instruction !== undefined) MATERIALIZING.add(instruction);
   }
 
   // Условный переход без пары: условие пришло не из сравнения — предиката взять неоткуда.
@@ -427,10 +472,12 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
  *
  * # Два случая
  *
- * 1. **Значение нужно как значение.** Цель (или поток от неё) читает регистр не как условие
- *    перехода, а как операнд (`IR.ret`, `IR.exit`, `IR.move`, аргумент вызова…). Предикат значения
- *    не несёт — понижение отдало бы МУСОР.
- * 2. **«Склейка» короткого замыкания.** Цель сама есть условный переход, состоящий в паре со СВОИМ
+ * 1. **Значение нужно как значение** (`kind: "value"`). Цель (или поток от неё) читает регистр не
+ *    как условие перехода, а как операнд (`IR.ret`, `IR.exit`, `IR.move`, аргумент вызова…). Пара
+ *    **остаётся**, а сравнение помечается материализующим: понижение кладёт значение в регистр
+ *    (форма `cmp*` + predicated `movts 0/1`), поэтому мусора здесь больше нет.
+ * 2. **«Склейка» короткого замыкания** (`kind: "join"`). Цель сама есть условный переход, состоящий в
+ *    паре со СВОИМ
  *    сравнением. Чтение регистра там намеренно (оба ребра сходятся на одном `ct`), и пара звучит
  *    ровно тогда, когда решения двух миров совпадают:
  *
@@ -448,7 +495,7 @@ function takenEdgeProblem(
   instructions: readonly AsmInstruction[],
   pair: PredicatePair,
   pairByJump: ReadonlyMap<number, PredicatePair>,
-): string | undefined {
+): { readonly kind: "value" | "join"; readonly reason: string } | undefined {
   const result = registersOf(instructions[pair.comparisonIndex]!).writes[0];
   const target = instructions[pair.jumpIndex]!.operands[1];
   if (result === undefined || target === undefined || target.kind !== "imm") return undefined;
@@ -461,10 +508,14 @@ function takenEdgeProblem(
     if (!info.reads.includes(result)) continue;
     const join = at === target.value ? pairByJump.get(at) : undefined;
     if (join === undefined) {
-      return (
-        `значение живо на ребре перехода: цель #${String(at)} (${instructions[at]!.mnemonic}) читает ` +
-        `%r${String(result)} как ЗНАЧЕНИЕ — предикат значения не несёт`
-      );
+      // ВИД `value`: значение нужно КАК ЗНАЧЕНИЕ. Пара при этом остаётся в силе — понижение обязано
+      // ПОЛОЖИТЬ значение в регистр (материализация, `cmp*` + predicated `movts` 0/1).
+      return {
+        kind: "value",
+        reason:
+          `значение живо на ребре перехода: цель #${String(at)} (${instructions[at]!.mnemonic}) читает ` +
+          `%r${String(result)} как ЗНАЧЕНИЕ — предикат значения не несёт`,
+      };
     }
     const predicateValue = pair.condition === CTCOND_PRED ? 1 : 0;
     const inverted = comparisonMnemonicOf(pair.comparison)!.flipped;
@@ -472,11 +523,13 @@ function takenEdgeProblem(
     const valueWorldJumps = join.jump === "IR.jmp_if" ? booleanValue !== 0 : booleanValue === 0;
     const predicateWorldJumps = join.condition === CTCOND_PRED ? predicateValue !== 0 : predicateValue === 0;
     if (valueWorldJumps === predicateWorldJumps) return undefined;
-    return (
-      `значение живо на ребре перехода: цель #${String(at)} — «склейка» ${join.jump}, и на двух её ` +
-      `рёбрах предикат означает РАЗНОЕ (мир значений: скачок=${String(valueWorldJumps)}, ` +
-      `предикатный=${String(predicateWorldJumps)}) — один ct не выражает оба ребра`
-    );
+    return {
+      kind: "join",
+      reason:
+        `значение живо на ребре перехода: цель #${String(at)} — «склейка» ${join.jump}, и на двух её ` +
+        `рёбрах предикат означает РАЗНОЕ (мир значений: скачок=${String(valueWorldJumps)}, ` +
+        `предикатный=${String(predicateWorldJumps)}) — один ct не выражает оба ребра`,
+    };
   }
   return undefined;
 }

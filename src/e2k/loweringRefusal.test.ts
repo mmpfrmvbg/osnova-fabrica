@@ -138,8 +138,10 @@ describe('контракт отказа понижения: код — личн�
   });
 
   it('004: сопоставление предикатов и второй проход несут код раскладки', () => {
-    // Сравнение, результат которого никто не читает: пары нет — предикат некуда деть.
-    const pairing = pairPredicates([carrier('IR.lt', [reg(1), reg(2), reg(3)]), carrier('IR.ret', [imm(0), reg(1)])]);
+    // Сравнение, результат которого никто не читает: пары нет — предикат некуда деть. Регистр
+    // возврата выбран НЕ тот, что пишет сравнение: иначе это было бы чтение ЗНАЧЕНИЯ, и его
+    // обслуживает материализация (срез A4-5а), то есть отказа тут быть не должно.
+    const pairing = pairPredicates([carrier('IR.lt', [reg(1), reg(2), reg(3)]), carrier('IR.ret', [imm(0), reg(4)])]);
     expect(pairing.refusals.length).toBeGreaterThan(0);
     for (const refusal of pairing.refusals) expect(refusal.code).toBe(LOWERING_CODES.layout);
 

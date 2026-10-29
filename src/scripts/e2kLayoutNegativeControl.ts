@@ -131,12 +131,12 @@ export const DEFECTS: readonly Defect[] = [
   },
   {
     id: '5.4',
-    title: 'предпосылка ослаблена: пара разрешена при лишнем читателе',
+    title: 'предпосылка ослаблена: пара разрешена при лишнем читателе — значение не материализуется',
     file: 'src/e2k/predicatePairing.ts',
-    from: '    if (readers.length > 1) {',
-    to: '    if (readers.length > 2) { // ДЕФЕКТ 5.4: лишний читатель пропущен',
-    tests: ['src/e2k/e2kPredicatePairs.test.ts'],
-    config: 'vitest.e2k.config.ts',
+    from: '        materialize.add(pair.comparisonIndex);',
+    to: '        // ДЕФЕКТ 5.4: значение на ребре потеряно — пара разрешена при лишнем читателе',
+    tests: ['src/e2k/predicatePairing.test.ts'],
+    config: 'vitest.config.ts',
   },
   // ── ПЛОСКОСТЬ ЯЗЫКА: символ строки по индексу (2026-10-04, долг §3.105.4) ─────────────────────
   //

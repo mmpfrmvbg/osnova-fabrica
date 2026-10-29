@@ -66,7 +66,7 @@ import { CALL_WBS, CALLEE_REGISTERS, JUMP_CARRIER, carrierForm, carrierFormOf, j
 import { callArgumentOperands } from "./shell";
 import { MAX_CALL_ARGS } from "./emitterShell";
 import { LOAD_CARRIER, STORE_CARRIER, loadInstructions, storeInstructions } from "./memoryAccess";
-import { comparisonMnemonicOf, pairPredicates } from "./predicatePairing";
+import { comparisonMnemonicOf, isMaterializingComparison, pairPredicates, PREDICATE_FOR_PAIRS } from "./predicatePairing";
 import {
   lowerArrayCall,
   arraySlotPrologue,
@@ -890,7 +890,11 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
   const comparison = comparisonMnemonicOf(instruction.mnemonic);
   if (comparison !== undefined) {
     const predicate = context.predicate;
-    if (predicate === undefined) {
+    // МАТЕРИАЛИЗАЦИЯ (срез A4-5а): сравнение, значение которого читают ещё и КАК ЗНАЧЕНИЕ. Пометку
+    // ставит сопоставление пар (`isMaterializingComparison`) — то же решение, из которого взята форма
+    // раскладки, поэтому длина носителя и эти байты сходятся по построению.
+    const materialize = isMaterializingComparison(instruction);
+    if (predicate === undefined && !materialize) {
       return failureOf(
         LOWERING_CODES.layout,
         `«${instruction.mnemonic}»: сравнение понижается только ПАРОЙ с условным переходом — ` +
@@ -911,13 +915,45 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
         );
       }
     }
+    // Предикат пары, если она есть; иначе — общий предикат пар (сравнение материализуется и БЕЗ пары).
+    const predicateIndex = predicate?.index ?? PREDICATE_FOR_PAIRS;
+    const compareCommand: AsmInstruction = {
+      mnemonic: predicate?.mnemonic ?? comparison.mnemonic,
+      channel: instruction.channel,
+      operands: [left!, right!, { kind: "pred", index: predicateIndex }],
+    };
+    if (!materialize) return { ok: true, instructions: [compareCommand] };
+    const destination = instruction.operands[0];
+    if (destination === undefined || destination.kind !== "reg") {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${instruction.mnemonic}»: приёмник значения не регистр — материализация кладёт значение ` +
+          "переносом под предикатом, а предикат значения не несёт",
+      );
+    }
+    // ЗНАЧЕНИЕ СРАВНЕНИЯ — В РЕГИСТР. `cmp*` пишет только предикат, поэтому булево значение кладут два
+    // переноса под тем же предикатом: `p ? K1 : K2`, где для «перевёрнутых» условий (`ge`/`gt`/`ne` —
+    // отрицаний в наборе `cmp*` нет) K1 = 0, K2 = 1, то есть значение = отрицание предиката.
+    // Байты сверены с ассемблером МЦСТ побайтово (`.tmp/k5form-encode.ts`).
+    const whenPredicate = comparison.flipped ? 0 : 1;
+    const whenNotPredicate = comparison.flipped ? 1 : 0;
+    const receiver: Operand =
+      destination.file === undefined
+        ? reg(destination.index)
+        : { kind: "reg", index: destination.index, file: destination.file };
     return {
       ok: true,
       instructions: [
+        compareCommand,
         {
-          mnemonic: predicate.mnemonic,
-          channel: instruction.channel,
-          operands: [left!, right!, { kind: "pred", index: predicate.index }],
+          mnemonic: "movts",
+          channel: 0,
+          operands: [imm(whenPredicate), receiver, { kind: "pred", index: predicateIndex }],
+        },
+        {
+          mnemonic: "movts",
+          channel: 0,
+          operands: [imm(whenNotPredicate), receiver, { kind: "pred", index: predicateIndex, negated: true }],
         },
       ],
     };

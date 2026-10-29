@@ -221,8 +221,14 @@ describe("реальная кодировка e2k: отказы названы, 
       /регистр/,
     );
     expect(() => real.encode({ mnemonic: "adds", channel: 0, operands: [reg(1), reg(2)] })).toThrow(/операндов/);
-    expect(() => real.encode({ mnemonic: "movts", channel: 0, operands: [reg(1), reg(2), reg(3)] })).toThrow(
+    // `movtd` предиката-условия не принимает: лишний операнд отвергается по ЧИСЛУ.
+    expect(() => real.encode({ mnemonic: "movtd", channel: 0, operands: [reg(1), reg(2), reg(3)] })).toThrow(
       /операндов/,
+    );
+    // А `movts` принимает (материализация значения сравнения, срез A4-5а) — но условие обязано быть
+    // ПРЕДИКАТОМ: регистр в поле `pred[4:0]` записал бы чужое число. Отказ назван, а не проглочен.
+    expect(() => real.encode({ mnemonic: "movts", channel: 0, operands: [reg(1), reg(2), reg(3)] })).toThrow(
+      /psrc/,
     );
   });
 

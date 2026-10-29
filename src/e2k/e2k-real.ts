@@ -286,7 +286,14 @@ export const REAL_OPCODES: readonly RealOpcodeEntry[] = [
   // ALF2 — слог ALS, расширение в битах 23:16, операнды src2, dst.
   // Каналы — `{1, 1, 0, 1, 1, 0}` в таблице МЦСТ (без 2 и 5), как у длинной формы:
   // исправлено при сверке с ассемблером (`docs/e2k-external-as.md`).
-  { mnemonic: "movts", opc: 0x60, form: "ALF2", operands: ["src2", "dst"], argFormats: ["S", "S"], argsSource: "opcodes/e2k-opc.h:644 (ARGS_SS)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:644", formSource: ALF2_SOURCE },
+  // `acceptsPsrc` у `movts`: предикат-условие `? [~]%predN` ассемблер МЦСТ принимает и у переноса
+  // (это и есть материализация булева значения — `cmp*` пишет ТОЛЬКО предикат, значения в регистре
+  // у сравнения нет). Измерено `as-new 2.41` (WSL, `/root/build-gas/gas/as-new`, 2026-10-29):
+  //   `movts,0 1, %b[1] ? %pred0`    → `11 00 01 04 01 c1 c0 60 00 00 00 00 00 00 60 04` (16 байт)
+  //   `movts,0 0, %b[1] ? ~%pred0`   → `11 00 01 04 01 c0 c0 60 00 00 00 00 00 00 e0 04` (16 байт)
+  // то есть короткая непосредственная форма (`0xc1` = `0xc0 | 1`) живёт в слове ALS и **при**
+  // слоге-условии: слово 2 нулевое, условие — в слове 3 (`CDS`, как у сравнений).
+  { mnemonic: "movts", opc: 0x60, form: "ALF2", operands: ["src2", "dst"], argFormats: ["S", "S"], argsSource: "opcodes/e2k-opc.h:644 (ARGS_SS)", channels: LONG_CHANNELS, acceptsPsrc: true, source: "opcodes/e2k-opc.h:644", formSource: ALF2_SOURCE },
   { mnemonic: "movtd", opc: 0x61, form: "ALF2", operands: ["src2", "dst"], argFormats: ["D", "D"], argsSource: "opcodes/e2k-opc.h:664 (ARGS_DD)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:664", formSource: ALF2_SOURCE },
   // ALOPF11 — слог ALS + полуслог ALES
   { mnemonic: "muls", opc: 0x20, form: "ALF11", operands: ["src1", "src2", "dst"], argFormats: ["S", "S", "S"], argsSource: "opcodes/e2k-opc.h:1434 (ARGS_SSS)", channels: LONG_CHANNELS, source: "opcodes/e2k-opc.h:1434", formSource: ALF11_SOURCE },
@@ -715,10 +722,27 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
   // `CDS`, которого нет ни у короткой формы, ни у длинной (там на его месте полуслог `ALES`).
   const condition = psrcOf(entry, instruction.operands);
   if (condition !== undefined) {
-    const fields = fieldsOf(entry, instruction.operands);
     const bytes = new Uint8Array(REAL_LONG_FORM_SIZE);
     writeWord(bytes, 0, headerWord(entry, channel, true, true));
-    writeWord(bytes, 4, alsWord(entry, fields));
+    // Полуслог у команды с условием занят слогом `CDS`, поэтому литерального слова (`LTS`) места не
+    // имеет: допустима ровно короткая непосредственная форма — значение 0…15 в самом поле ALS
+    // (измерено: `movts,0 1, %b[1] ? %pred0` → `01 c1 c0 60` в слове ALS). Литерал 16+ бит и
+    // 64-битный литерал при условии — названный отказ, а не догадка о раскладке (LTS + CDS
+    // ассемблером не измерялись).
+    const literal = literalOperand(entry, instruction.operands);
+    if (literal !== undefined) {
+      if (!isShortImmediate(literal.value, entry.form)) {
+        throw new EncodingRefusedError(
+          `«${entry.mnemonic}»: литерал ${String(literal.value)} вместе с предикатом-условием (psrc) не ` +
+            "реализован — у команды с условием место занимает слог `CDS`, и выразима только короткая " +
+            `непосредственная форма (0…${String(IMM_SHORT_MAX)}); раскладка «LTS + CDS» ассемблером МЦСТ ` +
+            "не измерялась",
+        );
+      }
+      writeWord(bytes, 4, shortImmediateAlsWord(entry, instruction.operands, literal));
+    } else {
+      writeWord(bytes, 4, alsWord(entry, fieldsOf(entry, instruction.operands)));
+    }
     // Слово 2 — литеральный слог LTS0; у gas он нулевой (измерено на четырёх каналах, CONDITION_SOURCE).
     writeWord(bytes, 12, conditionWord(channel, condition.predicate, condition.negated));
     return bytes;
@@ -2336,7 +2360,10 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     // литерального слова. Измерено ассемблером МЦСТ: `movts,0 5, %b[1]` → `01 00 00 04 01 c5 c0 60`
     // (8 байт, `lng = 0`). Слово литерала при этом быть не должно: `lng = 0` означает одно слово.
     if (value >= IMM_SHORT_BASE && value <= IMM_SHORT_BASE + IMM_SHORT_MAX) {
-      if (bytes.length !== REAL_SHORT_FORM_SIZE) {
+      // Два размера у этой формы, и оба измерены ассемблером МЦСТ: без условия — одно слово
+      // (`movts,0 5, %b[1]` → 8 байт, `lng = 0`), с условием — 16 байт, где четвёртое слово занято
+      // слогом `CDS` (`movts,0 1, %b[1] ? %pred0` → `01 c1 c0 60` в слове ALS, 2026-10-29).
+      if (bytes.length !== REAL_SHORT_FORM_SIZE && !conditioned) {
         throw new EncodingError(
           `короткая непосредственная форма (поле 0x${value.toString(16)}) в команде ${bytes.length} байт: ` +
             "она выражается одним словом (lng = 0), литерального слова у неё нет",
