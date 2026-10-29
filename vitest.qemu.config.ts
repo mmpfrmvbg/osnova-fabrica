@@ -133,6 +133,7 @@ export default defineConfig({
       // и без модели файл обязан краснеть (сторож, пропускающий проверку, — не сторож), поэтому
       // только `gate:qemu`, без двойного запуска в полном прогоне.
       'src/e2k/joinValueLie.test.ts',
+  'src/e2k/calleeJoinLie.test.ts',
     ],
   },
 });
