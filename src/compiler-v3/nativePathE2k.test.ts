@@ -13,7 +13,7 @@ import { compileToReg } from "../compiler/regcodegen";
 import { compile } from "../compiler/codegen";
 import { createDefaultInvokeHandler, VM } from "../runtime/vm/interpreter";
 import { RegVM } from "../runtime/vm/reginterpreter";
-import { loweredProgram } from "../e2k/programImage";
+import { loweredProgram } from "../e2k/lowered";
 import { shimAvailable } from "../scripts/e2kProgramRun";
 import { buildElfFromCode, MINIMAL_BASE } from "../e2k/elfMinimal";
 import { buildShim, runInQemu } from "../scripts/e2kQemuExec";
@@ -63,9 +63,14 @@ describe("v3 идёт общим конвейером до понижения e2
   вернуть сумма
 конец
 `;
-    const образ = loweredProgram(src, опцииV3(src));
-    expect(образ.refused, "отказы понижения: " + JSON.stringify(образ.refused.slice(0, 2))).toEqual([]);
-    expect(образ.bytes.length).toBeGreaterThan(100);
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+    const итог = loweredProgram(src, опцииV3(src));
+    expect(
+      итог.ок,
+      итог.ок ? "" : "отказы понижения: " + итог.отказ.отказы.map((запись) => запись.причина).join(" | "),
+    ).toBe(true);
+    if (!итог.ок) throw new Error(`понижение отказало: ${итог.отказ.причина}`);
+    expect(итог.значение.bytes.length).toBeGreaterThan(100);
   });
 
   it("вызов несёт не больше ТРЁХ аргументов — граница названа с ОБЕИХ сторон", () => {
@@ -90,9 +95,13 @@ describe("v3 идёт общим конвейером до понижения e2
 `;
     // ПОЛОЖИТЕЛЬНАЯ СТОРОНА: три аргумента — законная арность, и это НЕ «не компилируется».
     const три = сАргументами("а: Число, б: Число, в: Число", "1, 2, 3", "а + б + в");
-    const образ = loweredProgram(три, опцииV3(три));
-    expect(образ.refused, "отказы понижения: " + JSON.stringify(образ.refused.slice(0, 2))).toEqual([]);
-    expect(образ.bytes.length, "образ с тремя аргументами собран").toBeGreaterThan(100);
+    const итог = loweredProgram(три, опцииV3(три));
+    expect(
+      итог.ок,
+      итог.ок ? "" : "отказы понижения: " + итог.отказ.отказы.map((запись) => запись.причина).join(" | "),
+    ).toBe(true);
+    if (!итог.ок) throw new Error(`понижение отказало: ${итог.отказ.причина}`);
+    expect(итог.значение.bytes.length, "образ с тремя аргументами собран").toBeGreaterThan(100);
 
     // ОТРИЦАТЕЛЬНАЯ СТОРОНА: четыре — уже предел носителя, и отказ НАЗВАН числом.
     // Замером подтверждено, что четыре параметра разбираются и доходят до оболочки: отказ приходит
@@ -178,8 +187,14 @@ describe("РАСХОЖДЕНИЕ МОДЕЛИ: выражение из трёх 
   });
 
   it.skipIf(!shimAvailable())("модель даёт 11 — совпадает с эталоном (дефект закрыт)", () => {
-    const образ = loweredProgram(ИСХОДНИК, опцииV3(ИСХОДНИК));
-    expect(образ.refused).toEqual([]);
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+    const итог = loweredProgram(ИСХОДНИК, опцииV3(ИСХОДНИК));
+    expect(
+      итог.ок,
+      итог.ок ? "" : итог.отказ.отказы.map((запись) => запись.причина).join(" | "),
+    ).toBe(true);
+    if (!итог.ок) throw new Error(`понижение отказало: ${итог.отказ.причина}`);
+    const образ = итог.значение;
     const elf = buildElfFromCode(
       образ.bytes,
       MINIMAL_BASE,

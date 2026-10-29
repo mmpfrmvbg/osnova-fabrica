@@ -60,7 +60,7 @@ import { parseV3 } from '../compiler-v3/index';
 import { compile } from '../compiler/codegen';
 import { compileToReg } from '../compiler/regcodegen';
 import { validateNamedTypesAndRewrite } from '../compiler/compiler';
-import { loweredProgram } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { createDefaultInvokeHandler, VM } from '../runtime/vm/interpreter';
@@ -92,7 +92,8 @@ function инструкции(элементы: readonly RegCodeElement[]): RegC
 /** Собирается ли программа на цель: либо отказы, либо исключение оболочки — оба названы. */
 function собрать(src: string): { отказы: string[]; беда: string | undefined; байт: number } {
   try {
-    const образ = loweredProgram(src, опцииV3(src));
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    const образ = loweredProgramUnchecked(src, опцииV3(src));
     return { отказы: образ.refused.map((item) => `${item.code ?? '—'} ${item.reason}`), беда: undefined, байт: образ.bytes.length };
   } catch (error) {
     return { отказы: [], беда: error instanceof Error ? error.message : String(error), байт: 0 };
@@ -108,7 +109,8 @@ function собрать(src: string): { отказы: string[]; беда: string
 function собратьИПрогнать(src: string): { отказы: string[]; беда: string | undefined; байт: number; код: number | undefined } {
   const итог = собрать(src);
   if (итог.беда !== undefined || итог.отказы.length > 0 || shim === undefined) return { ...итог, код: undefined };
-  const образ = loweredProgram(src, опцииV3(src));
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  const образ = loweredProgramUnchecked(src, опцииV3(src));
   const elf = buildElfFromCode(образ.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY });
   const имя = crypto.createHash('sha256').update(src, 'utf8').digest('hex').slice(0, 12);
   const файл = path.join(ROOT, '.tmp', `boolean-literals-${имя}.elf`);

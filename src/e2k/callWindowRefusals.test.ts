@@ -66,7 +66,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { loweredProgram } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { parseV3 } from '../compiler-v3/index';
@@ -90,7 +90,8 @@ function конструкция(отказ: Отказ): string {
 function понизить(источник: string, assumeArenaReserved = false): readonly Отказ[] {
   const разбор = parseV3(источник, ФАЙЛ);
   expect(разбор.errors, 'разбор программы').toEqual([]);
-  return loweredProgram(источник, {
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  return loweredProgramUnchecked(источник, {
     filename: ФАЙЛ,
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
     assumeArenaReserved,
@@ -101,7 +102,8 @@ function понизить(источник: string, assumeArenaReserved = false)
 function исполнить(источник: string, файл: string): { refused: readonly Отказ[]; код: number | undefined; вывод: string } {
   const разбор = parseV3(источник, ФАЙЛ);
   expect(разбор.errors, 'разбор программы').toEqual([]);
-  const { bytes, refused } = loweredProgram(источник, {
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  const { bytes, refused } = loweredProgramUnchecked(источник, {
     filename: ФАЙЛ,
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
   });

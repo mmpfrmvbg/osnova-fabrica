@@ -41,7 +41,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { IMAGE_TAIL_OFFSET, IMAGE_TEXT_OFFSET, MINIMAL_BASE, buildElfFromCode } from './elfMinimal';
-import { loweredProgram } from './programImage';
+import { loweredProgram } from './lowered';
 import { parseV3 } from '../compiler-v3/index';
 
 /** Размер страницы гостя. Подтверждён независимо: порт (`target/e2k/cpu-param.h`: `TARGET_PAGE_BITS 12`) и ядро (`arch/e2k/include/asm/page_size.h`: `E2K_4K_PAGE_SHIFT 12`). */
@@ -179,12 +179,17 @@ describe('ELF: два сегмента — код R|X и данные R|W', () =
   function образСтатики(): Uint8Array {
     const разбор = parseV3(СТАТИКА, 'проба.osnova');
     expect(разбор.errors, 'разбор программы').toEqual([]);
-    const { bytes: код, refused } = loweredProgram(СТАТИКА, {
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+    const итог = loweredProgram(СТАТИКА, {
       filename: 'проба.osnova',
       parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
     });
-    expect(refused, `непонижённые носители: ${refused.map((item) => item.reason).join('; ')}`).toEqual([]);
-    return buildElfFromCode(код, MINIMAL_BASE).bytes;
+    expect(
+      итог.ок,
+      итог.ок ? '' : `непонижённые носители: ${итог.отказ.отказы.map((запись) => запись.причина).join('; ')}`,
+    ).toBe(true);
+    if (!итог.ок) throw new Error(`понижение отказало: ${итог.отказ.причина}`);
+    return buildElfFromCode(итог.значение.bytes, MINIMAL_BASE).bytes;
   }
 
   it('СТАТИКА: образ со строковым литералом доходит ВПЛОТНУЮ до страницы данных — и годен', () => {

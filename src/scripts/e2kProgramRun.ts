@@ -24,8 +24,9 @@
 import * as fs from "fs";
 import * as path from "path";
 import { buildElfFromCode, MINIMAL_BASE } from "../e2k/elfMinimal";
-import { entryValueReturnsOf, loweredProgram } from "../e2k/programImage";
-import { LOWERING_CODES, type LoweringRefusal } from "../e2k/loweringRefusal";
+import { entryValueReturnsOf } from "../e2k/programImage";
+import { LOWERING_CODES, refusalOf, type LoweringRefusal } from "../e2k/loweringRefusal";
+import { loweredProgram } from "../e2k/lowered";
 import { buildShim, runInQemu } from "./e2kQemuExec";
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -94,8 +95,24 @@ export function buildE2kImage(source: string): E2kImage {
   // (пример `08-факториал`), а не повод отказать программе.
   const returns = entryValueReturnsOf(source);
   if (returns > 1) throw new MultiReturnRefusal(returns);
-  const built = loweredProgram(source);
-  return { bytes: built.bytes, refused: [...built.refused], used: built.used, extraMemory: built.arena.extraMemory };
+  // ПУБЛИЧНАЯ ДВЕРЬ (D11): под отказом байтов нет. Кит — потребитель, а не сторож: ему нужен образ,
+  // который можно исполнить. Отказы он при этом НЕ прячет — отдаёт диагностику наружу тем же полем
+  // `refused` (код + причина), а `bytes` остаётся пустым: «собралось» и «исполнимо» — разные вещи.
+  const итог = loweredProgram(source);
+  if (!итог.ок) {
+    return {
+      bytes: new Uint8Array(0),
+      refused: итог.отказ.отказы.map((запись) => refusalOf(запись.код, запись.причина)),
+      used: 0,
+      extraMemory: 0,
+    };
+  }
+  return {
+    bytes: итог.значение.bytes,
+    refused: [],
+    used: итог.значение.used,
+    extraMemory: итог.значение.arena.extraMemory,
+  };
 }
 
 /** Результат прогона на цели: код возврата `exit` и что не понизилось. */
@@ -132,6 +149,12 @@ export function buildElfImage(source: string): Uint8Array {
  */
 export function runOnE2k(source: string, fileName: string): E2kRun {
   const image = buildE2kImage(source);
+  // БАЙТОВ ПОД ОТКАЗОМ НЕТ (D11) — и запускать нечего. Прежде кит исполнял такой образ и отдавал
+  // наружу ЧИСЛО; под несущим отказом оно ЛЖЁТ (случаи 60 и 62), поэтому число под отказом добывается
+  // теперь только сторожем (`src/e2k/guards/loweredUnchecked.ts`), а не прогоном корпуса.
+  if (image.refused.length > 0) {
+    return { status: undefined, refused: image.refused, used: image.used, file: "", output: "", exceptionIp: undefined };
+  }
   const elf = path.join(ROOT, ".tmp", fileName);
   fs.writeFileSync(elf, buildElfImage(source));
   const run = runInQemu(elf, { shim: true, timeoutMs: 20_000 });

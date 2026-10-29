@@ -33,7 +33,9 @@ import type { AsmInstruction, Operand } from './backend';
 import { lowerCarrier, lowerInstruction } from './e2kRealRun';
 import { pairPredicates } from './predicatePairing';
 import { secondPass, layoutOf } from './twoPassLayout';
-import { imageOfCarriers, loweredProgram } from './programImage';
+import { imageOfCarriers } from './programImage';
+// Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): здесь читаются КОДЫ отказов, значит нужен сырой путь — это дверь сторожей.
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { planPrintSite, PrintCallRefusal } from './printCall';
 import {
   LOWERING_CODES,
@@ -181,7 +183,7 @@ describe('контракт отказа понижения: код — личн�
     const printed = imageOfCarriers([carrier('IR.ret', [imm(0), reg(0)])], [], []);
     expect(printed.refused).toEqual([]);
     // `IR.div`: одна запись, и у неё код 001 — не строка без кода.
-    const image = loweredProgram('модуль О\nпроцедура главная()\n  вернуть 7 / 2\nконец\nконец\n');
+    const image = loweredProgramUnchecked('модуль О\nпроцедура главная()\n  вернуть 7 / 2\nконец\nконец\n');
     expect(image.refused).toHaveLength(1);
     expect(image.refused[0]!.code).toBe(LOWERING_CODES.noForm);
     expect(image.refused[0]!.reason).toContain('IR.div');
@@ -190,8 +192,8 @@ describe('контракт отказа понижения: код — личн�
 
   it('НЕГАТИВНЫЙ КОНТРОЛЬ: подмена ТЕКСТА класса не меняет, подмена КОДА меняет', () => {
     // Одна и та же причина с РАЗНЫМИ значениями даёт РАЗНЫЙ текст — и тот же код.
-    const first = loweredProgram(STRING_CONSTANT);
-    const second = loweredProgram(STRING_CONSTANT.replace('1.5', '2.25'));
+    const first = loweredProgramUnchecked(STRING_CONSTANT);
+    const second = loweredProgramUnchecked(STRING_CONSTANT.replace('1.5', '2.25'));
     expect(first.refused[0]!.reason, 'текст несёт значение — он различается').not.toBe(second.refused[0]!.reason);
     expect(first.refused[0]!.code, 'а код — нет: причина одна').toBe(second.refused[0]!.code);
     expect(first.refused[0]!.code).toBe(LOWERING_CODES.constant);

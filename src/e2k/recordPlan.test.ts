@@ -42,7 +42,7 @@ import { compile } from '../compiler/codegen';
 import { compileToReg } from '../compiler/regcodegen';
 import { createDefaultInvokeHandler, VM } from '../runtime/vm/interpreter';
 import { RegVM } from '../runtime/vm/reginterpreter';
-import { loweredProgram } from './programImage';
+import { loweredProgram } from './lowered';
 import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
 import { shimAvailable } from '../scripts/e2kProgramRun';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
@@ -80,8 +80,14 @@ async function значениеНаVM(источник: string): Promise<unknown
 
 /** Ответ ЦЕЛИ: образ собирается тем же конвейером, что у остальных оракулов цели. */
 function наМодели(источник: string, имя: string): number | undefined {
-  const образ = loweredProgram(источник, опцииV3(источник));
-  expect(образ.refused, `отказы понижения: ${JSON.stringify(образ.refused.slice(0, 2))}`).toEqual([]);
+  // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+  const итог = loweredProgram(источник, опцииV3(источник));
+  expect(
+    итог.ок,
+    итог.ок ? '' : `отказы понижения: ${итог.отказ.отказы.map((запись) => запись.причина).join(' | ')}`,
+  ).toBe(true);
+  if (!итог.ок) throw new Error(`понижение отказало: ${итог.отказ.причина}`);
+  const образ = итог.значение;
   const elf = buildElfFromCode(образ.bytes, MINIMAL_BASE, {
     writable: true,
     extraMemory: образ.arena.extraMemory,

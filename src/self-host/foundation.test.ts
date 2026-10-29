@@ -27,7 +27,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseV3 } from '../compiler-v3/index';
-import { loweredProgram } from '../e2k/programImage';
+// ПОТРЕБИТЕЛЬ (D11): в Отказе нет байтов — дверь отдаёт Результат<Образ, Отказ>.
+import { loweredProgram } from '../e2k/lowered';
 import { compileSource, validateNamedTypesAndRewrite } from '../compiler/compiler';
 import { compile } from '../compiler/codegen';
 import { compileToReg } from '../compiler/regcodegen';
@@ -100,9 +101,12 @@ describe('1. ФАЙЛЫ: способность стоит на цели, но �
 конец
 конец
 `;
-    const образ = loweredProgram(источник, {});
-    expect(образ.refused.length, 'отказ обязан быть, и он назван').toBeGreaterThan(0);
-    expect(образ.refused[0]!.reason).toContain('система.файлы.прочитать_все');
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт `Результат<Образ, Отказ>`.
+    const итог = loweredProgram(источник, {});
+    expect(итог.ок, 'отказ обязан быть, и он назван').toBe(false);
+    const отказы = итог.ок ? [] : итог.отказ.отказы;
+    expect(отказы.length, 'отказ обязан быть, и он назван').toBeGreaterThan(0);
+    expect(отказы[0]!.причина).toContain('система.файлы.прочитать_все');
   });
 });
 
@@ -189,9 +193,12 @@ describe('2. СТРОКИ: длина, склейка и КОД символа (
   вернуть н
 конец
 `;
-    const образ = loweredProgram(источник, опцииV3(источник));
-    expect(образ.refused.length, 'отказ обязан быть').toBeGreaterThan(0);
-    expect(образ.refused[0]!.reason).toContain('система.итератор.из');
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт `Результат<Образ, Отказ>`.
+    const итог = loweredProgram(источник, опцииV3(источник));
+    expect(итог.ок, 'отказ обязан быть').toBe(false);
+    const отказы = итог.ок ? [] : итог.отказ.отказы;
+    expect(отказы.length, 'отказ обязан быть').toBeGreaterThan(0);
+    expect(отказы[0]!.причина).toContain('система.итератор.из');
   });
 });
 
@@ -253,9 +260,10 @@ describe('3. КОЛЛЕКЦИИ: на цели стоят, из v3 недост�
 конец
 конец
 `;
-    const образ = loweredProgram(v2, {});
-    expect(образ.refused, 'отказов понижения нет: коллекции на цели стоят').toEqual([]);
-    expect(образ.bytes.length).toBeGreaterThan(100);
+    // ПОТРЕБИТЕЛЬ (D11): байты есть только у образа — у Отказа их нет вовсе.
+    const итог = loweredProgram(v2, {});
+    expect(итог.ок, 'отказов понижения нет: коллекции на цели стоят').toBe(true);
+    expect(итог.ок ? итог.значение.bytes.length : 0).toBeGreaterThan(100);
   });
 });
 
@@ -266,8 +274,9 @@ describe('4. ПЕЧАТЬ И ВЫВОД: чем компилятор скаже�
   вернуть 0
 конец
 `;
-    const образ = loweredProgram(источник, опцииV3(источник));
-    expect(образ.refused).toEqual([]);
+    // ПОТРЕБИТЕЛЬ (D11): «отказов нет» теперь выражено самим Результатом — у Отказа байтов нет.
+    const итог = loweredProgram(источник, опцииV3(источник));
+    expect(итог.ок, итог.ок ? '' : итог.отказ.отказы.map((отказ) => отказ.причина).join(' | ')).toBe(true);
   });
 
   it('`ввод` есть в языке как слово, но цели не достигает: тип не выводится', () => {

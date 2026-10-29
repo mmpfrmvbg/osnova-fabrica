@@ -46,7 +46,7 @@ import { describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseV3 } from '../compiler-v3/index';
-import { loweredProgram } from '../e2k/programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { MINIMAL_BASE, buildElfFromCode } from '../e2k/elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 
@@ -59,9 +59,10 @@ const опцииV3 = (src: string) => {
 };
 
 /** Собрать образ: отказы, беда или байты. */
-function собрать(src: string): { отказы: string[]; беда?: string; образ?: ReturnType<typeof loweredProgram> } {
+function собрать(src: string): { отказы: string[]; беда?: string; образ?: ReturnType<typeof loweredProgramUnchecked> } {
   try {
-    const образ = loweredProgram(src, опцииV3(src));
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    const образ = loweredProgramUnchecked(src, опцииV3(src));
     return { отказы: образ.refused.map((item) => `${item.code ?? '—'} ${item.reason}`), образ };
   } catch (error) {
     return { отказы: [], беда: error instanceof Error ? error.message : String(error) };

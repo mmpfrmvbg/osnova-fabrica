@@ -15,12 +15,18 @@
  * | поток | когда | чем отличается |
  * |---|---|---|
  * | {@link programBytes} | программы БЕЗ циклов | носители оболочки → понижение → пролог рантайма массивов → `exit` |
- * | {@link loweredProgram} | программы с циклами и массивами | плюс раскладка регистров, раскладка адресов и пары предикатов — без них у переходов нет смещений |
+ * | `src/e2k/lowered.ts#loweredProgram` | программы с циклами и массивами | плюс раскладка регистров, раскладка адресов и пары предикатов — без них у переходов нет смещений |
+ *
+ * САМ `loweredProgram` живёт НЕ ЗДЕСЬ (с 5е, D11): публичная дверь — `src/e2k/lowered.ts`, а сырой путь,
+ * который отдаёт байты и под отказом, — `src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked`.
+ * Здесь остались КИРПИЧИ этого пути (`{@link imageOfCarriers}`, кодировщики, помощники), и это не
+ * вкусовщина: дверь обязана быть одна, а под отказом байты лгут, поэтому взять их можно только явно.
  *
  * Код перенесён из `src/e2k/e2kArraysQemu.test.ts` **посимвольно**: смысл выноса — один путь,
  * а не другой путь. Закреплённые числа (FIR = 181 и прочие) держатся оракулами цели.
  */
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
+import { ШАГ_ДО_ПОТОКА } from './loweredTypes';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
 import { regModuleWithRecordPlan } from './recordPlan';
@@ -34,8 +40,7 @@ import {
   SUPPORTED_ARRAY_CALLS,
   arrayPrologue,
 } from './arrayRuntime';
-import { allocateProgram } from './regAlloc';
-import { CALLEE_REGISTERS, layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
+import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
 import { MINIMAL_BASE, SYSCALL_TRAP, SYSCALL_WBS, WRITE_ZONE_EXTRA_MEMORY, IMAGE_TAIL_OFFSET, spillBaseOf } from './elfMinimal';
 import {
@@ -57,7 +62,6 @@ import {
   ARENA_REFUSAL_TEXT,
   arenaGroups,
   arenaRefusalCarriers,
-  arenaReservedRegisters,
   usesArena,
 } from './arenaRuntime';
 import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, stringArenaCopyInstructions } from './stringRuntime';
@@ -65,7 +69,6 @@ import {
   COLLECTION_REFUSAL_TEXTS,
   collectionGroups,
   collectionRefusalKinds,
-  collectionReservedRegisters,
   usesCollections,
   type CollectionRefusalKind,
 } from './collectionsRuntime';
@@ -104,7 +107,7 @@ import {
 } from './printCall';
 
 const encoder = getEncoder('e2k');
-const shellEncoder = getEncoder('internal-shell');
+export const shellEncoder = getEncoder('internal-shell');
 
 /**
  * Куча — начало ХВОСТА ОБРАЗА, и величина берётся из `elfMinimal` (одно число, два имени).
@@ -510,156 +513,6 @@ export function programBytes(
  * что в `e2kConvolutionQemu.test.ts`. Нужен там, где в программе есть ЦИКЛЫ: без раскладки адресов
  * у переходов нет смещений.
  */
-export function loweredProgram(
-  source: string,
-  options: CompileOptions & {
-    /**
-     * ЗАМЕРНАЯ ручка: считать, что раскладка ЗАКРЕПИЛА регистры арены, даже если разведка этого не
-     * увидела. Только в эту сторону (`true`): закрепить лишнее безопасно, а «не закрепить нужное» —
-     * ровно тот дефект, который стережёт утверждение ниже.
-     *
-     * Зачем она в коде, а не в `.tmp`-пробе: ею ИЗМЕРЯЕТСЯ СЛЕДУЮЩАЯ стена программы, у которой
-     * разведка арены расходится с потоком (случай 46 реестра проверяемости) — иначе число «сколько
-     * кода и сколько отказов, когда арена не мешает» нечем воспроизвести, а невоспроизводимое число
-     * перестаёт быть замером. Так измерен лексер: код **8184** байта, отказов **144**
-     * (`docs/hardware-debt.md` §3.134, `src/self-host/foundationE2k.test.ts`).
-     */
-    readonly assumeArenaReserved?: true;
-  } = {},
-): {
-  bytes: Uint8Array;
-  refused: readonly LoweringRefusal[];
-  used: number;
-  arena: { readonly used: boolean; readonly extraMemory: number };
-} {
-  const built = regModuleWithRecordPlan(source, options);
-  if (built === null) throw new Error('программа не компилируется');
-  const annotated = annotateAtomRegions(built.module, [
-    { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
-  ]);
-  const emitted = emitShell(annotated, shellEncoder);
-  // АРЕНА ЗАБИРАЕТ РЕГИСТРЫ СЕБЕ: указатель, предел и ключ предиката она пишет и читает в обход
-  // потока носителей, поэтому раскладка не имеет права их отдать (иначе значение легло бы туда же
-  // и было бы затёрто молча). Список резервируется ТОЛЬКО тогда, когда образ ареной пользуется:
-  // у прочих программ он пуст, и закреплённые числа пяти ядер не двигаются.
-  //
-  // Решение принимается ЗДЕСЬ и ДО раскладки, а знает его планирование строк: ареной пользуется не
-  // только явный `система.память.выделить`, но и **склейка сверх статического буфера**. Поэтому
-  // идёт РАЗВЕДКА тем же проходом (`planStrings`) по потоку ДО раскладки — второй счётчик длин
-  // разошёлся бы с планом. Разойдись разведка с потоком после раскладки, `imageOfCarriers` откажет
-  // по имени (`arenaReserved`), а не соберёт образ с мусором вместо указателя арены.
-  const arenaReserved =
-    options.assumeArenaReserved === true ||
-    usesArena(emitted.instructions, emitted.image.invokeNames) ||
-    planStrings(
-      emitted.instructions,
-      emitted.scheduled.constants,
-      emitted.image.invokeNames,
-      MINIMAL_BASE + HEAP_OFFSET,
-    ).counts.arenaConcats > 0;
-  // ОСТАТОК (`IR.rem`) резервирует себе регистр САМ, внутри `allocateProgram`: раскладку зовут и
-  // напрямую (оракулы), и «не забыть добавить резерв» был бы контрактом, который забудут молча —
-  // `src/e2k/remainderRuntime.ts`.
-  //
-  // КОЛЛЕКЦИИ резервируют регистры ЗДЕСЬ и УСЛОВНО — только тому образу, который ими пользуется.
-  // Условно потому, что безусловный резерв отнял бы у ядер регистр и сдвинул закреплённые числа
-  // (458 / 53 / 511 / 8800, FIR 181) — ровно та причина, по которой условен резерв остатка.
-  // Здесь, а не в `allocateProgram`, потому что признак — ИМЯ вызова из таблицы образа, а её у
-  // раскладки нет. Тихая порча от забытого резерва закрыта отказом в самом рантайме
-  // (`collectionsRuntime.ts#checkRegister`), а не надеждой.
-  // БЮДЖЕТ РЕГИСТРОВ ПО ПРОЦЕДУРАМ: точка входа распоряжается всем файлом раскладки
-  // (`%b[0..9]`; `%b[10..15]` держит рантайм массивов), а ВЫЗЫВАЕМАЯ — только своей половиной кадра
-  // (`CALLEE_REGISTERS`). Иначе её `%b[2..7]` — это `%b[10..15]` вызывающего, то есть чужой рантайм,
-  // и выход программы (`код = значение + %b[12]`) отдаёт чужое число: «собралось, отказов 0,
-  // значение неверное». Замер — `docs/hardware-debt.md` §3.96, проба `.tmp/osnova-reread-which.ts`.
-  const entryAt = emitted.scheduled.procedures.length === 0 ? -1 : entryProcedureIndex(emitted.scheduled.procedures);
-  // АДРЕС ЯЧЕЙКИ КУЧИ В ОКНЕ ВЫЗЫВАЕМОЙ (A4, срез 3, §3.137): процедуры, которые ВЫДЕЛЯЮТ массив
-  // (`система.массив.создать`), получают `%b[15]` = адрес ячейки кучи — оттуда его читает `создать`.
-  // Резерв УСЛОВНЫЙ, как у арены и коллекций: у программ без выделения в вызываемой клетка 15
-  // остаётся рабочей, и закреплённые числа пяти ядер не двигаются.
-  //
-  // Слово «резерв сделан» уезжает в `imageOfCarriers` (`heapSlotReserved`): там из потока ПОСЛЕ
-  // раскладки ещё раз считается тот же список, и разойдись он с резервом — `создать` в вызываемой
-  // останется НАЗВАННЫМ отказом, а не прочтёт чужую клетку.
-  const heapSlotAt = heapSlotProcedures(
-    emitted.instructions,
-    emitted.scheduled.procedures,
-    emitted.image.invokeNames,
-    entryAt,
-  );
-  const heapSlotReserved = heapSlotAt.size > 0;
-  const reserved = [
-    ...(arenaReserved ? arenaReservedRegisters() : []),
-    ...(usesCollections(emitted.instructions, emitted.image.invokeNames) ? collectionReservedRegisters() : []),
-    // АДРЕС ЯЧЕЙКИ КУЧИ — резерв по той же логике: он закреплён ЗА РАНТАЙМОМ МАССИВОВ, а не за
-    // значениями программы (иначе пролог роста положил бы адрес, а раскладка отдала бы ту же клетку
-    // под значение, и адрес был бы затёрт молча).
-    ...(heapSlotReserved ? [ARRAY_REGISTERS.heapSlot] : []),
-  ];
-  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
-    reserved,
-    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),
-    // Блок рантайма массивов — по процедурам, которые с массивами работают (§3.128).
-    arrayProcedures: arrayProceduresOf(
-      emitted.instructions,
-      emitted.scheduled.procedures,
-      emitted.image.invokeNames,
-    ),
-  });
-  const report = allocation.report[0]!;
-  // ОТКАЗ РАСКЛАДКИ ЛЮБОЙ ПРОЦЕДУРЫ ОБЯЗАН БЫТЬ НАЗВАН, а не только у `report[0]` (A4-5в, 2026-10-29).
-  //
-  // Почему это дефект, а не придирка. На отказе `allocateProgram` отдаёт поток процедуры
-  // НЕРАЗЛОЖЕННЫМ: `fail()` в `src/e2k/regAlloc.ts` кладёт в результат исходный поток, то есть
-  // носители сохраняют регистры, которых раскладка не выдавала. Значит образ с такой процедурой —
-  // мусор. Прежняя редакция читала ОДНУ запись (`report[0]`), а она совпадает с точкой входа только
-  // тогда, когда точка входа объявлена первой: у программы «тривиальная процедура, затем вызываемая,
-  // затем главная» отказ ВЫЗЫВАЕМОЙ не назывался НИЧЕМ.
-  //
-  // ЗАМЕР (2026-10-29; `.tmp/pins5v-callee-hole.ts`, `.tmp/pins5v-hole-diag.ts`): репро из
-  // тривиальной первой процедуры `п` и вызываемой `ф` с 11 одновременно живыми отрезками давало
-  // **0 отказов**, образ 776 байт и модель **9 вместо эталонных 77** (эталон подтверждён ОБЕИМИ VM:
-  // стек и регистры 77); при этом `ф: ok=false`, «вытеснение не минимально: значений в память нужно
-  // больше 4 … живы 14 отрезков, свободных 8», а `report[0]` = `п: ok=true`. На дереве HEAD `d311187`
-  // (ДО починки распределителя `liveness.ts`) — те же 0 / 776 / 9: дыра ДОпочиночная, срез 5в её
-  // только вскрыл. Сторож — `src/e2k/spillCallee.test.ts` П7.
-  //
-  // Канал — ЗАПИСЬ в `refused` (как у отказа раскладки вызываемой по имени, `calleeLimit`), а не
-  // исключение: личность одна (`OSN-LOW-004`), а читателю не нужно ловить исключение, чтобы узнать,
-  // что процедура не разложена. Записи о раскладке идут ПОСЛЕ отказов носителей: они называют
-  // процедуру целиком, и порядок «сначала место, потом причина целиком» сохранён.
-  const layoutRefusals = allocation.report
-    .filter((item) => !item.ok)
-    .map((item) =>
-      refusalOf(
-        LOWERING_CODES.layout,
-        `раскладка отказала: процедура «${item.procedure}»: ${item.reason ?? 'причина не названа'}`,
-      ),
-    );
-  const image = imageOfCarriers(allocation.instructions, emitted.scheduled.constants, emitted.image.invokeNames, {
-    // Адреса слотов вытеснения — своим ходом: сайты печати кладут сохранённое в ВЕРХ области
-    // слотов, и пересечение обязано быть названным отказом, а не порчей значения.
-    spilledAddresses: allocation.report.flatMap((item) => item.spilled.map((spilled) => spilled.address)),
-    // Смещения процедур ПОСЛЕ раскладки: снятие копий и вытеснение их двигают, а адрес вызова
-    // считается по ним — тем же способом, что цель перехода (docs/hardware-debt.md §3.35).
-    procedures: allocation.procedures.map((procedure) => ({
-      name: procedure.name,
-      codeOffset: procedure.codeOffset,
-    })),
-    // БАЗЫ БЛОКОВ РАНТАЙМА МАССИВОВ — из раскладки: она решала, чьи клетки процедура занимает.
-    arrayBases: allocation.arrayBases,
-    // Слово о закреплении регистров — тому, кто раскладывал: разойдись оно с нуждой образа,
-    // конвейер откажет по имени, а не соберёт образ с мусором вместо указателя арены.
-    arenaReserved,
-    // Слово о закреплении `%b[15]` за адресом ячейки кучи — по той же причине (A4 §3.137).
-    heapSlotReserved,
-  });
-  return {
-    ...image,
-    refused: [...image.refused, ...layoutRefusals],
-    used: report.used,
-  };
-}
 
 /**
  * Зовёт ли поток рантайм КУЧИ МАССИВОВ (`система.массив.*`) — по именам вызовов образа оболочки.
@@ -685,7 +538,7 @@ function usesArrayHeap(code: readonly AsmInstruction[], invokeNames: readonly st
  * Список строится ДО раскладки и передаётся ей: у самой раскладки имён хост-вызовов нет (они живут в
  * таблице образа оболочки), а поиск «в диапазоне процедуры есть вызов массива» нужен именно ей.
  */
-function arrayProceduresOf(
+export function arrayProceduresOf(
   code: readonly AsmInstruction[],
   procedures: readonly ProcedureOffset[],
   invokeNames: readonly string[],
@@ -709,7 +562,7 @@ function arrayProceduresOf(
  *
  * Точка входа в список не входит: у неё адрес кладёт пролог ОБРАЗА (`arrayPrologue`).
  */
-function heapSlotProcedures(
+export function heapSlotProcedures(
   code: readonly AsmInstruction[],
   procedures: readonly ProcedureOffset[],
   invokeNames: readonly string[],
@@ -852,7 +705,7 @@ function windowGrowthAt(
  * Собрать образ из УЖЕ РАЗЛОЖЕННОГО потока носителей: раскладка адресов, пары «сравнение + переход»,
  * понижение, пролог рантайма массивов и выход через `exit`.
  *
- * Вынесено из {@link loweredProgram}, чтобы тем же путём можно было прогнать поток, собранный
+ * Вынесено из сырого пути (`src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked`), чтобы тем же путём можно было прогнать поток, собранный
  * ВРУЧНУЮ: у источника эмиттер вправе переставить чтения, и давление на регистры падает само
  * (измерено: программа с одиннадцатью чтениями массива даёт пик 5 и вытеснения не требует).
  */
@@ -881,7 +734,7 @@ export function imageOfCarriers(
      *
      * Арена пишет указатель и предел **в обход** потока носителей (`src/e2k/arenaRuntime.ts`),
      * поэтому раскладка обязана была их не отдать. Знание об этом живёт у вызывающего
-     * ({@link loweredProgram} решает это ДО раскладки — по разведке планирования строк), а проверить
+     * (`src/e2k/lowered.ts#loweredProgram` решает это ДО раскладки — по разведке планирования строк), а проверить
      * его можно только здесь, где известно, нужна ли арена на самом деле. `false` при нужной арене —
      * НАЗВАННЫЙ отказ, а не тихая порча: иначе выделение взяло бы мусор вместо указателя.
      */
@@ -899,6 +752,16 @@ export function imageOfCarriers(
 ): {
   bytes: Uint8Array;
   refused: readonly LoweringRefusal[];
+  /**
+   * ШАГ КАЖДОГО ОТКАЗА (D11) — индекс носителя, при обработке которого отказ принят; длина совпадает
+   * с `refused`. Отказы стадий (строки, коллекции, разведение арены и кучи) идут ДО потока носителей,
+   * поэтому их шаг — `0`: это честное «отказ программный», а не потерянный шаг.
+   *
+   * Зачем отдельным полем, а не в тексте причины: `Отказ` публичной двери обязан нести `шаг` ЧИСЛОМ, а
+   * разбирать текст причины регуляркой запрещено — переписанная формулировка молча ослепила бы
+   * читателя (`src/e2k/loweringRefusal.ts`, шапка).
+   */
+  readonly refusedSteps: readonly number[];
   /**
    * Чем образ пользуется: арена требует БОЛЬШЕ ОТОБРАЖЁННОЙ ПАМЯТИ (`extraMemory`), и это знание
    * обязано дойти до построения ELF — иначе арена окажется за отображённым и первое же обращение
@@ -928,7 +791,7 @@ export function imageOfCarriers(
       LOWERING_CODES.runtime,
       'арена нужна образу, а регистры её не закреплены: раскладка не знала об арене ' +
         '(разведка планирования строк и поток после раскладки разошлись) — это дефект конвейера, ' +
-        'а не программы (src/e2k/programImage.ts#loweredProgram)',
+        'а не программы (src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked)',
     );
   }
   // СТРОКА ОТКАЗА НУЖНА И КОЛЛЕКЦИЯМ, а не только арене: их блок отказа печатает СВОЮ строку
@@ -1185,6 +1048,19 @@ export function imageOfCarriers(
     // получил бы «операция не развёрнута» — верное по букве и ложное по причине.
     ...(collections?.problems ?? []).map((reason) => refusalOf(LOWERING_CODES.runtime, reason)),
   ];
+  // ШАГ КАЖДОГО ОТКАЗА — индекс носителя, при обработке которого отказ ПРИНЯТ (D11: `шаг` в `Отказе`).
+  //
+  // Собирается здесь, а не в 20 местах `refused.push`: у отказов носителей шаг известен ИЗ ЦИКЛА, и
+  // `try/finally` вокруг тела итерации проставляет его и на `continue`, и на `return`. Править
+  // двадцать точек значило бы завести двадцать мест, где шаг можно забыть, — и «шаг» молча уехал бы
+  // на чужой носитель (ровно тот класс дефекта, что стережёт случай 58).
+  //
+  // Отказы СТАДИЙ (планирование строк, коллекции, разведение арены и кучи) идут ДО потока носителей:
+  // номера носителя у них нет, поэтому их шаг — `ШАГ_ДО_ПОТОКА`, а НЕ `0`. Разница не косметическая:
+  // `0` — законный индекс первого носителя, и «шаг 0» приписывало отказ стадии ПЕРВОЙ процедуре потока,
+  // называя её читателю вместо честного «до потока» (поймано сторожем на теле лексера: 20 отказов
+  // стадий называли носители `#142`, `#150`, … , а шаг у всех был `0`).
+  const refusedSteps: number[] = refused.map(() => ШАГ_ДО_ПОТОКА);
   // АРЕНА И КУЧА МАССИВОВ В ОДНОЙ ПРОГРАММЕ НЕ РАЗВЕДЕНЫ — и это НАЗВАННЫЙ отказ, а не надежда.
   // Числа: куча рантайма массивов начинается с `HEAP_OFFSET` = `0x102000` (`%b[15]` кладёт туда
   // пролог), и арена начинается ТАМ ЖЕ (`src/e2k/arenaRuntime.ts#ARENA_BASE`) и растёт вверх.
@@ -1200,6 +1076,8 @@ export function imageOfCarriers(
           'Разведение — отдельная работа (docs/hardware-debt.md §3.89)',
       ),
     );
+    // Отказ программный (до потока носителей) — тот же ШАГ_ДО_ПОТОКА, что у отказов стадий выше.
+    refusedSteps.push(ШАГ_ДО_ПОТОКА);
   }
   let exitEmitted = false;
   /** Печатает ли образ: инлайновые сайты ИЛИ разделённая печать (её хвост `write`). */
@@ -1264,6 +1142,12 @@ export function imageOfCarriers(
   };
 
   for (let index = 0; index < planned.length; index++) {
+    // ШАГ ОТКАЗОВ ЭТОЙ ИТЕРАЦИИ (D11). Тело обёрнуто `try/finally`, потому что отказ уходит наружу и
+    // через `continue`, и через `return`, — `finally` проставляет шаг в обоих случаях, а 20 точек
+    // `refused.push` остаются нетронутыми. Отступ тела НАМЕРЕННО не переставлен: переотступление
+    // четырёхсот строк сделало бы diff нечитаемым, а сам перенос шага — непроверяемым.
+    const отказовДо = refused.length;
+    try {
     const carrier = planned[index]!;
     if (index === entryEndsAt && !exitEmitted) {
       body.push(...fallbackExit());
@@ -1697,6 +1581,11 @@ export function imageOfCarriers(
     // переводится в оконную форму одним преобразованием здесь, а не в каждой ветви понижения:
     // второй список мест разошёлся бы с первым (правило «один путь»).
     body.push(...(inCallee ? withWindowRegisters(lowered.instructions) : lowered.instructions));
+    } finally {
+      // Каждый отказ, принятый В ЭТОЙ итерации, получает шаг = индекс её носителя. Порядок сохраняется:
+      // `refused` и `refusedSteps` растут только здесь и только вместе.
+      for (let уже = отказовДо; уже < refused.length; уже++) refusedSteps.push(index);
+    }
   }
   if (!exitEmitted) body.push(...fallbackExit());
 
@@ -1797,7 +1686,7 @@ export function imageOfCarriers(
     for (const blob of strings.blobs) {
       withStatics.set(Uint8Array.from(blob.bytes), blob.address - MINIMAL_BASE);
     }
-    return { bytes: withStatics, refused, arena: arenaReport };
+    return { bytes: withStatics, refused, refusedSteps, arena: arenaReport };
   }
-  return { bytes, refused, arena: arenaReport };
+  return { bytes, refused, refusedSteps, arena: arenaReport };
 }

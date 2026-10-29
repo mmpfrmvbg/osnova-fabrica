@@ -1029,7 +1029,7 @@ function checkRegister(operand: Operand, name: string, role: string, frame: Sysc
     throw new CollectionRuntimeRefusal(
       `«${name}»: ${role} попал в %b[${String(operand.index)}] — этот регистр держит рантайм коллекций ` +
         '(номер и аргумент системного вызова, src/e2k/collectionsRuntime.ts#collectionReservedRegisters); ' +
-        'значит раскладка его не закрепила (`src/e2k/programImage.ts#loweredProgram`, список `reserved`)',
+        'значит раскладка его не закрепила (`src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked`, список `reserved`)',
     );
   }
 }

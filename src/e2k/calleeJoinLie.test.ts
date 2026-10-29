@@ -44,7 +44,7 @@ import { compile } from '../compiler/codegen';
 import { compileToReg } from '../compiler/regcodegen';
 import { createDefaultInvokeHandler, VM } from '../runtime/vm/interpreter';
 import { RegVM } from '../runtime/vm/reginterpreter';
-import { loweredProgram } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 
@@ -150,7 +150,8 @@ type Замер = { readonly отказы: readonly string[]; readonly код: n
 const замерить = (проба: Проба): Замер => {
   const текст = исходник(проба);
   const разбор = parseV3(текст, ФАЙЛ);
-  const образ = loweredProgram(текст, {
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  const образ = loweredProgramUnchecked(текст, {
     filename: ФАЙЛ,
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
   });

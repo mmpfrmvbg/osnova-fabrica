@@ -1238,7 +1238,7 @@ export function runKernelThroughRealEncoding(
   // 2026-10-10 показал `покрытие 372` против закреплённых `458` (`src/e2k/e2kPredicatePairs.test.ts`),
   // 86 носителей не доходили до байтов. Причина отказа была названа честно, но закреплённое число
   // мерило уже не тот поток, который выдаёт компилятор. Здесь повторено то же, что делает конвейер
-  // (`src/e2k/programImage.ts#loweredProgram`): процедуры с обращениями к массивам помечены,
+  // (`src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked`): процедуры с обращениями к массивам помечены,
   // точке входа — её пул, вызываемой — `CALLEE_REGISTERS`.
   const entryAt = entryProcedureIndex(emitted.scheduled.procedures);
   const arrayProcedures = emitted.scheduled.procedures

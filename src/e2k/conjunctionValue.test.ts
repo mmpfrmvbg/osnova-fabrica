@@ -138,7 +138,7 @@ import { compile } from '../compiler/codegen';
 import { compileToReg } from '../compiler/regcodegen';
 import { createDefaultInvokeHandler, VM } from '../runtime/vm/interpreter';
 import { RegVM } from '../runtime/vm/reginterpreter';
-import { loweredProgram } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { isLoweringRefusalCode } from './loweringRefusal';
@@ -306,7 +306,8 @@ function измерить(проба: Проба): Измерение {
   const источник = программа(проба.тело);
   const разбор = parseV3(источник, ФАЙЛ);
   expect(разбор.errors, `разбор ${проба.имя}: ${JSON.stringify(разбор.errors)}`).toEqual([]);
-  const собран = loweredProgram(источник, {
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  const собран = loweredProgramUnchecked(источник, {
     filename: ФАЙЛ,
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
   });

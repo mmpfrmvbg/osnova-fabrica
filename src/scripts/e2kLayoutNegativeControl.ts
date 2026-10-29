@@ -666,7 +666,11 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     // Замер различителем и разбор — `docs/hardware-debt.md` §3.96.
     id: '11.3',
     title: 'бюджет регистров вызываемой снят — ей снова отдан весь файл раскладки',
-    file: 'src/e2k/programImage.ts',
+    // ФАЙЛ ПЕРЕЕХАЛ (5е, D11): строка `freeFor` живёт теперь в сырой двери сторожей, а не в
+    // `src/e2k/programImage.ts` — там остались кирпичи, а сам конвейер уехал. Якорь обязан
+    // указывать на файл, ГДЕ СТРОКА ЛЕЖИТ, иначе дефект не вносится, а числа для него стоят
+    // (сторож этой таблицы ловит ровно такой разрыв).
+    file: 'src/e2k/guards/loweredUnchecked.ts',
     from: '    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),',
     to:
       '    freeFor: (at) => (at === entryAt ? undefined : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), ' +
@@ -684,7 +688,8 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     // `examples/**`, и до 2026-10-02 у `cycle_nested` на модели не было НИ ОДНОГО сторожа.
     id: '11.4',
     title: 'бюджет вызываемой снят — фикстура с вложенными циклами даёт 92 вместо 91',
-    file: 'src/e2k/programImage.ts',
+    // Тот же переезд, что у 11.3 (5е, D11): якорь — в сырой двери сторожей.
+    file: 'src/e2k/guards/loweredUnchecked.ts',
     from: '    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),',
     to:
       '    freeFor: (at) => (at === entryAt ? undefined : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), ' +

@@ -29,7 +29,8 @@ import { spawnSync } from 'node:child_process';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { ARRAY_REGISTERS, arrayPrologue } from './arrayRuntime';
-import { HEAP_OFFSET, imageOfCarriers, loweredProgram } from './programImage';
+import { HEAP_OFFSET, imageOfCarriers } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import {
   ASCII_NEWLINE,
   PRINT_AREA_LAYOUT,
@@ -326,7 +327,8 @@ describe('РАЗДЕЛЁННАЯ ПЕЧАТЬ: «число → текст» в 
     const source = `процедура главная()\n${values
       .map((value) => `  система.лог.вывести(${String(value)})`)
       .join('\n')}\nконец_процедуры\n`;
-    const image = loweredProgram(source);
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    const image = loweredProgramUnchecked(source);
     expect(image.refused, 'разделённая печать обязана понижаться без отказов').toEqual([]);
     // ЧИСЛА ПОСЛЕ ПЕРЕЕЗДА ОБЛАСТИ ЗАПИСИ (§3.91): без разделения десять развёрток весили бы
     // ≈14 320 байт, и прежде это был бы ОТКАЗ (потолок 4 КиБ). Теперь потолок — 64 КиБ, поэтому
@@ -357,7 +359,8 @@ describe('РАЗДЕЛЁННАЯ ПЕЧАТЬ: «число → текст» в 
  */
 describe('СТРОКИ НА ЦЕЛИ: кодпоинты, склейка, вывод', () => {
   const runSource = (source: string, name: string): { stdout: Buffer; stderr: string; status: number | null } => {
-    const image = loweredProgram(source);
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    const image = loweredProgramUnchecked(source);
     expect(image.refused, `строковая программа «${name}» обязана понижаться без отказов`).toEqual([]);
     return runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes, name);
   };
@@ -413,8 +416,9 @@ describe('СТРОКИ НА ЦЕЛИ: кодпоинты, склейка, выв
     const runAware = (
       source: string,
       name: string,
-    ): { image: ReturnType<typeof loweredProgram>; run: { stdout: Buffer; stderr: string; status: number | null } } => {
-      const image = loweredProgram(source);
+    ): { image: ReturnType<typeof loweredProgramUnchecked>; run: { stdout: Buffer; stderr: string; status: number | null } } => {
+      // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+      const image = loweredProgramUnchecked(source);
       expect(image.refused, `программа «${name}» обязана понижаться без отказов`).toEqual([]);
       return {
         image,
@@ -463,7 +467,8 @@ describe('СТРОКИ НА ЦЕЛИ: кодпоинты, склейка, выв
 describe('ПЕЧАТЬ ИЗ ПРОЦЕДУРЫ: аргументы системного вызова относительно окна', () => {
   const wrapped = (body: string): string => `процедура главная()\n${body}\nконец_процедуры\n`;
   const runPipeline = (source: string, name: string): { stdout: Buffer; stderr: string; status: number | null } => {
-    const image = loweredProgram(source);
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    const image = loweredProgramUnchecked(source);
     expect(image.refused, `программа «${name}» обязана понижаться без отказов`).toEqual([]);
     return runImage(buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes, name);
   };
@@ -512,7 +517,8 @@ describe('ПЕЧАТЬ ИЗ ПРОЦЕДУРЫ: аргументы систем�
 
   it('ГРАНИЦА НАЗВАНА: непроверенные формы печати из процедуры ОТКАЗЫВАЮТ, а не виснут', () => {
     const shared = `процедура печатать()\n  система.лог.вывести(7)\n  система.лог.вывести(8)\nконец_процедуры\n\n${wrapped('  печатать()')}`;
-    const sharedImage = loweredProgram(shared);
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    const sharedImage = loweredProgramUnchecked(shared);
     expect(sharedImage.refused.map((item) => item.reason).join(' '), 'разделённая печать из процедуры').toContain(
       'ЗАФИКСИРОВАННАЯ ГРАНИЦА',
     );
@@ -520,7 +526,8 @@ describe('ПЕЧАТЬ ИЗ ПРОЦЕДУРЫ: аргументы систем�
       'выращенного кадра',
     );
     const recursive = `процедура шаги(н: Число)\n  если н <= 0\n    вернуть 0\n  конец_если\n  система.лог.вывести(н)\n  вернуть шаги(н - 1)\nконец_процедуры\n\n${wrapped('  шаги(3)')}`;
-    expect(loweredProgram(recursive).refused.map((item) => item.reason).join(' '), 'печать в самозовущей процедуре').toContain(
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    expect(loweredProgramUnchecked(recursive).refused.map((item) => item.reason).join(' '), 'печать в самозовущей процедуре').toContain(
       'зовёт СЕБЯ',
     );
   });

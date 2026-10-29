@@ -25,7 +25,8 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { type Operand } from './backend';
-import { HEAP_OFFSET, imageOfCarriers, loweredProgram, programBytes } from './programImage';
+import { HEAP_OFFSET, imageOfCarriers, programBytes } from './programImage';
+import { loweredProgram } from './lowered';
 import { allocateProgram } from './regAlloc';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
@@ -131,8 +132,14 @@ const КОЭФ = FIR_REFERENCE_COEFFICIENTS;
 const FIR = FIR_REFERENCE_SOURCE;
 
 function exitOfLowered(source: string, file: string): number | undefined {
-  const { bytes, refused, used } = loweredProgram(source);
-  expect(refused, `непонижённые носители: ${refused.join('; ')}`).toEqual([]);
+  // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+  const итог = loweredProgram(source);
+  expect(
+    итог.ок,
+    итог.ок ? '' : `непонижённые носители: ${итог.отказ.отказы.map((запись) => запись.причина).join('; ')}`,
+  ).toBe(true);
+  if (!итог.ок) throw new Error(`понижение отказало: ${итог.отказ.причина}`);
+  const { bytes, used } = итог.значение;
   expect(used, 'выдано регистров').toBeLessThanOrEqual(10);
   fs.writeFileSync(
     path.join(ROOT, '.tmp', file),
@@ -389,17 +396,28 @@ describe('§3.131: блок рантайма в вызываемой плоск�
   } {
     const разбор = parseV3(источник, ФАЙЛ);
     expect(разбор.errors, 'разбор программы').toEqual([]);
-    const { bytes, refused, arena } = loweredProgram(источник, {
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+    // Отказы здесь НАБЛЮДАЮТСЯ (К2 ждёт названный отказ кодом), но через ПУБЛИЧНУЮ диагностику
+    // `отказ.отказы` — код и причина; БАЙТЫ под отказом не нужны ни одной проверке.
+    const итог = loweredProgram(источник, {
       filename: ФАЙЛ,
       parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
     });
-    if (refused.length > 0) return { refused, код: undefined };
+    if (!итог.ок) {
+      return {
+        refused: итог.отказ.отказы.map((запись) => ({ code: запись.код, reason: запись.причина })),
+        код: undefined,
+      };
+    }
     const путь = path.join(ROOT, '.tmp', файл);
     fs.writeFileSync(
       путь,
-      buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: arena.extraMemory }).bytes,
+      buildElfFromCode(итог.значение.bytes, MINIMAL_BASE, {
+        writable: true,
+        extraMemory: итог.значение.arena.extraMemory,
+      }).bytes,
     );
-    return { refused, код: runInQemu(путь, { shim: true, timeoutMs: 20_000 })?.status };
+    return { refused: [], код: runInQemu(путь, { shim: true, timeoutMs: 20_000 })?.status };
   }
 
   it('плоскость 1: чтение а[1] = 6 (целы оба слагаемых, блок в своей половине)', () => {

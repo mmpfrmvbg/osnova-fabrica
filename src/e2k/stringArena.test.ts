@@ -34,7 +34,7 @@ import { ARENA_FLAG_REGISTER, arenaGroups, arenaSiteCarriers } from './arenaRunt
 import { ARRAY_REGISTERS } from './arrayRuntime';
 import { HEAP_OFFSET } from './programImage';
 import { MINIMAL_BASE } from './elfMinimal';
-import { loweredProgram } from './programImage';
+import { loweredProgram } from './lowered';
 import { planStrings } from './stringPlan';
 import {
   STRING_ARENA_CONCAT_CARRIER,
@@ -194,20 +194,26 @@ describe('склейка сверх статического буфера: ре�
  */
 describe('склейка сверх буфера: границы названы, а не подразумеваются', () => {
   const program = (body: string): string => `процедура главная()\n${body}\nконец_процедуры\n`;
-  const reasons = (source: string): string =>
-    loweredProgram(source)
-      .refused.map((item) => item.reason)
-      .join(' | ');
+  // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+  // Отказы здесь НАБЛЮДАЮТСЯ (границы ждут причину текстом), но через ПУБЛИЧНУЮ диагностику
+  // `отказ.отказы` — причины; БАЙТЫ под отказом не нужны.
+  const reasons = (source: string): string => {
+    const итог = loweredProgram(source);
+    return итог.ок ? '' : итог.отказ.отказы.map((запись) => запись.причина).join(' | ');
+  };
 
   it('склейка знаком `+` идёт ТЕМ ЖЕ путём: 21 байт — арена, отказов нет', () => {
     // `+` со строками оболочка выдаёт носителем `IR.add` — у него приёмник ПЕРВЫЙ, и решение о
     // способе обязано быть тем же. Откажись здесь — «склейка сверх буфера» работала бы только у
     // вызова `объединить`, а `+` молча падал бы.
-    const image = loweredProgram(program('  система.лог.вывести("0123456789012345678" + "zz")'));
-    expect(image.refused.map((item) => item.reason).join(' | ')).toBe('');
-    expect(image.arena.used, '`+` сверх буфера тоже берёт арену').toBe(true);
+    const итог = loweredProgram(program('  система.лог.вывести("0123456789012345678" + "zz")'));
+    expect(итог.ок, итог.ок ? '' : итог.отказ.отказы.map((запись) => запись.причина).join(' | ')).toBe(true);
+    expect(итог.ок ? итог.значение.arena.used : undefined, '`+` сверх буфера тоже берёт арену').toBe(true);
     const fits = loweredProgram(program('  система.лог.вывести("0123456789012345678" + "z")'));
-    expect(fits.arena.used, 'а ровно двадцать байт — по-прежнему статика').toBe(false);
+    expect(fits.ок, fits.ок ? '' : fits.отказ.отказы.map((запись) => запись.причина).join(' | ')).toBe(true);
+    expect(fits.ок ? fits.значение.arena.used : undefined, 'а ровно двадцать байт — по-прежнему статика').toBe(
+      false,
+    );
   });
 
   it('склейка сверх буфера В ВЫЗЫВАЕМОЙ ПРОЦЕДУРЕ — названный отказ', () => {

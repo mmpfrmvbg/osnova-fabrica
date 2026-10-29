@@ -32,7 +32,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { MINIMAL_BASE } from './elfMinimal';
-import { HEAP_OFFSET, WRITE_PAGE_BYTES, imageOfCarriers, loweredProgram } from './programImage';
+import { HEAP_OFFSET, WRITE_PAGE_BYTES, imageOfCarriers } from './programImage';
+import { loweredProgram } from './lowered';
 import { carrierFormOf, layoutOf } from './twoPassLayout';
 import { printAreaOf, PRINT_PRIMITIVE_CLOBBERS } from './printPrimitives';
 import {
@@ -209,8 +210,14 @@ describe('печать: шесть записей корпуса собираю�
   for (const dir of dirs) {
     it(`запись ${dir}: отказов нет, код не входит в страницу записи`, () => {
       const source = fs.readFileSync(path.join(ROOT, 'examples', dir, 'main.osnova'), 'utf-8');
-      const image = loweredProgram(source);
-      expect(image.refused, `отказы понижения ${dir}`).toEqual([]);
+      // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+      const итог = loweredProgram(source);
+      expect(
+        итог.ок,
+        итог.ок ? '' : `отказы понижения ${dir}: ${итог.отказ.отказы.map((запись) => запись.причина).join(' | ')}`,
+      ).toBe(true);
+      if (!итог.ок) throw new Error(`понижение отказало: ${итог.отказ.причина}`);
+      const image = итог.значение;
       // `image.bytes` включает статические байты, то есть оценка СТРОЖЕ настоящего конца кода, —
       // и граница берётся по СТРАНИЦЕ площадки, а не по её адресу (замер 2026-09-29, §3.90.7).
       const codeEnd = MINIMAL_BASE + image.bytes.length;

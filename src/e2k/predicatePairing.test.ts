@@ -78,7 +78,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseV3 } from '../compiler-v3/index';
-import { loweredProgram } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import {
   CTCOND_NEG_PRED,
   CTCOND_PRED,
@@ -100,7 +100,8 @@ const ir = (mnemonic: string, operands: readonly Operand[]): AsmInstruction => (
 function отказы(источник: string): readonly string[] {
   const р = parseV3(источник, ФАЙЛ);
   expect(р.errors, 'разбор программы').toEqual([]);
-  return loweredProgram(источник, {
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  return loweredProgramUnchecked(источник, {
     filename: ФАЙЛ,
     parse: () => ({ ast: р.program ?? null, errors: р.errors }),
   }).refused.map((отказ) => `${отказ.code}: ${отказ.reason}`);

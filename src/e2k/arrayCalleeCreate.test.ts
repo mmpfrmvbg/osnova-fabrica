@@ -36,7 +36,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { loweredProgram } from './programImage';
+import { loweredProgram } from './lowered';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { parseV3 } from '../compiler-v3/index';
@@ -119,17 +119,26 @@ function образ(источник: string, файл: string): {
 } {
   const разбор = parseV3(источник, ФАЙЛ);
   expect(разбор.errors, 'разбор программы').toEqual([]);
-  const { bytes, refused, arena } = loweredProgram(источник, {
+  // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+  // Отказы здесь НАБЛЮДАЮТСЯ (две границы ждут их числом и кодом), но через ПУБЛИЧНУЮ диагностику
+  // `отказ.отказы` — код и причина; БАЙТЫ под отказом не нужны ни одной проверке.
+  const итог = loweredProgram(источник, {
     filename: ФАЙЛ,
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
   });
-  if (refused.length > 0) return { refused, код: undefined };
+  if (!итог.ок) {
+    return {
+      refused: итог.отказ.отказы.map((запись) => ({ code: запись.код, reason: запись.причина })),
+      код: undefined,
+    };
+  }
   const путь = path.join(ROOT, '.tmp', файл);
   fs.writeFileSync(
     путь,
-    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY }).bytes,
+    buildElfFromCode(итог.значение.bytes, MINIMAL_BASE, { writable: true, extraMemory: WRITE_ZONE_EXTRA_MEMORY })
+      .bytes,
   );
-  return { refused, код: runInQemu(путь, { shim: true, timeoutMs: 20_000 })?.status };
+  return { refused: [], код: runInQemu(путь, { shim: true, timeoutMs: 20_000 })?.status };
 }
 
 describe('A4 §3.137: создание массива из вызываемой процедуры', () => {

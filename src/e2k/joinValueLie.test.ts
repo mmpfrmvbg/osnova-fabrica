@@ -106,7 +106,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseV3 } from '../compiler-v3/index';
-import { loweredProgram } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { isLoweringRefusalCode } from './loweringRefusal';
@@ -319,7 +319,8 @@ function замерить(проба: Проба): Замер {
   const источник = программа(проба.тело);
   const разбор = parseV3(источник, ФАЙЛ);
   expect(разбор.errors, `разбор ${проба.имя}: ${JSON.stringify(разбор.errors)}`).toEqual([]);
-  const собран = loweredProgram(источник, {
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  const собран = loweredProgramUnchecked(источник, {
     filename: ФАЙЛ,
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
   });

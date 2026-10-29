@@ -29,7 +29,8 @@ import { describe, it, expect } from 'vitest';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { lowerCarrier } from './e2kRealRun';
 import { carrierFormOf, layoutOf, CALL_WBS, CALLEE_REGISTERS } from './twoPassLayout';
-import { imageOfCarriers, loweredProgram, shellCarriers } from './programImage';
+import { imageOfCarriers, shellCarriers } from './programImage';
+import { loweredProgram } from './lowered';
 import { allocateProgram } from './regAlloc';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
@@ -202,9 +203,18 @@ describe('вызов процедуры и возврат: адрес, форм�
     // конвейер растит окно в прологе вызывающей (носитель IR.window_grow) и зовёт с `wbs = 8`, а
     // возврат на глубине ≥ 2 идёт в порядке «return → значение → ct» — измерено `.tmp/osnova-mainAB.ts`
     // (V2 против V3: 9 против 7) и прогоном факториала (120, код 0).
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
     const recursion = loweredProgram(RECURSION);
-    expect(recursion.refused, 'рекурсия обязана понижаться без отказов').toEqual([]);
-    expect(recursion.bytes.length).toBeGreaterThan(0);
+    expect(
+      recursion.ок,
+      recursion.ок
+        ? 'рекурсия обязана понижаться без отказов'
+        : `рекурсия обязана понижаться без отказов: ${recursion.отказ.отказы
+            .map((запись) => запись.причина)
+            .join(' | ')}`,
+    ).toBe(true);
+    if (!recursion.ок) throw new Error(`понижение отказало: ${recursion.отказ.причина}`);
+    expect(recursion.значение.bytes.length).toBeGreaterThan(0);
 
     // Сторож ФОРМЫ роста окна: объявленная длина обязана совпасть с тем, что выдаёт понижение.
     // Разойдутся — адреса процедур за прологом уедут (класс §3.35), и это будет видно здесь.
@@ -235,7 +245,15 @@ describe('вызов процедуры и возврат: адрес, форм�
   печатать(7)
 конец_процедуры
 `;
-    expect(loweredProgram(single).refused, 'одиночная печать из процедуры обязана понижаться').toEqual([]);
+    const одиночная = loweredProgram(single);
+    expect(
+      одиночная.ок,
+      одиночная.ок
+        ? 'одиночная печать из процедуры обязана понижаться'
+        : `одиночная печать из процедуры обязана понижаться: ${одиночная.отказ.отказы
+            .map((запись) => запись.причина)
+            .join(' | ')}`,
+    ).toBe(true);
     const printing = `процедура печатать()
   система.лог.вывести(7)
   система.лог.вывести(8)
@@ -245,14 +263,25 @@ describe('вызов процедуры и возврат: адрес, форм�
   печатать()
 конец_процедуры
 `;
-    const refused = loweredProgram(printing).refused;
+    // Отказ здесь НАБЛЮДАЕТСЯ (граница ждёт причину текстом), но через ПУБЛИЧНУЮ диагностику
+    // `отказ.отказы`: байты под отказом не нужны, а дверь их и не отдаёт (D11).
+    const разделённая = loweredProgram(printing);
+    const refused = разделённая.ок ? [] : разделённая.отказ.отказы.map((запись) => ({ reason: запись.причина }));
     expect(refused.length, 'разделённая печать из процедуры отказана').toBeGreaterThan(0);
     expect(refused.map((item) => item.reason).join(' ')).toContain('ЗАФИКСИРОВАННАЯ ГРАНИЦА');
 
     // Контроль: ВЫЗОВ-ЛИСТ с арифметикой собирается без отказов — граница не «вызов вообще».
     const leaf = loweredProgram(CALLER_CALLEE);
-    expect(leaf.refused, 'вызов листовой процедуры обязан понижаться').toEqual([]);
-    expect(leaf.bytes.length).toBeGreaterThan(0);
+    expect(
+      leaf.ок,
+      leaf.ок
+        ? 'вызов листовой процедуры обязан понижаться'
+        : `вызов листовой процедуры обязан понижаться: ${leaf.отказ.отказы
+            .map((запись) => запись.причина)
+            .join(' | ')}`,
+    ).toBe(true);
+    if (!leaf.ок) throw new Error(`понижение отказало: ${leaf.отказ.причина}`);
+    expect(leaf.значение.bytes.length).toBeGreaterThan(0);
   });
 
   it('вызываемая перед точкой входа: поток без отказов, вызов получает адрес', () => {

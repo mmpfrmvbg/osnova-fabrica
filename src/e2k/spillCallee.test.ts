@@ -87,7 +87,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { loweredProgram } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { parseV3 } from '../compiler-v3/index';
@@ -137,7 +137,8 @@ function правый(n: number, вДействии: boolean): string {
 function понизить(источник: string, assumeArenaReserved = false): { отказы: readonly Отказ[]; байт: number } {
   const разбор = parseV3(источник, ФАЙЛ);
   expect(разбор.errors, 'разбор программы').toEqual([]);
-  const r = loweredProgram(источник, {
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  const r = loweredProgramUnchecked(источник, {
     filename: ФАЙЛ,
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
     assumeArenaReserved,
@@ -162,7 +163,8 @@ function исполнить(источник: string, имя: string): number | 
   expect(понижение.отказы, `непонижённые носители: ${понижение.отказы.map((о) => о.reason).join('; ')}`).toEqual([]);
   if (shim === undefined) return undefined;
   const разбор = parseV3(источник, ФАЙЛ);
-  const bytes = loweredProgram(источник, {
+  // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+  const bytes = loweredProgramUnchecked(источник, {
     filename: ФАЙЛ,
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
   }).bytes;

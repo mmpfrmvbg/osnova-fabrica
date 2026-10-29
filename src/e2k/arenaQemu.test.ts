@@ -29,7 +29,8 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY, buildElfFromCode } from './elfMinimal';
-import { HEAP_OFFSET, loweredProgram } from './programImage';
+import { HEAP_OFFSET } from './programImage';
+import { loweredProgram } from './lowered';
 import { ARENA_BASE, ARENA_BYTES, ARENA_LIMIT, ARENA_REFUSAL_CODE, ARENA_REFUSAL_TEXT } from './arenaRuntime';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { SHIM_REASON } from '../scripts/e2kProgramRun';
@@ -133,8 +134,12 @@ interface ArenaRun {
 
 /** Прогон с ТЕМ ЖЕ `extraMemory`, что назвал образ: арена лежит выше отображённых 8 КиБ. */
 function runArena(source: string, name: string): ArenaRun {
-  const image = loweredProgram(source);
-  expect(image.refused.map((item) => item.reason).join(' | '), `${name}: отказов понижения быть не должно`).toBe('');
+  // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+  const итог = loweredProgram(source);
+  const причины = итог.ок ? '' : итог.отказ.отказы.map((запись) => запись.причина).join(' | ');
+  expect(итог.ок, `${name}: отказов понижения быть не должно${итог.ок ? '' : ` — ${причины}`}`).toBe(true);
+  if (!итог.ок) throw new Error(`${name}: понижение отказало — ${причины}`);
+  const image = итог.значение;
   expect(image.arena.used, `${name}: образ обязан пользоваться ареной`).toBe(true);
   const elf = path.join(ROOT, '.tmp', `arena-${name}.elf`);
   fs.writeFileSync(
@@ -191,8 +196,11 @@ describe('АРЕНА НА ЦЕЛИ: выделение переживает пе
 
   it('РАЗЛИЧАЮЩАЯ ПАРА: те же строки на 20 байтах — статика, арены НЕТ', () => {
     if (shim === undefined) return;
-    const image = loweredProgram(CONCAT_FITS);
-    expect(image.refused.map((item) => item.reason).join(' | ')).toBe('');
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+    const итог = loweredProgram(CONCAT_FITS);
+    expect(итог.ок, итог.ок ? '' : итог.отказ.отказы.map((запись) => запись.причина).join(' | ')).toBe(true);
+    if (!итог.ок) throw new Error(`понижение отказало: ${итог.отказ.причина}`);
+    const image = итог.значение;
     expect(image.arena.used, 'двадцать байт — по-прежнему статический буфер').toBe(false);
     const elf = path.join(ROOT, '.tmp', 'arena-concat-fits.elf');
     fs.writeFileSync(
@@ -247,10 +255,23 @@ describe('АРЕНА НА ЦЕЛИ: выделение переживает пе
     // Сторож закреплённых чисел: расширение НЕ имеет права менять обычные программы. Отображение у
     // печатающей программы определяется ОБЛАСТЬЮ ЗАПИСИ (§3.91), и это не про арену: у программы без
     // записи вовсе отображение остаётся началом хвоста.
-    const plain = loweredProgram('процедура главная()\n  система.лог.вывести(7)\nконец_процедуры');
+    // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+    const plainИтог = loweredProgram('процедура главная()\n  система.лог.вывести(7)\nконец_процедуры');
+    expect(
+      plainИтог.ок,
+      plainИтог.ок ? '' : plainИтог.отказ.отказы.map((запись) => запись.причина).join(' | '),
+    ).toBe(true);
+    if (!plainИтог.ок) throw new Error(`понижение отказало: ${plainИтог.отказ.причина}`);
+    const plain = plainИтог.значение;
     expect(plain.arena.used).toBe(false);
     expect(plain.arena.extraMemory, 'печать — значит область записи').toBe(WRITE_ZONE_EXTRA_MEMORY);
-    const silent = loweredProgram('процедура главная()\n  пусть а = 1 + 1\nконец_процедуры');
+    const silentИтог = loweredProgram('процедура главная()\n  пусть а = 1 + 1\nконец_процедуры');
+    expect(
+      silentИтог.ок,
+      silentИтог.ок ? '' : silentИтог.отказ.отказы.map((запись) => запись.причина).join(' | '),
+    ).toBe(true);
+    if (!silentИтог.ок) throw new Error(`понижение отказало: ${silentИтог.отказ.причина}`);
+    const silent = silentИтог.значение;
     expect(silent.arena.used).toBe(false);
     expect(silent.arena.extraMemory, 'ничего не пишет — начало хвоста').toBe(HEAP_OFFSET);
   });

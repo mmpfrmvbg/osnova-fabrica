@@ -57,7 +57,8 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { HEAP_OFFSET, loweredProgram } from './programImage';
+import { HEAP_OFFSET } from './programImage';
+import { loweredProgram } from './lowered';
 import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 // Пробы написаны на v3-диалекте (`действие главная()`, `Список Число`) — тем же фронтендом, что
@@ -145,17 +146,28 @@ function образ(
 ): { readonly refused: readonly { readonly code: string; readonly reason: string }[]; readonly код: number | undefined } {
   const разбор = parseV3(источник, 'глубина2.osnova');
   expect(разбор.errors, 'разбор программы').toEqual([]);
-  const { bytes, refused, arena } = loweredProgram(источник, {
+  // ПОТРЕБИТЕЛЬ (D11): под отказом байтов нет — дверь отдаёт Результат<Образ, Отказ>.
+  // Отказы здесь НАБЛЮДАЮТСЯ (проверка 1 ждёт названный отказ кодом), но через ПУБЛИЧНУЮ диагностику
+  // `отказ.отказы` — код и причина; БАЙТЫ под отказом не нужны ни одной проверке.
+  const итог = loweredProgram(источник, {
     filename: 'глубина2.osnova',
     parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
   });
-  if (refused.length > 0) return { refused, код: undefined };
+  if (!итог.ок) {
+    return {
+      refused: итог.отказ.отказы.map((запись) => ({ code: запись.код, reason: запись.причина })),
+      код: undefined,
+    };
+  }
   const путь = path.join(ROOT, '.tmp', файл);
   fs.writeFileSync(
     путь,
-    buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: arena.extraMemory }).bytes,
+    buildElfFromCode(итог.значение.bytes, MINIMAL_BASE, {
+      writable: true,
+      extraMemory: итог.значение.arena.extraMemory,
+    }).bytes,
   );
-  return { refused, код: runInQemu(путь, { shim: true, timeoutMs: TIMEOUT_MS })?.status };
+  return { refused: [], код: runInQemu(путь, { shim: true, timeoutMs: TIMEOUT_MS })?.status };
 }
 
 describe('§3.137: запись в массив из вызываемой глубины 2 — минимальное репро петли', () => {

@@ -103,7 +103,7 @@ export function kernelStreamOf(name: string, atom: string): KernelStream {
   // `IR.invoke` к массивам требует БАЗЫ БЛОКА, которую выдаёт раскладка, — а без пометки процедур
   // базы не получал НИКТО, и все 22 обращения ядра отказывали (команд 263 → 103: мерилась не та
   // конфигурация, что выдаёт компилятор). Здесь повторено ровно то, что делает конвейер
-  // (`src/e2k/programImage.ts#loweredProgram`): процедуры с обращениями к массивам помечены, точке
+  // (`src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked`): процедуры с обращениями к массивам помечены, точке
   // входа — её пул, вызываемой — `CALLEE_REGISTERS`.
   const entryAt = entryProcedureIndex(emitted.scheduled.procedures);
   const arrayProcedures = emitted.scheduled.procedures
@@ -227,7 +227,7 @@ describe('замер: FIR через группировку', () => {
     // расширить кадр вызываемой (A1′, §3.125). Ни то, ни другое здесь не сделано.
     expect(FIR.commands.length, 'команд e2k после понижения').toBe(255);
     expect([...FIR.refusedCarriers.entries()], 'названные отказы понижения').toEqual([['IR.invoke', 8]]);
-    // Код `OSN-LOW-003` присваивает конвейер (`src/e2k/programImage.ts#loweredProgram`), а здесь
+    // Код `OSN-LOW-003` присваивает конвейер (`src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked`), а здесь
     // видно САМУ причину понижения — по ней код и ставится.
     expect(FIR.refusals.get('IR.invoke') ?? '', 'причина отказа').toContain('раскладка не выдала базу блока рантайма');
   });

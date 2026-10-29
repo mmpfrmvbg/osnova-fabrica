@@ -41,7 +41,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseV3 } from '../compiler-v3/index';
-import { loweredProgram } from './programImage';
+import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { getEncoder, toHex, type AsmInstruction, type Operand } from './backend';
@@ -162,7 +162,8 @@ describe('K5-форма: шестистрочное репро из задани
   it('отказов 0, и образ не пуст', () => {
     const р = parseV3(РЕПРО, ФАЙЛ);
     expect(р.errors, 'разбор репро').toEqual([]);
-    const образ = loweredProgram(РЕПРО, { filename: ФАЙЛ, parse: () => ({ ast: р.program ?? null, errors: р.errors }) });
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    const образ = loweredProgramUnchecked(РЕПРО, { filename: ФАЙЛ, parse: () => ({ ast: р.program ?? null, errors: р.errors }) });
     expect(образ.refused.map((отказ) => `${отказ.code}: ${отказ.reason}`), 'репро снова отказывает').toEqual([]);
     expect(образ.bytes.length, 'образ пуст').toBeGreaterThan(0);
   });
@@ -173,7 +174,8 @@ describe('K5-форма: модель — эталон посчитан ОТ Р�
   function образ(источник: string): Uint8Array | undefined {
     const р = parseV3(источник, ФАЙЛ);
     if (р.errors.length > 0) return undefined;
-    const собран = loweredProgram(источник, { filename: ФАЙЛ, parse: () => ({ ast: р.program ?? null, errors: р.errors }) });
+    // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
+    const собран = loweredProgramUnchecked(источник, { filename: ФАЙЛ, parse: () => ({ ast: р.program ?? null, errors: р.errors }) });
     if (собран.refused.length > 0) return undefined;
     return собран.bytes;
   }
