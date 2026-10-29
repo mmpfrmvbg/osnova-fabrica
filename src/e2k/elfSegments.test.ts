@@ -25,9 +25,24 @@
  * 5. Негативные контроли — на самом разборе, а не на словах: снять `PF_W` у данных → разбор
  *    обязан покраснеть; поставить `PF_W` коду → обязан покраснеть. Сторож, который не различает,
  *    выглядит зелёным так же, как работающий (`docs/verification-debt.md`, случай 22).
+ *
+ * # ЧТО ЭТОТ СТОРОЖ ПРОСМОТРЕЛ (найдено 2026-10-29 срезом A4-4 на ЖЕЛЕЗЕ)
+ *
+ * Проверка наложения сегментов тут БЫЛА с самого начала — но образец у неё был `new Uint8Array(64)`,
+ * то есть до границы страницы данных не доставал: `p_memsz` кончался на 0x100098, а данные
+ * начинаются на 0x110000. Между тем в образе СО СТАТИКОЙ код занимает ровно весь промежуток до
+ * данных (65536 байт), и попадавшие в сегмент МЕТАДАННЫЕ ELF (`symtab` 48 + `strtab` 10 +
+ * `shstrtab` 31 = 89 байт) уводили `p_memsz` за `DATA_SEGMENT_BASE` — сегменты накладывались.
+ * Модель наложение терпит, цель — нет: образы со статикой падали кодом **139**, в том числе записи
+ * корпуса 02 и 04, объявленные «работает» (замер `.tmp/a4s4-elf-fix.ts` + `.tmp/a4s4-iron4.sh`:
+ * зажатый сегмент → `fix_p4` 2, `fix_p1` 0 при выводе «привет»). Починено в `buildElfFromCode`
+ * (`p_filesz = p_memsz = длина кода`), а здесь образец доведён до границы И добавлен негативный
+ * контроль, возвращающий прежнюю геометрию.
  */
 import { describe, it, expect } from 'vitest';
 import { IMAGE_TAIL_OFFSET, IMAGE_TEXT_OFFSET, MINIMAL_BASE, buildElfFromCode } from './elfMinimal';
+import { loweredProgram } from './programImage';
+import { parseV3 } from '../compiler-v3/index';
 
 /** Размер страницы гостя. Подтверждён независимо: порт (`target/e2k/cpu-param.h`: `TARGET_PAGE_BITS 12`) и ядро (`arch/e2k/include/asm/page_size.h`: `E2K_4K_PAGE_SHIFT 12`). */
 const PAGE = 0x1000;
@@ -155,5 +170,51 @@ describe('ELF: два сегмента — код R|X и данные R|W', () =
     const dataPhdr = Number(view.getBigUint64(32, true)) + 56;
     view.setBigUint64(dataPhdr + 16, BigInt(WRITE_PAGE_BASE + PAGE), true);
     expect(segmentProblems(broken).join(' | '), 'данные не на своей странице').toMatch(/области записи/iu);
+  });
+
+  // ── ГРАНИЦА, КОТОРУЮ ПРЕЖНИЙ ОБРАЗЕЦ НЕ ДОСТАВАЛ (A4, срез 4, 2026-10-29) ──────────────────
+  /** Программа со СТАТИЧЕСКОЙ строкой: её образ занимает весь промежуток до страницы данных. */
+  const СТАТИКА = ['действие главная()', '  пусть с = "ба"', '  вернуть длина с', 'конец', ''].join('\n');
+
+  function образСтатики(): Uint8Array {
+    const разбор = parseV3(СТАТИКА, 'проба.osnova');
+    expect(разбор.errors, 'разбор программы').toEqual([]);
+    const { bytes: код, refused } = loweredProgram(СТАТИКА, {
+      filename: 'проба.osnova',
+      parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
+    });
+    expect(refused, `непонижённые носители: ${refused.map((item) => item.reason).join('; ')}`).toEqual([]);
+    return buildElfFromCode(код, MINIMAL_BASE).bytes;
+  }
+
+  it('СТАТИКА: образ со строковым литералом доходит ВПЛОТНУЮ до страницы данных — и годен', () => {
+    const соCтатикой = образСтатики();
+    const loads = segmentsOf(соCтатикой).filter((segment) => segment.type === PT_LOAD);
+    expect(loads[0]?.filesz, 'код со статикой занимает ровно промежуток до данных').toBe(WRITE_PAGE_BASE - MINIMAL_BASE);
+    expect(loads[0]?.memsz, 'p_memsz не больше кода').toBe(loads[0]?.filesz);
+    expect(
+      (loads[0]?.vaddr ?? 0) + (loads[0]?.memsz ?? 0),
+      'конец сегмента кода ровно на начале данных, а не за ним',
+    ).toBe(loads[1]?.vaddr);
+    expect(
+      segmentProblems(соCтатикой),
+      'образ со статикой обязан быть годен целиком: прежняя редакция давала тут наложение сегментов, ' +
+        'а цель — падение кодом 139',
+    ).toEqual([]);
+  });
+
+  it('НЕГАТИВНЫЙ КОНТРОЛЬ: вернуть метаданные ELF в сегмент кода — разбор обязан покраснеть', () => {
+    // 89 байт = `symtab` 48 + `strtab` 10 + `shstrtab` 31: ровно то, что лежит в файле ЗА кодом и
+    // попадало в сегмент до правки 2026-10-29.
+    const broken = Uint8Array.from(образСтатики());
+    const view = new DataView(broken.buffer);
+    const codePhdr = Number(view.getBigUint64(32, true));
+    const длинаКода = Number(view.getBigUint64(codePhdr + 32));
+    view.setBigUint64(codePhdr + 32, BigInt(длинаКода + 89), true);
+    view.setBigUint64(codePhdr + 40, BigInt(длинаКода + 89), true);
+    expect(
+      segmentProblems(broken).join(' | '),
+      'наложение сегментов обязано быть поймано ИМЕННО на образе со статикой',
+    ).toMatch(/накладываются/iu);
   });
 });
