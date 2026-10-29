@@ -429,12 +429,30 @@ export function allocateProgram(
      * (его окно — `%b[0..15]`). Это и есть бюджет вызываемой.
      */
     readonly freeFor?: (procedureIndex: number) => readonly number[] | undefined;
+    /**
+     * ВЫДАТЬ ВИД ПОТОКА ДЛЯ АНАЛИЗА по каждой процедуре — тот самый поток, по которому считаются живость
+     * и отрезки (после снятия копий, размножения констант и пересчёта целей переходов в индексы ЭТОГО
+     * потока).
+     *
+     * Зачем снаружи. Носители записаны в индексах потока МОДУЛЯ, а цели переходов раскладка пересчитывает
+     * ВНУТРИ (см. `remapJumpTargets`): сторож, спросивший поток носителей напрямую, спрашивал бы не тот
+     * граф — в корпусе **24 примера из 47** снимают хотя бы одну копию. Поэтому сторож доминирования
+     * (`src/e2k/domination.ts`, срез 5д) берёт граф ОТСЮДА, а не собирает его вторым способом.
+     *
+     * На раскладку не влияет вовсе: без флага не собирается ничего, с флагом — только ссылки на уже
+     * построенные потоки.
+     */
+    readonly collectAnalysis?: boolean;
   } = {},
 ): {
   readonly instructions: readonly AsmInstruction[];
   readonly procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[];
   readonly report: readonly ProcedureAllocation[];
   readonly removedCopies: number;
+  /**
+   * Вид потока для анализа по процедурам — пусто, если {@link collectAnalysis} не запрошен.
+   */
+  readonly analysis: readonly { readonly procedure: string; readonly instructions: readonly AsmInstruction[] }[];
   /** Сколько определений констант размножено (§7.12 docs/e2k-opcodes-real.md). */
   readonly materializedConstants: number;
   /**
@@ -447,6 +465,8 @@ export function allocateProgram(
   const result: AsmInstruction[] = [];
   const rewrittenProcedures: { name: string; codeOffset: number; vregs: number }[] = [];
   const report: ProcedureAllocation[] = [];
+  /** Вид потока для анализа — только по запросу (`collectAnalysis`), см. объявление ручки. */
+  const analysis: { procedure: string; instructions: readonly AsmInstruction[] }[] = [];
   // «Старый индекс потока модуля → новый»: по нему пересчитываются цели переходов ПОСЛЕ сборки.
   const movedTo = new Map<number, number>();
   const spillPlan: SpillOptions = options.spill ?? { base: DEFAULT_SPILL_BASE };
@@ -581,6 +601,9 @@ export function allocateProgram(
     // не трогает (они не регистры). Поэтому вид — ОТДЕЛЬНЫЙ массив, а не замена потока: иначе карта
     // «модуль → поток» перестала бы совпадать с тем, что лежит в потоке.
     const analysisView = remapJumpTargets(stream, streamIndexOf);
+    // СТОРОЖАМ — тот же граф, что раскладке: носители записаны в индексах МОДУЛЯ, цели пересчитаны
+    // ЗДЕСЬ, и сторож, собравший граф по носителям, спросил бы не то (см. `collectAnalysis`).
+    if (options.collectAnalysis === true) analysis.push({ procedure: procedure.name, instructions: analysisView.instructions });
     const liveness = liveIntervalsOf(analysisView.instructions);
     const incoming = incomingRegisters(stream);
     // ПАРАМЕТРЫ — ЗАКРЕПЛЕНЫ СОГЛАШЕНИЕМ, а не живостью: `i`-й аргумент вызывающий положил в
@@ -759,6 +782,7 @@ export function allocateProgram(
     removedCopies,
     materializedConstants,
     arrayBases,
+    analysis,
   };
 }
 /** Итог раскладки по отрезкам: либо она есть (с вытесненными значениями), либо отказ с причиной. */
