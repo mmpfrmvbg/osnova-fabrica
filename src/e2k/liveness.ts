@@ -420,7 +420,11 @@ export function mergeLoopCarriedSegments(
         if (!atTarget || covering.length <= 1) continue;
         const start = Math.min(...covering.map((segment) => segment.start));
         const end = Math.max(...covering.map((segment) => segment.end));
-        if (covering.length === 1 && covering[0]!.start === start && covering[0]!.end === end) continue;
+        // Здесь стояла проверка `covering.length === 1 && …` — НЕДОСТИЖИМАЯ: выше `covering.length <= 1`
+        // уже продолжает цикл, поэтому длина здесь всегда ≥ 2, и условие не могло выполниться никогда.
+        // Убрана в 5г (задача 4) вместе с перемером приёмки; долг «недостижимая строка» закрыт —
+        // `docs/verification-debt.md`. Замена её на `>` или на `atTarget` была бы ПОСЛАБЛЕНИЕМ, а не
+        // уборкой: мёртвое условие не защищало ничего.
         current = current.filter((segment) => !covering.includes(segment));
         current.push({ vreg, start, end });
         changed = true;
