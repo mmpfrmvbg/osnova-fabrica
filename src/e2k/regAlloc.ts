@@ -626,7 +626,7 @@ export function allocateProgram(
     // (`.tmp/negative-cfg.ts`, контроль B). Отрезков у `фильтр` при этом 37, после слияния — 24.
     // Слияние соединяет такие отрезки ОДНОГО vreg в один — и только их.
     // Смещение среза здесь 0: `analysisView` уже в координатах потока (см. выше), а не модуля.
-    const segments = mergeLoopCarriedSegments(cfg.segments, analysisView.instructions, 0);
+    const segments = mergeLoopCarriedSegments(cfg.segments, analysisView.instructions, 0, cfg.liveIn);
     // Переносимые через дугу — те, у кого слияние соединило отрезки: у них было БОЛЬШЕ отрезков,
     // чем стало. Их вытеснение дороже: добавленные обращения к памяти исполняются на каждом витке,
     // и цена это учитывает (`src/vliw/spill.ts`, `LOOP_CARRIED_PENALTY`).

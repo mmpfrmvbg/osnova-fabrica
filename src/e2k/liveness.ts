@@ -358,10 +358,34 @@ export function mergeLoopCarriedSegments(
   segments: readonly LiveInterval[],
   instructions: readonly AsmInstruction[],
   codeOffset = 0,
+  /**
+   * Живые на входе каждой инструкции — по ГРАФУ (`src/vliw/cfg.ts#cfgLiveSets`). Необязательны: не
+   * передали — считаются здесь же. Раскладка передаёт свои (`cfgSegmentsOf` их уже посчитал), чтобы не
+   * считать живость дважды на одной процедуре.
+   */
+  liveIn?: readonly (readonly number[])[],
 ): LiveInterval[] {
   const loops: { readonly from: number; readonly to: number }[] = [];
-  /** Прямые дуги: переход `at` → цель `target`, и что цель на этом пути ЧИТАЕТ. */
-  const forward: { readonly at: number; readonly target: number; readonly used: readonly number[] }[] = [];
+  /**
+   * Прямые дуги: переход `at` → цель `target`, и ЧТО НУЖНО НА ЦЕЛИ.
+   *
+   * # Почему `liveIn[target]`, а не `use` целевой КОМАНДЫ (срез 5д, случай 60)
+   *
+   * Прежняя редакция смотрела на `defUseOf(instructions[target]).use` — то есть сшивала отрезки, только
+   * если цель читает vreg НА САМОЙ ПЕРВОЙ КОМАНДЕ. Это не то же самое, что «значение нужно на цели»:
+   * переменная, определённая ВНУТРИ ветви и прочитанная ПОСЛЕ неё, целевой команды не касается вовсе,
+   * её отрезки остаются разъехавшимися, и цель читает клетку, где на ребре «тело пропущено» лежит
+   * ДРУГОЕ значение. Измерено (проба E, `.tmp/a5g-lie5-hunt.ts`): модель **107** при эталоне 100,
+   * отказов НОЛЬ, утечка равна первому терму. Сторож — `src/e2k/domination.ts`.
+   *
+   * Живость на входе цели — ровно «значение нужно на этом пути»: `liveIn = use ∪ (liveOut − def)`,
+   * поэтому она включает и `use` целевой команды (прежнее поведение — частный случай), и чтения
+   * дальше по пути. Шире прежнего правило НЕ становится по последствиям: новый отрезок появляется
+   * только там, где отрезки РАЗЪЕХАЛИСЬ (там, где один отрезок накрывает и переход, и цель, слияние
+   * ничего не меняет). Замер: в корпусе таких мест **ноль** (`docs/hardware-debt.md` §3.144), у
+   * лексера — два.
+   */
+  const forward: { readonly at: number; readonly target: number }[] = [];
   instructions.forEach((instruction, at) => {
     if (instruction.mnemonic !== 'IR.jmp' && instruction.mnemonic !== 'IR.jmp_if' && instruction.mnemonic !== 'IR.jmp_if_not') return;
     const operand = instruction.operands[instruction.mnemonic === 'IR.jmp' ? 0 : 1];
@@ -372,11 +396,15 @@ export function mergeLoopCarriedSegments(
       loops.push({ from: target, to: at });
       return;
     }
-    const targetInstruction = instructions[target];
-    if (targetInstruction === undefined) return;
-    forward.push({ at, target, used: defUseOf(targetInstruction).use });
+    forward.push({ at, target });
   });
   if (loops.length === 0 && forward.length === 0) return [...segments];
+  // Ставим «что нужно на цели» ПОСЛЕ обхода: живость нужна, только если прямые дуги вообще есть.
+  const живыеНаВходе = liveIn ?? (forward.length === 0 ? undefined : cfgLiveSets(instructions, { defUse: defUseOf }).liveIn);
+  const needed = forward.map((edge) => ({
+    ...edge,
+    used: живыеНаВходе?.[edge.target] ?? defUseOf(instructions[edge.target]!).use,
+  }));
   const byVreg = new Map<number, LiveInterval[]>();
   for (const segment of segments) {
     const list = byVreg.get(segment.vreg) ?? [];
@@ -386,7 +414,7 @@ export function mergeLoopCarriedSegments(
   const merged: LiveInterval[] = [];
   for (const [vreg, list] of [...byVreg].sort((a, b) => a[0] - b[0])) {
     const carried = list.filter((segment) => loops.some((loop) => segment.start <= loop.to && loop.to <= segment.end));
-    const crossesForward = forward.some((edge) => edge.used.includes(vreg));
+    const crossesForward = needed.some((edge) => edge.used.includes(vreg));
     if (carried.length === 0 && !crossesForward) {
       merged.push(...list);
       continue;
@@ -406,7 +434,7 @@ export function mergeLoopCarriedSegments(
         current.push({ vreg, start, end });
         changed = true;
       }
-      for (const edge of forward) {
+      for (const edge of needed) {
         if (!edge.used.includes(vreg)) continue;
         // Сливаем ровно два отрезка: накрывающий ПЕРЕХОД (значение, уносимое дугой) и накрывающий ЦЕЛЬ
         // (клетка, которую цель прочтёт). Промежуток между ними в объединение входит — иначе не выйдет
@@ -454,9 +482,14 @@ export function mergeLoopCarriedSegments(
 export function cfgSegmentsOf(instructions: readonly AsmInstruction[]): {
   readonly segments: readonly LiveInterval[];
   readonly liveOut: readonly (readonly number[])[];
+  /**
+   * Живые на входе инструкций — рядом с отрезками, чтобы слияние через дугу (mergeLoopCarriedSegments)
+   * не считало живость ВТОРОЙ раз на той же процедуре (срез 5д: правило слияния спрашивает живость цели).
+   */
+  readonly liveIn: readonly (readonly number[])[];
 } {
   const sets = cfgLiveSets(instructions, { defUse: defUseOf });
-  return { segments: cfgRanges(instructions, { defUse: defUseOf }), liveOut: sets.liveOut };
+  return { segments: cfgRanges(instructions, { defUse: defUseOf }), liveOut: sets.liveOut, liveIn: sets.liveIn };
 }
 
 /**
