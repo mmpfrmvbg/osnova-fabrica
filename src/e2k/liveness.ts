@@ -330,17 +330,29 @@ export function liveSegmentsOf(instructions: readonly AsmInstruction[]): LiveInt
 }
 
 /**
- * Пересекаются ли интервалы. Соприкосновение на одной команде считается пересечением: если одно
- * значение определяется там, где другое читается, регистр обязан быть разным (иначе чтение
- * получит новое значение).
- */
-/**
- * Слить отрезки жизни, переносящие значение через обратную дугу (цикл).
+ * Слить отрезки жизни, переносящие значение через ДУГУ.
  *
  * Отрезок жизни — величина линейная, и раскладка считает два отрезка неконфликтующими, если они не
- * пересекаются по индексам. В цикле это неверно: значение, живое в заголовке, живо на каждом витке,
- * поэтому регистр, отданный другому значению внутри тела, затирает его между двумя чтениями.
- * Измерено (docs/e2k-regalloc-debt.md): цикл по массиву возвращал 8 вместо 36, цикл суммы зависал.
+ * пересекаются по индексам. Через дугу это неверно, и дыра тут была ОДНА — дуга ОБРАТНАЯ:
+ *
+ * * **обратная дуга (цикл):** значение, живое в заголовке, живо на каждом витке, поэтому регистр,
+ *   отданный другому значению внутри тела, затирает его между двумя чтениями. Измерено
+ *   (`docs/e2k-regalloc-debt.md`): цикл по массиву возвращал 8 вместо 36, цикл суммы зависал.
+ * * **прямая дуга (короткое замыкание `и`, любое ветвление вперёд):** отрезки одного vreg разделены
+ *   пропущенным промежутком, потому что на пути ПРЫЖКА значение там мертво. Раскладка вправе дать таким
+ *   отрезкам РАЗНЫЕ клетки — они не пересекаются! — а цель читает клетку, которую пишет ПРОПУЩЕННАЯ
+ *   ветвь: тихая ложь (K8 давал 58 вместо 10 при нуле отказов; §3.142.3, случай 55).
+ *
+ * Поэтому правило одно на обе дуги: **значение, приходящее на цель по дуге, обязано лежать в клетке,
+ * которую цель прочтёт**. Для прямой дуги это значит: отрезок, накрывающий ПЕРЕХОД, и отрезок,
+ * накрывающий ЦЕЛЬ, обязаны быть одним отрезком — для каждого vreg, ЧИТАЕМОГО на цели (у цели в
+ * `use`). Слияние только нужных отрезков, а не всей пропущенной области, — намеренно: давление растёт
+ * ровно там, где иначе теряется значение.
+ *
+ * Прямая дуга смотрит на `use` цели, а не только на живость: если цель vreg не читает, значение через
+ * эту дугу никому не нужно, и сливать нечего (иначе «на всякий случай» слились бы почти все ветвления
+ * корпуса). Цикл же остаётся прежним, широким: там значение живо на КАЖДОМ витке, и сузить правило до
+ * одного чтения значило бы сломать FIR (замер `.tmp/cfg-experiment.ts`: без слияния FIR 8 вместо 181).
  */
 export function mergeLoopCarriedSegments(
   segments: readonly LiveInterval[],
@@ -348,15 +360,23 @@ export function mergeLoopCarriedSegments(
   codeOffset = 0,
 ): LiveInterval[] {
   const loops: { readonly from: number; readonly to: number }[] = [];
+  /** Прямые дуги: переход `at` → цель `target`, и что цель на этом пути ЧИТАЕТ. */
+  const forward: { readonly at: number; readonly target: number; readonly used: readonly number[] }[] = [];
   instructions.forEach((instruction, at) => {
     if (instruction.mnemonic !== 'IR.jmp' && instruction.mnemonic !== 'IR.jmp_if' && instruction.mnemonic !== 'IR.jmp_if_not') return;
     const operand = instruction.operands[instruction.mnemonic === 'IR.jmp' ? 0 : 1];
     if (operand === undefined || operand.kind !== 'imm' || !Number.isInteger(operand.value)) return;
     const target = operand.value - codeOffset;
-    if (target < 0 || target > at || target >= instructions.length) return;
-    loops.push({ from: target, to: at });
+    if (target < 0 || target >= instructions.length || target === at) return;
+    if (target < at) {
+      loops.push({ from: target, to: at });
+      return;
+    }
+    const targetInstruction = instructions[target];
+    if (targetInstruction === undefined) return;
+    forward.push({ at, target, used: defUseOf(targetInstruction).use });
   });
-  if (loops.length === 0) return [...segments];
+  if (loops.length === 0 && forward.length === 0) return [...segments];
   const byVreg = new Map<number, LiveInterval[]>();
   for (const segment of segments) {
     const list = byVreg.get(segment.vreg) ?? [];
@@ -366,7 +386,8 @@ export function mergeLoopCarriedSegments(
   const merged: LiveInterval[] = [];
   for (const [vreg, list] of [...byVreg].sort((a, b) => a[0] - b[0])) {
     const carried = list.filter((segment) => loops.some((loop) => segment.start <= loop.to && loop.to <= segment.end));
-    if (carried.length === 0) {
+    const crossesForward = forward.some((edge) => edge.used.includes(vreg));
+    if (carried.length === 0 && !crossesForward) {
       merged.push(...list);
       continue;
     }
@@ -380,6 +401,25 @@ export function mergeLoopCarriedSegments(
         if (atBackEdge.length === 0) continue;
         const start = Math.min(...covering.map((segment) => segment.start), loop.from);
         const end = Math.max(...covering.map((segment) => segment.end), loop.to);
+        if (covering.length === 1 && covering[0]!.start === start && covering[0]!.end === end) continue;
+        current = current.filter((segment) => !covering.includes(segment));
+        current.push({ vreg, start, end });
+        changed = true;
+      }
+      for (const edge of forward) {
+        if (!edge.used.includes(vreg)) continue;
+        // Сливаем ровно два отрезка: накрывающий ПЕРЕХОД (значение, уносимое дугой) и накрывающий ЦЕЛЬ
+        // (клетка, которую цель прочтёт). Промежуток между ними в объединение входит — иначе не выйдет
+        // одного отрезка, — но ничего сверх этого не захватывается.
+        const covering = current.filter(
+          (segment) =>
+            (segment.start <= edge.at && edge.at <= segment.end) ||
+            (segment.start <= edge.target && edge.target <= segment.end),
+        );
+        const atTarget = covering.some((segment) => segment.start <= edge.target && edge.target <= segment.end);
+        if (!atTarget || covering.length <= 1) continue;
+        const start = Math.min(...covering.map((segment) => segment.start));
+        const end = Math.max(...covering.map((segment) => segment.end));
         if (covering.length === 1 && covering[0]!.start === start && covering[0]!.end === end) continue;
         current = current.filter((segment) => !covering.includes(segment));
         current.push({ vreg, start, end });
@@ -415,6 +455,11 @@ export function cfgSegmentsOf(instructions: readonly AsmInstruction[]): {
   return { segments: cfgRanges(instructions, { defUse: defUseOf }), liveOut: sets.liveOut };
 }
 
+/**
+ * Пересекаются ли интервалы. Соприкосновение на одной команде считается пересечением: если одно
+ * значение определяется там, где другое читается, регистр обязан быть разным (иначе чтение
+ * получит новое значение).
+ */
 export function overlaps(a: LiveInterval, b: LiveInterval): boolean {
   return a.start <= b.end && b.start <= a.end;
 }
