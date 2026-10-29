@@ -132,8 +132,8 @@ export const WRITE_PAGE_BYTES = 0x1000;
  * возвратов со значением (`IR.ret` с флагом). Считать возвраты по тексту программы нельзя:
  * «вернуть» может быть записан по-разному, а носитель один и тот же.
  */
-export function shellCarriers(source: string): readonly AsmInstruction[] {
-  return shellOf(source).instructions;
+export function shellCarriers(source: string, options: CompileOptions = {}): readonly AsmInstruction[] {
+  return shellOf(source, options).instructions;
 }
 
 /**
