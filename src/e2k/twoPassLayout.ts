@@ -75,7 +75,15 @@ import { arenaCarrierInstructions, isArenaCarrier } from "./arenaRuntime";
 import { syscallFrameOfCarrier } from "./printCall";
 import {
   CT_COND_ALWAYS, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE, isShortImmediate } from "./e2k-real";
-import { comparisonMnemonicOf, isMaterializingComparison, pairPredicates } from "./predicatePairing";
+import {
+  PREDICATE_FOR_PAIRS,
+  VALUE_BRANCH_COMPARISON,
+  comparisonMnemonicOf,
+  isMaterializingComparison,
+  isValueBranchJump,
+  pairPredicates,
+} from "./predicatePairing";
+
 import {
   ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
@@ -880,6 +888,26 @@ function carrierFormWithReason(
       },
     };
   }
+  // ПЕРЕХОД, ВЕТВЯЩИЙСЯ ПО ЗНАЧЕНИЮ (A4, срез 5г): у «склейки» с двумя разными рёбрами длина не двух
+  // команд, а трёх — `disp` и `ct` плюс сравнение значения с нулём (`cmpesb`). Признак — пометка
+  // сопоставления (`pairPredicates`), она же читается понижением, поэтому форма и байты — из ОДНОГО
+  // решения. Порядок команд тот же, что у `valueBranchJumpCommands`: смещение ПЕРВОЙ командой, иначе
+  // `secondPass` отсчитывал бы его не от начала носителя.
+  if (CONDITIONAL_JUMP_CARRIERS.includes(instruction.mnemonic) && isValueBranchJump(instruction)) {
+    const jumpForm = carrierForm(instruction.mnemonic);
+    const compareForm = carrierForm(VALUE_BRANCH_COMPARISON);
+    if (jumpForm === undefined || compareForm === undefined) return {};
+    const displacement = jumpForm.commands[0];
+    const branch = jumpForm.commands[1];
+    const compare = compareForm.commands[0];
+    if (displacement === undefined || branch === undefined || compare === undefined) return {};
+    return {
+      form: {
+        carrier: instruction.mnemonic,
+        commands: [displacement, compare, branch],
+      },
+    };
+  }
   if (instruction.mnemonic === 'IR.call') return callForm(instruction);
   if (instruction.mnemonic === 'IR.ret') return retForm(instruction, context.procedureReturn === true);
   if (instruction.mnemonic !== 'IR.invoke') {
@@ -1263,6 +1291,42 @@ export function jumpCommands(disp: number, condition: number = CT_COND_ALWAYS): 
   return [
     { mnemonic: "disp", channel: 0, operands: [imm(JUMP_CTPR), imm(disp)] },
     { mnemonic: "ct", channel: 0, operands: [imm(JUMP_CTPR), imm(condition)] },
+  ];
+}
+
+/**
+ * Команды перехода, ветвящегося ПО ЗНАЧЕНИЮ — «склейки» с двумя разными рёбрами (A4, срез 5г).
+ *
+ * ```
+ * disp %ctpr1, <смещение>          адрес цели — ПЕРВОЙ командой (так его считает `secondPass`)
+ * cmp esb <значение>, <НОЛЬ>, %pred «значение равно нулю» — предикат из значения
+ * ct   %ctpr1, ? %pred             скачок, когда значение равно нулю
+ * ```
+ *
+ * `cmpesb` — табличное «равно» (`comparisonMnemonicOf`), поэтому предикат истинен ровно при
+ * `значение == 0`: `jmp_if_not` скачет по нему (`CTC OND_PRED`), `jmp_if` — по инверсному
+ * (`CTC OND_NEG_PRED`). Код условия строит понижение (оно знает имя носителя), раскладка берёт
+ * только ФОРМУ — как у всякой пары.
+ *
+ * ПОРЯДОК КОМАНД НЕ СЛУЧАЕН: `disp` остаётся первым, иначе `secondPass` отсчитывал бы смещение от
+ * команды сравнения. Расстояние `disp` → `ct` здесь на одну команду больше обычного, и для пары
+ * `disp`/`ct` это безразлично: обе — отдельные команды, а `ctpr` живёт между ними.
+ */
+export function valueBranchJumpCommands(
+  disp: number,
+  value: Operand,
+  zero: Operand,
+  condition: number,
+): readonly AsmInstruction[] {
+  const [displacement, branch] = jumpCommands(disp, condition);
+  return [
+    displacement!,
+    {
+      mnemonic: comparisonMnemonicOf(VALUE_BRANCH_COMPARISON)!.mnemonic,
+      channel: 0,
+      operands: [value, zero, { kind: "pred", index: PREDICATE_FOR_PAIRS }],
+    },
+    branch!,
   ];
 }
 

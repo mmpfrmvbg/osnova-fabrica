@@ -62,11 +62,11 @@
 import type { AsmInstruction, Encoder, Operand } from "./backend";
 import { sameInstruction } from "./backend";
 import { CT_COND_ALWAYS, REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from "./e2k-real";
-import { CALL_WBS, CALLEE_REGISTERS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
+import { CALL_WBS, CALLEE_REGISTERS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, valueBranchJumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { callArgumentOperands } from "./shell";
 import { MAX_CALL_ARGS } from "./emitterShell";
 import { LOAD_CARRIER, STORE_CARRIER, loadInstructions, storeInstructions } from "./memoryAccess";
-import { comparisonMnemonicOf, isMaterializingComparison, pairPredicates, PREDICATE_FOR_PAIRS } from "./predicatePairing";
+import { CTCOND_NEG_PRED, CTCOND_PRED, comparisonMnemonicOf, isMaterializingComparison, isValueBranchJump, pairPredicates, PREDICATE_FOR_PAIRS } from "./predicatePairing";
 import {
   lowerArrayCall,
   arraySlotPrologue,
@@ -961,6 +961,45 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
 
   if (CONDITIONAL_JUMP_CARRIERS.includes(instruction.mnemonic)) {
     const displacement = context.displacement;
+    // ПЕРЕХОД, ВЕТВЯЩИЙСЯ ПО ЗНАЧЕНИЮ (A4, срез 5г): «склейка» с двумя разными рёбрами. Предикат
+    // своего сравнения здесь не читается вовсе — он делается из ЗНАЧЕНИЯ командой `cmpesb значение,
+    // НОЛЬ`. Ноль — постоянная, равная нулю ПО ПОСТРОЕНИЮ: клетка точки входа занулена её прологом
+    // (`arrayPrologue`) и раскладке не выдаётся (`RESERVED_REGISTERS`).
+    if (isValueBranchJump(instruction)) {
+      if (displacement === undefined) return failureOf(LOWERING_CODES.layout, JUMP_NEEDS_LAYOUT);
+      const value = instruction.operands[0];
+      if (value === undefined || value.kind !== "reg") {
+        return failureOf(
+          LOWERING_CODES.carrier,
+          `«${instruction.mnemonic}»: условие не регистр — значение, по которому ветвится склейка, ` +
+            "взять негде",
+        );
+      }
+      if (context.inCallee === true) {
+        return failureOf(
+          LOWERING_CODES.layout,
+          `«${instruction.mnemonic}»: «склейка» короткого замыкания, ветвящаяся ПО ЗНАЧЕНИЮ, в ` +
+            "ВЫЗЫВАЕМОЙ процедуре: ветвление требует сравнения значения с НУЛЁМ, а клетки, равной " +
+            `нулю по построению, в плоскости вызываемой нет (ноль точки входа %b[${String(ARRAY_REGISTERS.zero)}] ` +
+            "там чужая клетка, а %b[12] вызываемой раскладка выдаёт под значения). Отказ честный: " +
+            "без нуля предикат из значения не сделать, и переход ветвился бы не туда молча",
+        );
+      }
+      // `jmp_if_not` скачет, когда значение РАВНО нулю (`cmpesb` — предикат «равно»), `jmp_if` —
+      // когда не равно: отсюда `0x40` и `0x60`. Перевёрнутость сравнения здесь ни при чём — она уже
+      // учтена материализацией, которая положила в регистр само булево значение.
+      const condition =
+        (instruction.mnemonic === "IR.jmp_if_not" ? CTCOND_PRED : CTCOND_NEG_PRED) | PREDICATE_FOR_PAIRS;
+      return {
+        ok: true,
+        instructions: valueBranchJumpCommands(
+          displacement,
+          value,
+          reg(ARRAY_REGISTERS.zero),
+          condition,
+        ),
+      };
+    }
     const condition = context.condition;
     if (displacement === undefined || condition === undefined) {
       return failureOf(

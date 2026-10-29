@@ -1,0 +1,1 @@
+{"version":1,"moduleName":"Кодоген","constants":[1,2,3],"procedures":[{"name":"главная","codeOffset":0,"argc":0,"localsCount":0}],"code":[{"op":"const","type":"i32","k":0},{"op":"const","type":"i32","k":1},{"op":"const","type":"i32","k":2},{"op":"mul"},{"op":"add"},{"op":"ret"}]}

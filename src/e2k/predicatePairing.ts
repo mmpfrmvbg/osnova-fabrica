@@ -102,6 +102,45 @@ export function isMaterializingComparison(instruction: AsmInstruction): boolean 
   return MATERIALIZING.has(instruction);
 }
 
+/**
+ * Условные переходы, которые ветвятся **ПО ЗНАЧЕНИЮ, а не по предикату** — «склейка» короткого
+ * замыкания, у которой два ребра означают разное (A4, срез 5г).
+ *
+ * Ставит пометку {@link pairPredicates} (там же, где решается судьба пары), читают понижение и
+ * раскладка. Тождество, а не поле носителя — по той же причине, что у {@link MATERIALIZING}: поток
+ * раскладки и понижения — один и тот же массив объектов.
+ *
+ * # Почему предикатом это не выражается
+ *
+ * Цель «склейки» — САМ условный переход, стоящий в паре со своим сравнением. На ребре, взятом
+ * ПЕРВЫМ переходом, регистр несёт значение **первого** терма, на ребре провала — значение
+ * **второго**; предикат же у `ct` один. Если миры расходятся (`takenEdgeProblem`, `kind: "join"`),
+ * один `ct` означает на двух рёбрах РАЗНОЕ — измерено: `если A и B` при ложном `A` возвращало `7`
+ * вместо `3`.
+ *
+ * # Чем заменяется
+ *
+ * Оба сравнения материализуются (`MATERIALIZING`), поэтому на ОБОИХ рёбрах в регистре лежит булево
+ * значение ВСЕЙ склейки, и переход ветвится по нему: `cmpesb значение, НОЛЬ` пишет предикат «значение
+ * равно нулю», а `ct` читает уже его. Ноль берётся из клетки, которая нулю равна **по построению**:
+ * `%b[12]` точки входа занулён её прологом (`arrayPrologue`) и раскладке не выдаётся
+ * (`RESERVED_REGISTERS`). В плоскости ВЫЗЫВАЕМОЙ такой клетки нет — её `%b[12]` раскладке выдаётся
+ * (`CALLEE_REGISTERS`), поэтому там переход остаётся **названным отказом** понижения, а не догадкой.
+ */
+const VALUE_BRANCH_JUMP = new WeakSet<AsmInstruction>();
+
+/** Ветвится ли этот условный переход по значению (см. {@link VALUE_BRANCH_JUMP}). */
+export function isValueBranchJump(instruction: AsmInstruction): boolean {
+  return VALUE_BRANCH_JUMP.has(instruction);
+}
+
+/**
+ * Носитель сравнения, которым склейка-по-значению делает предикат из значения: `cmpesb значение,
+ * НОЛЬ` — «значение равно нулю». Отдельная константа, а не литерал в двух местах: форму этой команды
+ * берёт раскладка, а байты — понижение, и они обязаны быть одной и той же командой.
+ */
+export const VALUE_BRANCH_COMPARISON = "IR.eq";
+
 /** Код условия «по предикату» (`CTC OND_PRED`): передать, когда предикат истинен. */
 export const CTCOND_PRED = 0x40;
 
@@ -412,31 +451,35 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
   //
   // Составленная пара ещё не значит верная: если цель перехода читает регистр-результат, значение
   // течёт по ребру, а предикат его не несёт. Проверка идёт ПОСЛЕ составления (нужны условия ВСЕХ
-  // пар: «склейка» сравнивает два мира) и ДО перехода осиротевших — отвергнутый переход обязан
-  // получить свой отказ ниже, а не остаться молча непонижённым.
+  // пар: «склейка» сравнивает два мира) и ДО перехода осиротевших — переход обязан получить свой
+  // отказ ниже, а не остаться молча непонижённым.
   //
-  // ЦИКЛ ДО НЕПОДВИЖНОЙ ТОЧКИ: снятая пара перестаёт быть «склейкой», и пара, которая на неё
-  // опиралась, обязана быть перепроверена. Пар становится меньше на каждом обходе, поэтому цикл
-  // конечен. (Замер: без этого цепочка `#256 → #257` глушила проверку `#250 → #251` — 2 пары
-  // оставались незвучными, и это видно в `.tmp/k5-precise-impact.ts`.)
+  // ЦИКЛА ДО НЕПОДВИЖНОЙ ТОЧКИ ЗДЕСЬ БОЛЬШЕ НЕТ, и это свойство, а не пропуск: прежде единственная
+  // ветвь СНИМАЛА пару, поэтому пара, опиравшаяся на снятую «склейку», обязана была перепроверяться
+  // (замер: цепочка `#256 → #257` глушила проверку `#250 → #251`, `.tmp/k5-precise-impact.ts`).
+  // Теперь обе ветви только СТАВЯТ пометки и не трогают ни `pairs`, ни `pairByJump`, а сам вердикт
+  // (`takenEdgeProblem`) пометок не читает — значит исход не зависит от порядка обхода, и одного
+  // прохода достаточно. Отказ здесь по-прежнему возможен, но приходит он из ДРУГОГО места: носитель,
+  // которому понижение не может выдать нужную форму (вызываемая плоскость — `VALUE_BRANCH_JUMP`).
   const pairByJump = new Map(pairs.map((pair) => [pair.jumpIndex, pair]));
-  for (let dropped = true; dropped; ) {
-    dropped = false;
-    for (const pair of [...pairs]) {
-      const problem = takenEdgeProblem(instructions, pair, pairByJump);
-      if (problem === undefined) continue;
-      // ЗНАЧЕНИЕ, нужное КАК ЗНАЧЕНИЕ: пара не снимается — сравнение материализует результат.
-      // Иначе на ребре взятого перехода цель читала бы мусор (срез 5: `7` вместо `3`).
-      if (problem.kind === "value") {
-        materialize.add(pair.comparisonIndex);
-        continue;
-      }
-      pairs.splice(pairs.indexOf(pair), 1);
-      pairByJump.delete(pair.jumpIndex);
-      pairedJump.delete(pair.jumpIndex);
-      refuse(pair.comparisonIndex, `«${pair.comparison}» #${pair.comparisonIndex}: ${problem.reason}`);
-      dropped = true;
+  for (const pair of [...pairs]) {
+    const problem = takenEdgeProblem(instructions, pair, pairByJump);
+    if (problem === undefined) continue;
+    // ЗНАЧЕНИЕ, нужное КАК ЗНАЧЕНИЕ: пара не снимается — сравнение материализует результат.
+    // Иначе на ребре взятого перехода цель читала бы мусор (срез 5: `7` вместо `3`).
+    if (problem.kind === "value") {
+      materialize.add(pair.comparisonIndex);
+      continue;
     }
+    // «СКЛЕЙКА» С ДВУМЯ РАЗНЫМИ РЁБРАМИ: пара не снимается и НЕ отказывает — переход ветвится по
+    // ЗНАЧЕНИЮ. Оба сравнения обязаны материализоваться: тогда на обоих рёбрах в регистре лежит
+    // булево значение ВСЕЙ склейки, и `ct` читает предикат «значение равно нулю» вместо предиката
+    // своего сравнения (см. `VALUE_BRANCH_JUMP`).
+    const joinJump = instructions[problem.joinPair.jumpIndex];
+    if (joinJump === undefined) continue;
+    materialize.add(pair.comparisonIndex);
+    materialize.add(problem.joinPair.comparisonIndex);
+    VALUE_BRANCH_JUMP.add(joinJump);
   }
 
   // ── СТОРОЖ ВТОРОЙ ТИХОЙ ЛЖИ: накопитель конъюнкции на РЕБРЕ ВЗЯТОГО ПЕРЕХОДА (A4, срез 5б) ──────
@@ -522,8 +565,12 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
   }
 
   // Условный переход без пары: условие пришло не из сравнения — предиката взять неоткуда.
+  // Исключение одно и названо: переход, ветвящийся ПО ЗНАЧЕНИЮ (`VALUE_BRANCH_JUMP`), предиката пары
+  // не читает вовсе — свой предикат он делает сам (`cmpesb значение, НОЛЬ`), поэтому потеря пары
+  // склейки его не обезоруживает.
   instructions.forEach((instruction, index) => {
     if (!CONDITIONAL_JUMPS.includes(instruction.mnemonic) || pairedJump.has(index)) return;
+    if (isValueBranchJump(instruction)) return;
     const condition = conditionRegisterOf(instruction);
     refuse(
       index,
@@ -565,12 +612,20 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
  *    `если A и B` при ложном `A` возвращало `7` вместо `3` (`A` = `IR.ge` → `0x40`, склейка `0x60`),
  *    тогда как `пока A и B` (тот же `0x40`-набор, но `jmp_if_not` с `IR.lt` → `0x60`), `если A или B`
  *    и `пока A или B` — звучат: пять ядер (закреплённые числа) не затронуты, корпус железа тоже.
+ *
+ *    Расхождение больше не снимается отказом (A4, срез 5г): вызывающий кладёт `joinPair` — пару
+ *    склейки, — и переход переводится на ветвление ПО ЗНАЧЕНИЮ (`VALUE_BRANCH_JUMP`). Отказ остался
+ *    ровно там, где ветвление по значению доказать нечем: в плоскости ВЫЗЫВАЕМОЙ нет клетки, равной
+ *    нулю по построению (`src/e2k/e2kRealRun.ts`).
  */
 function takenEdgeProblem(
   instructions: readonly AsmInstruction[],
   pair: PredicatePair,
   pairByJump: ReadonlyMap<number, PredicatePair>,
-): { readonly kind: "value" | "join"; readonly reason: string } | undefined {
+):
+  | { readonly kind: "value"; readonly reason: string }
+  | { readonly kind: "join"; readonly reason: string; readonly joinPair: PredicatePair }
+  | undefined {
   const result = registersOf(instructions[pair.comparisonIndex]!).writes[0];
   const target = instructions[pair.jumpIndex]!.operands[1];
   if (result === undefined || target === undefined || target.kind !== "imm") return undefined;
@@ -600,10 +655,12 @@ function takenEdgeProblem(
     if (valueWorldJumps === predicateWorldJumps) return undefined;
     return {
       kind: "join",
+      joinPair: join,
       reason:
         `значение живо на ребре перехода: цель #${String(at)} — «склейка» ${join.jump}, и на двух её ` +
         `рёбрах предикат означает РАЗНОЕ (мир значений: скачок=${String(valueWorldJumps)}, ` +
-        `предикатный=${String(predicateWorldJumps)}) — один ct не выражает оба ребра`,
+        `предикатный=${String(predicateWorldJumps)}) — один ct не выражает оба ребра; переход переводится ` +
+        "на ветвление ПО ЗНАЧЕНИЮ (оба сравнения материализуются, ct читает предикат «значение равно нулю»)",
     };
   }
   return undefined;
