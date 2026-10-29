@@ -1,1 +1,0 @@
-{"version":1,"moduleName":"К","constants":[1,2,3],"procedures":[{"name":"главная","codeOffset":0,"argc":0,"localsCount":1}],"code":[{"op":"const","type":"i32","k":0},{"op":"const","type":"i32","k":1},{"op":"add"},{"op":"local.set","i":0},{"op":"local.get","i":0},{"op":"const","type":"i32","k":2},{"op":"mul"},{"op":"ret"}]}

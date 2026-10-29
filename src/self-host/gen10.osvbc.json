@@ -1,1 +1,0 @@
-{"version":1,"moduleName":"Кодоген","constants":[2,21],"procedures":[{"name":"удвоить","codeOffset":0,"argc":1,"localsCount":1},{"name":"главная","codeOffset":4,"argc":0,"localsCount":0}],"code":[{"op":"local.get","i":0},{"op":"const","type":"i32","k":0},{"op":"mul"},{"op":"ret"},{"op":"const","type":"i32","k":1},{"op":"call","fi":0},{"op":"ret"}]}
