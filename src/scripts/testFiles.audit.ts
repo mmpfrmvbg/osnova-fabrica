@@ -141,6 +141,12 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     reason: 'измеряет окно вызываемой процедуры и `return` прогоном в QEMU, вынесен в gate:qemu по случаю 12',
   },
   {
+    match: 'callWindowRefusals.test.ts',
+    reason:
+      'разложение 43 отказов «окно вызываемой» по видам (§3.138): работающая сторона границ ' +
+      'спрашивается у модели (3/1/11/21), вынесено в gate:qemu по случаю 12',
+  },
+  {
     match: 'e2kConvolutionQemu.test.ts',
     reason: 'ресурсозависимый, живёт в gate:qemu: встраивание свёртки измеряется прогоном в QEMU (случай 12)',
   },
