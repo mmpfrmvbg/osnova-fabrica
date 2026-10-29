@@ -182,9 +182,22 @@ export function runInQemu(
   const result = spawnSync(
     WSL,
     ['-d', WSL_DISTRO, '--', ...(env.length === 0 ? [] : ['env', ...env]), WSL_QEMU, toWslPath(elfFile)],
-    { timeout: options.timeoutMs ?? 120_000, encoding: 'utf-8' },
+    // ГИГИЕНА РАННЕРА (A4-5з, задача 0). По умолчанию `spawnSync` по таймауту шлёт SIGTERM и на
+    // этом успокаивается: модель, которая не отвечает на SIGTERM (зацикленный `std` в кадре
+    // `call wbs = 16`, §3.137.5), ОСТАЁТСЯ ЖИТЬ и держит ELF открытым — следующий прогон падает
+    // `UNKNOWN: unknown error, open '…elf'`. Проверено трижды (5ж/2, 5ж/4, 5з/0). SIGKILL
+    // снимает процесс безусловно, а `spawnSync` дожидается его выхода, поэтому «висит» не остаётся.
+    { timeout: options.timeoutMs ?? 120_000, killSignal: 'SIGKILL', encoding: 'utf-8' },
   );
-  if (result.error !== undefined && result.status === null) return undefined;
+  if (result.error !== undefined && result.status === null) {
+    // ГИГИЕНА РАННЕРА, ЧАСТЬ ВТОРАЯ (A4-5з, задача 0): по таймауту Node убивает `wsl.exe`, а гость
+    // ВНУТРИ WSL остаётся жить (измерено: осиротевший `qemu-e2k` жил 7:47 и жёг ядро, держа ELF
+    // открытым, — тогда следующий прогон падает `UNKNOWN: unknown error, open '…elf'`). Поэтому
+    // снимаем гостя ПРИЦЕЛЬНО по пути его ELF: общий `pkill -f qemu-e2k` убил бы и чужой живой
+    // прогон (в дереве работают несколько агентов одновременно).
+    spawnSync(WSL, ['-d', WSL_DISTRO, '--', 'pkill', '-f', toWslPath(elfFile)], { encoding: 'utf-8' });
+    return undefined;
+  }
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   return parseQemuRun(output, result.status, { stdout: result.stdout ?? '', stderr: result.stderr ?? '' });
 }
