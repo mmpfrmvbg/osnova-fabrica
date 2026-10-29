@@ -243,16 +243,26 @@ describe('печать: шесть записей корпуса собираю�
     // страницы съехала: **266 сайтов** собираются (кода 65 352, конец 0x10ff30), **267** — названный
     // отказ. Прежние 300 больше не влезают — поэтому сторож и стоит числом, а не «на глаз».
     // Замер: `.tmp/probe-print-ceiling.ts` (перебор), тот же путь, что и у теста.
+    //
+    // ПЕРЕМЕР 2026-10-29 ПОСЛЕ ПОЧИНКИ ВОСЬМОЙ ЛЖИ (A4-5ж/2, задача 20): хвост `write` обязан
+    // гасить свой регистр длины (`src/e2k/printPrimitives.ts#writeTextPrimitives`) — это **+4 байта
+    // на КАЖДЫЙ сайт**, и потолок в сайтах обязан был съехать. Замер тем же путём, что у теста
+    // (`.tmp/a5z-ceiling.ts`): **258 сайтов** собираются (кода 65 496, конец 0x10ffd8), **259** —
+    // названный отказ (кода 65 744, конец 0x1100d0). Команда гашения безусловна намеренно: форма
+    // операции не имеет права зависеть от плоскости (§3.135). Условная редакция («гасить только в
+    // выращенном кадре») ИЗМЕРЕНА и отвергнута — с ней все 20 форм выращенного кадра перестали давать
+    // число; причина падения НЕ установлена (длины раскладки и байты понижения сходятся в обоих
+    // кадрах: `.tmp/a5z-form-vs-bytes.ts`, 1472/1472 и 1568/1568).
     const sites = (count: number): AsmInstruction[] => [
       ...Array.from({ length: count }, () => printingCarrier(2)),
       { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] },
     ];
-    expect(() => imageOfCarriers(sites(267), [], [PRINT_CALL])).toThrow(PrintCallRefusal);
-    expect(() => imageOfCarriers(sites(267), [], [PRINT_CALL])).toThrow(/место записи/iu);
-    // Сторона «влезает»: 266 сайтов — 65 352 байт кода, конец 0x10ff30 (до пути ① влезало 300).
-    const fits = imageOfCarriers(sites(266), [], [PRINT_CALL]);
-    expect(fits.refused, 'двести шестьдесят шесть сайтов обязаны собираться').toEqual([]);
-    expect(fits.bytes.length, 'и это ровно измеренная длина').toBe(65352);
+    expect(() => imageOfCarriers(sites(259), [], [PRINT_CALL])).toThrow(PrintCallRefusal);
+    expect(() => imageOfCarriers(sites(259), [], [PRINT_CALL])).toThrow(/место записи/iu);
+    // Сторона «влезает»: 258 сайтов — 65 496 байт кода, конец 0x10ffd8 (до починки влезало 266).
+    const fits = imageOfCarriers(sites(258), [], [PRINT_CALL]);
+    expect(fits.refused, 'двести пятьдесят восемь сайтов обязаны собираться').toEqual([]);
+    expect(fits.bytes.length, 'и это ровно измеренная длина').toBe(65496);
     const fitsEnd = MINIMAL_BASE + fits.bytes.length;
     expect(fitsEnd, 'и не входить в страницу записи').toBeLessThanOrEqual(pageOf(printAreaOf(HEAP)));
     expect(fitsEnd, 'но и не быть крошечным: прежний потолок в 4 КиБ пройден').toBeGreaterThan(MINIMAL_BASE + 0x1000);
