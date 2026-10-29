@@ -1257,6 +1257,14 @@ export function runKernelThroughRealEncoding(
     arrayProcedures,
     freeFor: (at: number) => (at === entryAt ? undefined : CALLEE_REGISTERS),
   });
+  // D13: ОТКАЗ РАСКЛАДКИ — ЧИСЛА НЕТ. Контрактный поток при отказе неразложен (носители сохраняют
+  // регистры, которых раскладка не выдавала), и считать по нему байты — та же седьмая ложь, что и в
+  // двери сторожей. Отчёт обязан НАЗВАТЬ отказ, а не отдать число: замер
+  // `.tmp/a5z3-d13-second-consumer.out.txt` (проба `дыра(11)`) — БЕЗ этого гейта путь отдавал
+  // **592 байта** и объявлял образ исполняемым (`executableThroughReal: true`), то есть число под
+  // отказом выходило наружу. Гейт стоит на ВЫХОДЕ, а не в цикле кодирования: наружу числа уходят
+  // только через возврат ниже, а цикл пишет в память и ничего не отдаёт.
+  const отказРаскладки = allocation.report.filter((item) => !item.ok);
   const code = allocation.instructions;
   // Контекст понижения — ПО ПРОЦЕДУРАМ: базу блока знает та процедура, которой её выдала раскладка, и
   // признак вызываемой — свойство плоскости (в ней `создать`/`добавить` отказывают по имени §3.128).
@@ -1380,9 +1388,19 @@ export function runKernelThroughRealEncoding(
     .sort((a, b) => b.total - a.total || a.carrier.localeCompare(b.carrier));
 
   const refused = carriers.reduce((sum, carrier) => sum + carrier.refused, 0);
-  const blocking = carriers
-    .filter((carrier) => carrier.refused > 0)
-    .map((carrier) => ({ carrier: carrier.carrier, count: carrier.refused, reason: carrier.reason ?? "не понижается" }));
+  const blocking = [
+    ...carriers
+      .filter((carrier) => carrier.refused > 0)
+      .map((carrier) => ({ carrier: carrier.carrier, count: carrier.refused, reason: carrier.reason ?? "не понижается" })),
+    // ОТКАЗ РАСКЛАДКИ — НЕ «НОЛЬ ОТКАЗОВ» (D13): без этой записи обнулённые `bytes`/`encoded` читались
+    // бы как «всё хорошо». Имя процедуры обязательно — отказ без имени неотличим от чужого (ловушка
+    // `report[0]`). Замер: `дыра(11)` — «ф: вытеснение не минимально…».
+    ...отказРаскладки.map((item) => ({
+      carrier: `(раскладка: ${item.procedure})`,
+      count: 1,
+      reason: item.reason ?? 'раскладка не удалась',
+    })),
+  ];
 
   // ── Окно вызываемой процедуры ───────────────────────────────────────────────
   //
@@ -1417,27 +1435,33 @@ export function runKernelThroughRealEncoding(
         : { reason: item.reason ?? 'раскладка не удалась' }),
     }));
 
+  // НИ ОДНОГО ЧИСЛА ИЗ НЕРАЗЛОЖЕННОГО ПОТОКА: под отказом раскладки отчёт не описывает поток вовсе
+  // (ни носителей, ни байт, ни раскладки, ни кругового прогона) — иначе число выходило бы наружу, как
+  // выходило до гейта: замер `.tmp/a5z3-d13-second-consumer.out.txt` — 64 носителя, 592 байта,
+  // `executableThroughReal: true`. Отказ при этом НАЗВАН целиком: `allocation` (отчёт раскладки),
+  // `calleeWindow` (окно вызываемой с причиной) и `blocking` (запись с ИМЕНЕМ процедуры).
+  const отказЕсть = отказРаскладки.length > 0;
   return {
     kernel: meta.kernel,
     atom: meta.atom,
-    instructions: code.length,
-    eliminated: emitted.instructions.length - code.length,
+    instructions: отказЕсть ? 0 : code.length,
+    eliminated: отказЕсть ? 0 : emitted.instructions.length - code.length,
     removedCopies: allocation.removedCopies,
-    encoded: code.length - refused,
+    encoded: отказЕсть ? 0 : code.length - refused,
     refused,
-    bytes,
+    bytes: отказЕсть ? 0 : bytes,
     carriers,
     allocation: allocation.report,
     allocationProcedures: allocation.procedures,
     calleeWindow,
-    roundTrip: { checked, commands, mismatches },
+    roundTrip: { checked: отказЕсть ? 0 : checked, commands: отказЕсть ? 0 : commands, mismatches: отказЕсть ? [] : mismatches },
     layout: {
-      placed: layout.entries.length,
-      unplaced: layout.unplaced.length,
-      displacements: resolved.displacements.length,
-      totalBytes: layout.totalBytes,
+      placed: отказЕсть ? 0 : layout.entries.length,
+      unplaced: отказЕсть ? 0 : layout.unplaced.length,
+      displacements: отказЕсть ? 0 : resolved.displacements.length,
+      totalBytes: отказЕсть ? 0 : layout.totalBytes,
     },
-    executableThroughReal: refused === 0,
+    executableThroughReal: !отказЕсть && refused === 0,
     blocking,
   };
 }
