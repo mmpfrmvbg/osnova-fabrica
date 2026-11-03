@@ -379,7 +379,27 @@ export function incomingRegisters(instructions: readonly AsmInstruction[]): read
  * Отказ называется (пик, живые в тесный момент, конфликтующие vreg'и), а не замалчивается: номера
  * vreg'ов остаются как есть, и это видно в отчёте. Молчаливое «оставили номера vreg'ов» — это ровно
  * тот случай, когда программа затирает регистры рантайма массивов.
+ *
+ * **Контрактный поток при отказе ПУСТ (буква D13, исполнена в PHASE-05/TASK-05-01).** Прежде `fail()`
+ * клал в результат НЕРАЗЛОЖЕННЫЙ поток процедуры (носители сохраняли регистры, которых раскладка не
+ * выдавала) — мусор по построению, из которого можно было собрать образ и «число под отказом»
+ * (седьмая тихая ложь). Теперь на отказе `instructions` пуст, а неразложенный поток вместе со
+ * смещениями процедур лежит в поле `diagnostic` — диагностика отказа сохранена ЦЕЛИКОМ: причина с
+ * именем процедуры и числами (живые против бюджета), перепись носительных отказов, замерные приборы.
+ * Сторожа читают диагностический поток ЯВНО и только под отказом (`src/e2k/guards/loweredUnchecked.ts`).
  */
+/**
+ * ДИАГНОСТИЧЕСКИЙ ПОТОК раскладки (буква D13): неразложенный поток вместе со смещениями процедур —
+ * ТОЛЬКО при отказе раскладки. Это НЕ исполняемое и НЕ контрактный поток: носители здесь сохраняют
+ * регистры, которых раскладка не выдавала, и собирают их в образ только СТОРОЖИ, глядящие под
+ * отказом ЯВНО (`src/e2k/guards/loweredUnchecked.ts`), — чтобы причина отказа и перепись носительных
+ * отказов оставались измеримыми. Смещения процедур прилагаются к тому же полю: у потока и его
+ * оглавления не может быть разных ревизий.
+ */
+export interface DiagnosticStream {
+  readonly instructions: readonly AsmInstruction[];
+  readonly procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[];
+}
 export function allocateProgram(
   instructions: readonly AsmInstruction[],
   procedures: readonly { readonly name: string; readonly codeOffset: number; readonly vregs: number }[],
@@ -461,6 +481,14 @@ export function allocateProgram(
    * `arrayBase` контекста носителя; нет базы — обращение к массиву отказывает по имени.
    */
   readonly arrayBases: readonly (number | undefined)[];
+  /**
+   * ДИАГНОСТИЧЕСКИЙ ПОТОК (буква D13): НЕРАЗЛОЖЕННЫЙ поток и смещения процедур — ТОЛЬКО при отказе
+   * раскладки. Это НЕ исполняемые байты и НЕ контрактный поток: носители здесь сохраняют регистры,
+   * которых раскладка не выдавала, и собирают их в образ только СТОРОЖИ, глядящие под отказом ЯВНО
+   * (`src/e2k/guards/loweredUnchecked.ts`), — чтобы причина отказа и перепись носительных отказов
+   * оставались измеримыми. На успешной раскладке поле `undefined`.
+   */
+  readonly diagnostic: DiagnosticStream | undefined;
 } {
   const result: AsmInstruction[] = [];
   const rewrittenProcedures: { name: string; codeOffset: number; vregs: number }[] = [];
@@ -775,8 +803,15 @@ export function allocateProgram(
       });
     }
   }
+  // БУКВА D13: контрактный поток при отказе ПУСТ, диагностический — отдельным полем. Смещения
+  // процедур (`rewrittenProcedures`) относятся к диагностическому потоку — они и уезжают в поле
+  // вместе с ним, чтобы у потока и его оглавления не было разных ревизий.
+  const отказали = report.some((item) => !item.ok);
   return {
-    instructions: remapped.instructions,
+    instructions: отказали ? [] : remapped.instructions,
+    diagnostic: отказали
+      ? { instructions: remapped.instructions, procedures: rewrittenProcedures }
+      : undefined,
     procedures: rewrittenProcedures,
     report,
     removedCopies,

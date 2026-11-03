@@ -18,6 +18,8 @@
  *   • ОБЕ СТОРОНЫ: та же форма программы, которая влезает, поток ИМЕЕТ; иначе «пусто» ничего не значит.
  *   • ГРАНИЦА: отказ НОСИТЕЛЕЙ (раскладка прошла) поток СОХРАНЯЕТ — D13 чистит только отказ
  *     `allocateProgram`, и это записано проверкой, а не словом.
+ *   • БУКВА D13 (PHASE-05/TASK-05-01): сам `allocateProgram` при отказе отдаёт ПУСТОЙ контрактный
+ *     поток, а неразложенный — отдельным полем `diagnostic` (с теми же смещениями процедур).
  *
  * Различающая сила доказана замером ДО правки (`.tmp/a5z3-refusalStream-before.out.txt`): этот сторож
  * на непочиненном дереве давал `expected 776 to be 88` — красной была ровно проверка пустоты, а обе
@@ -27,6 +29,13 @@ import { describe, expect, it } from 'vitest';
 import { parseV3 } from '../compiler-v3/index';
 // Я СТОРОЖ, СМОТРЮ ПОД ОТКАЗОМ (D11): байты нужны ВМЕСТЕ с отказами — это дверь сторожей.
 import { loweredProgramUnchecked } from './guards/loweredUnchecked';
+import { allocateProgram } from './regAlloc';
+import { CALLEE_REGISTERS } from './twoPassLayout';
+import { entryProcedureIndex } from './procedureCall';
+import { regModuleWithRecordPlan } from './recordPlan';
+import { annotateAtomRegions } from '../compiler/atomRegions';
+import { emitShell } from './emitterShell';
+import { getEncoder } from './backend';
 
 const ФАЙЛ = 'проба-отказа.osnova';
 
@@ -98,5 +107,46 @@ describe('D13: на отказе поток ПУСТ — числа под от�
       expect(итог.отказы.length, `n=${String(n)}: отказы носителей есть`).toBeGreaterThan(0);
       expect(итог.bytes.length, `n=${String(n)}: поток сохранён (не пусто)`).toBeGreaterThan(0);
     }
+  });
+
+  it('4. БУКВА D13 в самом allocateProgram: контракт пуст, неразложенный поток — в `diagnostic`', () => {
+    // Воспроизводим на уровне API раскладки (ATOM-05-01-01): ДО правки контрактный поток при отказе
+    // был НЕПУСТ (замер `.tmp/a501-oracle.ts` на дереве HEAD `941de33` — 64 носителя при отказе `ф`),
+    // и любой новый потребитель мог собрать из него образ — мусор по построению. Теперь контракт
+    // пуст, а неразложенный поток со СВОИМИ смещениями процедур лежит в `diagnostic`.
+    const разбор = parseV3(дыра(11), ФАЙЛ);
+    expect(разбор.errors, 'разбор программы').toEqual([]);
+    const built = regModuleWithRecordPlan(дыра(11), {
+      filename: ФАЙЛ,
+      parse: () => ({ ast: разбор.program ?? null, errors: разбор.errors }),
+    });
+    if (built === null) throw new Error('программа не компилируется');
+    const annotated = annotateAtomRegions(built.module, [
+      { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
+    ]);
+    const emitted = emitShell(annotated, getEncoder('internal-shell'));
+    const процедуры = emitted.scheduled.procedures;
+    const вход = entryProcedureIndex(процедуры);
+    const allocation = allocateProgram(emitted.instructions, процедуры, {
+      freeFor: (at) => (at === вход ? undefined : CALLEE_REGISTERS),
+    });
+    expect(allocation.report.some((item) => !item.ok), 'проба — отказ раскладки').toBe(true);
+    // КОНТРАКТ: пусто.
+    expect(allocation.instructions, 'контрактный поток при отказе ПУСТ').toEqual([]);
+    // ДИАГНОСТИКА: тот же неразложенный поток, что приходил прежде (64 носителя), и оглавление
+    // процедур при нём — разойтись им неоткуда, они отдаются одним полем.
+    expect(allocation.diagnostic, 'диагностический поток при отказе ЕСТЬ').toBeDefined();
+    expect(allocation.diagnostic?.instructions.length, 'неразложенных носителей').toBe(64);
+    expect(
+      allocation.diagnostic?.procedures.map((процедура) => процедура.name),
+      'смещения процедур при диагностическом потоке',
+    ).toEqual(процедуры.map((процедура) => процедура.name));
+    // ОТЧЁТ: причина отказа названа с именем процедуры — никуда не делись.
+    const отказ = allocation.report.find((item) => !item.ok)!;
+    expect(отказ.reason ?? '', 'причина отказа с числами').toContain('вытеснение не минимально');
+    // ГРАНИЦА: та же форма, которая влезает, — контрактный поток ЕСТЬ, диагностического НЕТ.
+    const успех = понизить(простая);
+    expect(успех.отказы.length, 'контроль: отказов нет').toBe(0);
+    expect(успех.bytes.length, 'контроль: поток есть').toBeGreaterThan(0);
   });
 });
