@@ -72,7 +72,7 @@
 
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SYSCALL_TRAP, spillBaseOf } from './elfMinimal';
-import { ARRAY_WINDOW_RSZ } from './arrayRuntime';
+import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ } from './arrayRuntime';
 import {
   ENTRY_SYSCALL_FRAME,
   SYS_EXIT,
@@ -415,6 +415,16 @@ export const LEAN_PRINT_REGISTERS = {
 export const LEAN_PRINT_CLOBBERS: readonly number[] = Object.values(LEAN_PRINT_REGISTERS);
 
 /**
+ * СДВИГ ОКНА ВЫЗЫВАЕМОЙ: `call wbs = 4` уводит окно на `2·wbs = 8` клеток.
+ *
+ * Поэтому клетка `N` листовой процедуры — это клетка `N + 8` ВЫЗЫВАЮЩЕГО (`arrayRuntime.ts:21`,
+ * `twoPassLayout.ts#CALL_WBS`). Лист печати живёт в окне вызывающего, значит его `%b[4..7]` — это
+ * `%b[12..15]` точки входа, то есть БЛОК РАНТАЙМА, и это не совпадение ролей, а арифметика окна.
+ */
+export const LEAF_WINDOW_SHIFT = 8;
+
+
+/**
  * ЧИСЛО → ТЕКСТ В ВОСЬМИ РЕГИСТРАХ: вход — `%b[0]`, выход — те же слова площадки.
  *
  * Результат тот же, что у {@link numberToTextPrimitives}: разряды, минус и `\n` в площадке плюс
@@ -487,6 +497,33 @@ export function numberToTextLeanPrimitives(heapAddress: number): NumberToText {
     std(r.quotient, r.offset, r.value),
     movtd(lengthWord, r.offset),
     std(r.input, r.offset, r.value),
+  );
+
+  // 5. ВОЗВРАТ ПОСТОЯННЫХ ТОЧКИ ВХОДА (случай 71 реестра проверяемости; замер 2026-11-04).
+  //
+  // Лист живёт в окне ВЫЗЫВАЮЩЕГО, поэтому его `%b[4..7]` — это `%b[12..15]` точки входа, то есть
+  // блок рантайма: ноль, единица, восемь и АДРЕС ЯЧЕЙКИ КУЧИ (§3.126, `ENTRY_ARRAY_CELLS`).
+  // Развёртка занимает эти клетки по ходу разбора — в 12 уезжает адрес байта перед текстом (строка
+  // `subs`+`adds` выше), в 13 — код минуса либо перевода строки, в 14 — адрес слова длины, в 15 —
+  // площадка печати — и НЕ возвращает их. Живостью они не видны: пул раскладки кончается на `%b[9]`,
+  // и в списке порчи разделённого сайта (`SHARED_SITE_CLOBBERS`) их тоже нет, потому что вызываемая
+  // их «не портит» по мнению списка. Отсюда тихая ложь: следующая строковая либо массивная операция
+  // читает вместо постоянной адрес — `с[и]` даёт −1 или 9647 вместо 1072/1073, чтение массива и
+  // `длина` падают исключением 9.
+  //
+  // ОТПЕЧАТОК ИЗМЕРЕН НА ЦЕЛИ: код выхода после ДВУХ числовых печатей равнялся младшему байту
+  // величины из `%b[12]` во всех шести пробах — 1, 3, 5 и 10 разрядов, «-7» и «-123»: это ровно
+  // адрес байта перед текстом, который кладёт строка выше. После ОДНОЙ печати клетки целы: один
+  // числовой сайт понижается инлайном, листа не зовёт.
+  //
+  // Возвращаем ровно то, что кладёт ПРОЛОГ ОБРАЗА (`arrayPrologue`, `src/e2k/arrayRuntime.ts`), но в
+  // клетках ЛИСТА — на сдвиг окна ниже. Цена: 28 байт НА ОБРАЗ (тело разделённой печати в образе
+  // одно), а не на сайт, и форма команд от плоскости не зависит.
+  instructions.push(
+    movts(0, ARRAY_REGISTERS.zero - LEAF_WINDOW_SHIFT),
+    movts(1, ARRAY_REGISTERS.one - LEAF_WINDOW_SHIFT),
+    movts(8, ARRAY_REGISTERS.eight - LEAF_WINDOW_SHIFT),
+    movtd(heapAddress, ARRAY_REGISTERS.heapSlot - LEAF_WINDOW_SHIFT),
   );
 
   return { instructions, area, digitsBase, signByte: digitsBase - 1, startWord, lengthWord };
