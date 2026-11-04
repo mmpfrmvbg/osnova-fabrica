@@ -1,0 +1,14 @@
+id: ATOM-07-01-01
+title: "Компиляция лексера"
+phase: PHASE-07
+task: TASK-07-01
+status: todo
+input:
+  - "грамматика лексера"
+output:
+  - "скомпилированный лексер"
+done_criteria:
+  - "лексер компилируется без ошибок"
+  - "покрывающий тест зелёный"
+tests: []
+registers_touched: {}

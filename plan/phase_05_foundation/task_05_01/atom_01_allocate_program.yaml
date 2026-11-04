@@ -1,0 +1,15 @@
+id: ATOM-05-01-01
+title: "Починить allocateProgram"
+phase: PHASE-05
+task: TASK-05-01
+status: done
+input:
+  - "исходники allocateProgram (D13)"
+output:
+  - "исправленная реализация allocateProgram"
+done_criteria:
+  - "поток при отказе не пустой (воспроизводимый тест)"
+  - "тест D13 зелёный"
+tests: []
+registers_touched: {}
+commit_hash: 78ec608f3f83b1439562de643fb558e0f799fde3

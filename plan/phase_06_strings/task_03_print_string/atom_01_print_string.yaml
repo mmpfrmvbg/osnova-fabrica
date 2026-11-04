@@ -1,0 +1,18 @@
+id: ATOM-06-03-01
+title: ATOM-06-03 — Печать строки и вывести (интеграция, железо)
+phase: PHASE-06
+task: TASK-06-03
+status: todo
+depends_on: []
+blocks: []
+input: []
+output: []
+done_criteria: []
+tests: []
+registers_touched:
+  decisions: []
+  errors: []
+  tech_debt: []
+  blind_spots: []
+notes: ""
+commit_hash: null

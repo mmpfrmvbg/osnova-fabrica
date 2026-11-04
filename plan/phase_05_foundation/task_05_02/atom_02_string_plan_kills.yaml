@@ -1,0 +1,19 @@
+id: ATOM-05-02-02
+title: "Починка planStrings: отслеживание переопределений регистров (случай 46)"
+phase: PHASE-05
+task: TASK-05-02
+status: done
+depends_on:
+  - ATOM-05-02-01
+blocks: []
+input: []
+output: []
+done_criteria: []
+tests: []
+registers_touched:
+  decisions: []
+  errors: []
+  tech_debt: []
+  blind_spots: []
+notes: ""
+commit_hash: dff00d95

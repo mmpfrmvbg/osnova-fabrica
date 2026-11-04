@@ -1,0 +1,19 @@
+id: ATOM-06-01-02
+title: "ATOM-06-01б — Строка: v3-алиасы (Строка.длина/символ/печать) + D10: разборщик снаружи"
+phase: PHASE-06
+task: TASK-06-01
+status: todo
+depends_on:
+  - ATOM-06-01-01
+blocks: []
+input: []
+output: []
+done_criteria: []
+tests: []
+registers_touched:
+  decisions: []
+  errors: []
+  tech_debt: []
+  blind_spots: []
+notes: ""
+commit_hash: null

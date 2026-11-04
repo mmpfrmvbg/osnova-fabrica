@@ -1,0 +1,19 @@
+id: ATOM-05-02-04
+title: "Железо рассудило петлю модели: arrayCalleeCreate П1/П2 зелёные на E8C2 (долг M1, §3.168)"
+phase: PHASE-05
+task: TASK-05-02
+status: done
+depends_on:
+  - ATOM-05-02-03
+blocks: []
+input: []
+output: []
+done_criteria: []
+tests: []
+registers_touched:
+  decisions: []
+  errors: []
+  tech_debt: []
+  blind_spots: []
+notes: ""
+commit_hash: 6fa1a0f3
