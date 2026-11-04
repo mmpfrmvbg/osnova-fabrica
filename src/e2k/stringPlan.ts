@@ -270,11 +270,50 @@ export function planStrings(
     if (payload === undefined || payload.kind !== 'imm') return undefined;
     return invokeNames[payload.value];
   };
-  const destinationOf = (carrier: AsmInstruction): number | undefined => {
-    const flags = carrier.operands[0];
-    const destination = carrier.operands[4];
-    if (flags === undefined || flags.kind !== 'imm' || (flags.value & 1) !== 1) return undefined;
-    return destination !== undefined && destination.kind === 'reg' ? destination.index : undefined;
+  /**
+   * ПРИЁМНИК НОСИТЕЛЯ — регистр, в который он пишет, если вообще пишет.
+   *
+   * Соглашение оболочки (`src/e2k/emitterShell.ts#lowerInstruction`): у `IR.const`, `IR.move`,
+   * арифметики и сравнений приёмник — ПЕРВЫЙ операнд-регистр, а у вызова (`IR.invoke`/`IR.call`) —
+   * ПЯТЫЙ и только под флагом «есть приёмник» (бит 0 операнда `flags`); у переходов и `вернуть`
+   * приёмника НЕТ — и это не придирка: у `IR.jmp_if`/`IR.jmp_if_not` первый регистровый операнд
+   * есть УСЛОВИЕ, и убить его значило бы потерять живую строку.
+   */
+  const writtenRegisterOf = (carrier: AsmInstruction): number | undefined => {
+    if (
+      carrier.mnemonic === 'IR.jmp' ||
+      carrier.mnemonic === 'IR.jmp_if' ||
+      carrier.mnemonic === 'IR.jmp_if_not' ||
+      carrier.mnemonic === 'IR.ret'
+    )
+      return undefined;
+    if (carrier.mnemonic === 'IR.invoke' || carrier.mnemonic === 'IR.call') {
+      const flags = carrier.operands[0];
+      const destination = carrier.operands[4];
+      if (flags === undefined || flags.kind !== 'imm' || (flags.value & 1) !== 1) return undefined;
+      return destination !== undefined && destination.kind === 'reg' ? destination.index : undefined;
+    }
+    const first = carrier.operands[0];
+    return first !== undefined && first.kind === 'reg' ? first.index : undefined;
+  };
+  /**
+   * ПЕРЕОПРЕДЕЛЕНИЕ РЕГИСТРА (kill, случай 46).
+   *
+   * Карта `byRegister` — линейная: она держит ПОСЛЕДНЕЕ известное строковое значение регистра. Пока
+   * регистры не переиспользуются (поток ДО раскладки — у каждого значения свой номер), этого
+   * достаточно. ПОСЛЕ раскладки один и тот же физический регистр несёт разные значения в разное
+   * время, и запись ЧИСЛА не стирала старую строку: следующая склейка читала МЁРТВУЮ строку и
+   * считала «фантомную конкатенацию» — 25 склеек сверх буфера там, где их нет.
+   *
+   * Поэтому всякий носитель, записавший в регистр что-то, обязан СНЯТЬ прежнее значение с обоих
+   * счетов: и строку (`byRegister`), и число (`numbersOf`, иначе мёртвый литерал дал бы ложный отказ
+   * о константном индексе за границей). Носители, которые пишут СТРОКУ, ставят значение ПОСЛЕ этого
+   * снятия, — убийство идёт первым, поэтому живые строки (литералы, пересылки, склейки) не страдают.
+   */
+  const kill = (register: number | undefined): void => {
+    if (register === undefined) return;
+    byRegister.delete(register);
+    numbersOf.delete(register);
   };
 
   code.forEach((carrier, index) => {
@@ -287,8 +326,9 @@ export function planStrings(
       if (typeof raw !== 'string') {
         // Не строка — значит число: запоминается ТОЛЬКО ради проверки константного индекса
         // (выход за границу обязан быть отказом на СБОРКЕ, когда индекс — литерал).
+        // ПРИЁМНИК УМИРАЕТ: в этом регистре могла лежать строка, и число её убивает (случай 46).
+        kill(destination.index);
         if (typeof raw === 'number') numbersOf.set(destination.index, raw);
-        else numbersOf.delete(destination.index);
         return;
       }
       numbersOf.delete(destination.index);
@@ -311,27 +351,51 @@ export function planStrings(
       else numbersOf.set(destination.index, number);
       return;
     }
-    if (carrier.mnemonic !== 'IR.invoke' && carrier.mnemonic !== 'IR.add') return;
+    // НОСИТЕЛЬ СТРОКОЙ НЕ ПРИЗНАН: если он пишет в регистр, лежавшая там строка УМИРАЕТ. Это и есть
+    // починка случая 46: без неё арифметика, сравнения и вызовы не стирали прежнее значение, и после
+    // раскладки (регистры переиспользуются) карта держала МЁРТВУЮ строку.
+    if (carrier.mnemonic !== 'IR.invoke' && carrier.mnemonic !== 'IR.add') {
+      kill(writtenRegisterOf(carrier));
+      return;
+    }
     const name = carrier.mnemonic === 'IR.add' ? STRING_CALLS.concat : nameOf(carrier);
-    // У `IR.add` приёмник — ПЕРВЫЙ операнд-регистр (у `IR.invoke` его место ищет `destinationOf`
-    // по флагам: там операнд 0 — число).
-    const destination =
-      carrier.mnemonic === 'IR.add'
-        ? carrier.operands[0]?.kind === 'reg'
-          ? carrier.operands[0].index
-          : undefined
-        : destinationOf(carrier);
+    // Приёмник — по соглашению оболочки (`writtenRegisterOf`): у `IR.add` это первый регистр,
+    // у `IR.invoke` — пятый под флагом «есть приёмник» (там операнд 0 — число).
+    const destination = writtenRegisterOf(carrier);
     // СКЛЕЙКА `+` — ТЕМ ЖЕ ПУТЁМ (канон §2.1). Оболочка на `"а" + "б"` выдаёт `IR.add` с двумя
     // строковыми регистрами (измерено, `.tmp/osnova-strings-plus.ts`): типа у носителя нет, и
     // арифметикой он сложил бы АДРЕСА — это и было видно как «2112890». Раз строки известны здесь,
     // здесь и решается, что это склейка: носитель переписывается в вызов `объединить` с пометками.
     const concatLike = carrier.mnemonic === 'IR.add' ? registerOf(carrier.operands[1]) !== undefined && registerOf(carrier.operands[2]) !== undefined : false;
-    if (carrier.mnemonic === 'IR.add' && !concatLike) return;
+    if (carrier.mnemonic === 'IR.add' && !concatLike) {
+      // СКЛЕЙКА, ГДЕ ОДНА СТОРОНА ДОКАЗАНА, А ДРУГАЯ ИЗВЕСТНА ТОЛЬКО В РАНТАЙМЕ (случай 46, шаг 2).
+      //
+      // `concatLike` требует ОБЕИХ сторон известными: только тогда склейку можно переписать в вызов
+      // `объединить` с пометками. Но язык типизирован (`Число + Строка` не компилируется), поэтому
+      // если одна сторона — ДОКАЗАННО строка, вторая тоже строка, а её ДЛИНА неизвестна. Арифметика
+      // сложила бы здесь АДРЕСА и молча выдала мусор вместо склейки — значит, отказ обязан быть
+      // НАЗВАН. Раньше такие места «спасал» только фантом: мёртвая строка в переиспользованном
+      // регистре делала вторую сторону «известной», и отказ рождался лишь в потоке ПОСЛЕ раскладки
+      // (измерено `.tmp/a504-three-prov.ts`: в потоке ДО раскладки старый план признаёт 0 из 4 склеек
+      // пробы `с_токеном`). Kills снял фантом — и отказ переехал сюда, в место, где он обоснован.
+      const first = registerOf(carrier.operands[1]);
+      const second = registerOf(carrier.operands[2]);
+      if ((first === undefined) !== (second === undefined)) {
+        problems.push(
+          `#${String(index)} ${STRING_CALLS.concat}: одна сторона — строка, другая известна только в рантайме — длину брать не от чего`,
+        );
+        edits.set(index, { kind: 'none', index, reason: 'склейка со значением из рантайма' });
+      }
+      // Числовое сложение: приёмник — ЧИСЛО, строка в нём (если была) умирает.
+      kill(destination);
+      return;
+    }
     if (name === STRING_CALLS.length) {
       const value = registerOf(carrier.operands[1]);
       if (value === undefined) {
         problems.push(`#${String(index)} ${name}: аргумент не строка — длину в кодпоинтах взять не от чего`);
         edits.set(index, { kind: 'none', index, reason: 'аргумент не строка' });
+        kill(destination);
         return;
       }
       if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
@@ -348,6 +412,7 @@ export function planStrings(
       if (value === undefined) {
         problems.push(`#${String(index)} ${name}: аргумент не строка — код символа взять не от чего`);
         edits.set(index, { kind: 'none', index, reason: 'аргумент не строка' });
+        kill(destination);
         return;
       }
       const points = codePointsOfBytes(value.bytes);
@@ -367,6 +432,7 @@ export function planStrings(
             'выход за границу назван отказом (у цели индекс за концом дал бы −1)',
         );
         edits.set(index, { kind: 'none', index, reason: 'константный индекс за границей' });
+        kill(destination);
         return;
       }
       if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
@@ -386,6 +452,7 @@ export function planStrings(
           `#${String(index)} ${name}: склеивать нечего — ${first === undefined ? 'первый' : 'второй'} аргумент не строка`,
         );
         edits.set(index, { kind: 'none', index, reason: 'аргумент не строка' });
+        kill(destination);
         return;
       }
       const joined = values.get(`${first.key}\u0000${second.key}`);
@@ -418,10 +485,19 @@ export function planStrings(
     // Печать строки: аргумент — строка (у числа аргумент числовой, и сюда он не попадает).
     if (name === 'система.лог.вывести') {
       const value = registerOf(carrier.operands[1]);
-      if (value === undefined) return;
+      if (value === undefined) {
+        kill(destination);
+        return;
+      }
       prints += 1;
       edits.set(index, { kind: 'print', index, value, marks: [value.bytes.length] });
     }
+    // СЮДА ПРИХОДИТ ВЫЗОВ, ЗНАЧЕНИЯ КОТОРОГО СБОРКА НЕ ЗНАЕТ (например, возвращающий строку
+    // `подстрока`): если у него есть приёмник, прежнее значение в нём умирает — «не знаю» обязано
+    // означать «забыть», а не «помнить прежнее». Иначе после раскладки мёртвая строка ожила бы
+    // в переиспользованном регистре (случай 46). Обработчики, признавшие носитель строковым,
+    // вышли выше через `return`, — поэтому до этой строки доживают только «не признанные».
+    kill(writtenRegisterOf(carrier));
   });
 
   // ── Раскладка статических блобов: снизу вверх от площадки печати ──────────────────────────────
