@@ -29,6 +29,7 @@ import { describe, it, expect } from 'vitest';
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { lowerCarrier } from './e2kRealRun';
 import { carrierFormOf, layoutOf, CALL_WBS, CALLEE_REGISTERS } from './twoPassLayout';
+import { ARRAY_WINDOW_WSZ } from './arrayRuntime';
 import { imageOfCarriers, shellCarriers } from './programImage';
 import { loweredProgram } from './lowered';
 import { allocateProgram } from './regAlloc';
@@ -324,9 +325,17 @@ describe('вызов процедуры и возврат: адрес, форм�
  * `src/compiler-v3/nativePathE2k.test.ts` откатом этой самой правки.
  */
 describe('бюджет регистров вызываемой: только её собственная половина кадра', () => {
-  it('бюджет выведен из ширины вызова, а не записан числом', () => {
-    expect(CALLEE_REGISTERS.length, 'половина кадра — восемь регистров').toBe(8);
+  it('бюджет выведен из ширины вызова и окна, а не записан числом', () => {
+    // ПЕРЕМЕР 2026-11-04 (ATOM-05-02-01): бюджет больше НЕ «половина кадра». Он выведен из окна
+    // вызываемой: своих клеток `%r(2·wbs)..%r(2·(wsz − wbs) − 1)` = `%r8..%r23`, шестнадцать, минус
+    // клетка нуля `%r12` (её кладёт пролог вызываемой, раскладке она не выдаётся) = 15.
+    // Прежняя восьмёрка была следствием `wsz = 12`, а не геометрии регистрового файла (§3.166).
+    expect(CALLEE_REGISTERS.length, 'бюджет: 16 своих клеток минус клетка нуля').toBe(15);
     expect(CALLEE_REGISTERS[0], 'первый регистр бюджета — за сдвигом окна').toBe(2 * CALL_WBS);
+    expect(
+      CALLEE_REGISTERS.at(-1),
+      'последний регистр бюджета — последняя клетка окна вызываемой',
+    ).toBe(2 * (ARRAY_WINDOW_WSZ - CALL_WBS) - 1);
     expect(
       CALLEE_REGISTERS.every((value) => Number.isInteger(value)),
       'бюджет обязан быть целыми числами: вычисленный на загрузке модуля из чужой константы, ' +

@@ -125,3 +125,11 @@ id_ed25519*
 .tmp/*-access-*.md
 .tmp/*hardware-report*.md
 
+.tmp/
+src/self-host/gen*.osvbc.json
+last-raw.txt
+last-diff.txt
+registers/
+handoff/
+Fabrika2.0/
+.cursor/

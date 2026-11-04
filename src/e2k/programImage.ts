@@ -36,6 +36,7 @@ import {
   ARRAY_REGISTERS,
   ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
+  CALLEE_ZERO_CARRIER,
   ENTRY_ARRAY_BASE,
   SUPPORTED_ARRAY_CALLS,
   arrayPrologue,
@@ -640,6 +641,15 @@ function windowGrowthAt(
   arrayBases: readonly (number | undefined)[] = [],
   heapSlotAt: ReadonlySet<number> = new Set<number>(),
   heapAddress = 0,
+  /**
+   * Ставить ли ВСЕМ вызываемым ноль её плоскости (`IR.callee_zero`, ATOM-05-02-01).
+   *
+   * По умолчанию `false` — и это не осторожность: этим вызовом набор «процедур, которые сами
+   * вызывают» пересчитывается ПОСЛЕ всех вставок (`depthTwo` ниже), и лишние ключи сделали бы
+   * листовую процедуру «глубины 2» — то есть получили бы чужой `wbs` и чужой порядок возврата.
+   * Ноль ставится там, где пролог процедуры действительно собирается (см. `emitCalleePrologue`).
+   */
+  zeroCellOfCallee = false,
 ): ReadonlyMap<number, readonly AsmInstruction[]> {
   const growth = new Map<number, readonly AsmInstruction[]>();
   if (procedures.length === 0) return growth;
@@ -667,7 +677,10 @@ function windowGrowthAt(
         carrier.mnemonic === 'IR.invoke' ||
         isPrintCarrier(carrier, invokeNames),
     );
-    if (!needsGrowth) return;
+    // НОЛЬ ПЛОСКОСТИ СТАВИТСЯ И ЛИСТОВОЙ (ATOM-05-02-01): ей рост окна не нужен вовсе, а клетка
+    // нуля нужна именно ей — переход, ветвящийся по значению, стоит внутри процедуры, которая
+    // никого не зовёт. Поэтому «нужен ли пролог» решается ОБОИМИ слагаемыми, а не одним `needsGrowth`.
+    if (!needsGrowth && !zeroCellOfCallee) return;
     // ПРОЛОГ — ПЕРЕД первым носителем процедуры, а не ВМЕСТО него: `expandCarriers` заменяет
     // указанный носитель группой, поэтому первый носитель входит в группу вторым (иначе пролог
     // съел бы первую команду тела — так и случилось: у процедуры, начинавшейся с вызова,
@@ -681,7 +694,7 @@ function windowGrowthAt(
     // конвейер переведёт их в оконную форму вместе с остальным телом вызываемой. Базу взяла раскладка.
     const arrayBase = arrayBases[at];
     growth.set(procedure.codeOffset, [
-      { mnemonic: WINDOW_GROW_CARRIER, channel: 0, operands: [] },
+      ...(needsGrowth ? [{ mnemonic: WINDOW_GROW_CARRIER, channel: 0, operands: [] } as AsmInstruction] : []),
       // ПРОЛОГ ЗНАЧЕНИЙ — ДВЕ КОМАНДЫ ВМЕСТО ТРЁХ (A4, §3.135): ноль и восемь в блок вызываемой.
       // Единицы нет намеренно: она нужна только `добавить`, а `добавить` в вызываемой отказывает
       // (куча живёт в плоскости точки входа). Вместе с отказом от второго временного блок стал
@@ -695,6 +708,11 @@ function windowGrowthAt(
       ...(heapSlotAt.has(at)
         ? [{ mnemonic: ARRAY_SLOT_CARRIER, channel: 0, operands: [{ kind: 'imm64', value: BigInt(heapAddress) } as Operand] }]
         : []),
+      // НОЛЬ ПЛОСКОСТИ — ПОСЛЕДНИМ (ATOM-05-02-01): `setwd` выше меняет геометрию окна, то есть
+      // переводит `%rN` на другие физические регистры, поэтому ноль, положенный ДО роста, оказался бы
+      // не в той клетке, которую прочтёт `cmpesb` перехода по значению. ПЕРЕД первым носителем тела —
+      // потому что читать клетку может самый первый из них.
+      ...(zeroCellOfCallee ? [{ mnemonic: CALLEE_ZERO_CARRIER, channel: 0, operands: [] } as AsmInstruction] : []),
       first,
     ]);
   });
@@ -910,7 +928,18 @@ export function imageOfCarriers(
     heapSlotAt.size > 0 && options.heapSlotReserved !== true
       ? new Set<number>()
       : heapSlotAt;
-  const growthAt = windowGrowthAt(collectionsCode, collectionsProcedures, strings.invokeNames, options.arrayBases ?? [], heapSlotReadyAt, heapAddress);
+  const growthAt = windowGrowthAt(
+    collectionsCode,
+    collectionsProcedures,
+    strings.invokeNames,
+    options.arrayBases ?? [],
+    heapSlotReadyAt,
+    heapAddress,
+    // НОЛЬ КАЖДОЙ ВЫЗЫВАЕМОЙ (ATOM-05-02-01): клетка, равная нулю по построению, нужна плоскости
+    // вызываемой для перехода, ветвящегося ПО ЗНАЧЕНИЮ (§3.166). Ставится всем вызываемым — и
+    // листовой тоже, ей рост окна не нужен вовсе.
+    true,
+  );
   const grown = growthAt.size === 0 ? undefined : expandCarriers(collectionsCode, growthAt, collectionsProcedures);
   const growCode = grown?.code ?? collectionsCode;
   const growProcedures = grown?.procedures ?? baseProcedures;
@@ -1133,9 +1162,12 @@ export function imageOfCarriers(
       return {
         code: LOWERING_CODES.layout,
         reason:
-          'вытеснение в памяти из вызываемой процедуры невозможно: %b[12] при окне 16 адресуем, ' +
-          'но вытеснение в процедуре идёт вместе с рантаймом, а рантайм без системного вызова не ' +
-          'работает (docs/hardware-debt.md §3.51)',
+          'вытеснение в памяти из вызываемой процедуры невозможно: ноль для адреса слота у ' +
+          'вызываемой теперь ЕСТЬ (клетка `%r12` закреплена носителем `IR.callee_zero`, §3.166), ' +
+          'поэтому прежняя причина отказа («клетки нуля нет») СНЯТА — но сам отказ сохранён по ' +
+          'другой причине: вытеснение в процедуре идёт вместе с рантаймом массивов, а тот без ' +
+          'системного вызова не работает; снятие отказа без замера на цели даёт не проверенное ' +
+          'число, а тихую ложь (docs/hardware-debt.md §3.140, случай 55)',
       };
     }
     return undefined;
@@ -1334,8 +1366,11 @@ export function imageOfCarriers(
           refused.push(
             refusalOf(
               LOWERING_CODES.runtime,
-              `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — её рантайм держит ` +
-                'состояние в %b[10..13], а окно вызываемой — %b[0..7]',
+              `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — рантайм держит ` +
+                'состояние в клетках %b[10..13] ТОЧКИ ВХОДА, а в плоскости вызываемой эти клетки НЕ ' +
+                'закреплены: закреплён только %b[12] (клетка нуля, §3.166), а %b[10], %b[11] и %b[13] ' +
+                'раскладка отдаёт значениям программы, и рантайм затёр бы их (окно вызываемой при ' +
+                'wsz = 16 — %b[0..15], то есть её собственные %r8..%r23)',
             ),
           );
           continue;
@@ -1371,7 +1406,9 @@ export function imageOfCarriers(
             refusalOf(
               LOWERING_CODES.runtime,
               `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — её рантайм держит ` +
-                'состояние в %b[10..13], а окно вызываемой — %b[0..7]',
+                'состояние в клетках %b[10..13] ТОЧКИ ВХОДА, а в плоскости вызываемой эти клетки НЕ ' +
+                'закреплены: закреплён только %b[12] (клетка нуля, §3.166), а %b[10], %b[11] и %b[13] ' +
+                'раскладка отдаёт значениям программы (окно вызываемой при wsz = 16 — %b[0..15])',
             ),
           );
           continue;
@@ -1428,13 +1465,15 @@ export function imageOfCarriers(
     // `система.память.выделить`. Здесь только байты: база записи — регистр-приёмник выделения.
     if (carrier.mnemonic === STRING_ARENA_COPY_CARRIER) {
       if (inCallee) {
-        // Та же граница, что у статической склейки: рантайм держит состояние в `%b[10..13]`, а это
-        // регистры окна вызываемой — причина названа, а не «не сработало».
+        // Та же граница, что у статической склейки: рантайм держит состояние в клетках `%b[10..13]`
+        // ТОЧКИ ВХОДА, а в плоскости вызываемой они не закреплены — причина названа, а не «не сработало».
         refused.push(
           refusalOf(
             LOWERING_CODES.runtime,
             `#${index} ${STRING_CALLS.concat}: склейка сверх статического буфера в вызываемой процедуре ` +
-              'невозможна — её рантайм держит состояние в %b[10..13], а окно вызываемой — %b[0..7]',
+              'невозможна — её рантайм держит состояние в клетках %b[10..13] ТОЧКИ ВХОДА, а в плоскости ' +
+              'вызываемой закреплён только %b[12] (клетка нуля, §3.166), тогда как %b[10], %b[11] и ' +
+              '%b[13] раскладка отдаёт значениям программы',
           ),
         );
         continue;

@@ -141,28 +141,37 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   // 634 → **733**, пустых слотов 2983 → **3503**, слогов 3804 → **4398**, занятых 821 → **895** —
   // тождество снова сходится, и уже ПО ЖИВЫМ числам. Двигались ТОЛЬКО эти две колонки: состав
   // потока (`commands`, `literals`, `tinyLiterals`, `control`, `longForm`) не менялся с §3.131.
-  { name: 'fir', commands: 255, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 209, emptySlots: 999 },
-  { name: 'iir', commands: 142, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 112, emptySlots: 530 },
-  { name: 'fft', commands: 123, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 105, emptySlots: 507 },
+  // ПЕРЕМЕР 2026-11-04 (ATOM-05-02-01): бюджет вызываемой вырос 8 → 15 клеток (`ARRAY_WINDOW_WSZ`
+  // 12 → 16, §3.166), поэтому обращений к массивам, отказывающих по имени, стало 17 вместо 45
+  // (`fir` 2, `iir` 2, `fft` 9, `convolution` 2, `correlation` 2 — остаток это `создать` без пролога
+  // адреса ячейки кучи), и последовательности рантайма в потоке стали ДЛИННЕЕ: команд 895 → 971,
+  // пакетов 733 → 796, пустых слотов 3503 → 3805.
+  //
+  // Литеральные колонки (`literals`, `tinyLiterals`, `control`, `longForm`) НЕ СДВИНУЛИСЬ — и это
+  // содержательная проверка: понижение меняет `addd`/`ldd`/`std` рантайма, а литералы и управляющие
+  // команды приходят из потока эмиттера.
+  { name: 'fir', commands: 266, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 218, emptySlots: 1042 },
+  { name: 'iir', commands: 156, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 124, emptySlots: 588 },
+  { name: 'fft', commands: 154, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 135, emptySlots: 656 },
   {
     name: 'convolution',
-    commands: 198,
+    commands: 207,
     literals: 16,
     tinyLiterals: 16,
     control: 26,
     longForm: 1,
-    packets: 161,
-    emptySlots: 768,
+    packets: 167,
+    emptySlots: 795,
   },
   {
     name: 'correlation',
-    commands: 177,
+    commands: 188,
     literals: 14,
     tinyLiterals: 14,
     control: 22,
     longForm: 1,
-    packets: 146,
-    emptySlots: 699,
+    packets: 152,
+    emptySlots: 724,
   },
 ];
 
@@ -262,25 +271,25 @@ describe('LTS-барьеры: что именно разрывает пакет�
     // вызываемых процедур отказывают по имени, разбор — в шапке таблицы выше). Литеральных 78 и
     // «малых» 74, управляющих 106, длинных форм 5 — НЕ двигались: усечение снимает последовательности
     // рантайма массивов (`addd`/`ldd`/`std`), а литералы и управляющие приходят из потока эмиттера.
-    expect(sum((row) => row.commands), 'команд').toBe(895);
+    expect(sum((row) => row.commands), 'команд').toBe(971);
     expect(sum((row) => row.literals), 'литеральных').toBe(78);
     expect(sum((row) => row.tinyLiterals), 'со значением 0..15').toBe(74);
     expect(sum((row) => row.control), 'управляющих').toBe(106);
     expect(sum((row) => row.longForm), 'длинных форм').toBe(5);
   });
 
-  it('1.6 пустые слоты: 3503 из 4398 — пакетов стало меньше, слогов тоже', () => {
+  it('1.6 пустые слоты: 3805 из 4776 — пакетов стало меньше, слогов тоже', () => {
     const packets = LITERAL_BARRIERS.reduce((sum, row) => sum + row.packets, 0);
     const empty = LITERAL_BARRIERS.reduce((sum, row) => sum + row.emptySlots, 0);
-    // ПЕРЕМЕР 2026-10-10 (§3.131): вместе с усечением потока пакетов 831 → 634, пустых слотов
-    // 3922 → 2983, слогов всего 4986 → 3804. Занятых слотов 821 — ровно число понижённых команд.
-    // ПЕРЕМЕР 2026-10-29 (§3.137): колонки упаковки отстали от `commands` на срез 2 и перемерены
-    // живым замером — пакетов 634 → 733, пустых 2983 → 3503, слогов 3804 → 4398, занятых 895.
-    expect(packets, 'пакетов').toBe(733);
-    expect(empty, 'пустых слотов').toBe(3503);
-    expect(packets * 6, 'слогов всего').toBe(4398);
-    expect(packets * 6 - empty, 'занятых слотов').toBe(895);
-    expect(packets, 'пакетов на потоке интеграции').toBe(733);
+    // ПЕРЕМЕР 2026-11-04 (ATOM-05-02-01): вместе с удлинением понижённой части потока пакетов
+    // 733 → 796, пустых слотов 3503 → 3805, слогов всего 4398 → 4776. Занятых слотов 971 — ровно
+    // число понижённых команд (тождество `packets · 6 − emptySlots = commands` сходится по ЖИВЫМ
+    // числам, а не по снимку прошлой ревизии).
+    expect(packets, 'пакетов').toBe(796);
+    expect(empty, 'пустых слотов').toBe(3805);
+    expect(packets * 6, 'слогов всего').toBe(4776);
+    expect(packets * 6 - empty, 'занятых слотов').toBe(971);
+    expect(packets, 'пакетов на потоке интеграции').toBe(796);
   });
 });
 
@@ -295,15 +304,15 @@ describe('оракул собран и проверяет непустое мн�
 
   it('отказы упаковщика непусты, распределены по мнемоникам — и литерала среди них больше НЕТ', () => {
     const fir = measureKernel('fir');
-    // Перемер 2026-09-27: `movts` ушёл из отказов (литерал включён в упаковщик), остались
-    // управляющие команды (`ct`, `disp`, `call`, `return`) и то, что формой не выражается
-    // (`cmplsb` — сравнение с предикатом, `movtd` — 64-битный литерал). Было 7 мнемоник, стало 6.
+    // Перемер 2026-11-04 (ATOM-05-02-01): `movtd` УШЁЛ из отказов (было 6 мнемоник, стало 5):
+    // вытеснения в вызываемой больше нет вовсе (§3.166 — бюджет 15 клеток), а `movtd` приходил
+    // именно из него (адрес слота — 64-битный литерал). Остались управляющие (`ct`, `disp`, `call`,
+    // `return`) и то, что формой не выражается (`cmplsb` — сравнение с предикатом).
     expect([...fir.refusals.keys()].sort(), 'мнемоники с отказом').toEqual([
       'call',
       'cmplsb',
       'ct',
       'disp',
-      'movtd',
       'return',
     ]);
     expect(fir.refusals.has('movts'), 'литерал больше не барьер').toBe(false);

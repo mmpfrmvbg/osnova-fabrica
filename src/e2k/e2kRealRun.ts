@@ -71,10 +71,12 @@ import {
   lowerArrayCall,
   arraySlotPrologue,
   arrayValuePrologue,
+  calleeZeroInstructions,
   ARRAY_REGISTERS,
   ARRAY_BASE_OPERAND,
   ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
+  CALLEE_ZERO_CARRIER,
   ENTRY_ARRAY_BASE,
   SUPPORTED_ARRAY_CALLS,
 } from "./arrayRuntime";
@@ -659,6 +661,14 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     };
   }
 
+  if (instruction.mnemonic === CALLEE_ZERO_CARRIER) {
+    // НОЛЬ ПЛОСКОСТИ ВЫЗЫВАЕМОЙ ПО ПОСТРОЕНИЮ (ATOM-05-02-01, §3.166): одна `movts 0` в клетку
+    // `ARRAY_REGISTERS.zero`. Носитель, а не готовая команда в потоке: у вызываемой конвейер переведёт
+    // её в оконную форму вместе с остальным телом, а форма раскладки берётся из ТОГО ЖЕ источника
+    // (`calleeZeroInstructions`), чтобы длина и байты не разошлись (§3.35).
+    return { ok: true, instructions: calleeZeroInstructions() };
+  }
+
   if (instruction.mnemonic === ARRAY_SLOT_CARRIER) {
     // АДРЕС ЯЧЕЙКИ КУЧИ В ПЛОСКОСТИ ВЫЗЫВАЕМОЙ (A4 §3.137): `%b[15]` вызываемой несёт АДРЕС ячейки —
     // тогда `создать` в вызываемой читает и двигает ту же ячейку, что точка входа. Носитель, а не
@@ -963,8 +973,12 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     const displacement = context.displacement;
     // ПЕРЕХОД, ВЕТВЯЩИЙСЯ ПО ЗНАЧЕНИЮ (A4, срез 5г): «склейка» с двумя разными рёбрами. Предикат
     // своего сравнения здесь не читается вовсе — он делается из ЗНАЧЕНИЯ командой `cmpesb значение,
-    // НОЛЬ`. Ноль — постоянная, равная нулю ПО ПОСТРОЕНИЮ: клетка точки входа занулена её прологом
-    // (`arrayPrologue`) и раскладке не выдаётся (`RESERVED_REGISTERS`).
+    // НОЛЬ`. Ноль — постоянная, равная нулю ПО ПОСТРОЕНИЮ, и она есть в ОБЕИХ плоскостях: в точке
+    // входа её зануляет пролог образа (`arrayPrologue`) и держит `RESERVED_REGISTERS`, а в
+    // ВЫЗЫВАЕМОЙ — её собственный пролог роста (носитель `IR.callee_zero` ставит `movts 0` в ту же
+    // клетку, а из пула раскладки она выведена в `CALLEE_ZERO_CELL`; ATOM-05-02-01, §3.166).
+    // Прежняя редакция отказывала в вызываемой по имени — отказ был честный, но бесполезный:
+    // `если а >= 48 и а <= 57` внутри процедуры не собиралось вовсе.
     if (isValueBranchJump(instruction)) {
       if (displacement === undefined) return failureOf(LOWERING_CODES.layout, JUMP_NEEDS_LAYOUT);
       const value = instruction.operands[0];
@@ -973,16 +987,6 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
           LOWERING_CODES.carrier,
           `«${instruction.mnemonic}»: условие не регистр — значение, по которому ветвится склейка, ` +
             "взять негде",
-        );
-      }
-      if (context.inCallee === true) {
-        return failureOf(
-          LOWERING_CODES.layout,
-          `«${instruction.mnemonic}»: «склейка» короткого замыкания, ветвящаяся ПО ЗНАЧЕНИЮ, в ` +
-            "ВЫЗЫВАЕМОЙ процедуре: ветвление требует сравнения значения с НУЛЁМ, а клетки, равной " +
-            `нулю по построению, в плоскости вызываемой нет (ноль точки входа %b[${String(ARRAY_REGISTERS.zero)}] ` +
-            "там чужая клетка, а %b[12] вызываемой раскладка выдаёт под значения). Отказ честный: " +
-            "без нуля предикат из значения не сделать, и переход ветвился бы не туда молча",
         );
       }
       // `jmp_if_not` скачет, когда значение РАВНО нулю (`cmpesb` — предикат «равно»), `jmp_if` —

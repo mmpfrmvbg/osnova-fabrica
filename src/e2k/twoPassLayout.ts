@@ -85,10 +85,14 @@ import {
 } from "./predicatePairing";
 
 import {
+  ARRAY_REGISTERS,
   ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
+  ARRAY_WINDOW_WSZ,
+  CALLEE_ZERO_CARRIER,
   arraySlotPrologue,
   arrayValuePrologue,
+  calleeZeroInstructions,
   lowerArrayCall } from "./arrayRuntime";
 import {
   SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
@@ -498,7 +502,8 @@ const CALL_COMMAND_FORMS: ReadonlyMap<string, CommandForm> = new Map([
 export const CALL_WBS = 4;
 
 /**
- * БЮДЖЕТ РЕГИСТРОВ ВЫЗЫВАЕМОЙ: только её СОБСТВЕННАЯ половина кадра — `%b[2*wbs .. 2*wbs+7]`.
+ * БЮДЖЕТ РЕГИСТРОВ ВЫЗЫВАЕМОЙ: только её СОБСТВЕННАЯ половина кадра — `%b[8 .. 23]`, МИНУС клетка
+ * нуля `%b[12]`, закреплённая за нулём ПО ПОСТРОЕНИЮ. Пятнадцать общих клеток.
  *
  * # Почему это закон окна, а не стиль
  *
@@ -509,7 +514,8 @@ export const CALL_WBS = 4;
  * |---|---|
  * | `%b[0]`, `%b[1]` | аргументы вызова (соглашение ABI) |
  * | `%b[2..7]` | `%b[10..15]` вызывающего — **рантайм массивов** (`ARRAY_REGISTERS`) |
- * | `%b[8..15]` | собственные регистры вызываемой: вызывающий их адресовать не может |
+ * | `%b[8..11]`, `%b[13..23]` | собственные регистры вызываемой: вызывающий их адресовать не может |
+ * | `%b[12]` | **закреплена за нулём** этой плоскости (см. ниже) — раскладке не выдаётся |
  *
  * Раскладка, выдавшая вызываемой `%b[2..7]`, затирает ЧУЖОЕ состояние молча. Замер
  * (`.tmp/osnova-reread-which.ts`, `docs/hardware-debt.md` §3.96): одна и та же арифметика
@@ -520,15 +526,61 @@ export const CALL_WBS = 4;
  * это `%b[12]` вызывающего. Отсюда «тихая ложь»: программа «собралась», отказов понижения 0,
  * а значение чужое.
  *
+ * # ПОЧЕМУ ВОСЬМИ КЛЕТОК БОЛЬШЕ НЕТ, А ПЯТНАДЦАТЬ ЕСТЬ (замер 2026-11-04, §3.166)
+ *
+ * Прежняя редакция перечисляла ровно восемь клеток `%b[8..15]` и объясняла это законом окна. Закон
+ * записан верно, но ПРЕДЕЛ был взят не тот: спецификация (`OpenE2K/relcc2` `spec/abi/registers.md`)
+ * даёт предел клеток вызываемой `min(2·(rsz + 1), 2·(wsz − wbs))`, а у листовой вызываемой первое
+ * слагаемое равно `2` — порт зануляет `%br` на каждом `call`, своего `setbn` у неё нет. Значит клетки
+ * даёт `wsz`, а не `rsz`, и их `2·(wsz − 4)`. Замер лестницей (`.tmp/a502-window-law.ts`, оракул
+ * `src/e2k/windowLimits.test.ts`): `wsz` 12/13/14/16 → предел 16/18/20/24, и первая недоступная
+ * клетка равна ровно `2·(wsz − 4)` во всех четырёх строках.
+ *
+ * При `ARRAY_WINDOW_WSZ = 12` это давало 16 единиц, то есть ровно `%b[8..15]` — восемь клеток, и
+ * список был верен. Пролог образа теперь ставит `setwd wsz = 16` (§3.166, шаг 2 атома ATOM-05-02-01),
+ * поэтому своих клеток у вызываемой `%b[8..23]` — ШЕСТНАДЦАТЬ.
+ *
+ * # ЗАЧЕМ КЛЕТКА НУЛЯ И ПОЧЕМУ ОНА ВЫВЕДЕНА ИЗ ПУЛА
+ *
+ * Переход, ветвящийся ПО ЗНАЧЕНИЮ (`если A и B`, `src/e2k/predicatePairing.ts#VALUE_BRANCH_JUMP`),
+ * делает предикат командой `cmpesb значение, НОЛЬ`, и ноль этот обязан быть равен нулю **по
+ * построению** — иначе предикат считается от мусора и переход ветвится не туда молча (это и есть
+ * седьмая тихая ложь, сторож `src/e2k/calleeJoinLie.test.ts`).
+ *
+ * В плоскости ТОЧКИ ВХОДА такая клетка есть и держится двумя местами: пролог образа пишет в `%b[12]`
+ * ноль (`arrayPrologue`), а `RESERVED_REGISTERS` эту клетку раскладке не выдаёт. В плоскости
+ * ВЫЗЫВАЕМОЙ ни одного из двух не было, поэтому понижение отказывало по имени — честно, но
+ * бесполезно: `если а >= 48 и а <= 57` в процедуре не собиралось вовсе.
+ *
+ * Теперь ноль вызываемой ставит ЕЁ ПРОЛОГ (носитель `IR.callee_zero` →
+ * `src/e2k/arrayRuntime.ts#calleeZeroInstructions`), а клетка выведена из пула ЗДЕСЬ — тем же
+ * вычитанием, каким `RESERVED_REGISTERS` держит её в плоскости входа. Номер берётся у
+ * {@link ARRAY_REGISTERS}.zero, а не пишется числом: понижение сравнивает значение ровно с этой
+ * клеткой (`e2kRealRun.ts`, `reg(ARRAY_REGISTERS.zero)`), и разойтись этим двум записям нечем.
+ *
+ * ПОЧЕМУ ВЫЧЕРКИВАНИЕМ ИЗ СПИСКА, А НЕ ЧЕРЕЗ `reserved`: `reserved` — общий для ОБЕИХ плоскостей
+ * (`allocateProgram` фильтрует им бюджет каждой процедуры), поэтому клетка, добавленная туда,
+ * отнялась бы и у точки входа. А в плоскости входа `%b[12]` уже держится своим механизмом
+ * (`RESERVED_REGISTERS`), и трогать его нельзя: там же стоят единица и восемь, которые читают печать,
+ * строки и коллекции.
+ *
  * Константа живёт ЗДЕСЬ, рядом с `CALL_WBS`, а не в модуле соглашения о вызове: вычисленная на
  * загрузке модуля из чужой константы, она при ином порядке импортов становится `NaN` — и раскладка
  * молча уходит в вытеснение вместо отказа (это и случилось: `npx tsx` давал 11, а прогон vitest —
  * отказ раскладки на той же программе).
  */
+export const CALLEE_ZERO_CELL = ARRAY_REGISTERS.zero;
+
+/** Первая СОБСТВЕННАЯ клетка вызываемой: за аргументами и чужой половиной кадра. */
+export const CALLEE_OWN_FIRST = 2 * CALL_WBS;
+
+/** Последняя собственная клетка вызываемой по измеренному закону окна: `2·(wsz − wbs) − 1`. */
+export const CALLEE_OWN_LAST = 2 * (ARRAY_WINDOW_WSZ - CALL_WBS) - 1;
+
 export const CALLEE_REGISTERS: readonly number[] = Array.from(
-  { length: 8 },
-  (_, at) => 2 * CALL_WBS + at,
-);
+  { length: CALLEE_OWN_LAST - CALLEE_OWN_FIRST + 1 },
+  (_, at) => CALLEE_OWN_FIRST + at,
+).filter((cell) => cell !== CALLEE_ZERO_CELL);
 
 /** Где в операндах носителя лежат признаки вызова: `flags = (есть приёмник) | (аргументов << 1)`. */
 function callFlags(instruction: AsmInstruction): { argc: number; hasDestination: boolean } | undefined {
@@ -801,6 +853,25 @@ function carrierFormWithReason(
       };
     }
     return { form: { carrier: ARRAY_SLOT_CARRIER, commands: forms.map((form) => form!) } };
+  }
+  if (instruction.mnemonic === CALLEE_ZERO_CARRIER) {
+    // НОЛЬ ВЫЗЫВАЕМОЙ ПО ПОСТРОЕНИЮ (ATOM-05-02-01, §3.166): ровно одна `movts 0` в клетку нуля.
+    // Длина берётся ИЗ ТОЙ ЖЕ команды, что понижает конвейер (`calleeZeroInstructions`), а не
+    // пишется числом: `movts` с непосредственным 0 кодируется КОРОТКОЙ формой, и «на глаз» здесь
+    // ошибаются на восемь байт — столько стоит каждый такой носитель в образе.
+    const commands = calleeZeroInstructions();
+    const forms = commands.map((command) => ARRAY_COMMAND_FORMS.get(command.mnemonic) ?? printCommandForm(command));
+    const missing = forms.findIndex((form) => form === undefined);
+    if (missing >= 0) {
+      return {
+        failure: failureOf(
+          LOWERING_CODES.carrier,
+          `«${CALLEE_ZERO_CARRIER}»: форму команды «${commands[missing]!.mnemonic}» взять негде — ` +
+            'длину ноль-клетки вызываемой раскладка обязана знать заранее (src/e2k/arrayRuntime.ts#calleeZeroInstructions)',
+        ),
+      };
+    }
+    return { form: { carrier: CALLEE_ZERO_CARRIER, commands: forms.map((form) => form!) } };
   }
   if (instruction.mnemonic === WINDOW_GROW_CARRIER) {
     return {

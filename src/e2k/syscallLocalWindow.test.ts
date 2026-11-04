@@ -193,8 +193,10 @@ describe('путь ①: местное окно системного вызов�
     expect(syscallCallOpen(ENTRY_SYSCALL_FRAME)).toEqual([
       { mnemonic: 'setwd', channel: 0, operands: [imm(8), imm(0)] },
     ]);
+    // Закрытие возвращает окно КАДРА, а не записанную константу: у точки входа оно теперь 16
+    // (пролог образа ставит `wsz = 16` с 2026-11-04, ATOM-05-02-01: закон окна вызываемой §3.166).
     expect(syscallCallClose(ENTRY_SYSCALL_FRAME)).toEqual([
-      { mnemonic: 'setwd', channel: 0, operands: [imm(12), imm(0)] },
+      { mnemonic: 'setwd', channel: 0, operands: [imm(16), imm(0)] },
     ]);
     expect(syscallCallOpen(GROWN_SYSCALL_FRAME)).toEqual([
       { mnemonic: 'setwd', channel: 0, operands: [imm(20), imm(0)] },
