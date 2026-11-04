@@ -27,6 +27,7 @@ import { buildElfFromCode, MINIMAL_BASE } from "../e2k/elfMinimal";
 import { entryValueReturnsOf } from "../e2k/programImage";
 import { LOWERING_CODES, refusalOf, type LoweringRefusal } from "../e2k/loweringRefusal";
 import { loweredProgram } from "../e2k/lowered";
+import type { CompileOptions } from "../compiler/compiler";
 import { buildShim, runInQemu } from "./e2kQemuExec";
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -84,8 +85,16 @@ export class MultiReturnRefusal extends Error {
   }
 }
 
-/** Собрать образ программы для цели. Бросает, если программа не компилируется или раскладка отказала. */
-export function buildE2kImage(source: string): E2kImage {
+/**
+ * Собрать образ программы для цели. Бросает, если программа не компилируется или раскладка отказала.
+ *
+ * РАЗБОРЩИК ПЕРЕДАЁТСЯ СНАРУЖИ (`CompileOptions.parse`) — решение D10. Диалект исходника НЕ виден по
+ * имени файла: и v2, и v3 лежат в `.osnova` (у v3-модуля нет шапки `модуль Имя`), поэтому «взять
+ * другое расширение» обходом не является. По умолчанию — прежний (v2) разбор: кит и корпус не
+ * двигаются ни на байт, это доказано сверкой 38 sha256. v3-потребитель (проба на железо, оракул)
+ * передаёт свой разборщик явно.
+ */
+export function buildE2kImage(source: string, options: CompileOptions = {}): E2kImage {
   // Конвейер — общий с оракулом цели; здесь только перевод отказов в исключение
   // для программ с несколькими возвратами (см. {@link MultiReturnRefusal}).
   // Возвратов со значением может быть несколько — и тогда обход через регистр
@@ -93,12 +102,12 @@ export function buildE2kImage(source: string): E2kImage {
   // хуже названного отказа. Считаем по носителям, а не по тексту — И ТОЛЬКО В ТОЧКЕ ВХОДА:
   // у вызываемой процедуры возврат свой (`return %ctpr3`), и ранний возврат в ней — норма
   // (пример `08-факториал`), а не повод отказать программе.
-  const returns = entryValueReturnsOf(source);
+  const returns = entryValueReturnsOf(source, options);
   if (returns > 1) throw new MultiReturnRefusal(returns);
   // ПУБЛИЧНАЯ ДВЕРЬ (D11): под отказом байтов нет. Кит — потребитель, а не сторож: ему нужен образ,
   // который можно исполнить. Отказы он при этом НЕ прячет — отдаёт диагностику наружу тем же полем
   // `refused` (код + причина), а `bytes` остаётся пустым: «собралось» и «исполнимо» — разные вещи.
-  const итог = loweredProgram(source);
+  const итог = loweredProgram(source, options);
   if (!итог.ок) {
     return {
       bytes: new Uint8Array(0),
@@ -135,9 +144,11 @@ export interface E2kRun {
 /**
  * БАЙТЫ ОБРАЗА ELF — тем же вызовом, что у оракула цели
  * (`buildElfFromCode(bytes, MINIMAL_BASE, { writable: true, extraMemory: image.extraMemory })`).
+ *
+ * Разборщик — тот же, что у {@link buildE2kImage} (D10): по умолчанию прежний.
  */
-export function buildElfImage(source: string): Uint8Array {
-  const image = buildE2kImage(source);
+export function buildElfImage(source: string, options: CompileOptions = {}): Uint8Array {
+  const image = buildE2kImage(source, options);
   return buildElfFromCode(image.bytes, MINIMAL_BASE, { writable: true, extraMemory: image.extraMemory }).bytes;
 }
 
@@ -146,9 +157,10 @@ export function buildElfImage(source: string): Uint8Array {
  *
  * @param source текст программы (канон: файл = модуль)
  * @param fileName имя образа в `.tmp/` — по нему видно, чей прогон
+ * @param options разборщик и прочие опции компилятора (D10): по умолчанию прежний (v2) разбор
  */
-export function runOnE2k(source: string, fileName: string): E2kRun {
-  const image = buildE2kImage(source);
+export function runOnE2k(source: string, fileName: string, options: CompileOptions = {}): E2kRun {
+  const image = buildE2kImage(source, options);
   // БАЙТОВ ПОД ОТКАЗОМ НЕТ (D11) — и запускать нечего. Прежде кит исполнял такой образ и отдавал
   // наружу ЧИСЛО; под несущим отказом оно ЛЖЁТ (случаи 60 и 62), поэтому число под отказом добывается
   // теперь только сторожем (`src/e2k/guards/loweredUnchecked.ts`), а не прогоном корпуса.
@@ -156,7 +168,7 @@ export function runOnE2k(source: string, fileName: string): E2kRun {
     return { status: undefined, refused: image.refused, used: image.used, file: "", output: "", exceptionIp: undefined };
   }
   const elf = path.join(ROOT, ".tmp", fileName);
-  fs.writeFileSync(elf, buildElfImage(source));
+  fs.writeFileSync(elf, buildElfImage(source, options));
   const run = runInQemu(elf, { shim: true, timeoutMs: 20_000 });
   return {
     status: run?.status ?? undefined,
