@@ -40,10 +40,19 @@ node vendor/relcc2/fetch-spec.mjs fetch    # залить заново с зак
 `spec/abi/registers.md` уже цитируется нашим кодом **как закон**, а не как мнение:
 
 - `src/e2k/twoPassLayout.ts` (комментарий о законе окна, §3.166): предел клеток вызываемой —
-  `min(2·(rsz + 1), 2·(wsz − wbs))`, а не восемь клеток «по закону окна»; раздел
-  `spec/abi/registers.md` → **«Register file (guide 9.3.1)» → «Window and rotating-base units»**.
+  `min(2·(rsz + 1), 2·(wsz − wbs))`, а не восемь клеток «по закону окна».
 - `src/e2k/arrayRuntime.ts` (тот же предел, объяснение `wsz = 16` против `rsz`).
 - Разбор с числами — `docs/hardware-debt.md` §3.166.
+
+**Где именно лежат обе половины этой формулы** (это НАШ свод двух утверждений документа —
+буквальной формулы `min(…)` в спецификации нет, и это стоит знать, прежде чем на неё ссылаться):
+
+- достижимость `%b[k]` только до `k < 2·(rsz + 1)` — `spec/abi/registers.md`, раздел
+  **«DWARF register numbers» → «How MCST's gdb reads them»**, строка таблицы `%b[k]` (тот же предел
+  есть в коде gdb: `OpenE2K/gdb`, `e2k-tdep.c`);
+- вызываемая получает `caller wsz − wbs` пар — `spec/abi/registers.md`, раздел
+  **«Register file (guide 9.3.1)» → «Window and rotating-base units»**: «A callee's `setwd wsz` must
+  be at least the part of the caller's window it inherits, `caller wsz − wbs` pairs…».
 
 Без локальной копии цитату нечем перепроверить: ссылка на документ, которого нет под рукой,
 источником не является. Машина бывает без сети (и на живой машине МЦСТ чужого репозитория тоже
