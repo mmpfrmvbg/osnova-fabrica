@@ -885,6 +885,157 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
   let siteOutcomes = new Map<number, SiteOutcome>();
   /** Значения всех сайтов по клеткам: заполняется КАЖДЫЙ раунд, наружу идёт последний (TD-0001). */
   const collectedSiteValues = new Map<string, readonly ProvenValue[]>();
+
+  /** Прямолинейна ли процедура (нет ни одного перехода): тогда линейный проход ТОЧЕН. */
+  const straightOf = (procedure: number): boolean => {
+    const range = bounds[procedure]!;
+    for (let at = range.from; at < range.to; at += 1) {
+      const carrier = code[at];
+      if (carrier === undefined) break;
+      if (
+        carrier.mnemonic === 'IR.jmp' ||
+        carrier.mnemonic === 'IR.jmp_if' ||
+        carrier.mnemonic === 'IR.jmp_if_not'
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  /** Сайт вызова → вызываемая: нужно переносу состояния (приёмник берёт возвращённый параметр). */
+  const calleeAt = new Map<number, number>();
+  for (const [callee, sites] of callSites) for (const site of sites) calleeAt.set(site, callee);
+
+  /**
+   * СВЁРТКА ПО ПУТЯМ (TD-0003): состояние на сайте вызова в процедуре С ПЕРЕХОДАМИ.
+   *
+   * Прежний сбор фактов обходил тело ОДНИМ курсором (`followJumps: false`), то есть брал носители В
+   * ПОРЯДКЕ КОДА. В прямолинейной процедуре порядок кода и есть порядок исполнения, поэтому проход точен;
+   * в процедуре с переходами это НЕ ТАК — и именно поэтому такие процедуры раньше исключались целиком
+   * (17 отказов лексера вида «строковая операция в вызываемой»). Здесь значение клетки остаётся в силе
+   * только там, где оно ОДНО И ТО ЖЕ на ВСЕХ путях; разошлись — клетка выпадает, и план молчит.
+   *
+   * Правила осторожности, каждое в сторону МОЛЧАНИЯ:
+   *   • носитель, чей эффект не разобран, снимает свои ЗАПИСАННЫЕ клетки, а при неизвестном наборе —
+   *     очищает состояние целиком;
+   *   • переходы рассматриваются ОБА: значения предиката у нас нет (сравнение пишет предикат, а не
+   *     регистр), и «пойти по одной ветви» было бы той же догадкой, что и раньше;
+   *   • не сошлось за отведённые шаги — наружу идёт ПУСТАЯ карта (фактов нет).
+   */
+  const joinedCallStates = (
+    procedure: number,
+    entry: ReadonlyMap<number, ProvenValue>,
+  ): Map<number, ReadonlyMap<number, ProvenValue>> => {
+    const range = bounds[procedure]!;
+    const facts = new Map<number, ReadonlyMap<number, ProvenValue>>();
+    const incoming = new Map<number, Map<number, ProvenValue>>();
+    const queue: number[] = [range.from];
+    incoming.set(range.from, new Map(entry));
+    /** Факты-кандидаты: значение, которое вызов кладёт в приёмник. Фильтруются ПОСЛЕ свёртки. */
+    const candidates: { readonly site: number; readonly cell: number; readonly value: ProvenValue }[] = [];
+    const limit = (range.to - range.from + 1) * 8 + 64;
+    let steps = 0;
+    while (queue.length > 0) {
+      if (steps >= limit) return new Map();
+      steps += 1;
+      const at = queue.shift()!;
+      const state = incoming.get(at)!;
+      const carrier = code[at];
+      if (carrier === undefined) continue;
+      const out = new Map(state);
+      let nexts: number[] = [];
+      if (carrier.mnemonic === 'IR.ret' || carrier.mnemonic === 'IR.ret_result') {
+        nexts = [];
+      } else if (carrier.mnemonic === 'IR.jmp') {
+        const target = jumpTarget(carrier);
+        nexts = target === undefined ? [] : [target];
+      } else if (carrier.mnemonic === 'IR.jmp_if' || carrier.mnemonic === 'IR.jmp_if_not') {
+        const target = jumpTarget(carrier);
+        nexts = target === undefined ? [at + 1] : [at + 1, target];
+      } else if (carrier.mnemonic === 'IR.call' || carrier.mnemonic === 'IR.invoke') {
+        const flags = carrier.operands[0];
+        const destination = carrier.operands[4];
+        if (flags !== undefined && flags.kind === 'imm' && (flags.value & 1) === 1 && destination?.kind === 'reg') {
+          // Аргументы прочитаны ДО записи приёмника — состояние сайта запоминается целиком.
+          facts.set(at, new Map(state));
+          out.delete(destination.index);
+          const callee = calleeAt.get(at);
+          const position =
+            callee === undefined
+              ? undefined
+              : returnedParamOf(code, bounds[callee]!.from, bounds[callee]!.to, stringCandidates(callee));
+          const value = position === undefined ? undefined : state.get(position);
+          if (
+            callee !== undefined &&
+            position !== undefined &&
+            stringCandidates(callee).includes(position) &&
+            value !== undefined &&
+            value.kind === 'строка'
+          ) {
+            out.set(destination.index, value);
+            candidates.push({ site: at, cell: destination.index, value });
+          }
+        }
+        nexts = [at + 1];
+      } else if (carrier.mnemonic === 'IR.const') {
+        const destination = carrier.operands[0];
+        if (destination !== undefined && destination.kind === 'reg') {
+          const record = sources.constRecord(carrier);
+          const number = sources.constNumber(carrier);
+          out.delete(destination.index);
+          if (record !== undefined) out.set(destination.index, { kind: 'строка', pool: record });
+          else if (number !== undefined) out.set(destination.index, { kind: 'целое', value: number });
+        }
+        nexts = [at + 1];
+      } else if (carrier.mnemonic === 'IR.zero') {
+        const destination = carrier.operands[0];
+        if (destination !== undefined && destination.kind === 'reg') {
+          out.set(destination.index, { kind: 'целое', value: 0 });
+        }
+        nexts = [at + 1];
+      } else {
+        const written = writtenCells(carrier);
+        if (!written.known) out.clear();
+        else for (const cell of written.cells) out.delete(cell);
+        nexts = [at + 1];
+      }
+      for (const next of nexts) {
+        if (next < range.from || next >= range.to) continue;
+        const before = incoming.get(next);
+        if (before === undefined) {
+          incoming.set(next, out);
+          queue.push(next);
+          continue;
+        }
+        // СВЁРТКА: клетка остаётся только там, где ВСЕ пути принесли ОДНО И ТО ЖЕ значение.
+        const merged = new Map<number, ProvenValue>();
+        for (const [cell, value] of before) {
+          const other = out.get(cell);
+          if (other !== undefined && sameValue(value, other)) merged.set(cell, value);
+        }
+        if (merged.size !== before.size) {
+          incoming.set(next, merged);
+          queue.push(next);
+        }
+      }
+    }
+    // СОГЛАСИЕ ФАКТОВ ОДНОЙ КЛЕТКИ. План раскладывает факт линейно, поэтому если РАЗНЫЕ ветви дали одной
+    // клетке РАЗНЫЕ значения, подставлять нельзя вовсе. План с TD-0003 гасит такие клетки ещё и на сходении
+    // путей (`mergeKills` в `src/e2k/stringPlan.ts`) — это ДВЕ стороны одной границы, и по замеру они
+    // обязаны совпадать: доказательство не даёт факта, а план не держит значение ветви после схождения.
+    const valueOfCell = new Map<number, ProvenValue | null>();
+    for (const { cell, value } of candidates) {
+      const before = valueOfCell.get(cell);
+      if (before === undefined) valueOfCell.set(cell, value);
+      else if (before === null || !sameValue(before, value)) valueOfCell.set(cell, null);
+    }
+    for (const { site, cell, value } of candidates) {
+      const agreed = valueOfCell.get(cell);
+      if (agreed === null || agreed === undefined || !sameValue(agreed, value)) facts.delete(site);
+    }
+    return facts;
+  };
   for (let round = 0; round < STRING_VALUE_PROOF_ROUNDS; round += 1) {
     const entryOf = (procedure: number): Map<number, ProvenValue> => {
       const entry = new Map<number, ProvenValue>();
@@ -907,8 +1058,16 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
         limit: code.length + 1,
       }),
     );
+    // СОСТОЯНИЯ САЙТОВ. Прямолинейные процедуры — линейный проход (он точен). Процедуры С ПЕРЕХОДАМИ
+    // берутся ТОЛЬКО свёрткой по путям (TD-0003): линейные состояния там — значение не той ветви.
     const collectedCallStates = new Map<number, ReadonlyMap<number, ProvenValue>>();
-    for (const walk of walks) for (const [at, cells] of walk.callStates) collectedCallStates.set(at, cells);
+    procedures.forEach((_, procedure) => {
+      if (straightOf(procedure)) {
+        for (const [at, cells] of walks[procedure]!.callStates) collectedCallStates.set(at, cells);
+        return;
+      }
+      for (const [at, cells] of joinedCallStates(procedure, entryOf(procedure))) collectedCallStates.set(at, cells);
+    });
     callStates = collectedCallStates;
 
     // ИСХОД КАЖДОГО САЙТА: тело вызываемой исполняется по значениям ЭТОГО сайта.
@@ -972,38 +1131,34 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
   );
   const calleeOfSite = new Map<number, number>();
   for (const [callee, sites] of callSites) for (const site of sites) calleeOfSite.set(site, callee);
-  /** Сайты вызова, у которых ЕСТЬ приёмник и чья процедура ПРЯМОЛИНЕЙНА: только там ставится факт. */
+  /** Сайты вызова, у которых ЕСТЬ приёмник: состояние каждого приходит уже СОГЛАСОВАННЫМ (см. ниже). */
   const sitesWithDestination = new Set<number>();
   /** Носитель `IR.call` → запись пула, которую ЭТОТ вызов кладёт в свой приёмник (случай 76, путь (а)). */
   const callValues = new Map<number, number>();
   /**
-   * ПРОЦЕДУРЫ С ПЕРЕХОДАМИ — ИЗ ДОКАЗАТЕЛЬСТВА ИСКЛЮЧАЮТСЯ ЦЕЛИКОМ, и это не перестраховка.
+   * ЗДЕСЬ РАНЬШЕ СТОЯЛ СТОРОЖ «ТОЛЬКО ПРЯМОЛИНЕЙНЫЕ ПРОЦЕДУРЫ» — и вот почему он больше не нужен.
    *
-   * План строк раскладывает доказанное значение ЛИНЕЙНО, а в ветке две записи одной клетки идут в
-   * ПОРЯДКЕ НОСИТЕЛЕЙ, а не в порядке исполнения: значение получит та ветвь, чьи носители лежат позже.
-   * Замер (`.tmp/td76-ветка.ts`, В1/В2: ветка `если сч == 0` внутри `пока`, верные ответы «абв» и «где»)
-   * дал ЧУЖОЙ текст — подстановка была бы тихой ложью. В ПРЯМОЛИНЕЙНОЙ процедуре линейный проход точен:
-   * порядок носителей и есть порядок исполнения, поэтому значение там и доказывается.
+   * План строк раскладывает доказанное значение ЛИНЕЙНО, поэтому прежний сбор фактов (один курсор в
+   * порядке носителей) в ветке давал значение НЕ ТОЙ ветви: замер (`В1`/`В2`: ветка `если сч == 0` внутри
+   * `пока`, верные ответы «абв» и «где») печатал ЧУЖОЙ текст. Отсюда и сторож: в процедуре с переходами
+   * факт не ставился вовсе — цена была названа сразу (весь лексер, 17 отказов вида «строковая операция в
+   * вызываемой»).
+   *
+   * Теперь состояния процедур с переходами даёт СВЁРТКА ПО ПУТЯМ (`joinedCallStates`), а план гасит
+   * значения, записанные ветвями, на СХОЖДЕНИИ путей (`mergeKills` в `src/e2k/stringPlan.ts`). Это две
+   * стороны одной границы, и они обязаны совпадать: доказательство не ставит факт там, где пути разошлись,
+   * а план не держит значение ветви после схождения. Замеры: пробы Б1 (`длина с` под `если` = 3) и Б2
+   * (`с[0]` = 1072) — числа владельца; Б5/Б6 (разные значения на путях) — адрес 1114110, чужого текста нет.
    */
-  procedures.forEach((_, procedure) => {
-    const range = bounds[procedure]!;
-    let straight = true;
-    const sites: number[] = [];
-    for (let at = range.from; at < range.to; at += 1) {
-      const carrier = code[at];
-      if (carrier === undefined) break;
-      if (carrier.mnemonic === 'IR.jmp' || carrier.mnemonic === 'IR.jmp_if' || carrier.mnemonic === 'IR.jmp_if_not') {
-        straight = false;
-      }
-      if (carrier.mnemonic !== 'IR.call') continue;
-      const flags = carrier.operands[0];
-      const destination = carrier.operands[4];
-      if (flags !== undefined && flags.kind === 'imm' && (flags.value & 1) === 1 && destination?.kind === 'reg') {
-        sites.push(at);
-      }
+  for (let at = 0; at < code.length; at += 1) {
+    const carrier = code[at];
+    if (carrier === undefined || carrier.mnemonic !== 'IR.call') continue;
+    const flags = carrier.operands[0];
+    const destination = carrier.operands[4];
+    if (flags !== undefined && flags.kind === 'imm' && (flags.value & 1) === 1 && destination?.kind === 'reg') {
+      sitesWithDestination.add(at);
     }
-    if (straight) for (const site of sites) sitesWithDestination.add(site);
-  });
+  }
   for (const site of sitesWithDestination) {
     const callee = calleeOfSite.get(site);
     if (callee === undefined) continue;

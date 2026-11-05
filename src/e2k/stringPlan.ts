@@ -562,6 +562,39 @@ export function planStrings(
   };
   applyTypedProcedure(0);
 
+  /**
+   * СХОЖДЕНИЕ ПУТЕЙ: ЗНАЧЕНИЯ, ЗАПИСАННЫЕ ВНУТРИ ВЕТВИ, ЗДЕСЬ УМИРАЮТ (TD-0003).
+   *
+   * `byRegister` линейна (см. `kill` выше): она держит последнее значение В ПОРЯДКЕ НОСИТЕЛЕЙ, а не в
+   * порядке исполнения. В прямолинейной процедуре это одно и то же, но на СХОЖДЕНИИ путей — нет: клетка,
+   * которой разные ветви дали РАЗНОЕ значение, получит от линейного прохода значение ТОЙ ветви, чьи
+   * носители лежат позже, и чтение после схождения подставит чужие байты. Замер (оракул TD-0003,
+   * `src/e2k/stringFactsControlFlow.test.ts`, проба Б5: обе ветви пишут одну клетку, значения разные) —
+   * печаталось `х`, то есть значение, записанное ДО ветви: тихая ложь.
+   *
+   * Здесь это снимается: на ЦЕЛИ перехода убиваются значения всех клеток, записанных между переходом и
+   * целью (это ровно тела ветвей, ведущих к цели). ЦЕНА НАЗВАНА: значение, ОДИНАКОВОЕ на всех путях,
+   * тоже теряется (проба Б4) — это оставшаяся половина долга, и она не закрывается без счёта значений по
+   * путям ЗДЕСЬ, в плане. Отказов это не добавляет: клетка лишь перестаёт считаться доказанной.
+   */
+  const mergeKills = new Map<number, Set<number>>();
+  code.forEach((carrier, index) => {
+    if (carrier.mnemonic !== 'IR.jmp' && carrier.mnemonic !== 'IR.jmp_if' && carrier.mnemonic !== 'IR.jmp_if_not') {
+      return;
+    }
+    const operand = carrier.mnemonic === 'IR.jmp' ? carrier.operands[0] : carrier.operands[1];
+    const target = operand !== undefined && operand.kind === 'imm' ? operand.value : undefined;
+    if (target === undefined || target <= index || target > code.length) return;
+    const killed = mergeKills.get(target) ?? new Set<number>();
+    for (let at = index + 1; at < target; at += 1) {
+      const inner = code[at];
+      if (inner === undefined) break;
+      const register = writtenRegisterOf(inner);
+      if (register !== undefined) killed.add(register);
+    }
+    if (killed.size > 0) mergeKills.set(target, killed);
+  });
+
   code.forEach((carrier, index) => {
     // ГРАНИЦА ПРОЦЕДУРЫ: факты «строковость из типа» живут ВНУТРИ своей процедуры. Пересев идёт по
     // смещениям процедур того же потока, что разбирается: второй карты смещений не заводится.
@@ -574,6 +607,9 @@ export function planStrings(
         applyTypedProcedure(typedProcedure);
       }
     }
+    // СХОЖДЕНИЕ ПУТЕЙ: карта линейна, поэтому здесь умирают значения, записанные ветвями (см. `mergeKills`).
+    const mergeKilled = mergeKills.get(index);
+    if (mergeKilled !== undefined) for (const cell of mergeKilled) kill(cell);
     // Пул констант: строковый литерал — это строка, всё остальное — числа.
     if (carrier.mnemonic === 'IR.const') {
       const destination = carrier.operands[0];
