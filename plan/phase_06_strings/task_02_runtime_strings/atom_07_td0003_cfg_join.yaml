@@ -1,0 +1,18 @@
+id: ATOM-06-02-07
+title: "TD-0003: строковые факты в процедурах с переходами — свёртка по путям + гашение на сходении"
+phase: PHASE-06
+task: TASK-06-02
+status: done
+depends_on: []
+blocks: []
+input: []
+output: []
+done_criteria: []
+tests: []
+registers_touched:
+  decisions: []
+  errors: []
+  tech_debt: []
+  blind_spots: []
+notes: ""
+commit_hash: 818f1b39
