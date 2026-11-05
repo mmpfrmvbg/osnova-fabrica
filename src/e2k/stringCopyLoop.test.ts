@@ -50,12 +50,15 @@ import { carrierFormOf } from './twoPassLayout';
 import {
   STRING_COPY_LOOP_SIZE,
   STRING_SLICE_SITE_SETUP_SIZE,
-  STRING_SLICE_SITE_TAIL_SIZE,
+  STRING_SLICE_SITE_SIZE,
+  STRING_SLICE_TAIL_SIZE,
   checkStringCopyLoopCells,
   checkStringCopyLoopRoles,
   checkStringSliceRuntimeSite,
+  checkStringSliceRuntimeTail,
   stringCopyLoopCarriers,
   stringSliceRuntimeSite,
+  stringSliceRuntimeTail,
 } from './stringRuntime';
 
 const encoder = getEncoder('e2k');
@@ -367,7 +370,7 @@ describe('O(n) цикл копирования строки: восемь нос
  * `%b[14..15]`) плюс ноль и единица (`%b[12]`/`%b[13]`). Отдельной рабочей клетки у сайта НЕТ и быть
  * не может — седьмую пришлось бы отнять у программы; рабочим адресом служит сам приёмник.
  */
-describe('сайт рантайм-среза: указатели, цикл, число кодпоинтов в дескриптор', () => {
+describe('сайт рантайм-среза: установка, переход в хвост, число кодпоинтов в дескриптор', () => {
   const БУФЕР = 0x110000;
   const ДЕСКРИПТОР = БУФЕР - 16;
   const БЛОБ = 0x101f00;
@@ -380,42 +383,51 @@ describe('сайт рантайм-среза: указатели, цикл, чи
     descriptorAddress: ДЕСКРИПТОР,
     destination: 15,
     cells: КЛЕТКИ,
-    siteIndex: 100,
+    loopIndex: 300,
+  } as const;
+  const ХВОСТ = {
+    from: 2,
+    to: 3,
+    bufferAddress: БУФЕР,
+    descriptorAddress: ДЕСКРИПТОР,
+    destination: 15,
+    cells: КЛЕТКИ,
+    loopIndex: 300,
+    successor: 51,
   } as const;
   const ОБЪЯВЛЕНО = [8, 9, 10, 11, 14, 15];
 
-  it('СОСТАВ: установка + цикл + дескриптор; выход цикла ведёт НА ЗАПИСЬ, а не за вызов', () => {
+  it('САЙТ: указатели, ноль/единица и переход В ХВОСТ — цикл стоит за концом потока', () => {
     const site = stringSliceRuntimeSite(САЙТ);
-    expect(site).toHaveLength(STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE + STRING_SLICE_SITE_TAIL_SIZE);
-    // ЦИКЛ ВСТАЛ РОВНО ТАМ, ГДЕ СЧИТАЕТ УСТАНОВКА: иначе обратный переход ушёл бы в середину команды.
-    expect(site.slice(STRING_SLICE_SITE_SETUP_SIZE, STRING_SLICE_SITE_SETUP_SIZE + 2).map((c) => c.mnemonic)).toEqual([
-      'IR.lt',
-      'IR.jmp_if_not',
+    expect(site).toHaveLength(STRING_SLICE_SITE_SIZE);
+    expect(site).toHaveLength(STRING_SLICE_SITE_SETUP_SIZE + 1);
+    // НАЧАЛО: адрес байтов — в ПРИЁМНИК (он же рабочая клетка сайта: седьмой клетки в полосе нет).
+    expect(site[0]?.mnemonic).toBe('movtd');
+    expect(site[0]?.operands[0]).toEqual({ kind: 'imm64', value: 0x101f00n });
+    expect(site[0]?.operands[1]).toEqual({ kind: 'reg', index: 15 });
+    // ВОСЬМЁРКА НА КОДПОИНТ: три удвоения, затем сложение с адресом — для начала и для конца.
+    expect(site.slice(2, 6).map((c) => c.mnemonic)).toEqual(['IR.add', 'IR.add', 'IR.add', 'IR.add']);
+    expect(site[2]?.operands).toEqual([
+      { kind: 'reg', index: 8 },
+      { kind: 'reg', index: 8 },
+      { kind: 'reg', index: 8 },
     ]);
-    // ВЫХОД ЦИКЛА — НА ПЕРВЫЙ НОСИТЕЛЬ ЗАПИСИ ДЕСКРИПТОРА (число кодпоинтов обязано быть записано).
-    const выход = site[STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE - 1];
-    expect(выход?.mnemonic).toBe('IR.jmp');
-    expect(выход?.operands[0], 'выход ведёт на запись дескриптора, а не за вызов').toEqual({
+    expect(site[5]?.operands[2], 'складывается АДРЕС, а не литерал').toEqual({ kind: 'reg', index: 15 });
+    expect(site[6]?.mnemonic, 'конец считается так же').toBe('movts');
+    expect(site[7]?.operands[1]).toEqual({ kind: 'reg', index: 9 });
+    expect(site[10]?.operands[2], 'адрес складывается и в конец').toEqual({ kind: 'reg', index: 15 });
+    // ПРИЁМНИК ЦИКЛА — адрес буфера; ноль и единица ставятся ЯВНО, а не «как договорились».
+    expect(site[11]?.operands[0]).toEqual({ kind: 'imm64', value: BigInt(БУФЕР) });
+    expect(site[11]?.operands[1]).toEqual({ kind: 'reg', index: 10 });
+    expect(site[12]?.operands).toEqual([{ kind: 'imm', value: 0 }, { kind: 'reg', index: 12 }]);
+    expect(site[13]?.operands).toEqual([{ kind: 'imm', value: 1 }, { kind: 'reg', index: 13 }]);
+    // ПЕРЕХОД В ХВОСТ, где лежит цикл: индекс хвоста читается из опций, а не зашит.
+    expect(site[site.length - 1]?.mnemonic).toBe('IR.jmp');
+    expect(site[site.length - 1]?.operands[0]).toEqual({ kind: 'imm', value: 300 });
+    expect(stringSliceRuntimeSite({ ...САЙТ, loopIndex: 900 })[site.length - 1]?.operands[0]).toEqual({
       kind: 'imm',
-      value: 100 + STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE,
+      value: 900,
     });
-    // КОПИРУЮТСЯ БАЙТЫ, А НЕ СЛОВА: `ldb` (канал 0) и `stb` (канал 2) — те же команды, что у арены.
-    expect(site.find((c) => c.mnemonic === 'ldb')?.channel, 'чтение — байт').toBe(0);
-    expect(site.find((c) => c.mnemonic === 'stb')?.channel, 'запись — байт').toBe(2);
-    // ЧИСЛО КОДПОИНТОВ: `к − н` в `byte`, порядок операндов ЗАМЕРЕН (приёмник, конец, начало).
-    const вычитание = site[STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE + 1];
-    expect(вычитание?.mnemonic).toBe('IR.sub');
-    expect(вычитание?.operands).toEqual([
-      { kind: 'reg', index: 11 },
-      { kind: 'reg', index: 3 },
-      { kind: 'reg', index: 2 },
-    ]);
-    // АДРЕС ДЕСКРИПТОРА ГРУЗИТСЯ В ПРИЁМНИК, а не в `byte`: `IR.sub` пишет в `byte` — адрес был бы съеден.
-    const адресДескриптора = site[STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE];
-    expect(адресДескриптора?.mnemonic).toBe('movtd');
-    expect(адресДескриптора?.operands[1]).toEqual({ kind: 'reg', index: 15 });
-    // РЕЗУЛЬТАТ — АДРЕС БАЙТОВ БУФЕРА (именно это читает `длина` дескрипторным путём).
-    expect(site[site.length - 1]?.operands[1]).toEqual({ kind: 'reg', index: 15 });
     // СЫРЫЕ КОМАНДЫ САЙТА КОДИРУЮТСЯ: адрес (64 разряда) и пересылка — теми же формами, что у склейки
     // и у чтения длины из дескриптора. Кривая форма операнда всплыла бы на цели, а не здесь.
     for (const carrier of site.filter((c) => c.mnemonic === 'movtd' || c.mnemonic === 'movts')) {
@@ -423,8 +435,51 @@ describe('сайт рантайм-среза: указатели, цикл, чи
     }
   });
 
-  it('СТОРОЖ МОЛЧИТ на верном сайте и НАЗЫВАЕТ каждое из четырёх нарушений', () => {
+  it('ХВОСТ: цикл, запись дескриптора, возврат за вызов — по порядку исполнения', () => {
+    const tail = stringSliceRuntimeTail(ХВОСТ);
+    expect(tail).toHaveLength(STRING_SLICE_TAIL_SIZE);
+    expect(tail).toHaveLength(STRING_COPY_LOOP_SIZE + 5);
+    expect(tail.slice(0, 2).map((c) => c.mnemonic)).toEqual(['IR.lt', 'IR.jmp_if_not']);
+    // ЦИКЛ СТОИТ РОВНО НА `loopIndex`: обратный переход ведёт на первый его носитель.
+    expect(tail[1]?.operands[1]).toEqual({ kind: 'imm', value: 307 });
+    expect(tail[6]?.operands[0]).toEqual({ kind: 'imm', value: 300 });
+    // КОПИРУЮТСЯ БАЙТЫ: `ldb` канал 0, `stb` канал 2 — те же команды, что у арены.
+    expect(tail.find((c) => c.mnemonic === 'ldb')?.channel, 'чтение — байт').toBe(0);
+    expect(tail.find((c) => c.mnemonic === 'stb')?.channel, 'запись — байт').toBe(2);
+    // ВЫХОД ЦИКЛА — НА ПЕРВЫЙ НОСИТЕЛЬ ЗАПИСИ ДЕСКРИПТОРА (а не «за вызов»: число обязано быть записано).
+    const выход = tail[STRING_COPY_LOOP_SIZE - 1];
+    expect(выход?.mnemonic).toBe('IR.jmp');
+    expect(выход?.operands[0], 'выход ведёт на запись дескриптора').toEqual({ kind: 'imm', value: 308 });
+    // ЗАПИСЬ ДЕСКРИПТОРА: адрес дескриптора — В ПРИЁМНИК (в `byte` его съел бы `IR.sub`),
+    // `к − н` — в `byte` ЗАМЕРЕННЫМ порядком операндов (приёмник, конец, начало), затем `IR.store`.
+    expect(tail[8]?.mnemonic).toBe('movtd');
+    expect(tail[8]?.operands[0]).toEqual({ kind: 'imm64', value: BigInt(ДЕСКРИПТОР) });
+    expect(tail[8]?.operands[1]).toEqual({ kind: 'reg', index: 15 });
+    expect(tail[9]?.mnemonic).toBe('IR.sub');
+    expect(tail[9]?.operands).toEqual([
+      { kind: 'reg', index: 11 },
+      { kind: 'reg', index: 3 },
+      { kind: 'reg', index: 2 },
+    ]);
+    expect(tail[10]?.mnemonic).toBe('IR.store');
+    expect(tail[10]?.operands).toEqual([{ kind: 'reg', index: 11 }, { kind: 'reg', index: 15 }]);
+    // РЕЗУЛЬТАТ — АДРЕС БАЙТОВ БУФЕРА (именно это читает `длина` дескрипторным путём).
+    expect(tail[11]?.operands[0]).toEqual({ kind: 'imm64', value: BigInt(БУФЕР) });
+    expect(tail[11]?.operands[1]).toEqual({ kind: 'reg', index: 15 });
+    // И ВОЗВРАТ ЗА ВЫЗОВ: носитель, стоявший за `IR.invoke`, теперь стоит за группой сайта.
+    expect(tail[12]?.mnemonic).toBe('IR.jmp');
+    expect(tail[12]?.operands[0]).toEqual({ kind: 'imm', value: 51 });
+    // РАЗЛИЧАЮЩИЙ КОНТРОЛЬ: сдвиг начала хвоста двигает ОБА перехода и место записи — индексы ЧИТАЮТСЯ.
+    const сдвинутый = stringSliceRuntimeTail({ ...ХВОСТ, loopIndex: 400, successor: 77 });
+    expect(сдвинутый[1]?.operands[1]).toEqual({ kind: 'imm', value: 407 });
+    expect(сдвинутый[6]?.operands[0]).toEqual({ kind: 'imm', value: 400 });
+    expect(сдвинутый[7]?.operands[0]).toEqual({ kind: 'imm', value: 408 });
+    expect(сдвинутый[12]?.operands[0]).toEqual({ kind: 'imm', value: 77 });
+  });
+
+  it('СТОРОЖИ: молчат на верных сайте и хвосте и НАЗЫВАЮТ каждое нарушение', () => {
     expect(() => checkStringSliceRuntimeSite(САЙТ, ОБЪЯВЛЕНО)).not.toThrow();
+    expect(() => checkStringSliceRuntimeTail(stringSliceRuntimeTail(ХВОСТ), ХВОСТ)).not.toThrow();
     // 1. Дескриптор НЕ за шестнадцать байт до байтов — `длина` читала бы чужие байты.
     expect(() =>
       checkStringSliceRuntimeSite({ ...САЙТ, descriptorAddress: БУФЕР - 24 }, ОБЪЯВЛЕНО),
@@ -436,13 +491,17 @@ describe('сайт рантайм-среза: указатели, цикл, чи
     // 3. РАЗЛИЧАЮЩИЙ КОНТРОЛЬ: клетка цикла совпала с КРАЕМ — край нужен записи дескриптора ПОСЛЕ цикла.
     //    Край берётся ИЗ ПОЛОСЫ (`%b[11]`, там же `byte`): клетка вне полосы отвергается раньше и по
     //    другой причине, и проба проверяла бы не то.
-    expect(() =>
-      checkStringSliceRuntimeSite({ ...САЙТ, from: 11 }, ОБЪЯВЛЕНО),
-    ).toThrowError(/совпала с краем среза/);
+    expect(() => checkStringSliceRuntimeSite({ ...САЙТ, from: 11 }, ОБЪЯВЛЕНО)).toThrowError(
+      /совпала с краем среза/,
+    );
     // 4. РАЗЛИЧАЮЩИЙ КОНТРОЛЬ: приёмник совпал с приёмником ЦИКЛА — результат нёс бы КОНЕЦ буфера.
+    expect(() => checkStringSliceRuntimeSite({ ...САЙТ, destination: 10 }, ОБЪЯВЛЕНО)).toThrowError(
+      /КОНЕЦ буфера вместо начала/,
+    );
+    // 5. ХВОСТ: носители, собранные ПОД ДРУГОЙ ИНДЕКС, — отказ по имени (место цикла разошлось).
     expect(() =>
-      checkStringSliceRuntimeSite({ ...САЙТ, destination: 10 }, ОБЪЯВЛЕНО),
-    ).toThrowError(/КОНЕЦ буфера вместо начала/);
+      checkStringSliceRuntimeTail(stringSliceRuntimeTail({ ...ХВОСТ, loopIndex: 400 }), ХВОСТ),
+    ).toThrowError(/хвост не тот|не на том месте|выход цикла ведёт/);
   });
 
   it('СТОРОЖ КЛЕТОК: незакреплённая клетка сайта — отказ (второй уровень закрепления, D24)', () => {

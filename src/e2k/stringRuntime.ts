@@ -905,31 +905,60 @@ export interface StringSliceRuntimeSiteOptions {
     readonly zero: number;
     readonly key: number;
   };
-  /** Абсолютный индекс ПЕРВОГО носителя сайта в итоговом потоке. */
-  readonly siteIndex: number;
+  /** Абсолютный индекс ПЕРВОГО носителя ЦИКЛА в итоговом потоке (цикл живёт в ХВОСТЕ, см. ниже). */
+  readonly loopIndex: number;
 }
 
-/** Сколько носителей занимает УСТАНОВКА сайта (до цикла) — эталон для сторожа и счёта переходов. */
+/** Сколько носителей занимает УСТАНОВКА сайта (до перехода в хвост) — эталон для сторожа. */
 export const STRING_SLICE_SITE_SETUP_SIZE = 14;
 
-/** Сколько носителей занимает ЗАПИСЬ ДЕСКРИПТОРА (после цикла) — эталон для сторожа. */
-export const STRING_SLICE_SITE_TAIL_SIZE = 4;
+/** Опции ХВОСТА сайта рантайм-среза: те же роли плюс место хвоста и адрес возврата за вызов. */
+export interface StringSliceRuntimeTailOptions {
+  /** Клетка начала среза — ЧИТАЕТСЯ записью дескриптора, поэтому цикл её не трогает. */
+  readonly from: number;
+  /** Клетка конца среза — читается там же. */
+  readonly to: number;
+  readonly bufferAddress: number;
+  readonly descriptorAddress: number;
+  /** Клетка результата (в неё ложится адрес байтов буфера). */
+  readonly destination: number;
+  readonly cells: {
+    readonly source: number;
+    readonly end: number;
+    readonly target: number;
+    readonly byte: number;
+    readonly one: number;
+    readonly zero: number;
+    readonly key: number;
+  };
+  /** Абсолютный индекс ПЕРВОГО носителя хвоста — он же первый носитель цикла. */
+  readonly loopIndex: number;
+  /** Абсолютный индекс носителя, СТОЯЩЕГО ЗА ВЫЗОВОМ: хвост возвращает поток на него. */
+  readonly successor: number;
+}
+
+/** Сколько носителей занимает ВЕСЬ сайт: установка и переход в хвост, где лежит цикл. */
+export const STRING_SLICE_SITE_SIZE = 15;
+
+/** Сколько носителей занимает ХВОСТ сайта: цикл, запись дескриптора и переход за вызов. */
+export const STRING_SLICE_TAIL_SIZE = 13;
 
 /**
- * Носители сайта рантайм-среза: установка, цикл, запись дескриптора — ОДНИМ массивом.
+ * Носители сайта рантайм-среза — УСТАНОВКА и ПЕРЕХОД В ХВОСТ, где лежит сам цикл.
  *
- * Порядок и индексы жёсткие: цикл начинается на `siteIndex + STRING_SLICE_SITE_SETUP_SIZE`, а его
- * восьмой носитель (выход) ведёт на `loopIndex + STRING_COPY_LOOP_SIZE`, то есть ровно на первый
- * носитель записи дескриптора. Сдвинься любое из чисел — переход ушёл бы в середину команды.
+ * # Почему цикл в ХВОСТЕ, а не здесь
+ *
+ * Цели переходов цикла — АБСОЛЮТНЫЕ индексы носителей (§3.35: промах на одну команду уводит поток в
+ * середину команды). Индекс носителя, стоящего В СЕРЕДИНЕ потока, зависит от того, сколько носителей
+ * добавили все группы ДО него, и известен только после раскладки групп — то есть посчитать его здесь
+ * нечем. Хвост же лежит ЗА концом потока, и его начало считается ДО сборки групп:
+ * `длина потока + прирост всех групп`. Тем же приёмом живут коллекции и арена
+ * (`collectionResizeSiteCarriers` → `IR.jmp [imm(loopIndex)]`, хвост — группой последнего носителя).
+ *
+ * Отсюда договор: сайт ЗАКАНЧИВАЕТСЯ переходом на `loopIndex`, а {@link stringSliceRuntimeTail}
+ * строит хвост, НАЧИНАЮЩИЙСЯ ровно на этом индексе.
  */
 export function stringSliceRuntimeSite(options: StringSliceRuntimeSiteOptions): AsmInstruction[] {
-  const loopIndex = options.siteIndex + STRING_SLICE_SITE_SETUP_SIZE;
-  const continuation = loopIndex + STRING_COPY_LOOP_SIZE;
-  const loopOptions: StringCopyLoopOptions = {
-    ...options.cells,
-    loopIndex,
-    continuation,
-  };
   const setup: AsmInstruction[] = [
     // АДРЕС ИСТОЧНИКА: `destination` держит адрес байтов (он же — рабочая клетка сайта), `source = н`,
     // три удвоения (×2, ×4, ×8), сложение. Восьмёрка на кодпоинт — замер: точка кода в таблице кодов
@@ -951,31 +980,54 @@ export function stringSliceRuntimeSite(options: StringSliceRuntimeSiteOptions): 
     a('movtd', [literal(options.bufferAddress), reg(options.cells.target)]),
     a('movts', [imm(0), reg(options.cells.zero)]),
     a('movts', [imm(1), reg(options.cells.one)]),
+    // В ХВОСТ: цикл, запись дескриптора и возврат за вызов стоят ЗА концом потока.
+    a('IR.jmp', [imm(options.loopIndex)]),
   ];
+  if (setup.length !== STRING_SLICE_SITE_SIZE) {
+    throw new StringRuntimeRefusal(
+      `сайт рантайм-среза длиной ${String(setup.length)}, а счёт обещает ` +
+        `${String(STRING_SLICE_SITE_SIZE)} — индекс хвоста разошёлся бы с переходом`,
+    );
+  }
+  return setup;
+}
+
+/**
+ * ХВОСТ САЙТА РАНТАЙМ-СРЕЗА: цикл, запись дескриптора, возврат за вызов — по порядку исполнения.
+ *
+ * Восьмой носитель цикла (выход) ведёт РОВНО на первый носитель записи дескриптора: сначала байты
+ * скопированы, потом посчитано `к − н`. Последний носитель хвоста возвращает поток за вызов — иначе
+ * удачная копия «провалилась» бы в область блоков отказа.
+ */
+export function stringSliceRuntimeTail(options: StringSliceRuntimeTailOptions): AsmInstruction[] {
+  const loopIndex = options.loopIndex;
+  const descriptorAt = loopIndex + STRING_COPY_LOOP_SIZE;
+  const loop = stringCopyLoopCarriers({
+    ...options.cells,
+    loopIndex,
+    continuation: descriptorAt,
+  });
   const tail: AsmInstruction[] = [
+    ...loop,
     // ЧИСЛО КОДПОИНТОВ: `к − н` — в `byte` (после цикла он свободен), затем в слово 0 дескриптора.
-    // Адрес дескриптора кладётся В ПРИЁМНИК, который освободился: цикла больше нет, и адрес байтов
-    // нужен только последним носителем. Порядок здесь дословно важен: `IR.sub` пишет в `byte`, поэтому
+    // Адрес дескриптора кладётся В ПРИЁМНИК, который освободился: цикла больше нет, а адрес байтов
+    // нужен только последним носителем. Порядок дословно важен: `IR.sub` пишет в `byte`, поэтому
     // адрес обязан лежать не в `byte`.
     a('movtd', [literal(options.descriptorAddress), reg(options.destination)]),
     a('IR.sub', [reg(options.cells.byte), reg(options.to), reg(options.from)]),
     a('IR.store', [reg(options.cells.byte), reg(options.destination)]),
     // РЕЗУЛЬТАТ — АДРЕС БАЙТОВ БУФЕРА: именно это читает `длина` (дескриптор за шестнадцать байт до).
     a('movtd', [literal(options.bufferAddress), reg(options.destination)]),
+    // И ЗА ВЫЗОВ: носитель, стоявший за `IR.invoke`, теперь стоит за группой сайта.
+    a('IR.jmp', [imm(options.successor)]),
   ];
-  if (setup.length !== STRING_SLICE_SITE_SETUP_SIZE) {
+  if (tail.length !== STRING_SLICE_TAIL_SIZE) {
     throw new StringRuntimeRefusal(
-      `установка сайта рантайм-среза длиной ${String(setup.length)}, а счёт обещает ` +
-        `${String(STRING_SLICE_SITE_SETUP_SIZE)} — индексы цикла и записи дескриптора считались бы неверно`,
+      `хвост сайта рантайм-среза длиной ${String(tail.length)}, а счёт обещает ` +
+        `${String(STRING_SLICE_TAIL_SIZE)} — выход цикла ушёл бы мимо записи дескриптора`,
     );
   }
-  if (tail.length !== STRING_SLICE_SITE_TAIL_SIZE) {
-    throw new StringRuntimeRefusal(
-      `запись дескриптора длиной ${String(tail.length)}, а счёт обещает ` +
-        `${String(STRING_SLICE_SITE_TAIL_SIZE)} — выход цикла ушёл бы мимо неё`,
-    );
-  }
-  return [...setup, ...stringCopyLoopCarriers(loopOptions), ...tail];
+  return tail;
 }
 
 /**
@@ -1056,6 +1108,73 @@ export function checkStringSliceRuntimeSite(
             : 'смещение источника или счёт байтов были бы испорчены'),
       );
     }
+  }
+}
+
+/**
+ * СВЕРКА ОПЕРАНДОВ БЕЗ `JSON.stringify`.
+ *
+ * Среди операндов сайта есть 64-разрядные литералы (`{kind: 'imm64', value: BigInt}`), а `JSON.stringify`
+ * на `BigInt` бросает `TypeError: Do not know how to serialize a BigInt` — сторож падал бы на ВЕРНОМ
+ * хвосте (поймано оракулом, а не глазом). Поэтому сверка идёт по полям, а значения сравниваются
+ * приведением к строке: `BigInt(8)` и `8` дают одну строку «8».
+ */
+const теЖеОперанды = (первый: readonly Operand[], второй: readonly Operand[]): boolean => {
+  if (первый.length !== второй.length) return false;
+  return первый.every((операнд, номер) => {
+    const другой = второй[номер];
+    if (другой === undefined || операнд.kind !== другой.kind) return false;
+    const значение = (операнд as { value?: unknown }).value;
+    const значениеДругого = (другой as { value?: unknown }).value;
+    const клетка = (операнд as { index?: unknown }).index;
+    const клеткаДругого = (другой as { index?: unknown }).index;
+    return String(значение) === String(значениеДругого) && String(клетка) === String(клеткаДругого);
+  });
+};
+
+/**
+ * СТОРОЖ ХВОСТА САЙТА РАНТАЙМ-СРЕЗА: место цикла, место записи дескриптора и возврат за вызов.
+ *
+ * Три измеренных требования, каждое из которых иначе даёт молчаливо неверный результат:
+ *   • цикл начинается РОВНО на `loopIndex` — иначе обратный переход уйдёт в середину чужой команды;
+ *   • выход цикла (восьмой носитель) ведёт на ПЕРВЫЙ носитель записи дескриптора — иначе `длина`
+ *     результата читала бы в дескрипторе мусор (или прежнее число от прошлого среза);
+ *   • последний носитель хвоста возвращает поток на `successor` — иначе удачная копия «провалится»
+ *     в блок отказа и напечатает отказ вместо результата.
+ *
+ * @param tail тот же набор, что у {@link stringSliceRuntimeTail}
+ * @param options опции, которыми хвост построен
+ */
+export function checkStringSliceRuntimeTail(
+  tail: readonly AsmInstruction[],
+  options: StringSliceRuntimeTailOptions,
+): void {
+  const эталон = stringSliceRuntimeTail(options);
+  if (tail.length !== эталон.length) {
+    throw new StringRuntimeRefusal(
+      `хвост сайта рантайм-среза длиной ${String(tail.length)}, а построитель строит ` +
+        `${String(эталон.length)} — сверять место цикла не с чем`,
+    );
+  }
+  for (const [номер, носитель] of tail.entries()) {
+    const ожидаемый = эталон[номер];
+    if (ожидаемый === undefined) continue;
+    if (носитель.mnemonic !== ожидаемый.mnemonic || !теЖеОперанды(носитель.operands, ожидаемый.operands)) {
+      throw new StringRuntimeRefusal(
+        `носитель ${String(номер)} хвоста не тот, что выбрал сайт: «${носитель.mnemonic}» ` +
+          `(${носитель.operands.length} операндов), а роли дают «${ожидаемый.mnemonic}» ` +
+          `(${ожидаемый.operands.length} операндов) — хвост собран не тем сайтом или не на том месте`,
+      );
+    }
+  }
+  const выход = tail[STRING_COPY_LOOP_SIZE - 1];
+  const ждём = options.loopIndex + STRING_COPY_LOOP_SIZE;
+  const цель = выход?.operands[0];
+  if (цель === undefined || цель.kind !== 'imm' || (цель as { value?: number }).value !== ждём) {
+    throw new StringRuntimeRefusal(
+      `выход цикла ведёт не на запись дескриптора (нужно ${String(ждём)}): число кодпоинтов ` +
+        'не попало бы в дескриптор, и `длина` результата читала бы мусор',
+    );
   }
 }
 
