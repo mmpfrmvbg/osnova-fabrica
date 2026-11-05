@@ -2,7 +2,7 @@ id: ATOM-06-02-09
 title: "Статический срез `подстрока`: значение и края известны сборке (и двенадцатая тихая ложь — пустая печать)"
 phase: PHASE-06
 task: TASK-06-02
-status: todo
+status: done
 depends_on:
   - ATOM-06-02-08
 blocks: []
@@ -16,4 +16,4 @@ registers_touched:
   tech_debt: []
   blind_spots: []
 notes: ""
-commit_hash: null
+commit_hash: 14c8465b
