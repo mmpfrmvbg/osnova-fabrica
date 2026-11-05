@@ -28,7 +28,7 @@ import { emitShell } from '../emitterShell';
 import { MINIMAL_BASE } from '../elfMinimal';
 import { entryProcedureIndex } from '../procedureCall';
 import { allocateProgram } from '../regAlloc';
-import { CALLEE_REGISTERS } from '../twoPassLayout';
+import { CALL_WBS, CALLEE_REGISTERS } from '../twoPassLayout';
 import { ARRAY_REGISTERS } from '../arrayRuntime';
 import { arenaReservedRegisters, usesArena } from '../arenaRuntime';
 import { collectionReservedRegisters, usesCollections } from '../collectionsRuntime';
@@ -123,6 +123,21 @@ export function loweredProgramUnchecked(
     entryAt,
   );
   const heapSlotReserved = heapSlotAt.size > 0;
+  // КАНАЛ ПАРЫ `Результат<Т, Е>` — РЕЗЕРВ УСЛОВНЫЙ, как у арены, коллекций и ячейки кучи.
+  //
+  // Почему он вообще нужен. Возврат пары кладёт нагрузку в СВОЮ клетку `1`, а её клетка `1` — это
+  // клетка `2·wbs + 1` окна ВЫЗЫВАЮЩЕГО (`docs/abi-v3-draft.md` §10.2). В плоскости точки входа
+  // бюджет значений — `%b[0..9]` (`ALLOCATABLE_REGISTERS`), то есть клетки канала `%b[8]`/`%b[9]`
+  // входят в него. Значение, прожившее в `%b[9]` через такой вызов, было бы затёрто возвратом —
+  // и это класс «тихая ложь»: отказов ноль, число неверное.
+  //
+  // Почему УСЛОВНЫЙ. Безусловный отнял бы у ядер две клетки и сдвинул закреплённые числа (458 / 53 /
+  // 511, образ 6856, FIR 181) — ровно та цена, из-за которой условны резервы арены, коллекций и
+  // ячейки кучи. Признак — носитель `IR.result_pick`: он есть ровно у программ с вызовом, отдающим
+  // пару, и ни у одной другой.
+  const pairChannel = emitted.instructions.some(
+    (instruction) => instruction.mnemonic === 'IR.result_pick',
+  );
   const reserved = [
     ...(arenaReserved ? arenaReservedRegisters() : []),
     ...(usesCollections(emitted.instructions, emitted.image.invokeNames) ? collectionReservedRegisters() : []),
@@ -130,6 +145,9 @@ export function loweredProgramUnchecked(
     // значениями программы (иначе пролог роста положил бы адрес, а раскладка отдала бы ту же клетку
     // под значение, и адрес был бы затёрт молча).
     ...(heapSlotReserved ? [ARRAY_REGISTERS.heapSlot] : []),
+    // ОБЕ КЛЕТКИ КАНАЛА ПАРЫ: тег (`2·wbs`) и нагрузка (`2·wbs + 1`) — их пишет и вызывающий
+    // (аргументы), и вызываемая (возврат), поэтому держать в них значения программы нельзя.
+    ...(pairChannel ? [CALL_WBS * 2, CALL_WBS * 2 + 1] : []),
   ];
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
     reserved,

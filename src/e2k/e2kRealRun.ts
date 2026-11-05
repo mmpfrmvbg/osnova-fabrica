@@ -708,6 +708,64 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     };
   }
 
+  /**
+   * ВОЗВРАТ ПАРЫ `Результат<Т, Е>`: тег в свою клетку `0`, нагрузка — в свою клетку `1`
+   * (`docs/abi-v3-draft.md` §10.2).
+   *
+   * Клетка `0` — та же, куда кладёт значение обычный `IR.ret` (`movts(value, 0)`): тег едет ИМ ЖЕ
+   * каналом, каким едет всякий результат вызова. Клетка `1` — СОСЕДНЯЯ: к ней же вызываемая видит
+   * второй аргумент (`2·wbs + 1` в окне вызывающего), и на возврате он уже мёртв, поэтому запись
+   * никого не затирает. Пропускать клетку (`2·wbs + 2`) запрещено решением владельца: там в
+   * плоскости точки входа начинаются ЗАКРЕПЛЁННЫЕ клетки рантайма (`RESERVED_FROM = 10`).
+   *
+   * ПОРЯДОК КОМАНД — тот же измеренный, что у `IR.ret` (см. ниже), и обе записи значений обязаны
+   * стоять по одну сторону от `return`: у процедуры, которая САМА вызывала, «значение → `return` →
+   * `ct`» даёт ловушку `0x100088`.
+   */
+  if (instruction.mnemonic === "IR.ret_result") {
+    const тег = instruction.operands[0];
+    const нагрузка = instruction.operands[1];
+    if (тег?.kind !== 'reg' || нагрузка?.kind !== 'reg') {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        '«IR.ret_result»: операнды обязаны быть регистрами (тег, нагрузка)',
+      );
+    }
+    const pair: AsmInstruction[] = [{ mnemonic: "return", channel: 0, operands: [imm(3)] }];
+    if (context.procedureReturn === true) {
+      pair.push({ mnemonic: "ct", channel: 0, operands: [imm(3), imm(CT_COND_ALWAYS)] });
+    }
+    const записьТега = movts(тег.index, 0);
+    const записьНагрузки = movts(нагрузка.index, 1);
+    const instructions: AsmInstruction[] =
+      context.returnAfterCall === true
+        ? [pair[0]!, записьТега, записьНагрузки, ...pair.slice(1)]
+        : [записьТега, записьНагрузки, ...pair];
+    return { ok: true, instructions };
+  }
+
+  /**
+   * ЧТЕНИЕ НАГРУЗКИ ПАРЫ ИЗ КАНАЛА ВЫЗОВА (плоскость цели).
+   *
+   * Вызываемая положила нагрузку в СВОЮ клетку `1`, а её клетка `1` — это клетка `2·wbs + 1` ОКНА
+   * ВЫЗЫВАЮЩЕГО (`call` сдвигает окно ровно на `2·wbs`; `src/e2k/regAlloc.ts:538-539`). Тег читает
+   * сам носитель вызова своим приёмником, поэтому здесь нужна ровно одна пересылка. Носитель стоит
+   * СРАЗУ за вызовом того же сайта — канал живёт между этими двумя носителями, и порядок держит
+   * зависимость (якорь — приёмник тега), а не надежда.
+   */
+  if (instruction.mnemonic === "IR.result_pick") {
+    const приёмник = instruction.operands[0];
+    const якорь = instruction.operands[1];
+    if (приёмник?.kind !== 'reg' || якорь?.kind !== 'reg') {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        '«IR.result_pick»: операнды обязаны быть регистрами (приёмник нагрузки, якорь порядка)',
+      );
+    }
+    const wbs = context.callWbs ?? CALL_WBS;
+    return { ok: true, instructions: [movts(wbs * 2 + 1, приёмник.index)] };
+  }
+
   if (instruction.mnemonic === "IR.ret") {
     const flag = instruction.operands[0];
     if (flag === undefined || flag.kind !== "imm") {

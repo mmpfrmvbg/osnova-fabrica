@@ -59,6 +59,8 @@ const STATE_CHANGING: readonly string[] = [
   "obj.new",     // создание объекта (аллокация)
   "call",        // вызов процедуры: её эффекты наблюдаемы
   "invoke",      // системный вызов: обычно эффект, кроме read-only
+  "result_pick", // чтение канала вызова (нагрузка пары `Результат<Т, Е>`): канал живёт МЕЖДУ вызовом
+                 // и этим чтением, и следующий вызов пишет те же клетки — порядок обязан держаться
   "jmp",         // передача управления
   "jmp_if",
   "jmp_if_not",
@@ -182,6 +184,9 @@ function regInstructionOf(op: string): RegInstruction | null {
       return { op: "throw", a: 1 } as RegInstruction;
     case "ret":
       return { op: "ret", v: 1 } as RegInstruction;
+    case "result_pick":
+      // `[приёмник нагрузки, якорь — приёмник тега того же вызова]`.
+      return { op: "result_pick", d: 0, a: 1 } as RegInstruction;
     case "local.set":
     case "local.get":
     case "dup":

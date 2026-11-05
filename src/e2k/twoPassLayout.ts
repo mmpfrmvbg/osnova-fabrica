@@ -640,6 +640,55 @@ function retForm(instruction: AsmInstruction, procedureReturn: boolean): Carrier
   return { form: { carrier: 'IR.ret', commands } };
 }
 
+/**
+ * ФОРМА ВОЗВРАТА ПАРЫ `Результат<Т, Е>`: ДВЕ пересылки (`тег → своя клетка 0`, `нагрузка → своя
+ * клетка 1`) плюс пара возврата `return` [+ `ct`].
+ *
+ * Почему отдельный носитель, а не `IR.ret` с лишним операндом: у `IR.ret` форма уже объявлена и
+ * меняется от ПЛОСКОСТИ (`procedureReturn`), а менять существующий носитель значило бы перемерить
+ * все закреплённые числа. Форма нового носителя берётся из того же соглашения `movts`, что и
+ * понижение (`src/e2k/e2kRealRun.ts`, ветвь `IR.ret_result`), — разойтись длине нечем.
+ */
+function retResultForm(instruction: AsmInstruction, procedureReturn: boolean): CarrierFormOutcome {
+  const тег = instruction.operands[0];
+  const нагрузка = instruction.operands[1];
+  if (тег?.kind !== 'reg' || нагрузка?.kind !== 'reg') {
+    return {
+      failure: failureOf(
+        LOWERING_CODES.carrier,
+        '«IR.ret_result»: операнды обязаны быть регистрами (тег, нагрузка)',
+      ),
+    };
+  }
+  const commands: CommandForm[] = [
+    CALL_COMMAND_FORMS.get('movts')!,
+    CALL_COMMAND_FORMS.get('movts')!,
+    CALL_COMMAND_FORMS.get('return')!,
+  ];
+  if (procedureReturn) commands.push(CALL_COMMAND_FORMS.get('ct')!);
+  return { form: { carrier: 'IR.ret_result', commands } };
+}
+
+/**
+ * ФОРМА ЧТЕНИЯ НАГРУЗКИ ПАРЫ ИЗ КАНАЛА ВЫЗОВА: одна пересылка (`2·wbs + 1 → приёмник`).
+ *
+ * Длина — как у всякой `movts` (`CALL_COMMAND_FORMS`), и это единственная длина здесь: смещение
+ * читаемой клетки ИЗВЕСТНО РАСКЛАДКЕ заранее (константа соглашения), поэтому форма не зависит ни от
+ * глубины вызова, ни от плоскости — как и требует §3.135.
+ */
+function resultPickForm(instruction: AsmInstruction): CarrierFormOutcome {
+  const приёмник = instruction.operands[0];
+  if (приёмник?.kind !== 'reg') {
+    return {
+      failure: failureOf(
+        LOWERING_CODES.carrier,
+        '«IR.result_pick»: первый операнд (приёмник нагрузки) обязан быть регистром',
+      ),
+    };
+  }
+  return { form: { carrier: 'IR.result_pick', commands: [CALL_COMMAND_FORMS.get('movts')!] } };
+}
+
 /** Форма носителя или причина, почему её нет. Причина называется, а не подменяется догадкой. */
 /**
  * Форма носителя `IR.const`: длина зависит от ЗНАЧЕНИЯ литерала.
@@ -981,6 +1030,13 @@ function carrierFormWithReason(
   }
   if (instruction.mnemonic === 'IR.call') return callForm(instruction);
   if (instruction.mnemonic === 'IR.ret') return retForm(instruction, context.procedureReturn === true);
+  // ПАРА `Результат<Т, Е>` (§10.2): возврат пары и чтение её нагрузки из канала вызова. Носители
+  // новые, и это НАЗВАННАЯ ГРАНИЦА среза: форма берётся из того же соглашения `movts`, что и
+  // понижение, поэтому «форма без плоскости» (§3.135) держится.
+  if (instruction.mnemonic === 'IR.ret_result') {
+    return retResultForm(instruction, context.procedureReturn === true);
+  }
+  if (instruction.mnemonic === 'IR.result_pick') return resultPickForm(instruction);
   if (instruction.mnemonic !== 'IR.invoke') {
     const form = carrierForm(instruction.mnemonic);
     return form === undefined ? {} : { form };

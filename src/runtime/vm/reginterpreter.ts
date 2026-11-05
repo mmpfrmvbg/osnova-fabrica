@@ -445,6 +445,9 @@ export class RegVM {
       }
       case "ret": {
         const value = ins.v === undefined ? undefined : this.read(ins.v);
+        // НАГРУЗКА ПАРЫ `Результат<Т, Е>`: `v` — тег, `v2` — нагрузка (§10.2). Нагрузку обязан
+        // прочитать ЗДЕСЬ, до снятия кадра: после `pop` её регистр принадлежит уже другому кадру.
+        const нагрузка = ins.v2 === undefined ? undefined : this.read(ins.v2);
         const frame = this.frames.pop();
         if (!frame) {
           throw new RegInterpreterError("ret без кадра", this.pc, "ret", RUNTIME_CODES.internalInvariant);
@@ -466,6 +469,11 @@ export class RegVM {
           // ниже: стековая VM отдаёт наружу `null` («вернуть» без значения), и
           // без нормализации оракул паритета видел расхождение `null`/`undefined`
           // на `storage_demo.osnova` и `блокнот.osnova`.
+          //
+          // ПАРА НАРУЖУ ОТДАЁТ ТЕГ: у цели код возврата процесса несёт ОДНО место (обвязка читает
+          // один регистр, `src/e2k/programImage.ts#programBytes`), поэтому и здесь наблюдаемо одно
+          // место. Нагрузка не «теряется молча»: она объявлена ненаблюдаемой снаружи — это то же
+          // названное ограничение канала наблюдения, что и «код возврата несёт младший байт».
           this.lastReturn = value === undefined ? null : value;
           return "ret";
         }
@@ -475,6 +483,9 @@ export class RegVM {
         const callIns = frame.callerElement;
         if (callIns !== undefined && (callIns.op === "invoke" || callIns.op === "call")) {
           this.writeIfAny(callIns.d, value === undefined ? null : value);
+          if (callIns.op === "call" && callIns.d2 !== undefined) {
+            this.writeIfAny(callIns.d2, нагрузка === undefined ? null : нагрузка);
+          }
         }
         return frame.returnPc;
       }

@@ -105,6 +105,15 @@ export function isEffectInstruction(ins: RegInstruction): boolean {
     case "ret":
       // Возврат наблюдает всё, что произошло до него.
       return true;
+    case "result_pick":
+      // ЧТЕНИЕ НАГРУЗКИ ПАРЫ `Результат<Т, Е>` ИЗ КАНАЛА ВЫЗОВА (`docs/abi-v3-draft.md` §10.2).
+      //
+      // Эффект, а не «просто значение», и это не перестраховка: носитель читает клетку канала,
+      // которую завёл вызов, — то есть читает состояние, ЖИВУЩЕЕ МЕЖДУ вызовом и этим чтением.
+      // Следующий вызов с двумя аргументами пишет те же клетки. Пропусти планировщик этот носитель
+      // в цепочку эффектов — он вправе был бы вставить между ними другой вызов, и в приёмник
+      // попало бы чужое число: отказов ноль, число неверное.
+      return true;
     default:
       return false;
   }
@@ -174,6 +183,10 @@ export function regInstructionUses(ins: RegInstruction): number[] {
       return ins.a === undefined ? [] : [ins.a];
     case "ret":
       return ins.v === undefined ? [] : [ins.v];
+    case "result_pick":
+      // `a` — ЯКОРЬ ПОРЯДКА (приёмник тега того же вызова), а не источник данных: он даёт ребро
+      // «вызов → чтение канала», без которого чтение уехало бы вперёд (см. `isEffectInstruction`).
+      return [ins.a];
     case "obj.get":
       return [ins.a, ins.key];
     case "obj.set": {
@@ -203,6 +216,7 @@ export function regInstructionDef(ins: RegInstruction): number | undefined {
     case "invoke":
     case "call":
     case "obj.get":
+    case "result_pick":
       return ins.d;
     default: {
       const d = (ins as { d?: number }).d;

@@ -102,6 +102,12 @@ export const CARRIER_OF_OP: Readonly<Record<string, string>> = {
   call: "IR.call",
   invoke: "IR.invoke",
   ret: "IR.ret",
+  // ПАРА `Результат<Т, Е>` — ДВА носителя, и это не дробление ради дробления: `call`/`ret` несут
+  // ровно одно регистровое поле приёмника, а паре нужно второе место (тег + нагрузка). Поэтому
+  // нагрузка едет своим носителем: при возврате — записью в клетку `1` вызываемой (`IR.ret_result`),
+  // в вызывающем — чтением клетки `2·wbs + 1` (`IR.result_pick`, `docs/abi-v3-draft.md` §10.2).
+  // Формы обоих — в `twoPassLayout.ts`, и берутся они из ТОГО ЖЕ списка команд, что и понижение.
+  result_pick: "IR.result_pick",
 };
 
 /**
@@ -167,6 +173,8 @@ interface InsFields {
   cond?: number;
   off?: number;
   v?: number;
+  /** Нагрузка пары `Результат<Т, Е>` при возврате (`v` тогда — тег), `docs/abi-v3-draft.md` §10.2. */
+  v2?: number;
   k?: number;
   type?: string;
   name?: string;
@@ -312,10 +320,38 @@ function lowerInstruction(
   }
 
   if (op === "ret") {
+    // ПАРА `Результат<Т, Е>` — ДРУГОЙ НОСИТЕЛЬ, а не тот же с лишним операндом: у `IR.ret` форма
+    // объявлена раскладке как «необязательная запись значения + пара возврата», и менять её значило
+    // бы тронуть существующий носитель. Новый носитель со своей формой — названная граница
+    // (`docs/abi-v3-draft.md` §10.2, решение владельца 2026-11-05).
+    if (fields.v2 !== undefined) {
+      return {
+        mnemonic: "IR.ret_result",
+        channel,
+        operands: [
+          reg(requireRegister(fields.v, "ret_result")),
+          reg(requireRegister(fields.v2, "ret_result")),
+        ],
+      };
+    }
     return {
       mnemonic: carrier,
       channel,
       operands: [num(fields.v !== undefined ? 1 : 0), reg(requireRegister(fields.v ?? 0, "ret"))],
+    };
+  }
+
+  if (op === "result_pick") {
+    // Порядок операндов — общий для носителей: сначала ПРИЁМНИК (определение), потом источник.
+    // Источник здесь — не значение, а якорь порядка (приёмник тега того же вызова), и это названо
+    // в `src/e2k/e2kRealRun.ts` у самого понижения.
+    return {
+      mnemonic: carrier,
+      channel,
+      operands: [
+        reg(requireRegister(fields.d, "result_pick")),
+        reg(requireRegister(fields.a, "result_pick")),
+      ],
     };
   }
 

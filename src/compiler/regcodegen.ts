@@ -271,6 +271,27 @@ function unsupported(kind: string, hint: string): never {
   );
 }
 
+/**
+ * ИМЯ ТИПА-ПАРЫ. Одно место на весь кодоген: `Результат<Т, Е>` — это не «просто тип», а признак
+ * того, что возврат несёт ДВА значения (тег и нагрузка, `docs/abi-v3-draft.md` §10.2).
+ */
+const ИМЯ_ПАРЫ = "Результат";
+
+/**
+ * Процедуры, возвращающие пару `Результат<Т, Е>`.
+ *
+ * Нужен вызывающему ПО ИМЕНИ процедуры: узел `вызов` в AST имени типа не несёт, а без этого признака
+ * пара читалась бы как обычное значение — то есть нагрузка терялась бы молча, и программа считала бы
+ * по тегу как по значению (класс «тихая ложь»).
+ */
+function pairReturningNames(ast: Module): Set<string> {
+  const имена = new Set<string>();
+  for (const proc of ast.procedures) {
+    if (proc.returnType?.name === ИМЯ_ПАРЫ) имена.add(proc.name);
+  }
+  return имена;
+}
+
 class ProcedureCodegen {
   private readonly constants: unknown[];
   private readonly code: RegInstruction[];
@@ -288,6 +309,17 @@ class ProcedureCodegen {
     code: RegInstruction[],
     constants: unknown[],
     procedureIndex: ReadonlyMap<string, number>,
+    /** Процедуры, возвращающие пару `Результат<Т, Е>`: без этого признака пара неотличима от значения. */
+    private readonly pairReturning: ReadonlySet<string> = new Set<string>(),
+    /**
+     * ПАРА ПРИХОДИТ КАНАЛОМ ВЫЗОВА (плоскость ЦЕЛИ, `docs/abi-v3-draft.md` §10.2).
+     *
+     * `false` (умолчание) — эталонная плоскость: нагрузку отдаёт сам вызов, интерпретатор кладёт её
+     * прямым приёмником. `true` — цель: тег читает носитель вызова, а нагрузку переносит из оконной
+     * клетки `2·wbs + 1` инструкция `result_pick`. Довод отдельный, потому что окон у VM нет, а
+     * угадывать плоскость по имени процедуры — тот же класс ошибки, что «форма зависит от плоскости».
+     */
+    private readonly pairInWindow: boolean = false,
     /** Порядок разворота литерала массива — см. {@link ArrayLiteralOrder}. */
     private readonly arrayLiteralOrder: ArrayLiteralOrder = 'create-first',
   ) {
@@ -435,9 +467,28 @@ class ProcedureCodegen {
         return;
       }
       case "вызов": {
+        // ПАРА КАК ЗНАЧЕНИЕ — НАЗВАННЫЙ ОТКАЗ, а не половина ответа. У вызова, возвращающего
+        // `Результат<Т, Е>`, два места: тег и нагрузка. Взятое «как значение» оно отдало бы ОДНО
+        // место, и потерянным оказалось бы ровно то, ради чего пара заведена (§10.2, D4).
+        if (!expr.name.includes(".") && this.pairReturning.has(expr.name)) {
+          throw new RegCodegenError(
+            `«${expr.name}» возвращает пару Результат<>: её разбирают ДВУМЯ именами — ` +
+              `«пусть тег, нагрузка = ${expr.name}(…)», — а как одно значение она не берётся: ` +
+              "второе место пары потерялось бы молча",
+          );
+        }
         this.emitCallInto(expr, d);
         return;
       }
+      // КОНСТРУКТОР ПАРЫ вне возврата. Канон строит пару возвратом (`вернуть Успех(…)`), и это не
+      // узость ради узости: место пары — канал вызова, а не значение процедуры. Отказ по имени
+      // честнее подстановки: «пусть р = Успех(5)» некуда положить второе место.
+      case "успех":
+      case "неудача":
+        throw new RegCodegenError(
+          `«${expr.kind === "успех" ? "Успех" : "Неудача"}» строится только возвратом: ` +
+            "«вернуть Успех(значение)» в процедуре, объявленной «→ Результат<Т, Е>»",
+        );
       case "массив": {
         this.emitArrayLiteral(expr.elements, d);
         return;
@@ -496,11 +547,23 @@ class ProcedureCodegen {
     this.allocator.freeTo(mark);
   }
 
-  private emitCallInto(expr: Expr & { kind: "вызов" }, d: number): void {
+  /**
+   * Вызов процедуры. `d2` — ВТОРОЕ место результата: нагрузка пары `Результат<Т, Е>`.
+   *
+   * У эталонной плоскости это второе место регистра, у цели — соседняя клетка канала вызова
+   * (`docs/abi-v3-draft.md` §10.2: тег `2·wbs`, нагрузка `2·wbs + 1`). Отдельным доводом, а не
+   * вторым вызовом: аргументы обязаны вычисляться ОДИН раз.
+   */
+  private emitCallInto(expr: Expr & { kind: "вызов" }, d: number, d2?: number): void {
     const mark = this.allocator.mark();
     const args: number[] = [];
     for (const arg of expr.args) args.push(this.emitExpr(arg));
     if (expr.name.includes(".")) {
+      if (d2 !== undefined) {
+        throw new RegCodegenError(
+          `«${expr.name}» — системный вызов, а пару Результат<> отдаёт только процедура модуля`,
+        );
+      }
       // Системный вызов: результат в `d`. Пометка «операция с эффектом» в этом
       // срезе не влияет на семантику (регистр-приёмник всё равно нужен для
       // `pop`-семантики стековой VM) — набор оставлен как место для оптимизаций.
@@ -513,7 +576,7 @@ class ProcedureCodegen {
     if (fi === undefined) {
       throw new RegCodegenError(`Неизвестная процедура: ${expr.name}`);
     }
-    this.emit({ op: "call", d, fi, args, argc: args.length });
+    this.emit({ op: "call", d, d2, fi, args, argc: args.length });
     this.allocator.freeTo(mark);
   }
 
@@ -599,6 +662,33 @@ class ProcedureCodegen {
         break;
       }
       case "вернуть": {
+        // ВОЗВРАТ ПАРЫ `Результат<Т, Е>`: тег (0 = Успех, 1 = Неудача) и нагрузка.
+        //
+        // Тег — ЧИСЛО из пула, а не булев литерал: на цели булева литерала нет, `literalOf`
+        // отражает булево числом 0/1 (`src/e2k/e2kRealRun.ts`), и `если тег == 1` обязано
+        // сравнивать числа на обеих плоскостях. Нагрузка вычисляется ДО тега — порядок в коде не
+        // наблюдаем, но так выражение нагрузки не затирает уже положенный тег.
+        if (s.value && (s.value.kind === "успех" || s.value.kind === "неудача")) {
+          if (this.proc.returnType?.name !== ИМЯ_ПАРЫ) {
+            throw new RegCodegenError(
+              `«${s.value.kind === "успех" ? "Успех" : "Неудача"}» в процедуре «${this.proc.name}», ` +
+                "объявленной БЕЗ пары: объявите возврат как «→ Результат<Т, Е>» — иначе паре некуда деться",
+            );
+          }
+          const mark = this.allocator.mark();
+          const нагрузка = this.emitExpr(s.value.значение);
+          const тег = this.alloc();
+          this.emit({
+            op: "const",
+            d: тег,
+            type: "i32",
+            k: this.constIndex(s.value.kind === "успех" ? 0 : 1),
+          });
+          this.returnsValue = true;
+          this.emit({ op: "ret", v: тег, v2: нагрузка });
+          this.allocator.freeTo(mark);
+          break;
+        }
         if (s.value) {
           const value = this.emitExpr(s.value);
           this.returnsValue = true;
@@ -983,8 +1073,40 @@ class ProcedureCodegen {
    * достаются `система.массив.получить` по индексу (контракт стекового кодогена).
    * Аргументы `invoke` — регистры, поэтому сам массив и индекс живут в
    * выделенных регистрах (`alloc`), а не в литералах.
+   *
+   * ОСОБЫЙ СЛУЧАЙ — ПАРА `Результат<Т, Е>`: она приходит из вызова ДВУМЯ местами (тег и нагрузка,
+   * §10.2), а не блоком в куче. Поэтому имена берутся прямо из приёмников вызова: `arr`-путь здесь
+   * дал бы адрес канала вызова вместо значения — тихую ложь, а не отказ.
    */
   private emitUnpack(s: Stmt & { kind: "распаковать" }): void {
+    const значение = s.значение;
+    if (
+      значение.kind === "вызов" &&
+      !значение.name.includes(".") &&
+      this.pairReturning.has(значение.name)
+    ) {
+      if (s.имена.length !== 2) {
+        throw new RegCodegenError(
+          `пара Результат<> разбирается ровно ДВУМЯ именами (тег и нагрузка), ` +
+            `а здесь их ${String(s.имена.length)}: «пусть тег, нагрузка = ${значение.name}(…)»`,
+        );
+      }
+      const mark = this.allocator.mark();
+      const тег = this.alloc();
+      const нагрузка = this.alloc();
+      // ДВА ВИДА ОДНОЙ ПАРЫ — по плоскости, и это не украшение:
+      //  * эталонная (регистровая) VM не знает окон, поэтому нагрузку ей отдаёт сам вызов
+      //    (`call.d2`), и интерпретатор кладёт её прямо в приёмник;
+      //  * у ЦЕЛИ пара приходит каналом вызова (тег `2·wbs`, нагрузка `2·wbs+1`, §10.2), и нагрузку
+      //    из окна переносит отдельная инструкция `result_pick` — её и понижает оболочка.
+      // Признак плоскости приходит доводом (`pairInWindow`), а не угадывается по имени процедуры.
+      this.emitCallInto(значение, тег, this.pairInWindow ? undefined : нагрузка);
+      if (this.pairInWindow) this.emit({ op: "result_pick", a: тег, d: нагрузка });
+      this.emit({ op: "move", d: this.vregOf(s.имена[0]!), a: тег });
+      this.emit({ op: "move", d: this.vregOf(s.имена[1]!), a: нагрузка });
+      this.allocator.freeTo(mark);
+      return;
+    }
     const tuple = this.emitExpr(s.значение);
     const mark = this.allocator.mark();
     const arrReg = this.alloc();
@@ -1046,16 +1168,25 @@ export function compileToReg(
    * обязана оставаться пошагово сверяемой со стековой, а `values-first` — требование ПЛОСКОСТИ ЦЕЛИ
    * (куча массивов — один растущий указатель). Причину и замер см. у `emitArrayLiteral`.
    */
-  options: { readonly arrayLiteralOrder?: ArrayLiteralOrder } = {},
+  options: { readonly arrayLiteralOrder?: ArrayLiteralOrder; readonly pairInWindow?: boolean } = {},
 ): RegModule {
   const constants: unknown[] = [];
   const code: RegInstruction[] = [];
   const procedures: RegProcedure[] = [];
   const procedureIndex = new Map<string, number>();
   ast.procedures.forEach((p, i) => procedureIndex.set(p.name, i));
+  const pairReturning = pairReturningNames(ast);
 
   for (const proc of ast.procedures) {
-    const gen = new ProcedureCodegen(proc, code, constants, procedureIndex, options.arrayLiteralOrder);
+    const gen = new ProcedureCodegen(
+      proc,
+      code,
+      constants,
+      procedureIndex,
+      pairReturning,
+      options.pairInWindow === true,
+      options.arrayLiteralOrder,
+    );
     const { codeOffset, vregs, returnsValue } = gen.generate();
     procedures.push({
       name: proc.name,

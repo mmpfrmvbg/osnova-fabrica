@@ -232,6 +232,22 @@ export function defUseOf(instruction: AsmInstruction): DefUse {
       const hasValue = flag !== undefined && flag.kind === 'imm' && flag.value === 1;
       return { def: [], use: hasValue ? registers(registerAt(instruction, 1)) : [] };
     }
+    // ВОЗВРАТ ПАРЫ `Результат<Т, Е>` (`docs/abi-v3-draft.md` §10.2): носитель
+    // `IR.ret_result [тег, нагрузка]` ЧИТАЕТ оба регистра и не пишет ничего. Умолчание прочло бы
+    // тег как ОПРЕДЕЛЕНИЕ, то есть объявило бы значение неживым ровно перед возвратом.
+    case 'IR.ret_result':
+      return {
+        def: [],
+        use: registers(registerAt(instruction, 0), registerAt(instruction, 1)),
+      };
+    // ЧТЕНИЕ НАГРУЗКИ ПАРЫ ИЗ КАНАЛА ВЫЗОВА: `IR.result_pick [приёмник, якорь]` — пишет приёмник,
+    // читает ЯКОРЬ (приёмник тега того же вызова). Якорь здесь не источник данных, а зависимость
+    // порядка: без него планировщик вправе поднять чтение канала выше самого вызова.
+    case 'IR.result_pick':
+      return {
+        def: registers(registerAt(instruction, 0)),
+        use: registers(registerAt(instruction, 1)),
+      };
     case 'IR.call':
     case 'IR.invoke': {
       const flag = operands[0];

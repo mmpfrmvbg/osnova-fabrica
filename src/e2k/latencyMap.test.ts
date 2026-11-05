@@ -32,6 +32,7 @@ import {
   LATENCY_CLASSES,
   LATENCY_MAP,
   LATENCY_MAP_PASSPORT,
+  MODEL_ROW_ALIAS,
   classlessCarriers,
   latencyEntry,
   usedClasses,
@@ -122,12 +123,24 @@ describe('latencyMap: согласие с моделью задержек', () =
   it('латентность каждого отображённого носителя равна строке модели (стр. 71–72)', () => {
     for (const [carrier, entry] of Object.entries(LATENCY_MAP)) {
       if (entry.latencyClass === null) continue;
-      const op = OP_OF_CARRIER[carrier];
+      // НОСИТЕЛЬ БЕЗ СВОЕЙ ОПЕРАЦИИ IR (пара `Результат<Т, Е>`): строку модели он занимает у
+      // родственного, и это НАЗВАНО в `MODEL_ROW_ALIAS` — иначе сверка для него не состоялась бы
+      // вовсе, а «нечем сверить» означало бы «проверки нет» (docs/abi-v3-draft.md §10.2).
+      const alias = MODEL_ROW_ALIAS[carrier];
+      const op = OP_OF_CARRIER[alias ?? carrier];
       expect(op, `${carrier}: нет операции IR — отображение нечем сверить`).toBeTruthy();
       const fromModel = latencyFor(opClassOf(op!));
       expect(entry.latency, `${carrier}: ${entry.latency} против модели ${fromModel}`).toBe(
         fromModel,
       );
+    }
+  });
+
+  it('у каждого псевдонима строки модели есть цель, и она отображена', () => {
+    for (const [carrier, alias] of Object.entries(MODEL_ROW_ALIAS)) {
+      expect(IR_CARRIERS[carrier], `${carrier}: псевдоним для носителя, которого нет`).toBeDefined();
+      expect(MODEL_ROW_ALIAS[carrier], `${carrier}: псевдоним на себя`).not.toBe(carrier);
+      expect(OP_OF_CARRIER[alias], `${alias}: цель псевдонима ${carrier} не отображена`).toBeTruthy();
     }
   });
 

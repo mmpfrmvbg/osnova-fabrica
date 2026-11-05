@@ -326,5 +326,12 @@ export function regModuleWithRecordPlan(
   // Эталонная плоскость остаётся на `create-first`: её пошаговый паритет со стековой VM наблюдаем
   // и без этого, а на VM литерал массива — объект языка. Разбор — `src/compiler/regcodegen.ts`
   // (`emitArrayLiteral`) и `docs/hardware-debt.md` §3.122.
-  return { module: compileToReg(compiled.moduleAst, { arrayLiteralOrder: 'values-first' }), compiled };
+  // `pairInWindow` — ПОЧЕМУ ЗДЕСЬ: пара `Результат<Т, Е>` приходит на цель КАНАЛОМ ВЫЗОВА (тег
+  // `2·wbs`, нагрузка `2·wbs + 1`, `docs/abi-v3-draft.md` §10.2), и нагрузку из оконной клетки
+  // переносит отдельный носитель (`IR.result_pick`). У эталонной VM окон нет — там нагрузку отдаёт
+  // сам вызов прямым приёмником (`call.d2`), и лишняя инструкция ей не нужна.
+  return {
+    module: compileToReg(compiled.moduleAst, { arrayLiteralOrder: 'values-first', pairInWindow: true }),
+    compiled,
+  };
 }
