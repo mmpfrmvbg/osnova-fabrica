@@ -3,7 +3,7 @@ title: "ERR-0002 слой (1): результат вызова-ЛИТЕРАЛА 
   не складывает адреса"
 phase: PHASE-06
 task: TASK-06-02
-status: in_progress
+status: done
 depends_on:
   - ATOM-06-02-08
 blocks: []
@@ -122,4 +122,4 @@ notes: >-
 
   по-прежнему НАЗВАННЫЙ отказ (Ф11/Ф13). Улучшение требует свёртки по путям для
   возвратов.
-commit_hash: null
+commit_hash: eec8e9d2

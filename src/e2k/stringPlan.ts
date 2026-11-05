@@ -595,6 +595,27 @@ export function planStrings(
     typedChoices.delete(register);
   };
   /**
+   * ЧИСЛОВОЙ РЕЗУЛЬТАТ СТИРАЕТ СТРОКОВОСТЬ КЛЕТКИ, А НЕ ТОЛЬКО ЗНАЧЕНИЕ (TD-0003, 2026-11-05).
+   *
+   * `kill` нарочно СОХРАНЯЕТ тип: на сходении путей клетка ДЕЙСТВИТЕЛЬНО держит строку (какую именно —
+   * сборка не знает), и тип обязан дожить до строковой операции, чтобы та отказала ПО ИМЕНИ. Но когда
+   * носитель ЗАПИСАЛ В КЛЕТКУ ЧИСЛО, в ней лежит число, а не строка, — прежний тип становится ЛОЖЬЮ.
+   *
+   * Замер, которым это поймано (правка печати недоказанной строки, оракул `src/e2k/stringFactsControlFlow`):
+   * в пробе Б1 регистр `reg[2]` нёс литерал «абв» (аргумент вызова), затем в НЕГО ЖЕ легла длина (#11
+   * `IR.invoke … reg[2]`), а `byRegister.delete(destination)` у длины снял только значение. Печать
+   * (`#12`) взяла `reg[2]` со СТАРЫМ типом «Строка» и отказала на ЧИСЛЕ — ложный отказ там, где прежде
+   * печаталось верное число. Ошибка была невидима ровно потому, что до этой правки тип читали только
+   * строковые операции, а они у числового результата и так отказывали.
+   */
+  const killTyped = (register: number | undefined): void => {
+    if (register === undefined) return;
+    kill(register);
+    typedRegisters.delete(register);
+    typedValues.delete(register);
+    typedReasons.delete(register);
+  };
+  /**
    * НАЧАЛО ПРОЦЕДУРЫ: тип — в `typedRegisters` (нужен для ЧЕСТНОГО отказа), ДОКАЗАННОЕ ЗНАЧЕНИЕ — в
    * `byRegister` (оно одно даёт длину и таблицу кодов). Значение кладётся тем же путём, что литерал:
    * дальше его несёт ОБЫЧНАЯ пересылка, и отдельного механизма для копии параметра не нужно вовсе.
@@ -717,6 +738,7 @@ export function planStrings(
     // имён процедур, ни их типов, ни тегов возвратов.
     if (carrier.mnemonic === 'IR.result_pick') {
       const destination = writtenRegisterOf(carrier);
+      // СНЯТИЕ ЗНАЧЕНИЯ — ОБЩЕЕ ДЛЯ ВСЕХ ВЕТВЕЙ; ТИП СНИМАЕТСЯ ТОЛЬКО ТАМ, ГДЕ ОН НЕ ПОДТВЕРЖДЁН.
       kill(destination);
       const proof = typeFacts?.resultValues?.get(index);
       const reason = typeFacts?.resultReasons?.get(index);
@@ -728,6 +750,15 @@ export function planStrings(
         // значение подставлять НЕЛЬЗЯ — отказ назовёт причину пары, а не «аргумент не строка».
         typedRegisters.add(destination);
         typedReasons.set(destination, reason);
+      } else if (destination !== undefined) {
+        // НИ ЗНАЧЕНИЯ, НИ ПРИЧИНЫ — ЧТО ИМЕННО ВЫБРАНО, НЕИЗВЕСТНО, И СТАРЫЙ ТИП ОБЯЗАН УМЕРЕТЬ
+        // (2026-11-05). Разбор пары кладёт в приёмник то ТЕГ, то НАГРУЗКУ, и приёмником легко
+        // оказывается клетка, в которой РАНЬШЕ лежал строковый ЛИТЕРАЛ (замер П1 оракула
+        // `src/e2k/resultStringDepth.test.ts`: `#11 IR.const reg[0] imm(3) imm(2)` = «абв», затем
+        // `#16 IR.result_pick reg[0] reg[4]`). `kill` тип СОХРАНЯЕТ — и «Строка» оставалась в силе для
+        // ТЕГА, то есть для ЧИСЛА: правка печати недоказанной строки ловила по типу и отказывала на
+        // числе. Поймано ШЛЮЗОМ (П1), а не глазом.
+        killTyped(destination);
       }
       return;
     }
@@ -750,6 +781,17 @@ export function planStrings(
         typedRegisters.add(destination);
       } else if (destination !== undefined && returnsString) {
         typedRegisters.add(destination);
+      } else if (destination !== undefined) {
+        // НИ ЗНАЧЕНИЯ, НИ ОБЪЯВЛЕННОГО ВОЗВРАТА `Строка` — ЗНАЧИТ, В КЛЕТКЕ НЕ СТРОКА.
+        //
+        // ТРЕТИЙ И ПОСЛЕДНИЙ ИЗ НАЙДЕННЫХ ШЛЮЗОМ СЛУЧАЕВ СТАРОГО ТИПА (2026-11-05, проба П1 оракула
+        // `src/e2k/resultStringDepth.test.ts`): `kill` тип СОХРАНЯЕТ, а вызов пишет в приёмник ЧТО УГОДНО
+        // (здесь — ПАРУ `Результат<Строка, Ошибка>`). Замер носителями: `#19 IR.move reg[2] reg[0]`
+        // (копия литерала «абв», тип ЗАКОННО «Строка»), затем `#24 IR.call … reg[2]` кладёт в ТУ ЖЕ
+        // клетку пару — тип оставался, и печать ТЕГА/нагрузки-числа отказывала как печать строки.
+        // Тип у пары ставит РАЗБОР ПАРЫ (`IR.result_pick` — с причиной), и на нём же держится отказ
+        // `длина нагрузка` по имени причины; вызову тип пары не нужен вовсе.
+        killTyped(destination);
       }
       return;
     }
@@ -890,7 +932,7 @@ export function planStrings(
         const choices = choiceValuesOf(argument);
         if (choices !== undefined) {
           for (const choice of choices) descriptorValues.add(choice.key);
-          if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
+          killTyped(destination); // результат — ЧИСЛО (тип «Строка» обязан умереть, см. `killTyped`)
           lengths += 1;
           descriptorLengths += 1;
           edits.set(index, { kind: 'length_runtime', index, marks: [STRING_DESCRIPTOR_MARK, 0] });
@@ -909,7 +951,7 @@ export function planStrings(
         kill(destination);
         return;
       }
-      if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
+      killTyped(destination); // результат — ЧИСЛО (тип «Строка» обязан умереть, см. `killTyped`)
       lengths += 1;
       edits.set(index, { kind: 'length', index, value, marks: [value.bytes.length] });
       return;
@@ -932,7 +974,7 @@ export function planStrings(
             const tableKey = `⟨коды символов⟩\u0000${choice.key}`;
             if (!symbolTables.has(tableKey)) symbolTables.set(tableKey, symbolTableBytesOf(choice.bytes));
           }
-          if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
+          killTyped(destination); // результат — ЧИСЛО (тип «Строка» обязан умереть, см. `killTyped`)
           symbols += 1;
           edits.set(index, {
             kind: 'symbol_runtime',
@@ -973,7 +1015,7 @@ export function planStrings(
         kill(destination);
         return;
       }
-      if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
+      killTyped(destination); // результат — ЧИСЛО (тип «Строка» обязан умереть, см. `killTyped`)
       // Таблица кодов — СВОЙ блоб на каждое ЗНАЧЕНИЕ строки: у двух строк с разными буквами и коды
       // разные. Ключ не совпадает с ключом байтов значения, иначе два блоба слились бы в один адрес.
       const tableKey = `⟨коды символов⟩\u0000${value.key}`;
@@ -1098,8 +1140,46 @@ export function planStrings(
     }
     // Печать строки: аргумент — строка (у числа аргумент числовой, и сюда он не попадает).
     if (name === 'система.лог.вывести') {
-      const value = registerOf(carrier.operands[1]);
+      const argument = carrier.operands[1];
+      const value = registerOf(argument);
       if (value === undefined) {
+        // ── ПЕЧАТЬ НЕДОКАЗАННОЙ СТРОКИ — НАЗВАННЫЙ ОТКАЗ, А НЕ АДРЕС ЧИСЛОМ (TD-0003, 2026-11-05) ────
+        //
+        // Здесь стояло `kill(destination); return;` — носитель оставался обычным вызовом печати, и
+        // программа, просившая напечатать СТРОКУ, печатала АДРЕС её байтов ЧИСЛОМ при НУЛЕ отказов
+        // (замер: Б4/Б5/Б6 оракула `src/e2k/stringFactsControlFlow.test.ts` — `1114110`; В1/В2 оракула
+        // `src/e2k/stringCallResultRuntime.test.ts` — то же). Это тихая ложь того же класса, что
+        // одиннадцатая (`2228212` суммой адресов), только мягче: чужого ТЕКСТА не печаталось, но
+        // печаталось ЧУЖОЕ ЧИСЛО. Правило владельца — «правильная склейка ЛИБО названный отказ» —
+        // оставляет здесь ровно отказ.
+        //
+        // ОТКАЗ — ТОЛЬКО ПРИ ИЗВЕСТНОМ ТИПЕ `Строка`: у числового аргумента значения тоже нет, и
+        // отказывать ему значило бы сломать ВСЮ числовую печать. Тип берётся из тех же счетов, что у
+        // строковых операций (`typedRegisters` — объявленный/доказанный тип, `typedChoices` — множество
+        // сайтов TD-0001), и НАЗЫВАЕТСЯ причина из `typedReasons`, если она записана.
+        // Печатать рантаймовую строку нечем: у языка нет печати строки из рантайма (её нет и у цели —
+        // длину рантаймовой строки не несёт ABI, TD-0004), поэтому честный ответ — отказ, а не число.
+        //
+        // ВТОРАЯ ПОПРАВКА, НАЙДЕННАЯ ШЛЮЗОМ (пробы П1/П2 оракула `src/e2k/resultStringDepth.test.ts`):
+        // `typedReasons` СТАВИТСЯ РОВНО ПАРЕ, ЧЬЯ НАГРУЗКА — НЕ СТРОКА. Её ставит только `IR.result_pick`
+        // (и пересылка переносит), а причина там буквально «поле типа «Е», не «Строка»» или «тег не
+        // доказан». Первая редакция правки отказывала и на этих клетках — то есть запрещала печатать
+        // ЧИСЛО там, где как раз число и надо (и где прежде печаталось верное число). Поэтому причина
+        // пары — исключение: тип «не Строка» отказом «печать строки» не прикрывается.
+        const typed =
+          argument !== undefined && argument.kind === 'reg' &&
+          !typedReasons.has(argument.index) &&
+          (typedRegisters.has(argument.index) || typedChoices.has(argument.index));
+        if (typed) {
+          kill(destination);
+          problems.push(
+            `#${String(index)} ${name}: печать строки, значение которой не доказано` +
+              ` (процедура «${nameOfProcedure(typedProcedure)}») — ` +
+              (typedReasons.get(argument.index) ??
+                'напечатать текст нечем: печати рантаймовой строки у языка нет (TD-0003, TD-0004)'),
+          );
+          return;
+        }
         kill(destination);
         return;
       }
