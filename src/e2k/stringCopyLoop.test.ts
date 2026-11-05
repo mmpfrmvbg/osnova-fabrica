@@ -45,9 +45,14 @@ import { describe, expect, it } from 'vitest';
 import { getEncoder } from './backend';
 import { defUseOf } from './liveness';
 import { pairPredicates } from './predicatePairing';
-import { RESERVED_REGISTERS } from './regAlloc';
+import { RESERVED_REGISTERS, allocateProgram } from './regAlloc';
 import { carrierFormOf } from './twoPassLayout';
-import { STRING_COPY_LOOP_SIZE, stringCopyLoopCarriers } from './stringRuntime';
+import {
+  STRING_COPY_LOOP_SIZE,
+  checkStringCopyLoopCells,
+  checkStringCopyLoopRoles,
+  stringCopyLoopCarriers,
+} from './stringRuntime';
 
 const encoder = getEncoder('e2k');
 
@@ -234,5 +239,90 @@ describe('O(n) цикл копирования строки: восемь нос
       { kind: 'reg', index: 26 },
       { kind: 'reg', index: 24 },
     ]);
+  });
+
+  it('НЕПОЛНАЯ ИЛИ НЕЧИСЛОВАЯ РОЛЬ — НАЗВАННЫЙ ОТКАЗ, а не операнд без номера', () => {
+    /*
+     * Замер 2026-11-06 (`.tmp/string-copy-loop-трасса.ts`): вызов из JS/дата-файла МИМО типов проходил
+     * молча, построитель выдавал `{kind:'reg'}` без номера, и такой поток уезжал в раскладку, которая
+     * переназначала клетки. Тип ловит пропуск только у вызова из TypeScript — поэтому отказ живёт в
+     * САМОМ построителе.
+     */
+    const безРоли = { loopIndex: 0, continuation: 9, ...РОЛИ } as Record<string, unknown>;
+    for (const имя of ['source', 'end', 'target', 'byte', 'one', 'zero', 'key']) {
+      const испорченный = { ...безРоли };
+      delete испорченный[имя];
+      expect(
+        () => stringCopyLoopCarriers(испорченный as never),
+        `пропущенная роль «${имя}» обязана отказать по имени`,
+      ).toThrowError(new RegExp(`«${имя}»`));
+    }
+    // НЕ ЧИСЛО — тоже отказ: строка, NaN, дробное, отрицательное.
+    for (const [значение, что] of [
+      ['7', 'строка'],
+      [Number.NaN, 'NaN'],
+      [1.5, 'дробное'],
+      [-1, 'отрицательное'],
+    ] as const) {
+      expect(
+        () => stringCopyLoopCarriers({ loopIndex: 0, continuation: 9, ...РОЛИ, source: значение } as never),
+        `роль-${что} обязана отказать`,
+      ).toThrowError(/«source»/);
+    }
+    // ГРАНИЦА РЕГИСТРОВОГО ФАЙЛА: `%b[999]` не проходит молча — иначе чужая клетка уехала бы в байты.
+    expect(
+      () => stringCopyLoopCarriers({ loopIndex: 0, continuation: 9, ...РОЛИ, byte: 999 }),
+      'клетка вне регистрового файла',
+    ).toThrowError(/вне 0\.\.31/);
+    expect(
+      () => stringCopyLoopCarriers({ loopIndex: 0, continuation: 9, ...РОЛИ, byte: 32 }),
+      'ровно за границей — тоже отказ',
+    ).toThrowError(/вне 0\.\.31/);
+    expect(() => stringCopyLoopCarriers({ loopIndex: 0, continuation: 9, ...РОЛИ, byte: 31 }), '31 — крайняя допустимая').not.toThrow();
+    expect(() => stringCopyLoopCarriers({ loopIndex: -1, continuation: 9, ...РОЛИ }), 'индекс вне потока').toThrowError(/loopIndex/);
+    expect(() => stringCopyLoopCarriers({ loopIndex: 0, continuation: -2, ...РОЛИ }), 'продолжение вне потока').toThrowError(/continuation/);
+  });
+
+  it('СТОРОЖ ВЫБОРА РОЛЕЙ: полоса или reserved — иначе отказ (D24)', () => {
+    const карта = { loopIndex: 0, continuation: 9, source: 8, end: 9, target: 10, byte: 11, one: 13, zero: 12, key: 14 };
+    // Карта сайта целиком законна: 5 ролей в полосе, 2 объявлены.
+    expect(() => checkStringCopyLoopRoles(карта, [8, 9]), 'полоса + объявление').not.toThrow();
+    // НЕ объявленная клетка окна — отказ, и в причине НАЗВАНЫ и роль, и клетка.
+    expect(() => checkStringCopyLoopRoles(карта, [9]), 'source = %b[8] не объявлен').toThrowError(/«source» = %b\[8\]/);
+    expect(() => checkStringCopyLoopRoles(карта, []), 'обе клетки окна не объявлены').toThrowError(/«source» = %b\[8\], «end» = %b\[9\]/);
+    // Клетка в полосе объявления не требует — это и есть «полоса, которую раскладка не отдаёт никогда».
+    expect(() => checkStringCopyLoopRoles({ ...карта, source: 10, end: 11 }, []), 'всё в полосе').not.toThrow();
+  });
+
+  it('СТОРОЖ СБОРКИ: роли, переназначенные раскладкой, краснят — цикл ставится ПОСЛЕ раскладки (D24)', () => {
+    const карта = { loopIndex: 0, continuation: 9, source: 8, end: 9, target: 10, byte: 11, one: 13, zero: 12, key: 14 };
+    const образ = stringCopyLoopCarriers(карта);
+    expect(() => checkStringCopyLoopCells(образ, карта), 'нерушимый поток проходит').not.toThrow();
+    /*
+     * РАЗЛИЧАЮЩИЙ КОНТРОЛЬ — ровно тот случай, который владелец назвал «вставили до раскладки».
+     * Замер 2026-11-06: `allocateProgram` переназначает КАЖДУЮ записанную клетку (14→3, 8→0, 10→1, 11→2)
+     * и не трогает читаемые (9, 12, 13), причём `reserved` этого не предотвращает — он это и вызывает.
+     */
+    const поток = [
+      { mnemonic: 'IR.const', channel: 0, operands: [{ kind: 'vreg', index: 1 }, { kind: 'imm', value: 1 }, { kind: 'imm', value: 0 }] },
+      { mnemonic: 'IR.ret', channel: 0, operands: [{ kind: 'imm', value: 1 }, { kind: 'vreg', index: 1 }] },
+      ...образ,
+    ];
+    const раскладка = allocateProgram(поток as never, [{ name: 'главная', codeOffset: 0, vregs: 2 }], {
+      reserved: [карта.source, карта.end],
+    });
+    expect(раскладка.report[0]?.ok, 'раскладка обязана пройти: она не знает, что это сайт').toBe(true);
+    const послеРаскладки = раскладка.instructions.slice(-образ.length);
+    expect(
+      послеРаскладки.map((carrier) => carrier.operands),
+      'контроль обязан РАЗЛИЧАТЬ: если операнды не изменились, сторож — пустышка',
+    ).not.toEqual(образ.map((carrier) => carrier.operands));
+    expect(
+      () => checkStringCopyLoopCells(послеРаскладки, карта),
+      'сторож обязан покраснеть на переназначенных клетках',
+    ).toThrowError(/клетки переназначены/);
+    // И он же различает ЧУЖУЮ правку роли: одна клетка заменена — отказ, а не молчание.
+    const подмена = образ.map((carrier, номер) => (номер === 3 ? { ...carrier, operands: [{ kind: 'reg', index: 15 }, { kind: 'reg', index: 10 }, { kind: 'reg', index: 12 }] } : carrier));
+    expect(() => checkStringCopyLoopCells(подмена, карта), 'подмена клетки приёмника').toThrowError(/клетки переназначены/);
   });
 });

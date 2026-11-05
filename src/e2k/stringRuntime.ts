@@ -38,6 +38,8 @@
  */
 import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ } from './arrayRuntime';
+import { BASE_REGISTER_COUNT } from './e2k-real';
+import { RESERVED_REGISTERS } from './regAlloc';
 import {
   ENTRY_SYSCALL_FRAME,
   SYS_WRITE,
@@ -709,9 +711,51 @@ export interface StringCopyLoopOptions {
  *
  * Контроль длины здесь не украшение: по `loopIndex + STRING_COPY_LOOP_SIZE - 1` строится цель выхода, и
  * разойдись счёт с телом — выйдет переход В СЕРЕДИНУ цикла (класс §3.35).
+ *
+ * РОЛИ ПРОВЕРЯЮТСЯ ПО ИМЕНИ И ПО ГРАНИЦЕ РЕГИСТРОВОГО ФАЙЛА. Почему это здесь, а не в типах: тип
+ * ловит пропущенную роль только у вызова из TypeScript, а вызов из JS/дата-файла проходит молча и
+ * даёт операнд `{kind:'reg'}` **без номера** — замер 2026-11-06 показал, что такой поток доезжает до
+ * раскладки и та молча переназначает клетки (`.tmp/string-copy-loop-трасса.ts`). Номер проверяется по
+ * `BASE_REGISTER_COUNT` (`src/e2k/e2k-real.ts`) — той же границе, по которой отказывает кодировщик,
+ * иначе `%b[999]` прошёл бы молча и уехал в байты как чужая клетка.
  */
 export function stringCopyLoopCarriers(options: StringCopyLoopOptions): AsmInstruction[] {
   const { loopIndex, continuation } = options;
+  const роли: readonly (readonly [string, number])[] = [
+    ['source', options.source],
+    ['end', options.end],
+    ['target', options.target],
+    ['byte', options.byte],
+    ['one', options.one],
+    ['zero', options.zero],
+    ['key', options.key],
+  ];
+  for (const [имя, клетка] of роли) {
+    if (!Number.isInteger(клетка)) {
+      throw new StringRuntimeRefusal(
+        `роль цикла «${имя}» не задана числом (${String(клетка)}) — клетка не выбрана, и операнд уехал бы ` +
+          'в поток без номера; цикл копирования требует ВСЕ семь клеток по имени',
+      );
+    }
+    if (клетка < 0 || клетка >= BASE_REGISTER_COUNT) {
+      throw new StringRuntimeRefusal(
+        `роль цикла «${имя}» = %b[${String(клетка)}] вне 0..${String(BASE_REGISTER_COUNT - 1)} — базовых ` +
+          `регистров ${String(BASE_REGISTER_COUNT)} (E2K_RF_GLOB_IDX_MAX); такой номер кодировщик отверг бы ` +
+          'позже и не там, а раскладка успела бы переназначить клетку',
+      );
+    }
+  }
+  for (const [имя, индекс] of [
+    ['loopIndex', loopIndex],
+    ['continuation', continuation],
+  ] as const) {
+    if (!Number.isInteger(индекс) || индекс < 0) {
+      throw new StringRuntimeRefusal(
+        `${имя} = ${String(индекс)} — не неотрицательный индекс носителя: переход ушёл бы в середину ` +
+          'команды или за поток (класс §3.35)',
+      );
+    }
+  }
   const loop: AsmInstruction[] = [
     // «источник < конец?» — сравниваются УКАЗАТЕЛИ, а не счётчик: операции «сколько осталось» у нас нет,
     // а указатель конца сайт считает один раз, до входа в цикл.
@@ -734,6 +778,77 @@ export function stringCopyLoopCarriers(options: StringCopyLoopOptions): AsmInstr
   }
   return loop;
 }
+
+/**
+ * СТОРОЖ ВЫБОРА РОЛЕЙ САЙТОМ (владелец, D24): каждая клетка цикла обязана быть либо в полосе, которую
+ * раскладка не отдаёт НИКОГДА (`src/e2k/regAlloc.ts#RESERVED_REGISTERS`), либо объявлена сайтом в
+ * `reserved` (`regAlloc.reserved`, механизм `collectionReservedRegisters`).
+ *
+ * Почему именно так, и почему «объявлено» — не то же самое, что «закреплено»: замер 2026-11-06 показал,
+ * что `reserved` **вызывает** перенос значения из клетки, а не предотвращает его (`.tmp/string-copy-loop-трасса.ts`:
+ * записанные 8/10/11/14 → 0/1/2/3, читаемые 9/12/13 не тронуты). Поэтому объявление — половина дела, а
+ * вторая половина — цикл вставляется ПОСЛЕ раскладки (D24), и это проверяет {@link checkStringCopyLoopCells}.
+ */
+export function checkStringCopyLoopRoles(
+  options: StringCopyLoopOptions,
+  reserved: readonly number[],
+): void {
+  const роли: readonly (readonly [string, number])[] = [
+    ['source', options.source],
+    ['end', options.end],
+    ['target', options.target],
+    ['byte', options.byte],
+    ['one', options.one],
+    ['zero', options.zero],
+    ['key', options.key],
+  ];
+  const внеПолосы = роли.filter(
+    ([, клетка]) => !RESERVED_REGISTERS.includes(клетка) && !reserved.includes(клетка),
+  );
+  if (внеПолосы.length > 0) {
+    throw new StringRuntimeRefusal(
+      'клетки цикла копирования не закреплены: ' +
+        внеПолосы.map(([имя, клетка]) => `«${имя}» = %b[${String(клетка)}]`).join(', ') +
+        ` — вне полосы ${RESERVED_REGISTERS.map((клетка) => `%b[${String(клетка)}]`).join('/')} и не объявлены ` +
+        'в reserved; раскладка отдала бы их значениям программы',
+    );
+  }
+}
+
+/**
+ * СТОРОЖ СБОРКИ (владелец, D24): операнды носителей в образе обязаны СОВПАСТЬ с выбранными ролями.
+ *
+ * Проверка сильнее, чем «есть форма»: она сверяет поток с тем, что построил бы сам построитель по этим
+ * ролям, поэтому ЛЮБОЕ переназначение клеток (раскладкой, мутацией, чужой правкой) краснит по имени.
+ * Различающий контроль — в оракуле: поток, пропущенный через `allocateProgram`, даёт 0/9/1/2/12/13/3
+ * вместо выбранных ролей и обязан быть отвергнут.
+ */
+export function checkStringCopyLoopCells(
+  loop: readonly AsmInstruction[],
+  options: StringCopyLoopOptions,
+): void {
+  const эталон = stringCopyLoopCarriers(options);
+  if (loop.length !== эталон.length) {
+    throw new StringRuntimeRefusal(
+      `в образе ${String(loop.length)} носителей цикла копирования, а построитель строит ` +
+        `${String(эталон.length)} — сверять роли не с чем`,
+    );
+  }
+  for (const [номер, носитель] of loop.entries()) {
+    const ожидаемый = эталон[номер];
+    if (ожидаемый === undefined) continue;
+    const получено = JSON.stringify(носитель.operands);
+    const ждём = JSON.stringify(ожидаемый.operands);
+    if (носитель.mnemonic !== ожидаемый.mnemonic || получено !== ждём) {
+      throw new StringRuntimeRefusal(
+        `носитель ${String(номер)} цикла копирования в образе не тот, что выбрал сайт: ` +
+          `«${носитель.mnemonic}» ${получено}, а роли дают «${ожидаемый.mnemonic}» ${ждём} — ` +
+          'клетки переназначены (цикл вставлен ДО раскладки?); копирование читало бы и портило чужие клетки',
+      );
+    }
+  }
+}
+
 
 /**
  * ВЛЕЗАЕТ ЛИ СКЛЕЙКА В СТАТИЧЕСКИЙ БУФЕР — и это РЕШЕНИЕ О СПОСОБЕ, а не отказ.
