@@ -895,6 +895,9 @@ function stringTypeFactsOf(
     procedureOffsets: procedures.map((procedure) => procedure.codeOffset),
     procedureNames: procedures.map((procedure) => procedure.name),
     stringParams: paramCellsOf(aligned, isStringType),
+    // ВОЗВРАТ ИЗ ВЫЗОВА: ТИП, А НЕ ЗНАЧЕНИЕ (ERR-0002). Нужен ровно затем, чтобы форма без значения
+    // И без типа опознавалась как строка и отказывала ПО ИМЕНИ, а не складывала два адреса.
+    stringReturns: new Set(aligned.flatMap((info, at) => (isStringType(info?.returnType) ? [at] : []))),
     paramValues,
     ...(proof?.paramChoices === undefined ? {} : { paramChoices }),
     ...(proof?.callValues === undefined ? {} : { callValues: proof.callValues }),
