@@ -2,7 +2,7 @@ id: ATOM-06-02-12
 title: "Печать недоказанной строки: АДРЕС ЧИСЛОМ → НАЗВАННЫЙ ОТКАЗ; тип клетки умирает вместе со значением (TD-0003)"
 phase: PHASE-06
 task: TASK-06-02
-status: in_progress
+status: done
 depends_on:
   - ATOM-06-02-11
   - ATOM-06-02-07
@@ -17,4 +17,4 @@ registers_touched:
   tech_debt: []
   blind_spots: []
 notes: ""
-commit_hash: null
+commit_hash: 707b8bf3
