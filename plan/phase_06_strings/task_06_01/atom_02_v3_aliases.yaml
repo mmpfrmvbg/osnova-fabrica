@@ -3,7 +3,7 @@ title: "ATOM-06-01б — D10: разборщик снаружи (СДЕЛАНО,
   `Строка.*` — СТОП по замеру (D20)"
 phase: PHASE-06
 task: TASK-06-01
-status: todo
+status: done
 depends_on:
   - ATOM-06-01-01
 blocks: []
@@ -67,4 +67,4 @@ notes: >-
   зона, закрытая без
 
   явного разрешения владельца.
-commit_hash: null
+commit_hash: "85915426"
