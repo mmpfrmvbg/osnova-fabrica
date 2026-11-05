@@ -2,7 +2,7 @@ id: ATOM-06-02-02
 title: ATOM-06-02-02 — Строка.срез и Строка.склейка (рантаймовые строки)
 phase: PHASE-06
 task: TASK-06-02
-status: todo
+status: in_progress
 depends_on:
   - ATOM-06-02-01
   - ATOM-06-02-06
