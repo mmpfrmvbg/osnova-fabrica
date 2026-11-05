@@ -1,0 +1,380 @@
+{
+  "source": {
+    "repo": "OpenE2K/relcc2",
+    "ref": "main",
+    "commit": "8ec8ee6f12cb84266f004e9d0e18d66c21c86991",
+    "commitDate": "2026-11-03T18:17:08Z",
+    "tree": "aba0e4f8f05131617d69b416b51a0ff6625e5a41",
+    "prefix": "spec/"
+  },
+  "files": [
+    {
+      "path": "spec/LICENSE",
+      "localPath": "vendor/relcc2/spec/LICENSE",
+      "size": 20138,
+      "gitSha1": "2d58298e6eda10e7204abb52722efbc840db2390",
+      "sha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/LICENSE"
+    },
+    {
+      "path": "spec/NOTICE.md",
+      "localPath": "vendor/relcc2/spec/NOTICE.md",
+      "size": 1349,
+      "gitSha1": "e1c7e5c257c5d9b21c8c156c73a40b169c0d27d0",
+      "sha256": "cb59a47d585fb862131bfdec2deafc16e7818da98857e80ad5a431fa97e1e5ad",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/NOTICE.md"
+    },
+    {
+      "path": "spec/abi/README.md",
+      "localPath": "vendor/relcc2/spec/abi/README.md",
+      "size": 8571,
+      "gitSha1": "1eb127dce15335da4c7dc101449479bf70989278",
+      "sha256": "d67ad2efc8f7ab6e680529a6f201ea16f60dcbec4fc696b8460688725d4488c7",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/README.md"
+    },
+    {
+      "path": "spec/abi/atomics.md",
+      "localPath": "vendor/relcc2/spec/abi/atomics.md",
+      "size": 33502,
+      "gitSha1": "092815ad3ec87ac3fc351d4c43292e75c87c96b4",
+      "sha256": "c76c688c79cf2f0c9a73d6dc52842936e51d401660f14652a16ab2ff46e4fb36",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/atomics.md"
+    },
+    {
+      "path": "spec/abi/calling-convention.md",
+      "localPath": "vendor/relcc2/spec/abi/calling-convention.md",
+      "size": 38752,
+      "gitSha1": "60963c473c5b0550a0e301aa1e7dcf6332d5edab",
+      "sha256": "7e5ac9e68729093a6c6c9d51423607ac9889a471f2bb9d71392b1c2ab32846ee",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/calling-convention.md"
+    },
+    {
+      "path": "spec/abi/data-layout.md",
+      "localPath": "vendor/relcc2/spec/abi/data-layout.md",
+      "size": 4270,
+      "gitSha1": "65d0681cce6a2fc16231dc6e9bd7ec911291f78c",
+      "sha256": "a2fd6ebf247f99d4c677a2cd881de99ea161cd218d2bae2f55205e4db6c6bfa7",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/data-layout.md"
+    },
+    {
+      "path": "spec/abi/elf.md",
+      "localPath": "vendor/relcc2/spec/abi/elf.md",
+      "size": 42513,
+      "gitSha1": "1095d4f52306eea7e8857d616b76d2dd5c0ef333",
+      "sha256": "211db4b5ca707b1a3af0ddbcf88ee291741f9d579b39b58381ad3e634cbe878e",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/elf.md"
+    },
+    {
+      "path": "spec/abi/kernel-build.md",
+      "localPath": "vendor/relcc2/spec/abi/kernel-build.md",
+      "size": 66379,
+      "gitSha1": "1ed3aab127822da5c46752d324fc17e85750d260",
+      "sha256": "54431ca07c617ccd3773bdedc11cdaff6f6c1176b8c673e0ec7da2ad505267e4",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/kernel-build.md"
+    },
+    {
+      "path": "spec/abi/kernel-interface.md",
+      "localPath": "vendor/relcc2/spec/abi/kernel-interface.md",
+      "size": 116668,
+      "gitSha1": "a7dc51d4c23a6d6bd6b5447f08adc72371eff827",
+      "sha256": "dc27f2f2834b2640d71ad1bb12b93f40dfe4425e0005cf7eadd199eced8a8b72",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/kernel-interface.md"
+    },
+    {
+      "path": "spec/abi/lcc-builtins-check.yaml",
+      "localPath": "vendor/relcc2/spec/abi/lcc-builtins-check.yaml",
+      "size": 60529,
+      "gitSha1": "9f4dda921638eb1bd421fd33a67be5101ab0f1df",
+      "sha256": "ce0fae2aaa80eaaca436993725bc24bae1e0b19a66a4a8a9b575a6e46baa2a7d",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/lcc-builtins-check.yaml"
+    },
+    {
+      "path": "spec/abi/lcc-builtins-misc.yaml",
+      "localPath": "vendor/relcc2/spec/abi/lcc-builtins-misc.yaml",
+      "size": 118751,
+      "gitSha1": "30e5890d9e3d3c79dff7f25e21b8111eb980ce54",
+      "sha256": "1b4a15fae86fdba3f726976d580e3bb252d4d317a29f5ab50fbb25275c369266",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/lcc-builtins-misc.yaml"
+    },
+    {
+      "path": "spec/abi/lcc-builtins-names.yaml",
+      "localPath": "vendor/relcc2/spec/abi/lcc-builtins-names.yaml",
+      "size": 69640,
+      "gitSha1": "ae6f5ee5c9e475761cb17ea6dc3f2b27f35209e0",
+      "sha256": "9a8dbd14adc30befef71c3d9eb07a66557a40199881ae7254976a5c8c878c21f",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/lcc-builtins-names.yaml"
+    },
+    {
+      "path": "spec/abi/lcc-builtins.md",
+      "localPath": "vendor/relcc2/spec/abi/lcc-builtins.md",
+      "size": 26722,
+      "gitSha1": "f13c93b9de1872b19c7a465e7f51058a37229be9",
+      "sha256": "f9b8b4f244b6439c14bac5954703d7f5db25ae6a11c7df1aff2f53bff9cd75d7",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/lcc-builtins.md"
+    },
+    {
+      "path": "spec/abi/lcc-builtins.yaml",
+      "localPath": "vendor/relcc2/spec/abi/lcc-builtins.yaml",
+      "size": 78094,
+      "gitSha1": "1abbc49d01372e50786f7f6c591aa6e5d5107857",
+      "sha256": "56a1c0cc63808f6a037b46b62be6cde3ea56bbeb21c6262dbf6bb06a299821ba",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/lcc-builtins.yaml"
+    },
+    {
+      "path": "spec/abi/mode32.md",
+      "localPath": "vendor/relcc2/spec/abi/mode32.md",
+      "size": 43461,
+      "gitSha1": "95aace2daf08ffaf8d416cbdf00a7008977eea9e",
+      "sha256": "92c941ef76c4407c33f6b11db654aca8863d06d4e2a6708372020967bc8fd498",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/mode32.md"
+    },
+    {
+      "path": "spec/abi/protected-mode.md",
+      "localPath": "vendor/relcc2/spec/abi/protected-mode.md",
+      "size": 56267,
+      "gitSha1": "b71c99d9827128a10db89bae4d1944824e4f20cb",
+      "sha256": "d66322c1f9d6af9700b7c282fee73765d44f327a821aea73c190b13cfe28d422",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/protected-mode.md"
+    },
+    {
+      "path": "spec/abi/registers.md",
+      "localPath": "vendor/relcc2/spec/abi/registers.md",
+      "size": 62718,
+      "gitSha1": "38147dc897367d1101b66b493222c93fe47f92d9",
+      "sha256": "fc173793385f9ba2c4fbbe2530785300338228c3d8f6c7d1ff2be7e6f13b88dd",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/registers.md"
+    },
+    {
+      "path": "spec/abi/source-compat.md",
+      "localPath": "vendor/relcc2/spec/abi/source-compat.md",
+      "size": 71275,
+      "gitSha1": "0083913d900622476ff1ccfd856b8402ccca2bf5",
+      "sha256": "57d29f1a421333b836b6fe1d6e33b9e5f8636ae56777330da09cda040970f2a1",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/source-compat.md"
+    },
+    {
+      "path": "spec/abi/stack-and-unwinding.md",
+      "localPath": "vendor/relcc2/spec/abi/stack-and-unwinding.md",
+      "size": 74731,
+      "gitSha1": "18381b76ef7abb805063f743806ad36390d02b9a",
+      "sha256": "61d15f5d533c3cdc6dcb4c783ff92281a3c6e8ca83bcc29a43958d2215ed9a62",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/abi/stack-and-unwinding.md"
+    },
+    {
+      "path": "spec/isa/README.md",
+      "localPath": "vendor/relcc2/spec/isa/README.md",
+      "size": 5615,
+      "gitSha1": "4a360e8a424714741dfabe4b338c87160d889627",
+      "sha256": "3161d9b99014d2d53b701d1b933166eac316d225913f1514a045041efee6f1e8",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/README.md"
+    },
+    {
+      "path": "spec/isa/apb.md",
+      "localPath": "vendor/relcc2/spec/isa/apb.md",
+      "size": 67722,
+      "gitSha1": "5973e583745d46e20241e61e93f54681f2dbdb56",
+      "sha256": "557438b052a56d41202c2e5c44b440a15bb79c29e45a9c9deab1d46ce969c8a9",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/apb.md"
+    },
+    {
+      "path": "spec/isa/binutils-ops.yaml",
+      "localPath": "vendor/relcc2/spec/isa/binutils-ops.yaml",
+      "size": 537053,
+      "gitSha1": "04e2ee1359b17674a9a95222b16fecb40202d6ee",
+      "sha256": "3d827adb505d1bb7fecb2f28a4994f96363ad5a663c45dabfdd61dbe4c7d792d",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/binutils-ops.yaml"
+    },
+    {
+      "path": "spec/isa/bundle.md",
+      "localPath": "vendor/relcc2/spec/isa/bundle.md",
+      "size": 42423,
+      "gitSha1": "e835e16005772cbb8c61dbeabb4e1c96275100dd",
+      "sha256": "a83034580c810c10d2694bcf948355f2c542300f239859e6d24eb73a78cadef8",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/bundle.md"
+    },
+    {
+      "path": "spec/isa/control-transfer.md",
+      "localPath": "vendor/relcc2/spec/isa/control-transfer.md",
+      "size": 31916,
+      "gitSha1": "dbe3e6559e567920a69a329deb88d888fd9e42cd",
+      "sha256": "534f463cc08d7ebd8b26e96c3812ca8ee5c7fd9723cc76c3fa8bd8e38dc0f887",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/control-transfer.md"
+    },
+    {
+      "path": "spec/isa/hwbugs.md",
+      "localPath": "vendor/relcc2/spec/isa/hwbugs.md",
+      "size": 21886,
+      "gitSha1": "f23306aa5804beafc209efce7ff5fa43516fde2d",
+      "sha256": "c70190c905556297b2a761298dfa7f539f43d9ca7b033c5c2eea464d7e25a232",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/hwbugs.md"
+    },
+    {
+      "path": "spec/isa/lcc-usage.yaml",
+      "localPath": "vendor/relcc2/spec/isa/lcc-usage.yaml",
+      "size": 14658,
+      "gitSha1": "7d83bbb8b24e701ce93558bf79fb10f506dc2c9d",
+      "sha256": "164e3cdf4b6f7f97cbf35d23f30c94413aa86c3284dc80bf978d9d62686399a1",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/lcc-usage.yaml"
+    },
+    {
+      "path": "spec/isa/loops.md",
+      "localPath": "vendor/relcc2/spec/isa/loops.md",
+      "size": 41925,
+      "gitSha1": "f4e20b4d2c9ce355ba555107ae175b7ce0b1716e",
+      "sha256": "113ab6d1c93f44c9fa63112c06e23f8004dc915de627ebd53705fe608c544e87",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/loops.md"
+    },
+    {
+      "path": "spec/isa/monitors.md",
+      "localPath": "vendor/relcc2/spec/isa/monitors.md",
+      "size": 32450,
+      "gitSha1": "1ac2d059ce5669f23c734150ba71b454dfbcb057",
+      "sha256": "0f756cf45a1874681a8c72e8d6594afcd7f377be40151334043802869b7f3f1e",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/monitors.md"
+    },
+    {
+      "path": "spec/isa/operations-v3.md",
+      "localPath": "vendor/relcc2/spec/isa/operations-v3.md",
+      "size": 54776,
+      "gitSha1": "750a551c5eb6f8a8e214625e3d8fccbd4746dcf5",
+      "sha256": "b7608951f7249cd4a7225ae3dc4ac40ec77933a05ce5cf5c99f05951b4f69189",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/operations-v3.md"
+    },
+    {
+      "path": "spec/isa/operations-v3.yaml",
+      "localPath": "vendor/relcc2/spec/isa/operations-v3.yaml",
+      "size": 47310,
+      "gitSha1": "e4ba69a8f4303ae222a281fc0d5ca9a3d045d34d",
+      "sha256": "9c48d76138e9f219e3239661eaa2049262c2806b3f76b33871cbb263b30e5106",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/operations-v3.yaml"
+    },
+    {
+      "path": "spec/isa/operations-v5.md",
+      "localPath": "vendor/relcc2/spec/isa/operations-v5.md",
+      "size": 28459,
+      "gitSha1": "9ff16d19b1449794b55f557a8ffeb9ba0781bbc1",
+      "sha256": "544bc19c429c109fffc97bda1198eb9c12e5c8a23ed7f4377b2b24e63dbd766b",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/operations-v5.md"
+    },
+    {
+      "path": "spec/isa/operations-v5.yaml",
+      "localPath": "vendor/relcc2/spec/isa/operations-v5.yaml",
+      "size": 26713,
+      "gitSha1": "50bfd2e79392f6c5310955460e79fde007611fd1",
+      "sha256": "7c957b33919a3a1cdcad529953165a509a5744e573071b7a13b8d1399e987cb0",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/operations-v5.yaml"
+    },
+    {
+      "path": "spec/isa/operations-v6.md",
+      "localPath": "vendor/relcc2/spec/isa/operations-v6.md",
+      "size": 10229,
+      "gitSha1": "8145566391db0b367ee2e29732a29f689287c2db",
+      "sha256": "ed4b462103cdbe0aab909a724f495042a2df81ba4c83c3289ae374c146f190e4",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/operations-v6.md"
+    },
+    {
+      "path": "spec/isa/operations-v6.yaml",
+      "localPath": "vendor/relcc2/spec/isa/operations-v6.yaml",
+      "size": 9724,
+      "gitSha1": "dbb9dd1872169592d7f5dc0497703526a06d007b",
+      "sha256": "0a4e34827efdabea7c841b23b8d8053cbf3d1335f6b6654533bc9aae0c2e82ff",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/operations-v6.yaml"
+    },
+    {
+      "path": "spec/isa/operations-v7.md",
+      "localPath": "vendor/relcc2/spec/isa/operations-v7.md",
+      "size": 2297,
+      "gitSha1": "836f73b86f39372e954619b36209316a79dcbad6",
+      "sha256": "75bd6be426053691f68818256371ef5356bb1686457f4bc9d53bd247786acf68",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/operations-v7.md"
+    },
+    {
+      "path": "spec/isa/operations-v7.yaml",
+      "localPath": "vendor/relcc2/spec/isa/operations-v7.yaml",
+      "size": 2320,
+      "gitSha1": "e52d6453fe55283609afdae4fe4c1c509f24e0fb",
+      "sha256": "1c7854eda39c131cf95142bd5546fc3763cbe08d3a2095c84ee3c0473b254206",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/operations-v7.yaml"
+    },
+    {
+      "path": "spec/isa/predicates.md",
+      "localPath": "vendor/relcc2/spec/isa/predicates.md",
+      "size": 48810,
+      "gitSha1": "082bd2ae9ad16755d31bbf26b6b0a18c91c99887",
+      "sha256": "a11e94018b3364a150b01fdea0cd2368a2d51b5637830b2d4f8a2a315df73773",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/predicates.md"
+    },
+    {
+      "path": "spec/isa/registers.yaml",
+      "localPath": "vendor/relcc2/spec/isa/registers.yaml",
+      "size": 19388,
+      "gitSha1": "996f33954f5e14800c5c4274d31186270caa1b0d",
+      "sha256": "36d17402d681420304f6ddb474df7c768043b1c9311a4040e452c08587b63582",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/registers.yaml"
+    },
+    {
+      "path": "spec/isa/reservations.yaml",
+      "localPath": "vendor/relcc2/spec/isa/reservations.yaml",
+      "size": 506884,
+      "gitSha1": "94413d135103697ad4dc7f01f9a4cfaee5a0ce60",
+      "sha256": "091a31ed4f310536c04918e92556ea0f0214c30f108aacd47964ed1d257bc55b",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/reservations.yaml"
+    },
+    {
+      "path": "spec/isa/semantics.md",
+      "localPath": "vendor/relcc2/spec/isa/semantics.md",
+      "size": 68742,
+      "gitSha1": "d233911c2776842cc9b35b3bc768e6db791cfe80",
+      "sha256": "0ad76da00c0ae5afee1088d4d18c06654c993c826b3c0c2142198cd4d115793e",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/semantics.md"
+    },
+    {
+      "path": "spec/isa/speculation.md",
+      "localPath": "vendor/relcc2/spec/isa/speculation.md",
+      "size": 60401,
+      "gitSha1": "317cc275febcbde5da3e59a1857267bf7a0faee7",
+      "sha256": "e9bc9c83dab8ade3c0cb6d94afd9dde4f3b2ab0aa6b7fa318be185e2212db1f2",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/speculation.md"
+    },
+    {
+      "path": "spec/isa/timing-e2c3.yaml",
+      "localPath": "vendor/relcc2/spec/isa/timing-e2c3.yaml",
+      "size": 260127,
+      "gitSha1": "0ae9bb4c6341ae690263423232f516c0f1efc592",
+      "sha256": "8ab8d0472af29da6356bcfdcee4582a402db0909d6ff999d9a2ee2949d9bea15",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/timing-e2c3.yaml"
+    },
+    {
+      "path": "spec/isa/timing-e2s.yaml",
+      "localPath": "vendor/relcc2/spec/isa/timing-e2s.yaml",
+      "size": 206578,
+      "gitSha1": "3231cbee7053339ca95955a89cead580d10848db",
+      "sha256": "3f353d4a8aec6fb0484c11ef51e0abfeda92e02204798e41eb8064e0541720f6",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/timing-e2s.yaml"
+    },
+    {
+      "path": "spec/isa/timing-e8c2.yaml",
+      "localPath": "vendor/relcc2/spec/isa/timing-e8c2.yaml",
+      "size": 245865,
+      "gitSha1": "dfea5564edd82b8072467412d5ce66020a262184",
+      "sha256": "02a3e0caff2b01daae66ee9b16edb43b687796cf72c1b8d4006c1f6dbccee3f6",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/timing-e8c2.yaml"
+    },
+    {
+      "path": "spec/isa/timing.md",
+      "localPath": "vendor/relcc2/spec/isa/timing.md",
+      "size": 127360,
+      "gitSha1": "d708d9ed29bdce133c25834229f80b76020ddd7a",
+      "sha256": "e5b519c34b67db4f22bae05365163a93b655c932ee78e17fcff8d543af195570",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/timing.md"
+    },
+    {
+      "path": "spec/isa/x86-support.md",
+      "localPath": "vendor/relcc2/spec/isa/x86-support.md",
+      "size": 17522,
+      "gitSha1": "022f85041f13652a7cf4bb16e96f5814efa8e360",
+      "sha256": "36f7c857188e00cb0f00ccb9bed62beba537457d92b6b69ce0e9d52f03a9c861",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenE2K/relcc2/8ec8ee6f12cb84266f004e9d0e18d66c21c86991/spec/isa/x86-support.md"
+    }
+  ]
+}

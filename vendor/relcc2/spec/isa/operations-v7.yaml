@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: CC-BY-SA-4.0
+# What v7 adds to the E2K operations: hand-written rules, as in
+# operations-v3.yaml (which explains the fields). v7 machines aren't
+# produced yet: the sources are binutils and, for a few operations, the
+# community qemu.
+
+header: |
+  # Operations added in v7
+
+  What `elbrus-v7` (in development, not produced yet) adds to
+  [operations-v6.md](operations-v6.md). **Generated** by
+  `tools/isa-extract/gen_operations.py` from `operations-v7.yaml`.
+
+  Binutils knows these operations (names, channels, operand formats);
+  the community qemu implements only the four `qpack*` ones, and nobody
+  can run them yet. The columns are those of
+  [operations-v3.md](operations-v3.md).
+
+groups:
+
+- title: Packed
+  rules:
+  - ops: qpack{hb,wh}{ss,us}
+    does: "Narrowing packs; the community qemu implements them with the v5 `qpack*` helpers (a's lanes in the high 64 bits)."
+  - match: 'qplog_0x[0-9a-f]{2}_lt3|qpins[sd]_lt3|qppermb_lt3'
+    does: "v7 encodings with the table or selector in a literal (binutils); not implemented in qemu."
+    status: "v7; no open source"
+  - ops: qpcm2{b,h,w,d} qps2cm{h,w,d} qps2m{b,h,w,d} qpidots{bw,hw}ss qpidotsbw{us,uu} qpidotshdss qpidotshduu qpbfdots qpfstobf qpaes{ltr,iltr,ebgn,dbgn} qpkuz{ltr,ebgn} qpsbgltr{lo,hi} qpmgme qptbl_{0,1,2,3,4,5,6,7} qpins{s,d}
+    does: "Operations no open source implements: dot products (`qpidot*`, `qpbfdots`), bfloat16 conversion (`qpfstobf`), AES (`qpaes*`) and Kuznyechik/Streebog (`qpkuz*`, `qpsbgltr*`, `qpmgme`) rounds, table lookups (`qptbl_*`), masks (`qpcm2*`, `qps2*`). Only names and operand formats (binutils) are known."
+    status: "v7; no open source"
+
+- title: Memory, protected mode and state
+  rules:
+  - ops: ldosrr{d,qp} stosrr{d,qp}
+    does: v7 accesses, no open implementation.
+    status: "v7; no open source"
+  - ops: apincr apincrc cudincr gdincr getind getmi getptr getptrc getspd subarr subarrc vfsid
+    does: v7 pointer and array operations of protected mode; no open implementation.
+    status: "v7; no open source"
+  - ops: rrshd rwshd
+    does: v7 state accesses (binutils); not implemented in qemu.
+    status: "v7; no open source"
+
+- title: Control
+  rules:
+  - ops: ctp_call dtbp
+    does: "Call through a prepared CTPR, and `dtbp` (binutils)."
+    status: "v7; source only"
