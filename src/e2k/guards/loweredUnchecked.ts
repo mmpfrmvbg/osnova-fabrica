@@ -22,7 +22,7 @@
  */
 import type { CompileOptions } from '../../compiler/compiler';
 import { LOWERING_CODES, refusalOf } from '../loweringRefusal';
-import { regModuleOrNamedFailure, frontendRefusalMessage } from '../recordPlan';
+import { regModuleOrNamedFailure, frontendRefusalMessage, procedureTypesOf } from '../recordPlan';
 import { annotateAtomRegions } from '../../compiler/atomRegions';
 import { emitShell } from '../emitterShell';
 import { MINIMAL_BASE } from '../elfMinimal';
@@ -33,12 +33,14 @@ import { ARRAY_REGISTERS } from '../arrayRuntime';
 import { arenaReservedRegisters, usesArena } from '../arenaRuntime';
 import { collectionReservedRegisters, usesCollections } from '../collectionsRuntime';
 import { planStrings } from '../stringPlan';
+import { STRING_REGISTERS } from '../stringRuntime';
 import {
   HEAP_OFFSET,
   arrayProceduresOf,
   heapSlotProcedures,
   imageOfCarriers,
   shellEncoder,
+  stringNeedProcedures,
 } from '../programImage';
 import type { Отказ, ОтказЗапись, СыройОбраз } from '../loweredTypes';
 
@@ -112,6 +114,13 @@ export function loweredProgramUnchecked(
   // и выход программы (`код = значение + %b[12]`) отдаёт чужое число: «собралось, отказов 0,
   // значение неверное». Замер — `docs/hardware-debt.md` §3.96, проба `.tmp/osnova-reread-which.ts`.
   const entryAt = emitted.scheduled.procedures.length === 0 ? -1 : entryProcedureIndex(emitted.scheduled.procedures);
+  // ТИПЫ ПРОЦЕДУР — единственный источник «Строка/Число ИЗ ТИПА» (шаг 2.3, ATOM-06-02-02а). Читаются из
+  // AST компиляции (`built.compiled`), а не из `RegModule`: у регистровой плоскости типов нет вовсе, а
+  // парсер не трогается — тип уже разобран фронтендом и лежит в `paramTypes`/`returnType`.
+  //
+  // Считаются ОДИН раз: ими пользуются и разведка нужды в клетках строкового рантайма, и сам образ —
+  // второй вызов дал бы два списка, которые обязаны совпадать, но ничем к этому не принуждены.
+  const типыПроцедур = procedureTypesOf(built.compiled);
   // АДРЕС ЯЧЕЙКИ КУЧИ В ОКНЕ ВЫЗЫВАЕМОЙ (A4, срез 3, §3.137): процедуры, которые ВЫДЕЛЯЮТ массив
   // (`система.массив.создать`), получают `%b[15]` = адрес ячейки кучи — оттуда его читает `создать`.
   // Резерв УСЛОВНЫЙ, как у арены и коллекций: у программ без выделения в вызываемой клетка 15
@@ -127,6 +136,25 @@ export function loweredProgramUnchecked(
     entryAt,
   );
   const heapSlotReserved = heapSlotAt.size > 0;
+  // ВРЕМЕННЫЕ СТРОКОВОГО РАНТАЙМА В ПЛОСКОСТИ ВЫЗЫВАЕМОЙ (шаг 2.3, случай 73) — резерв УСЛОВНЫЙ, по
+  // той же логике, что у арены, коллекций и клетки кучи. Строковый рантайм держит смещение, байт и
+  // признак продолжения в `%b[10]`, `%b[11]`, `%b[13]` (`STRING_REGISTERS`, `src/e2k/stringRuntime.ts`).
+  // В плоскости ВХОДА эти клетки значениям и так недоступны (бюджет входа — `%b[0..9]`), поэтому
+  // добавление их в `reserved` не меняет у точки входа НИЧЕГО; а в плоскости ВЫЗЫВАЕМОЙ они входят в
+  // её бюджет (`CALLEE_REGISTERS` = `%b[8..23]` без клетки нуля), и без закрепления раскладка отдала бы
+  // их значениям программы — рантайм затёр бы их МОЛЧА (класс «отказов 0, число неверное»).
+  // Четвёртая клетка — `%b[12]` (ноль вызываемой): она закреплена своим механизмом (`CALLEE_ZERO_CELL`,
+  // §3.166), и её рантайм возвращает на место.
+  const stringCalleeAt = stringNeedProcedures({
+    code: emitted.instructions,
+    constants: emitted.scheduled.constants,
+    invokeNames: emitted.image.invokeNames,
+    procedures: emitted.scheduled.procedures,
+    procedureTypes: типыПроцедур,
+    heapAddress: MINIMAL_BASE + HEAP_OFFSET,
+    entryAt,
+  });
+  const stringsCalleeReserved = stringCalleeAt.size > 0;
   // КАНАЛ ПАРЫ `Результат<Т, Е>` — РЕЗЕРВ УСЛОВНЫЙ, как у арены, коллекций и ячейки кучи.
   //
   // Почему он вообще нужен. Возврат пары кладёт нагрузку в СВОЮ клетку `1`, а её клетка `1` — это
@@ -152,6 +180,11 @@ export function loweredProgramUnchecked(
     // ОБЕ КЛЕТКИ КАНАЛА ПАРЫ: тег (`2·wbs`) и нагрузка (`2·wbs + 1`) — их пишет и вызывающий
     // (аргументы), и вызываемая (возврат), поэтому держать в них значения программы нельзя.
     ...(pairChannel ? [CALL_WBS * 2, CALL_WBS * 2 + 1] : []),
+    // ВРЕМЕННЫЕ СТРОКОВОГО РАНТАЙМА — закреплены только у образов, где строка работает в вызываемой.
+    // Ноль (`%b[12]`) в этот список НЕ входит: он закреплён у вызываемой своим механизмом (§3.166).
+    ...(stringsCalleeReserved
+      ? [STRING_REGISTERS.first, STRING_REGISTERS.second, STRING_REGISTERS.write]
+      : []),
   ];
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
     reserved,
@@ -218,6 +251,10 @@ export function loweredProgramUnchecked(
     arenaReserved,
     // Слово о закреплении `%b[15]` за адресом ячейки кучи — по той же причине (A4 §3.137).
     heapSlotReserved,
+    // Слово о закреплении ВРЕМЕННЫХ СТРОКОВОГО РАНТАЙМА в плоскости вызываемой (шаг 2.3, случай 73).
+    stringsCalleeReserved,
+    // ТИПЫ ПРОЦЕДУР — «Строка/Число ИЗ ТИПА» (шаг 2.3, ATOM-06-02-02а) — тот же список, что у разведки.
+    procedureTypes: типыПроцедур,
   });
   // ── D13: ЧИСЛА ПОД ОТКАЗОМ НЕ СУЩЕСТВУЕТ — БАЙТЫ НЕ ОТДАЮТСЯ ────────────────────────────────
   //

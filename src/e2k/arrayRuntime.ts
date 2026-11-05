@@ -341,11 +341,21 @@ export const ARRAY_WINDOW_WSZ = 16;
 /** С какого номера регистры заняты рантаймом: чужой операнд отсюда — отказ. */
 export const RESERVED_FROM = 10;
 
+/**
+ * ЧТЕНИЕ ЭЛЕМЕНТА МАССИВА — имя вызова, которым фронтенд выражает ЛЮБУЮ индексацию `база[и]`, когда
+ * тип базы ему неизвестен (шаг 2.3, случай 73).
+ *
+ * Имя вынесено константой не для красоты: по нему план строк ПОДМЕНЯЕТ носитель на строковый
+ * (`система.строка.символ`), когда база объявлена `Строка` и её значение доказано сборке. Разойдись
+ * строки в этих двух местах — подмена молча не сработала бы, и `нагрузка[0]` вернула бы 0.
+ */
+export const ARRAY_GET_CALL = 'система.массив.получить';
+
 /** Вызовы, которые рантайм умеет заменять настоящими обращениями к памяти. */
 export const SUPPORTED_ARRAY_CALLS: readonly string[] = [
   'система.массив.создать',
   'система.массив.длина',
-  'система.массив.получить',
+  ARRAY_GET_CALL,
   'система.массив.добавить',
   // `установить` развёрнут 2026-10-02, и это стало возможно ТОЛЬКО после расширения носителя:
   // у него три аргумента (массив, индекс, значение), а `IR.invoke` нёс два, и оболочка отказывала
@@ -422,15 +432,63 @@ export interface ArrayBaseProblem {
  * @param invokeNames имена вызовов образа (пометка носителя — индекс в этой таблице)
  * @param originalPoolLength длина пула ДО планирования строк (адреса строк дописаны в хвост)
  */
+export interface ProcedureNumberFacts {
+  /** Индекс первого носителя процедуры в том же потоке, что разбирает `arrayBaseProblems`. */
+  readonly codeOffset: number;
+  /** Имя процедуры — для читаемости отказа (правило проекта: отказ называет процедуру). */
+  readonly name?: string;
+  /** Клетки-параметры, объявленные `Число`: число массивом быть не может — это факт типа. */
+  readonly numbers: readonly number[];
+}
+
 export function arrayBaseProblems(
   code: readonly AsmInstruction[],
   constants: readonly unknown[],
   invokeNames: readonly string[],
   originalPoolLength: number = constants.length,
+  /**
+   * ЧИСЛА ИЗ ТИПА: параметры, объявленные `Число`, по процедурам (шаг 2.3, ATOM-06-02-02а).
+   *
+   * Зачем отдельным входом, а не выводом из потока: типа в носителе НЕТ (`IR.invoke` несёт только
+   * индекс имени), поэтому «параметр 0 — Число» знает лишь конвейер, у которого есть AST. Замер
+   * (`.tmp/a230-dump.ts`): параметр `i` после раскладки живёт в клетке `i`, поэтому список — просто
+   * набор клеток на процедуру.
+   *
+   * Пустой список (по умолчанию) сохраняет ПРЕЖНЕЕ поведение байт-в-байт: у программы `ф(а: Число)` +
+   * `вернуть а[0]` сегодня 0 отказов и код 9 на модели (139 на железе) — это тихая ложь, и её
+   * закрывает именно этот вход. Границы процедур чистятся только при непустом списке — иначе сторож
+   * сдвинул бы отказы там, где типов никто не предъявлял.
+   */
+  typedNumbers: readonly ProcedureNumberFacts[] = [],
+  /**
+   * НОСИТЕЛИ `IR.result_pick`, ЧЬЯ НАГРУЗКА СТРОКОЙ НЕ ДОКАЗАНА (шаг 2.3, случай 73).
+   *
+   * На сайте с доказанным Успехом нагрузка пары — `Строка`, и значение её известно: планирование строк
+   * заменяет индексацию символом (`система.строка.символ`), и отказ здесь был бы ложным. На сайте с
+   * доказанной Неудачей в ТОЙ ЖЕ клетке лежит поле типа `Е` (число), а при недоказанном теге сборка
+   * не знает, что там вовсе, — поэтому индексация по такой клетке обязана быть НАЗВАННЫМ отказом.
+   * Замер (`.tmp/a230-зонд-пара.ts`, 2026-11-05): `пусть тег, нагрузка = добыть("абв", 0)` +
+   * `вывести нагрузка[0]` давало НОЛЬ отказов и код 9 на модели с пустым выводом — то есть обращение
+   * в память по адресу 7; на цели тот же класс виден падением (139, §случай 73).
+   *
+   * Пустой набор (по умолчанию) сохраняет прежнее поведение байт-в-байт для всех прочих программ.
+   */
+  pairPayloadPicks: ReadonlySet<number> = new Set<number>(),
 ): readonly ArrayBaseProblem[] {
   /** Регистры, про которые ИЗВЕСТНО, что там число; значение — если оно известно на сборке. */
   const numbers = new Map<number, number | undefined>();
+  /** ЧЕМ доказано число, когда доказательство — ТИП, а не литерал: нужно для читаемости отказа. */
+  const typeProofs = new Map<number, string>();
+  /** КЛЕТКИ-НАГРУЗКИ ПАР, ИСХОД КОТОРЫХ НЕ ДОКАЗАН УСПЕХОМ: индексация по ним — НАЗВАННЫЙ отказ. */
+  const pairPayloads = new Map<number, string>();
   const problems: ArrayBaseProblem[] = [];
+  let typedAt = 0;
+  const seedTyped = (): void => {
+    for (const register of typedNumbers[typedAt]?.numbers ?? []) {
+      numbers.set(register, undefined);
+      typeProofs.set(register, 'Число');
+    }
+  };
   const registerOf = (operand: Operand | undefined): number | undefined =>
     operand !== undefined && operand.kind === 'reg' ? operand.index : undefined;
   /** Приёмник носителя — по соглашению оболочки (то же правило, что в `src/e2k/stringPlan.ts`). */
@@ -451,14 +509,29 @@ export function arrayBaseProblems(
     return registerOf(carrier.operands[0]);
   };
   const forget = (register: number | undefined): void => {
-    if (register !== undefined) numbers.delete(register);
+    if (register === undefined) return;
+    numbers.delete(register);
+    typeProofs.delete(register);
+    pairPayloads.delete(register);
   };
   const nameOf = (carrier: AsmInstruction): string | undefined => {
     const payload = carrier.operands[3];
     return payload !== undefined && payload.kind === 'imm' ? invokeNames[payload.value] : undefined;
   };
 
+  seedTyped();
   code.forEach((carrier, index) => {
+    // ГРАНИЦА ПРОЦЕДУРЫ: клетка соседней процедуры — ЧУЖОЕ значение, и переносить через неё факт
+    // нельзя (тот же класс «тихой лжи», что случай 46 у строк). Чистится только тогда, когда типы
+    // вообще предъявлены: без них поведение сторожа обязано остаться прежним, байт-в-байт.
+    if (typedNumbers.length > 0) {
+      while (typedAt + 1 < typedNumbers.length && (typedNumbers[typedAt + 1]!.codeOffset ?? 0) <= index) {
+        typedAt += 1;
+        numbers.clear();
+        typeProofs.clear();
+        seedTyped();
+      }
+    }
     // ЛИТЕРАЛ: число — только из ИСХОДНОЙ части пула (в хвосте лежат адреса строк).
     if (carrier.mnemonic === 'IR.const') {
       const destination = registerOf(carrier.operands[0]);
@@ -470,15 +543,23 @@ export function arrayBaseProblems(
       if (typeof raw === 'number') numbers.set(destination, raw);
       return;
     }
-    // ПЕРЕСЫЛКА: число едет вместе с регистром.
+    // ПЕРЕСЫЛКА: число едет вместе с регистром — И ВМЕСТЕ С ДОКАЗАТЕЛЬСТВОМ. Без второго слагаемого
+    // `Число`-параметр терял бы тип на первой же копии (`вернуть а[0]` компилируется в копию аргумента),
+    // и отказ назвал бы «число, известное на сборке» там, где величины на сборке нет вовсе.
     if (carrier.mnemonic === 'IR.move') {
       const destination = registerOf(carrier.operands[0]);
       const source = registerOf(carrier.operands[1]);
       const value = source === undefined ? undefined : numbers.get(source);
+      const proof = source === undefined ? undefined : typeProofs.get(source);
+      const pair = source === undefined ? undefined : pairPayloads.get(source);
       forget(destination);
       if (destination !== undefined && source !== undefined && numbers.has(source)) {
         numbers.set(destination, value);
+        if (proof !== undefined) typeProofs.set(destination, proof);
       }
+      // НАГРУЗКА ПАРЫ ЕДЕТ ВМЕСТЕ С ПЕРЕСЫЛКОЙ: `пусть т = нагрузка` не имеет права терять исход, иначе
+      // отказ обходится одной лишней строкой (`пусть а = 5` + `а[0]` — тот же класс, случай 73).
+      if (destination !== undefined && pair !== undefined) pairPayloads.set(destination, pair);
       return;
     }
     // АРИФМЕТИКА НАД ИЗВЕСТНЫМИ ЧИСЛАМИ: результат — снова число (строки в `numbers` не попадают,
@@ -503,18 +584,55 @@ export function arrayBaseProblems(
       numbers.set(destination, computed);
       return;
     }
+    // НАГРУЗКА ПАРЫ: исход сайта назван доказательством — недоказанный тег или доказанная Неудача.
+    // Клетку помечаем здесь же: `IR.result_pick` и есть тот носитель, что кладёт нагрузку в клетку.
+    if (carrier.mnemonic === 'IR.result_pick') {
+      const destination = registerOf(carrier.operands[0]);
+      forget(destination);
+      if (destination !== undefined && pairPayloadPicks.has(index)) {
+        pairPayloads.set(
+          destination,
+          'нагрузка пары, исход которой НЕ доказан как «успех»: в этой клетке лежит поле типа «Е», ' +
+            'а не строка и не массив',
+        );
+      }
+      return;
+    }
     if (carrier.mnemonic === 'IR.invoke') {
       const name = nameOf(carrier);
       const destination = writtenOf(carrier);
+      // НАГРУЗКА ПАРЫ В РОЛИ БАЗЫ: `нагрузка[0]` там, где исход не доказан успехом, — НАЗВАННЫЙ отказ.
+      // Проверяется ПЕРВЫМ: клетка нагрузки не попадает в `numbers` вовсе, и без этой ветви программа
+      // собиралась бы с нулём отказов (замер 2026-11-05: код 9 на модели).
+      const pairBase = registerOf(carrier.operands[1]);
+      const pairReason = pairBase === undefined ? undefined : pairPayloads.get(pairBase);
+      if (name !== undefined && pairReason !== undefined && ARRAY_BASE_NAMES.includes(name)) {
+        problems.push({
+          index,
+          reason:
+            `#${String(index)} ${name}: база — ${pairReason}. Обращение ушло бы в ПАМЯТЬ по этому ` +
+            'значению и вернуло мусор БЕЗ отказа (тихая ложь, случай 73 реестра): замер — `добыть("абв", 0)` ' +
+            '+ `нагрузка[0]` давало 0 отказов и код 9 на модели, а на цели тот же класс виден падением',
+        });
+      }
       if (name !== undefined && ARRAY_BASE_NAMES.includes(name)) {
         const base = registerOf(carrier.operands[1]);
         if (base !== undefined && numbers.has(base)) {
           const value = numbers.get(base);
+          // ДВА ДОКАЗАТЕЛЬСТВА, ОДИН ОТКАЗ — и причина называет, КАКОЕ именно сработало: литерал
+          // («число, известное на сборке») или ТИП параметра. Без второго имени отказ неотличим от
+          // чужого, а тип здесь — единственное, что видно (величины на сборке нет вовсе).
+          const typed = typeProofs.get(base);
+          const head =
+            typed === undefined
+              ? `#${String(index)} ${name}: база — ЧИСЛО, известное на сборке` +
+                `${value === undefined ? '' : ` (${String(value)})`}`
+              : `#${String(index)} ${name}: база — ЧИСЛО по ТИПУ (тип «${typed}», параметр процедуры ` +
+                `«${typedNumbers[typedAt]?.name ?? `#${String(typedAt)}`}»)`;
           problems.push({
             index,
             reason:
-              `#${String(index)} ${name}: база — ЧИСЛО, известное на сборке` +
-              `${value === undefined ? '' : ` (${String(value)})`}, а массивом оно быть не может: ` +
+              `${head}, а массивом оно быть не может: ` +
               'обращение ушло бы в ПАМЯТЬ по этому адресу и вернуло мусор БЕЗ отказа (тихая ложь, ' +
               'случай 73 реестра: `пусть а = 5` + `а[0]` давал код 9)',
           });

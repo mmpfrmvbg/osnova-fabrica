@@ -28,6 +28,7 @@
  * пережила бы появления памяти, а развёртка переживает — адрес приходит регистром, а не константой.
  */
 import type { AsmInstruction, Operand } from './backend';
+import { ARRAY_GET_CALL } from './arrayRuntime';
 import { DATA_SEGMENT_BASE, spillBaseOf } from './elfMinimal';
 import {  STRING_ARENA_CONCAT_CARRIER,
   STRING_BUFFER_BYTES,
@@ -58,6 +59,66 @@ const imm = (value: number): Operand => ({ kind: 'imm', value });
  * (форма), и понижение (байты).
  */
 export const STRING_MARK_OPERAND = 6;
+
+/**
+ * МАРШРУТ «РАНТАЙМ-СКАН» ЗАКРЫТ ЗАМЕРОМ (2026-11-05, решение владельца) — здесь это записано, чтобы
+ * следующий заход не начал его заново.
+ *
+ * Идея была: содержимое строки-параметра неизвестно сборке, поэтому длину и код символа считает
+ * РАНТАЙМОВЫЙ блок (скан байтов до нуля), дописанный в хвост потока. Замер по таблицам форм показал,
+ * что блок выразить НЕЧЕМ:
+ *  - раскладка размещает ТОЛЬКО носители `IR.*`; голые команды (`movts`, `ldb`, `shrs`) в потоке
+ *    разместить нельзя (`carrierFormOf` = false, «не носитель IR»);
+ *  - байтовой загрузки среди носителей нет (`IR.load` — это `ldd`, восемь байт), сдвигов и масок нет
+ *    вовсе, а байтовый шаг выразим только ВНУТРИ составного носителя;
+ *  - составная ветвь строит свои команды сама (`stringRuntime`) и индексов потока не знает, поэтому
+ *    ВНУТРЕННИЙ ПЕРЕХОД в ней невыразим, а переходы живут только носителями (`jumpCommands` строит
+ *    `disp`+`ct` по смещению, которое считает раскладка).
+ * Значит цикл скана потребовал бы нового носителя — то есть правки `src/e2k/twoPassLayout.ts`
+ * (запрещена границей задачи) и `src/e2k/e2kRealRun.ts`.
+ *
+ * ВЗАМЕН: строковость берётся из ТИПА (операция ЗАКОННА), а ЗНАЧЕНИЕ — из ДОКАЗАТЕЛЬСТВА на сборке
+ * (значения параметров по сайтам вызовов, нагрузка пары по тегу успеха). Не доказано — НАЗВАННЫЙ отказ.
+ */
+
+/**
+ * СТРОКОВОСТЬ ИЗ ТИПА — то, чего в носителе нет и что обязан назвать конвейер (шаг 2.3, ATOM-06-02-02а).
+ *
+ * `procedureOffsets[i]` — индекс первого носителя процедуры `i` в ТОМ ЖЕ потоке, который разбирает
+ * `planStrings`. Параметр `k` процедуры — это vreg `k`, закреплённый раскладкой, поэтому после
+ * раскладки он живёт в клетке `k`; замер (`.tmp/a230-dump.ts`, HEAD 63bf36cd): у
+ * `два(а: Число, с: Строка)` поток после раскладки читает `%b1` там, где в исходнике `с`.
+ */
+export interface StringTypeFacts {
+  readonly procedureOffsets: readonly number[];
+  /** Имена процедур — для ЧИТАЕМОСТИ отказа (правило проекта: отказ называет процедуру). */
+  readonly procedureNames?: readonly string[];
+  /** Клетки-параметры со типом `Строка`, по номеру процедуры. */
+  readonly stringParams: readonly (readonly number[])[];
+  /**
+   * ДОКАЗАННЫЕ значения параметров: клетка → текст значения, по номеру процедуры.
+   *
+   * «Доказано» — это КАЖДЫЙ прямой вызов процедуры передаёт в этот аргумент одну и ту же строку,
+   * известную плану (замер по сайтам вызовов). Нет доказательства — нет подстановки: длины и таблицы
+   * кодов у сборки нет, а подставить чужую значило бы соврать числом.
+   */
+  readonly paramValues?: readonly ReadonlyMap<number, string>[];
+  /**
+   * ДОКАЗАННЫЕ нагрузки пар `Результат<Строка, …>`: индекс носителя `IR.result_pick` → текст значения.
+   * Источник — возвраты с ТЕГОМ УСПЕХА, связанные с вызовом; нагрузочный возврат с другим тегом несёт
+   * поле ДРУГОГО типа (`Е`) и в доказательство не входит.
+   */
+  readonly resultValues?: ReadonlyMap<number, string>;
+  /**
+   * НАЗВАННАЯ ПРИЧИНА по САЙТУ нагрузки пары: индекс носителя `IR.result_pick` → текст.
+   *
+   * Нужна там, где нагрузка строкой НЕ является или её исход не доказан: `добыть("абв", 0)` отдаёт
+   * `Неудача(7)`, и в той же клетке лежит поле ДРУГОГО типа (`Е`). Подставить туда длину успешного
+   * возврата значило бы напечатать 1072 вместо отказа — тихая ложь, ровно тот класс, который закрывает
+   * случай 73. Отказ обязан назвать, ЧТО именно не доказано, а не «аргумент не строка».
+   */
+  readonly resultReasons?: ReadonlyMap<number, string>;
+}
 
 /**
  * Ключ статического блоба СТРОКИ ОТКАЗА АРЕНЫ (`src/e2k/arenaRuntime.ts`).
@@ -131,6 +192,15 @@ type StringEdit =
       readonly marks: number[];
       /** Ключ блоба таблицы кодов: адрес подставляется ПОСЛЕ раскладки, как у таблицы продолжений. */
       readonly tableKey: string;
+      /**
+       * НОВОЕ ИМЯ ВЫЗОВА — только у ПОДМЕНЁННОГО носителя (случай 73, П3).
+       *
+       * Фронтенд выражает любую индексацию `база[и]` МАССИВНЫМ чтением, когда тип базы ему неизвестен.
+       * Если база объявлена `Строка`, а значение доказано, верный носитель — строковый, и его имя
+       * подставляется здесь; без этого массивное чтение вернуло бы содержимое памяти (0) вместо кода
+       * знака. У строкового носителя, пришедшего от фронтенда, поля нет — имя уже верное.
+       */
+      readonly rename?: number;
     }
   | { readonly kind: 'concat'; readonly index: number; readonly first: StringValue; readonly second: StringValue; readonly marks: number[]; readonly payload: number; readonly fromAdd: boolean }
   | {
@@ -222,6 +292,12 @@ export function planStrings(
      * `COLLECTION_REFUSAL_TEXTS`). Порядок входа = порядок {@link StringPlan.collectionRefusals}.
      */
     readonly collectionRefusals?: readonly string[];
+    /**
+     * СТРОКОВОСТЬ ИЗ ТИПА (шаг 2.3). Нет фактов — параметр `Строка` в строковой операции остаётся
+     * НАЗВАННЫМ отказом, как было: догадка «наверное, строка» тут недопустима, потому что содержимое
+     * такой строки на сборке неизвестно и операцию обязан делать рантайм.
+     */
+    readonly types?: StringTypeFacts;
   } = {},
 ): StringPlan {
   const names = [...invokeNames];
@@ -229,12 +305,55 @@ export function planStrings(
     const at = names.indexOf(STRING_CALLS.concat);
     return at >= 0 ? at : names.push(STRING_CALLS.concat) - 1;
   })();
+  /**
+   * ИМЯ СТРОКОВОГО СИМВОЛА — для ПОДМЕНЫ носителя (случай 73, П3): фронтенд выразил индексацию
+   * массивным чтением, а верный носитель — строковый. Имя берётся из того же списка, что уходит в
+   * образ (`names`), а не подставляется числом: у раскладки и понижения имя — индекс в этом списке.
+   */
+  const symbolNameIndex = (): number => {
+    const at = names.indexOf(STRING_CALLS.symbol);
+    return at >= 0 ? at : names.push(STRING_CALLS.symbol) - 1;
+  };
   const byRegister = new Map<number, StringValue>();
   /**
    * ЧИСЛА, известные на сборке, по регистрам: только чтобы ОТКАЗАТЬ по имени на константном выходе
    * за границу. Значения кодов из этого не подставляются — выбор всё равно делает рантайм.
    */
   const numbersOf = new Map<number, number>();
+  /**
+   * ТИП ГОВОРИТ «СТРОКА» — И ЭТО СНИМАЕТ ОТКАЗ, НО НЕ ДАЁТ ЗНАЧЕНИЯ (шаг 2.3, ATOM-06-02-02а).
+   *
+   * Прежняя причина отказа («аргумент не строка») для `Строка`-параметра была НЕВЕРНОЙ: строка там
+   * есть, её просто нет на сборке. Длина в кодпоинтах и таблица кодов берутся только из ЗНАЧЕНИЯ, а
+   * значение доказано сборке лишь тогда, когда конвейер его предъявил (`StringTypeFacts.paramValues` —
+   * значения параметров по сайтам вызовов, `resultValues` — нагрузка пары по тегу успеха).
+   *
+   * Отсюда ДВА разных отказа, и они обязаны различаться: «типа нет вовсе» (как было) и «тип есть,
+   * значения нет» — второе НАЗЫВАЕТ причину честно, а не выдаёт отсутствие развёртки за отсутствие типа.
+   *
+   * Пересев — на границе процедуры: клетка `%b[1]` есть параметр `Строка` в СВОЕЙ процедуре и чужое
+   * значение в соседней, переносить факт через границу нельзя (тот же класс, что `kill`, случай 46).
+   */
+  const typeFacts = options.types;
+  const typedRegisters = new Set<number>();
+  const typedValues = new Map<number, string>();
+  /** ПРИЧИНА «почему строка не развёрнута» для клетки — когда она НАЗВАНА конвейером (пара). */
+  const typedReasons = new Map<number, string>();
+  let typedProcedure = 0;
+  const seedTyped = (procedure: number): void => {
+    typedRegisters.clear();
+    typedValues.clear();
+    typedReasons.clear();
+    if (typeFacts === undefined) return;
+    for (const register of typeFacts.stringParams[procedure] ?? []) typedRegisters.add(register);
+    for (const [register, text] of typeFacts.paramValues?.[procedure] ?? []) {
+      typedRegisters.add(register);
+      typedValues.set(register, text);
+    }
+  };
+  seedTyped(0);
+  const nameOfProcedure = (procedure: number): string =>
+    typeFacts?.procedureNames?.[procedure] ?? `#${String(procedure)}`;
   const values = new Map<string, StringValue>();
   /** Значения, собранные ареной: статических байтов у них нет и в образ они не кладутся. */
   const arenaValues = new Set<string>();
@@ -265,6 +384,28 @@ export function planStrings(
   };
   const registerOf = (operand: Operand | undefined): StringValue | undefined =>
     operand !== undefined && operand.kind === 'reg' ? byRegister.get(operand.index) : undefined;
+  /** ЗНАЧЕНИЕ, ДОКАЗАННОЕ ТИПОМ И ДОКАЗАТЕЛЬСТВОМ: только оно даёт длину и таблицу кодов. */
+  const provenValueOf = (operand: Operand | undefined): StringValue | undefined => {
+    if (operand === undefined || operand.kind !== 'reg') return undefined;
+    const text = typedValues.get(operand.index);
+    return text === undefined ? undefined : valueOf(text);
+  };
+  /** ТИП ЕСТЬ, ЗНАЧЕНИЯ НЕТ — и отказ обязан назвать именно это, а не «аргумент не строка». */
+  const typedWithoutValue = (operand: Operand | undefined): boolean =>
+    operand !== undefined && operand.kind === 'reg' && typedRegisters.has(operand.index);
+  /**
+   * ТЕКСТ ПРИЧИНЫ для клетки: НАЗВАННАЯ конвейером (пара: неудача либо непроверенный тег) — она, иначе
+   * общая причина «значение известно не для всех вызовов». Разные причины — разные дефекты, и слить их
+   * в одну значило бы потерять, что именно не доказано.
+   */
+  const reasonOfTyped = (operand: Operand | undefined, procedure: number): string => {
+    const named = operand !== undefined && operand.kind === 'reg' ? typedReasons.get(operand.index) : undefined;
+    if (named !== undefined) return named;
+    return (
+      `содержимое строки-параметра известно не для всех вызовов (процедура «${nameOfProcedure(procedure)}») — ` +
+      'значение не доказано, содержимое неизвестно: развёртка рантайма не сделана'
+    );
+  };
   const nameOf = (carrier: AsmInstruction): string | undefined => {
     const payload = carrier.operands[3];
     if (payload === undefined || payload.kind !== 'imm') return undefined;
@@ -315,8 +456,32 @@ export function planStrings(
     byRegister.delete(register);
     numbersOf.delete(register);
   };
+  /**
+   * НАЧАЛО ПРОЦЕДУРЫ: тип — в `typedRegisters` (нужен для ЧЕСТНОГО отказа), ДОКАЗАННОЕ ЗНАЧЕНИЕ — в
+   * `byRegister` (оно одно даёт длину и таблицу кодов). Значение кладётся тем же путём, что литерал:
+   * дальше его несёт ОБЫЧНАЯ пересылка, и отдельного механизма для копии параметра не нужно вовсе.
+   */
+  const applyTypedProcedure = (procedure: number): void => {
+    seedTyped(procedure);
+    if (typeFacts === undefined) return;
+    for (const [register, text] of typeFacts.paramValues?.[procedure] ?? []) {
+      byRegister.set(register, valueOf(text));
+    }
+  };
+  applyTypedProcedure(0);
 
   code.forEach((carrier, index) => {
+    // ГРАНИЦА ПРОЦЕДУРЫ: факты «строковость из типа» живут ВНУТРИ своей процедуры. Пересев идёт по
+    // смещениям процедур того же потока, что разбирается: второй карты смещений не заводится.
+    if (typeFacts !== undefined && typeFacts.procedureOffsets.length > 0) {
+      while (
+        typedProcedure + 1 < typeFacts.procedureOffsets.length &&
+        (typeFacts.procedureOffsets[typedProcedure + 1] ?? Number.POSITIVE_INFINITY) <= index
+      ) {
+        typedProcedure += 1;
+        applyTypedProcedure(typedProcedure);
+      }
+    }
     // Пул констант: строковый литерал — это строка, всё остальное — числа.
     if (carrier.mnemonic === 'IR.const') {
       const destination = carrier.operands[0];
@@ -345,10 +510,42 @@ export function planStrings(
       const value = registerOf(source);
       if (value === undefined) byRegister.delete(destination.index);
       else byRegister.set(destination.index, value);
+      // СТРОКОВОСТЬ ИЗ ТИПА ЕДЕТ ПЕРЕСЫЛКОЙ: `пусть т = с` — та же строка. Значение (`registerOf`
+      // выше) уже проехало пересылкой, если оно было ДОКАЗАНО; тип едет отдельно — он нужен, чтобы
+      // отказ на недоказанном назвал причину честно, а не «аргумент не строка».
+      if (source !== undefined && source.kind === 'reg' && typedRegisters.has(source.index)) {
+        typedRegisters.add(destination.index);
+        const reason = typedReasons.get(source.index);
+        if (reason === undefined) typedReasons.delete(destination.index);
+        else typedReasons.set(destination.index, reason);
+      } else {
+        typedRegisters.delete(destination.index);
+        typedReasons.delete(destination.index);
+      }
       // Число едет тем же путём — иначе константный индекс, проехавший пересылкой, не опознался бы.
       const number = source !== undefined && source.kind === 'reg' ? numbersOf.get(source.index) : undefined;
       if (number === undefined) numbersOf.delete(destination.index);
       else numbersOf.set(destination.index, number);
+      return;
+    }
+    // НАГРУЗКА ПАРЫ `Результат<Строка, …>`: тип нагрузки взят у ОБЪЯВЛЕННОГО возврата вызываемой
+    // (`typeArgs[0]`), а ЗНАЧЕНИЕ — у возвратов с ТЕГОМ УСПЕХА, связанных с этим вызовом. Карту
+    // «индекс носителя → текст значения» считает конвейер (`src/e2k/programImage.ts`): здесь нет ни
+    // имён процедур, ни их типов, ни тегов возвратов.
+    if (carrier.mnemonic === 'IR.result_pick') {
+      const destination = writtenRegisterOf(carrier);
+      kill(destination);
+      const proof = typeFacts?.resultValues?.get(index);
+      const reason = typeFacts?.resultReasons?.get(index);
+      if (destination !== undefined && proof !== undefined) {
+        byRegister.set(destination, valueOf(proof));
+        typedRegisters.add(destination);
+      } else if (destination !== undefined && reason !== undefined) {
+        // ИСХОД ПАРЫ ДОКАЗАН НЕ УСПЕХОМ (или не доказан вовсе): клетка СТРОКОЙ ПО ТИПУ остаётся, но
+        // значение подставлять НЕЛЬЗЯ — отказ назовёт причину пары, а не «аргумент не строка».
+        typedRegisters.add(destination);
+        typedReasons.set(destination, reason);
+      }
       return;
     }
     // НОСИТЕЛЬ СТРОКОЙ НЕ ПРИЗНАН: если он пишет в регистр, лежавшая там строка УМИРАЕТ. Это и есть
@@ -359,6 +556,24 @@ export function planStrings(
       return;
     }
     const name = carrier.mnemonic === 'IR.add' ? STRING_CALLS.concat : nameOf(carrier);
+    // ── ПОДМЕНА НОСИТЕЛЯ: МАССИВНОЕ ЧТЕНИЕ → СТРОКОВЫЙ СИМВОЛ (шаг 2.3, случай 73, проба П3) ──────
+    //
+    // Фронтенд выражает ЛЮБУЮ индексацию `база[и]` массивным чтением, когда тип базы ему НЕ выведен, —
+    // а `нагрузка` пары `Результат<Строка, Е>` именно такова: её тип объявлен в ВОЗВРАТЕ процедуры, а
+    // не в месте чтения. Массивное чтение вернуло бы содержимое памяти по адресу байтов (замер: 0), и
+    // это была бы ТИХАЯ ЛОЖЬ. Поэтому носитель ПОДМЕНЯЕТСЯ на строковый — но ТОЛЬКО когда тип
+    // (`typedRegisters`) и ЗНАЧЕНИЕ (`byRegister`, доказанное с тегом успеха) уже предъявлены: иначе
+    // подмена была бы догадкой, и отказ ниже назовёт «тип есть, значения нет».
+    const arrayBase = carrier.operands[1];
+    const stringIndexed =
+      carrier.mnemonic === 'IR.invoke' &&
+      name === ARRAY_GET_CALL &&
+      arrayBase !== undefined &&
+      arrayBase.kind === 'reg' &&
+      typedRegisters.has(arrayBase.index) &&
+      byRegister.has(arrayBase.index);
+    const operation = stringIndexed ? STRING_CALLS.symbol : name;
+    const rename = stringIndexed ? symbolNameIndex() : undefined;
     // Приёмник — по соглашению оболочки (`writtenRegisterOf`): у `IR.add` это первый регистр,
     // у `IR.invoke` — пятый под флагом «есть приёмник» (там операнд 0 — число).
     const destination = writtenRegisterOf(carrier);
@@ -390,10 +605,19 @@ export function planStrings(
       kill(destination);
       return;
     }
-    if (name === STRING_CALLS.length) {
-      const value = registerOf(carrier.operands[1]);
+    if (operation === STRING_CALLS.length) {
+      const argument = carrier.operands[1];
+      const value = registerOf(argument) ?? provenValueOf(argument);
       if (value === undefined) {
-        problems.push(`#${String(index)} ${name}: аргумент не строка — длину в кодпоинтах взять не от чего`);
+        // ДВА РАЗНЫХ ОТКАЗА, и путать их нельзя. Тип `Строка` есть — значит причина не «не строка»,
+        // а «значение не доказано сборке»: длину в кодпоинтах взять не от чего, развёртки рантайма
+        // нет (маршрут закрыт замером, см. шапку файла). Типа нет — прежняя причина, как была.
+        problems.push(
+          typedWithoutValue(argument)
+            ? `#${String(index)} ${name}: ${reasonOfTyped(argument, typedProcedure)} — ` +
+              'длину в кодпоинтах взять не от чего'
+            : `#${String(index)} ${name}: аргумент не строка — длину в кодпоинтах взять не от чего`,
+        );
         edits.set(index, { kind: 'none', index, reason: 'аргумент не строка' });
         kill(destination);
         return;
@@ -403,14 +627,20 @@ export function planStrings(
       edits.set(index, { kind: 'length', index, value, marks: [value.bytes.length] });
       return;
     }
-    if (name === STRING_CALLS.symbol) {
+    if (operation === STRING_CALLS.symbol) {
       // КОД СИМВОЛА: `с[и]` по строке (§3.133). Значение строки известно здесь — значит известны и
       // коды её кодпоинтов, и таблица кодов кладётся статическим блобом. Индекс при этом остаётся
       // РАНТАЙМОВЫМ: выбирает рантайм.
-      const value = registerOf(carrier.operands[1]);
+      const value = registerOf(carrier.operands[1]) ?? provenValueOf(carrier.operands[1]);
       const indexOperand = carrier.operands[2];
       if (value === undefined) {
-        problems.push(`#${String(index)} ${name}: аргумент не строка — код символа взять не от чего`);
+        // Тот же разбор причины, что у длины: «тип есть, значения нет» — это НЕ «не строка».
+        problems.push(
+          typedWithoutValue(carrier.operands[1])
+            ? `#${String(index)} ${name}: ${reasonOfTyped(carrier.operands[1], typedProcedure)} — ` +
+              'код символа взять не от чего'
+            : `#${String(index)} ${name}: аргумент не строка — код символа взять не от чего`,
+        );
         edits.set(index, { kind: 'none', index, reason: 'аргумент не строка' });
         kill(destination);
         return;
@@ -441,7 +671,15 @@ export function planStrings(
       const tableKey = `⟨коды символов⟩\u0000${value.key}`;
       if (!symbolTables.has(tableKey)) symbolTables.set(tableKey, symbolTableBytesOf(value.bytes));
       symbols += 1;
-      edits.set(index, { kind: 'symbol', index, value, marks: [points.length, 0], tableKey });
+      edits.set(index, {
+        kind: 'symbol',
+        index,
+        value,
+        marks: [points.length, 0],
+        tableKey,
+        // ИМЯ НОВОГО НОСИТЕЛЯ — только у ПОДМЕНЁННОГО: у строкового носителя от фронтенда имя уже верное.
+        ...(rename === undefined ? {} : { rename }),
+      });
       return;
     }
     if (name === STRING_CALLS.concat) {
@@ -595,6 +833,9 @@ export function planStrings(
         problems.push(`#${String(index)} ${STRING_CALLS.symbol}: таблица кодов не получила адреса — дефект планирования строк`);
         return carrier;
       }
+      // ПОДМЕНА: у носителя, пришедшего от фронтенда массивным чтением, имя вызова меняется на
+      // строковое — иначе раскладка и понижение увидят прежнюю операцию и вернут содержимое памяти.
+      if (edit.rename !== undefined) operands[3] = imm(edit.rename);
       operands[STRING_MARK_OPERAND] = imm(edit.marks[0]!);
       operands[STRING_MARK_OPERAND + 1] = imm(table);
     } else if (edit.kind === 'arena_concat') {

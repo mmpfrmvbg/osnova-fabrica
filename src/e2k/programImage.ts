@@ -29,8 +29,15 @@ import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { ШАГ_ДО_ПОТОКА } from './loweredTypes';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
-import { regModuleOrNamedFailure, frontendRefusalMessage } from './recordPlan';
+import {
+  frontendRefusalMessage,
+  isNumberType,
+  isStringType,
+  regModuleOrNamedFailure,
+  type ProcedureTypeInfo,
+} from './recordPlan';
 import type { CompileOptions } from '../compiler/compiler';
+import type { TypeRef } from '../compiler/ast';
 import { lowerCarrier } from './e2kRealRun';
 import {
   ARRAY_REGISTERS,
@@ -41,6 +48,7 @@ import {
   SUPPORTED_ARRAY_CALLS,
   arrayBaseProblems,
   arrayPrologue,
+  type ProcedureNumberFacts,
 } from './arrayRuntime';
 import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
@@ -57,7 +65,7 @@ import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
 import { exitPrimitives, printAreaOf } from './printPrimitives';
 import { LOWERING_CODES, LoweringRefusalError, refusalOf, type LoweringRefusal } from './loweringRefusal';
-import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringMarksOf } from './stringPlan';
+import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringMarksOf, type StringTypeFacts } from './stringPlan';
 import { INNER_CALL_WBS, WINDOW_GROW_CARRIER } from './procedureCall';
 import {
   ARENA_BASE,
@@ -66,7 +74,8 @@ import {
   arenaRefusalCarriers,
   usesArena,
 } from './arenaRuntime';
-import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, stringArenaCopyInstructions } from './stringRuntime';
+import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, stringArenaCopyInstructions, utf8Bytes } from './stringRuntime';
+import { proveStringValues } from './stringValueProof';
 import {
   COLLECTION_REFUSAL_TEXTS,
   collectionGroups,
@@ -581,6 +590,79 @@ export function arrayProceduresOf(
  *
  * Точка входа в список не входит: у неё адрес кладёт пролог ОБРАЗА (`arrayPrologue`).
  */
+/**
+ * ПРОЦЕДУРЫ, В КОТОРЫХ СТРОКОВАЯ ОПЕРАЦИЯ СТОИТ В ПЛОСКОСТИ ВЫЗЫВАЕМОЙ (шаг 2.3, случай 73).
+ *
+ * Зачем список нужен ДО раскладки. Строковый рантайм держит временные в клетках `%b[10]`, `%b[11]`,
+ * `%b[13]` (`STRING_REGISTERS`, `src/e2k/stringRuntime.ts`). В плоскости точки входа эти клетки и
+ * так недоступны значениям (бюджет входа — `%b[0..9]`), а в плоскости вызываемой они ВХОДЯТ в её
+ * бюджет (`CALLEE_REGISTERS` = `%b[8..23]` без клетки нуля) — то есть без закрепления раскладка
+ * отдала бы их значениям программы, и рантайм затёр бы их МОЛЧА. Поэтому вызывающий считает этот
+ * список заранее и закрепляет клетки УСЛОВНО — ровно как у арены, коллекций и ячейки кучи: у
+ * программ без строк в вызываемых бюджет не меняется, и закреплённые числа не двигаются.
+ *
+ * Точка входа в список не входит: у неё те же клетки держит `RESERVED_REGISTERS`.
+ */
+export function stringCalleeProcedures(
+  code: readonly AsmInstruction[],
+  procedures: readonly ProcedureOffset[],
+  invokeNames: readonly string[],
+  entryAt: number,
+): Set<number> {
+  const found = new Set<number>();
+  code.forEach((carrier, index) => {
+    if (carrier.mnemonic !== 'IR.invoke') return;
+    const payload = carrier.operands[3];
+    if (payload === undefined || payload.kind !== 'imm') return;
+    const name = invokeNames[payload.value];
+    if (name !== STRING_CALLS.length && name !== STRING_CALLS.symbol && name !== STRING_CALLS.concat) return;
+    // Номер процедуры берётся ТЕМ ЖЕ способом, что у отказа в теле (`procedureAt`): счёт по отрезкам
+    // `codeOffset` разошёлся бы с ним, если процедуры идут не по порядку смещений, — и отказ сказал бы
+    // «клетки не закреплены» там, где они закреплены.
+    const at = procedureAt(procedures, index);
+    if (at === undefined || at === entryAt) return;
+    found.add(at);
+  });
+  return found;
+}
+
+/**
+ * НУЖНЫ ЛИ ВРЕМЕННЫЕ СТРОКОВОГО РАНТАЙМА В ПЛОСКОСТИ ВЫЗЫВАЕМОЙ — ОТВЕТ СЧИТАЕТСЯ ПО ПЛАНУ СТРОК.
+ *
+ * Почему не по сырому потоку: склейка `+` приходит от оболочки носителем `IR.add`, а СТРОКОВЫМ вызовом
+ * становится только В ПЛАНЕ (`src/e2k/stringPlan.ts`) — по реестру типов и доказанным значениям. Скан
+ * сырого потока не увидел бы её и сказал бы «строк в вызываемой нет», хотя они есть: ровно так
+ * `с_токеном` (три строки-параметра) осталась без закреплённых клеток и отказала бы на верной
+ * программе. Поэтому разведка идёт ТЕМ ЖЕ проходом, что окончательный план (`planStrings`), с ТЕМИ ЖЕ
+ * фактами типов (`stringTypeFactsOf`/`provedValuesOf`) — иначе разведка и поток разошлись бы
+ * (класс §3.134.6). Цена — второй проход; тем же способом решает арена (§3.138).
+ */
+export function stringNeedProcedures(input: {
+  readonly code: readonly AsmInstruction[];
+  readonly constants: readonly unknown[];
+  readonly invokeNames: readonly string[];
+  readonly procedures: readonly ProcedureOffset[];
+  readonly procedureTypes: readonly ProcedureTypeInfo[] | undefined;
+  readonly heapAddress: number;
+  readonly entryAt: number;
+}): Set<number> {
+  const declaredTypes: readonly ProcedureOffset[] =
+    input.procedures.length === 0 ? [{ name: 'главная', codeOffset: 0 }] : input.procedures;
+  const typeFacts = stringTypeFactsOf(
+    declaredTypes,
+    input.procedureTypes,
+    provedValuesOf(input.code, declaredTypes, input.constants, input.invokeNames, input.procedureTypes),
+  );
+  const planned = planStrings(
+    input.code,
+    input.constants,
+    input.invokeNames,
+    input.heapAddress,
+    factsOptions(typeFacts),
+  );
+  return stringCalleeProcedures(planned.code, input.procedures, planned.invokeNames, input.entryAt);
+}
+
 export function heapSlotProcedures(
   code: readonly AsmInstruction[],
   procedures: readonly ProcedureOffset[],
@@ -745,6 +827,215 @@ function windowGrowthAt(
  * ВРУЧНУЮ: у источника эмиттер вправе переставить чтения, и давление на регистры падает само
  * (измерено: программа с одиннадцатью чтениями массива даёт пик 5 и вытеснения не требует).
  */
+/**
+ * ТИПЫ ПРОЦЕДУР, ВЫРОВНЕННЫЕ ПО ПОТОКУ: индекс процедуры потока → её тип (шаг 2.3).
+ *
+ * Сопоставление ИМЕНЕМ, а не порядком: список процедур AST и список процедур потока приходят из разных
+ * слоёв, и совпадение порядков — соглашение, которое разошлось бы молча (класс §3.35). Если по имени не
+ * нашлось, берётся порядок — но ТОЛЬКО когда длины списков совпадают, иначе лучше «типа нет», чем
+ * ЧУЖОЙ тип: чужая `Строка` сняла бы отказ там, где его обязан назвать кто-то другой.
+ */
+function typesByProcedure(
+  procedures: readonly ProcedureOffset[],
+  types: readonly ProcedureTypeInfo[] | undefined,
+): readonly (ProcedureTypeInfo | undefined)[] {
+  if (types === undefined || types.length === 0) return [];
+  const sameLength = types.length === procedures.length;
+  return procedures.map((procedure, at) => {
+    const byName = types.find((type) => type.name === procedure.name);
+    if (byName !== undefined) return byName;
+    return sameLength ? types[at] : undefined;
+  });
+}
+
+/** КЛЕТКИ-ПАРАМЕТРЫ, чей ТИП назван: индекс процедуры → номера клеток (замер: параметр `i` живёт в `%b[i]`). */
+function paramCellsOf(
+  aligned: readonly (ProcedureTypeInfo | undefined)[],
+  matches: (type: TypeRef | undefined) => boolean,
+): readonly (readonly number[])[] {
+  return aligned.map((type) => {
+    const cells: number[] = [];
+    (type?.paramTypes ?? []).forEach((param, at) => {
+      if (matches(param)) cells.push(at);
+    });
+    return cells;
+  });
+}
+
+/** Факты «строковость из типа» для планирования строк. */
+function stringTypeFactsOf(
+  procedures: readonly ProcedureOffset[],
+  types: readonly ProcedureTypeInfo[] | undefined,
+  /**
+   * ДОКАЗАТЕЛЬСТВО ЗНАЧЕНИЙ (`src/e2k/stringValueProof.ts`) — то, без чего тип даёт ЗАКОННОСТЬ
+   * операции, но не даёт ни длины, ни таблицы кодов. Доказанное значение едет ТЕКСТОМ (мост
+   * `proofTexts`), и карта ключуется ПАРОЙ «процедура + клетка», а не строкой на весь образ: у двух
+   * процедур с одним вызовом каждая значения РАЗНЫЕ, и общая карта приписала бы одной чужое.
+   */
+  proof?: {
+    readonly parameters: ReadonlyMap<number, ReadonlyMap<number, string>>;
+    readonly resultValues: ReadonlyMap<number, string>;
+    readonly resultReasons: ReadonlyMap<number, string>;
+  },
+): StringTypeFacts | undefined {
+  const aligned = typesByProcedure(procedures, types);
+  if (aligned.length === 0) return undefined;
+  const paramValues = procedures.map((_, at) => proof?.parameters.get(at) ?? new Map<number, string>());
+  return {
+    procedureOffsets: procedures.map((procedure) => procedure.codeOffset),
+    procedureNames: procedures.map((procedure) => procedure.name),
+    stringParams: paramCellsOf(aligned, isStringType),
+    paramValues,
+    ...(proof === undefined
+      ? {}
+      : { resultValues: proof.resultValues, resultReasons: proof.resultReasons }),
+  };
+}
+
+/**
+ * ДОКАЗАННЫЕ ЗНАЧЕНИЯ — вызов модуля доказательства и перевод записей пула в тексты.
+ *
+ * `stringPool` — БАЙТЫ записей: сравнивать значения номерами записей нельзя (два литерала «абв» лежат
+ * двумя записями), поэтому байты собираются здесь, а сравнение делает модуль.
+ */
+function provedValuesOf(
+  code: readonly AsmInstruction[],
+  procedures: readonly ProcedureOffset[],
+  constants: readonly unknown[],
+  invokeNames: readonly string[],
+  types: readonly ProcedureTypeInfo[] | undefined,
+): {
+  readonly parameters: ReadonlyMap<number, ReadonlyMap<number, string>>;
+  readonly resultValues: ReadonlyMap<number, string>;
+  readonly resultReasons: ReadonlyMap<number, string>;
+  /** Носители `IR.result_pick`, чья нагрузка НЕ доказана строкой: недоказанный тег или Неудача. */
+  readonly nonSuccessPicks: ReadonlySet<number>;
+  // ВХОДЫ ДОКАЗАТЕЛЬСТВА — возвращаются наружу ровно затем, чтобы сторож индексации мог пересчитать
+  // НОМЕРА на потоке ПОСЛЕ планирования строк: план дописывает свой пролог, и номера сдвигаются.
+  readonly declaredTypes: readonly ProcedureOffset[];
+  readonly constants: readonly unknown[];
+  readonly invokeNames: readonly string[];
+  readonly procedureTypes: readonly ProcedureTypeInfo[] | undefined;
+} {
+  const stringPool = constants.map((raw) => (typeof raw === 'string' ? utf8Bytes(raw) : []));
+  /** Запись пула → ТЕКСТ: план строк работает текстом, доказательство — записями. */
+  const textOf = (record: number): string => Buffer.from(stringPool[record] ?? []).toString('utf-8');
+  const aligned = typesByProcedure(procedures, types);
+  const proof = proveStringValues({
+    code,
+    procedures,
+    invokeNames,
+    stringPool,
+    constantValues: constants,
+    paramTypes: aligned.map((type) => (type?.paramTypes ?? []).map((param) => param?.name)),
+  });
+  const parameters = new Map<number, ReadonlyMap<number, string>>();
+  for (const [procedure, cells] of proof.parameters) {
+    const texts = new Map<number, string>();
+    for (const [cell, record] of cells) texts.set(cell, textOf(record));
+    parameters.set(procedure, texts);
+  }
+  // ── ИСХОД ПАРЫ — ПО САЙТУ, А НЕ ПО ПРОЦЕДУРЕ ────────────────────────────────────────────────────
+  //
+  // `добыть("абв", 5)` отдаёт Успех, и нагрузка там — `Строка`; `добыть("абв", 0)` отдаёт Неудачу, и в
+  // ТОЙ ЖЕ клетке лежит поле другого типа (`Е`). Доказательство, ключёванное процедурой, уравняло бы
+  // эти два сайта и напечатало 1072 вместо отказа — тихая ложь (замер verifier'а, проба П12). Поэтому
+  // значение нагрузки берётся ТОЛЬКО у сайта с доказанным успехом, а всякий иной исход назван причиной.
+  const resultValues = new Map<number, string>();
+  const resultReasons = new Map<number, string>();
+  /**
+   * САЙТЫ, ГДЕ НАГРУЗКА НЕ ДОКАЗАНА СТРОКОЙ (шаг 2.3, случай 73): недоказанный тег и доказанная Неудача.
+   *
+   * Зачем отдельным множеством, а не разбором текста причины: по нему сторож индексации
+   * (`src/e2k/arrayRuntime.ts#arrayBaseProblems`) отказывает `нагрузка[0]` ПО ИМЕНИ. Без него
+   * `пусть тег, нагрузка = добыть("абв", 0)` + `нагрузка[0]` собиралось с НУЛЁМ отказов и модель
+   * возвращала код 9 с пустым выводом (замер 2026-11-05, `.tmp/a230-зонд-пара.ts`): в клетке нагрузки
+   * на этом сайте лежит поле типа `Е`, то есть число 7 — обращение уходило в память по адресу 7.
+   * Сайт с доказанным Успехом сюда НЕ попадает: там значение нагрузки известно (`resultValues`), и
+   * планирование строк заменяет индексацию символом строки (1072 — замер той же пробы).
+   */
+  const nonSuccessPicks = new Set<number>();
+  for (let index = 1; index < code.length; index++) {
+    const carrier = code[index]!;
+    if (carrier.mnemonic !== 'IR.result_pick') continue;
+    const anchor = carrier.operands[1];
+    const destination = carrier.operands[0];
+    const previous = code[index - 1]!;
+    // Сайт пары — `IR.result_pick` СРАЗУ за `IR.call`, чей приёмник тега равен якорю нагрузки: так его
+    // строит кодоген (`src/compiler/regcodegen.ts`), и другой связи между носителями нет.
+    const callDestination = previous.mnemonic === 'IR.call' ? previous.operands[4] : undefined;
+    if (anchor?.kind !== 'reg' || destination?.kind !== 'reg') continue;
+    if (callDestination?.kind !== 'reg' || callDestination.index !== anchor.index) continue;
+    const outcome = proof.pairs.get(index);
+    if (outcome === undefined) {
+      resultReasons.set(index, 'тег пары не проверен программой и не доказан сборкой');
+      nonSuccessPicks.add(index);
+      continue;
+    }
+    if (outcome.tag !== 'успех') {
+      resultReasons.set(index, 'нагрузка пары — поле типа «Е», не «Строка»: тег на этом сайте доказан как «неудача»');
+      nonSuccessPicks.add(index);
+      continue;
+    }
+    const payload = outcome.payload;
+    if (payload !== undefined && payload.kind === 'строка') resultValues.set(index, textOf(payload.pool));
+    else resultReasons.set(index, 'успех пары несёт поле не типа «Строка» — индекс по нему не строковый');
+  }
+  return {
+    parameters,
+    resultValues,
+    resultReasons,
+    nonSuccessPicks,
+    declaredTypes: procedures,
+    constants,
+    invokeNames,
+    procedureTypes: types,
+  };
+}
+
+/** Факты «число из типа» для сторожа индексации: `Число`-параметр массивом быть не может. */
+function numberTypeFactsOf(
+  procedures: readonly ProcedureOffset[],
+  types: readonly ProcedureTypeInfo[] | undefined,
+): readonly ProcedureNumberFacts[] {
+  const aligned = typesByProcedure(procedures, types);
+  if (aligned.length === 0) return [];
+  const cells = paramCellsOf(aligned, isNumberType);
+  return procedures.map((procedure, at) => ({
+    codeOffset: procedure.codeOffset,
+    name: procedure.name,
+    numbers: cells[at] ?? [],
+  }));
+}
+
+/** Опции планирования строк: факты типов кладутся ТОЛЬКО когда они есть (иначе поведение прежнее). */
+function factsOptions(facts: StringTypeFacts | undefined): { readonly types?: StringTypeFacts } {
+  return facts === undefined ? {} : { types: facts };
+}
+
+/**
+ * НОМЕРА НОСИТЕЛЕЙ `IR.result_pick`, ЧЬЯ НАГРУЗКА НЕ ДОКАЗАНА УСПЕХОМ, — НА ПОТОКЕ ПОСЛЕ ПЛАНИРОВАНИЯ.
+ *
+ * Считается второй раз намеренно: планирование строк дописывает в начало потока СВОЙ пролог, поэтому
+ * индексы, снятые с входного `code`, сдвинуты (замер `.tmp/a230-зонд-пара.ts`: `IR.jmp` +
+ * `IR.callee_zero`, сдвиг 2), и набор с чужого потока пометил бы не тот носитель — класс «разведка
+ * разошлась с потоком» (§3.134.6). Второй счёт запускается ТОЛЬКО когда пары в программе вообще есть:
+ * у программы без пар `size` равен нулю, и лишнего доказательства не считается.
+ */
+function pairPicksForGuard(
+  planned: readonly AsmInstruction[],
+  proof: ReturnType<typeof provedValuesOf> | undefined,
+): ReadonlySet<number> {
+  if (proof === undefined || proof.nonSuccessPicks.size === 0) return new Set<number>();
+  return provedValuesOf(
+    planned,
+    proof.declaredTypes,
+    proof.constants,
+    proof.invokeNames,
+    proof.procedureTypes,
+  ).nonSuccessPicks;
+}
+
 export function imageOfCarriers(
   code: readonly AsmInstruction[],
   constants: readonly unknown[],
@@ -784,6 +1075,25 @@ export function imageOfCarriers(
      * `false` (или отсутствие слова) при нужде — НАЗВАННЫЙ отказ `создать` в вызываемой, а не порча.
      */
     readonly heapSlotReserved?: boolean;
+    /**
+     * ЗАКРЕПЛЕНЫ ЛИ ВРЕМЕННЫЕ СТРОКОВОГО РАНТАЙМА В ПЛОСКОСТИ ВЫЗЫВАЕМОЙ (шаг 2.3, случай 73).
+     *
+     * Строковый рантайм держит состояние в `%b[10]`, `%b[11]`, `%b[13]` (`STRING_REGISTERS`). В
+     * плоскости входа они недоступны значениям, а в плоскости вызываемой входят в её бюджет, поэтому
+     * вызывающий закрепляет их УСЛОВНО — только у образов, где строковая операция стоит в вызываемой
+     * (`stringCalleeProcedures`). Слово проверяется ЗДЕСЬ, где видно, нужны ли клетки на самом деле:
+     * разойдись резерв и нужда — операция обязана отказать ПО ИМЕНИ, а не затереть значение молча.
+     */
+    readonly stringsCalleeReserved?: boolean;
+    /**
+     * ТИПЫ ПРОЦЕДУР (`src/e2k/recordPlan.ts#procedureTypesOf`) — СТРОКОВОСТЬ И ЧИСЛО ИЗ ТИПА (шаг 2.3).
+     *
+     * В носителе типа нет: `IR.invoke` несёт индекс имени, `IR.result_pick` — два регистра. Поэтому
+     * «параметр 1 объявлен `Строка`» и «параметр 0 объявлен `Число`» знает только конвейер, у которого
+     * есть AST. Без этого списка поведение прежнее байт-в-байт: строковая операция по параметру
+     * отказывает «аргумент не строка», а индексация по `Число`-параметру молча читает память.
+     */
+    readonly procedureTypes?: readonly ProcedureTypeInfo[];
   } = {},
 ): {
   bytes: Uint8Array;
@@ -815,7 +1125,22 @@ export function imageOfCarriers(
   const arenaCall = usesArena(code, invokeNames);
   // КОЛЛЕКЦИИ: сайт собирается из носителей ДО раскладки адресов — по именам вызовов, не по тексту.
   const collectionsUsed = usesCollections(code, invokeNames);
-  const probe = arenaCall ? undefined : planStrings(code, constants, invokeNames, heapAddress);
+  // ТИПЫ: и в разведку, и в окончательный план идут ОДНИ И ТЕ ЖЕ факты — иначе разведка и поток после
+  // раскладки разошлись бы (класс §3.134.6), и отказ арены сработал бы на верной программе.
+  const declaredTypes: readonly ProcedureOffset[] =
+    options.procedures === undefined || options.procedures.length === 0
+      ? [{ name: 'главная', codeOffset: 0 }]
+      : options.procedures;
+  /** Доказательство значений — ОДНО на всю функцию: из него берутся и факты строк, и исходы пар. */
+  let pairProof: ReturnType<typeof provedValuesOf> | undefined;
+  const typeFacts = stringTypeFactsOf(
+    declaredTypes,
+    options.procedureTypes,
+    // ДОКАЗАТЕЛЬСТВО — на ТОМ ЖЕ потоке `code`, что разбирает `planStrings`: второй поток дал бы
+    // индексы сайтов, разошедшиеся с пометками (класс §3.35).
+    (pairProof = provedValuesOf(code, declaredTypes, constants, invokeNames, options.procedureTypes)),
+  );
+  const probe = arenaCall ? undefined : planStrings(code, constants, invokeNames, heapAddress, factsOptions(typeFacts));
   const arenaUsed = arenaCall || (probe?.counts.arenaConcats ?? 0) > 0;
   // Строка отказа арены планируется ВМЕСТЕ со прочими статическими блоками: её адрес выведен из конца
   // образа, и второй способ его считать разошёлся бы с первым (`src/e2k/stringPlan.ts`).
@@ -845,6 +1170,7 @@ export function imageOfCarriers(
   const strings =
     arenaUsed || collectionsUsed
       ? planStrings(code, constants, invokeNames, heapAddress, {
+          ...factsOptions(typeFacts),
           ...(arenaUsed ? { arenaRefusal: ARENA_REFUSAL_TEXT } : {}),
           ...(collectionRefusalKindsNeeded.length === 0
             ? {}
@@ -1198,11 +1524,36 @@ export function imageOfCarriers(
   // `constants.length` — граница ИСХОДНОГО пула: адреса статических байтов дописываются планированием
   // строк в ХВОСТ пула, и без этой границы адрес строки сошёл бы за литерал числа (`src/e2k/arrayRuntime.ts#arrayBaseProblems`).
   const arrayBaseProblemAt = new Map(
-    arrayBaseProblems(planned, strings.constants, strings.invokeNames, constants.length).map((problem) => [
-      problem.index,
-      problem.reason,
-    ]),
+    arrayBaseProblems(
+      planned,
+      strings.constants,
+      strings.invokeNames,
+      constants.length,
+      // ЧИСЛО ИЗ ТИПА (шаг 2.3, П4): `процедура ф(а: Число)` + `вернуть а[0]` сегодня даёт НОЛЬ отказов
+      // и код 9 на модели (139 на железе) — тихая ложь. Список пуст, если типов не предъявили, и тогда
+      // сторож ведёт себя как раньше, байт-в-байт.
+      numberTypeFactsOf(procedures, options.procedureTypes),
+      // НАГРУЗКА ПАРЫ БЕЗ ДОКАЗАННОГО УСПЕХА (шаг 2.3, случай 73): `нагрузка[0]` на сайте с
+      // доказанной Неудачей (или с недоказанным тегом) обязана быть НАЗВАННЫМ отказом, а не чтением
+      // памяти: замер `.tmp/a230-зонд-пара.ts` — `добыть("абв", 0)` + `нагрузка[0]` давало 0 отказов
+      // и код 9 на модели.
+      //
+      // ГДЕ СЧИТАЕТСЯ: на `planned`, а НЕ на входном `code`. Планирование строк дописывает в НАЧАЛО
+      // потока свой пролог (замер той же пробы: `IR.jmp`, `IR.callee_zero` — два носителя), поэтому
+      // индексы сайтов пары на входном потоке на 2 МЕНЬШЕ, и набор, снятый с `code`, помечал бы чужой
+      // носитель (класс «разведка разошлась с потоком», §3.134.6). Второй счёт запускается ТОЛЬКО
+      // когда пары вообще есть (`size > 0`) — у программ без пар цена нулевая, и поведение прежнее.
+      pairPicksForGuard(planned, pairProof),
+    ).map((problem) => [problem.index, problem.reason]),
   );
+  // ВРЕМЕННЫЕ СТРОКОВОГО РАНТАЙМА В ПЛОСКОСТИ ВЫЗЫВАЕМОЙ (шаг 2.3, случай 73) — тот же уговор, что у
+  // клетки кучи: список нужды считается ЗДЕСЬ, по ТОМУ ЖЕ потоку, что понижается ниже (`planned`), иначе
+  // номера процедур разошлись бы со списком, снятым до расширений, и закреплённая клетка не нашлась бы
+  // (отказ называл бы «не закреплено» там, где закреплено). Слово о резерве приходит снаружи; разойдись
+  // они — строковая операция в вызываемой остаётся НАЗВАННЫМ отказом, а не затирает значение программы.
+  const stringCalleeAt = stringCalleeProcedures(planned, procedures, strings.invokeNames, entryAt);
+  const stringsReadyAt: ReadonlySet<number> =
+    stringCalleeAt.size > 0 && options.stringsCalleeReserved !== true ? new Set<number>() : stringCalleeAt;
   for (let index = 0; index < planned.length; index++) {
     // ШАГ ОТКАЗОВ ЭТОЙ ИТЕРАЦИИ (D11). Тело обёрнуто `try/finally`, потому что отказ уходит наружу и
     // через `continue`, и через `return`, — `finally` проставляет шаг в обоих случаях, а 20 точек
@@ -1400,15 +1751,15 @@ export function imageOfCarriers(
         continue;
       }
       if (name === STRING_CALLS.symbol) {
-        if (inCallee) {
+        if (inCallee && !stringsReadyAt.has(procedureAt(procedures, index) ?? -1)) {
           refused.push(
             refusalOf(
               LOWERING_CODES.runtime,
-              `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — рантайм держит ` +
-                'состояние в клетках %b[10..13] ТОЧКИ ВХОДА, а в плоскости вызываемой эти клетки НЕ ' +
-                'закреплены: закреплён только %b[12] (клетка нуля, §3.166), а %b[10], %b[11] и %b[13] ' +
-                'раскладка отдаёт значениям программы, и рантайм затёр бы их (окно вызываемой при ' +
-                'wsz = 16 — %b[0..15], то есть её собственные %r8..%r23)',
+              `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — её временные ` +
+                'клетки %b[10], %b[11] и %b[13] НЕ ЗАКРЕПЛЕНЫ за рантаймом (закреплён только %b[12] — ' +
+                'клетка нуля, §3.166), и раскладка отдала бы их значениям программы: рантайм затёр бы ' +
+                'их МОЛЧА. Резерв делается УСЛОВНО тем, кто раскладывал (stringCalleeProcedures → ' +
+                'stringsCalleeReserved); разойдись он с нуждой — отказ, а не порча',
             ),
           );
           continue;
@@ -1439,14 +1790,15 @@ export function imageOfCarriers(
         continue;
       }
       if (name === STRING_CALLS.length || name === STRING_CALLS.concat) {
-        if (inCallee) {
+        if (inCallee && !stringsReadyAt.has(procedureAt(procedures, index) ?? -1)) {
           refused.push(
             refusalOf(
               LOWERING_CODES.runtime,
-              `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — её рантайм держит ` +
-                'состояние в клетках %b[10..13] ТОЧКИ ВХОДА, а в плоскости вызываемой эти клетки НЕ ' +
-                'закреплены: закреплён только %b[12] (клетка нуля, §3.166), а %b[10], %b[11] и %b[13] ' +
-                'раскладка отдаёт значениям программы (окно вызываемой при wsz = 16 — %b[0..15])',
+              `#${index} ${name}: строковая операция в вызываемой процедуре невозможна — её временные ` +
+                'клетки %b[10], %b[11] и %b[13] НЕ ЗАКРЕПЛЕНЫ за рантаймом (закреплён только %b[12] — ' +
+                'клетка нуля, §3.166), и раскладка отдала бы их значениям программы: рантайм затёр бы ' +
+                'их МОЛЧА. Резерв делается УСЛОВНО тем, кто раскладывал (stringCalleeProcedures → ' +
+                'stringsCalleeReserved); разойдись он с нуждой — отказ, а не порча',
             ),
           );
           continue;
@@ -1502,16 +1854,21 @@ export function imageOfCarriers(
     // (`src/e2k/arenaRuntime.ts#arenaGroups`) — и командами того же сайта, что у
     // `система.память.выделить`. Здесь только байты: база записи — регистр-приёмник выделения.
     if (carrier.mnemonic === STRING_ARENA_COPY_CARRIER) {
+      // ГРАНИЦА ШАГА 2.3 (случай 73): здесь снят НЕ тот отказ. Статические строковые операции
+      // (`символ`, `длина`, склейка В СТАТИЧЕСКИЙ буфер) в вызываемой теперь работают — их временные
+      // клетки закрепляются условно (`stringsCalleeReserved`). А ЭТА склейка идёт в блок АРЕНЫ, то
+      // есть требует ВЫДЕЛЕНИЯ — системного вызова из вызываемой, а он не разблокирован: порядок
+      // назван владельцу (§3.138.4: образ → место строковому рантайму → системный вызов из
+      // вызываемой), и до него отказ остаётся НАЗВАННЫМ. Снятие его молча дало бы в теле вызываемой
+      // последовательность системного вызова, о которой раскладка ничего не знает.
       if (inCallee) {
-        // Та же граница, что у статической склейки: рантайм держит состояние в клетках `%b[10..13]`
-        // ТОЧКИ ВХОДА, а в плоскости вызываемой они не закреплены — причина названа, а не «не сработало».
         refused.push(
           refusalOf(
             LOWERING_CODES.runtime,
             `#${index} ${STRING_CALLS.concat}: склейка сверх статического буфера в вызываемой процедуре ` +
-              'невозможна — её рантайм держит состояние в клетках %b[10..13] ТОЧКИ ВХОДА, а в плоскости ' +
-              'вызываемой закреплён только %b[12] (клетка нуля, §3.166), тогда как %b[10], %b[11] и ' +
-              '%b[13] раскладка отдаёт значениям программы',
+              'невозможна — она требует ВЫДЕЛЕНИЯ БЛОКА У АРЕНЫ, то есть системного вызова, а системный ' +
+              'вызов из вызываемой не разблокирован (порядок §3.138.4); временные клетки строкового ' +
+              'рантайма при этом закреплены условно (шаг 2.3) и к этому отказу отношения не имеют',
           ),
         );
         continue;
