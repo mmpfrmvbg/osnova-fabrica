@@ -48,6 +48,7 @@ import { pairPredicates } from './predicatePairing';
 import { RESERVED_REGISTERS, allocateProgram } from './regAlloc';
 import { carrierFormOf } from './twoPassLayout';
 import {
+  STRING_BUFFER_BYTES,
   STRING_COPY_LOOP_SIZE,
   STRING_SLICE_SITE_SETUP_SIZE,
   STRING_SLICE_SITE_SIZE,
@@ -59,6 +60,7 @@ import {
   stringCopyLoopCarriers,
   stringSliceRuntimeSite,
   stringSliceRuntimeTail,
+  stringSliceSlots,
 } from './stringRuntime';
 
 const encoder = getEncoder('e2k');
@@ -510,5 +512,29 @@ describe('сайт рантайм-среза: установка, переход
     );
     // Различающий контроль: та же клетка, но ОБЪЯВЛЕННАЯ сайтом, — законна.
     expect(() => checkStringSliceRuntimeSite({ ...САЙТ, destination: 5 }, [5, ...ОБЪЯВЛЕНО])).not.toThrow();
+  });
+
+  it('МЕСТО В ОБЛАСТИ ЗАПИСИ: ниже буфера склейки, выровнено, дескриптор — за 16 байт до байтов', () => {
+    const БАЗА = 0x110000;
+    const место = stringSliceSlots(БАЗА);
+    // ГРАНИЦА С БУФЕРОМ СКЛЕЙКИ НАЗВАНА ЧИСЛОМ: байты среза кончаются ТАМ, где начинается буфер склейки
+    // (`[БАЗА − 20, БАЗА)`), поэтому две строковые операции не затирают друг друга.
+    expect(место.bufferAddress + STRING_BUFFER_BYTES, 'конец байтов среза').toBe(БАЗА - STRING_BUFFER_BYTES);
+    expect(место.descriptorAddress).toBe(место.bufferAddress - 16);
+    // ВЫРАВНИВАНИЕ: дескриптор читается `ldd` — невыровненный адрес даёт исключение на цели (§3.133).
+    expect(место.descriptorAddress % 8).toBe(0);
+    expect(место.bufferAddress % 8).toBe(0);
+    // И ЭТО РОВНО ТО, ЧТО ТРЕБУЕТ СТОРОЖ САЙТА — место и сторож не могут разойтись.
+    expect(() =>
+      checkStringSliceRuntimeSite(
+        { ...САЙТ, bufferAddress: место.bufferAddress, descriptorAddress: место.descriptorAddress },
+        ОБЪЯВЛЕНО,
+      ),
+    ).not.toThrow();
+    // РАЗЛИЧАЮЩИЙ КОНТРОЛЬ: база НЕ кратна восьми — выравнивание ВНИЗ, а не «сдвиг на остаток вверх».
+    const кривая = stringSliceSlots(БАЗА + 4);
+    expect(кривая.descriptorAddress % 8, 'выравнивание вниз').toBe(0);
+    expect(кривая.descriptorAddress, 'и адрес не растёт').toBeLessThanOrEqual(БАЗА + 4 - STRING_BUFFER_BYTES - 36);
+    expect(кривая.bufferAddress).toBe(кривая.descriptorAddress + 16);
   });
 });

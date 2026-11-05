@@ -1191,6 +1191,38 @@ export function concatFitsBuffer(firstBytes: number, secondBytes: number): boole
   return firstBytes + secondBytes <= STRING_BUFFER_BYTES;
 }
 
+/** Сколько байт области записи занимает срез: дескриптор (16) и буфер байтов (20). */
+export const STRING_SLICE_SLOTS_BYTES = STRING_DESCRIPTOR_BYTES + STRING_BUFFER_BYTES;
+
+/** Место рантайм-среза в области записи: буфер байтов и дескриптор ровно за ШЕСТНАДЦАТЬ байт до него. */
+export interface StringSliceSlots {
+  readonly bufferAddress: number;
+  readonly descriptorAddress: number;
+}
+
+/**
+ * МЕСТО РАНТАЙМ-СРЕЗА В ОБЛАСТИ ЗАПИСИ — ВНИЗ от буфера склейки, с выравниванием ВНИЗ до восьми.
+ *
+ * # Почему именно здесь и почему считается, а не берётся «где-нибудь»
+ *
+ * Байты и дескриптор среза живут в РАНТАЙМЕ (сборка их не знает), поэтому статическая страница кода не
+ * годится — она только для чтения. Буфер склейки уже занимает `[spillBase − 20, spillBase)`, поэтому
+ * срез кладётся НИЖЕ него ровно на {@link STRING_SLICE_SLOTS_BYTES} байт: две строковые операции не
+ * затирают друг друга, и граница названа числом, а не «места хватит».
+ *
+ * ВЫРАВНИВАНИЕ ВНИЗ, А НЕ ПРОСТО СДВИГ: дескриптор читается `ldd` (двойное слово), и невыровненный
+ * адрес даёт ИСКЛЮЧЕНИЕ ВЫРАВНИВАНИЯ на цели, а не отказ сборки (§3.133). Буфер стоит за дескриптором
+ * через `STRING_DESCRIPTOR_BYTES` (16 — кратно восьми), поэтому одного выравнивания довольно обоим.
+ *
+ * @param spillBase база области записи (`spillBaseOf(heapAddress)`), как у буфера склейки
+ */
+export function stringSliceSlots(spillBase: number): StringSliceSlots {
+  const низ = spillBase - STRING_BUFFER_BYTES - STRING_SLICE_SLOTS_BYTES;
+  const остаток = ((низ % STRING_SYMBOL_ENTRY_BYTES) + STRING_SYMBOL_ENTRY_BYTES) % STRING_SYMBOL_ENTRY_BYTES;
+  const descriptorAddress = низ - остаток;
+  return { bufferAddress: descriptorAddress + STRING_DESCRIPTOR_BYTES, descriptorAddress };
+}
+
 /**
  * ВЫВОД СТРОКИ: байты наружу `write`, следом перевод строки — вторым `write`.
  *
