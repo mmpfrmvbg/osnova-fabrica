@@ -371,6 +371,166 @@ const ARITY: Readonly<Record<string, number>> = {
   'система.массив.установить': 3,
 };
 
+/** Вызовы, у которых ПЕРВЫЙ аргумент — база (всё, у чего `ARITY` ≥ 1, кроме `создать`). */
+const ARRAY_BASE_NAMES: readonly string[] = [
+  'система.массив.длина',
+  'система.массив.получить',
+  'система.массив.добавить',
+  'система.массив.установить',
+];
+
+/** Индексация по значению, чья «немассивность» ДОКАЗАНА на сборке, — номер носителя и причина. */
+export interface ArrayBaseProblem {
+  readonly index: number;
+  readonly reason: string;
+}
+
+/**
+ * ИНДЕКСАЦИЯ ПО ЗНАЧЕНИЮ, КОТОРОЕ МАССИВОМ БЫТЬ НЕ МОЖЕТ, — НАЗВАННЫЙ ОТКАЗ ВМЕСТО ЧТЕНИЯ ПАМЯТИ.
+ *
+ * # Что здесь ловится (десятый класс тихой лжи, `docs/verification-debt.md` случай 73; D4)
+ *
+ * Поверхность v3 выбирает вид индексации по ТИПУ операнда (`src/compiler-v3/parser.ts`: `с[и]` по
+ * `Строка` — `система.строка.символ`, по массиву — `система.массив.получить`), но у значения, чей
+ * тип не `Строка` и не массив, выбора нет — и она молча берёт МАССИВНУЮ ветвь. Дальше рантайм
+ * массивов честно считает адрес от того, что лежит в базе, и читает ПАМЯТЬ по этому адресу:
+ * **отказов 0, число неверное**.
+ *
+ * Замер 2026-11-05 (модель QEMU, `.tmp/a621-*`): `пусть а = 5` + `вернуть а[0]` — код **9** без
+ * отказа; `пусть тег, нагрузка = добыть("абв", 5)` + `вернуть нагрузка[0]` — **0** без отказа, хотя
+ * база равна адресу байтов строки (1114106), а верный ответ — код «а» = 1072.
+ *
+ * # Почему правило УЗКОЕ, а не «база обязана быть доказанным массивом»
+ *
+ * Строгое правило сломало бы РАБОТАЮЩИЕ программы: массив-ПАРАМЕТР (`процедура первый(a: Список
+ * Число)` + `a[0]`) понижается верно (замер: 0 отказов), а происхождения у него нет — значение
+ * приходит из чужого окна. Поэтому отказ называется только там, где на СБОРКЕ ВИДНО, что база —
+ * ЧИСЛО: литерал числа, пересылка числа, арифметика над известными числами, `система.массив.длина`.
+ * Число массивом быть не может — это факт, а не догадка о клетках; и отказ не отнимает ни у одной
+ * работающей программы ничего.
+ *
+ * # Названная граница (не обойдена молчанием)
+ *
+ * Значение с НЕИЗВЕСТНЫМ происхождением (нагрузка пары `Результат<Строка, …>`, параметр без типа)
+ * здесь НЕ ловится: чтобы отказывать и там, нужна строковость/массивность ИЗ ТИПА — это шаг 2.3 того
+ * же условия владельца (`ATOM-06-02-02а`), а не эта правка. До него `нагрузка[0]` остаётся тихой
+ * ложью, и сторож её ДЕРЖИТ (`src/e2k/resultStringDepth.test.ts`).
+ *
+ * @param code носители ПОСЛЕ всех вставок (тот же поток, что понижается: индексы обязаны совпасть)
+ * @param constants пул констант образа: у СТРОК в нём лежат адреса, поэтому число признаётся числом
+ *   только в ИСХОДНОЙ части пула (`originalPoolLength`) — иначе адрес статики сошёл бы за литерал
+ * @param invokeNames имена вызовов образа (пометка носителя — индекс в этой таблице)
+ * @param originalPoolLength длина пула ДО планирования строк (адреса строк дописаны в хвост)
+ */
+export function arrayBaseProblems(
+  code: readonly AsmInstruction[],
+  constants: readonly unknown[],
+  invokeNames: readonly string[],
+  originalPoolLength: number = constants.length,
+): readonly ArrayBaseProblem[] {
+  /** Регистры, про которые ИЗВЕСТНО, что там число; значение — если оно известно на сборке. */
+  const numbers = new Map<number, number | undefined>();
+  const problems: ArrayBaseProblem[] = [];
+  const registerOf = (operand: Operand | undefined): number | undefined =>
+    operand !== undefined && operand.kind === 'reg' ? operand.index : undefined;
+  /** Приёмник носителя — по соглашению оболочки (то же правило, что в `src/e2k/stringPlan.ts`). */
+  const writtenOf = (carrier: AsmInstruction): number | undefined => {
+    if (
+      carrier.mnemonic === 'IR.jmp' ||
+      carrier.mnemonic === 'IR.jmp_if' ||
+      carrier.mnemonic === 'IR.jmp_if_not' ||
+      carrier.mnemonic === 'IR.ret'
+    ) {
+      return undefined;
+    }
+    if (carrier.mnemonic === 'IR.invoke' || carrier.mnemonic === 'IR.call') {
+      const flags = carrier.operands[0];
+      if (flags === undefined || flags.kind !== 'imm' || (flags.value & 1) !== 1) return undefined;
+      return registerOf(carrier.operands[4]);
+    }
+    return registerOf(carrier.operands[0]);
+  };
+  const forget = (register: number | undefined): void => {
+    if (register !== undefined) numbers.delete(register);
+  };
+  const nameOf = (carrier: AsmInstruction): string | undefined => {
+    const payload = carrier.operands[3];
+    return payload !== undefined && payload.kind === 'imm' ? invokeNames[payload.value] : undefined;
+  };
+
+  code.forEach((carrier, index) => {
+    // ЛИТЕРАЛ: число — только из ИСХОДНОЙ части пула (в хвосте лежат адреса строк).
+    if (carrier.mnemonic === 'IR.const') {
+      const destination = registerOf(carrier.operands[0]);
+      const poolIndex = carrier.operands[1];
+      forget(destination);
+      if (destination === undefined || poolIndex === undefined || poolIndex.kind !== 'imm') return;
+      if (poolIndex.value >= originalPoolLength) return;
+      const raw = constants[poolIndex.value];
+      if (typeof raw === 'number') numbers.set(destination, raw);
+      return;
+    }
+    // ПЕРЕСЫЛКА: число едет вместе с регистром.
+    if (carrier.mnemonic === 'IR.move') {
+      const destination = registerOf(carrier.operands[0]);
+      const source = registerOf(carrier.operands[1]);
+      const value = source === undefined ? undefined : numbers.get(source);
+      forget(destination);
+      if (destination !== undefined && source !== undefined && numbers.has(source)) {
+        numbers.set(destination, value);
+      }
+      return;
+    }
+    // АРИФМЕТИКА НАД ИЗВЕСТНЫМИ ЧИСЛАМИ: результат — снова число (строки в `numbers` не попадают,
+    // поэтому склейка `"а" + "б"` здесь числом не считается и отказом не грозит).
+    if (carrier.mnemonic === 'IR.add' || carrier.mnemonic === 'IR.sub' || carrier.mnemonic === 'IR.mul') {
+      const destination = registerOf(carrier.operands[0]);
+      const first = registerOf(carrier.operands[1]);
+      const second = registerOf(carrier.operands[2]);
+      const known = first !== undefined && second !== undefined && numbers.has(first) && numbers.has(second);
+      const left = first === undefined ? undefined : numbers.get(first);
+      const right = second === undefined ? undefined : numbers.get(second);
+      forget(destination);
+      if (!known || destination === undefined) return;
+      const computed =
+        left === undefined || right === undefined
+          ? undefined
+          : carrier.mnemonic === 'IR.add'
+            ? left + right
+            : carrier.mnemonic === 'IR.sub'
+              ? left - right
+              : left * right;
+      numbers.set(destination, computed);
+      return;
+    }
+    if (carrier.mnemonic === 'IR.invoke') {
+      const name = nameOf(carrier);
+      const destination = writtenOf(carrier);
+      if (name !== undefined && ARRAY_BASE_NAMES.includes(name)) {
+        const base = registerOf(carrier.operands[1]);
+        if (base !== undefined && numbers.has(base)) {
+          const value = numbers.get(base);
+          problems.push({
+            index,
+            reason:
+              `#${String(index)} ${name}: база — ЧИСЛО, известное на сборке` +
+              `${value === undefined ? '' : ` (${String(value)})`}, а массивом оно быть не может: ` +
+              'обращение ушло бы в ПАМЯТЬ по этому адресу и вернуло мусор БЕЗ отказа (тихая ложь, ' +
+              'случай 73 реестра: `пусть а = 5` + `а[0]` давал код 9)',
+          });
+        }
+      }
+      forget(destination);
+      // ДЛИНА массива — сама число (даже когда величина на сборке неизвестна): индексация по её
+      // результату тоже недопустима, и это тот же класс, а не другая догадка.
+      if (destination !== undefined && name === 'система.массив.длина') numbers.set(destination, undefined);
+      return;
+    }
+    forget(writtenOf(carrier));
+  });
+  return problems;
+}
+
 /**
  * Проверить операнд: регистр, и **не клетка блока рантайма**.
  *

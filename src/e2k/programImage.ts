@@ -39,6 +39,7 @@ import {
   CALLEE_ZERO_CARRIER,
   ENTRY_ARRAY_BASE,
   SUPPORTED_ARRAY_CALLS,
+  arrayBaseProblems,
   arrayPrologue,
 } from './arrayRuntime';
 import { layoutOf, secondPass, carrierFormOf } from './twoPassLayout';
@@ -1185,6 +1186,18 @@ export function imageOfCarriers(
     return undefined;
   };
 
+  // ИНДЕКСАЦИЯ ПО ЧИСЛУ — НАЗВАННЫЙ ОТКАЗ, А НЕ ЧТЕНИЕ ПАМЯТИ (D4, случай 73 реестра).
+  //
+  // Считается по ТОМУ ЖЕ потоку, что понижается ниже (`planned`), и ДО цикла: индекс обязан совпасть
+  // с шагом отказа (D11), иначе отказ назовёт чужой носитель — класс, который стережёт случай 58.
+  // `constants.length` — граница ИСХОДНОГО пула: адреса статических байтов дописываются планированием
+  // строк в ХВОСТ пула, и без этой границы адрес строки сошёл бы за литерал числа (`src/e2k/arrayRuntime.ts#arrayBaseProblems`).
+  const arrayBaseProblemAt = new Map(
+    arrayBaseProblems(planned, strings.constants, strings.invokeNames, constants.length).map((problem) => [
+      problem.index,
+      problem.reason,
+    ]),
+  );
   for (let index = 0; index < planned.length; index++) {
     // ШАГ ОТКАЗОВ ЭТОЙ ИТЕРАЦИИ (D11). Тело обёрнуто `try/finally`, потому что отказ уходит наружу и
     // через `continue`, и через `return`, — `finally` проставляет шаг в обоих случаях, а 20 точек
@@ -1237,6 +1250,14 @@ export function imageOfCarriers(
       pairing.refusals.find((item) => item.index === index);
     if (problem !== undefined) {
       refused.push(refusalOf(problem.code, `#${index} ${carrier.mnemonic}: ${problem.reason}`));
+      continue;
+    }
+    // Индексация по ДОКАЗУЕМО-ЧИСЛОВОЙ базе: причина уже составлена планом вместе с номером шага.
+    // Стоит ПОСЛЕ отказов раскладки: если носитель не размещён, первым обязан прозвучать тот отказ —
+    // он про то, что программа не собирается вовсе, а не про смысл операции.
+    const arrayBaseProblem = arrayBaseProblemAt.get(index);
+    if (arrayBaseProblem !== undefined) {
+      refused.push(refusalOf(LOWERING_CODES.runtime, arrayBaseProblem));
       continue;
     }
     const inSelfCalling = selfCalling.has(index);
