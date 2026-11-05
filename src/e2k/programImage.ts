@@ -74,7 +74,7 @@ import {
   arenaRefusalCarriers,
   usesArena,
 } from './arenaRuntime';
-import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, stringArenaCopyInstructions, utf8Bytes } from './stringRuntime';
+import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, STRING_DESCRIPTOR_MARK, stringArenaCopyInstructions, utf8Bytes } from './stringRuntime';
 import { proveStringValues } from './stringValueProof';
 import {
   COLLECTION_REFUSAL_TEXTS,
@@ -86,7 +86,9 @@ import {
 import {
   STRING_PRINT_CLOBBERS,
   stringConcatInstructions,
+  stringLengthFromDescriptorInstructions,
   stringLengthInstructions,
+  stringSymbolFromDescriptorInstructions,
   stringSymbolInstructions,
   stringWriteInstructions,
 } from './stringRuntime';
@@ -874,6 +876,11 @@ function stringTypeFactsOf(
    */
   proof?: {
     readonly parameters: ReadonlyMap<number, ReadonlyMap<number, string>>;
+    /**
+     * МНОЖЕСТВА значений клеток (TD-0001): все сайты известны, значения разные. Клетка, у которой
+     * значение ДОКАЗАНО, сюда не попадает — два пути к одному значению разошлись бы.
+     */
+    readonly paramChoices?: ReadonlyMap<number, ReadonlyMap<number, readonly string[]>>;
     readonly resultValues: ReadonlyMap<number, string>;
     readonly resultReasons: ReadonlyMap<number, string>;
   },
@@ -881,11 +888,13 @@ function stringTypeFactsOf(
   const aligned = typesByProcedure(procedures, types);
   if (aligned.length === 0) return undefined;
   const paramValues = procedures.map((_, at) => proof?.parameters.get(at) ?? new Map<number, string>());
+  const paramChoices = procedures.map((_, at) => proof?.paramChoices?.get(at) ?? new Map<number, readonly string[]>());
   return {
     procedureOffsets: procedures.map((procedure) => procedure.codeOffset),
     procedureNames: procedures.map((procedure) => procedure.name),
     stringParams: paramCellsOf(aligned, isStringType),
     paramValues,
+    ...(proof?.paramChoices === undefined ? {} : { paramChoices }),
     ...(proof === undefined
       ? {}
       : { resultValues: proof.resultValues, resultReasons: proof.resultReasons }),
@@ -906,6 +915,15 @@ function provedValuesOf(
   types: readonly ProcedureTypeInfo[] | undefined,
 ): {
   readonly parameters: ReadonlyMap<number, ReadonlyMap<number, string>>;
+  /**
+   * МНОЖЕСТВА значений по сайтам (TD-0001): клетка → все значения её сайтов, ТОЛЬКО строки пула.
+   *
+   * Строится по `proof.siteValues` (значения ВСЕХ сайтов) с двумя условиями: значений БОЛЬШЕ ОДНОГО
+   * (одно — это уже доказательство, `parameters`) и все они — ЗАПИСИ ПУЛА. Второе условие и есть
+   * граница механизма: дескриптор есть только у блоба литерала, а значение, собранное в рантайме
+   * (склейка в буфере или в арене), записью пула не является и сюда не попадёт.
+   */
+  readonly paramChoices: ReadonlyMap<number, ReadonlyMap<number, readonly string[]>>;
   readonly resultValues: ReadonlyMap<number, string>;
   readonly resultReasons: ReadonlyMap<number, string>;
   /** Носители `IR.result_pick`, чья нагрузка НЕ доказана строкой: недоказанный тег или Неудача. */
@@ -934,6 +952,24 @@ function provedValuesOf(
     const texts = new Map<number, string>();
     for (const [cell, record] of cells) texts.set(cell, textOf(record));
     parameters.set(procedure, texts);
+  }
+  // ── МНОЖЕСТВА ЗНАЧЕНИЙ ПО САЙТАМ (TD-0001) ───────────────────────────────────────────────────────
+  //
+  // Здесь же, где и доказанные значения: тот же текст значения (`textOf`), та же пара «процедура +
+  // клетка». Отличие одно: значений НЕСКОЛЬКО, и потому длина с таблицей кодов берутся не на сборке,
+  // а из дескриптора перед блобом. Требование «все — строки пула» — не осторожность, а условие
+  // верности: у значения, собранного в рантайме, дескриптора нет вовсе.
+  const paramChoices = new Map<number, ReadonlyMap<number, readonly string[]>>();
+  for (const [procedure, cells] of proof.siteValues) {
+    const choices = new Map<number, readonly string[]>();
+    for (const [cell, values] of cells) {
+      if (values.length < 2) continue;
+      if (!values.every((value) => value.kind === 'строка')) continue;
+      const texts = values.map((value) => textOf(value.kind === 'строка' ? value.pool : 0));
+      if (new Set(texts).size < 2) continue;
+      choices.set(cell, texts);
+    }
+    if (choices.size > 0) paramChoices.set(procedure, choices);
   }
   // ── ИСХОД ПАРЫ — ПО САЙТУ, А НЕ ПО ПРОЦЕДУРЕ ────────────────────────────────────────────────────
   //
@@ -983,6 +1019,7 @@ function provedValuesOf(
   }
   return {
     parameters,
+    paramChoices,
     resultValues,
     resultReasons,
     nonSuccessPicks,
@@ -1766,10 +1803,22 @@ export function imageOfCarriers(
         }
         const destination = carrier.operands[4];
         const indexRegister = carrier.operands[2];
+        const baseRegister = carrier.operands[1];
         const [codePoints, tableAddress] = marks;
-        if (destination?.kind !== 'reg' || indexRegister?.kind !== 'reg') {
+        if (destination?.kind !== 'reg' || indexRegister?.kind !== 'reg' || baseRegister?.kind !== 'reg') {
           refused.push(
             refusalOf(LOWERING_CODES.runtime, `#${index} ${name}: индекс или приёмник не регистр — выбрать код нечем`),
+          );
+          continue;
+        }
+        // ДЕСКРИПТОР (TD-0001): числа сборке не известны — их читает сам рантайм по адресу значения.
+        if (codePoints === STRING_DESCRIPTOR_MARK) {
+          body.push(
+            ...stringSymbolFromDescriptorInstructions({
+              base: baseRegister.index,
+              index: indexRegister.index,
+              destination: destination.index,
+            }),
           );
           continue;
         }
@@ -1812,6 +1861,13 @@ export function imageOfCarriers(
         }
         if (name === STRING_CALLS.length) {
           const [byteLength, tableAddress] = marks;
+          // ДЕСКРИПТОР (TD-0001): длины сборке не известно — число кодпоинтов читает сам рантайм.
+          if (byteLength === STRING_DESCRIPTOR_MARK) {
+            body.push(
+              ...stringLengthFromDescriptorInstructions({ base: first.index, destination: destination.index }),
+            );
+            continue;
+          }
           if (byteLength === undefined || tableAddress === undefined) {
             refused.push(
               refusalOf(LOWERING_CODES.runtime, `#${index} ${name}: нет длины строки или адреса таблицы продолжений`),

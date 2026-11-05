@@ -58,9 +58,12 @@ import type { AsmInstruction, Operand, WideGroupShape } from "./backend";
 import {
   STRING_ARENA_COPY_CARRIER,
   STRING_CALLS,
+  STRING_DESCRIPTOR_MARK,
   stringArenaCopyInstructions,
   stringConcatInstructions,
+  stringLengthFromDescriptorInstructions,
   stringLengthInstructions,
+  stringSymbolFromDescriptorInstructions,
   stringSymbolInstructions,
   stringWriteInstructions,
 } from "./stringRuntime";
@@ -1177,7 +1180,28 @@ function carrierFormWithReason(
       };
     }
     let commands: readonly AsmInstruction[];
-    if (name === STRING_CALLS.symbol) {
+    if (marks[0] === STRING_DESCRIPTOR_MARK) {
+      // ЗНАЧЕНИЕ ПРИХОДИТ ИЗ ПАМЯТИ (TD-0001): числа сборке не известны, и обе последовательности —
+      // ОДНОЙ длины при любой строке (шесть и двадцать две команды). Это и есть причина, по которой
+      // форма здесь не зависит ни от длины, ни от плоскости (§3.135).
+      const indexRegister = instruction.operands[2];
+      if (name === STRING_CALLS.symbol && indexRegister?.kind !== 'reg') {
+        return {
+          failure: failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: по дескриптору нужен РЕГИСТР индекса — его ставит конвейер (src/e2k/stringPlan.ts)`,
+          ),
+        };
+      }
+      commands =
+        name === STRING_CALLS.symbol && indexRegister?.kind === 'reg'
+          ? stringSymbolFromDescriptorInstructions({
+              base: argumentRegister.index,
+              index: indexRegister.index,
+              destination: destinationRegister,
+            })
+          : stringLengthFromDescriptorInstructions({ base: argumentRegister.index, destination: destinationRegister });
+    } else if (name === STRING_CALLS.symbol) {
       const [codePoints, tableAddress] = marks;
       const indexRegister = instruction.operands[2];
       if (codePoints === undefined || tableAddress === undefined || indexRegister?.kind !== 'reg') {

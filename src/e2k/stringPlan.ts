@@ -33,6 +33,8 @@ import { DATA_SEGMENT_BASE, spillBaseOf } from './elfMinimal';
 import {  STRING_ARENA_CONCAT_CARRIER,
   STRING_BUFFER_BYTES,
   STRING_CALLS,
+  STRING_DESCRIPTOR_BYTES,
+  STRING_DESCRIPTOR_MARK,
   STRING_NEWLINE,
   STRING_SYMBOL_ENTRY_BYTES,
   STRING_TABLE_BYTES,
@@ -40,11 +42,24 @@ import {  STRING_ARENA_CONCAT_CARRIER,
   codePointsOfBytes,
   concatFitsBuffer,
   continuationTable,
+  stringDescriptorBytes,
   symbolTableBytesOf,
   utf8Bytes,
 } from './stringRuntime';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
+
+/**
+ * КЛЮЧ БЛОБА ДЕСКРИПТОРА (TD-0001): `адрес − 16` от байтов значения, отдельным блобом.
+ *
+ * Отдельный ключ, а не «байты значения плюс шестнадцать»: два блоба по одному адресу — ровно тот
+ * дефект, ради которого у таблицы кодов свой ключ (`⟨коды символов⟩` + ключ значения). Длина блоба —
+ * {@link STRING_DESCRIPTOR_BYTES}; содержимое дозаполняется ПОСЛЕ раскладки адресов, когда известен
+ * адрес таблицы кодов.
+ */
+export function descriptorKeyOf(valueKey: string): string {
+  return `⟨дескриптор строки⟩\u0000${valueKey}`;
+}
 
 /**
  * Пометки, которые конвейер кладёт в носитель строковой операции — канал чисел к раскладке.
@@ -103,6 +118,16 @@ export interface StringTypeFacts {
    * кодов у сборки нет, а подставить чужую значило бы соврать числом.
    */
   readonly paramValues?: readonly ReadonlyMap<number, string>[];
+  /**
+   * МНОЖЕСТВА значений параметра: клетка → ВСЕ значения сайтов, по номеру процедуры (TD-0001).
+   *
+   * Здесь клетка, у которой КАЖДЫЙ прямой сайт вызова передаёт СВОЮ известную строку, и значения
+   * РАЗОШЛИСЬ. Одного значения сборке не хватает, но МНОЖЕСТВА достаточно: длина и таблица кодов
+   * приходят из дескриптора перед блобом (`src/e2k/stringRuntime.ts`, `STRING_DESCRIPTOR_MARK`), и
+   * специализация на сайт не нужна. Клетка, у которой хоть один сайт неизвестен, сюда НЕ попадает —
+   * там множество неполно, и остаётся названный отказ.
+   */
+  readonly paramChoices?: readonly ReadonlyMap<number, readonly string[]>[];
   /**
    * ДОКАЗАННЫЕ нагрузки пар `Результат<Строка, …>`: индекс носителя `IR.result_pick` → текст значения.
    * Источник — возвраты с ТЕГОМ УСПЕХА, связанные с вызовом; нагрузочный возврат с другим тегом несёт
@@ -200,6 +225,27 @@ type StringEdit =
        * подставляется здесь; без этого массивное чтение вернуло бы содержимое памяти (0) вместо кода
        * знака. У строкового носителя, пришедшего от фронтенда, поля нет — имя уже верное.
        */
+      readonly rename?: number;
+    }
+  | {
+      /**
+       * ДЛИНА ПО ДЕСКРИПТОРУ (TD-0001): значение на сборке НЕ известно, известно только МНОЖЕСТВО.
+       *
+       * Отдельный вид, а не `length` с пустой пометкой: у `length` пометка — ЧИСЛО БАЙТОВ, и её
+       * отсутствие обязано остаться признаком дефекта планирования («носитель не несёт длину»).
+       * Здесь носитель помечен `STRING_DESCRIPTOR_MARK`, и это единственное, что нужно раскладке:
+       * форма последовательности от длины не зависит вовсе (шесть команд).
+       */
+      readonly kind: 'length_runtime';
+      readonly index: number;
+      readonly marks: number[];
+    }
+  | {
+      /** КОД СИМВОЛА ПО ДЕСКРИПТОРУ (TD-0001): число кодпоинтов и таблица приходят из памяти. */
+      readonly kind: 'symbol_runtime';
+      readonly index: number;
+      readonly marks: number[];
+      /** НОВОЕ ИМЯ ВЫЗОВА — у подменённого носителя (см. `symbol`): без него вернулось бы содержимое памяти. */
       readonly rename?: number;
     }
   | { readonly kind: 'concat'; readonly index: number; readonly first: StringValue; readonly second: StringValue; readonly marks: number[]; readonly payload: number; readonly fromAdd: boolean }
@@ -337,18 +383,28 @@ export function planStrings(
   const typeFacts = options.types;
   const typedRegisters = new Set<number>();
   const typedValues = new Map<number, string>();
+  /** МНОЖЕСТВА значений клетки (TD-0001): все сайты известны, значения разные — см. `StringTypeFacts`. */
+  const typedChoices = new Map<number, readonly string[]>();
   /** ПРИЧИНА «почему строка не развёрнута» для клетки — когда она НАЗВАНА конвейером (пара). */
   const typedReasons = new Map<number, string>();
   let typedProcedure = 0;
   const seedTyped = (procedure: number): void => {
     typedRegisters.clear();
     typedValues.clear();
+    typedChoices.clear();
     typedReasons.clear();
     if (typeFacts === undefined) return;
     for (const register of typeFacts.stringParams[procedure] ?? []) typedRegisters.add(register);
     for (const [register, text] of typeFacts.paramValues?.[procedure] ?? []) {
       typedRegisters.add(register);
       typedValues.set(register, text);
+    }
+    for (const [register, texts] of typeFacts.paramChoices?.[procedure] ?? []) {
+      // МНОЖЕСТВО — только там, где доказательство значения НЕ состоялось: иначе одна клетка звалась бы
+      // и доказанной, и «выбери из списка», и два пути разошлись бы в пользу второго (он дешевле).
+      if (texts.length < 2 || typedValues.has(register)) continue;
+      typedRegisters.add(register);
+      typedChoices.set(register, texts);
     }
   };
   seedTyped(0);
@@ -366,8 +422,20 @@ export function planStrings(
    * адресу (байты значения совпали бы с таблицей кодов, и рантайм прочитал бы не то).
    */
   const symbolTables = new Map<string, number[]>();
+  /**
+   * ЗНАЧЕНИЯ, ПЕРЕД БЛОБОМ КОТОРЫХ ЛЕЖИТ ДЕСКРИПТОР (TD-0001): ключ значения.
+   *
+   * Ставится только теми операциями, у которых значения на сборке НЕТ, а есть множество сайтов. У
+   * программ без таких операций множество пусто, и статика не меняется НИ НА БАЙТ — это и держит
+   * закреплённые числа, корпус и байты кита.
+   */
+  const descriptorValues = new Set<string>();
+  /** ЗНАЧЕНИЯ, ЧЬЯ ТАБЛИЦА КОДОВ ЕДЕТ В СЛОВО 1 ДЕСКРИПТОРА: без неё `символ` по дескриптору читал бы ноль. */
+  const descriptorTables = new Set<string>();
   const problems: string[] = [];
   let lengths = 0;
+  /** Сколько длин считается ПО ДЕСКРИПТОРУ: им таблица продолжений не нужна вовсе. */
+  let descriptorLengths = 0;
   let symbols = 0;
   let concats = 0;
   let staticConcats = 0;
@@ -393,6 +461,23 @@ export function planStrings(
   /** ТИП ЕСТЬ, ЗНАЧЕНИЯ НЕТ — и отказ обязан назвать именно это, а не «аргумент не строка». */
   const typedWithoutValue = (operand: Operand | undefined): boolean =>
     operand !== undefined && operand.kind === 'reg' && typedRegisters.has(operand.index);
+  /**
+   * МНОЖЕСТВО ЗНАЧЕНИЙ КЛЕТКИ — если оно есть, значение берётся из ДЕСКРИПТОРА перед блобом (TD-0001).
+   *
+   * Возвращает значения (блобы) ТОЛЬКО когда КАЖДЫЙ сайт передаёт ЛИТЕРАЛ из пула: список пришёл из
+   * доказательства, а туда попадают одни записи пула. Значение, собранное в рантайме (склейка в буфере
+   * или в арене, нагрузка пары), в этот список не входит — у него нет блоба, а значит нет и дескриптора,
+   * и читать `addr − 16` там значило бы читать чужие байты. Вызов `valueOf` для каждого текста ЗАВОДИТ
+   * блоб: без него значение не получило бы ни байтов, ни (ниже) дескриптора.
+   */
+  const choiceValuesOf = (operand: Operand | undefined): readonly StringValue[] | undefined => {
+    if (operand === undefined || operand.kind !== 'reg') return undefined;
+    const texts = typedChoices.get(operand.index);
+    // НУЛЬ-БАЙТ В ТЕКСТЕ — стоп: ключом СКЛЕЙКИ служит `<первый>\u0000<второй>`, и литерал с нулём
+    // внутри столкнулся бы с ключом склейки, то есть получил бы адрес буфера вместо своего блоба.
+    if (texts === undefined || texts.some((text) => text.includes('\u0000'))) return undefined;
+    return texts.map((text) => valueOf(text));
+  };
   /**
    * ТЕКСТ ПРИЧИНЫ для клетки: НАЗВАННАЯ конвейером (пара: неудача либо непроверенный тег) — она, иначе
    * общая причина «значение известно не для всех вызовов». Разные причины — разные дефекты, и слить их
@@ -455,6 +540,11 @@ export function planStrings(
     if (register === undefined) return;
     byRegister.delete(register);
     numbersOf.delete(register);
+    // МНОЖЕСТВО ЗНАЧЕНИЙ УМИРАЕТ ВМЕСТЕ СО ЗНАЧЕНИЕМ (TD-0001). Это не осторожность, а условие
+    // верности: по множеству рантайм читает дескриптор по `адрес − 16`, и оставленное у клетки, куда
+    // легло ДРУГОЕ число, множество заставило бы читать память по чужому адресу — тихая ложь вместо
+    // отказа. Тип (`typedRegisters`) при этом СОХРАНЯЕТСЯ: он-то и назовёт отказ честно.
+    typedChoices.delete(register);
   };
   /**
    * НАЧАЛО ПРОЦЕДУРЫ: тип — в `typedRegisters` (нужен для ЧЕСТНОГО отказа), ДОКАЗАННОЕ ЗНАЧЕНИЕ — в
@@ -522,6 +612,15 @@ export function planStrings(
         typedRegisters.delete(destination.index);
         typedReasons.delete(destination.index);
       }
+      // МНОЖЕСТВО ЗНАЧЕНИЙ ЕДЕТ ПЕРЕСЫЛКОЙ (TD-0001) — ровно так же, как тип и значение.
+      //
+      // Это не украшение, а НЕОБХОДИМОЕ звено: фронтенд выражает параметр не самой его клеткой, а
+      // КОПИЕЙ (`IR.move b8 b0` — замер потока), и строковая операция берёт аргументом копию. Без
+      // переноса множества по пересылке доказательство «сайты передают разные строки» до операции не
+      // доезжает, и она отказывает — то есть механизм был бы мёртв ровно там, ради чего заведён.
+      const sourceChoices = source !== undefined && source.kind === 'reg' ? typedChoices.get(source.index) : undefined;
+      if (sourceChoices === undefined) typedChoices.delete(destination.index);
+      else typedChoices.set(destination.index, sourceChoices);
       // Число едет тем же путём — иначе константный индекс, проехавший пересылкой, не опознался бы.
       const number = source !== undefined && source.kind === 'reg' ? numbersOf.get(source.index) : undefined;
       if (number === undefined) numbersOf.delete(destination.index);
@@ -605,10 +704,33 @@ export function planStrings(
       kill(destination);
       return;
     }
+    if (process.env.TD1_DEBUG === '1') {
+      const argument = carrier.operands[1];
+      console.error(
+        `[TD1] #${String(index)} длина: proc=${String(typedProcedure)}` +
+          `(${nameOfProcedure(typedProcedure)}) reg=${String(argument?.kind === 'reg' ? argument.index : -1)}` +
+          ` hasValue=${String((registerOf(argument) ?? provenValueOf(argument)) !== undefined)}` +
+          ` typed=${String(typedWithoutValue(argument))} values={${[...typedValues.keys()].join(',')}}` +
+          ` choices={${[...typedChoices.keys()].join(',')}} params={${(typeFacts?.stringParams[typedProcedure] ?? []).join(',')}}` +
+          ` facts={${[...(typeFacts?.paramChoices?.[typedProcedure]?.keys() ?? [])].join(',')}}`,
+      );
+    }
     if (operation === STRING_CALLS.length) {
       const argument = carrier.operands[1];
       const value = registerOf(argument) ?? provenValueOf(argument);
       if (value === undefined) {
+        // МНОЖЕСТВО САЙТОВ — ЗНАЧЕНИЕ ПРИХОДИТ ИЗ ПАМЯТИ (TD-0001). Прежде здесь был только отказ: взять
+        // длину было не от чего. Теперь её берут из дескриптора перед блобом, и специализация на сайт
+        // не нужна — ровно то, что разрешил владелец 2026-11-05.
+        const choices = choiceValuesOf(argument);
+        if (choices !== undefined) {
+          for (const choice of choices) descriptorValues.add(choice.key);
+          if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
+          lengths += 1;
+          descriptorLengths += 1;
+          edits.set(index, { kind: 'length_runtime', index, marks: [STRING_DESCRIPTOR_MARK, 0] });
+          return;
+        }
         // ДВА РАЗНЫХ ОТКАЗА, и путать их нельзя. Тип `Строка` есть — значит причина не «не строка»,
         // а «значение не доказано сборке»: длину в кодпоинтах взять не от чего, развёртки рантайма
         // нет (маршрут закрыт замером, см. шапку файла). Типа нет — прежняя причина, как была.
@@ -634,6 +756,27 @@ export function planStrings(
       const value = registerOf(carrier.operands[1]) ?? provenValueOf(carrier.operands[1]);
       const indexOperand = carrier.operands[2];
       if (value === undefined) {
+        // КОД СИМВОЛА ПО ДЕСКРИПТОРУ (TD-0001): число кодпоинтов и адрес таблицы приходят из памяти.
+        // Таблица кодов заводится ЗДЕСЬ, на КАЖДОЕ возможное значение: её адрес уезжает в слово 1
+        // дескриптора, а дескриптор лежит перед блобом своей строки — то есть у каждого значения своя.
+        const choices = choiceValuesOf(carrier.operands[1]);
+        if (choices !== undefined) {
+          for (const choice of choices) {
+            descriptorValues.add(choice.key);
+            descriptorTables.add(choice.key);
+            const tableKey = `⟨коды символов⟩\u0000${choice.key}`;
+            if (!symbolTables.has(tableKey)) symbolTables.set(tableKey, symbolTableBytesOf(choice.bytes));
+          }
+          if (destination !== undefined) byRegister.delete(destination); // результат — ЧИСЛО
+          symbols += 1;
+          edits.set(index, {
+            kind: 'symbol_runtime',
+            index,
+            marks: [STRING_DESCRIPTOR_MARK, 0],
+            ...(rename === undefined ? {} : { rename }),
+          });
+          return;
+        }
         // Тот же разбор причины, что у длины: «тип есть, значения нет» — это НЕ «не строка».
         problems.push(
           typedWithoutValue(carrier.operands[1])
@@ -739,19 +882,43 @@ export function planStrings(
   });
 
   // ── Раскладка статических блобов: снизу вверх от площадки печати ──────────────────────────────
-  const needsTable = lengths > 0;
+  // Таблица продолжений нужна только СБОРОЧНОЙ длине: длина по дескриптору байтов не читает вовсе,
+  // и объявлять под неё 256 байт значило бы платить за неиспользуемое (у таких программ статика
+  // выросла бы на четверть килобайта ни за что).
+  const needsTable = lengths > descriptorLengths;
   // Буфер нужен, только если в него кто-то пишет: у склейки сверх статического буфера байты едут в
   // арену, и объявлять под неё статические 20 байт значило бы платить за неиспользуемое.
   const needsBuffer = staticConcats > 0;
   const needsNewline = prints > 0;
-  const ordered: { readonly key: string; readonly bytes: readonly number[]; readonly align?: number }[] = [];
+  const ordered: {
+    readonly key: string;
+    readonly bytes: readonly number[];
+    readonly align?: number;
+    readonly alignStart?: number;
+  }[] = [];
   if (needsTable) ordered.push({ key: '⟨таблица продолжений⟩', bytes: continuationTable() });
+  /** Байты дескрипторов: тот же массив, что уйдёт в `blobs`, — дозаполняется ПОСЛЕ раскладки адресов. */
+  const descriptorBlobs = new Map<string, number[]>();
   for (const value of values.values()) {
     // Буфер склейки — значение того же вида, что литерал: его байты лежат статически.
     // СКЛЕЙКА ЧЕРЕЗ АРЕНУ в образ НЕ кладётся: её байты собираются в выделенном блоке в рантайме,
     // и статическая копия была бы и лишней, и опасной — образ рос бы на всю длину строки.
     if (arenaValues.has(value.key)) continue;
-    ordered.push({ key: value.key, bytes: value.bytes });
+    const described = descriptorValues.has(value.key);
+    ordered.push({
+      key: value.key,
+      bytes: value.bytes,
+      // НАЧАЛО БЛОБА — НА ГРАНИЦУ ВОСЬМИ: дескриптор лежит по `адрес − 16` и читается `ldd`, а она
+      // требует кратности восьми (§3.133: невыровненное чтение — исключение выравнивания и таймаут).
+      // Выравнивание «до вычитания длины» здесь не годится: блоб строки не кратен восьми, и начало
+      // уехало бы с границы — поэтому у выравнивания НАЧАЛА своё поле (`alignStart`).
+      ...(described ? { alignStart: STRING_SYMBOL_ENTRY_BYTES } : {}),
+    });
+    if (described) {
+      const bytes = new Array<number>(STRING_DESCRIPTOR_BYTES).fill(0);
+      descriptorBlobs.set(value.key, bytes);
+      ordered.push({ key: descriptorKeyOf(value.key), bytes, align: STRING_SYMBOL_ENTRY_BYTES });
+    }
   }
   // БУФЕР СКЛЕЙКИ — НЕ БЛОБ: он лежит в ОБЛАСТИ ЗАПИСИ и объявляется адресом, а не байтами.
   // Прежде он стоял среди статических байтов, то есть на странице, где может быть код, и запись в
@@ -785,13 +952,49 @@ export function planStrings(
   const blobs: { address: number; bytes: readonly number[] }[] = [];
   for (const blob of ordered) {
     // ВЫРАВНИВАНИЕ БЛОБА: курсор опускается до кратности ПЕРЕД вычитанием длины — блоб занимает
-    // байты [адрес, адрес + длина), и его начало обязано попасть на границу. Промежуток между
-    // блобами не теряется для читателя: адреса берутся из этой же карты.
+    // байты [адрес, адрес + длина), и его НАЧАЛО обязано попасть на границу. У таблицы кодов длина
+    // кратна восьми, поэтому этого достаточно; у блоба строки длина любая, и начало выравнивается
+    // ВТОРЫМ полем (`alignStart`) — уже ПОСЛЕ вычитания длины. Промежуток между блобами не теряется
+    // для читателя: адреса берутся из этой же карты.
     const align = blob.align ?? 1;
     if (align > 1) cursor -= cursor % align;
     cursor -= blob.bytes.length;
+    const alignStart = blob.alignStart ?? 1;
+    if (alignStart > 1) cursor -= cursor % alignStart;
     addresses.set(blob.key, cursor);
     blobs.push({ address: cursor, bytes: blob.bytes });
+  }
+  // ── СЛОВА ДЕСКРИПТОРОВ — ПОСЛЕ АДРЕСОВ ──────────────────────────────────────────────────────────
+  //
+  // Адрес таблицы кодов известен только теперь: она лежит НИЖЕ дескриптора, и её адрес — из этой же
+  // карты. Молчаливый ноль здесь был бы порчей, а не отказом: `символ` по дескриптору читал бы память
+  // по адресу 0, а `длина` вернула бы 0 вместо числа кодпоинтов. Поэтому несходство адресов — НАЗВАННАЯ
+  // причина в `problems`, а инвариант «дескриптор ровно за шестнадцать байт до байтов» проверяется тут
+  // же: он и есть договор между раскладкой и рантаймом.
+  for (const [key, bytes] of descriptorBlobs) {
+    const value = values.get(key);
+    const valueAddress = addresses.get(key);
+    const descriptorAddress = addresses.get(descriptorKeyOf(key));
+    const tableKey = `⟨коды символов⟩\u0000${key}`;
+    const tableAddress = descriptorTables.has(key) ? addresses.get(tableKey) : 0;
+    if (
+      value === undefined ||
+      valueAddress === undefined ||
+      descriptorAddress === undefined ||
+      tableAddress === undefined ||
+      descriptorAddress !== valueAddress - STRING_DESCRIPTOR_BYTES
+    ) {
+      problems.push(
+        `#дескриптор значения «${key}»: адреса блоба, дескриптора и таблицы кодов не сошлись ` +
+          `(блоб ${String(valueAddress)}, дескриптор ${String(descriptorAddress)}, таблица ${String(tableAddress)}) — ` +
+          'дефект планирования строк: значение читалось бы из чужих байтов',
+      );
+      continue;
+    }
+    const words = stringDescriptorBytes(codePointsOfBytes(value.bytes).length, tableAddress);
+    words.forEach((byte, at) => {
+      bytes[at] = byte;
+    });
   }
   const bufferAddress = needsBuffer ? spillBaseOf(heapAddress) - STRING_BUFFER_BYTES : undefined;
   // Адрес значения: у литерала — его собственные байты, у статической склейки — буфер (результат
@@ -825,6 +1028,13 @@ export function planStrings(
     if (edit.kind === 'length') {
       operands[STRING_MARK_OPERAND] = imm(edit.marks[0]!);
       operands[STRING_MARK_OPERAND + 1] = imm(tableAddress);
+    } else if (edit.kind === 'length_runtime' || edit.kind === 'symbol_runtime') {
+      // ДЕСКРИПТОР: обе пометки — ОДНА величина (`−1`) и ноль. Ни длины, ни адреса таблицы у сборки
+      // нет, и подставить сюда любое из них значило бы соврать числом; ноль на втором месте — не
+      // «адрес ноль», а «второй пометки не нужно»: раскладка читает только первую.
+      if (edit.kind === 'symbol_runtime' && edit.rename !== undefined) operands[3] = imm(edit.rename);
+      operands[STRING_MARK_OPERAND] = imm(edit.marks[0]!);
+      operands[STRING_MARK_OPERAND + 1] = imm(edit.marks[1] ?? 0);
     } else if (edit.kind === 'symbol') {
       // Помечаются ДВЕ величины: сколько кодпоинтов (= размер каждой плоскости таблицы) и где сама
       // таблица. Как и у длины, это ЧИСЛА в операндах: у носителя нет ни типа, ни адреса.

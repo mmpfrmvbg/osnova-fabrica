@@ -154,6 +154,22 @@ export interface StringValueProof {
   readonly pairs: ReadonlyMap<number, PairOutcome>;
   /** Названные причины «почему не доказано». */
   readonly problems: readonly StringValueProblem[];
+  /**
+   * ЗНАЧЕНИЯ ВСЕХ САЙТОВ ПАРАМЕТРА — когда известны ВСЕ сайты (TD-0001).
+   *
+   * Это НЕ второе доказательство, а ЗНАНИЕ МНОЖЕСТВА: `parameters` отвечает «значение одно, вот оно»,
+   * а здесь лежит «вот все, что могут прийти» — в порядке сайтов. Разница нужна там, где одного
+   * значения не хватает, а множества ДОСТАТОЧНО: параметр, которому разные сайты передают разные
+   * ЛИТЕРАЛЫ, понижается выборкой из дескриптора перед блобом (`src/e2k/stringRuntime.ts`,
+   * `STRING_DESCRIPTOR_MARK`), и сборке знать «какая именно строка» не требуется.
+   *
+   * Чего здесь НЕ бывает: клетки, у которой хоть один сайт неизвестен (тогда значения не «множество»,
+   * а «множество плюс неизвестность», и такой параметр обязан отказывать — `problems`), и значений не
+   * из пула: в множестве лежат только записи пула (`{kind: 'строка'}`), то есть ЛИТЕРАЛЫ. Значение,
+   * собранное в рантайме (склейка), в пул не попадает и в это множество не входит — поэтому
+   * потребитель, разрешивший выборку по множеству, не разрешит её для склейки.
+   */
+  readonly siteValues: ReadonlyMap<number, ReadonlyMap<number, readonly ProvenValue[]>>;
 }
 
 /** Вход доказательства. Тип объявлен ЗДЕСЬ: модуль самостоятелен, потребитель приводит данные к нему. */
@@ -657,6 +673,7 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
       parameters: new Map(),
       pairs: new Map(),
       problems: [{ procedure: 0, reason: 'в потоке нет ни одной процедуры: доказывать нечего' }],
+      siteValues: new Map(),
     };
   }
 
@@ -793,6 +810,8 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
   let walks: WalkResult[] = [];
   let callStates: ReadonlyMap<number, ReadonlyMap<number, ProvenValue>> = new Map();
   let siteOutcomes = new Map<number, SiteOutcome>();
+  /** Значения всех сайтов по клеткам: заполняется КАЖДЫЙ раунд, наружу идёт последний (TD-0001). */
+  const collectedSiteValues = new Map<string, readonly ProvenValue[]>();
   for (let round = 0; round < STRING_VALUE_PROOF_ROUNDS; round += 1) {
     const entryOf = (procedure: number): Map<number, ProvenValue> => {
       const entry = new Map<number, ProvenValue>();
@@ -841,7 +860,7 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
     }
 
     const next: ProofState = {
-      params: deriveParams({ callSites, paramCandidates, callStates }),
+      params: deriveParams({ callSites, paramCandidates, callStates, siteValues: collectedSiteValues }),
       outcomes,
     };
     const stable = sameState(next, state);
@@ -858,6 +877,15 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
     const cells = new Map(parameters.get(procedure) ?? []);
     cells.set(cell, fact.value.pool);
     parameters.set(procedure, cells);
+  }
+
+  // МНОЖЕСТВА ЗНАЧЕНИЙ ПО САЙТАМ — НАРУЖУ (TD-0001): свёртка уже сделана, знание множества осталось.
+  const siteValues = new Map<number, ReadonlyMap<number, readonly ProvenValue[]>>();
+  for (const [pair, values] of collectedSiteValues) {
+    const [procedure, cell] = pair.split(':').map(Number) as [number, number];
+    const cells = new Map(siteValues.get(procedure) ?? []);
+    cells.set(cell, values);
+    siteValues.set(procedure, cells);
   }
 
   // Пары — по ПОСЛЕДНЕМУ (правдивому) состоянию, с причинами по каждому сайту.
@@ -916,7 +944,7 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
         'цепочка «параметр → копия → аргумент» длиннее предела, значения не доказаны',
     });
   }
-  return { parameters, pairs, problems };
+  return { parameters, pairs, problems, siteValues };
 }
 
 /** Параметры: по ВСЕМ сайтам сразу — «первый» и «большинство» запрещены (правило 2). */
@@ -924,6 +952,13 @@ function deriveParams(options: {
   readonly callSites: ReadonlyMap<number, readonly number[]>;
   readonly paramCandidates: (procedure: number) => number[];
   readonly callStates: ReadonlyMap<number, ReadonlyMap<number, ProvenValue>>;
+  /**
+   * СЮДА СКЛАДЫВАЮТСЯ ЗНАЧЕНИЯ ВСЕХ САЙТОВ (TD-0001) — для клеток, у которых ИЗВЕСТНЫ ВСЕ сайты.
+   *
+   * Ключ тот же (`keyOf`), значение — список в порядке сайтов. Складывается КАЖДЫЙ раунд: наружу
+   * уйдёт последний, то есть тот, на котором сошлась неподвижная точка (так же поступает `params`).
+   */
+  readonly siteValues: Map<string, readonly ProvenValue[]>;
 }): Map<string, Fact> {
   const params = new Map<string, Fact>();
   for (const [callee, sites] of options.callSites) {
@@ -936,6 +971,8 @@ function deriveParams(options: {
         else values.push(value);
       }
       if (unknown || values.length === 0) continue;
+      // ЗНАНИЯ МНОЖЕСТВА ХВАТАЕТ, КОГДА САЙТЫ РАЗОШЛИСЬ: складывается ДО свёртки в один факт.
+      options.siteValues.set(keyOf(callee, cell), values);
       const first = values[0]!;
       const other = values.find((value) => !sameValue(value, first));
       if (other === undefined) params.set(keyOf(callee, cell), { kind: 'value', value: first });
