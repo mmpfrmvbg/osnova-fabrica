@@ -130,6 +130,20 @@ export interface StringTypeFacts {
    */
   readonly paramChoices?: readonly ReadonlyMap<number, readonly string[]>[];
   /**
+   * ЧИСЛОВЫЕ ЗНАЧЕНИЯ ПАРАМЕТРОВ (ATOM-06-02-02, 2026-11-06): клетка → ОДНО число, если так передают
+   * ВСЕ её прямые сайты вызова.
+   *
+   * Зачем отдельным полем, а не `numbersOf`: тот наполняется СВЁРТКОЙ по потоку (`IR.const`, `IR.add`,
+   * `IR.sub`), и число, приехавшее ПАРАМЕТРОМ, до свёртки не доходит. Замер (`.tmp/06-02-оракул-до.ts`,
+   * пробы П7/П8): срез `подстрока(с, н, к)` в вызываемой отказывал «края среза известны только в
+   * рантайме» ДАЖЕ при единственном сайте с литералами (1, 4) — доказательство было, моста к
+   * числовому счёту плана не было.
+   *
+   * МНОЖЕСТВА здесь нет НАМЕРЕННО: у края среза обязано быть ОДНО значение, иначе подстановка была бы
+   * выбором одного из многих, то есть догадкой (`1` на одном сайте и `4` на другом — это не «4»).
+   */
+  readonly paramNumbers?: readonly ReadonlyMap<number, number>[];
+  /**
    * ДОКАЗАННЫЕ нагрузки пар `Результат<Строка, …>`: индекс носителя `IR.result_pick` → текст значения.
    * Источник — возвраты с ТЕГОМ УСПЕХА, связанные с вызовом; нагрузочный возврат с другим тегом несёт
    * поле ДРУГОГО типа (`Е`) и в доказательство не входит.
@@ -434,13 +448,29 @@ export function planStrings(
   /** ПРИЧИНА «почему строка не развёрнута» для клетки — когда она НАЗВАНА конвейером (пара). */
   const typedReasons = new Map<number, string>();
   let typedProcedure = 0;
+  /**
+   * КЛЕТКИ, ЧИСЛО КОТОРЫХ ПОСЕЯНО ИМЕННО ЗДЕСЬ (ATOM-06-02-02).
+   *
+   * Номер клетки (`%b[1]` и соседние) есть в КАЖДОЙ процедуре, а `numbersOf` границу процедуры не
+   * замечает вовсе (его чистит только `kill` по записанной клетке). Поэтому посеянное число обязано
+   * умереть на входе в следующую процедуру: иначе число параметра одной процедуры стало бы «числом»
+   * ЧУЖОЙ клетки в соседней — молча, то есть тихой ложью. Снимаются ровно СВОИ клетки: чужие записи
+   * `numbersOf` (свёртки по потоку) ведут себя как вели, и эта правка их не трогает.
+   */
+  let seededNumbers: number[] = [];
   const seedTyped = (procedure: number): void => {
     typedRegisters.clear();
     typedValues.clear();
     typedChoices.clear();
     typedReasons.clear();
+    for (const register of seededNumbers) numbersOf.delete(register);
+    seededNumbers = [];
     if (typeFacts === undefined) return;
     for (const register of typeFacts.stringParams[procedure] ?? []) typedRegisters.add(register);
+    for (const [register, value] of typeFacts.paramNumbers?.[procedure] ?? []) {
+      numbersOf.set(register, value);
+      seededNumbers.push(register);
+    }
     for (const [register, text] of typeFacts.paramValues?.[procedure] ?? []) {
       typedRegisters.add(register);
       typedValues.set(register, text);

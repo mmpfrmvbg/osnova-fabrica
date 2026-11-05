@@ -881,6 +881,11 @@ function stringTypeFactsOf(
      * значение ДОКАЗАНО, сюда не попадает — два пути к одному значению разошлись бы.
      */
     readonly paramChoices?: ReadonlyMap<number, ReadonlyMap<number, readonly string[]>>;
+    /**
+     * ЧИСЛОВЫЕ ЗНАЧЕНИЯ ПАРАМЕТРОВ: клетка → ОДНО число, если так передают ВСЕ её прямые сайты
+     * (ATOM-06-02-02). Множества здесь нет намеренно — см. сборку `paramNumbers` в `provedValuesOf`.
+     */
+    readonly paramNumbers?: ReadonlyMap<number, ReadonlyMap<number, number>>;
     readonly resultValues: ReadonlyMap<number, string>;
     readonly resultReasons: ReadonlyMap<number, string>;
     // ВРЕМЕННАЯ ДИАГНОСТИЧЕСКАЯ ПРАВКА (замер цены пути (а) случая 76; откатывается).
@@ -891,6 +896,8 @@ function stringTypeFactsOf(
   if (aligned.length === 0) return undefined;
   const paramValues = procedures.map((_, at) => proof?.parameters.get(at) ?? new Map<number, string>());
   const paramChoices = procedures.map((_, at) => proof?.paramChoices?.get(at) ?? new Map<number, readonly string[]>());
+  // ЧИСЛА ПАРАМЕТРОВ (ATOM-06-02-02): та же карта «процедура → клетка», но значением — ОДНО число.
+  const paramNumbers = procedures.map((_, at) => proof?.paramNumbers?.get(at) ?? new Map<number, number>());
   return {
     procedureOffsets: procedures.map((procedure) => procedure.codeOffset),
     procedureNames: procedures.map((procedure) => procedure.name),
@@ -899,6 +906,7 @@ function stringTypeFactsOf(
     // И без типа опознавалась как строка и отказывала ПО ИМЕНИ, а не складывала два адреса.
     stringReturns: new Set(aligned.flatMap((info, at) => (isStringType(info?.returnType) ? [at] : []))),
     paramValues,
+    ...(proof?.paramNumbers === undefined ? {} : { paramNumbers }),
     ...(proof?.paramChoices === undefined ? {} : { paramChoices }),
     ...(proof?.callValues === undefined ? {} : { callValues: proof.callValues }),
     ...(proof === undefined
@@ -930,6 +938,8 @@ function provedValuesOf(
    * (склейка в буфере или в арене), записью пула не является и сюда не попадёт.
    */
   readonly paramChoices: ReadonlyMap<number, ReadonlyMap<number, readonly string[]>>;
+  /** ЧИСЛА ПАРАМЕТРОВ (ATOM-06-02-02): клетка → одно число, если так передают ВСЕ её сайты. */
+  readonly paramNumbers: ReadonlyMap<number, ReadonlyMap<number, number>>;
   readonly resultValues: ReadonlyMap<number, string>;
   readonly resultReasons: ReadonlyMap<number, string>;
   // ВРЕМЕННАЯ ДИАГНОСТИЧЕСКАЯ ПРАВКА (замер цены пути (а) случая 76; откатывается).
@@ -1025,12 +1035,36 @@ function provedValuesOf(
     if (payload !== undefined && payload.kind === 'строка') resultValues.set(index, textOf(payload.pool));
     else resultReasons.set(index, 'успех пары несёт поле не типа «Строка» — индекс по нему не строковый');
   }
+  // ── ЧИСЛОВЫЕ ЗНАЧЕНИЯ ПАРАМЕТРОВ (ATOM-06-02-02, 2026-11-06) ─────────────────────────────────────
+  //
+  // Тот же `siteValues`, но с ЗАМЕНОЙ, которая и делает факт числовым: у края среза `подстрока(с, н, к)`
+  // должно быть ОДНО значение. Множество чисел наружу не отдаётся намеренно: выбор «одного из многих»
+  // был бы догадкой, а не доказательством (`число 1` и `число 4` на разных сайтах — это НЕ «4»).
+  //
+  // Почему это нужно: `numbersOf` плана наполняется СВЁРТКОЙ по потоку (`IR.const`, `IR.add`), и число,
+  // приехавшее ПАРАМЕТРОМ, до свёртки не доходит вовсе. Замер (`.tmp/06-02-оракул-до.ts`, пробы П7/П8):
+  // срез в вызываемой отказывал «края среза известны только в рантайме» ДАЖЕ тогда, когда оба её сайта
+  // (и даже единственный сайт) передают один и тот же литерал — то есть доказательство было, а моста к
+  // числовому счёту плана не было. Все сайты обязаны быть известны; это гарантирует `siteValues`
+  // (`deriveParams` отбрасывает клетку, у которой хоть один сайт неизвестен).
+  const paramNumbers = new Map<number, ReadonlyMap<number, number>>();
+  for (const [procedure, cells] of proof.siteValues) {
+    const numbers = new Map<number, number>();
+    for (const [cell, values] of cells) {
+      const first = values[0];
+      if (first === undefined || first.kind !== 'целое') continue;
+      if (!values.every((value) => value.kind === 'целое' && value.value === first.value)) continue;
+      numbers.set(cell, first.value);
+    }
+    if (numbers.size > 0) paramNumbers.set(procedure, numbers);
+  }
   // ВРЕМЕННАЯ ДИАГНОСТИЧЕСКАЯ ПРАВКА (замер цены пути (а) случая 76; откатывается `git checkout HEAD --`).
   const callValues = new Map<number, string>();
   for (const [site, record] of proof.callValues) callValues.set(site, textOf(record));
   return {
     parameters,
     paramChoices,
+    paramNumbers,
     callValues,
     resultValues,
     resultReasons,
