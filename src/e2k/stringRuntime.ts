@@ -851,6 +851,216 @@ export function checkStringCopyLoopCells(
 
 
 /**
+ * САЙТ РАНТАЙМ-СРЕЗА: УСТАНОВКА + ЦИКЛ + ЗАПИСЬ ДЕСКРИПТОРА (ATOM-06-02-02, шаг «сайт»).
+ *
+ * ЧТО ЭТО. Края среза известны только в рантайме (`подстрока(с, н, к)` при разных `н`/`к` на сайтах
+ * вызова) — тогда байты результата строит ЦИКЛ КОПИРОВАНИЯ, а не сборка. Сайт считает указатели,
+ * вводит цикл и ПОСЛЕ него кладёт в дескриптор результата число кодпоинтов (`к − н`), чтобы
+ * `длина` результата читалась тем же дескрипторным путём, что у параметра с разными значениями
+ * (`stringLengthFromDescriptorInstructions`, TD-0001).
+ *
+ * ГДЕ ЖИВЁТ. Носители сайта вставляются ПОСЛЕ раскладки (D24): в установке есть `ldb`/`stb` внутри
+ * цикла, а сырая команда в дораскладочном потоке — названный отказ (ERR-0004). Индексы переходов
+ * (`loopIndex`, `continuation`) АБСОЛЮТНЫЕ по итоговому потоку — их считает вызывающий, зная, куда
+ * сайт встанет; здесь они проверяются на непротиворечивость.
+ *
+ * РАЗМЕТКА ДЕСКРИПТОРА — ДОГОВОР, А НЕ ДОГАДКА (замер, `src/e2k/stringRuntime.ts`): дескриптор лежит
+ * РОВНО за {@link STRING_DESCRIPTOR_BYTES} байт до байтов значения, слово 0 — число кодпоинтов,
+ * слово 1 — адрес таблицы кодов. Здесь слово 0 пишется (`IR.store`), а слово 1 НЕ пишется вовсе:
+ * таблицы кодов у результата рантайм-среза НЕТ, и понижение `с[и]` по такому значению обязано
+ * отказать ПО ИМЕНИ (это делает план — `с[и]` берёт таблицу из дескриптора, а её там нет). Писать
+ * туда ноль значило бы «таблица по адресу 0», то есть чтение чужой памяти вместо отказа.
+ *
+ * ВЫРАВНИВАНИЕ: дескриптор читается `ldd` (двойное слово), поэтому и он, и буфер обязаны быть кратны
+ * восьми — иначе исключение выравнивания на цели (замер §3.133), а не отказ сборки.
+ */
+export interface StringSliceRuntimeSiteOptions {
+  /** Клетка НАЧАЛА среза (кодпоинты) — читается, но НЕ портится: она нужна ещё и записи дескриптора. */
+  readonly from: number;
+  /** Клетка КОНЦА среза (кодпоинты) — читается, но НЕ портится: `к − н` считается ПОСЛЕ цикла. */
+  readonly to: number;
+  /** Адрес байтов источника (константа сборки). */
+  readonly blobAddress: number;
+  /** Адрес статического буфера результата (константа сборки), кратен восьми. */
+  readonly bufferAddress: number;
+  /** Адрес дескриптора результата (константа сборки) — обязан быть `bufferAddress − 16`. */
+  readonly descriptorAddress: number;
+  /**
+   * Клетка результата: получает адрес байтов буфера.
+   *
+   * ОНА ЖЕ — РАБОЧИЙ АДРЕС САЙТА, и это не экономия, а измеренная необходимость: в полосе рантайма
+   * шесть клеток (`%b[8..11]`, `%b[14..15]`; `%b[12]`/`%b[13]` держат ноль и единицу), а ролей у сайта
+   * семь с отдельной рабочей клеткой. Седьмая клетка бралась бы у программы, и раскладка отдала бы её
+   * живому значению. Приёмник до цикла свободен по определению (в него ещё ничего не положено), поэтому
+   * адреса грузятся в него, а последним носителем в него кладётся адрес буфера — то есть результат.
+   */
+  readonly destination: number;
+  /** Семь клеток цикла (без индексов — их считает сайт). */
+  readonly cells: {
+    readonly source: number;
+    readonly end: number;
+    readonly target: number;
+    readonly byte: number;
+    readonly one: number;
+    readonly zero: number;
+    readonly key: number;
+  };
+  /** Абсолютный индекс ПЕРВОГО носителя сайта в итоговом потоке. */
+  readonly siteIndex: number;
+}
+
+/** Сколько носителей занимает УСТАНОВКА сайта (до цикла) — эталон для сторожа и счёта переходов. */
+export const STRING_SLICE_SITE_SETUP_SIZE = 14;
+
+/** Сколько носителей занимает ЗАПИСЬ ДЕСКРИПТОРА (после цикла) — эталон для сторожа. */
+export const STRING_SLICE_SITE_TAIL_SIZE = 4;
+
+/**
+ * Носители сайта рантайм-среза: установка, цикл, запись дескриптора — ОДНИМ массивом.
+ *
+ * Порядок и индексы жёсткие: цикл начинается на `siteIndex + STRING_SLICE_SITE_SETUP_SIZE`, а его
+ * восьмой носитель (выход) ведёт на `loopIndex + STRING_COPY_LOOP_SIZE`, то есть ровно на первый
+ * носитель записи дескриптора. Сдвинься любое из чисел — переход ушёл бы в середину команды.
+ */
+export function stringSliceRuntimeSite(options: StringSliceRuntimeSiteOptions): AsmInstruction[] {
+  const loopIndex = options.siteIndex + STRING_SLICE_SITE_SETUP_SIZE;
+  const continuation = loopIndex + STRING_COPY_LOOP_SIZE;
+  const loopOptions: StringCopyLoopOptions = {
+    ...options.cells,
+    loopIndex,
+    continuation,
+  };
+  const setup: AsmInstruction[] = [
+    // АДРЕС ИСТОЧНИКА: `destination` держит адрес байтов (он же — рабочая клетка сайта), `source = н`,
+    // три удвоения (×2, ×4, ×8), сложение. Восьмёрка на кодпоинт — замер: точка кода в таблице кодов
+    // занимает ровно `STRING_SYMBOL_ENTRY_BYTES` байт, и байты строки лежат по тому же счёту.
+    a('movtd', [literal(options.blobAddress), reg(options.destination)]),
+    a('movts', [reg(options.from), reg(options.cells.source)]),
+    a('IR.add', [reg(options.cells.source), reg(options.cells.source), reg(options.cells.source)]),
+    a('IR.add', [reg(options.cells.source), reg(options.cells.source), reg(options.cells.source)]),
+    a('IR.add', [reg(options.cells.source), reg(options.cells.source), reg(options.cells.source)]),
+    a('IR.add', [reg(options.cells.source), reg(options.cells.source), reg(options.destination)]),
+    // АДРЕС КОНЦА: то же для `к`, но складывается в `end` — `к` остаётся целым до записи дескриптора.
+    a('movts', [reg(options.to), reg(options.cells.end)]),
+    a('IR.add', [reg(options.cells.end), reg(options.cells.end), reg(options.cells.end)]),
+    a('IR.add', [reg(options.cells.end), reg(options.cells.end), reg(options.cells.end)]),
+    a('IR.add', [reg(options.cells.end), reg(options.cells.end), reg(options.cells.end)]),
+    a('IR.add', [reg(options.cells.end), reg(options.cells.end), reg(options.destination)]),
+    // ПРИЁМНИК — адрес буфера; ноль и единица цикла ставятся ЯВНО (пролог образа держит их, но сайт не
+    // имеет права на это рассчитывать: между прологом и сайтом их могла занять строковая операция).
+    a('movtd', [literal(options.bufferAddress), reg(options.cells.target)]),
+    a('movts', [imm(0), reg(options.cells.zero)]),
+    a('movts', [imm(1), reg(options.cells.one)]),
+  ];
+  const tail: AsmInstruction[] = [
+    // ЧИСЛО КОДПОИНТОВ: `к − н` — в `byte` (после цикла он свободен), затем в слово 0 дескриптора.
+    // Адрес дескриптора кладётся В ПРИЁМНИК, который освободился: цикла больше нет, и адрес байтов
+    // нужен только последним носителем. Порядок здесь дословно важен: `IR.sub` пишет в `byte`, поэтому
+    // адрес обязан лежать не в `byte`.
+    a('movtd', [literal(options.descriptorAddress), reg(options.destination)]),
+    a('IR.sub', [reg(options.cells.byte), reg(options.to), reg(options.from)]),
+    a('IR.store', [reg(options.cells.byte), reg(options.destination)]),
+    // РЕЗУЛЬТАТ — АДРЕС БАЙТОВ БУФЕРА: именно это читает `длина` (дескриптор за шестнадцать байт до).
+    a('movtd', [literal(options.bufferAddress), reg(options.destination)]),
+  ];
+  if (setup.length !== STRING_SLICE_SITE_SETUP_SIZE) {
+    throw new StringRuntimeRefusal(
+      `установка сайта рантайм-среза длиной ${String(setup.length)}, а счёт обещает ` +
+        `${String(STRING_SLICE_SITE_SETUP_SIZE)} — индексы цикла и записи дескриптора считались бы неверно`,
+    );
+  }
+  if (tail.length !== STRING_SLICE_SITE_TAIL_SIZE) {
+    throw new StringRuntimeRefusal(
+      `запись дескриптора длиной ${String(tail.length)}, а счёт обещает ` +
+        `${String(STRING_SLICE_SITE_TAIL_SIZE)} — выход цикла ушёл бы мимо неё`,
+    );
+  }
+  return [...setup, ...stringCopyLoopCarriers(loopOptions), ...tail];
+}
+
+/**
+ * СТОРОЖ САЙТА РАНТАЙМ-СРЕЗА: договор о дескрипторе, выравнивание и НЕСОВПАДЕНИЕ клеток.
+ *
+ * Проверки не украшение, а три измеренных класса порчи:
+ *   • дескриптор не за шестнадцать байт до байтов — `длина` читала бы чужие байты;
+ *   • буфер или дескриптор не кратны восьми — `ldd` даёт исключение выравнивания на цели (§3.133);
+ *   • клетка сайта совпала с клеткой края или приёмника — край был бы испорчен ДО того, как из него
+ *     посчитают `к − н`, либо приёмник нёс бы КОНЕЦ буфера вместо начала (`target` цикл наращивает).
+ *
+ * @param options тот же набор, что у {@link stringSliceRuntimeSite}
+ * @param reserved клетки, объявленные сайтом в раскладке (`regAlloc.reserved`) — второй уровень
+ */
+export function checkStringSliceRuntimeSite(
+  options: StringSliceRuntimeSiteOptions,
+  reserved: readonly number[],
+): void {
+  if (options.descriptorAddress !== options.bufferAddress - STRING_DESCRIPTOR_BYTES) {
+    throw new StringRuntimeRefusal(
+      `дескриптор сайта рантайм-среза на ${String(options.descriptorAddress)}, а байты на ` +
+        `${String(options.bufferAddress)}: договор «дескриптор ровно за ${String(STRING_DESCRIPTOR_BYTES)} ` +
+        'байт до байтов» нарушен — `длина` прочла бы чужие байты',
+    );
+  }
+  for (const [имя, адрес] of [
+    ['буфер', options.bufferAddress],
+    ['дескриптор', options.descriptorAddress],
+  ] as const) {
+    if (адрес % STRING_SYMBOL_ENTRY_BYTES !== 0) {
+      throw new StringRuntimeRefusal(
+        `${имя} сайта рантайм-среза на ${String(адрес)} не кратен ${String(STRING_SYMBOL_ENTRY_BYTES)}: ` +
+          'дескриптор читается `ldd`, и невыровненное чтение даёт исключение выравнивания на цели',
+      );
+    }
+  }
+  checkStringCopyLoopRoles(
+    { ...options.cells, loopIndex: 0, continuation: 0 },
+    reserved,
+  );
+  const свои: readonly (readonly [string, number])[] = [['destination', options.destination]];
+  for (const [имя, клетка] of свои) {
+    if (!RESERVED_REGISTERS.includes(клетка) && !reserved.includes(клетка)) {
+      throw new StringRuntimeRefusal(
+        `клетка сайта рантайм-среза «${имя}» = %b[${String(клетка)}] вне полосы ` +
+          `${RESERVED_REGISTERS.map((номер) => `%b[${String(номер)}]`).join('/')} и не объявлена в reserved; ` +
+          'раскладка отдала бы её значениям программы',
+      );
+    }
+  }
+  // КРАЯ ОБЯЗАНЫ ПЕРЕЖИТЬ САЙТ ЦЕЛИКОМ: `к − н` считается ПОСЛЕ цикла, а цикл портит `byte`, `key`,
+  // `source`, `end`, `target`. Совпадение любой из этих клеток с краем — тихая ложь в дескрипторе.
+  const занятые: readonly (readonly [string, number])[] = [
+    ['source', options.cells.source],
+    ['end', options.cells.end],
+    ['target', options.cells.target],
+    ['byte', options.cells.byte],
+    ['one', options.cells.one],
+    ['zero', options.cells.zero],
+    ['key', options.cells.key],
+  ];
+  for (const [имя, клетка] of занятые) {
+    if (клетка === options.from || клетка === options.to) {
+      throw new StringRuntimeRefusal(
+        `клетка «${имя}» = %b[${String(клетка)}] совпала с краем среза: край нужен записи дескриптора ` +
+          'ПОСЛЕ цикла, а цикл эту клетку портит — число кодпоинтов было бы чужим',
+      );
+    }
+    // ПРИЁМНИК — РАБОЧИЙ АДРЕС САЙТА (см. `destination`): в нём лежит адрес байтов и адрес
+    // дескриптора, и цикл обязан его не трогать. Совпадение с `target` особенно ядовито: цикл `target`
+    // наращивает, и результат нёс бы КОНЕЦ буфера вместо начала.
+    if (клетка === options.destination) {
+      throw new StringRuntimeRefusal(
+        `приёмник результата совпал с клеткой «${имя}» = %b[${String(options.destination)}]: в приёмнике ` +
+          'лежит РАБОЧИЙ АДРЕС сайта (байты, затем дескриптор), а цикл эту клетку пишет — ' +
+          (имя === 'target'
+            ? 'результат нёс бы КОНЕЦ буфера вместо начала, срез читался бы с мусора'
+            : 'смещение источника или счёт байтов были бы испорчены'),
+      );
+    }
+  }
+}
+
+
+/**
  * ВЛЕЗАЕТ ЛИ СКЛЕЙКА В СТАТИЧЕСКИЙ БУФЕР — и это РЕШЕНИЕ О СПОСОБЕ, а не отказ.
  *
  * Было: «не влезло — названный отказ на сборке». Стало (решение владельца, 2026-09-29): не влезло —

@@ -49,9 +49,13 @@ import { RESERVED_REGISTERS, allocateProgram } from './regAlloc';
 import { carrierFormOf } from './twoPassLayout';
 import {
   STRING_COPY_LOOP_SIZE,
+  STRING_SLICE_SITE_SETUP_SIZE,
+  STRING_SLICE_SITE_TAIL_SIZE,
   checkStringCopyLoopCells,
   checkStringCopyLoopRoles,
+  checkStringSliceRuntimeSite,
   stringCopyLoopCarriers,
+  stringSliceRuntimeSite,
 } from './stringRuntime';
 
 const encoder = getEncoder('e2k');
@@ -349,5 +353,103 @@ describe('O(n) цикл копирования строки: восемь нос
     // И он же различает ЧУЖУЮ правку роли: одна клетка заменена — отказ, а не молчание.
     const подмена = образ.map((carrier, номер) => (номер === 3 ? { ...carrier, operands: [{ kind: 'reg', index: 15 }, { kind: 'reg', index: 10 }, { kind: 'reg', index: 12 }] } : carrier));
     expect(() => checkStringCopyLoopCells(подмена, карта), 'подмена клетки приёмника').toThrowError(/клетки переназначены/);
+  });
+});
+
+/**
+ * САЙТ РАНТАЙМ-СРЕЗА (ATOM-06-02-02): установка, цикл и запись дескриптора — ОДНИМ куском.
+ *
+ * Здесь утверждается ФОРМА сайта и четыре класса порчи, которые сторож обязан назвать. Порядок
+ * носителей — не косметика: выход цикла (восьмой носитель) ведёт РОВНО на первый носитель записи
+ * дескриптора, потому что число кодпоинтов обязано попасть в дескриптор ПОСЛЕ копирования.
+ *
+ * Клетки взяты из той же полосы, что у настоящего сайта: шесть клеток рантайма (`%b[8..11]`,
+ * `%b[14..15]`) плюс ноль и единица (`%b[12]`/`%b[13]`). Отдельной рабочей клетки у сайта НЕТ и быть
+ * не может — седьмую пришлось бы отнять у программы; рабочим адресом служит сам приёмник.
+ */
+describe('сайт рантайм-среза: указатели, цикл, число кодпоинтов в дескриптор', () => {
+  const БУФЕР = 0x110000;
+  const ДЕСКРИПТОР = БУФЕР - 16;
+  const БЛОБ = 0x101f00;
+  const КЛЕТКИ = { source: 8, end: 9, target: 10, byte: 11, one: 13, zero: 12, key: 14 } as const;
+  const САЙТ = {
+    from: 2,
+    to: 3,
+    blobAddress: БЛОБ,
+    bufferAddress: БУФЕР,
+    descriptorAddress: ДЕСКРИПТОР,
+    destination: 15,
+    cells: КЛЕТКИ,
+    siteIndex: 100,
+  } as const;
+  const ОБЪЯВЛЕНО = [8, 9, 10, 11, 14, 15];
+
+  it('СОСТАВ: установка + цикл + дескриптор; выход цикла ведёт НА ЗАПИСЬ, а не за вызов', () => {
+    const site = stringSliceRuntimeSite(САЙТ);
+    expect(site).toHaveLength(STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE + STRING_SLICE_SITE_TAIL_SIZE);
+    // ЦИКЛ ВСТАЛ РОВНО ТАМ, ГДЕ СЧИТАЕТ УСТАНОВКА: иначе обратный переход ушёл бы в середину команды.
+    expect(site.slice(STRING_SLICE_SITE_SETUP_SIZE, STRING_SLICE_SITE_SETUP_SIZE + 2).map((c) => c.mnemonic)).toEqual([
+      'IR.lt',
+      'IR.jmp_if_not',
+    ]);
+    // ВЫХОД ЦИКЛА — НА ПЕРВЫЙ НОСИТЕЛЬ ЗАПИСИ ДЕСКРИПТОРА (число кодпоинтов обязано быть записано).
+    const выход = site[STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE - 1];
+    expect(выход?.mnemonic).toBe('IR.jmp');
+    expect(выход?.operands[0], 'выход ведёт на запись дескриптора, а не за вызов').toEqual({
+      kind: 'imm',
+      value: 100 + STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE,
+    });
+    // КОПИРУЮТСЯ БАЙТЫ, А НЕ СЛОВА: `ldb` (канал 0) и `stb` (канал 2) — те же команды, что у арены.
+    expect(site.find((c) => c.mnemonic === 'ldb')?.channel, 'чтение — байт').toBe(0);
+    expect(site.find((c) => c.mnemonic === 'stb')?.channel, 'запись — байт').toBe(2);
+    // ЧИСЛО КОДПОИНТОВ: `к − н` в `byte`, порядок операндов ЗАМЕРЕН (приёмник, конец, начало).
+    const вычитание = site[STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE + 1];
+    expect(вычитание?.mnemonic).toBe('IR.sub');
+    expect(вычитание?.operands).toEqual([
+      { kind: 'reg', index: 11 },
+      { kind: 'reg', index: 3 },
+      { kind: 'reg', index: 2 },
+    ]);
+    // АДРЕС ДЕСКРИПТОРА ГРУЗИТСЯ В ПРИЁМНИК, а не в `byte`: `IR.sub` пишет в `byte` — адрес был бы съеден.
+    const адресДескриптора = site[STRING_SLICE_SITE_SETUP_SIZE + STRING_COPY_LOOP_SIZE];
+    expect(адресДескриптора?.mnemonic).toBe('movtd');
+    expect(адресДескриптора?.operands[1]).toEqual({ kind: 'reg', index: 15 });
+    // РЕЗУЛЬТАТ — АДРЕС БАЙТОВ БУФЕРА (именно это читает `длина` дескрипторным путём).
+    expect(site[site.length - 1]?.operands[1]).toEqual({ kind: 'reg', index: 15 });
+    // СЫРЫЕ КОМАНДЫ САЙТА КОДИРУЮТСЯ: адрес (64 разряда) и пересылка — теми же формами, что у склейки
+    // и у чтения длины из дескриптора. Кривая форма операнда всплыла бы на цели, а не здесь.
+    for (const carrier of site.filter((c) => c.mnemonic === 'movtd' || c.mnemonic === 'movts')) {
+      expect(encodedBytes(carrier as never), `${carrier.mnemonic} сайта кодируется`).toBeGreaterThan(0);
+    }
+  });
+
+  it('СТОРОЖ МОЛЧИТ на верном сайте и НАЗЫВАЕТ каждое из четырёх нарушений', () => {
+    expect(() => checkStringSliceRuntimeSite(САЙТ, ОБЪЯВЛЕНО)).not.toThrow();
+    // 1. Дескриптор НЕ за шестнадцать байт до байтов — `длина` читала бы чужие байты.
+    expect(() =>
+      checkStringSliceRuntimeSite({ ...САЙТ, descriptorAddress: БУФЕР - 24 }, ОБЪЯВЛЕНО),
+    ).toThrowError(/договор «дескриптор ровно за 16 байт до байтов»/);
+    // 2. ВЫРАВНИВАНИЕ: дескриптор читается `ldd`, и невыровненный адрес — исключение на цели (§3.133).
+    expect(() =>
+      checkStringSliceRuntimeSite({ ...САЙТ, bufferAddress: БУФЕР + 4, descriptorAddress: БУФЕР + 4 - 16 }, ОБЪЯВЛЕНО),
+    ).toThrowError(/не кратен 8/);
+    // 3. РАЗЛИЧАЮЩИЙ КОНТРОЛЬ: клетка цикла совпала с КРАЕМ — край нужен записи дескриптора ПОСЛЕ цикла.
+    //    Край берётся ИЗ ПОЛОСЫ (`%b[11]`, там же `byte`): клетка вне полосы отвергается раньше и по
+    //    другой причине, и проба проверяла бы не то.
+    expect(() =>
+      checkStringSliceRuntimeSite({ ...САЙТ, from: 11 }, ОБЪЯВЛЕНО),
+    ).toThrowError(/совпала с краем среза/);
+    // 4. РАЗЛИЧАЮЩИЙ КОНТРОЛЬ: приёмник совпал с приёмником ЦИКЛА — результат нёс бы КОНЕЦ буфера.
+    expect(() =>
+      checkStringSliceRuntimeSite({ ...САЙТ, destination: 10 }, ОБЪЯВЛЕНО),
+    ).toThrowError(/КОНЕЦ буфера вместо начала/);
+  });
+
+  it('СТОРОЖ КЛЕТОК: незакреплённая клетка сайта — отказ (второй уровень закрепления, D24)', () => {
+    expect(() => checkStringSliceRuntimeSite({ ...САЙТ, destination: 5 }, ОБЪЯВЛЕНО)).toThrowError(
+      /не объявлена в reserved/,
+    );
+    // Различающий контроль: та же клетка, но ОБЪЯВЛЕННАЯ сайтом, — законна.
+    expect(() => checkStringSliceRuntimeSite({ ...САЙТ, destination: 5 }, [5, ...ОБЪЯВЛЕНО])).not.toThrow();
   });
 });
