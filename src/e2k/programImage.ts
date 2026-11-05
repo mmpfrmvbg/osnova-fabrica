@@ -29,7 +29,7 @@ import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { ШАГ_ДО_ПОТОКА } from './loweredTypes';
 import { emitShell } from './emitterShell';
 import { annotateAtomRegions } from '../compiler/atomRegions';
-import { regModuleWithRecordPlan } from './recordPlan';
+import { regModuleOrNamedFailure, frontendRefusalMessage } from './recordPlan';
 import type { CompileOptions } from '../compiler/compiler';
 import { lowerCarrier } from './e2kRealRun';
 import {
@@ -152,8 +152,11 @@ function shellOf(
   source: string,
   options: CompileOptions = {},
 ): { instructions: readonly AsmInstruction[]; procedures: readonly ProcedureOffset[] } {
-  const built = regModuleWithRecordPlan(source, options);
-  if (built === null) throw new Error('программа не компилируется');
+  const built = regModuleOrNamedFailure(source, options);
+  // ПРИЧИНА НАЗВАНА (D5, случай 73): отказ языка уходит с кодом каталога и текстом, а не безымянным
+  // «программа не компилируется» — класс отказа при этом остаётся языковым, не понижения
+  // (`src/e2k/recordPlan.ts#frontendRefusalMessage`).
+  if (!built.ok) throw new Error(frontendRefusalMessage(built.причины));
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
@@ -451,8 +454,10 @@ export function programBytes(
   source: string,
   heapAddress: number,
 ): { bytes: Uint8Array; carriers: number; refused: LoweringRefusal[] } {
-  const built = regModuleWithRecordPlan(source);
-  if (built === null) throw new Error('программа не компилируется');
+  const built = regModuleOrNamedFailure(source);
+  // Та же названная причина, что и в `shellOf`: у `programBytes` канал тот же — исключение с
+  // диагностиками языка (`src/e2k/recordPlan.ts#frontendRefusalMessage`).
+  if (!built.ok) throw new Error(frontendRefusalMessage(built.причины));
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);

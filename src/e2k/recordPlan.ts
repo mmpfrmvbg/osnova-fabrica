@@ -45,6 +45,7 @@
  */
 import type { Expr, Module, Procedure, Stmt, TypeRef } from '../compiler/ast';
 import { compileSource, type CompileOptions, type CompileResult } from '../compiler/compiler';
+import { collectCompileDiagnostics } from '../compiler/compileDiagnostics';
 import { compileToReg } from '../compiler/regcodegen';
 import type { RegModule } from '../runtime/vm/regcode';
 import { LOWERING_CODES } from './loweringRefusal';
@@ -300,6 +301,86 @@ export function proceduresOf(ast: Module): readonly Procedure[] {
 }
 
 /**
+ * НАЗВАННЫЙ ОТКАЗ ПОВЕРХНОСТИ: ПОЧЕМУ программа не скомпилировалась (D5, случай 73).
+ *
+ * # Что здесь чинится
+ *
+ * Прежняя редакция двери теряла причину: `compileSource` отдавал `module = null` вместе с НАЗВАННЫМИ
+ * диагностиками (у каждой свой код каталога, фаза и текст), а наружу уходило одно и то же
+ * `Error('программа не компилируется')` — то есть читатель не мог отличить «у `длина` не выведен тип»
+ * от «ожидается выражение» и от «процедура не объявлена». ЗАМЕР (`.tmp/a622-codes.ts`):
+ * `длина нагрузка` и `длина а` дают `OSN-CG-001` (««длина» требует известного типа операнда: у
+ * «нагрузка» тип не выведен — добавьте аннотацию»), синтаксис — `OSN-PAR-001`, неизвестная процедура —
+ * `OSN-SEM-003`: три разных кода, которые бросок выбрасывал все три.
+ *
+ * # Почему это по-прежнему БРОСОК, а не отказ понижения
+ *
+ * Класс этого отказа в дереве назван — **«язык»**, и он ВНЕ контракта понижения: у языка свой канал
+ * кодов (`OSN-CG-*`/`OSN-PAR-*`/`OSN-SEM-*`), а `OSN-LOW-*` описывает отказ ПОНИЖЕНИЯ
+ * (`src/e2k/loweringRefusal.ts`, `src/scripts/e2kLoweringDiagnostics.ts#classOfCode`). Назвать это
+ * `OSN-LOW-*` значило бы соврать о слое: понижение до программы даже не дошло. Поэтому чинится
+ * АНОНИМНОСТЬ: текст броска называет код, фазу и причину, а прежняя фраза-класс остаётся НАЧАЛОМ
+ * сообщения — по ней классификатор (`classOfThrown`) и его оракул узнают класс «язык», как и раньше.
+ */
+export type RegModuleOrNamedFailure =
+  | { readonly ok: true; readonly module: RegModule; readonly compiled: CompileResult }
+  | { readonly ok: false; readonly причины: readonly string[] };
+
+/**
+ * Причины отказа поверхности по одной строке на причину: `КОД фаза: текст`.
+ *
+ * Берётся КАНОНИЧЕСКИЙ сборщик диагностик (`src/compiler/compileDiagnostics.ts#collectCompileDiagnostics`)
+ * — тот же, что у прибора `src/scripts/e2kLoweringDiagnostics.ts`: второй сборщик разошёлся бы с первым,
+ * и один и тот же отказ назывался бы по-разному в двух местах. Список НЕ ПУСТ по контракту сборщика:
+ * если модуля нет и ни одна фаза причину не назвала, он добавляет запись-признак `OSN-CG-002`
+ * («отказ без диагностики: ни одна фаза не назвала причину — это дефект компилятора»). Своего запасного
+ * текста здесь поэтому нет: он был бы вторым ответом на один вопрос и к тому же недостижимым.
+ */
+export function frontendFailureReasons(compiled: CompileResult): readonly string[] {
+  const записи = collectCompileDiagnostics(compiled);
+  const ошибки = записи.filter((запись) => запись.severity === 'ошибка');
+  const значимые = ошибки.length > 0 ? ошибки : записи;
+  return значимые.map((запись) => `${запись.code} ${запись.phase}: ${запись.message}`);
+}
+
+/** Текст броска: класс «язык» остаётся НАЧАЛОМ сообщения, причины — за ним. */
+export function frontendRefusalMessage(причины: readonly string[]): string {
+  return `программа не компилируется: ${причины.join(' | ')}`;
+}
+
+/**
+ * КОНВЕЙЕР ЦЕЛИ — тот же, что {@link regModuleWithRecordPlan}, но отказ ПОВЕРХНОСТИ отдаётся
+ * названным (`frontendFailureReasons`), а не теряется в `null`.
+ */
+export function regModuleOrNamedFailure(
+  source: string,
+  options: CompileOptions = {},
+): RegModuleOrNamedFailure {
+  const compiled = compileSource(source, options);
+  if (compiled.module === null || compiled.moduleAst === undefined) {
+    return { ok: false, причины: frontendFailureReasons(compiled) };
+  }
+  planRecords(compiled.moduleAst);
+  // `values-first` — ПОЧЕМУ ЗДЕСЬ, А НЕ В ОБЩЕМ КОДОГЕНЕРАТОРЕ (замер 2026-10-09, вложенные записи):
+  // куча массивов на цели — один растущий вверх указатель, и адрес элемента считается
+  // `массив + 8 + индекс*8`. Если массив создан раньше значений, вложенный литерал
+  // (`{ начало: { х: 1, у: 2 } }`) выделяет свой блок ровно там, куда затем пишет `добавить`
+  // родителя, и первый элемент вложенного блока затирается (`о.начало.х` → 40 — адрес соседа).
+  // Эталонная плоскость остаётся на `create-first`: её пошаговый паритет со стековой VM наблюдаем
+  // и без этого, а на VM литерал массива — объект языка. Разбор — `src/compiler/regcodegen.ts`
+  // (`emitArrayLiteral`) и `docs/hardware-debt.md` §3.122.
+  // `pairInWindow` — ПОЧЕМУ ЗДЕСЬ: пара `Результат<Т, Е>` приходит на цель КАНАЛОМ ВЫЗОВА (тег
+  // `2·wbs`, нагрузка `2·wbs + 1`, `docs/abi-v3-draft.md` §10.2), и нагрузку из оконной клетки
+  // переносит отдельный носитель (`IR.result_pick`). У эталонной VM окон нет — там нагрузку отдаёт
+  // сам вызов прямым приёмником (`call.d2`), и лишняя инструкция ей не нужна.
+  return {
+    ok: true,
+    module: compileToReg(compiled.moduleAst, { arrayLiteralOrder: 'values-first', pairInWindow: true }),
+    compiled,
+  };
+}
+
+/**
  * КОНВЕЙЕР ЦЕЛИ С ПЛАНОМ ЗАПИСЕЙ — замена `regModuleOf` ТОЛЬКО на пути e2k.
  *
  * Порядок ровно такой, и он важен: **сначала компиляция с проверками, потом план**. Семантика
@@ -315,23 +396,6 @@ export function regModuleWithRecordPlan(
   source: string,
   options: CompileOptions = {},
 ): { module: RegModule; compiled: CompileResult } | null {
-  const compiled = compileSource(source, options);
-  if (compiled.module === null || compiled.moduleAst === undefined) return null;
-  planRecords(compiled.moduleAst);
-  // `values-first` — ПОЧЕМУ ЗДЕСЬ, А НЕ В ОБЩЕМ КОДОГЕНЕРАТОРЕ (замер 2026-10-09, вложенные записи):
-  // куча массивов на цели — один растущий вверх указатель, и адрес элемента считается
-  // `массив + 8 + индекс*8`. Если массив создан раньше значений, вложенный литерал
-  // (`{ начало: { х: 1, у: 2 } }`) выделяет свой блок ровно там, куда затем пишет `добавить`
-  // родителя, и первый элемент вложенного блока затирается (`о.начало.х` → 40 — адрес соседа).
-  // Эталонная плоскость остаётся на `create-first`: её пошаговый паритет со стековой VM наблюдаем
-  // и без этого, а на VM литерал массива — объект языка. Разбор — `src/compiler/regcodegen.ts`
-  // (`emitArrayLiteral`) и `docs/hardware-debt.md` §3.122.
-  // `pairInWindow` — ПОЧЕМУ ЗДЕСЬ: пара `Результат<Т, Е>` приходит на цель КАНАЛОМ ВЫЗОВА (тег
-  // `2·wbs`, нагрузка `2·wbs + 1`, `docs/abi-v3-draft.md` §10.2), и нагрузку из оконной клетки
-  // переносит отдельный носитель (`IR.result_pick`). У эталонной VM окон нет — там нагрузку отдаёт
-  // сам вызов прямым приёмником (`call.d2`), и лишняя инструкция ей не нужна.
-  return {
-    module: compileToReg(compiled.moduleAst, { arrayLiteralOrder: 'values-first', pairInWindow: true }),
-    compiled,
-  };
+  const итог = regModuleOrNamedFailure(source, options);
+  return итог.ok ? { module: итог.module, compiled: итог.compiled } : null;
 }

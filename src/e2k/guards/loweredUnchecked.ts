@@ -22,7 +22,7 @@
  */
 import type { CompileOptions } from '../../compiler/compiler';
 import { LOWERING_CODES, refusalOf } from '../loweringRefusal';
-import { regModuleWithRecordPlan } from '../recordPlan';
+import { regModuleOrNamedFailure, frontendRefusalMessage } from '../recordPlan';
 import { annotateAtomRegions } from '../../compiler/atomRegions';
 import { emitShell } from '../emitterShell';
 import { MINIMAL_BASE } from '../elfMinimal';
@@ -67,8 +67,12 @@ export function loweredProgramUnchecked(
     readonly assumeArenaReserved?: true;
   } = {},
 ): СыройОбраз {
-  const built = regModuleWithRecordPlan(source, options);
-  if (built === null) throw new Error('программа не компилируется');
+  // ОТКАЗ ПОВЕРХНОСТИ НАЗЫВАЕТСЯ (D5, случай 73): прежняя редакция бросала безымянное «программа не
+  // компилируется» и теряла диагностики компилятора, у каждой из которых есть свой код каталога.
+  // Класс отказа при этом не подменяется: это отказ ЯЗЫКА («язык», канал `OSN-CG-*`/`OSN-PAR-*`/
+  // `OSN-SEM-*`), а не понижения, поэтому и канал остаётся броском (`src/e2k/recordPlan.ts`).
+  const built = regModuleOrNamedFailure(source, options);
+  if (!built.ok) throw new Error(frontendRefusalMessage(built.причины));
   const annotated = annotateAtomRegions(built.module, [
     { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
   ]);
