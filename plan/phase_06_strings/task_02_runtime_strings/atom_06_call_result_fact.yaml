@@ -1,0 +1,19 @@
+id: ATOM-06-02-06
+title: "Случай 76, путь (а): строковый факт из вызова на сайте IR.call — печать отдаёт ТЕКСТ вместо тихой лжи 1114106 (сторож прямолинейности, модель + железо)"
+phase: PHASE-06
+task: TASK-06-02
+status: done
+depends_on:
+  - ATOM-06-02-05
+blocks: []
+input: []
+output: []
+done_criteria: []
+tests: []
+registers_touched:
+  decisions: []
+  errors: []
+  tech_debt: []
+  blind_spots: []
+notes: ""
+commit_hash: 8e43a730

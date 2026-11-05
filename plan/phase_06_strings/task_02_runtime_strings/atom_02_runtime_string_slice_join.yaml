@@ -5,6 +5,7 @@ task: TASK-06-02
 status: todo
 depends_on:
   - ATOM-06-02-01
+  - ATOM-06-02-06
 blocks: []
 input: []
 output: []
