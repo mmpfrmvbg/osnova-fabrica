@@ -52,6 +52,7 @@ import { CALL_WBS } from './twoPassLayout';
 import { entryProcedureIndex } from './procedureCall';
 import { rematerializeConstants } from './rematerialize';
 import { DEFAULT_SPILL_BASE } from './elfMinimal';
+import { IR_CARRIER_PREFIX } from './shell';
 import {
   MAX_SPILLS_PER_PROCEDURE,
   chooseSpillVictim,
@@ -714,6 +715,28 @@ export function allocateProgram(
       result.push(...stream);
       for (const [moduleIndex, streamIndex] of streamIndexOf) movedTo.set(moduleIndex, base + streamIndex);
     };
+    // СЫРАЯ КОМАНДА ДО РАСКЛАДКИ — ПРОГРАММНАЯ ОШИБКА, И ОНА ЗВАНИТ (ERR-0004, заказ владельца
+    // 2026-11-06). До раскладки поток несёт ТОЛЬКО носители (`IR.*`): сырые команды (`movts`,
+    // `ldb`, `stb`, `addd`, …) заведения сайта, цикла копирования и последовательностей рантайма
+    // массивов ставятся ПОСЛЕ раскладки — в этом и смысл D24. Прежде такая команда проходила
+    // раскладку молча, а понижение размещало её как НОЛЬ БАЙТ: образ собирался без единого отказа,
+    // кода в нём не было, вывод пуст — тихая ложь (реестр ошибок ERR-0004; замер 2026-11-06:
+    // `movts`/`movtd`/`stb`/`adds` в потоке до раскладки не попали в образ, отказов 0).
+    //
+    // Проверка стоит ПЕРВОЙ среди отказов процедуры: это ошибка ВХОДА, и отказ раскладки (окно,
+    // вытеснение) не имеет права её маскировать — иначе причина снова уедет.
+    const rawCommandAt = carriers.findIndex((carrier) => !carrier.mnemonic.startsWith(IR_CARRIER_PREFIX));
+    if (rawCommandAt >= 0) {
+      const raw = carriers[rawCommandAt]!;
+      fail(
+        `сырая команда «${raw.mnemonic}» в потоке ДО раскладки (носитель №${rawCommandAt}): ` +
+          `до раскладки поток несёт только носители «${IR_CARRIER_PREFIX}», а сырые команды ставятся ПОСЛЕ неё (D24)`,
+        [],
+        [],
+        [],
+      );
+      return;
+    }
     // Цель перехода, которой не нашлось места в потоке, — отказ, а не молчаливый сдвиг на соседнюю
     // команду (`remapJumpTargets` такие цели не сдвигает, а называет). Проверка стоит здесь, а не
     // раньше, только потому, что отказ оформляется общим `fail`.

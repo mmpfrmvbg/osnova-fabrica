@@ -47,6 +47,7 @@ import {
   WINDOW_REGISTERS_ENTRY,
   incomingRegisters,
   allocateRegisters,
+  allocateProgram,
   allocateSegments,
   applyAllocation,
   applySegments,
@@ -54,6 +55,9 @@ import {
 import { defUseOf, liveIntervalsOf, liveSegmentsOf, mergeLoopCarriedSegments, overlaps } from './liveness';
 import { cfgSegmentsOf } from './liveness';
 import { ARRAY_REGISTERS } from './arrayRuntime';
+import { IR_CARRIER_PREFIX } from './shell';
+import { PRINT_HEAP_BY_CONVENTION } from './printCall';
+import { imageOfCarriers } from './programImage';
 import { DEFAULT_SPILL_BASE } from './elfMinimal';
 import { livePeakOf, removeCopies } from './copyElim';
 
@@ -577,6 +581,79 @@ describe('устранение копий: без него 17 vreg в 10 не в
     const honest = removeCopies(filter).peakAfter;
     const broken = withoutGuard(filter);
     expect(broken, 'мутация обязана дать другой (меньший) пик — иначе она пустышка').toBeLessThan(honest);
+  });
+});
+
+/**
+ * ERR-0004: СЫРАЯ КОМАНДА В ПОТОКЕ ДО РАСКЛАДКИ — НАЗВАННЫЙ ОТКАЗ, А НЕ МОЛЧАЛИВОЕ ВЫПАДЕНИЕ.
+ *
+ * Замер 2026-11-06 (заказ владельца): проба сайта среза ставила в поток до раскладки заготовки команд
+ * (`movts`, `movtd`, `stb`, `adds`). Образ собирался БЕЗ отказов, код возврата 0, и НИ ОДНОЙ из этих
+ * команд в коде не было — понижение разместило их как ноль байт. Класс — тихая ложь: программа
+ * «работает», а тела её нет. Правило владельца: до раскладки поток несёт ТОЛЬКО носители (`IR.*`);
+ * сырые команды заведения сайта, цикла копирования и последовательностей рантайма массивов ставятся
+ * ПОСЛЕ раскладки (в этом смысл D24) — и там они разрешены.
+ *
+ * Поэтому проверяются ОБЕ стороны границы, и порознь, а не «отказ есть»:
+ *   | случай | поток | чего ждём |
+ *   |---|---|---|
+ *   | 4.1 | сырая команда ДО раскладки | отказ, называющий команду и её место; контрактный поток пуст |
+ *   | 4.2 | та же команда ПОСЛЕ раскладки (в образ) | отказа «сырая команда» НЕТ — граница не сдвинута |
+ *   | 4.3 | НАСТОЯЩИЕ программы (5 штук) | предупреждения нет: их поток до раскладки — только `IR.*` |
+ */
+describe('ERR-0004: сырая команда до раскладки — отказ, после раскладки — разрешена', () => {
+  const сырая = (): AsmInstruction[] => [
+    { mnemonic: 'IR.const', channel: 0, operands: [{ kind: 'vreg', index: 1 }, { kind: 'imm', value: 1 }, { kind: 'imm', value: 0 }] },
+    { mnemonic: 'movts', channel: 0, operands: [{ kind: 'imm', value: 8 }, { kind: 'reg', index: 0 }] },
+    { mnemonic: 'IR.ret', channel: 0, operands: [{ kind: 'imm', value: 1 }, { kind: 'vreg', index: 1 }] },
+  ];
+
+  it('4.1 до раскладки — отказ, который НАЗЫВАЕТ команду и её место', () => {
+    const раскладка = allocateProgram(сырая() as never, [{ name: 'главная', codeOffset: 0, vregs: 2 }], {});
+    expect(раскладка.report[0]?.ok, 'раскладка обязана отказать').toBe(false);
+    expect(раскладка.report[0]?.reason ?? '', 'в причине — имя команды').toContain('«movts»');
+    expect(раскладка.report[0]?.reason ?? '', 'в причине — место команды').toMatch(/носитель №1/);
+    expect(раскладка.report[0]?.reason ?? '', 'в причине — куда её ставить').toContain('ПОСЛЕ');
+    expect(
+      раскладка.instructions,
+      'на отказе контрактный поток ПУСТ (D13) — полуразложенного потока наружу нет',
+    ).toHaveLength(0);
+  });
+
+  it('4.2 после раскладки та же команда отказа «сырая команда» НЕ даёт — граница на месте', () => {
+    // Тот же `movts`, но он идёт в ОБРАЗ, а не в раскладку: заведение сайта ставится после неё (D24).
+    const образ = imageOfCarriers(сырая() as never, [7] as never, [], { heapAddress: PRINT_HEAP_BY_CONVENTION });
+    const причины = (образ.refused ?? []).map((отказ) => отказ.reason ?? '');
+    expect(
+      причины.filter((причина) => причина.includes('сырая команда')),
+      'понижение сырые команды не отвергает: они и есть язык сайта после раскладки',
+    ).toEqual([]);
+  });
+
+  it('4.3 настоящие программы предупреждения не дают: до раскладки у них только носители', () => {
+    const программы = [
+      ['процедура главная()', '  вернуть 7', 'конец_процедуры'],
+      ['процедура главная()', '  система.лог.вывести(7)', 'конец_процедуры'],
+      ['процедура главная()', '  система.лог.вывести("абв")', 'конец_процедуры'],
+      ['процедура главная()', '  пусть с = "абв"', '  вернуть длина(с)', 'конец_процедуры'],
+      ['процедура ф(х)', '  вернуть х', 'конец_процедуры', 'процедура главная()', '  вернуть ф(3)', 'конец_процедуры'],
+    ];
+    for (const строки of программы) {
+      const built = regModuleOf(строки.join('\n'));
+      if (built === null) throw new Error(`не компилируется: ${строки.join(' | ')}`);
+      const annotated = annotateAtomRegions(built.module, [
+        { atom: 'A5', procedures: built.module.procedures.map((procedure) => procedure.name) },
+      ]);
+      const emitted = emitShell(annotated, getEncoder('internal-shell'));
+      const сырые = [
+        ...new Set(
+          emitted.instructions
+            .map((носитель) => носитель.mnemonic)
+            .filter((mnemonic) => !mnemonic.startsWith(IR_CARRIER_PREFIX)),
+        ),
+      ];
+      expect(сырые, `«${строки.join(' | ')}»: до раскладки только носители`).toEqual([]);
+    }
   });
 });
 
