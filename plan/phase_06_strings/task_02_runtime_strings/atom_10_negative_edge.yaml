@@ -3,7 +3,7 @@ title: "Отрицательный край среза: свёртка конс�
   `0 − 2` = `IR.sub`), общая с рантаймом массивов"
 phase: PHASE-06
 task: TASK-06-02
-status: todo
+status: done
 depends_on:
   - ATOM-06-02-09
 blocks: []
@@ -111,4 +111,4 @@ notes: >-
   Остаток 06-02 прежний: рантайм-срез (значение или края из рантайма) требует
   ЦИКЛА, то есть носителей `src/e2k/twoPassLayout.ts` — правка VLIW, «стоп и
   доклад»; это `ATOM-06-02-02`.
-commit_hash: null
+commit_hash: eca220f3

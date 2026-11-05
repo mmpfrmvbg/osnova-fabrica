@@ -220,6 +220,15 @@ interface CallFact {
 interface ReturnFact {
   readonly index: number;
   readonly pair: boolean;
+  /**
+   * НЕСЁТ ЛИ ВОЗВРАТ ЗНАЧЕНИЕ (флаг `IR.ret` = 1).
+   *
+   * Поле заведено слоем (1) ERR-0002: без него возврат БЕЗ значения неотличим от возврата, у которого
+   * значение просто не доказано (`payload === undefined` у обоих), а различие решает — можно ли считать
+   * процедуру отдающей одно значение. Второй случай безобиден (значение докажется позже), первый —
+   * неполнота, которую нельзя принять за доказательство.
+   */
+  readonly hasValue: boolean;
   readonly tag?: OutcomeTag;
   readonly payload?: ProvenValue;
 }
@@ -439,6 +448,7 @@ function walkBody(options: WalkOptions): WalkResult {
       returns.push({
         index: at,
         pair: false,
+        hasValue,
         tag: 'успех',
         payload: value !== undefined && value.kind === 'reg' ? values.get(value.index) : undefined,
       });
@@ -454,6 +464,7 @@ function walkBody(options: WalkOptions): WalkResult {
       returns.push({
         index: at,
         pair: true,
+        hasValue: true,
         tag: tagFact === undefined ? undefined : tagFact === STRING_SUCCESS_TAG ? 'успех' : 'неудача',
         payload: payload !== undefined && payload.kind === 'reg' ? values.get(payload.index) : undefined,
       });
@@ -1129,6 +1140,56 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
   const returnedParam = procedures.map((_, procedure) =>
     returnedParamOf(code, bounds[procedure]!.from, bounds[procedure]!.to, stringCandidates(procedure)),
   );
+
+  /**
+   * ЗНАЧЕНИЕ, КОТОРОЕ ПРОЦЕДУРА ОТДАЁТ СВОИМ ВОЗВРАТОМ (ERR-0002, слой (1)).
+   *
+   * Нужно ровно затем же, зачем `returnedParam`: сайт вызова обязан знать, ЧТО лежит в клетке-приёмнике.
+   * Прежде факт брался только у возврата-СКВОЗЬ-ПАРАМЕТР (`returnedParamOf`), поэтому вызываемая,
+   * возвращающая ЛИТЕРАЛ (`вернуть "абв"`), не давала никакого значения — обе стороны `а + б` из двух
+   * результатов вызова оставались без значений, и форма уходила в АРИФМЕТИКУ, печатая сумму адресов
+   * статики `2228212` при 0 отказов (одиннадцатая тихая ложь, ERR-0002).
+   *
+   * ПРАВИЛА ОСТОРОЖНОСТИ — каждое проверено замером носителей (`.tmp/err2-носители.ts`), а не выведено:
+   *
+   *   • ПРОЦЕДУРА ОБЯЗАНА БЫТЬ ПРЯМОЛИНЕЙНОЙ. `walks[procedure]` — ЛИНЕЙНЫЙ проход, и в процедуре с
+   *     переходами он берёт состояние регистра, записанное ОДНОЙ ветвью. Форма Ж замера: переход в #3,
+   *     возвраты в #5 и #7 — значение пришло бы с пути, который для этого сайта не исполняется.
+   *
+   *   • ВСЕ ВОЗВРАТЫ СО ЗНАЧЕНИЕМ ОБЯЗАНЫ НЕСТИ ОДНО И ТО ЖЕ ЗНАЧЕНИЕ-СТРОКУ. Разные литералы на путях
+   *     (форма Г) — не «одно значение», а два; догадка тут была бы ложью.
+   *
+   *   • ВОЗВРАТ БЕЗ ЗНАЧЕНИЯ ДОПУСТИМ ТОЛЬКО КАК МЁРТВЫЙ: непосредственно за возвратом со значением.
+   *     Форма З замера — почему одного этого правила мало и почему оно стоит ВМЕСТЕ с прямолинейностью:
+   *     там `#3 IR.jmp_if_not reg[1] imm(6)` ведёт ИМЕННО в `#6 IR.ret imm(0)`, то есть «стоящий сразу за
+   *     возвратом со значением» пустой возврат жив и исполняется; принять его за мёртвый значило бы
+   *     напечатать выдуманное «абв» (проба Ф12 оракула краснеет ровно на этом).
+   *
+   *   • ПАРА — это не строка: процедура, отдающая пару (`IR.ret_result`), строкового значения не несёт.
+   *
+   *   • Вызываемая, возвращающая СВОЙ ПАРАМЕТР, идёт прежним путём (`returnedParam`): там значение
+   *     зависит от САЙТА, и подменять его процедурным нельзя.
+   */
+  const returnedValueOf = (procedure: number): number | undefined => {
+    if (!straightOf(procedure)) return undefined;
+    const returns = walks[procedure]?.returns ?? [];
+    if (returns.some((item) => item.pair)) return undefined;
+    const со_значением = returns.filter((item) => item.hasValue);
+    if (со_значением.length === 0) return undefined;
+    const первое = со_значением[0]!.payload;
+    if (первое === undefined || первое.kind !== 'строка') return undefined;
+    for (const item of со_значением) {
+      const значение = item.payload;
+      if (значение === undefined || значение.kind !== 'строка' || !sameValue(значение, первое)) return undefined;
+    }
+    const индексы = new Set(со_значением.map((item) => item.index));
+    for (const item of returns) {
+      if (item.hasValue) continue;
+      if (!индексы.has(item.index - 1)) return undefined;
+    }
+    return первое.pool;
+  };
+
   const calleeOfSite = new Map<number, number>();
   for (const [callee, sites] of callSites) for (const site of sites) calleeOfSite.set(site, callee);
   /** Сайты вызова, у которых ЕСТЬ приёмник: состояние каждого приходит уже СОГЛАСОВАННЫМ (см. ниже). */
@@ -1163,10 +1224,17 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
     const callee = calleeOfSite.get(site);
     if (callee === undefined) continue;
     const position = returnedParam[callee];
-    if (position === undefined || !stringCandidates(callee).includes(position)) continue;
-    const value = callStates.get(site)?.get(position);
-    if (value === undefined || value.kind !== 'строка') continue;
-    callValues.set(site, value.pool);
+    if (position !== undefined && stringCandidates(callee).includes(position)) {
+      const value = callStates.get(site)?.get(position);
+      if (value === undefined || value.kind !== 'строка') continue;
+      callValues.set(site, value.pool);
+      continue;
+    }
+    // СЛОЙ (1) ERR-0002: процедура не отдаёт параметр — но могла отдать ОДНО И ТО ЖЕ значение-строку
+    // своим возвратом. Тогда оно не зависит от сайта, и клетка-приёмник получает ЗНАЧЕНИЕ (а не только
+    // тип из объявленного возврата, как даёт слой (2)).
+    const возвращаемое = returnedValueOf(callee);
+    if (возвращаемое !== undefined) callValues.set(site, возвращаемое);
   }
 
   // МНОЖЕСТВА ЗНАЧЕНИЙ ПО САЙТАМ — НАРУЖУ (TD-0001): свёртка уже сделана, знание множества осталось.
