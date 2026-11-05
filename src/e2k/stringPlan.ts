@@ -46,6 +46,7 @@ import {  STRING_ARENA_CONCAT_CARRIER,
   symbolTableBytesOf,
   utf8Bytes,
 } from './stringRuntime';
+import { foldNumericCarrier, isNumericCarrier } from './numberFacts';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 
@@ -398,6 +399,20 @@ export function planStrings(
    */
   const numbersOf = new Map<number, number>();
   /**
+   * ЧИСЛО, ЕСЛИ ОНО ДОКАЗАНО: либо непосредственный операнд, либо регистр со известным значением.
+   *
+   * Одна точка правды для всех потребителей плана (край среза, константный индекс символа): пока
+   * разбор был записан в двух местах, свёртка арифметики могла появиться в одном и пропасть в другом.
+   */
+  const constantNumber = (operand: Operand | undefined): number | undefined =>
+    operand === undefined
+      ? undefined
+      : operand.kind === 'imm'
+        ? operand.value
+        : operand.kind === 'reg'
+          ? numbersOf.get(operand.index)
+          : undefined;
+  /**
    * ТИП ГОВОРИТ «СТРОКА» — И ЭТО СНИМАЕТ ОТКАЗ, НО НЕ ДАЁТ ЗНАЧЕНИЯ (шаг 2.3, ATOM-06-02-02а).
    *
    * Прежняя причина отказа («аргумент не строка») для `Строка`-параметра была НЕВЕРНОЙ: строка там
@@ -742,6 +757,32 @@ export function planStrings(
     // починка случая 46: без неё арифметика, сравнения и вызовы не стирали прежнее значение, и после
     // раскладки (регистры переиспользуются) карта держала МЁРТВУЮ строку.
     if (carrier.mnemonic !== 'IR.invoke' && carrier.mnemonic !== 'IR.add') {
+      // ── СВЁРТКА АРИФМЕТИКИ НАД ИЗВЕСТНЫМИ ЧИСЛАМИ (`IR.sub`, `IR.mul`) ────────────────────────────
+      //
+      // Замер `.tmp/td62-край-минус.ts`: у `подстрока("абвгде", -2, 6)` край `-2` — не литерал, а
+      // `IR.sub reg[3] = reg[4](0) − reg[5](2)`, то есть ВЫЧИСЛЕННЫЙ носитель над двумя константами.
+      // Без свёртки ОТРИЦАТЕЛЬНЫЙ край (законный случай языка: отсчёт от конца, эталон
+      // `codePointSlice`) отказывал бы на сборке, хотя значение известно ТОЧНО.
+      //
+      // МЕСТО ВЫБРАНО ЗАМЕРОМ, А НЕ НА ГЛАЗ: первая редакция свёртки стояла ВЫШЕ по обходу, до разбора
+      // склейки, и `IR.add` со двумя строками умирал в ней — `+` начинал складывать АДРЕСА, то есть
+      // возвращалась одиннадцатая тихая ложь (поймано прогонами: `printPrimitivesQemu`,
+      // `stringConcatRuntime` Ф1–Ф9, `booleanLiterals`). Поэтому свёртка живёт ЗДЕСЬ — там, где уже
+      // доказано, что носитель не `IR.invoke` и не `IR.add`, то есть строковой операции в нём нет.
+      //
+      // Арифметика берётся из ОДНОГО места (`src/e2k/numberFacts.ts`): тот же вопрос задаёт рантайм
+      // массивов, и две свёртки, разошедшись, ответили бы на одно число по-разному.
+      if (isNumericCarrier(carrier.mnemonic)) {
+        const left = constantNumber(carrier.operands[1]);
+        const right = constantNumber(carrier.operands[2]);
+        const куда = writtenRegisterOf(carrier);
+        // ПРИЁМНИК УМИРАЕТ: в нём могла лежать строка (случай 46), и число её убивает.
+        kill(куда);
+        if (куда !== undefined && left !== undefined && right !== undefined) {
+          numbersOf.set(куда, foldNumericCarrier(carrier.mnemonic, left, right));
+        }
+        return;
+      }
       kill(writtenRegisterOf(carrier));
       return;
     }
@@ -816,8 +857,16 @@ export function planStrings(
         );
         edits.set(index, { kind: 'none', index, reason: 'склейка со значением из рантайма' });
       }
-      // Числовое сложение: приёмник — ЧИСЛО, строка в нём (если была) умирает.
+      // Числовое сложение: приёмник — ЧИСЛО, строка в нём (если была) умирает. ЗДЕСЬ ЖЕ СВЁРТЫВАЕТСЯ
+      // ДОКАЗАННАЯ СУММА: `подстрока("абвгде", 1 + 1, 4)` приезжает этим носителем (две константы), и
+      // без записи числа край среза снова стал бы «рантаймовым» — то есть свёртка обязана быть и в ветви
+      // `IR.add`, но ТОЛЬКО после того, как склейка строк исключена (`concatLike` ложен).
+      const слева = constantNumber(carrier.operands[1]);
+      const справа = constantNumber(carrier.operands[2]);
       kill(destination);
+      if (destination !== undefined && слева !== undefined && справа !== undefined) {
+        numbersOf.set(destination, foldNumericCarrier('IR.add', слева, справа));
+      }
       return;
     }
     if (process.env.TD1_DEBUG === '1') {
@@ -967,16 +1016,8 @@ export function planStrings(
       // операнде 5, а операнд 3 был именем. Первая редакция читала конец из операнда 3 и получала
       // «конец = 0», то есть срез «ничего» — на этом и поймано.
       const source = registerOf(carrier.operands[1]);
-      const constantEdge = (operand: Operand | undefined): number | undefined =>
-        operand === undefined
-          ? undefined
-          : operand.kind === 'imm'
-            ? operand.value
-            : operand.kind === 'reg'
-              ? numbersOf.get(operand.index)
-              : undefined;
-      const from = constantEdge(carrier.operands[2]);
-      const to = constantEdge(carrier.operands[5]);
+      const from = constantNumber(carrier.operands[2]);
+      const to = constantNumber(carrier.operands[5]);
       if (source === undefined || from === undefined || to === undefined) {
         // ОТКАЗ НАЗЫВАЕТ, ЧЕГО ИМЕННО НЕТ: у срезов две РАЗНЫЕ причины, и «аргумент не строка» на
         // них обе неверна (строка тут как раз есть — по типу).

@@ -66,6 +66,7 @@
  */
 
 import type { AsmInstruction, Operand } from './backend';
+import { foldNumericCarrier, isNumericCarrier } from './numberFacts';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 
@@ -564,7 +565,12 @@ export function arrayBaseProblems(
     }
     // АРИФМЕТИКА НАД ИЗВЕСТНЫМИ ЧИСЛАМИ: результат — снова число (строки в `numbers` не попадают,
     // поэтому склейка `"а" + "б"` здесь числом не считается и отказом не грозит).
-    if (carrier.mnemonic === 'IR.add' || carrier.mnemonic === 'IR.sub' || carrier.mnemonic === 'IR.mul') {
+    //
+    // САМА АРИФМЕТИКА ЖИВЁТ В ОДНОМ МЕСТЕ (`src/e2k/numberFacts.ts`): тот же вопрос задаёт план строк
+    // (края среза и константный индекс символа), и две свёртки, разошедшись, дали бы разными ответами
+    // одно и то же число — а это класс «тихая ложь». Здесь остаётся только дисциплина карты: стереть
+    // приёмник и записать результат, если оба слагаемых ИЗВЕСТНЫ.
+    if (isNumericCarrier(carrier.mnemonic)) {
       const destination = registerOf(carrier.operands[0]);
       const first = registerOf(carrier.operands[1]);
       const second = registerOf(carrier.operands[2]);
@@ -574,13 +580,7 @@ export function arrayBaseProblems(
       forget(destination);
       if (!known || destination === undefined) return;
       const computed =
-        left === undefined || right === undefined
-          ? undefined
-          : carrier.mnemonic === 'IR.add'
-            ? left + right
-            : carrier.mnemonic === 'IR.sub'
-              ? left - right
-              : left * right;
+        left === undefined || right === undefined ? undefined : foldNumericCarrier(carrier.mnemonic, left, right);
       numbers.set(destination, computed);
       return;
     }
