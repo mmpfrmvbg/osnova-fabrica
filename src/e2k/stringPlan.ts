@@ -223,6 +223,14 @@ interface StringValue {  readonly bytes: readonly number[];
 /** Что конвейер решил про конкретный носитель. */
 type StringEdit =
   | { readonly kind: 'const'; readonly index: number; readonly poolIndex: number; readonly value: StringValue }
+  /**
+   * СТАТИЧЕСКИЙ СРЕЗ (ATOM-06-02-02): носитель ВЫЗОВА заменяется носителем `IR.const`, грузящим адрес
+   * посчитанных сборкой байтов. Отдельный вид, а не `const`, ПОТОМУ ЧТО `const` МЕНЯЕТ ТОЛЬКО ОПЕРАНД:
+   * он верен для литерала (у того мнемоника уже `IR.const`), а на вызове оставил бы `IR.invoke` с
+   * подменённым операндом — и вызов ушёл бы в рантайм, который его не знает. Замер, которым это
+   * поймано: `strings.code[#3]` оставался `IR.invoke` при готовом адресе блоба.
+   */
+  | { readonly kind: 'slice'; readonly index: number; readonly value: StringValue; readonly destination: number }
   | { readonly kind: 'length'; readonly index: number; readonly value: StringValue; readonly marks: number[] }
   | {
       readonly kind: 'symbol';
@@ -304,6 +312,15 @@ export interface StringPlan {
      * блок отказа и закреплённые регистры — без них выделение взяло бы мусор.
      */
     readonly arenaConcats: number;
+    /**
+     * СТАТИЧЕСКИЕ СРЕЗЫ (`система.строка.подстрока`, ATOM-06-02-02): сколько срезов сборка посчитала
+     * САМА — строка доказана, оба края — константы, и результат лёг статическим блобом.
+     *
+     * НЕ ПУТАТЬ СО СКЛЕЙКОЙ (`concat`/`arenaConcats`): срез НИЧЕГО не собирает и буфера склейки не
+     * требует — его байты суть непрерывный отрезок уже лежащего блоба. Поле необязательное, чтобы
+     * счётчик не ломал потребителей, которые собирают `counts` сами.
+     */
+    readonly slices?: number;
   };
   /**
    * Где лежит строка отказа арены и сколько в ней байт (`undefined` — образ ареной не пользуется).
@@ -455,6 +472,8 @@ export function planStrings(
   let staticConcats = 0;
   let arenaConcats = 0;
   let prints = 0;
+  /** СТАТИЧЕСКИЕ СРЕЗЫ (ATOM-06-02-02): считаны сборкой, а не рантаймом. */
+  let staticSlices = 0;
 
   const valueOf = (text: string): StringValue => {
     const existing = values.get(text);
@@ -922,6 +941,82 @@ export function planStrings(
       });
       return;
     }
+    // ── СРЕЗ СТАТИЧЕСКИЙ (`система.строка.подстрока`, ATOM-06-02-02) ──────────────────────────────
+    //
+    // Слово v3 `подстрока(строка, начало, конец)` (`src/compiler-v3/parser.ts#СТРОКОВЫЕ_СЛОВА`) до
+    // этой правки не понижалось НИ НА КАКОЙ ГЛУБИНЕ: таблица операций рантайма (`src/e2k/
+    // arrayRuntime.ts`) отказывает по имени, потому что рантайм-срез обязан КОПИРОВАТЬ с рантаймовой
+    // длиной, то есть нужен ЦИКЛ с переходом, а переходы у цели существуют только как носители,
+    // строящиеся в `src/e2k/twoPassLayout.ts` (та же граница, что у рантайм-склейки, строки 778–785).
+    //
+    // ЗДЕСЬ РЕШАЕТСЯ ЧАСТЬ, КОТОРАЯ ЦИКЛА НЕ ТРЕБУЕТ: строка ДОКАЗАНА, оба края — КОНСТАНТЫ, значит
+    // результат известен сборке ЦЕЛИКОМ, и его байты — непрерывный отрезок блоба исходной строки.
+    // Отдельного вида правки не заводится: значение регистрируется в `values` (его байты положит
+    // раскладка блобов, строка 999), адрес даст тот же `kind: 'const'`, что у литерала, а `poolIndex`
+    // у среза нет — адрес приходит из `value.address` (поле читается ТОЛЬКО у литерала).
+    //
+    // СЕМАНТИКА ВЗЯТА У ЭТАЛОНА, а не придумана: `codePointSlice` обеих VM (`src/runtime/vm/
+    // stringUnits.ts`) — счёт по КОДОВЫМ ТОЧКАМ, отрицательный край от конца, выход за границы
+    // обрезается, `конец <= начало` даёт ПУСТУЮ строку. Пробы ОБ1/ОБ2 оракула это и держат.
+    if (name === 'система.строка.подстрока') {
+      // ПОЗИЦИИ АРГУМЕНТОВ — НЕ «ПО НОМЕРУ ВЫЗОВА»: у `IR.invoke` раскладка
+      // `[флаги, arg0, arg1, payload, приёмник, src3]` (`src/e2k/liveness.ts`, `src/e2k/shell.ts`),
+      // где `payload` (операнд 3) — ИНДЕКС ИМЕНИ вызова, а не третий аргумент, и `src3` (операнд 5) —
+      // как раз ТРЕТИЙ аргумент. Замер (`.tmp/td62-срез.ts`, `TD62_SLICE=1`): у `подстрока(с, 1, 3)`
+      // носитель нёс `[imm 7, reg с, reg 1, imm 0, reg приёмник, reg 3]` — то есть конец лежал в
+      // операнде 5, а операнд 3 был именем. Первая редакция читала конец из операнда 3 и получала
+      // «конец = 0», то есть срез «ничего» — на этом и поймано.
+      const source = registerOf(carrier.operands[1]);
+      const constantEdge = (operand: Operand | undefined): number | undefined =>
+        operand === undefined
+          ? undefined
+          : operand.kind === 'imm'
+            ? operand.value
+            : operand.kind === 'reg'
+              ? numbersOf.get(operand.index)
+              : undefined;
+      const from = constantEdge(carrier.operands[2]);
+      const to = constantEdge(carrier.operands[5]);
+      if (source === undefined || from === undefined || to === undefined) {
+        // ОТКАЗ НАЗЫВАЕТ, ЧЕГО ИМЕННО НЕТ: у срезов две РАЗНЫЕ причины, и «аргумент не строка» на
+        // них обе неверна (строка тут как раз есть — по типу).
+        const почему =
+          source === undefined
+            ? typedWithoutValue(carrier.operands[1])
+              ? `${reasonOfTyped(carrier.operands[1], typedProcedure)} — срез взять не от чего`
+              : 'аргумент не строка — срез взять не от чего'
+            : 'края среза известны только в рантайме — рантайм-срез не понижен (нужны цикл копирования и арена, §3.138.4)';
+        problems.push(`#${String(index)} ${name}: ${почему}`);
+        edits.set(index, { kind: 'none', index, reason: 'срез со значением из рантайма' });
+        kill(destination);
+        return;
+      }
+      const points = codePointsOfBytes(source.bytes);
+      // Те же края, что у эталона (`codePointSlice`), и та же единица счёта — КОДОВЫЕ ТОЧКИ.
+      const normal = (raw: number, fallback: number): number => {
+        if (Number.isNaN(raw)) return 0;
+        if (!Number.isFinite(raw)) return fallback;
+        const whole = Math.trunc(raw);
+        return whole < 0 ? Math.max(points.length + whole, 0) : Math.min(whole, points.length);
+      };
+      const start = normal(from, 0);
+      const end = normal(to, points.length);
+      const text = end <= start ? '' : String.fromCodePoint(...points.slice(start, end));
+      const sliced = valueOf(text);
+      if (destination === undefined) {
+        // ЗНАЧЕНИЕ ПОСЧИТАНО, А ОТДАТЬ ЕГО НЕКУДА: молча выбросить носитель значило бы «срез есть, а
+        // результата нет» — отказ, а не тишина.
+        problems.push(
+          `#${String(index)} ${name}: у среза нет приёмника — результат некуда положить (срез «${text}» посчитан сборкой)`,
+        );
+        edits.set(index, { kind: 'none', index, reason: 'у среза нет приёмника' });
+        return;
+      }
+      byRegister.set(destination, sliced);
+      staticSlices += 1;
+      edits.set(index, { kind: 'slice', index, value: sliced, destination });
+      return;
+    }
     if (name === STRING_CALLS.concat) {
       const first = registerOf(carrier.operands[1]);
       const second = registerOf(carrier.operands[2]);
@@ -1110,6 +1205,26 @@ export function planStrings(
   const rewritten = code.map((carrier, index) => {
     const edit = edits.get(index);
     if (edit === undefined || edit.kind === 'none') return carrier;
+    if (edit.kind === 'slice') {
+      const address = edit.value.address;
+      if (address === undefined) {
+        problems.push(
+          `#${String(index)} ${carrier.mnemonic}: у среза «${edit.value.key}» не оказалось адреса — дефект планирования`,
+        );
+        return carrier;
+      }
+      // АДРЕС — В ПУЛ, КАК У ЛИТЕРАЛА: пул и статическая область работают парой и разойтись не могут
+      // (адрес блоба выведен из конца образа, пул — из своей длины). Носитель ЗАМЕНЯЕТСЯ ЦЕЛИКОМ:
+      // у среза от вызова не остаётся ничего, и рантайм его больше не увидит.
+      pool.push(address);
+      return {
+        ...carrier,
+        // `as const` — не украшение: без него литерал расширяется до `string`, и весь массив носителей
+        // перестаёт быть `readonly AsmInstruction[]` (поймано `tsc` в этом же срезе).
+        mnemonic: 'IR.const' as const,
+        operands: [{ kind: 'reg' as const, index: edit.destination }, imm(pool.length - 1)],
+      };
+    }
     if (edit.kind === 'const') {
       const address = edit.value.address;
       if (address === undefined) {
@@ -1224,7 +1339,7 @@ export function planStrings(
     blobs,
     staticStart: cursor,
     problems,
-    counts: { lengths, symbols, concats, prints, strings: ordered.length, arenaConcats },
+    counts: { lengths, symbols, concats, prints, strings: ordered.length, arenaConcats, slices: staticSlices },
     ...(needsBuffer ? { bufferAddress } : {}),
     ...(refusalAddress === undefined || refusalBytes === undefined
       ? {}
@@ -1255,10 +1370,19 @@ export function hasStaticBytes(plan: StringPlan): boolean {
   return plan.blobs.length > 0;
 }
 
-/** Проверка «строка помечена как печатаемая»: у печати числа шестой пометки нет. */
+/**
+ * Проверка «строка помечена как печатаемая»: у печати числа шестой пометки нет.
+ *
+ * ПОМЕТКА НОЛЬ — ТОЖЕ ПОМЕТКА (найдено ATOM-06-02-02, 2026-11-05). Прежнее условие `mark.value > 0`
+ * считало ПУСТУЮ строку непомеченной, печать уходила по числовому пути — и на модель печатался АДРЕС
+ * блоба числом: `вывести ""` давало `1114112`, `вывести подстрока("абвгде", 3, 1)` — `1114100`, при
+ * нуле отказов и коде 0. Это тихая ложь (класс «программа исполняется, а число неверное»), и она
+ * жила ДО среза: проверено на HEAD теми же пробами. Числовая печать пометки не ставит вовсе —
+ * операнд у неё `undefined`, а не ноль, поэтому «ноль» однозначно означает «строка длины ноль».
+ */
 export function isStringPrint(carrier: AsmInstruction): boolean {
   const mark = carrier.operands[STRING_MARK_OPERAND];
-  return carrier.mnemonic === 'IR.invoke' && mark !== undefined && mark.kind === 'imm' && mark.value > 0;
+  return carrier.mnemonic === 'IR.invoke' && mark !== undefined && mark.kind === 'imm' && mark.value >= 0;
 }
 
 /** Причина отказа строковой операции, если пометок нет, а имя строковое. */
