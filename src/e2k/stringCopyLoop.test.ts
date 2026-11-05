@@ -58,6 +58,7 @@ import {
   checkStringSliceRuntimeSite,
   checkStringSliceRuntimeTail,
   stringCopyLoopCarriers,
+  stringSliceGroups,
   stringSliceRuntimeSite,
   stringSliceRuntimeTail,
   stringSliceSlots,
@@ -536,5 +537,63 @@ describe('сайт рантайм-среза: установка, переход
     expect(кривая.descriptorAddress % 8, 'выравнивание вниз').toBe(0);
     expect(кривая.descriptorAddress, 'и адрес не растёт').toBeLessThanOrEqual(БАЗА + 4 - STRING_BUFFER_BYTES - 36);
     expect(кривая.bufferAddress).toBe(кривая.descriptorAddress + 16);
+  });
+
+  it('СБОРЩИК ГРУПП: носитель заменяется сайтом, хвост встаёт ЗА концом потока', () => {
+    // Синтетический поток ПОСЛЕ раскладки: сборщику нужна только длина, а не содержимое носителей.
+    const поток = Array.from({ length: 10 }, () => ({ mnemonic: 'IR.invoke', channel: 0, operands: [] }));
+    const запрос = {
+      index: 4,
+      from: 2,
+      to: 3,
+      destination: 15,
+      blobAddress: БЛОБ,
+      bufferAddress: БУФЕР,
+      descriptorAddress: ДЕСКРИПТОР,
+      cells: КЛЕТКИ,
+      reserved: ОБЪЯВЛЕНО,
+    };
+    const сборка = stringSliceGroups(поток as never, [запрос]);
+    // ХВОСТ ЛЕЖИТ ЗА РАСШИРЕННЫМ ПОТОКОМ: 10 носителей + прирост сайта (15 − 1) = 24.
+    expect(сборка.loopIndex).toBe(24);
+    expect([...сборка.groups.keys()].sort((а, б) => а - б)).toEqual([4, 9]);
+    const сайт = сборка.groups.get(4)!;
+    const хвост = сборка.groups.get(9)!;
+    expect(сайт).toHaveLength(STRING_SLICE_SITE_SIZE);
+    expect(хвост).toHaveLength(STRING_SLICE_TAIL_SIZE);
+    // ЦИКЛ И ВОЗВРАТ ЧИТАЮТСЯ ИЗ СЧИТАННЫХ ИНДЕКСОВ, а не зашиты.
+    expect(сайт[сайт.length - 1]?.operands[0]).toEqual({ kind: 'imm', value: 24 });
+    expect(хвост[STRING_COPY_LOOP_SIZE - 1]?.operands[0], 'выход — на запись дескриптора').toEqual({
+      kind: 'imm',
+      value: 32,
+    });
+    expect(хвост[хвост.length - 1]?.operands[0], 'возврат — за группу сайта').toEqual({ kind: 'imm', value: 19 });
+  });
+
+  it('СБОРЩИК ГРУПП: два сайта, сайт на последнем носителе и пустой список — ОТКАЗЫ ПО ИМЕНИ', () => {
+    const поток = Array.from({ length: 10 }, () => ({ mnemonic: 'IR.invoke', channel: 0, operands: [] }));
+    const запрос = {
+      index: 4,
+      from: 2,
+      to: 3,
+      destination: 15,
+      blobAddress: БЛОБ,
+      bufferAddress: БУФЕР,
+      descriptorAddress: ДЕСКРИПТОР,
+      cells: КЛЕТКИ,
+      reserved: ОБЪЯВЛЕНО,
+    };
+    // ДВА САЙТА: хвост ОДИН, и выход цикла вернулся бы не к тому вызову — граница названа, а не сглажена.
+    expect(() => stringSliceGroups(поток as never, [запрос, { ...запрос, index: 6 }])).toThrowError(
+      /понижается ОДИН/,
+    );
+    // САЙТ НА ПОСЛЕДНЕМ НОСИТЕЛЕ: хвост лёг бы в ту же группу — индекс перестал бы быть известен заранее.
+    expect(() => stringSliceGroups(поток as never, [{ ...запрос, index: 9 }])).toThrowError(
+      /ПОСЛЕДНЕМ носителе потока/,
+    );
+    // НЕТ САЙТОВ: вставлять хвост некуда.
+    expect(() => stringSliceGroups(поток as never, [])).toThrowError(/без сайтов/);
+    // И НОМЕР ВНЕ ПОТОКА: заменять нечего.
+    expect(() => stringSliceGroups(поток as never, [{ ...запрос, index: 10 }])).toThrowError(/заменить нечего/);
   });
 });

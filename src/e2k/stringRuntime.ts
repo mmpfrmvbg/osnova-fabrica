@@ -1133,6 +1133,116 @@ const теЖеОперанды = (первый: readonly Operand[], второй
 };
 
 /**
+ * СБОРЩИК ГРУПП РАНТАЙМ-СРЕЗА: носители сайта вместо `IR.invoke` и хвост в конце потока.
+ *
+ * # Откуда берутся абсолютные индексы
+ *
+ * Раскладка уже прошла, поток `code` — итоговый, но группы расширят его. Индекс носителя в середине
+ * потока сдвигается на прирост ВСЕХ групп до него, поэтому:
+ *   • группа сайта заменяет ОДИН носитель (`IR.invoke`) на `STRING_SLICE_SITE_SIZE`, то есть даёт
+ *     прирост `STRING_SLICE_SITE_SIZE − 1`;
+ *   • начало хвоста = `code.length + прирост всех сайтов` — считается ДО сборки, как у коллекций и
+ *     арены, и потому абсолютный индекс перехода известен;
+ *   • носитель ЗА группой сайта (`successor`) = итоговый индекс самой группы + её длина.
+ *
+ * # Почему расхождение счётчиков — ОТКАЗ, а не догадка
+ *
+ * Статические срезы план заменяет на `IR.const` ЦЕЛИКОМ («у среза от вызова не остаётся ничего»),
+ * поэтому каждый оставшийся вызов `подстрока` — рантайм-срез, и число носителей обязано совпасть с
+ * числом записей плана. Не совпало — значит носитель потерялся или план и поток разошлись; взять
+ * «первые N» или «сколько нашлось» значило бы подставить срез не тому вызову.
+ */
+export interface StringSliceSiteRequest {
+  /** Индекс носителя `IR.invoke` в потоке ПОСЛЕ раскладки. */
+  readonly index: number;
+  /** Клетка начала среза (операнд 2 носителя). */
+  readonly from: number;
+  /** Клетка конца среза (операнд 5). */
+  readonly to: number;
+  /** Приёмник (операнд 4). */
+  readonly destination: number;
+  /** Адрес байтов доказанного источника — константа сборки. */
+  readonly blobAddress: number;
+  readonly bufferAddress: number;
+  readonly descriptorAddress: number;
+  readonly cells: StringSliceRuntimeTailOptions['cells'];
+  /** Клетки, объявленные сайтом в раскладке — второй уровень закрепления (D24). */
+  readonly reserved?: readonly number[];
+}
+
+/** Что вернул сборщик: группы по индексам носителей и место хвоста (для отчёта и сторожей). */
+export interface StringSliceGroups {
+  readonly groups: ReadonlyMap<number, readonly AsmInstruction[]>;
+  readonly loopIndex: number;
+  readonly tailIndex: number;
+}
+
+export function stringSliceGroups(
+  code: readonly AsmInstruction[],
+  requests: readonly StringSliceSiteRequest[],
+): StringSliceGroups {
+  if (requests.length === 0) {
+    throw new StringRuntimeRefusal(
+      'сборщик групп рантайм-среза позван без сайтов: групп нет, а хвост вставлять некуда',
+    );
+  }
+  // ОДИН САЙТ ЗА РАЗ — названная граница, а не недоделка. Хвост ОДИН: выход цикла ведёт в запись
+  // дескриптора, и вернуться он может только к ОДНОМУ носителю за вызовом, а `к − н` считает по клеткам
+  // ОДНОГО вызова. Двум сайтам нужны два хвоста и два набора клеток результата — это следующий шаг;
+  // пока второй сайт отвергается по имени, чтобы первый не получил чужие края и чужой буфер.
+  if (requests.length > 1) {
+    throw new StringRuntimeRefusal(
+      `сайтов рантайм-среза ${String(requests.length)}, а понижается ОДИН: хвост один, и выход цикла ` +
+        'вернулся бы не к тому вызову (нужны два хвоста — это следующий шаг)',
+    );
+  }
+  const site = requests[0]!;
+  if (site.index < 0 || site.index >= code.length) {
+    throw new StringRuntimeRefusal(
+      `сайт рантайм-среза указывает на носитель ${String(site.index)}, а поток длиной ` +
+        `${String(code.length)} — заменить нечего`,
+    );
+  }
+  const последний = code.length - 1;
+  if (site.index === последний) {
+    throw new StringRuntimeRefusal(
+      `сайт рантайм-среза стоит на ПОСЛЕДНЕМ носителе потока (${String(последний)}): хвост лёг бы в ` +
+        'ту же группу, и его индекс перестал бы быть известным заранее',
+    );
+  }
+  const прирост = STRING_SLICE_SITE_SIZE - 1;
+  const loopIndex = code.length + прирост;
+  const successor = site.index + STRING_SLICE_SITE_SIZE;
+  const options: StringSliceRuntimeSiteOptions = {
+    from: site.from,
+    to: site.to,
+    blobAddress: site.blobAddress,
+    bufferAddress: site.bufferAddress,
+    descriptorAddress: site.descriptorAddress,
+    destination: site.destination,
+    cells: site.cells,
+    loopIndex,
+  };
+  checkStringSliceRuntimeSite(options, site.reserved ?? []);
+  const хвостOptions: StringSliceRuntimeTailOptions = {
+    from: site.from,
+    to: site.to,
+    bufferAddress: site.bufferAddress,
+    descriptorAddress: site.descriptorAddress,
+    destination: site.destination,
+    cells: site.cells,
+    loopIndex,
+    successor,
+  };
+  checkStringSliceRuntimeTail(stringSliceRuntimeTail(хвостOptions), хвостOptions);
+  const группы = new Map<number, readonly AsmInstruction[]>([
+    [site.index, stringSliceRuntimeSite(options)],
+    [последний, stringSliceRuntimeTail(хвостOptions)],
+  ]);
+  return { groups: группы, loopIndex, tailIndex: successor };
+}
+
+/**
  * СТОРОЖ ХВОСТА САЙТА РАНТАЙМ-СРЕЗА: место цикла, место записи дескриптора и возврат за вызов.
  *
  * Три измеренных требования, каждое из которых иначе даёт молчаливо неверный результат:
