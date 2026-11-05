@@ -134,6 +134,8 @@ export interface StringTypeFacts {
    * поле ДРУГОГО типа (`Е`) и в доказательство не входит.
    */
   readonly resultValues?: ReadonlyMap<number, string>;
+  // ВРЕМЕННАЯ ДИАГНОСТИЧЕСКАЯ ПРАВКА (замер цены пути (а) случая 76; откатывается `git checkout HEAD --`).
+  readonly callValues?: ReadonlyMap<number, string>;
   /**
    * НАЗВАННАЯ ПРИЧИНА по САЙТУ нагрузки пары: индекс носителя `IR.result_pick` → текст.
    *
@@ -644,6 +646,18 @@ export function planStrings(
         // значение подставлять НЕЛЬЗЯ — отказ назовёт причину пары, а не «аргумент не строка».
         typedRegisters.add(destination);
         typedReasons.set(destination, reason);
+      }
+      return;
+    }
+    // ВРЕМЕННАЯ ДИАГНОСТИЧЕСКАЯ ПРАВКА (замер цены пути (а) случая 76; откатывается).
+    // Возврат-сквозь-параметр: значение аргумента доказано, значит приёмник вызова — СТРОКА.
+    if (carrier.mnemonic === 'IR.call') {
+      const destination = writtenRegisterOf(carrier);
+      kill(destination);
+      const proof = typeFacts?.callValues?.get(index);
+      if (destination !== undefined && proof !== undefined) {
+        byRegister.set(destination, valueOf(proof));
+        typedRegisters.add(destination);
       }
       return;
     }

@@ -883,6 +883,8 @@ function stringTypeFactsOf(
     readonly paramChoices?: ReadonlyMap<number, ReadonlyMap<number, readonly string[]>>;
     readonly resultValues: ReadonlyMap<number, string>;
     readonly resultReasons: ReadonlyMap<number, string>;
+    // ВРЕМЕННАЯ ДИАГНОСТИЧЕСКАЯ ПРАВКА (замер цены пути (а) случая 76; откатывается).
+    readonly callValues?: ReadonlyMap<number, string>;
   },
 ): StringTypeFacts | undefined {
   const aligned = typesByProcedure(procedures, types);
@@ -895,6 +897,7 @@ function stringTypeFactsOf(
     stringParams: paramCellsOf(aligned, isStringType),
     paramValues,
     ...(proof?.paramChoices === undefined ? {} : { paramChoices }),
+    ...(proof?.callValues === undefined ? {} : { callValues: proof.callValues }),
     ...(proof === undefined
       ? {}
       : { resultValues: proof.resultValues, resultReasons: proof.resultReasons }),
@@ -926,6 +929,8 @@ function provedValuesOf(
   readonly paramChoices: ReadonlyMap<number, ReadonlyMap<number, readonly string[]>>;
   readonly resultValues: ReadonlyMap<number, string>;
   readonly resultReasons: ReadonlyMap<number, string>;
+  // ВРЕМЕННАЯ ДИАГНОСТИЧЕСКАЯ ПРАВКА (замер цены пути (а) случая 76; откатывается).
+  readonly callValues: ReadonlyMap<number, string>;
   /** Носители `IR.result_pick`, чья нагрузка НЕ доказана строкой: недоказанный тег или Неудача. */
   readonly nonSuccessPicks: ReadonlySet<number>;
   // ВХОДЫ ДОКАЗАТЕЛЬСТВА — возвращаются наружу ровно затем, чтобы сторож индексации мог пересчитать
@@ -1017,9 +1022,13 @@ function provedValuesOf(
     if (payload !== undefined && payload.kind === 'строка') resultValues.set(index, textOf(payload.pool));
     else resultReasons.set(index, 'успех пары несёт поле не типа «Строка» — индекс по нему не строковый');
   }
+  // ВРЕМЕННАЯ ДИАГНОСТИЧЕСКАЯ ПРАВКА (замер цены пути (а) случая 76; откатывается `git checkout HEAD --`).
+  const callValues = new Map<number, string>();
+  for (const [site, record] of proof.callValues) callValues.set(site, textOf(record));
   return {
     parameters,
     paramChoices,
+    callValues,
     resultValues,
     resultReasons,
     nonSuccessPicks,

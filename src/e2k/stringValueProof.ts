@@ -170,6 +170,23 @@ export interface StringValueProof {
    * потребитель, разрешивший выборку по множеству, не разрешит её для склейки.
    */
   readonly siteValues: ReadonlyMap<number, ReadonlyMap<number, readonly ProvenValue[]>>;
+  /**
+   * ЗНАЧЕНИЕ РЕЗУЛЬТАТА ВЫЗОВА (случай 76, путь (а)): индекс носителя `IR.call` → запись ПУЛА, которую
+   * этот вызов кладёт в свой приёмник.
+   *
+   * Ключ — ИНДЕКС НОСИТЕЛЯ, а не пара «процедура + клетка», и это не мелочь: приёмник вызова план
+   * ГАСИТ (`stringPlan.ts`: всякий непризнанный носитель снимает прежнее значение регистра — иначе
+   * после раскладки в переиспользованном регистре ожила бы мёртвая строка, случай 46). Значение,
+   * положенное «с начала процедуры», до печати не доживает — положить его надо ЗДЕСЬ ЖЕ, на сайте,
+   * ровно так, как это делает доказанная нагрузка пары (`resultValues` + `IR.result_pick`).
+   *
+   * Чего здесь НЕ бывает, и это ПРОВЕРЕНО состязательными пробами (`.tmp/td76-ветка.ts`): вызова в
+   * процедуре С ПЕРЕХОДАМИ — в ветке линейный проход плана подставил бы значение не той ветви, и
+   * печать выдала бы ЧУЖОЙ текст (замер наивной редакции: «х» вместо «абв»); процедуры с НЕСКОЛЬКИМИ
+   * разными сквозными возвратами; значения не из пула; параметра, не объявленного строкой. Любое из
+   * этого — МОЛЧАНИЕ: «факта нет» не есть факт.
+   */
+  readonly callValues: ReadonlyMap<number, number>;
 }
 
 /** Вход доказательства. Тип объявлен ЗДЕСЬ: модуль самостоятелен, потребитель приводит данные к нему. */
@@ -304,6 +321,61 @@ function callArity(carrier: AsmInstruction): number {
 function jumpTarget(carrier: AsmInstruction): number | undefined {
   const operand = carrier.mnemonic === 'IR.jmp' ? carrier.operands[0] : carrier.operands[1];
   return operand !== undefined && operand.kind === 'imm' ? operand.value : undefined;
+}
+
+/**
+ * ВОЗВРАТ-СКВОЗЬ-ПАРАМЕТР: которым ПАРАМЕТРОМ процедура отдаёт свой результат (случай 76, путь (а)).
+ *
+ * Нужен сайту вызова: если вызываемая отдаёт ровно `k`-й параметр, то доказанное значение аргумента
+ * `k` становится доказанным значением КЛЕТКИ-ПРИЁМНИКА в вызывающей процедуре — и `вывести т` печатает
+ * ТЕКСТ, а не адрес блоба (тихая ложь `1114106`, замер `.tmp/td76-базовая.ts`, форма Б1).
+ *
+ * Почему отдельный проход, а не `walkBody`: у того своя работа (значения и исходы ветвей), а здесь
+ * отслеживается ОДНО — от какой клетки-параметра клетка унаследовала значение. Правила осторожности
+ * (любое сомнение — МОЛЧАНИЕ, а не догадка; молчание здесь честно, потому что «факта нет» — не факт):
+ *   • все возвраты со значением обязаны назвать ОДИН и тот же параметр, иначе процедура не сквозная;
+ *   • неизвестный носитель (`writtenCells().known === false`) гасит ответ ЦЕЛИКОМ: его запись не видна,
+ *     и унаследованное значение могло бы оказаться мёртвым — это была бы тихая ложь, а не неполнота;
+ *   • любая запись в клетку снимает происхождение, переносит его только `IR.move`.
+ */
+function returnedParamOf(
+  code: readonly AsmInstruction[],
+  from: number,
+  to: number,
+  paramCells: readonly number[],
+): number | undefined {
+  const origin = new Map<number, number>();
+  for (const cell of paramCells) origin.set(cell, cell);
+  let found: number | undefined;
+  for (let at = from; at < to; at += 1) {
+    const carrier = code[at];
+    if (carrier === undefined) break;
+    if (carrier.mnemonic === 'IR.ret') {
+      const flag = carrier.operands[0];
+      // ВОЗВРАТ БЕЗ ЗНАЧЕНИЯ ПРОПУСКАЕТСЯ: это выход процедуры «ни с чем» (оболочка ставит его рядом с
+      // возвратом со значением — замер потока: `#1 IR.ret #1 %b1` и `#2 IR.ret #0 %b0`). Считать его
+      // «возвратом не параметра» значило бы гасить ответ на КАЖДОЙ сквозной процедуре.
+      if (flag === undefined || flag.kind !== 'imm' || flag.value !== 1) continue;
+      const value = carrier.operands[1];
+      const cell = value !== undefined && value.kind === 'reg' ? origin.get(value.index) : undefined;
+      if (cell === undefined) return undefined;
+      if (found !== undefined && found !== cell) return undefined;
+      found = cell;
+      continue;
+    }
+    const written = writtenCells(carrier);
+    if (!written.known) return undefined;
+    for (const cell of written.cells) origin.delete(cell);
+    if (carrier.mnemonic === 'IR.move') {
+      const destination = carrier.operands[0];
+      const source = carrier.operands[1];
+      if (destination?.kind === 'reg' && source?.kind === 'reg') {
+        const cell = origin.get(source.index);
+        if (cell !== undefined) origin.set(destination.index, cell);
+      }
+    }
+  }
+  return found;
 }
 
 /** Функции значения носителя `IR.const`: объявлены ТИПОМ, а не прокинуты приведением. */
@@ -674,6 +746,7 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
       pairs: new Map(),
       problems: [{ procedure: 0, reason: 'в потоке нет ни одной процедуры: доказывать нечего' }],
       siteValues: new Map(),
+      callValues: new Map(),
     };
   }
 
@@ -879,6 +952,68 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
     parameters.set(procedure, cells);
   }
 
+  // ── РЕЗУЛЬТАТ ВЫЗОВА, ОТДАЮЩЕГО ПАРАМЕТР (случай 76, путь (а)) ─────────────────────────────────
+  //
+  // `пусть т = ф("абв")`, где `ф` возвращает свой параметр: значение аргумента доказано — значит
+  // доказано и значение КЛЕТКИ-ПРИЁМНИКА в вызывающей процедуре. Без этого факта план не знает, что в
+  // клетке строка: `вывести т` не опознаётся печатью и уходит системным вызовом как ЧИСЛО — тихая ложь
+  // `1114106`. Замер до правки — `.tmp/td76-базовая.ts` (Б1).
+  //
+  // Правила осторожности (любое сомнение — МОЛЧАНИЕ, а не догадка):
+  //   • сквозной возврат обязан быть доказан `returnedParamOf` (все возвраты — один параметр);
+  //   • параметр вызываемой обязан быть ОБЪЯВЛЕН строкой: значение несёт СТРОКУ, а не число;
+  //   • значение аргумента на сайте обязано быть известно и быть ЗАПИСЬЮ ПУЛА: у значения из рантайма
+  //     блоба нет, и подставить его значило бы подставить чужой адрес;
+  //   • вызывающая процедура обязана быть ПРЯМОЛИНЕЙНОЙ (см. ниже: в ветке линейный проход плана
+  //     подставил бы значение не той ветви — это замерено и было бы тихой ложью);
+  //   • факт ставится на САЙТ, а не «с начала процедуры»: приёмник вызова план гасит на самом вызове.
+  const returnedParam = procedures.map((_, procedure) =>
+    returnedParamOf(code, bounds[procedure]!.from, bounds[procedure]!.to, stringCandidates(procedure)),
+  );
+  const calleeOfSite = new Map<number, number>();
+  for (const [callee, sites] of callSites) for (const site of sites) calleeOfSite.set(site, callee);
+  /** Сайты вызова, у которых ЕСТЬ приёмник и чья процедура ПРЯМОЛИНЕЙНА: только там ставится факт. */
+  const sitesWithDestination = new Set<number>();
+  /** Носитель `IR.call` → запись пула, которую ЭТОТ вызов кладёт в свой приёмник (случай 76, путь (а)). */
+  const callValues = new Map<number, number>();
+  /**
+   * ПРОЦЕДУРЫ С ПЕРЕХОДАМИ — ИЗ ДОКАЗАТЕЛЬСТВА ИСКЛЮЧАЮТСЯ ЦЕЛИКОМ, и это не перестраховка.
+   *
+   * План строк раскладывает доказанное значение ЛИНЕЙНО, а в ветке две записи одной клетки идут в
+   * ПОРЯДКЕ НОСИТЕЛЕЙ, а не в порядке исполнения: значение получит та ветвь, чьи носители лежат позже.
+   * Замер (`.tmp/td76-ветка.ts`, В1/В2: ветка `если сч == 0` внутри `пока`, верные ответы «абв» и «где»)
+   * дал ЧУЖОЙ текст — подстановка была бы тихой ложью. В ПРЯМОЛИНЕЙНОЙ процедуре линейный проход точен:
+   * порядок носителей и есть порядок исполнения, поэтому значение там и доказывается.
+   */
+  procedures.forEach((_, procedure) => {
+    const range = bounds[procedure]!;
+    let straight = true;
+    const sites: number[] = [];
+    for (let at = range.from; at < range.to; at += 1) {
+      const carrier = code[at];
+      if (carrier === undefined) break;
+      if (carrier.mnemonic === 'IR.jmp' || carrier.mnemonic === 'IR.jmp_if' || carrier.mnemonic === 'IR.jmp_if_not') {
+        straight = false;
+      }
+      if (carrier.mnemonic !== 'IR.call') continue;
+      const flags = carrier.operands[0];
+      const destination = carrier.operands[4];
+      if (flags !== undefined && flags.kind === 'imm' && (flags.value & 1) === 1 && destination?.kind === 'reg') {
+        sites.push(at);
+      }
+    }
+    if (straight) for (const site of sites) sitesWithDestination.add(site);
+  });
+  for (const site of sitesWithDestination) {
+    const callee = calleeOfSite.get(site);
+    if (callee === undefined) continue;
+    const position = returnedParam[callee];
+    if (position === undefined || !stringCandidates(callee).includes(position)) continue;
+    const value = callStates.get(site)?.get(position);
+    if (value === undefined || value.kind !== 'строка') continue;
+    callValues.set(site, value.pool);
+  }
+
   // МНОЖЕСТВА ЗНАЧЕНИЙ ПО САЙТАМ — НАРУЖУ (TD-0001): свёртка уже сделана, знание множества осталось.
   const siteValues = new Map<number, ReadonlyMap<number, readonly ProvenValue[]>>();
   for (const [pair, values] of collectedSiteValues) {
@@ -944,7 +1079,7 @@ export function proveStringValues(input: ProveStringValuesInput): StringValuePro
         'цепочка «параметр → копия → аргумент» длиннее предела, значения не доказаны',
     });
   }
-  return { parameters, pairs, problems, siteValues };
+  return { parameters, pairs, problems, siteValues, callValues };
 }
 
 /** Параметры: по ВСЕМ сайтам сразу — «первый» и «большинство» запрещены (правило 2). */
