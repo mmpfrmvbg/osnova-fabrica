@@ -757,6 +757,24 @@ function encodeReal(instruction: AsmInstruction): Uint8Array {
   }
   const literal = literalOperand(entry, instruction.operands);
   if (literal !== undefined) {
+    // Слот `src1` — 5-битное поле 0…31 без литерала (спецификация вендора и замер на E8C2, случай 82):
+    // литеральная форма там дала бы поле `0xd4` = литерал 20 вместо значения, и 22 читалось бы как 20.
+    const literalSlot = entry.operands[literal.index];
+    if (literalSlot === "src1") {
+      // У `src1` нет литеральной формы ВООБЩЕ: единственный способ положить туда значение —
+      // 5-битное поле 0…31. Всё остальное ассемблер вендора отвергает («Invalid argument in position
+      // of SRC1»), и наш отказ обязан быть отказом, а не молчаливыми 16 байтами с полем `0xd4`,
+      // которое железо прочтёт как литерал 20 (замер на E8C2, случай 82).
+      if (!isSrc1Immediate(literal.value)) {
+        throw new EncodingRefusedError(
+          `«${entry.mnemonic}»: литерал ${String(literal.value)} в слоте src1 не выразим — у src1 ` +
+            `только 5-битное поле (0…${String(IMM_SRC1_MAX)}, расширение нулями) и литерального слова ` +
+            "`LTS` нет; ассемблер вендора такой литерал отвергает, а литеральная ссылка в src1 читается " +
+            "железом как 5-битное значение",
+        );
+      }
+      return encodeShortImm(entry, channel, instruction.operands, literal);
+    }
     // Значение 0…15 ассемблер МЦСТ кладёт короткой непосредственной формой — 8 байт вместо 16.
     // Измерено: `movts,0 5, %b[1]` → `01 00 00 04 01 c5 c0 60`; при 16 он сам берёт литерал.
     if (isShortImmediate(literal.value, entry.form)) return encodeShortImm(entry, channel, instruction.operands, literal);
@@ -1847,7 +1865,7 @@ interface LiteralOperand {
 function literalOperand(entry: RealOpcodeEntry, operands: readonly Operand[]): LiteralOperand | undefined {
   const index = operands.findIndex((operand) => operand.kind === "imm");
   if (index < 0) return undefined;
-  if (entry.form === "ALF11") {
+  if (entry.form === "ALF11" && entry.operands[index] !== "src1") {
     throw new EncodingRefusedError(
       `«${entry.mnemonic}»: литерал в длинной форме (ALS + ALES) не реализован — раскладка ` +
         "слога литерала вместе с полуслогом ALES ассемблером не проверена",
@@ -2002,8 +2020,38 @@ function literalLayoutOf(
  */
 export const IMM_SHORT_BASE = 0xc0;
 
-/** Наибольшее значение, выразимое короткой непосредственной формой. */
+/** Наибольшее значение, выразимое короткой непосредственной формой в слоте `src2`. */
 export const IMM_SHORT_MAX = 15;
+
+/**
+ * Наибольшее значение, выразимое непосредственной формой в слоте **`src1`** — 31, и это ДРУГАЯ форма.
+ *
+ * Слот `src1` кодирует литерал полем `110xxxxx` — **5 бит, значения 0…31, расширение нулями,
+ * литерального слова `LTS` нет** (`vendor/relcc2/spec/isa/bundle.md`, «Operand encodings»):
+ * `src1` — 5-битный литерал `x`, а `src2` — 4-битный `x`; 16-битный литерал живёт только в `src2`
+ * (`11010hll`, полуслог `LTS`). Там же прямым текстом: «In `src1` gas takes only 0–31; any other
+ * value, negative ones included, is 'Invalid argument in position of SRC1', and gas never swaps the
+ * operands».
+ *
+ * **Замер на живой машине E8C2 (2026-11-07, три прогона из трёх, случай 82).** Программа
+ * `пусть текст = "абвгдежзийклмнопрстуфхцчшщ"; вернуть текст[20]` — строка 22 знака, граница цикла
+ * равна спорному литералу. Наш кодировщик кладёт 22 в `src1` литеральной формой: поле `0xd4` и слово
+ * `LTS` со значением 22; по замыслу `текст[20]` = «у» = 1091, код **67**. Железо вернуло **255** =
+ * −1 «вне границ», потому что `0xd4` в `src1` — это `0xc0 | 20`, то есть литерал **20**, и `текст[20]`
+ * оказался за границей. Модель дала ровно то же **255** — модель не врала, ошибались мы.
+ */
+export const IMM_SRC1_MAX = 31;
+
+/**
+ * Выразимо ли значение непосредственной формой **в слоте `src1`** — без литерала.
+ *
+ * Отличается от {@link isShortImmediate} границей (31 против 15) и тем, что **не отказывается** для
+ * `ALF11`: у `src1` литеральной формы НЕТ вовсе, поэтому длинная форма ничего не меняет — значение
+ * 0…31 всё равно ложится в 5-битное поле самого слота.
+ */
+export function isSrc1Immediate(value: number): boolean {
+  return Number.isInteger(value) && value >= 0 && value <= IMM_SRC1_MAX;
+}
 
 /**
  * Выразимо ли значение короткой непосредственной формой — **без литерала**.
@@ -2346,6 +2394,9 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     // Без этой строки проверка падала на первом же таком поле: «регистр 193» (0xc1) — и сквозной
     // прогон ядер умирал целиком вместо разбора операндов, который эту форму умеет.
     if (value >= IMM_SHORT_BASE && value <= IMM_SHORT_BASE + IMM_SHORT_MAX) continue;
+    // В слоте `src1` нет литеральной ссылки: любое поле `110xxxxx` (0xc0…0xdf) — это 5-битное
+    // непосредственное значение 0…31, а не регистр (`vendor/relcc2/spec/isa/bundle.md`).
+    if (slot === "src1" && isSrc1Immediate(value & 0x1f)) continue;
     // Верхняя граница — 0x80 | 63: старший бит поля означает оконный файл регистров
     // (opcodes/e2k-dis.c:416-419), 0xc0+ занято литералами и непосредственными значениями.
     if (value > (REGISTER_FILE_WINDOW | REAL_MAX_REGISTER)) {
@@ -2356,6 +2407,16 @@ function decodeReal(bytes: Uint8Array): AsmInstruction {
     // Предикат-приёмник сравнения: номер — поле pdst[4:0], отдельный файл, а не регистр.
     if (slot === "pdst") return { kind: "pred" as const, index: pdst };
     const value = slot === "src1" ? src1 : slot === "src2" ? src2 : slot === "src3" ? src3 : dst;
+    // СЛОТ `src1` — литерала нет вовсе, и поле `110xxxxx` (0xc0…0xdf) значит ЗДЕСЬ 5-битное
+    // непосредственное значение 0…31, а не ссылку на слово `LTS` (`vendor/relcc2/spec/isa/bundle.md`:
+    // у src1 `110xxxxx` = литерал 0…31, у src2 — `1100xxxx` = 0…15; 16-битный литерал живёт ТОЛЬКО в
+    // src2). Значения 0…15 ловит ветвь короткой формы ниже, поэтому здесь остаются 16…31 (`0xd0…0xdf`).
+    // Осторожно с границами: `10xxxxxx` (0x80…0xbf) — это ОКОННЫЕ регистры `%rx`, а `111xxxxx`
+    // (0xe0…0xff) — глобальные `%gx`; литерал только в `110xxxxx`.
+    // Замер на E8C2 (случай 82): наш прежний кодировщик ставил `0xd4` при 22, и железо читало 20.
+    if (slot === "src1" && value >= (IMM_SHORT_BASE + IMM_SHORT_MAX + 1) && value <= 0xdf) {
+      return { kind: "imm" as const, value: value & 0x1f };
+    }
     // Короткая непосредственная форма: поле `0xc0 | N` — значение 0…15 **в самом поле**, без
     // литерального слова. Измерено ассемблером МЦСТ: `movts,0 5, %b[1]` → `01 00 00 04 01 c5 c0 60`
     // (8 байт, `lng = 0`). Слово литерала при этом быть не должно: `lng = 0` означает одно слово.

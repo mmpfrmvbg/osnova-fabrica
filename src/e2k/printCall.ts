@@ -65,7 +65,7 @@ import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_REGISTERS } from './arrayRuntime';
 import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SPILL_AREA_BYTES, SYSCALL_TRAP, spillBaseOf } from './elfMinimal';
 import { LOWERING_CODES } from './loweringRefusal';
-import { IMM_SHORT_MAX, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from './e2k-real';
+import { IMM_SHORT_MAX, IMM_SRC1_MAX, REAL_LONG_FORM_SIZE, REAL_SHORT_FORM_SIZE } from './e2k-real';
 import {
   PRINT_PRIMITIVE_CLOBBERS,
   exitPrimitives,
@@ -438,13 +438,51 @@ const LONG_FORM_SOURCE =
   `${FORM_SOURCE}; длинная форма ALS + ALES — REAL_LONG_FORM_SIZE (16 байт), ` +
   'короткая — REAL_SHORT_FORM_SIZE (8 байт)';
 
-/** Размер команды по её операндам: непосредственное 0…15 кодируется короткой формой. */
+/**
+ * Стоит ли литерал в слоте `src1` и выразим ли он там 5-битным полем.
+ *
+ * У `src1` литеральной формы НЕТ (`vendor/relcc2/spec/isa/bundle.md`), поэтому такая команда не несёт
+ * литерального слова — 8 байт, какой бы длины ни была её форма с регистрами.
+ */
+function hasSrc1Immediate(instruction: AsmInstruction): boolean {
+  const index = instruction.operands.findIndex((operand) => operand.kind === 'imm');
+  // `movts` — ALF2 (`src2`+`dst`): её первый операнд всегда src2, а не src1.
+  if (index !== 0 || instruction.mnemonic === 'movts') return false;
+  const operand = instruction.operands[0];
+  if (operand === undefined || operand.kind !== 'imm') return false;
+  return Number.isInteger(operand.value) && operand.value >= 0 && operand.value <= IMM_SRC1_MAX;
+}
+
+/**
+ * Размер команды по её операндам: **порог задаёт СЛОТ литерала**, а не мнемоника.
+ *
+ * | слот | поле | значения | литерал `LTS` | цена |
+ * |---|---|---|---|---|
+ * | `src1` | `110xxxxx` | 0…31, расширение нулями | нет вовсе | 8 байт |
+ * | `src2` | `1100xxxx` | 0…15 | нет | 8 байт |
+ * | `src2` | `11010hll` и старше | 16+ | да | 16 байт |
+ *
+ * Источник — `vendor/relcc2/spec/isa/bundle.md`, «Operand encodings» и «Literal values».
+ *
+ * Прежняя редакция знала ОДНУ границу (`IMM_SHORT_MAX = 15`) на любой литерал, поэтому у `src1`
+ * объявляла 16 байт там, где кодировщик (и ассемблер вендора) даёт 8 — и раскладка уводила носители
+ * после команды на 8 байт вперёд. Это и есть случай 82: петля лексера зависала на 16 кодпоинтах.
+ *
+ * Слот берётся по ПОЗИЦИИ операнда, потому что таблицы формы здесь нет: у `movts` (ALF2, `src2`+`dst`)
+ * и у `subs`/`adds`/`sdivs` (ALF1, `src1`+`src2`+`dst`) литерал-первый операнд попадает в РАЗНЫЕ слоты.
+ */
 function immediateSize(instruction: AsmInstruction): number {
-  const literals = instruction.operands.filter(
-    (operand): operand is { kind: 'imm'; value: number } => operand.kind === 'imm',
-  );
-  const long = literals.some((operand) => !Number.isInteger(operand.value) || operand.value < 0 || operand.value > IMM_SHORT_MAX);
-  return long ? REAL_LONG_FORM_SIZE : REAL_SHORT_FORM_SIZE;
+  const index = instruction.operands.findIndex((operand) => operand.kind === 'imm');
+  if (index < 0) return REAL_SHORT_FORM_SIZE;
+  const operand = instruction.operands[index];
+  if (operand === undefined || operand.kind !== 'imm') return REAL_SHORT_FORM_SIZE;
+  // `movts` — единственная ALF2 в таблице: её операнды `src2` + `dst`, поэтому первый операнд —
+  // ВСЕГДА `src2` независимо от позиции. У всех остальных записей первый операнд — `src1`.
+  const slot = instruction.mnemonic === 'movts' ? 'src2' : index === 0 ? 'src1' : 'src2';
+  const { value } = operand;
+  if (!Number.isInteger(value) || value < 0) return REAL_LONG_FORM_SIZE;
+  if (slot === 'src1') return value <= IMM_SRC1_MAX ? REAL_SHORT_FORM_SIZE : REAL_LONG_FORM_SIZE;
+  return value <= IMM_SHORT_MAX ? REAL_SHORT_FORM_SIZE : REAL_LONG_FORM_SIZE;
 }
 
 /**
@@ -492,7 +530,11 @@ export function printCommandForm(instruction: AsmInstruction): PrintCommandForm 
     case 'movtd':
       return long('ALF2 + LTS');
     case 'muls':
-      return long('ALF11');
+      // ALF11 (длинная форма) — 16 байт, и это верно и для регистровых операндов, и для литерала
+      // в src2. Короче она становится ТОЛЬКО когда литерал стоит в src1: у src1 литерального слова
+      // нет вовсе (5-битное поле 0…31), и такая команда — 8 байт. Поэтому здесь по умолчанию
+      // длинная форма, а не `immediateSize` (она для регистровой команды вернула бы 8).
+      return hasSrc1Immediate(instruction) ? short('ALF1 (литерал в src1)') : long('ALF11');
     case 'call':
       return long('CS1 (SS + C1F1)');
     case 'movts':
@@ -500,8 +542,12 @@ export function printCommandForm(instruction: AsmInstruction): PrintCommandForm 
     case 'adds':
       return immediateSize(instruction) === REAL_SHORT_FORM_SIZE ? short('ALF1') : long('ALF11');
     case 'shrs':
-      // Сдвиг с непосредственным несёт литеральное слово: замер — `shrs %b[4], 31, %b[4]` = 16 байт.
-      return long('ALF11');
+      // Сдвиг на значение 16+ несёт литеральное слово — замер: `shrs %b[4], 31, %b[4]` = 16 байт.
+      // Но 0…15 ложится 4-битным полем `1100xxxx` в src2 — 8 байт БЕЗ литерала (`Literal values`,
+      // `vendor/relcc2/spec/isa/bundle.md`; та же граница у кодировщика, `isShortImmediate`).
+      // Прежняя редакция объявляла 16 при ЛЮБОМ значении, и раскладка уводила носители ПОСЛЕ `shrs`
+      // на 8 байт НАЗАД — второе направление перекоса случая 82.
+      return immediateSize(instruction) === REAL_SHORT_FORM_SIZE ? short('ALF1') : long('ALF11');
     default:
       return undefined;
   }

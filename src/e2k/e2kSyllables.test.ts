@@ -160,9 +160,18 @@ describe('литералы и слоги управления: отказы на
     expect(() =>
       encoder.encode({ mnemonic: 'muls', channel: 0, operands: [imm(42), reg(2), reg(3)] }),
     ).toThrow(EncodingRefusedError);
+    // Литерал в `src1` у `muls` (ALF11) отвергается НЕ по длинной форме: у `src1` литерального слова
+    // нет вовсе (5-битное поле 0…31, `vendor/relcc2/spec/isa/bundle.md`), поэтому причина — граница
+    // СЛОТА. Случай 82: раньше здесь стояла литеральная ссылка `0xd4`, и железо (E8C2) читало её как
+    // литерал 20 вместо 42 — то есть молча возвращало не то число, без единого отказа.
     expect(() =>
       encoder.encode({ mnemonic: 'muls', channel: 0, operands: [imm(42), reg(2), reg(3)] }),
-    ).toThrow(/литерал в длинной форме/);
+    ).toThrow(/в слоте src1 не выразим/);
+    // Та же граница с другой стороны: 0…31 у `src1` кодируется 8 байтами, и это НЕ отказ.
+    expect(
+      encoder.encode({ mnemonic: 'muls', channel: 0, operands: [imm(21), reg(2), reg(3)] }).length,
+      'src1 imm=21 — 5-битное поле, 8 байт',
+    ).toBe(8);
   });
 
   it('нереализованные формы управления отвергаются', () => {
