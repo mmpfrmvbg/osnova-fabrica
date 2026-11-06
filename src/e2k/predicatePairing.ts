@@ -88,7 +88,7 @@ import type { AsmInstruction } from "./backend";
 import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
 import { ARRAY_REGISTERS } from "./arrayRuntime";
 import { callArgumentOperands } from "./shell";
-import { LOAD_CARRIER, STORE_CARRIER } from "./memoryAccess";
+import { LOAD_BYTE_CARRIER, LOAD_CARRIER, STORE_BYTE_CARRIER, STORE_CARRIER } from "./memoryAccess";
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from "./procedureCall";
 import { REFUSAL_CARRIER } from "./refusalBlock";
 import { COLLECTION_ALLOC_CARRIER, COLLECTION_FRAME_REGISTERS } from "./collectionsRuntime";
@@ -314,6 +314,15 @@ export function registersOf(instruction: AsmInstruction): { known: boolean; read
     case LOAD_CARRIER: // [адрес, приёмник]
       return known(regs([operands[0]!]), regs([operands[1]!]));
     case STORE_CARRIER: // [значение, адрес]
+      return known(regs([operands[0]!, operands[1]!]), []);
+    // ДОСТУП БАЙТОМ (`ldb`/`stb`, решение владельца D26b): роли те же, что у `IR.load`/`IR.store`.
+    // Ветви заведены ИЗМЕРЕНИЕМ, а не для полноты: без них конкретные `ldb`/`stb` — БАРЬЕР, и сторож
+    // ребра взятого перехода отказывает на цикле рантайм-среза («между переходом и его целью стоит
+    // «ldb» с неизвестными операндами — живость на ребре взятого перехода не доказана»; замер —
+    // `docs/verification-debt.md`, случай 78).
+    case LOAD_BYTE_CARRIER: // [адрес, приёмник]
+      return known(regs([operands[0]!]), regs([operands[1]!]));
+    case STORE_BYTE_CARRIER: // [значение, адрес]
       return known(regs([operands[0]!, operands[1]!]), []);
     case "IR.arena_init":
       return known([], [ARENA_POINTER_BASE, ARENA_LIMIT_BASE]);

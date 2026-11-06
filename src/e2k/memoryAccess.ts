@@ -51,6 +51,31 @@ export const LOAD_CARRIER = 'IR.load';
 /** Носитель записи по адресу-регистру. */
 export const STORE_CARRIER = 'IR.store';
 
+/**
+ * Носитель чтения БАЙТА по адресу-регистру — `ldb`, а не `ldd`.
+ *
+ * # Зачем отдельный носитель, а не конкретная команда
+ *
+ * ИЗМЕРЕНО 2026-11-06 (`docs/verification-debt.md`, случай 78; решение владельца D26b): конкретные
+ * команды в потоке раскладка НЕ РАЗМЕЩАЕТ. `layoutOf` кладёт `ldb`/`stb` в `unplaced` («не носитель IR:
+ * раскладка идёт по потоку носителей оболочки»), а `src/e2k/programImage.ts#imageOfCarriers` берёт
+ * неразмещённый носитель как ОТКАЗ — то есть цикл, собранный из конкретных команд байта, не
+ * подключается ВООБЩЕ. У всех работающих сайтов дерева (арена, печать, коллекции, строковая арена)
+ * конкретные команды лежат ВНУТРИ формы носителя, а в потоке стоят только `IR.*`.
+ *
+ * Второй, независимый отказ того же класса: разбор живости
+ * (`src/e2k/predicatePairing.ts#registersOf`) конкретных `ldb`/`stb` не знает, а неизвестный носитель
+ * для сопоставления предикатов — БАРЬЕР и сторож ребра взятого перехода: «между переходом и его целью
+ * стоит «ldb» с неизвестными операндами — живость на ребре взятого перехода не доказана».
+ *
+ * Форма операндов — ТА ЖЕ, что у `IR.load`/`IR.store` (адрес, приёмник / значение, адрес): смещение
+ * нулевое и берётся из нулевой клетки рантайма массивов, ровно как у `ldd`/`std` ниже. Так у цикла
+ * среза нет лишней роли, а понижение остаётся единственным источником байтов (класс §3.35).
+ */
+export const LOAD_BYTE_CARRIER = 'IR.load_byte';
+/** Носитель записи БАЙТА по адресу-регистру — `stb`, а не `std` (та же причина, что у чтения). */
+export const STORE_BYTE_CARRIER = 'IR.store_byte';
+
 /** Команды чтения — ОДИН источник для раскладки (байты) и понижения (образ). */
 export function loadInstructions(address: number, destination: number): AsmInstruction[] {
   return [
@@ -67,6 +92,36 @@ export function storeInstructions(value: number, address: number): AsmInstructio
   return [
     {
       mnemonic: 'std',
+      channel: 2, // `st*` разрешены только в каналах 2 и 5 (opcodes/e2k-opc.h:969-984)
+      operands: [reg(value), reg(address), reg(ARRAY_REGISTERS.zero)],
+    },
+  ];
+}
+
+/**
+ * Команды чтения БАЙТА — ОДИН источник для раскладки (форма `ldb`) и понижения (образ).
+ *
+ * Порядок операндов у `ldb` — `[база, индекс, приёмник]`, и индекс здесь — нулевая клетка рантайма
+ * массивов: адрес приходит готовым, а шаг по строке делает сам цикл (`IR.add` указателя). Это ровно
+ * тот же приём, что у `loadInstructions` выше, и та же команда, которой уже копирует строковая арена
+ * (`src/e2k/stringRuntime.ts#stringArenaCopyInstructions`) — но ТАМ она лежит конкретной командой
+ * внутри формы носителя, а здесь ею становится сам носитель.
+ */
+export function loadByteInstructions(address: number, destination: number): AsmInstruction[] {
+  return [
+    {
+      mnemonic: 'ldb',
+      channel: 0,
+      operands: [reg(address), reg(ARRAY_REGISTERS.zero), reg(destination)],
+    },
+  ];
+}
+
+/** Команды записи БАЙТА — тот же источник, что у чтения: разойтись нечем. */
+export function storeByteInstructions(value: number, address: number): AsmInstruction[] {
+  return [
+    {
+      mnemonic: 'stb',
       channel: 2, // `st*` разрешены только в каналах 2 и 5 (opcodes/e2k-opc.h:969-984)
       operands: [reg(value), reg(address), reg(ARRAY_REGISTERS.zero)],
     },

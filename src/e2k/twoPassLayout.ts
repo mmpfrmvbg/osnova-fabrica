@@ -102,7 +102,7 @@ import {
 import { REMAINDER_CARRIER, remainderInstructions } from "./remainderRuntime";
 import { callArgumentOperands } from "./shell";
 import { MAX_CALL_ARGS } from "./emitterShell";
-import { LOAD_CARRIER, STORE_CARRIER } from "./memoryAccess";
+import { LOAD_BYTE_CARRIER, LOAD_CARRIER, STORE_BYTE_CARRIER, STORE_CARRIER } from "./memoryAccess";
 import { COLLECTION_ALLOC_CARRIER, COLLECTION_CALL_NAMES, collectionAllocInstructions, lowerCollectionCall } from "./collectionsRuntime";
 import {
   EXIT_CARRIER,
@@ -268,6 +268,22 @@ export const CARRIER_FORMS: readonly CarrierForm[] = [
     /** `IR.store [значение, адрес]` — запись по адресу-РЕГИСТРУ; канал 2, как у всех `st*`. */
     carrier: STORE_CARRIER,
     commands: [{ mnemonic: "std", form: "ALF3", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  },
+  {
+    /**
+     * `IR.load_byte [адрес, приёмник]` — чтение БАЙТА (`ldb`), форма и размер — из ТОГО ЖЕ источника,
+     * что у понижения (`src/e2k/memoryAccess.ts#loadByteInstructions`), как у `IR.load` выше.
+     *
+     * Заведён решением владельца D26b (измерено: `docs/verification-debt.md`, случай 78): конкретные
+     * команды байта раскладка НЕ размещает, и цикл рантайм-среза из них не подключается вовсе.
+     */
+    carrier: LOAD_BYTE_CARRIER,
+    commands: [{ mnemonic: "ldb", form: "ALF1", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  },
+  {
+    /** `IR.store_byte [значение, адрес]` — запись БАЙТА (`stb`); канал 2, как у всех `st*`. */
+    carrier: STORE_BYTE_CARRIER,
+    commands: [{ mnemonic: "stb", form: "ALF3", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
   },
   {
     // Целочисленное деление (БЛОК 2, оператор `div`). Форма объявлена 2026-09-25: правило понижения

@@ -65,7 +65,16 @@ import { CT_COND_ALWAYS, REAL_SHORT_FORM_SIZE, realOpcode, type RealSlot } from 
 import { CALL_WBS, CALLEE_REGISTERS, JUMP_CARRIER, carrierForm, carrierFormOf, jumpCommands, valueBranchJumpCommands, layoutOf, secondPass, CONDITIONAL_JUMP_CARRIERS } from "./twoPassLayout";
 import { callArgumentOperands } from "./shell";
 import { MAX_CALL_ARGS } from "./emitterShell";
-import { LOAD_CARRIER, STORE_CARRIER, loadInstructions, storeInstructions } from "./memoryAccess";
+import {
+  LOAD_BYTE_CARRIER,
+  LOAD_CARRIER,
+  STORE_BYTE_CARRIER,
+  STORE_CARRIER,
+  loadByteInstructions,
+  loadInstructions,
+  storeByteInstructions,
+  storeInstructions,
+} from "./memoryAccess";
 import { CTCOND_NEG_PRED, CTCOND_PRED, comparisonMnemonicOf, isMaterializingComparison, isValueBranchJump, pairPredicates, PREDICATE_FOR_PAIRS } from "./predicatePairing";
 import {
   lowerArrayCall,
@@ -895,6 +904,33 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       instruction.mnemonic === LOAD_CARRIER
         ? loadInstructions(first.index, second.index)
         : storeInstructions(first.index, second.index);
+    return { ok: true, instructions };
+  }
+
+  // ── Чтение и запись БАЙТОМ по адресу-РЕГИСТРУ (`ldb`/`stb`, решение владельца D26b) ───────────
+  //
+  // Роли операндов — ТЕ ЖЕ, что у `IR.load`/`IR.store` выше (адрес и приёмник / значение и адрес):
+  // смещение нулевое и берётся из нулевой клетки рантайма массивов, потому что указатель цикла
+  // рантайм-среза двигает сам (`IR.add`). Отличие ровно одно — ширина: `ldb`/`stb` вместо `ldd`/`std`.
+  // Почему носитель, а не конкретная команда: `docs/verification-debt.md`, случай 78 (конкретные
+  // команды байта раскладка кладёт в `unplaced`, и цикл среза не подключается вовсе).
+  if (instruction.mnemonic === LOAD_BYTE_CARRIER || instruction.mnemonic === STORE_BYTE_CARRIER) {
+    const operands = instruction.operands;
+    const expected = instruction.mnemonic === LOAD_BYTE_CARRIER ? 'адрес и приёмник' : 'значение и адрес';
+    if (operands.length !== 2 || operands.some((operand) => operand.kind !== 'reg')) {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${instruction.mnemonic}»: ожидались два регистра (${expected}), получено [${operands
+          .map((operand) => operand.kind)
+          .join(', ')}]`,
+      );
+    }
+    const first = operands[0] as { index: number };
+    const second = operands[1] as { index: number };
+    const instructions =
+      instruction.mnemonic === LOAD_BYTE_CARRIER
+        ? loadByteInstructions(first.index, second.index)
+        : storeByteInstructions(first.index, second.index);
     return { ok: true, instructions };
   }
 
