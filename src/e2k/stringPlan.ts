@@ -36,6 +36,7 @@ import {  STRING_ARENA_CONCAT_CARRIER,
   STRING_DESCRIPTOR_BYTES,
   STRING_DESCRIPTOR_MARK,
   STRING_NEWLINE,
+  STRING_SLICE_RUNTIME_CARRIER,
   STRING_SYMBOL_ENTRY_BYTES,
   STRING_TABLE_BYTES,
   codePointCount,
@@ -47,6 +48,7 @@ import {  STRING_ARENA_CONCAT_CARRIER,
   utf8Bytes,
 } from './stringRuntime';
 import { foldNumericCarrier, isNumericCarrier } from './numberFacts';
+import { registersOf } from './predicatePairing';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 
@@ -246,6 +248,27 @@ type StringEdit =
    * поймано: `strings.code[#3]` оставался `IR.invoke` при готовом адресе блоба.
    */
   | { readonly kind: 'slice'; readonly index: number; readonly value: StringValue; readonly destination: number }
+  /**
+   * РАНТАЙМ-СРЕЗ (шаг подключения ATOM-06-02-02): ИСТОЧНИК доказан, а КРАЯ — клетки.
+   *
+   * Носитель ЗАМЕНЯЕТСЯ на `IR.slice_runtime`: сайт (константы сборки, нормализация краёв, выделение
+   * в арене, цикл копирования) собирает конвейер ПОСЛЕ раскладки, потому что его форма зависит от
+   * места хвоста, а место известно только там (`src/e2k/stringRuntime.ts#stringSliceGroups`).
+   *
+   * Числа (адреса байтов, конец, число кодпоинтов, таблица продолжений, единица, шестнадцать) едут
+   * ИНДЕКСАМИ ПУЛА: `IR.const` — единственный носитель, чью длину раскладка берёт по значению.
+   */
+  | {
+      readonly kind: 'slice_runtime';
+      readonly index: number;
+      readonly source: StringValue;
+      /** Клетка начала — переписывается НА МЕСТЕ нормализацией (значение не переживает сайт). */
+      readonly from: number;
+      /** Клетка конца — та же судьба. */
+      readonly to: number;
+      /** Клетка вызова: результат (адрес байтов в арене) переносится сюда. */
+      readonly destination: number;
+    }
   | { readonly kind: 'length'; readonly index: number; readonly value: StringValue; readonly marks: number[] }
   | {
       readonly kind: 'symbol';
@@ -336,6 +359,16 @@ export interface StringPlan {
      * счётчик не ломал потребителей, которые собирают `counts` сами.
      */
     readonly slices?: number;
+    /**
+     * РАНТАЙМ-СРЕЗЫ (шаг подключения ATOM-06-02-02): сколько срезов ушло в САЙТ с ареной.
+     *
+     * Отдельно от `slices` (статических), и это не удобство: по этому числу конвейер понимает, что
+     * образу нужны ПРОЛОГ И РЕГИСТРЫ АРЕНЫ, — у сайта арена вызывается своим носителем
+     * `IR.arena_alloc`, а `система.память.выделить` в программе может и не быть. Без этого слова
+     * `arenaUsed` оказалось бы ложным, пролога `IR.arena_init` не было бы, и сайт взял бы мусор
+     * вместо указателя арены (класс «тихая ложь», §3.138.4).
+     */
+    readonly slicesRuntime?: number;
   };
   /**
    * Где лежит строка отказа арены и сколько в ней байт (`undefined` — образ ареной не пользуется).
@@ -390,6 +423,16 @@ export function planStrings(
      * такой строки на сборке неизвестно и операцию обязан делать рантайм.
      */
     readonly types?: StringTypeFacts;
+    /**
+     * ГРАНИЦЫ ПРОЦЕДУРЫ ТОЧКИ ВХОДА (`from` включительно, `to` исключительно) — там, где живёт сайт
+     * рантайм-среза (шаг подключения, ATOM-06-02-02).
+     *
+     * Полоса `%b[10..15]` принадлежит ОКНУ ТОЧКИ ВХОДА; в плоскости вызываемой те же номера — чужие
+     * клетки вызывающего. Поэтому без этого слова (или вне границ) срез с рантаймовыми краями
+     * остаётся НАЗВАННЫМ отказом, а не получает адрес «на глазок». Слова нет — нет и послабления:
+     * необъявленная граница обязана отказывать, а не разрешать.
+     */
+    readonly sliceEntryRange?: { readonly from: number; readonly to: number };
   } = {},
 ): StringPlan {
   const names = [...invokeNames];
@@ -519,6 +562,24 @@ export function planStrings(
   let prints = 0;
   /** СТАТИЧЕСКИЕ СРЕЗЫ (ATOM-06-02-02): считаны сборкой, а не рантаймом. */
   let staticSlices = 0;
+  /** РАНТАЙМ-СРЕЗЫ (шаг подключения ATOM-06-02-02): сайт с ареной, края — клетки. */
+  let runtimeSlices = 0;
+  /**
+   * КЛЕТКИ, ЧЬЁ ЗНАЧЕНИЕ ИЗРАСХОДОВАНО САЙТОМ РАНТАЙМ-СРЕЗА, и место, начиная с которого это верно.
+   *
+   * Нормализация краёв переписывает `н`/`к` НА МЕСТЕ (копий в сайте нет — бюджет окна измерен),
+   * поэтому всякое ПОЗДНЕЙШЕЕ чтение этих клеток прочитало бы не то, что туда положила программа.
+   * Список превращается в НАЗВАННЫЙ отказ (`edgeOverwrittenRefusals`), а не в тихую ложь.
+   */
+  const eatenEdges: { readonly at: number; readonly cells: readonly number[] }[] = [];
+  /**
+   * КЛЕТКИ, НЕСУЩИЕ ДЕСКРИПТОР, А НЕ ЗНАЧЕНИЕ (шаг подключения): адрес байтов результата.
+   *
+   * Отдельно от `typedRegisters` и ОТДЕЛЬНО ОТ `typedChoices` (TD-0001): там МНОЖЕСТВО значений, по
+   * которому строится дескриптор, здесь — ОДНО значение, чей дескриптор уже написан сайтом в память.
+   * Смешать их значило бы поставить выбор значения там, где выбора нет (DEC-0002).
+   */
+  const descriptorRegisters = new Set<number>();
 
   const valueOf = (text: string): StringValue => {
     const existing = values.get(text);
@@ -623,6 +684,9 @@ export function planStrings(
     // легло ДРУГОЕ число, множество заставило бы читать память по чужому адресу — тихая ложь вместо
     // отказа. Тип (`typedRegisters`) при этом СОХРАНЯЕТСЯ: он-то и назовёт отказ честно.
     typedChoices.delete(register);
+    // ДЕСКРИПТОР РАНТАЙМ-СРЕЗА УМИРАЕТ ВМЕСТЕ СО ЗНАЧЕНИЕМ — по той же причине, что и множество:
+    // запись в клетку делает `адрес − 16` адресом ЧУЖОЙ памяти, и `длина` прочитала бы оттуда число.
+    descriptorRegisters.delete(register);
   };
   /**
    * ЧИСЛОВОЙ РЕЗУЛЬТАТ СТИРАЕТ СТРОКОВОСТЬ КЛЕТКИ, А НЕ ТОЛЬКО ЗНАЧЕНИЕ (TD-0003, 2026-11-05).
@@ -956,6 +1020,17 @@ export function planStrings(
       const argument = carrier.operands[1];
       const value = registerOf(argument) ?? provenValueOf(argument);
       if (value === undefined) {
+        // РЕЗУЛЬТАТ РАНТАЙМ-СРЕЗА (шаг подключения): значение — АДРЕС БАЙТОВ В АРЕНЕ, а число
+        // кодпоинтов лежит в дескрипторе перед ними (`[адрес − 16]`), который сайт уже записал.
+        // В `choiceValuesOf` такая клетка НЕ попадает (DEC-0002): там МНОЖЕСТВО значений, по которому
+        // дескриптор ещё предстоит построить, а здесь дескриптор готов и выбора нет.
+        if (argument !== undefined && argument.kind === 'reg' && descriptorRegisters.has(argument.index)) {
+          killTyped(destination); // результат — ЧИСЛО
+          lengths += 1;
+          descriptorLengths += 1;
+          edits.set(index, { kind: 'length_runtime', index, marks: [STRING_DESCRIPTOR_MARK, 0] });
+          return;
+        }
         // МНОЖЕСТВО САЙТОВ — ЗНАЧЕНИЕ ПРИХОДИТ ИЗ ПАМЯТИ (TD-0001). Прежде здесь был только отказ: взять
         // длину было не от чего. Теперь её берут из дескриптора перед блобом, и специализация на сайт
         // не нужна — ровно то, что разрешил владелец 2026-11-05.
@@ -1088,8 +1163,57 @@ export function planStrings(
       // операнде 5, а операнд 3 был именем. Первая редакция читала конец из операнда 3 и получала
       // «конец = 0», то есть срез «ничего» — на этом и поймано.
       const source = registerOf(carrier.operands[1]);
-      const from = constantNumber(carrier.operands[2]);
-      const to = constantNumber(carrier.operands[5]);
+      const fromOperand = carrier.operands[2];
+      const toOperand = carrier.operands[5];
+      const from = constantNumber(fromOperand);
+      const to = constantNumber(toOperand);
+      // РАНТАЙМ-СРЕЗ (шаг подключения ATOM-06-02-02): источник ДОКАЗАН (его байты, конец и число
+      // кодпоинтов известны сборке), а ОБА КРАЯ — КЛЕТКИ, значения которых сборке неизвестны. Это не
+      // отказ: сайт нормализует края в рантайме, выделяет блок в арене и копирует байты
+      // (`src/e2k/stringRuntime.ts#stringSliceGroups`).
+      //
+      // ОДИН КРАЙ-КОНСТАНТА СЮДА НЕ ПУСКАЕТСЯ: у сайта нет свободной клетки под константу (бюджет окна
+      // измерен — 6 клеток полосы, 3 клетки арены, 4 объявленных), поэтому смешанный случай остаётся
+      // НАЗВАННЫМ отказом, а не получает значение «на глазок».
+      // ПЛОСКОСТЬ: САЙТ РАНТАЙМ-СРЕЗА ЖИВЁТ ТОЛЬКО В ТОЧКЕ ВХОДА. Его шесть клеток полосы
+      // (`%b[10..15]`) принадлежат окну ТОЧКИ ВХОДА, а у вызываемой окно своё: клетка `%b[10]` там —
+      // это `%b[2]` вызывающего, то есть чужая. Поэтому срез в вызываемой (например, края — её
+      // ПАРАМЕТРЫ, как у лексера) остаётся НАЗВАННЫМ отказом, а не получает адрес «на глазок».
+      const вТочкеВхода =
+        options.sliceEntryRange !== undefined &&
+        index >= options.sliceEntryRange.from &&
+        index < options.sliceEntryRange.to;
+      if (
+        вТочкеВхода &&
+        source !== undefined &&
+        destination !== undefined &&
+        fromOperand?.kind === 'reg' &&
+        toOperand?.kind === 'reg' &&
+        from === undefined &&
+        to === undefined
+      ) {
+        // ЗНАЧЕНИЕ НЕ ДОКАЗАНО, НО И НЕ ПОТЕРЯНО: клетка получает признак «здесь ДЕСКРИПТОР» — по нему
+        // `длина` возьмёт число кодпоинтов из памяти, а `с[и]` откажет ПО ИМЕНИ (таблицы кодов у среза
+        // нет: сайт пишет только слово длины).
+        byRegister.delete(destination);
+        numbersOf.delete(destination);
+        typedRegisters.add(destination);
+        typedChoices.delete(destination);
+        descriptorRegisters.add(destination);
+        runtimeSlices += 1;
+        // КРАЯ ИЗРАСХОДОВАНЫ: нормализация переписывает их НА МЕСТЕ, и всякое позднейшее чтение этих
+        // клеток прочитало бы чужое число. Пометка превращается в названный отказ ниже, ПО ПОТОКУ.
+        eatenEdges.push({ at: index, cells: [fromOperand.index, toOperand.index] });
+        edits.set(index, {
+          kind: 'slice_runtime',
+          index,
+          source,
+          from: fromOperand.index,
+          to: toOperand.index,
+          destination,
+        });
+        return;
+      }
       if (source === undefined || from === undefined || to === undefined) {
         // ОТКАЗ НАЗЫВАЕТ, ЧЕГО ИМЕННО НЕТ: у срезов две РАЗНЫЕ причины, и «аргумент не строка» на
         // них обе неверна (строка тут как раз есть — по типу).
@@ -1098,7 +1222,10 @@ export function planStrings(
             ? typedWithoutValue(carrier.operands[1])
               ? `${reasonOfTyped(carrier.operands[1], typedProcedure)} — срез взять не от чего`
               : 'аргумент не строка — срез взять не от чего'
-            : 'края среза известны только в рантайме — рантайм-срез не понижен (нужны цикл копирования и арена, §3.138.4)';
+            : вТочкеВхода
+              ? 'края среза известны только в рантайме — рантайм-срез не понижен (нужны цикл копирования и арена, §3.138.4)'
+              : 'края среза известны только в рантайме, а сайт рантайм-среза живёт только в плоскости ' +
+                'ТОЧКИ ВХОДА (его полоса `%b[10..15]` — её, у вызываемой своё окно): срез в вызываемой не понижен';
         problems.push(`#${String(index)} ${name}: ${почему}`);
         edits.set(index, { kind: 'none', index, reason: 'срез со значением из рантайма' });
         kill(destination);
@@ -1223,12 +1350,47 @@ export function planStrings(
     // вышли выше через `return`, — поэтому до этой строки доживают только «не признанные».
     kill(writtenRegisterOf(carrier));
   });
+  // ── КРАЙ СРЕЗА, ПРОЧИТАННЫЙ ПОСЛЕ САЙТА, — ОТКАЗ, А НЕ ЧУЖОЕ ЧИСЛО ────────────────────────────
+  //
+  // Нормализация переписывает клетки `н`/`к` НА МЕСТЕ (копий в сайте нет: бюджет окна измерен —
+  // 6 клеток полосы, 3 клетки арены, 4 объявленных). Значит, если ПОСЛЕ вызова среза поток читает ту
+  // же клетку, он прочитает НЕ значение программы, а счётчик сайта. Молчание здесь — класс «тихая
+  // ложь» (программа собирается, число неверное), поэтому чтение названо причиной; ПЕРЕЗАПИСЬ клетки
+  // снимает пометку — новое значение краем уже не является.
+  for (const eaten of eatenEdges) {
+    const живые = new Set(eaten.cells);
+    for (let at = eaten.at + 1; at < code.length && живые.size > 0; at++) {
+      const carrier = code[at]!;
+      const итог = registersOf(carrier);
+      if (!итог.known) {
+        if (живые.size > 0) {
+          problems.push(
+            `#${String(at)} ${carrier.mnemonic}: форму клеток разобрать не удалось, а после среза ` +
+              `${String(eaten.at)} в %b[${[...живые].map(String).join('], %b[')}] лежит СЧЁТЧИК сайта — ` +
+              'прочитать его как значение края нельзя (отказ, а не тихая ложь)',
+          );
+          break;
+        }
+        continue;
+      }
+      if (итог.reads.some((cell) => живые.has(cell))) {
+        problems.push(
+          `#${String(at)} ${carrier.mnemonic}: край среза #${String(eaten.at)} прочитан ПОСЛЕ сайта ` +
+            `(%b[${итог.reads.filter((cell) => живые.has(cell)).map(String).join('], %b[')}]) — ` +
+            'нормализация переписывает края НА МЕСТЕ, и клетка несёт счётчик сайта, а не значение программы',
+        );
+        break;
+      }
+      for (const cell of итог.writes) живые.delete(cell);
+    }
+  }
 
-  // ── Раскладка статических блобов: снизу вверх от площадки печати ──────────────────────────────
-  // Таблица продолжений нужна только СБОРОЧНОЙ длине: длина по дескриптору байтов не читает вовсе,
-  // и объявлять под неё 256 байт значило бы платить за неиспользуемое (у таких программ статика
-  // выросла бы на четверть килобайта ни за что).
-  const needsTable = lengths > descriptorLengths;
+  // Таблица продолжений нужна СБОРОЧНОЙ длине и САЙТУ РАНТАЙМ-СРЕЗА (его петля читает её на каждом
+  // байте); длина по дескриптору байтов не читает вовсе, и объявлять под неё 256 байт значило бы
+  // платить за неиспользуемое (у таких программ статика выросла бы на четверть килобайта ни за что).
+  // Без этой ветви у программы только с рантайм-срезом адрес таблицы был бы НУЛЁМ, и петля читала бы
+  // продолжения по адресу 0 — порча вместо отказа.
+  const needsTable = lengths > descriptorLengths || runtimeSlices > 0;
   // Буфер нужен, только если в него кто-то пишет: у склейки сверх статического буфера байты едут в
   // арену, и объявлять под неё статические 20 байт значило бы платить за неиспользуемое.
   const needsBuffer = staticConcats > 0;
@@ -1356,6 +1518,44 @@ export function planStrings(
   const rewritten = code.map((carrier, index) => {
     const edit = edits.get(index);
     if (edit === undefined || edit.kind === 'none') return carrier;
+    // РАНТАЙМ-СРЕЗ: НОСИТЕЛЬ СМЕНЁН (как у склейки через арену), а не помечен. Все шесть чисел —
+    // ИНДЕКСЫ ПУЛА, потому что `IR.const` — единственный носитель, чью длину раскладка берёт по
+    // ЗНАЧЕНИЮ (адрес — 16 байт, единица и шестнадцать — 8): значение и форма обязаны сойтись.
+    if (edit.kind === 'slice_runtime') {
+      const address = edit.source.address;
+      const table = addresses.get('⟨таблица продолжений⟩');
+      if (address === undefined || table === undefined) {
+        problems.push(
+          `#${String(index)} ${carrier.mnemonic}: у рантайм-среза «${edit.source.key}» нет адреса байтов ` +
+            `или таблицы продолжений (байты ${String(address)}, таблица ${String(table)}) — дефект планирования`,
+        );
+        return carrier;
+      }
+      pool.push(
+        address,
+        address + edit.source.bytes.length,
+        codePointsOfBytes(edit.source.bytes).length,
+        table,
+        1,
+        STRING_DESCRIPTOR_BYTES,
+      );
+      const first = pool.length - 6;
+      return {
+        mnemonic: STRING_SLICE_RUNTIME_CARRIER,
+        channel: carrier.channel,
+        operands: [
+          { kind: 'reg' as const, index: edit.from },
+          { kind: 'reg' as const, index: edit.to },
+          { kind: 'reg' as const, index: edit.destination },
+          imm(first),
+          imm(first + 1),
+          imm(first + 2),
+          imm(first + 3),
+          imm(first + 4),
+          imm(first + 5),
+        ],
+      };
+    }
     if (edit.kind === 'slice') {
       const address = edit.value.address;
       if (address === undefined) {
@@ -1490,7 +1690,16 @@ export function planStrings(
     blobs,
     staticStart: cursor,
     problems,
-    counts: { lengths, symbols, concats, prints, strings: ordered.length, arenaConcats, slices: staticSlices },
+    counts: {
+      lengths,
+      symbols,
+      concats,
+      prints,
+      strings: ordered.length,
+      arenaConcats,
+      slices: staticSlices,
+      slicesRuntime: runtimeSlices,
+    },
     ...(needsBuffer ? { bufferAddress } : {}),
     ...(refusalAddress === undefined || refusalBytes === undefined
       ? {}

@@ -18,12 +18,15 @@
  * исключение выравнивания на цели, §3.133).
  */
 import { describe, expect, it } from 'vitest';
-import { ARENA_FLAG_REGISTER } from './arenaRuntime';
+import { ARENA_FLAG_REGISTER, arenaReservedRegisters } from './arenaRuntime';
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from './procedureCall';
 import { layoutOf } from './twoPassLayout';
 import { pairPredicates } from './predicatePairing';
 import {
+  STRING_SLICE_CELLS,
   STRING_SLICE_COPY_LOOP_SIZE,
+  STRING_SLICE_DECLARED_CELLS,
+  STRING_SLICE_DESTINATION_CELL,
   STRING_SLICE_SITE_SIZE,
   STRING_SLICE_TAIL_SIZE,
   checkStringSliceRuntimeSite,
@@ -40,27 +43,37 @@ const а = (mnemonic: string, operands: readonly unknown[]): never =>
 const р = (index: number): never => ({ kind: 'reg', index }) as never;
 const и = (value: number): never => ({ kind: 'imm', value }) as never;
 
-/** РОЛИ САЙТА: шесть клеток полосы, ключ — клетка арены, остальные объявлены сайтом (D24). */
+/**
+ * РОЛИ САЙТА — ТА ЖЕ КАРТА, ЧТО У ОБРАЗА (`STRING_SLICE_CELLS`): шесть клеток полосы, клетка флага
+ * арены и ЧЕТЫРЕ объявленных. Совпадение с ней проверяется отдельной пробой ниже — иначе оракул
+ * доказывал бы верность карты, которой никто не пользуется.
+ */
 const ЯЧЕЙКИ = {
   source: 10,
   end: 11,
   zero: 12,
   one: 13,
   target: 14,
-  byte: 0,
-  flag: 1,
-  table: 8,
-  scratch: 9,
-  copied: 2,
-  key: ARENA_FLAG_REGISTER,
+  // БАЙТ — В КЛЕТКЕ ПРИЁМНИКА (`%b[15]`): до петли там адрес блока арены, в петле — байт, а хвост
+  // берёт базу из КЛЕТКИ ВЫЗОВА. Это вторая названная пара совпадения, и она измерена бюджетом:
+  // без неё программе остаётся три клетки, а рантайм-краям нужно четыре (ERR-0007).
+  byte: 15,
+  copied: 1,
+  table: 2,
+  scratch: 3,
+  key: 3,
+  flag: ARENA_FLAG_REGISTER,
 } as const;
 /** Клетки ВНЕ полосы, которые ОБЪЯВЛЯЕТ САЙТ: ровно они отнимаются у программы. */
-const ОБЪЯВЛЕНО = [0, 1, 2, 3, 7, 8, 9] as const;
+const ОБЪЯВЛЕНО = [1, 2, 3] as const;
 /** Что план отдаёт раскладке: объявления сайта ПЛЮС клетки арены (их объявляет сама арена). */
 const РЕЗЕРВ = [...ОБЪЯВЛЕНО, ARENA_POINTER_BASE, ARENA_FLAG_REGISTER, ARENA_LIMIT_BASE] as const;
-const НАЧАЛО = 3;
-const КОНЕЦ = 7;
+/** КРАЯ — КЛЕТКИ ПРОГРАММЫ (их выбирает раскладка): у сайта их переписывает нормализация. */
+const НАЧАЛО = 7;
+const КОНЕЦ = 8;
 const ПРИЁМНИК = 15;
+/** КЛЕТКА ВЫЗОВА: её выбрала раскладка из бюджета программы — сюда сайт переносит результат. */
+const ВЫЗОВ = 9;
 
 /** Пул констант: его значения раскладка читает, чтобы взять длину `IR.const` (8 или 16 байт). */
 const пул = (options: { blob: number; blobBytes: number; count: number; table: number }): number[] => [
@@ -84,6 +97,7 @@ const опции = (options: {
   from: НАЧАЛО,
   to: КОНЕЦ,
   destination: ПРИЁМНИК,
+  result: ВЫЗОВ,
   literals: ЛИТЕРАЛЫ,
   cells: ЯЧЕЙКИ,
   arena: {
@@ -211,6 +225,9 @@ const прогнать = (
     from: НАЧАЛО,
     to: КОНЕЦ,
     destination: ПРИЁМНИК,
+    // БАЗА БЛОКА — ИЗ КЛЕТКИ ВЫЗОВА: приёмник в петле занят байтом (вторая названная пара совпадения),
+    // поэтому слово длины хвост пишет по адресу `клетка вызова − 16`, а не `приёмник − 16`.
+    result: ВЫЗОВ,
     literals: ЛИТЕРАЛЫ,
     cells: ЯЧЕЙКИ,
     loopIndex: STRING_SLICE_SITE_SIZE,
@@ -240,11 +257,17 @@ const прогнать = (
   const возврат = STRING_SLICE_SITE_SIZE + STRING_SLICE_TAIL_SIZE + 1;
   const финал = модель.исполнить(поток as never, возврат);
   expect(финал, 'поток обязан вернуться за вызов, а не провалиться в блок отказа').toBe(возврат);
-  return { модель, адрес: модель.клетки.get(ПРИЁМНИК) ?? 0 };
+  const адрес = модель.клетки.get(ВЫЗОВ) ?? 0;
+  // РЕЗУЛЬТАТ ОБЯЗАН ДОЕХАТЬ ДО КЛЕТКИ ВЫЗОВА — и здесь это не тавтология. База блока живёт в клетке
+  // ВЫЗОВА, а не в приёмнике: приёмник (`%b[15]`) в петле занят БАЙТОМ (вторая названная пара
+  // совпадения, `STRING_SLICE_CELLS`). Все проверки байтов и слова длины ниже читают память ПО ЭТОМУ
+  // адресу — перенос не состоялся бы, и они разошлись бы с местом, куда сайт писал.
+  expect(адрес, 'база блока не доехала до клетки вызова: перенос сайта не сработал').toBeGreaterThan(0);
+  return { модель, адрес };
 };
 
 describe('сайт Г: байты, арена, нормализация — исполняется САМ поток и сверяется с эталоном', () => {
-  it('СОСТАВ: 33 носителя сайта и 21 хвост, петля — 17 носителей', () => {
+  it('СОСТАВ: 34 носителя сайта и 21 хвост, петля — 17 носителей', () => {
     const сайт = stringSliceRuntimeSite(
       опции({ blob: БЛОБ, blobBytes: 12, count: 6, table: ТАБЛИЦА, loopIndex: STRING_SLICE_SITE_SIZE, refusalIndex: 100 }),
     );
@@ -328,7 +351,29 @@ describe('сайт Г: байты, арена, нормализация — ис
     expect(() => checkStringSliceRuntimeSite({ ...верные, cells: { ...ЯЧЕЙКИ, flag: ARENA_POINTER_BASE } }, [...РЕЗЕРВ, 1])).toThrowError(
       /ЖИВОЕ состояние арены/,
     );
-    expect(() => checkStringSliceRuntimeSite({ ...верные, cells: { ...ЯЧЕЙКИ, scratch: 8 } }, [...РЕЗЕРВ])).toThrowError(/ДВЕ роли/);
+    expect(() => checkStringSliceRuntimeSite({ ...верные, cells: { ...ЯЧЕЙКИ, table: 3 } }, [...РЕЗЕРВ])).toThrowError(/ДВЕ роли/);
+    // КЛЕТКА ВЫЗОВА — отдельная роль, и обе её границы названы: не полоса (иначе результат не доехал
+    // бы до вызова) и не роль сайта (иначе сайт затёр бы результат собственной работой).
+    expect(() => checkStringSliceRuntimeSite({ ...верные, result: 15 }, [...РЕЗЕРВ])).toThrowError(/полосе/);
+    expect(() => checkStringSliceRuntimeSite({ ...верные, result: НАЧАЛО }, [...РЕЗЕРВ])).toThrowError(/занята ролью/);
+  });
+
+  it('КАРТА КЛЕТОК ПОДКЛЮЧЕНИЯ — ТА ЖЕ, ЧТО У ОБРАЗА: сайт принимает её без правок', () => {
+    // Оракул обязан доказывать ИМЕННО ту карту, которой пользуется конвейер
+    // (`src/e2k/programImage.ts` → `STRING_SLICE_CELLS`), иначе он доказывает верность своей копии.
+    expect(STRING_SLICE_DECLARED_CELLS).toEqual([...ОБЪЯВЛЕНО]);
+    expect(STRING_SLICE_DESTINATION_CELL).toBe(ПРИЁМНИК);
+    expect(STRING_SLICE_CELLS).toEqual(ЯЧЕЙКИ);
+    // ФЛАГ — клетка арены: число повторено в рантайме (импорт дал бы кольцо), и совпадение держится
+    // здесь, а не словом.
+    expect(STRING_SLICE_CELLS.flag).toBe(ARENA_FLAG_REGISTER);
+    const верные = опции({ blob: БЛОБ, blobBytes: 12, count: 6, table: ТАБЛИЦА, loopIndex: 33, refusalIndex: 54 });
+    expect(() =>
+      checkStringSliceRuntimeSite({ ...верные, cells: STRING_SLICE_CELLS }, [
+        ...STRING_SLICE_DECLARED_CELLS,
+        ...arenaReservedRegisters(),
+      ]),
+    ).not.toThrow();
   });
 
   it('СТОРОЖ ХВОСТА: длина — ИЗ СЧЁТЧИКА, границы — нормализованные, цели переходов внутри', () => {

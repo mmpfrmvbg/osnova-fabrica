@@ -1153,6 +1153,15 @@ export interface StringSliceRuntimeSiteOptions {
   readonly to: number;
   /** Клетка результата — АДРЕС БАЙТОВ В АРЕНЕ (он же приёмник выделения). */
   readonly destination: number;
+  /**
+   * КЛЕТКА ВЫЗОВА, В КОТОРУЮ ПЕРЕНОСИТСЯ РЕЗУЛЬТАТ (шаг подключения, ATOM-06-02-02).
+   *
+   * Зачем отдельная роль: адрес блока живёт в ПОЛОСЕ (`destination`), потому что его пишет арена, а
+   * петля двигает по нему указатель копирования; но значение, которое получила ПРОГРАММА, обязано
+   * лежать в клетке вызова — её выбрала раскладка из `%b[0..9]`, и именно её читают последующие
+   * `длина`/`символ`. Без переноса результат остался бы в полосе, а вызов отдал бы программе мусор.
+   */
+  readonly result: number;
   readonly literals: StringSliceLiterals;
   readonly cells: {
     readonly source: number;
@@ -1174,9 +1183,9 @@ export interface StringSliceRuntimeSiteOptions {
 
 /**
  * Сколько носителей занимает сайт: 6 констант сборки + 15 нормализации + 6 размера и таблицы +
- * 3 носителя арены + переход в хвост.
+ * 3 носителя арены + перенос указателя копирования + ПЕРЕНОС РЕЗУЛЬТАТА В КЛЕТКУ ВЫЗОВА + переход.
  */
-export const STRING_SLICE_SITE_SIZE = 33;
+export const STRING_SLICE_SITE_SIZE = 34;
 
 export function stringSliceRuntimeSite(options: StringSliceRuntimeSiteOptions): AsmInstruction[] {
   const { cells, literals } = options;
@@ -1214,6 +1223,10 @@ export function stringSliceRuntimeSite(options: StringSliceRuntimeSiteOptions): 
     a('IR.const', [reg(cells.table), imm(literals.tableAddress), imm(0)]),
     // УКАЗАТЕЛЬ КОПИРОВАНИЯ: петля двигает ТОЛЬКО его — результат обязан остаться НАЧАЛОМ байтов.
     a('IR.move', [reg(cells.target), reg(options.destination)]),
+    // РЕЗУЛЬТАТ — В КЛЕТКУ ВЫЗОВА, и ДО петли: адрес блока уже окончателен (петля его не двигает),
+    // а последующие `длина`/`символ` читают именно клетку вызова. Порядок «после проверки арены»
+    // обязателен: до неё в клетке вызова лежал бы адрес, которого программа не увидит (отказ).
+    a('IR.move', [reg(options.result), reg(options.destination)]),
     a('IR.jmp', [imm(options.loopIndex)]),
   ];
   if (site.length !== STRING_SLICE_SITE_SIZE) {
@@ -1228,6 +1241,75 @@ export function stringSliceRuntimeSite(options: StringSliceRuntimeSiteOptions): 
 /** Имя носителя выделения — ОДНО с `src/e2k/arenaRuntime.ts#ARENA_ALLOC_CARRIER` (импорт дал бы кольцо). */
 const ARENA_ALLOC_CARRIER_NAME = 'IR.arena_alloc';
 
+/**
+ * НОСИТЕЛЬ РАНТАЙМ-СРЕЗА: его ставит ПЛАН вместо вызова `подстрока`, а расширяет конвейер
+ * (`src/e2k/stringPlan.ts#kind: 'slice_runtime'` → `stringSliceGroups`).
+ *
+ * Операнды: `[н, к, приёмник вызова, sourceAddress, sourceEnd, codePoints, tableAddress, one, sixteen]`,
+ * где последние шесть — ИНДЕКСЫ ПУЛА (`IR.const`). Конвейер обязан заменить его ДО раскладки байтов:
+ * у самого носителя формы нет, и «нет формы» было бы отказом не по делу.
+ */
+export const STRING_SLICE_RUNTIME_CARRIER = 'IR.slice_runtime';
+
+/**
+ * КЛЕТКА ФЛАГА АРЕНЫ — ЧИСЛО, ПОВТОРЁННОЕ ЗДЕСЬ, а не импортированное: `src/e2k/arenaRuntime.ts`
+ * импортирует отсюда имена носителей, и обратный импорт дал бы КОЛЬЦО. Совпадение с
+ * `ARENA_FLAG_REGISTER` проверяется сторожем (`src/e2k/stringSliceGamma.test.ts`), а не словом.
+ */
+const ARENA_FLAG_CELL = 5;
+
+/**
+ * КЛЕТКИ САЙТА РАНТАЙМ-СРЕЗА — ИЗМЕРЕННЫЙ БЮДЖЕТ ОКНА (шаг подключения, ATOM-06-02-02).
+ *
+ * Окно — 16 клеток, и их делят ТРИ хозяина: полоса `%b[10..15]` (6, диспетчер не отдаёт их программе
+ * никогда), арена (`%b[4]` указатель, `%b[5]` флаг, `%b[6]` предел) и программа (остаток). Отсюда
+ * раскладка такая:
+ *   • `source`/`end`/`zero`/`one`/`target` + приёмник сайта — ШЕСТЬ клеток полосы;
+ *   • `flag` — клетка ФЛАГА АРЕНЫ: петля пишет её на каждом байте, а всякий сайт арены пишет её перед
+ *     своим сравнением, поэтому значение ни через одну границу не переезжает (`pointer`/`limit` —
+ *     ЖИВОЕ состояние, их трогать нельзя);
+ *   • `copied`, `table`, `scratch` — ТРИ объявленные клетки (D24): раскладка не отдаёт их программе,
+ *     иначе петля затирала бы её значения молча;
+ *   • `key` — ТА ЖЕ клетка, что `scratch`: сравнение петли ложится туда, где прежнее значение
+ *     (`table + byte`) уже прочитано;
+ *   • `byte` — КЛЕТКА ПРИЁМНИКА (`STRING_SLICE_DESTINATION_CELL`, `%b[15]`): до петли в ней лежит адрес
+ *     блока арены (его туда пишет само выделение, из неё же берут начало `target` и клетка вызова), а в
+ *     петле — очередной байт. Развести их нечем: база нужна ДО петли, байт — В петле, а хвост берёт базу
+ *     из КЛЕТКИ ВЫЗОВА (`options.result`), куда её переносит сайт. Это ВТОРАЯ названная пара-совпадение,
+ *     и цена её названа числом: без неё программе остаётся ТРИ клетки, а рантайм-краям нужно ЧЕТЫРЕ
+ *     (замер шага 5: «в тесный момент живы 4 отрезков, свободных регистров 3`).
+ *
+ * Первая редакция объявляла СЕМЬ клеток (свои `flag`, `byte`, `copied`, `table`, `scratch`, `key`) —
+ * и это не влезало: семь объявленных плюс три арены плюс шесть полосы = все шестнадцать, программе не
+ * оставалось НИ ОДНОЙ клетки. Пересчёт по факту БЮДЖЕТА ПРОГРАММЫ: три (`%b[0]`, `%b[7]`, `%b[8]`,
+ * `%b[9]` — четыре свободных при трёх объявленных).
+ */
+export const STRING_SLICE_CELLS = {
+  source: 10,
+  end: 11,
+  zero: ARRAY_REGISTERS.zero,
+  one: 13,
+  target: 14,
+  byte: 15,
+  copied: 1,
+  table: 2,
+  scratch: 3,
+  key: 3,
+  flag: ARENA_FLAG_CELL,
+} as const;
+
+/** ПРИЁМНИК САЙТА (адрес блока арены) — в полосе: его пишет арена, а читает петля (`target`). */
+export const STRING_SLICE_DESTINATION_CELL = 15;
+
+/**
+ * ОБЪЯВЛЕННЫЕ КЛЕТКИ САЙТА — их обязан закрепить за собой тот, кто раскладывал (D24, `sliceReserved`).
+ *
+ * `%b[0]` в списке НЕТ намеренно: там был `byte`, а он переехал в клетку приёмника (см. карту выше).
+ * Пока `%b[0]` был объявлен, программе оставалось ТРИ клетки, и раскладка отказывала КАЖДОЙ программе
+ * с рантайм-краями (замер шага 5, четыре формы проб: живы 4…7 отрезков против трёх свободных).
+ */
+export const STRING_SLICE_DECLARED_CELLS: readonly number[] = [1, 2, 3];
+
 /** Опции ХВОСТА: те же роли плюс место хвоста и адрес возврата за вызов. */
 export interface StringSliceRuntimeTailOptions {
   readonly from: number;
@@ -1239,6 +1321,15 @@ export interface StringSliceRuntimeTailOptions {
   readonly loopIndex: number;
   /** Абсолютный индекс носителя, СТОЯЩЕГО ЗА ВЫЗОВОМ: хвост возвращает поток на него. */
   readonly successor: number;
+  /**
+   * КЛЕТКА ВЫЗОВА — та, куда сайт переносит АДРЕС БЛОКА, и ОТКУДА хвост берёт базу дескриптора.
+   *
+   * Почему не `destination`: приёмник (`%b[15]`) в петле занят БАЙТОМ (это вторая названная пара
+   * совпадения, см. `STRING_SLICE_CELLS`), а адрес блока к этому времени уже лежит в клетке вызова —
+   * сайт переносит его туда ДО петли, и ни один носитель сайта этой клетки не касается (сторож
+   * `checkStringSliceRuntimeSite` требует, чтобы она не была ролью сайта).
+   */
+  readonly result: number;
 }
 
 /** Сколько носителей занимает хвост: петля (17), запись дескриптора (3) и возврат за вызов (1). */
@@ -1269,9 +1360,10 @@ export function stringSliceRuntimeTail(options: StringSliceRuntimeTailOptions): 
     ...loop,
     // СЛОВО ДЛИНЫ: в дескриптор идёт СЧЁТЧИК СКОПИРОВАННЫХ КОДПОИНТОВ, а не `к − н` из клеток краёв:
     // после нормализации края переписаны НА МЕСТЕ, и разность считала бы не то. Клетка `scratch`
-    // свободна после петли — в неё ложится адрес дескриптора (приёмник минус шестнадцать).
+    // свободна после петли — в неё ложится адрес слова длины (НАЧАЛО БЛОКА минус шестнадцать), а начало
+    // блока берётся из КЛЕТКИ ВЫЗОВА: приёмник после петли держит последний байт, не адрес.
     a('IR.const', [reg(cells.flag), imm(options.literals.sixteen), imm(0)]),
-    a('IR.sub', [reg(cells.scratch), reg(options.destination), reg(cells.flag)]),
+    a('IR.sub', [reg(cells.scratch), reg(options.result), reg(cells.flag)]),
     a('IR.store', [reg(cells.copied), reg(cells.scratch)]),
     // ЗА ВЫЗОВ — ПОСЛЕДНИЙ носитель хвоста (как у коллекций): иначе удачная копия «провалилась» бы
     // в область блоков отказа.
@@ -1324,8 +1416,17 @@ export function checkStringSliceRuntimeSite(
       );
     }
   }
+  // КРАЯ (`from`/`to`) — ИСКЛЮЧЕНИЕ, И ОНО НАЗВАНО: это клетки ПРОГРАММЫ, их выбрала раскладка, и
+  // сайт переписывает их НА МЕСТЕ (копий в сайте нет — бюджет окна измерен). Закрепить их за сайтом
+  // значило бы отнять у программы values, которыми она пользуется, а цена уничтожения края названа
+  // там, где о ней можно судить по потоку: план отказывает на ПОЗДНЕЙШЕМ чтении
+  // (`src/e2k/stringPlan.ts#eatenEdges`). Прочие роли — вне полосы и без объявления — отказ, как было.
   const безПолосы = роли.filter(
-    ([, клетка]) => !RESERVED_REGISTERS.includes(клетка) && !reserved.includes(клетка),
+    ([имя, клетка]) =>
+      имя !== 'from' &&
+      имя !== 'to' &&
+      !RESERVED_REGISTERS.includes(клетка) &&
+      !reserved.includes(клетка),
   );
   if (безПолосы.length > 0) {
     throw new StringRuntimeRefusal(
@@ -1351,23 +1452,51 @@ export function checkStringSliceRuntimeSite(
     ['pointer', options.arena.pointer],
     ['limit', options.arena.limit],
   ] as const) {
-    if (роли.some(([, клеткаРоли]) => клеткаРоли === клетка)) {
+    const занята = роли.find(([, клеткаРоли]) => клеткаРоли === клетка);
+    if (занята !== undefined) {
       throw new StringRuntimeRefusal(
-        `клетка арены «${имя}» = %b[${String(клетка)}] занята ролью сайта Г: это ЖИВОЕ состояние арены на ` +
-          'всю программу — сайт испортил бы выделение следующим операциям',
+        `клетка арены «${имя}» = %b[${String(клетка)}] занята ролью сайта Г «${занята[0]}»: это ЖИВОЕ ` +
+          'состояние арены на всю программу — сайт испортил бы выделение следующим операциям',
       );
     }
   }
   const видели = new Map<number, string>();
   for (const [имя, клетка] of роли) {
     const прежняя = видели.get(клетка);
-    if (прежняя !== undefined) {
+    // ОДНА СОВПАДАЮЩАЯ ПАРА РАЗРЕШЕНА И НАЗВАНА: `key` — результат сравнений петли, и он ложится в
+    // клетку `scratch`, когда её прежнее значение (`table + byte`) уже прочитано. Развести их значило
+    // бы отнять у программы ещё одну клетку, а бюджет окна измерен: 16 клеток на сайт, арену и
+    // программу. Совпадение ЛЮБОЙ другой пары остаётся отказом.
+    const параБайтПриёмник =
+      options.destination === options.cells.byte &&
+      ((имя === 'byte' && прежняя === 'destination') || (имя === 'destination' && прежняя === 'byte'));
+    if (прежняя !== undefined && !(клетка === options.cells.scratch && имя === 'key') && !параБайтПриёмник) {
       throw new StringRuntimeRefusal(
         `клетка %b[${String(клетка)}] несёт ДВЕ роли сайта Г: «${прежняя}» и «${имя}» — одно из значений ` +
           'было бы потеряно молча',
       );
     }
     видели.set(клетка, имя);
+  }
+  // КЛЕТКА ВЫЗОВА: она НЕ в полосе (её даёт раскладка программе) и не совпадает ни с одной ролью —
+  // иначе сайт затёр бы собственный результат до того, как его прочтёт программа.
+  if (!Number.isInteger(options.result) || options.result < 0 || options.result >= BASE_REGISTER_COUNT) {
+    throw new StringRuntimeRefusal(
+      `клетка вызова сайта Г = %b[${String(options.result)}] вне 0..${String(BASE_REGISTER_COUNT - 1)}`,
+    );
+  }
+  if (RESERVED_REGISTERS.includes(options.result)) {
+    throw new StringRuntimeRefusal(
+      `клетка вызова сайта Г = %b[${String(options.result)}] лежит в полосе ` +
+        `${RESERVED_REGISTERS.map((номер) => `%b[${String(номер)}]`).join('/')}: раскладка не отдаёт её ` +
+        'значениям программы, и результат не доехал бы до вызова',
+    );
+  }
+  if (роли.some(([, клетка]) => клетка === options.result)) {
+    throw new StringRuntimeRefusal(
+      `клетка вызова сайта Г = %b[${String(options.result)}] занята ролью сайта: результат был бы затёрт ` +
+        'собственной работой сайта',
+    );
   }
 }
 
@@ -1512,6 +1641,8 @@ export interface StringSliceSiteRequest {
   readonly to: number;
   /** Приёмник (операнд 4) — адрес байтов В АРЕНЕ; он обязан быть в полосе `%b[10..15]`. */
   readonly destination: number;
+  /** Клетка вызова: куда переносится адрес результата (её читает программа, `%b[0..9]`). */
+  readonly result: number;
   /** Константы сборки — ИНДЕКСЫ ПУЛА (`IR.const`): адреса, число кодпоинтов, единица, шестнадцать. */
   readonly literals: StringSliceLiterals;
   readonly cells: StringSliceRuntimeSiteOptions['cells'];
@@ -1525,12 +1656,36 @@ export interface StringSliceGroups {
   readonly groups: ReadonlyMap<number, readonly AsmInstruction[]>;
   readonly loopIndex: number;
   readonly tailIndex: number;
+  /**
+   * ЦЕЛИ ПЕРЕХОДОВ ВНУТРИ САЙТА, ПОСЧИТАННЫЕ ОТ ЕГО НАЧАЛА (`at` — смещение носителя в сайте,
+   * `target` — номер носителя ВНУТРИ САЙТА, куда он ведёт).
+   *
+   * Зачем отдельным списком: `stringSliceRuntimeSite` собирает САМОДОСТАТОЧНЫЙ фрагмент — так его
+   * исполняет модель носителей (Γ), и там он начинается с нуля, поэтому относительные цели верны. Но
+   * в образе фрагмент ВСТАВЛЯЕТСЯ по своему месту, и номера 9/12/15/18/21 указывали бы на ЧУЖИЕ
+   * носители программы: ветви обработки краёв уезжали в начало образа. Замер ERR-0008: Р1…Р4 висели
+   * по 30 с при верных размерах (сайт 34, хвост 21) — размеры сходились, а цели нет.
+   *
+   * Абсолютные цели сайта (клетка отказа арены и `loopIndex`) в список НЕ попадают: их пересчитывает
+   * раскрытие (`expandCarriers`), и трогать их значило бы сдвинуть второй раз.
+   */
+  readonly relativeTargets: readonly { readonly at: number; readonly target: number }[];
 }
 
 export function stringSliceGroups(
   code: readonly AsmInstruction[],
   requests: readonly StringSliceSiteRequest[],
+  группаOptions: {
+    /**
+     * ПРОВЕРЯТЬ ЛИ КЛЕТКИ (по умолчанию — да). `false` ставит ТОЛЬКО конвейер и только на
+     * НЕРАЗЛОЖЕННОМ потоке: раскладка отказала, номера в носителях — виртуальные, и проверка клеток
+     * была бы отказом не по делу. Сайт при этом всё равно собирается: в потоке не должно остаться
+     * носителя без формы, а байты такого образа наружу не уходят (буква D13).
+     */
+    readonly checkCells?: boolean;
+  } = {},
 ): StringSliceGroups {
+  const checkCells = группаOptions.checkCells !== false;
   if (requests.length === 0) {
     throw new StringRuntimeRefusal(
       'сборщик групп рантайм-среза позван без сайтов: групп нет, а хвост вставлять некуда',
@@ -1562,32 +1717,89 @@ export function stringSliceGroups(
   }
   const прирост = STRING_SLICE_SITE_SIZE - 1;
   const loopIndex = code.length + прирост;
-  const successor = site.index + STRING_SLICE_SITE_SIZE;
+  // ВОЗВРАТ ЗА ВЫЗОВ — В НУМЕРАЦИИ ДО РАСКРЫТИЯ, и это не придирка: `expandCarriers` пересчитывает
+  // ЛЮБУЮ цель, лежащую ВНУТРИ прежнего потока (`map` знает каждый его индекс), и оставляет как есть
+  // только цели ЗА концом прежнего потока (см. его комментарий). Хвост раскрывается ТЕМ ЖЕ зовом, что
+  // и сайт, поэтому «индекс за вызовом» обязан быть индексом НАСТОЯЩЕГО носителя потока — тогда сдвиг
+  // вставки к нему добавят ровно один раз. Прежняя редакция писала сюда `site.index + САЙТ` (номер
+  // ПОСЛЕ раскрытия): он попадал в диапазон `map`, к нему добавляли сдвиг ВТОРОЙ раз, и возврат из
+  // копирования уезжал на 33 носителя назад — ВНУТРЬ собственного сайта, то есть в вечную петлю
+  // (замер: Р1…Р4 висели по 30 с и давали `null`, ERR-0008).
+  const successor = site.index + 1;
   const options: StringSliceRuntimeSiteOptions = {
     from: site.from,
     to: site.to,
     destination: site.destination,
+    result: site.result,
     literals: site.literals,
     cells: site.cells,
     arena: site.arena,
     loopIndex,
   };
-  checkStringSliceRuntimeSite(options, site.reserved ?? []);
+  // ПРОВЕРКИ КЛЕТОК — ПО СЛОВУ КОНВЕЙЕРА. На НЕРАЗЛОЖЕННОМ потоке (отказ раскладки) номера в
+  // носителях ничего не значат: там ещё живут виртуальные регистры, и «клетка арены занята ролью
+  // сайта» было бы отказом не по делу. Сайт всё равно собирается — чтобы в потоке не осталось
+  // носителя без формы, — а байты такого образа наружу не уходят (буква D13).
+  if (checkCells) checkStringSliceRuntimeSite(options, site.reserved ?? []);
   const хвостOptions: StringSliceRuntimeTailOptions = {
     from: site.from,
     to: site.to,
     destination: site.destination,
+    result: site.result,
     literals: site.literals,
     cells: site.cells,
     loopIndex,
     successor,
   };
-  checkStringSliceRuntimeTail(stringSliceRuntimeTail(хвостOptions), хвостOptions);
+  if (checkCells) checkStringSliceRuntimeTail(stringSliceRuntimeTail(хвостOptions), хвостOptions);
+  const носителиСайта = stringSliceRuntimeSite(options);
+  // ОТНОСИТЕЛЬНЫЕ ЦЕЛИ — те, что не совпали ни с клеткой отказа арены, ни с `loopIndex`: их обязан
+  // дописать конвейер, знающий МЕСТО вставки (`resolveSliceRelativeTargets` ниже).
+  const relativeTargets: { at: number; target: number }[] = [];
+  носителиСайта.forEach((carrier, at) => {
+    if (!carrier.mnemonic.startsWith('IR.jmp')) return;
+    const targetAt = carrier.mnemonic === 'IR.jmp' ? 0 : 1;
+    const target = carrier.operands[targetAt];
+    if (target === undefined || target.kind !== 'imm') return;
+    if (target.value === loopIndex || target.value === site.arena.refusalIndex) return;
+    relativeTargets.push({ at, target: target.value });
+  });
   const группы = new Map<number, readonly AsmInstruction[]>([
-    [site.index, stringSliceRuntimeSite(options)],
-    [последний, stringSliceRuntimeTail(хвостOptions)],
+    [site.index, носителиСайта],
+    // ПОСЛЕДНИЙ НОСИТЕЛЬ ОСТАЁТСЯ НА МЕСТЕ, хвост ДОПИСЫВАЕТСЯ за ним — ровно как у коллекций
+    // (`src/e2k/collectionsRuntime.ts`: `[code[last], ...trailing]`). Заменить его хвостом значило бы
+    // потерять носитель потока: `loopIndex` считается как `code.length + прирост` и указывал бы на
+    // носитель, которого в потоке нет (порча 4 записи ERR-0006).
+    [последний, [code[последний]!, ...stringSliceRuntimeTail(хвостOptions)]],
   ]);
-  return { groups: группы, loopIndex, tailIndex: successor };
+  return { groups: группы, loopIndex, tailIndex: successor, relativeTargets };
+}
+
+/**
+ * ДОПИСАТЬ МЕСТО ВСТАВКИ К ОТНОСИТЕЛЬНЫМ ЦЕЛЯМ САЙТА — сразу после раскрытия групп, ДО раскладки.
+ *
+ * `expandCarriers` пересчитывает только те цели, что лежат ВНУТРИ прежнего потока (по `map`), а
+ * относительные цели сайта таковыми не являются: 9 — это «девятый носитель САЙТА», а не девятый
+ * носитель программы. Поэтому их дописывает тот, кто знает `siteIndex`, и дописывает РОВНО ОДИН раз:
+ * после этого в потоке стоят настоящие номера носителей, и все последующие раскрытия (коллекции,
+ * рост, разделённая печать) пересчитывают их наравне со всеми — как и требует `expandCarriers`.
+ */
+export function resolveSliceRelativeTargets(
+  code: readonly AsmInstruction[],
+  siteIndex: number,
+  relativeTargets: readonly { readonly at: number; readonly target: number }[],
+): readonly AsmInstruction[] {
+  if (relativeTargets.length === 0) return code;
+  const правки = new Map<number, number>();
+  for (const { at, target } of relativeTargets) правки.set(siteIndex + at, target);
+  return code.map((carrier, index) => {
+    const target = правки.get(index);
+    if (target === undefined) return carrier;
+    const targetAt = carrier.mnemonic === 'IR.jmp' ? 0 : 1;
+    const operands = [...carrier.operands];
+    operands[targetAt] = imm(siteIndex + target);
+    return { ...carrier, operands };
+  });
 }
 
 

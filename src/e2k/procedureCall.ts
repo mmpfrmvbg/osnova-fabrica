@@ -287,6 +287,12 @@ export function expandCarriers(
     if (group === undefined) expanded.push(carrier);
     else expanded.push(...group);
   });
+  // ЦЕЛИ ЗА КОНЦОМ ПРЕЖНЕГО ПОТОКА ОСТАЮТСЯ КАК ЕСТЬ — и это не недосмотр. Хвост (арена, коллекции,
+  // рантайм-срез) дописывается ЗДЕСЬ, и его внутренние переходы уже посчитаны в нумерации ПОСЛЕ этой
+  // вставки (`loopIndex = code.length + прирост` — так их и строит тот, кто хвост собирает). На
+  // СЛЕДУЮЩЕМ зове те же носители лежат ВНУТРИ потока, и `map` пересчитывает их наравне со всеми.
+  // Первая редакция правила добавляла к таким целям весь сдвиг вставки — это сдвинуло их ВТОРОЙ раз
+  // (замер: 23 красных в арене, коллекциях, отказах и статике) и откатано.
   const relocated = (index: number): number => map.get(index) ?? index;
   const remapped = expanded.map((carrier) => {
     if (!isJumpCarrier(carrier.mnemonic)) return carrier;

@@ -33,7 +33,7 @@ import { ARRAY_REGISTERS } from '../arrayRuntime';
 import { arenaReservedRegisters, usesArena } from '../arenaRuntime';
 import { collectionReservedRegisters, usesCollections } from '../collectionsRuntime';
 import { planStrings } from '../stringPlan';
-import { STRING_REGISTERS } from '../stringRuntime';
+import { STRING_REGISTERS, STRING_SLICE_DECLARED_CELLS } from '../stringRuntime';
 import {
   HEAP_OFFSET,
   arrayProceduresOf,
@@ -89,15 +89,36 @@ export function loweredProgramUnchecked(
   // идёт РАЗВЕДКА тем же проходом (`planStrings`) по потоку ДО раскладки — второй счётчик длин
   // разошёлся бы с планом. Разойдись разведка с потоком после раскладки, `imageOfCarriers` откажет
   // по имени (`arenaReserved`), а не соберёт образ с мусором вместо указателя арены.
+  // ГРАНИЦЫ ТОЧКИ ВХОДА — то же слово, что уходит в `imageOfCarriers`: по нему план решает, понижать
+  // ли рантайм-срез (его сайт живёт только в плоскости точки входа). Разойдись эти два слова —
+  // клетки сайта не были бы закреплены, и образ отказал бы по имени, а не собрался с мусором.
+  const sliceEntryRange = ((): { readonly from: number; readonly to: number } => {
+    const процедуры = emitted.scheduled.procedures;
+    const from = процедуры.length === 0 ? 0 : (процедуры[entryProcedureIndex(процедуры)]?.codeOffset ?? 0);
+    const to =
+      процедуры
+        .map((процедура) => процедура.codeOffset)
+        .filter((offset) => offset > from)
+        .sort((left, right) => left - right)[0] ?? emitted.instructions.length;
+    return { from, to };
+  })();
+  // РАЗВЕДКА ПЛАНИРОВАНИЯ СТРОК — ОДИН проход на ДВА признака (арена и рантайм-срез). Два прохода
+  // дали бы два счётчика, которые обязаны совпадать, но ничем к этому не принуждены: тот же довод,
+  // по которому здесь стоит разведка, а не «своё» знание о строках.
+  const разведкаСтрок = planStrings(
+    emitted.instructions,
+    emitted.scheduled.constants,
+    emitted.image.invokeNames,
+    MINIMAL_BASE + HEAP_OFFSET,
+    { sliceEntryRange },
+  );
   const arenaReserved =
     options.assumeArenaReserved === true ||
     usesArena(emitted.instructions, emitted.image.invokeNames) ||
-    planStrings(
-      emitted.instructions,
-      emitted.scheduled.constants,
-      emitted.image.invokeNames,
-      MINIMAL_BASE + HEAP_OFFSET,
-    ).counts.arenaConcats > 0;
+    разведкаСтрок.counts.arenaConcats > 0 ||
+    // РАНТАЙМ-СРЕЗ ЗОВЁТ АРЕНУ САМ (`counts.slicesRuntime`): пролог `IR.arena_init` нужен образу
+    // ровно так же, как при склейке сверх буфера, иначе сайт взял бы мусор вместо указателя арены.
+    (разведкаСтрок.counts.slicesRuntime ?? 0) > 0;
   // ОСТАТОК (`IR.rem`) резервирует себе регистр САМ, внутри `allocateProgram`: раскладку зовут и
   // напрямую (оракулы), и «не забыть добавить резерв» был бы контрактом, который забудут молча —
   // `src/e2k/remainderRuntime.ts`.
@@ -155,6 +176,12 @@ export function loweredProgramUnchecked(
     entryAt,
   });
   const stringsCalleeReserved = stringCalleeAt.size > 0;
+  // КЛЕТКИ САЙТА РАНТАЙМ-СРЕЗА — резерв УСЛОВНЫЙ, и он НУЖЕН ИМЕННО ЗДЕСЬ, ДО РАСКЛАДКИ: сайт
+  // берёт четыре клетки из бюджета ПРОГРАММЫ (`STRING_SLICE_DECLARED_CELLS`) и пишет в них байт,
+  // счётчик, адрес таблицы продолжений и результат сравнений петли. Разведка — тем же проходом
+  // (`planStrings`), что у арены: второй счётчик срезов разошёлся бы с планом. Слово «резерв сделан»
+  // уезжает в `imageOfCarriers` (`sliceReserved`), и разойдись они — названный отказ, а не порча.
+  const sliceReserved = (разведкаСтрок.counts.slicesRuntime ?? 0) > 0;
   // КАНАЛ ПАРЫ `Результат<Т, Е>` — РЕЗЕРВ УСЛОВНЫЙ, как у арены, коллекций и ячейки кучи.
   //
   // Почему он вообще нужен. Возврат пары кладёт нагрузку в СВОЮ клетку `1`, а её клетка `1` — это
@@ -185,6 +212,10 @@ export function loweredProgramUnchecked(
     ...(stringsCalleeReserved
       ? [STRING_REGISTERS.first, STRING_REGISTERS.second, STRING_REGISTERS.write]
       : []),
+    // КЛЕТКИ САЙТА РАНТАЙМ-СРЕЗА: без них раскладка отдала бы их значениям программы, и петля
+    // копирования затёрла бы эти значения МОЛЧА (сайт живёт в плоскости точки входа, где шесть
+    // остальных его клеток — полоса `%b[10..15]` и одна клетка арены, уже закреплённые).
+    ...(sliceReserved ? STRING_SLICE_DECLARED_CELLS : []),
   ];
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
     reserved,
@@ -255,6 +286,13 @@ export function loweredProgramUnchecked(
     stringsCalleeReserved,
     // ТИПЫ ПРОЦЕДУР — «Строка/Число ИЗ ТИПА» (шаг 2.3, ATOM-06-02-02а) — тот же список, что у разведки.
     procedureTypes: типыПроцедур,
+    // ПОТОК НЕРАЗЛОЖЕН (отказ раскладки): носители сохраняют ВИРТУАЛЬНЫЕ регистры, поэтому сайт
+    // рантайм-среза собирается, но его клетки НЕ сверяются — иначе проверка судила бы виртуальные
+    // номера (замер шага 5: `%b[6]` выдан ролью «from»). Байты этого образа наружу не уходят (D13).
+    diagnosticFlow: диагностика !== undefined,
+    // СЛОВО О ЗАКРЕПЛЕНИИ КЛЕТОК САЙТА РАНТАЙМ-СРЕЗА (D24): разойдись оно с нуждой образа — конвейер
+    // отказывает по имени, а не собирает образ, в котором петля копирования затирает значения программы.
+    sliceReserved,
   });
   // ── D13: ЧИСЛА ПОД ОТКАЗОМ НЕ СУЩЕСТВУЕТ — БАЙТЫ НЕ ОТДАЮТСЯ ────────────────────────────────
   //

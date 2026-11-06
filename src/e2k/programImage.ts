@@ -69,12 +69,14 @@ import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringM
 import { INNER_CALL_WBS, WINDOW_GROW_CARRIER } from './procedureCall';
 import {
   ARENA_BASE,
+  ARENA_FLAG_REGISTER,
   ARENA_REFUSAL_TEXT,
   arenaGroups,
   arenaRefusalCarriers,
+  arenaReservedRegisters,
   usesArena,
 } from './arenaRuntime';
-import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, STRING_DESCRIPTOR_MARK, stringArenaCopyInstructions, utf8Bytes } from './stringRuntime';
+import { STRING_CALLS, STRING_ARENA_CONCAT_CARRIER, STRING_ARENA_COPY_CARRIER, STRING_DESCRIPTOR_MARK, STRING_SLICE_CELLS, STRING_SLICE_DECLARED_CELLS, STRING_SLICE_DESTINATION_CELL, STRING_SLICE_RUNTIME_CARRIER, stringArenaCopyInstructions, stringSliceGroups, utf8Bytes, type StringSliceSiteRequest } from './stringRuntime';
 import { proveStringValues } from './stringValueProof';
 import {
   COLLECTION_REFUSAL_TEXTS,
@@ -85,6 +87,7 @@ import {
 } from './collectionsRuntime';
 import {
   STRING_PRINT_CLOBBERS,
+  resolveSliceRelativeTargets,
   stringConcatInstructions,
   stringLengthFromDescriptorInstructions,
   stringLengthInstructions,
@@ -93,6 +96,8 @@ import {
   stringWriteInstructions,
 } from './stringRuntime';
 import {
+  ARENA_LIMIT_BASE,
+  ARENA_POINTER_BASE,
   callAddresses,
   entryProcedureIndex,
   expandCarriers,
@@ -1092,8 +1097,14 @@ function numberTypeFactsOf(
 }
 
 /** Опции планирования строк: факты типов кладутся ТОЛЬКО когда они есть (иначе поведение прежнее). */
-function factsOptions(facts: StringTypeFacts | undefined): { readonly types?: StringTypeFacts } {
-  return facts === undefined ? {} : { types: facts };
+function factsOptions(
+  facts: StringTypeFacts | undefined,
+  sliceEntryRange?: { readonly from: number; readonly to: number },
+): { readonly types?: StringTypeFacts; readonly sliceEntryRange?: { readonly from: number; readonly to: number } } {
+  return {
+    ...(facts === undefined ? {} : { types: facts }),
+    ...(sliceEntryRange === undefined ? {} : { sliceEntryRange }),
+  };
 }
 
 /**
@@ -1169,6 +1180,26 @@ export function imageOfCarriers(
      */
     readonly stringsCalleeReserved?: boolean;
     /**
+     * ЗАКРЕПЛЕНЫ ЛИ КЛЕТКИ САЙТА РАНТАЙМ-СРЕЗА (`STRING_SLICE_DECLARED_CELLS`) — слово того, кто
+     * раскладывал регистры (шаг подключения, ATOM-06-02-02).
+     *
+     * Сайт берёт четыре клетки ИЗ БЮДЖЕТА ПРОГРАММЫ (`%b[0..3]` в выбранной раскладке) и пишет в них
+     * байт, счётчик, адрес таблицы и результат сравнений. Если раскладка не знала об этом, в тех же
+     * клетках жили бы значения программы, и петля затирала бы их МОЛЧА. `false` (или отсутствие
+     * слова) при нужде — НАЗВАННЫЙ отказ конвейера, а не порча.
+     */
+    readonly sliceReserved?: boolean;
+    /**
+     * ПОТОК НЕРАЗЛОЖЕН (`allocateProgram` отказала хоть одной процедуре) — носители сохраняют
+     * ВИРТУАЛЬНЫЕ регистры, и байты такого образа наружу не уходят (буква D13, `src/e2k/guards/loweredUnchecked.ts`).
+     *
+     * Слово нужно сайтам, которые СУДЯТ о клетках: арена и коллекции пишут в закреплённые номера и
+     * молчат, а рантайм-срез сверяет роли с клетками арены и полосой — на неразложенном потоке эта
+     * сверка была бы отказом не по делу (замер: `%b[6]` оказался ролью «from», потому что раскладка
+     * отказала и в потоке остались виртуальные номера).
+     */
+    readonly diagnosticFlow?: boolean;
+    /**
      * ТИПЫ ПРОЦЕДУР (`src/e2k/recordPlan.ts#procedureTypesOf`) — СТРОКОВОСТЬ И ЧИСЛО ИЗ ТИПА (шаг 2.3).
      *
      * В носителе типа нет: `IR.invoke` несёт индекс имени, `IR.result_pick` — два регистра. Поэтому
@@ -1223,8 +1254,31 @@ export function imageOfCarriers(
     // индексы сайтов, разошедшиеся с пометками (класс §3.35).
     (pairProof = provedValuesOf(code, declaredTypes, constants, invokeNames, options.procedureTypes)),
   );
-  const probe = arenaCall ? undefined : planStrings(code, constants, invokeNames, heapAddress, factsOptions(typeFacts));
-  const arenaUsed = arenaCall || (probe?.counts.arenaConcats ?? 0) > 0;
+  // ГРАНИЦЫ ПРОЦЕДУР — ДО ПЛАНА СТРОК: план решает, понижать ли рантайм-срез, а его сайт живёт только
+  // в плоскости ТОЧКИ ВХОДА (полоса `%b[10..15]` — её). Слово о границе идёт в ТОТ ЖЕ поток, который
+  // план разбирает (`code`), иначе индексы разошлись бы с пометками (класс §3.35).
+  //
+  // Процедуры берутся из пометок потока (`options.procedures`), а пустой список значит «одна главная»:
+  // тогда точка входа «ничья» только по смещению 0, а принадлежность считается как «последняя
+  // процедура, чьё смещение ≤ индекса».
+  const declaredProcedures: readonly ProcedureOffset[] =
+    options.procedures === undefined || options.procedures.length === 0
+      ? [{ name: 'главная', codeOffset: 0 }]
+      : options.procedures;
+  const sliceEntryRange = ((): { readonly from: number; readonly to: number } => {
+    const from = declaredProcedures[entryProcedureIndex(declaredProcedures)]?.codeOffset ?? 0;
+    const to =
+      declaredProcedures
+        .map((procedure) => procedure.codeOffset)
+        .filter((offset) => offset > from)
+        .sort((left, right) => left - right)[0] ?? code.length;
+    return { from, to };
+  })();
+  const probe = arenaCall ? undefined : planStrings(code, constants, invokeNames, heapAddress, factsOptions(typeFacts, sliceEntryRange));
+  // СЧЁТЧИК АРЕНЫ ОБЪЯВЛЯЕТСЯ ЖИВЫМ ЗДЕСЬ, до всякого `IR.arena_alloc`: сайт рантайм-среза зовёт
+  // арену САМ (`counts.slicesRuntime`), и без этого слова пролога `IR.arena_init` не было бы вовсе —
+  // сайт взял бы мусор вместо указателя арены, а `%b[4]`/`%b[6]` раскладка отдала бы программе.
+  const arenaUsed = arenaCall || (probe?.counts.arenaConcats ?? 0) > 0 || (probe?.counts.slicesRuntime ?? 0) > 0;
   // Строка отказа арены планируется ВМЕСТЕ со прочими статическими блоками: её адрес выведен из конца
   // образа, и второй способ его считать разошёлся бы с первым (`src/e2k/stringPlan.ts`).
   if (arenaUsed && options.arenaReserved === false) {
@@ -1253,7 +1307,7 @@ export function imageOfCarriers(
   const strings =
     arenaUsed || collectionsUsed
       ? planStrings(code, constants, invokeNames, heapAddress, {
-          ...factsOptions(typeFacts),
+          ...factsOptions(typeFacts, sliceEntryRange),
           ...(arenaUsed ? { arenaRefusal: ARENA_REFUSAL_TEXT } : {}),
           ...(collectionRefusalKindsNeeded.length === 0
             ? {}
@@ -1273,14 +1327,8 @@ export function imageOfCarriers(
   // Дальше весь конвейер работает с ПЕРЕПИСАННЫМ потоком и РАСШИРЕННЫМ пулом: строковый литерал —
   // это уже адрес, а не строка (`src/e2k/stringPlan.ts`).
   const context = stringContext;
-  // ПРОЦЕДУРЫ: если их не назвали, поток считается ОДНОЙ процедурой — и она ТОЧКА ВХОДА. Без этой
-  // записи разделённая печать (она дописывает в поток свою процедуру) оставила бы носители точки
-  // входа «ничьими»: принадлежность считается как «последняя процедура, чьё смещение ≤ индекса»,
-  // и её отсутствие значило бы «вызываемая» — то есть системный вызов и вызов в вызываемой.
-  const declaredProcedures: readonly ProcedureOffset[] =
-    options.procedures === undefined || options.procedures.length === 0
-      ? [{ name: 'главная', codeOffset: 0 }]
-      : options.procedures;
+  // ПРОЦЕДУРЫ уже объявлены выше (`declaredProcedures`) — там, где они понадобились ПЛАНУ СТРОК:
+  // границы точки входа решают, понижать ли рантайм-срез. Второе объявление разошлось бы с первым.
   // АРЕНА В ПОТОКЕ: заведение в прологе (один раз на программу), сайт вместо каждого вызова операции,
   // блок отказа — в конце потока. Индексы и цели переходов пересчитывает `expandCarriers`: свой счёт
   // индексов разошёлся бы с ним (класс `docs/hardware-debt.md` §3.35).
@@ -1306,6 +1354,96 @@ export function imageOfCarriers(
           ]),
           withArena.procedures,
         );
+  // ── РАНТАЙМ-СРЕЗ В ПОТОКЕ (шаг подключения, ATOM-06-02-02) ────────────────────────────────────
+  //
+  // Тем же приёмом, что арена и коллекции: САЙТ — группой вместо носителя, ХВОСТ (петля, слово длины,
+  // возврат за вызов) — группой ПОСЛЕДНЕГО носителя, индексы и цели переходов пересчитывает
+  // `expandCarriers`. Ставится ЗДЕСЬ, сразу за блоком отказа арены, а не после коллекций, по
+  // ИЗМЕРЕННОЙ причине: индекс блока отказа арены (цель перехода сайта при исчерпании) вычислим
+  // только пока этот блок — ПОСЛЕДНЕЕ в потоке; коллекции дописывают за ним свои блоки отказа, и
+  // «найти нужный» стало бы поиском по совпадению (§3.35). Позднейшие вставки (коллекции, рост окна,
+  // разделённая печать) сдвигают цели сайта вместе со всем потоком — это их работа, не наша.
+  const sliceRequests: StringSliceSiteRequest[] = [];
+  if (arenaRefusal !== undefined) {
+    const refusalIndex = withRefusal.code.length - arenaRefusal.length;
+    withRefusal.code.forEach((carrier, index) => {
+      if (carrier.mnemonic !== STRING_SLICE_RUNTIME_CARRIER) return;
+      const [from, to, result, ...literals] = carrier.operands;
+      if (
+        from?.kind !== 'reg' ||
+        to?.kind !== 'reg' ||
+        result?.kind !== 'reg' ||
+        literals.length !== 6 ||
+        literals.some((operand) => operand?.kind !== 'imm')
+      ) {
+        throw new LoweringRefusalError(
+          LOWERING_CODES.runtime,
+          `#${String(index)} ${STRING_SLICE_RUNTIME_CARRIER}: носитель рантайм-среза без клеток краёв, ` +
+            'приёмника или индексов пула — это дефект планирования строк (src/e2k/stringPlan.ts), а не программы',
+        );
+      }
+      const [sourceAddress, sourceEnd, codePoints, tableAddress, one, sixteen] = literals.map(
+        (operand) => (operand as { readonly kind: 'imm'; readonly value: number }).value,
+      );
+      sliceRequests.push({
+        index,
+        from: from.index,
+        to: to.index,
+        destination: STRING_SLICE_DESTINATION_CELL,
+        result: result.index,
+        literals: {
+          sourceAddress: sourceAddress!,
+          sourceEnd: sourceEnd!,
+          codePoints: codePoints!,
+          tableAddress: tableAddress!,
+          one: one!,
+          sixteen: sixteen!,
+        },
+        cells: STRING_SLICE_CELLS,
+        arena: {
+          pointer: ARENA_POINTER_BASE,
+          flag: ARENA_FLAG_REGISTER,
+          limit: ARENA_LIMIT_BASE,
+          refusalIndex,
+        },
+        reserved: [...STRING_SLICE_DECLARED_CELLS, ...arenaReservedRegisters()],
+      });
+    });
+  }
+  const slices =
+    sliceRequests.length === 0 || options.sliceReserved === false
+      ? undefined
+      : stringSliceGroups(withRefusal.code, sliceRequests, { checkCells: options.diagnosticFlow !== true });
+  const withSlices =
+    slices === undefined
+      ? { code: withRefusal.code, procedures: withRefusal.procedures }
+      : // ОТНОСИТЕЛЬНЫЕ ЦЕЛИ САЙТА ДОПИСЫВАЮТСЯ ЗДЕСЬ ЖЕ, сразу после раскрытия: `expandCarriers`
+        // пересчитывает только цели ВНУТРИ прежнего потока, а «девятый носитель САЙТА» таковой не
+        // является — без этой правки ветви обработки краёв уезжали в начало образа, и рантайм-срез
+        // висел (ERR-0008). Правка ровно одна на весь конвейер: дальше это обычные номера носителей.
+        (() => {
+          const раскрытый = expandCarriers(withRefusal.code, slices.groups, withRefusal.procedures);
+          return {
+            code: resolveSliceRelativeTargets(
+              раскрытый.code,
+              sliceRequests[0]!.index,
+              slices.relativeTargets,
+            ),
+            procedures: раскрытый.procedures,
+          };
+        })();
+  // РЕЗЕРВ КЛЕТОК САЙТА сверяется с нуждой ЗДЕСЬ ЖЕ, как у арены: разойдись объявление и нужда —
+  // названный отказ конвейера, а не молчаливая порча (клетки сайта взяты из бюджета программы).
+  if (sliceRequests.length > 0 && options.sliceReserved !== true && options.diagnosticFlow !== true) {
+    throw new LoweringRefusalError(
+      LOWERING_CODES.runtime,
+      'рантайм-срез нужен образу, а клетки его сайта не закреплены: раскладка не знала о срезе ' +
+        '(разведка планирования строк и поток после раскладки разошлись) — это дефект конвейера, ' +
+        'а не программы (src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked)',
+    );
+  }
+  const sliceCode = withSlices.code;
+  const sliceProcedures: readonly ProcedureOffset[] = withSlices.procedures;
   // КОЛЛЕКЦИИ В ПОТОКЕ: сайт операции — проверка границы (у `выделить`/`расширить` — ответа `brk`) и
   // обращение по вычисленному адресу; у переезда ещё и цикл копирования. Тем же приёмом, что арена:
   // САЙТЫ — картой групп, ХВОСТ (циклы и блоки отказа) дописывается группой последнего носителя, а
@@ -1315,8 +1453,11 @@ export function imageOfCarriers(
   // БЛОКИ ОТКАЗА — ПО ОДНОМУ НА ПРИЧИНУ, и строка у каждого своя (случай 34): переход сайта
   // `положить`/`взять` ведёт в блок границы, переходы проверок `brk` — в блок памяти, проверки
   // ёмкости — в блок переезда. Прежняя редакция дописывала ОДИН блок с текстом арены.
-  const arenaCode = withRefusal.code;
-  const baseProcedures: readonly ProcedureOffset[] = withRefusal.procedures;
+  // ПОТОК ПОСЛЕ АРЕНЫ И РАНТАЙМ-СРЕЗА: имя `arenaCode` сохранено прежним, потому что дальше он и был
+  // «поток после арены», а срез встал в ту же точку — ДО коллекций и роста окна, чтобы все
+  // последующие проходы (и их пересчёт целей) видели сайт и хвост на своих местах.
+  const arenaCode = sliceCode;
+  const baseProcedures: readonly ProcedureOffset[] = sliceProcedures;
   const entryOffset = declaredProcedures[entryProcedureIndex(declaredProcedures)]?.codeOffset ?? 0;
   const nextProcedureOffset =
     declaredProcedures
