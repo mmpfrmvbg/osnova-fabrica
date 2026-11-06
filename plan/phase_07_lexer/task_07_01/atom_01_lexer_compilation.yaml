@@ -2,7 +2,7 @@ id: ATOM-07-01-01
 title: "Компиляция лексера"
 phase: PHASE-07
 task: TASK-07-01
-status: todo
+status: done
 input:
   - "грамматика лексера"
 output:
@@ -12,3 +12,4 @@ done_criteria:
   - "покрывающий тест зелёный"
 tests: []
 registers_touched: {}
+commit_hash: 3096f4a5
