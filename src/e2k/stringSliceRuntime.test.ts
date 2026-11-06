@@ -27,6 +27,15 @@ import { loweredProgram } from './lowered';
 import { MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY, buildElfFromCode } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { SHIM_REASON } from '../scripts/e2kProgramRun';
+import { ARENA_FLAG_REGISTER } from './arenaRuntime';
+import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from './procedureCall';
+import {
+  STRING_SLICE_CELLS,
+  STRING_SLICE_DESTINATION_CELL,
+  checkStringSliceRuntimeSite,
+  stringSliceRuntimeSite,
+  stringSliceWrittenCells,
+} from './stringRuntime';
 import type { CompileOptions } from '../compiler/compiler';
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -176,5 +185,52 @@ describe('рантайм-срез `подстрока`: края приноси�
         // Файла нет — это и есть цель уборки.
       }
     }
+  });
+});
+
+// ── СТОРОЖ: ФАКТИЧЕСКИЕ ЗАПИСИ, А НЕ ОБЪЯВЛЕННЫЕ РОЛИ ─────────────────────────────────────────────
+
+/**
+ * КАРТА САЙТА — ТА ЖЕ, ЧТО У ОБРАЗА. Проба не собирает программу: она проверяет сторож на том потоке
+ * носителей, который в образ и уходит, поэтому ловит запись `%b[15]` ДО раскладки.
+ */
+const СТОРОЖ_ОПЦИИ = {
+  from: 7,
+  to: 8,
+  destination: STRING_SLICE_DESTINATION_CELL,
+  result: 9,
+  literals: { sourceAddress: 0, sourceEnd: 1, codePoints: 2, tableAddress: 3, one: 4, sixteen: 5 },
+  cells: STRING_SLICE_CELLS,
+  arena: {
+    pointer: ARENA_POINTER_BASE,
+    limit: ARENA_LIMIT_BASE,
+    flag: ARENA_FLAG_REGISTER,
+    refusalIndex: 99,
+  },
+  loopIndex: 34,
+} as const;
+const СТОРОЖ_РЕЗЕРВ = [1, 2, 3, ARENA_POINTER_BASE, ARENA_FLAG_REGISTER, ARENA_LIMIT_BASE] as const;
+
+describe('сторож сайта Г: считает ЗАПИСИ, а не роли', () => {
+  it('%b[15] ПИШЕТСЯ, но не объявлена — сторож краснеет', () => {
+    // Клетка 15 — приёмник: её пишет `IR.arena_alloc` и `IR.load_byte`. В `options.cells` она есть как
+    // `byte`, и прежний сторож по ролям молчал; теперь запись обязана назвать reserved.
+    expect(() => checkStringSliceRuntimeSite(СТОРОЖ_ОПЦИИ, СТОРОЖ_РЕЗЕРВ)).toThrowError(/%b\[15\].*reserved|reserved.*%b\[15\]/);
+  });
+
+  it('%b[15] объявлена — сторож пропускает', () => {
+    expect(() => checkStringSliceRuntimeSite(СТОРОЖ_ОПЦИИ, [...СТОРОЖ_РЕЗЕРВ, 15])).not.toThrow();
+  });
+
+  it('ЧТЕНИЕ %b[7..9] не краснеет: сторож смотрит только записи', () => {
+    // `IR.ret` читает клетку, но не пишет её — в списке записей её быть не должно.
+    const чтение = stringSliceWrittenCells([{ mnemonic: 'IR.ret', channel: 0, operands: [{ kind: 'imm', value: 1 }, { kind: 'reg', index: 7 }] } as never], ARENA_POINTER_BASE);
+    expect(чтение).toEqual([]);
+    // Контрактные клетки 7/8/9 сайт пишет (нормализация краёв и перенос результата), и они разрешены:
+    // именно поэтому законное чтение программы не смешивается с записью сайта.
+    const записи = stringSliceWrittenCells(stringSliceRuntimeSite(СТОРОЖ_ОПЦИИ), ARENA_POINTER_BASE);
+    expect(записи).toEqual(expect.arrayContaining([7, 8, 9]));
+    expect(записи).toContain(STRING_SLICE_DESTINATION_CELL);
+    expect(() => checkStringSliceRuntimeSite(СТОРОЖ_ОПЦИИ, [...СТОРОЖ_РЕЗЕРВ, 15])).not.toThrow();
   });
 });

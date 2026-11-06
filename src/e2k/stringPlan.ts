@@ -49,6 +49,7 @@ import {  STRING_ARENA_CONCAT_CARRIER,
 } from './stringRuntime';
 import { foldNumericCarrier, isNumericCarrier } from './numberFacts';
 import { registersOf } from './predicatePairing';
+import { ARENA_POINTER_BASE } from './procedureCall';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 
@@ -662,6 +663,19 @@ export function planStrings(
     return first !== undefined && first.kind === 'reg' ? first.index : undefined;
   };
   /**
+   * ЯВНЫЙ SPILL ЧЕРЕЗ ВЫЗОВ (ERR-0009, (в)) — координаты вставки.
+   *
+   * Причина 0/0/0/0 измерена: значение `начало` живёт в `%b[8]`, а ВТОРОЙ вызов (`целое_финиш`)
+   * кладёт свой результат в ту же клетку 8 (пара возврата: явный приёмник 7 и следующая клетка 8) —
+   * край среза приходит на сайт уже затёртым. Плану не нужна живучесть (это VLIW): он видит
+   * ПОСЛЕДНИЙ вызов до среза, писавший в клетку края, и если до него клетку уже писали, перед этим
+   * вызовом значение сохраняется в первый слот арены, а сразу после вызова — восстанавливается.
+   * Два носителя (`IR.store`/`IR.load`), не VLIW.
+   */
+  let spillStoreAt = -1;
+  let spillRestoreAt = -1;
+  let spillFrom = -1;
+  /**
    * ПЕРЕОПРЕДЕЛЕНИЕ РЕГИСТРА (kill, случай 46).
    *
    * Карта `byRegister` — линейная: она держит ПОСЛЕДНЕЕ известное строковое значение регистра. Пока
@@ -1204,6 +1218,52 @@ export function planStrings(
         // КРАЯ ИЗРАСХОДОВАНЫ: нормализация переписывает их НА МЕСТЕ, и всякое позднейшее чтение этих
         // клеток прочитало бы чужое число. Пометка превращается в названный отказ ниже, ПО ПОТОКУ.
         eatenEdges.push({ at: index, cells: [fromOperand.index, toOperand.index] });
+        // ЯВНЫЙ SPILL КРАЯ: значение `начало` живёт в клетке ПАРЫ ВОЗВРАТА второго вызова. Спасаем
+        // значение ПЕРЕД последним вызовом до среза, который пишет эту клетку, и восстанавливаем
+        // СРАЗУ после вызова: результат вызова лежит в явном приёмнике (7), а клетка края (8) —
+        // вторая клетка пары, её сайт и должен прочитать старой. Пересылка результата в 7 идёт
+        // отдельным носителем и восстановлению не мешает.
+        const fromIndex = fromOperand.index;
+        let previousWrites = 0;
+        for (let at = 0; at < index; at += 1) {
+          const before = code[at];
+          if (before === undefined) continue;
+          const written = writtenRegisterOf(before);
+          if (written === fromIndex) previousWrites += 1;
+          else if (
+            (before.mnemonic === 'IR.invoke' || before.mnemonic === 'IR.call') &&
+            written !== undefined &&
+            written + 1 === fromIndex
+          ) {
+            previousWrites += 1;
+          }
+        }
+        // ПОСЛЕДНИЙ ВЫЗОВ ПЕРЕД СРЕЗОМ, а не во всём потоке: вызовы ПОСЛЕ среза (например, `длина`
+        // подстроки) писали бы пару 7/8 уже после того, как край прочитан, и spill стоял бы не там.
+        let lastCall = -1;
+        for (let at = index - 1; at >= 0; at -= 1) {
+          const call = code[at];
+          if (call === undefined) continue;
+          if (call.mnemonic !== 'IR.invoke' && call.mnemonic !== 'IR.call') continue;
+          const callDest = writtenRegisterOf(call);
+          if (callDest !== undefined && (callDest === fromIndex || callDest + 1 === fromIndex)) {
+            lastCall = at;
+            break;
+          }
+        }
+        if (lastCall !== -1) {
+          const call = code[lastCall];
+          const callDest = call === undefined ? undefined : writtenRegisterOf(call);
+          // КРАЙ — ВТОРАЯ КЛЕТКА ПАРЫ ВОЗВРАТА: замер ERR-0009 показал, что `IR.call` с приёмником 7
+          // пишет и 7, и 8 (пара возврата), а значение края `начало` живёт в 8. Второй вызов пишет пару
+          // 7/8 и затирает край. Значение результата вызова — в 7, поэтому 8 можно восстановить СРАЗУ
+          // после вызова, не дожидаясь пересылки.
+          if (callDest !== undefined && fromIndex === callDest + 1 && previousWrites >= 2) {
+            spillStoreAt = lastCall;
+            spillRestoreAt = lastCall;
+            spillFrom = fromIndex;
+          }
+        }
         edits.set(index, {
           kind: 'slice_runtime',
           index,
@@ -1667,6 +1727,32 @@ export function planStrings(
     return { ...carrier, operands };
   });
 
+  // ЯВНЫЙ SPILL КРАЯ (ERR-0009, (в)): два носителя, вставленных ПОСЛЕ правок — индексы правок
+  // остаются индексами входного потока, а вставки сдвигают только итоговый `code`.
+  const withSpills: AsmInstruction[] = [];
+  for (let at = 0; at < rewritten.length; at += 1) {
+    if (at === spillStoreAt && spillFrom >= 0) {
+      withSpills.push({
+        mnemonic: 'IR.store',
+        channel: 0,
+        operands: [
+          { kind: 'reg', index: spillFrom },
+          { kind: 'reg', index: ARENA_POINTER_BASE },
+        ],
+      });
+    }
+    withSpills.push(rewritten[at]!);
+    if (at === spillRestoreAt && spillFrom >= 0) {
+      withSpills.push({
+        mnemonic: 'IR.load',
+        channel: 0,
+        operands: [
+          { kind: 'reg', index: ARENA_POINTER_BASE },
+          { kind: 'reg', index: spillFrom },
+        ],
+      });
+    }
+  }
   const refusalAddress = addresses.get(ARENA_REFUSAL_BLOB_KEY);
   // Блобы коллекций — ПО ТОМУ ЖЕ ПОРЯДКУ, в каком их попросили: сопоставление «причина → адрес»
   // делает вызывающий, и порядок здесь — единственное, чем он может это сделать.
@@ -1684,7 +1770,7 @@ export function planStrings(
     ? (collectionRefusals as { address: number; byteLength: number }[])
     : undefined;
   return {
-    code: rewritten,
+    code: withSpills,
     constants: pool,
     invokeNames: names,
     blobs,
