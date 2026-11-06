@@ -851,6 +851,101 @@ export function checkStringCopyLoopCells(
 
 
 /**
+ * НОРМАЛИЗАЦИЯ КРАЁВ РАНТАЙМ-СРЕЗА: ТО ЖЕ, ЧТО ДЕЛАЕТ ЭТАЛОН ЯЗЫКА, И НИЧЕГО СВЕРХ.
+ *
+ * # Почему отдельный блок, а не «само получится»
+ *
+ * Края среза приходят из рантайма (`подстрока(с, н, к)` при разных `н`/`к` на сайтах вызова), а эталон
+ * `src/runtime/vm/stringUnits.ts#codePointSlice` (назван в `src/e2k/stringPlan.ts`) с ними делает ТРИ
+ * вещи: отрицательный край считается ОТ КОНЦА (`length + край`), край за границей ОБРЕЗАЕТСЯ, а при
+ * `к ≤ н` результат ПУСТ. Без этого `подстрока("ёжзийк", -2, 6)` дало бы не «йк», а мусор: `-2` как
+ * индекс — это чтение перед блобом. Измерено: механизм нужен ОБОИМ вариантам цикла (Г и В), поэтому
+ * он не «потом», а часть подключения.
+ *
+ * # Что здесь НЕ делается, и это названо, а не забыто
+ *
+ * 1. **Обрезка `к` СВЕРХУ не нужна вовсе**: конец блоба ловит ГРАНИЦА ЦИКЛА (`p < end`), а число
+ *    скопированных кодпоинтов считает сам цикл (`cnt`), поэтому «к больше длины» не может соврать:
+ *    замер эталона — `подстрока("ёжзийк", 0, 99)` → «ёжзийк», и цикл даёт ровно это.
+ * 2. **`NaN`/`∞` не представимы в клетке**: у эталона они дают 0 и «до конца»; сюда значения приходят
+ *    ЦЕЛЫМИ числами языка, и ветвь для не-чисел в рантайме не строится, потому что её нечем получить.
+ * 3. **`к` не указан** («до конца») — это решение САЙТА (подстановка длины вместо `к`), а не края.
+ *
+ * # Числа
+ *
+ * Ровно {@link STRING_SLICE_EDGE_SIZE} носителей, и все они — носители IR (`IR.lt`, `IR.jmp_if_not`,
+ * `IR.add`): новых форм раскладке не требуется (замер: 15/15 размещены, см. оракул
+ * `src/e2k/stringSliceEdges.test.ts`). Цели переходов АБСОЛЮТНЫЕ по итоговому потоку — их считает
+ * вызывающий через `baseIndex`, ровно как у цикла копирования.
+ *
+ * КЛЮЧ — ОДНА клетка на весь блок, и это ИЗМЕРЕНО, а не упущено: каждое сравнение ПИШЕТ клетку ключа,
+ * поэтому окно живости закрывается на следующем сравнении, и разбор пар даёт 5 пар на 5 условных
+ * переходов без единого отказа (`src/e2k/byteCarriers.test.ts`, `.tmp/06-02-цена-Г.ts`).
+ */
+export interface StringSliceEdgeOptions {
+  /** Абсолютный индекс ПЕРВОГО носителя блока в итоговом потоке. */
+  readonly baseIndex: number;
+  /** Клетка начала среза (кодпоинты) — нормализуется НА МЕСТЕ. */
+  readonly from: number;
+  /** Клетка конца среза (кодпоинты) — нормализуется НА МЕСТЕ. */
+  readonly to: number;
+  /** Клетка ЧИСЛА КОДПОИНТОВ ИСТОЧНИКА — КОНСТАНТА СБОРКИ (источник статический, `N` известен). */
+  readonly count: number;
+  /** Клетка нуля — только чтение. */
+  readonly zero: number;
+  /** Клетка ключа: сравнение пишет, переход читает. */
+  readonly key: number;
+}
+
+/** Сколько носителей занимает нормализация краёв: 5 сравнений, 5 переходов, 5 правок. */
+export const STRING_SLICE_EDGE_SIZE = 15;
+
+/**
+ * Носители нормализации краёв — по порядку исполнения; цели переходов считаются от `baseIndex`.
+ *
+ * ```text
+ *  0  key = from < 0 ?          3  key = from < 0 ?          6  key = N < from ?
+ *  1  нет → 3                   4  нет → 6                   7  нет → 9
+ *  2  from += N                 5  from = 0                  8  from = N
+ *
+ *  9  key = to < 0 ?           12  key = to < 0 ?
+ * 10  нет → 12                 13  нет → 15 (за блоком)
+ * 11  to += N                  14  to = 0
+ * ```
+ */
+export function stringSliceEdgeCarriers(options: StringSliceEdgeOptions): AsmInstruction[] {
+  const L = options.baseIndex;
+  const шаг = (номер: number): Operand => imm(L + номер);
+  const edge: AsmInstruction[] = [
+    a('IR.lt', [reg(options.key), reg(options.from), reg(options.zero)]),
+    a('IR.jmp_if_not', [reg(options.key), шаг(3)]),
+    a('IR.add', [reg(options.from), reg(options.from), reg(options.count)]),
+    // ВТОРАЯ проверка нужна: `−99` после прибавления длины всё ещё отрицательно (эталон даёт 0).
+    a('IR.lt', [reg(options.key), reg(options.from), reg(options.zero)]),
+    a('IR.jmp_if_not', [reg(options.key), шаг(6)]),
+    a('IR.add', [reg(options.from), reg(options.zero), reg(options.zero)]),
+    // ОБРЕЗКА СВЕРХУ: край за концом — это САМ конец.
+    a('IR.lt', [reg(options.key), reg(options.count), reg(options.from)]),
+    a('IR.jmp_if_not', [reg(options.key), шаг(9)]),
+    a('IR.add', [reg(options.from), reg(options.count), reg(options.zero)]),
+    a('IR.lt', [reg(options.key), reg(options.to), reg(options.zero)]),
+    a('IR.jmp_if_not', [reg(options.key), шаг(12)]),
+    a('IR.add', [reg(options.to), reg(options.to), reg(options.count)]),
+    a('IR.lt', [reg(options.key), reg(options.to), reg(options.zero)]),
+    a('IR.jmp_if_not', [reg(options.key), шаг(15)]),
+    a('IR.add', [reg(options.to), reg(options.zero), reg(options.zero)]),
+  ];
+  if (edge.length !== STRING_SLICE_EDGE_SIZE) {
+    throw new StringRuntimeRefusal(
+      `нормализация краёв длиной ${String(edge.length)}, а счёт обещает ` +
+        `${String(STRING_SLICE_EDGE_SIZE)} — цели переходов считались бы неверно`,
+    );
+  }
+  return edge;
+}
+
+
+/**
  * САЙТ РАНТАЙМ-СРЕЗА: УСТАНОВКА + ЦИКЛ + ЗАПИСЬ ДЕСКРИПТОРА (ATOM-06-02-02, шаг «сайт»).
  *
  * ЧТО ЭТО. Края среза известны только в рантайме (`подстрока(с, н, к)` при разных `н`/`к` на сайтах
