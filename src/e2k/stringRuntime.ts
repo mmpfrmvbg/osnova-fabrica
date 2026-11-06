@@ -38,7 +38,7 @@
  */
 import type { AsmInstruction, Operand } from './backend';
 import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ } from './arrayRuntime';
-import { BASE_REGISTER_COUNT } from './e2k-real';
+import { BASE_REGISTER_COUNT, IMM_SRC1_MAX } from './e2k-real';
 import { RESERVED_REGISTERS } from './regAlloc';
 import {
   ENTRY_SYSCALL_FRAME,
@@ -353,7 +353,23 @@ export function stringSymbolInstructions(options: {
     // Форма от плоскости не зависит (§3.135): список команд один и тот же.
     a('movts', [imm(1), reg(one)]),
     // ГРАНИЦЫ: `в границах` собирается в `%b[10]`, безопасный индекс — в `%b[11]`.
-    a('subs', [imm(options.codePoints), reg(options.index), reg(r.first)]),
+    //
+    // КОДПОИНКТОВ БОЛЬШЕ 31 — В `src1` НЕ ПОЛОЖИТЬ (случай 82, срез 7). Первое `subs` было
+    // `subs imm(кодпоинтов), reg(индекс)`: у слота `src1` нет литерального слова `LTS`, поле 5-битное
+    // (0…31), и кодировщик обязан отвергнуть литерал больше 31, а не молча прочитать его железом как
+    // младшие 5 бит. Поэтому для длинной строки длина кладётся `movts` в приёмник (у `movts` литерал
+    // едет в `src2`, где `LTS` есть), и вычитается `reg,reg`. Приёмник здесь СВОБОДЕН: ниже его
+    // всё равно перезаписывает `movtd` адреса таблицы, поэтому временное значение ничего не портит.
+    //
+    // Форма обязана быть ОДНАКОЙ с двух сторон: и раскладка (`carrierFormWithReason`), и эмиттер
+    // зовут ЭТУ ЖЕ функцию с ЭТИМИ ЖЕ метками, поэтому расхождение в длине между `≤31` и `>31`
+    // не может увести носители — оно детерминировано значением, а не плоскостью (§3.135).
+    ...(options.codePoints > IMM_SRC1_MAX
+      ? [
+          a('movts', [imm(options.codePoints), reg(options.destination)]),
+          a('subs', [reg(options.destination), reg(options.index), reg(r.first)]),
+        ]
+      : [a('subs', [imm(options.codePoints), reg(options.index), reg(r.first)])]),
     a('subs', [reg(r.first), reg(one), reg(r.first)]),
     a('shrs', [reg(r.first), imm(STRING_SIGN_SHIFT), reg(r.first)]),
     a('shrs', [reg(options.index), imm(STRING_SIGN_SHIFT), reg(r.second)]),
