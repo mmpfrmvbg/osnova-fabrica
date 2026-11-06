@@ -40,7 +40,6 @@ import {
 import { layoutOf } from './twoPassLayout';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
-const imm = (value: number): Operand => ({ kind: 'imm', value });
 const a = (mnemonic: string, operands: readonly Operand[]): AsmInstruction => ({
   mnemonic,
   channel: 0,

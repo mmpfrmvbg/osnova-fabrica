@@ -342,7 +342,6 @@ export function stringSymbolInstructions(options: {
   readonly tableAddress: number;
 }): AsmInstruction[] {
   const r = STRING_REGISTERS;
-  const zero = ARRAY_REGISTERS.zero;
   const one = ARRAY_REGISTERS.one;
   return [
     // ЕДИНИЦА — СВОЯ, А НЕ ЧУЖАЯ ПОСТОЯННАЯ (шаг 2.3, случай 73). Прежде последовательность ЧИТАЛА
@@ -756,6 +755,12 @@ export function stringCopyLoopCarriers(options: StringCopyLoopOptions): AsmInstr
       );
     }
   }
+  if (options.zero !== ARRAY_REGISTERS.zero) {
+    throw new StringRuntimeRefusal(
+      `клетка нуля цикла = %b[${String(options.zero)}], а байтовые носители адресуют смещение из ` +
+        `%b[${String(ARRAY_REGISTERS.zero)}] (впаяно в форму): с чужим нулём чтение ушло бы по чужому адресу`,
+    );
+  }
   const loop: AsmInstruction[] = [
     // «источник < конец?» — сравниваются УКАЗАТЕЛИ, а не счётчик: операции «сколько осталось» у нас нет,
     // а указатель конца сайт считает один раз, до входа в цикл.
@@ -763,8 +768,12 @@ export function stringCopyLoopCarriers(options: StringCopyLoopOptions): AsmInstr
     // Скопировано всё — на ПОСЛЕДНИЙ носитель цикла, а он уже ведёт за цикл. Так у петли ОДИН выход, и
     // он не «проваливается» в область блоков отказа (у коллекций та же причина).
     a('IR.jmp_if_not', [reg(options.key), imm(loopIndex + STRING_COPY_LOOP_SIZE - 1)]),
-    a('ldb', [reg(options.source), reg(options.zero), reg(options.byte)], 0),
-    a('stb', [reg(options.byte), reg(options.target), reg(options.zero)], 2),
+    // БАЙТОВЫЕ НОСИТЕЛИ, А НЕ СЫРЫЕ `ldb`/`stb`: сырая команда не носитель IR, и раскладка её не
+    // размещает («не носитель IR: раскладка идёт по потоку носителей оболочки») — сайт собирался бы
+    // молча короче, а цели переходов уехали бы. Смещение впаяно в форму носителя и берётся из клетки
+    // нуля — потому роль `zero` обязана быть ИМЕННО этой клеткой.
+    a('IR.load_byte', [reg(options.source), reg(options.byte)]),
+    a('IR.store_byte', [reg(options.byte), reg(options.target)]),
     a('IR.add', [reg(options.source), reg(options.source), reg(options.one)]),
     a('IR.add', [reg(options.target), reg(options.target), reg(options.one)]),
     a('IR.jmp', [imm(loopIndex)]),
@@ -944,267 +953,514 @@ export function stringSliceEdgeCarriers(options: StringSliceEdgeOptions): AsmIns
   return edge;
 }
 
+/**
+ * ЦИКЛ КОПИРОВАНИЯ РАНТАЙМ-СРЕЗА, ВАРИАНТ Г: проход по БАЙТАМ UTF-8 с таблицей продолжений.
+ *
+ * # Почему Г, а не восьмёрки на кодпоинт
+ *
+ * Срез живёт в АРЕНЕ и копирует БАЙТЫ: `н`/`к` — номера кодпоинтов, а байтовое смещение требует
+ * прохода по UTF-8 (замер и решение владельца, D26). Поэтому адрес источника и граница копии —
+ * БАЙТОВЫЕ, и никаких `× 8` здесь нет; таблица продолжений (256 байт, как у `длина`) отвечает на
+ * «этот байт — начало кодпоинта?» одним чтением.
+ *
+ * # Откуда 17 носителей, а не 16 из оценки
+ *
+ * В оценке (`.tmp/06-02-цена-Г.ts`) чтение признака шло СЫРОЙ `ldb [таблица, байт, признак]` —
+ * у неё ТРИ операнда, и индекс стоит отдельно. Носитель `IR.load_byte` несёт ДВА операнда
+ * (`[адрес, приёмник]`), а смещение у него ВПАЯНО нулём (`src/e2k/memoryAccess.ts#loadByteInstructions`
+ * берёт его из клетки нуля) — значит «таблица + номер байта» надо сложить САМИМ, лишним `IR.add`.
+ * Итог измерен, а не округлён: 17 носителей, и `STRING_SLICE_COPY_LOOP_SIZE` равно именно им.
+ *
+ * # Два выхода и один обратный переход
+ *
+ * ```
+ *   0  key = p < end ?            9  jmp_if_not key → выход  (остаток ≤ 0)
+ *   1  jmp_if_not key → выход    10  key = left ≤ 0 ?
+ *   2  byte = [p]                11  jmp_if_not key → 15    (кодпоинт не наш)
+ *   3  scratch = table + byte    12  [t] = byte
+ *   4  flag = [scratch]          13  t += 1
+ *   5  flag = 1 − flag           14  copied += flag
+ *   6  rest −= flag              15  p += 1
+ *   7  left −= flag              16  jmp → петля
+ *   8  key = 0 < rest ?
+ * ```
+ *
+ * ОБА выхода ведут на `continuation` — первый носитель записи дескриптора (у петли ОДИН выход, как
+ * у коллекций: «провалиться» в блок отказа она не имеет права). Переходы АБСОЛЮТНЫЕ: цель внутри
+ * петли (`15`) считается от `loopIndex`, а не от начала массива.
+ *
+ * `left` и `rest` — это те же клетки `н`/`к` ПОСЛЕ нормализации, и они же СЧЁТЧИКИ: отдельные
+ * клетки под «сколько пройдено» не нужны (цена клетки — вытесненное значение программы). Поэтому
+ * длину результата даёт `copied`, а не `к − н`.
+ */
+export const STRING_SLICE_COPY_LOOP_SIZE = 17;
+
+export interface StringSliceCopyLoopOptions {
+  /** АБСОЛЮТНЫЙ индекс первого носителя петли в итоговом потоке. */
+  readonly loopIndex: number;
+  /** ИСХОДНЫЙ индекс носителя, стоящего ЗА вызовом: пересчёт сдвинет его вместе с потоком. */
+  readonly continuation: number;
+  /** Указатель по БАЙТАМ источника (начало блоба). */
+  readonly source: number;
+  /** Конец БАЙТОВ источника — ИСКЛЮЧАЮЩИЙ. */
+  readonly end: number;
+  /** Приёмник копирования — указатель по байтам арены. */
+  readonly target: number;
+  readonly byte: number;
+  readonly flag: number;
+  /** Адрес таблицы продолжений. */
+  readonly table: number;
+  /** Временная клетка суммы «таблица + байт» (у `IR.load_byte` индекс впаян нулём). */
+  readonly scratch: number;
+  /** Клетка `н` — счётчик НЕПРОЙДЕННЫХ кодпоинтов среза. */
+  readonly left: number;
+  /** Клетка `к` — счётчик ОСТАВШИХСЯ кодпоинтов. */
+  readonly rest: number;
+  /** Счётчик СКОПИРОВАННЫХ кодпоинтов — из него берётся длина результата. */
+  readonly copied: number;
+  readonly one: number;
+  /** Клетка нуля: ею же адресуются байтовые носители (`IR.load_byte`/`IR.store_byte`). */
+  readonly zero: number;
+  readonly key: number;
+}
+
+export function stringSliceCopyLoopCarriers(options: StringSliceCopyLoopOptions): AsmInstruction[] {
+  const роли: readonly (readonly [string, number])[] = [
+    ['source', options.source],
+    ['end', options.end],
+    ['target', options.target],
+    ['byte', options.byte],
+    ['flag', options.flag],
+    ['table', options.table],
+    ['scratch', options.scratch],
+    ['left', options.left],
+    ['rest', options.rest],
+    ['copied', options.copied],
+    ['one', options.one],
+    ['zero', options.zero],
+    ['key', options.key],
+  ];
+  for (const [имя, клетка] of роли) {
+    if (!Number.isInteger(клетка) || клетка < 0 || клетка >= BASE_REGISTER_COUNT) {
+      throw new StringRuntimeRefusal(
+        `роль петли Г «${имя}» = %b[${String(клетка)}]: клетка обязана быть числом в 0..` +
+          `${String(BASE_REGISTER_COUNT - 1)} — иначе операнд уехал бы в поток без номера либо кодировщик ` +
+          'отверг бы его позже и не там',
+      );
+    }
+  }
+  if (options.zero !== ARRAY_REGISTERS.zero) {
+    throw new StringRuntimeRefusal(
+      `клетка нуля петли Г = %b[${String(options.zero)}], а байтовые носители адресуют смещение из ` +
+        `%b[${String(ARRAY_REGISTERS.zero)}] (впаяно в форму, см. ` +
+        '`src/e2k/memoryAccess.ts#loadByteInstructions`): с чужим нулём чтение ушло бы по чужому адресу',
+    );
+  }
+  for (const [имя, индекс] of [
+    ['loopIndex', options.loopIndex],
+    ['continuation', options.continuation],
+  ] as const) {
+    if (!Number.isInteger(индекс) || индекс < 0) {
+      throw new StringRuntimeRefusal(
+        `${имя} = ${String(индекс)} — не неотрицательный индекс носителя: переход ушёл бы в середину ` +
+          'команды или за поток (класс §3.35)',
+      );
+    }
+  }
+  const { loopIndex } = options;
+  const пропуск = loopIndex + 15;
+  const loop: AsmInstruction[] = [
+    a('IR.lt', [reg(options.key), reg(options.source), reg(options.end)]),
+    a('IR.jmp_if_not', [reg(options.key), imm(options.continuation)]),
+    a('IR.load_byte', [reg(options.source), reg(options.byte)]),
+    a('IR.add', [reg(options.scratch), reg(options.table), reg(options.byte)]),
+    a('IR.load_byte', [reg(options.scratch), reg(options.flag)]),
+    a('IR.sub', [reg(options.flag), reg(options.one), reg(options.flag)]),
+    a('IR.sub', [reg(options.rest), reg(options.rest), reg(options.flag)]),
+    a('IR.sub', [reg(options.left), reg(options.left), reg(options.flag)]),
+    a('IR.le', [reg(options.key), reg(options.zero), reg(options.rest)]),
+    a('IR.jmp_if_not', [reg(options.key), imm(options.continuation)]),
+    a('IR.lt', [reg(options.key), reg(options.left), reg(options.zero)]),
+    a('IR.jmp_if_not', [reg(options.key), imm(пропуск)]),
+    a('IR.store_byte', [reg(options.byte), reg(options.target)]),
+    a('IR.add', [reg(options.target), reg(options.target), reg(options.one)]),
+    a('IR.add', [reg(options.copied), reg(options.copied), reg(options.flag)]),
+    a('IR.add', [reg(options.source), reg(options.source), reg(options.one)]),
+    a('IR.jmp', [imm(loopIndex)]),
+  ];
+  if (loop.length !== STRING_SLICE_COPY_LOOP_SIZE) {
+    throw new StringRuntimeRefusal(
+      `петля Г длиной ${String(loop.length)}, а счёт обещает ${String(STRING_SLICE_COPY_LOOP_SIZE)} — ` +
+        'цели переходов и место записи дескриптора считались бы неверно',
+    );
+  }
+  return loop;
+}
 
 /**
- * САЙТ РАНТАЙМ-СРЕЗА: УСТАНОВКА + ЦИКЛ + ЗАПИСЬ ДЕСКРИПТОРА (ATOM-06-02-02, шаг «сайт»).
+ * КОНСТАНТЫ СБОРКИ, которые сайту нужны в клетках (индексы ПУЛА, а не значения).
  *
- * ЧТО ЭТО. Края среза известны только в рантайме (`подстрока(с, н, к)` при разных `н`/`к` на сайтах
- * вызова) — тогда байты результата строит ЦИКЛ КОПИРОВАНИЯ, а не сборка. Сайт считает указатели,
- * вводит цикл и ПОСЛЕ него кладёт в дескриптор результата число кодпоинтов (`к − н`), чтобы
- * `длина` результата читалась тем же дескрипторным путём, что у параметра с разными значениями
- * (`stringLengthFromDescriptorInstructions`, TD-0001).
+ * Почему через пул: `IR.const` — ЕДИНСТВЕННЫЙ носитель, несущий значение, зависящее от сборки, и
+ * раскладка берёт его длину по ЗНАЧЕНИЮ из пула (0…15 — короткая форма, 8 байт; прочее — 16),
+ * заранее и без плоскости (`src/e2k/twoPassLayout.ts#carrierFormWithReason`). Адреса и число
+ * кодпоинтов сайт знать не может — их кладёт план (`src/e2k/stringPlan.ts`, шаг подключения).
+ */
+export interface StringSliceLiterals {
+  /** Индекс пула: адрес БАЙТОВ источника. */
+  readonly sourceAddress: number;
+  /** Индекс пула: конец байтов источника (исключающий) — адрес ИЗВЕСТЕН сборке. */
+  readonly sourceEnd: number;
+  /** Индекс пула: число кодпоинтов ИСТОЧНИКА (нужно нормализации краёв). */
+  readonly codePoints: number;
+  /** Индекс пула: адрес таблицы продолжений. */
+  readonly tableAddress: number;
+  /** Индекс пула: единица (коллекции затирают `%b[13]` своим ключом — рассчитывать на пролог нельзя). */
+  readonly one: number;
+  /** Индекс пула: шестнадцать — байт дескриптора впереди байтов. */
+  readonly sixteen: number;
+}
+
+/**
+ * КЛЕТКИ АРЕНЫ: их даёт `src/e2k/arenaRuntime.ts`, и берутся они ОТТУДА — своих номеров сайт не
+ * заводит, иначе разошёлся бы с ареной молча.
  *
- * ГДЕ ЖИВЁТ. Носители сайта вставляются ПОСЛЕ раскладки (D24): в установке есть `ldb`/`stb` внутри
- * цикла, а сырая команда в дораскладочном потоке — названный отказ (ERR-0004). Индексы переходов
- * (`loopIndex`, `continuation`) АБСОЛЮТНЫЕ по итоговому потоку — их считает вызывающий, зная, куда
- * сайт встанет; здесь они проверяются на непротиворечивость.
+ * Из трёх клеток арены сайту доступна ОДНА (`flag` — её же пишет сравнение арены перед переходом),
+ * а `pointer`/`limit` — ЖИВОЕ состояние арены на всю программу: их трогать нельзя.
+ */
+export interface StringSliceArenaCells {
+  readonly pointer: number;
+  readonly limit: number;
+  readonly flag: number;
+  /** Носитель блока отказа арены: куда уйти при исчерпании. */
+  readonly refusalIndex: number;
+}
+
+/**
+ * САЙТ РАНТАЙМ-СРЕЗА, ВАРИАНТ Г: байты, арена, нормализация краёв — ОДИН сайт, а не пять.
  *
- * РАЗМЕТКА ДЕСКРИПТОРА — ДОГОВОР, А НЕ ДОГАДКА (замер, `src/e2k/stringRuntime.ts`): дескриптор лежит
- * РОВНО за {@link STRING_DESCRIPTOR_BYTES} байт до байтов значения, слово 0 — число кодпоинтов,
- * слово 1 — адрес таблицы кодов. Здесь слово 0 пишется (`IR.store`), а слово 1 НЕ пишется вовсе:
- * таблицы кодов у результата рантайм-среза НЕТ, и понижение `с[и]` по такому значению обязано
- * отказать ПО ИМЕНИ (это делает план — `с[и]` берёт таблицу из дескриптора, а её там нет). Писать
- * туда ноль значило бы «таблица по адресу 0», то есть чтение чужой памяти вместо отказа.
- *
- * ВЫРАВНИВАНИЕ: дескриптор читается `ldd` (двойное слово), поэтому и он, и буфер обязаны быть кратны
- * восьми — иначе исключение выравнивания на цели (замер §3.133), а не отказ сборки.
+ * Порядок исполнения:
+ *   • константы сборки (адрес байтов источника, его конец, число кодпоинтов, ноль, единица, счётчик);
+ *   • нормализация краёв (15 носителей) — `н`/`к` переписываются НА МЕСТЕ, поэтому копия идёт по
+ *     `[н, к)` ПОСЛЕ нормализации, а не по исходным значениям;
+ *   • размер выделения и ВЫДЕЛЕНИЕ В АРЕНЕ (носители арены) — результат ложится в приёмник;
+ *   • адрес таблицы продолжений и указатель копирования (`target = destination`);
+ *   • переход В ХВОСТ, где лежит петля (её абсолютные индексы известны только там).
  */
 export interface StringSliceRuntimeSiteOptions {
-  /** Клетка НАЧАЛА среза (кодпоинты) — читается, но НЕ портится: она нужна ещё и записи дескриптора. */
+  /** Клетка начала среза (кодпоинты) — нормализуется на месте и становится счётчиком `left`. */
   readonly from: number;
-  /** Клетка КОНЦА среза (кодпоинты) — читается, но НЕ портится: `к − н` считается ПОСЛЕ цикла. */
+  /** Клетка конца среза (кодпоинты) — нормализуется на месте и становится счётчиком `rest`. */
   readonly to: number;
-  /** Адрес байтов источника (константа сборки). */
-  readonly blobAddress: number;
-  /** Адрес статического буфера результата (константа сборки), кратен восьми. */
-  readonly bufferAddress: number;
-  /** Адрес дескриптора результата (константа сборки) — обязан быть `bufferAddress − 16`. */
-  readonly descriptorAddress: number;
-  /**
-   * Клетка результата: получает адрес байтов буфера.
-   *
-   * ОНА ЖЕ — РАБОЧИЙ АДРЕС САЙТА, и это не экономия, а измеренная необходимость: в полосе рантайма
-   * шесть клеток (`%b[8..11]`, `%b[14..15]`; `%b[12]`/`%b[13]` держат ноль и единицу), а ролей у сайта
-   * семь с отдельной рабочей клеткой. Седьмая клетка бралась бы у программы, и раскладка отдала бы её
-   * живому значению. Приёмник до цикла свободен по определению (в него ещё ничего не положено), поэтому
-   * адреса грузятся в него, а последним носителем в него кладётся адрес буфера — то есть результат.
-   */
+  /** Клетка результата — АДРЕС БАЙТОВ В АРЕНЕ (он же приёмник выделения). */
   readonly destination: number;
-  /** Семь клеток цикла (без индексов — их считает сайт). */
+  readonly literals: StringSliceLiterals;
   readonly cells: {
     readonly source: number;
     readonly end: number;
     readonly target: number;
     readonly byte: number;
+    readonly flag: number;
+    readonly table: number;
+    readonly scratch: number;
+    readonly copied: number;
     readonly one: number;
     readonly zero: number;
     readonly key: number;
   };
-  /** Абсолютный индекс ПЕРВОГО носителя ЦИКЛА в итоговом потоке (цикл живёт в ХВОСТЕ, см. ниже). */
+  readonly arena: StringSliceArenaCells;
+  /** Абсолютный индекс ПЕРВОГО носителя петли в итоговом потоке (петля живёт в ХВОСТЕ). */
   readonly loopIndex: number;
 }
 
-/** Сколько носителей занимает УСТАНОВКА сайта (до перехода в хвост) — эталон для сторожа. */
-export const STRING_SLICE_SITE_SETUP_SIZE = 14;
+/**
+ * Сколько носителей занимает сайт: 6 констант сборки + 15 нормализации + 6 размера и таблицы +
+ * 3 носителя арены + переход в хвост.
+ */
+export const STRING_SLICE_SITE_SIZE = 33;
 
-/** Опции ХВОСТА сайта рантайм-среза: те же роли плюс место хвоста и адрес возврата за вызов. */
+export function stringSliceRuntimeSite(options: StringSliceRuntimeSiteOptions): AsmInstruction[] {
+  const { cells, literals } = options;
+  const site: AsmInstruction[] = [
+    a('IR.const', [reg(cells.source), imm(literals.sourceAddress), imm(0)]),
+    a('IR.const', [reg(cells.end), imm(literals.sourceEnd), imm(0)]),
+    // ЧИСЛО КОДПОИНТОВ ИСТОЧНИКА: нужно нормализации. Клетка `table` взята под него НА ВРЕМЯ — после
+    // нормализации в ней считается размер выделения, а потом ложится адрес таблицы продолжений.
+    a('IR.const', [reg(cells.table), imm(literals.codePoints), imm(0)]),
+    a('IR.zero', [reg(cells.zero)]),
+    a('IR.const', [reg(cells.one), imm(literals.one), imm(0)]),
+    a('IR.zero', [reg(cells.copied)]),
+    ...stringSliceEdgeCarriers({
+      baseIndex: 6,
+      from: options.from,
+      to: options.to,
+      count: cells.table,
+      zero: cells.zero,
+      key: cells.key,
+    }),
+    // РАЗМЕР ВЫДЕЛЕНИЯ: 8 · (к − н) + 16 — по НОРМАЛИЗОВАННЫМ краям, и именно ВОСЕМЬ байт на
+    // кодпоинт, а не четыре из оценки: дескриптор читается `ldd` и обязан быть выровнен на 8, а
+    // арена двигает УКАЗАТЕЛЬ на размер, не округляя его. `4 · (к − н) + 16` при нечётном `к − н`
+    // даёт невыровненный адрес — исключение выравнивания на цели (§3.133).
+    a('IR.sub', [reg(cells.table), reg(options.to), reg(options.from)]),
+    a('IR.add', [reg(cells.table), reg(cells.table), reg(cells.table)]),
+    a('IR.add', [reg(cells.table), reg(cells.table), reg(cells.table)]),
+    a('IR.add', [reg(cells.table), reg(cells.table), reg(cells.table)]),
+    a('IR.const', [reg(cells.scratch), imm(literals.sixteen), imm(0)]),
+    a('IR.add', [reg(cells.table), reg(cells.table), reg(cells.scratch)]),
+    // АРЕНА: три носителя, и все три — существующие (`src/e2k/arenaRuntime.ts#arenaSiteCarriers`).
+    a(ARENA_ALLOC_CARRIER_NAME, [reg(cells.table), reg(options.destination)]),
+    a('IR.le', [reg(options.arena.flag), reg(options.arena.pointer), reg(options.arena.limit)]),
+    a('IR.jmp_if_not', [reg(options.arena.flag), imm(options.arena.refusalIndex)]),
+    a('IR.const', [reg(cells.table), imm(literals.tableAddress), imm(0)]),
+    // УКАЗАТЕЛЬ КОПИРОВАНИЯ: петля двигает ТОЛЬКО его — результат обязан остаться НАЧАЛОМ байтов.
+    a('IR.move', [reg(cells.target), reg(options.destination)]),
+    a('IR.jmp', [imm(options.loopIndex)]),
+  ];
+  if (site.length !== STRING_SLICE_SITE_SIZE) {
+    throw new StringRuntimeRefusal(
+      `сайт Г длиной ${String(site.length)}, а счёт обещает ${String(STRING_SLICE_SITE_SIZE)} — ` +
+        'индекс хвоста разошёлся бы с переходом',
+    );
+  }
+  return site;
+}
+
+/** Имя носителя выделения — ОДНО с `src/e2k/arenaRuntime.ts#ARENA_ALLOC_CARRIER` (импорт дал бы кольцо). */
+const ARENA_ALLOC_CARRIER_NAME = 'IR.arena_alloc';
+
+/** Опции ХВОСТА: те же роли плюс место хвоста и адрес возврата за вызов. */
 export interface StringSliceRuntimeTailOptions {
-  /** Клетка начала среза — ЧИТАЕТСЯ записью дескриптора, поэтому цикл её не трогает. */
   readonly from: number;
-  /** Клетка конца среза — читается там же. */
   readonly to: number;
-  readonly bufferAddress: number;
-  readonly descriptorAddress: number;
-  /** Клетка результата (в неё ложится адрес байтов буфера). */
   readonly destination: number;
-  readonly cells: {
-    readonly source: number;
-    readonly end: number;
-    readonly target: number;
-    readonly byte: number;
-    readonly one: number;
-    readonly zero: number;
-    readonly key: number;
-  };
-  /** Абсолютный индекс ПЕРВОГО носителя хвоста — он же первый носитель цикла. */
+  readonly literals: Pick<StringSliceLiterals, 'sixteen'>;
+  readonly cells: StringSliceRuntimeSiteOptions['cells'];
+  /** Абсолютный индекс ПЕРВОГО носителя хвоста — он же первый носитель петли. */
   readonly loopIndex: number;
   /** Абсолютный индекс носителя, СТОЯЩЕГО ЗА ВЫЗОВОМ: хвост возвращает поток на него. */
   readonly successor: number;
 }
 
-/** Сколько носителей занимает ВЕСЬ сайт: установка и переход в хвост, где лежит цикл. */
-export const STRING_SLICE_SITE_SIZE = 15;
+/** Сколько носителей занимает хвост: петля (17), запись дескриптора (3) и возврат за вызов (1). */
+export const STRING_SLICE_TAIL_SIZE = 21;
 
-/** Сколько носителей занимает ХВОСТ сайта: цикл, запись дескриптора и переход за вызов. */
-export const STRING_SLICE_TAIL_SIZE = 13;
-
-/**
- * Носители сайта рантайм-среза — УСТАНОВКА и ПЕРЕХОД В ХВОСТ, где лежит сам цикл.
- *
- * # Почему цикл в ХВОСТЕ, а не здесь
- *
- * Цели переходов цикла — АБСОЛЮТНЫЕ индексы носителей (§3.35: промах на одну команду уводит поток в
- * середину команды). Индекс носителя, стоящего В СЕРЕДИНЕ потока, зависит от того, сколько носителей
- * добавили все группы ДО него, и известен только после раскладки групп — то есть посчитать его здесь
- * нечем. Хвост же лежит ЗА концом потока, и его начало считается ДО сборки групп:
- * `длина потока + прирост всех групп`. Тем же приёмом живут коллекции и арена
- * (`collectionResizeSiteCarriers` → `IR.jmp [imm(loopIndex)]`, хвост — группой последнего носителя).
- *
- * Отсюда договор: сайт ЗАКАНЧИВАЕТСЯ переходом на `loopIndex`, а {@link stringSliceRuntimeTail}
- * строит хвост, НАЧИНАЮЩИЙСЯ ровно на этом индексе.
- */
-export function stringSliceRuntimeSite(options: StringSliceRuntimeSiteOptions): AsmInstruction[] {
-  const setup: AsmInstruction[] = [
-    // АДРЕС ИСТОЧНИКА: `destination` держит адрес байтов (он же — рабочая клетка сайта), `source = н`,
-    // три удвоения (×2, ×4, ×8), сложение. Восьмёрка на кодпоинт — замер: точка кода в таблице кодов
-    // занимает ровно `STRING_SYMBOL_ENTRY_BYTES` байт, и байты строки лежат по тому же счёту.
-    a('movtd', [literal(options.blobAddress), reg(options.destination)]),
-    a('movts', [reg(options.from), reg(options.cells.source)]),
-    a('IR.add', [reg(options.cells.source), reg(options.cells.source), reg(options.cells.source)]),
-    a('IR.add', [reg(options.cells.source), reg(options.cells.source), reg(options.cells.source)]),
-    a('IR.add', [reg(options.cells.source), reg(options.cells.source), reg(options.cells.source)]),
-    a('IR.add', [reg(options.cells.source), reg(options.cells.source), reg(options.destination)]),
-    // АДРЕС КОНЦА: то же для `к`, но складывается в `end` — `к` остаётся целым до записи дескриптора.
-    a('movts', [reg(options.to), reg(options.cells.end)]),
-    a('IR.add', [reg(options.cells.end), reg(options.cells.end), reg(options.cells.end)]),
-    a('IR.add', [reg(options.cells.end), reg(options.cells.end), reg(options.cells.end)]),
-    a('IR.add', [reg(options.cells.end), reg(options.cells.end), reg(options.cells.end)]),
-    a('IR.add', [reg(options.cells.end), reg(options.cells.end), reg(options.destination)]),
-    // ПРИЁМНИК — адрес буфера; ноль и единица цикла ставятся ЯВНО (пролог образа держит их, но сайт не
-    // имеет права на это рассчитывать: между прологом и сайтом их могла занять строковая операция).
-    a('movtd', [literal(options.bufferAddress), reg(options.cells.target)]),
-    a('movts', [imm(0), reg(options.cells.zero)]),
-    a('movts', [imm(1), reg(options.cells.one)]),
-    // В ХВОСТ: цикл, запись дескриптора и возврат за вызов стоят ЗА концом потока.
-    a('IR.jmp', [imm(options.loopIndex)]),
-  ];
-  if (setup.length !== STRING_SLICE_SITE_SIZE) {
-    throw new StringRuntimeRefusal(
-      `сайт рантайм-среза длиной ${String(setup.length)}, а счёт обещает ` +
-        `${String(STRING_SLICE_SITE_SIZE)} — индекс хвоста разошёлся бы с переходом`,
-    );
-  }
-  return setup;
-}
-
-/**
- * ХВОСТ САЙТА РАНТАЙМ-СРЕЗА: цикл, запись дескриптора, возврат за вызов — по порядку исполнения.
- *
- * Восьмой носитель цикла (выход) ведёт РОВНО на первый носитель записи дескриптора: сначала байты
- * скопированы, потом посчитано `к − н`. Последний носитель хвоста возвращает поток за вызов — иначе
- * удачная копия «провалилась» бы в область блоков отказа.
- */
 export function stringSliceRuntimeTail(options: StringSliceRuntimeTailOptions): AsmInstruction[] {
+  const { cells } = options;
   const loopIndex = options.loopIndex;
-  const descriptorAt = loopIndex + STRING_COPY_LOOP_SIZE;
-  const loop = stringCopyLoopCarriers({
-    ...options.cells,
+  const descriptorAt = loopIndex + STRING_SLICE_COPY_LOOP_SIZE;
+  const loop = stringSliceCopyLoopCarriers({
     loopIndex,
     continuation: descriptorAt,
+    source: cells.source,
+    end: cells.end,
+    target: cells.target,
+    byte: cells.byte,
+    flag: cells.flag,
+    table: cells.table,
+    scratch: cells.scratch,
+    left: options.from,
+    rest: options.to,
+    copied: cells.copied,
+    one: cells.one,
+    zero: cells.zero,
+    key: cells.key,
   });
   const tail: AsmInstruction[] = [
     ...loop,
-    // ЧИСЛО КОДПОИНТОВ: `к − н` — в `byte` (после цикла он свободен), затем в слово 0 дескриптора.
-    // Адрес дескриптора кладётся В ПРИЁМНИК, который освободился: цикла больше нет, а адрес байтов
-    // нужен только последним носителем. Порядок дословно важен: `IR.sub` пишет в `byte`, поэтому
-    // адрес обязан лежать не в `byte`.
-    a('movtd', [literal(options.descriptorAddress), reg(options.destination)]),
-    a('IR.sub', [reg(options.cells.byte), reg(options.to), reg(options.from)]),
-    a('IR.store', [reg(options.cells.byte), reg(options.destination)]),
-    // РЕЗУЛЬТАТ — АДРЕС БАЙТОВ БУФЕРА: именно это читает `длина` (дескриптор за шестнадцать байт до).
-    a('movtd', [literal(options.bufferAddress), reg(options.destination)]),
-    // И ЗА ВЫЗОВ: носитель, стоявший за `IR.invoke`, теперь стоит за группой сайта.
+    // СЛОВО ДЛИНЫ: в дескриптор идёт СЧЁТЧИК СКОПИРОВАННЫХ КОДПОИНТОВ, а не `к − н` из клеток краёв:
+    // после нормализации края переписаны НА МЕСТЕ, и разность считала бы не то. Клетка `scratch`
+    // свободна после петли — в неё ложится адрес дескриптора (приёмник минус шестнадцать).
+    a('IR.const', [reg(cells.flag), imm(options.literals.sixteen), imm(0)]),
+    a('IR.sub', [reg(cells.scratch), reg(options.destination), reg(cells.flag)]),
+    a('IR.store', [reg(cells.copied), reg(cells.scratch)]),
+    // ЗА ВЫЗОВ — ПОСЛЕДНИЙ носитель хвоста (как у коллекций): иначе удачная копия «провалилась» бы
+    // в область блоков отказа.
     a('IR.jmp', [imm(options.successor)]),
   ];
   if (tail.length !== STRING_SLICE_TAIL_SIZE) {
     throw new StringRuntimeRefusal(
-      `хвост сайта рантайм-среза длиной ${String(tail.length)}, а счёт обещает ` +
-        `${String(STRING_SLICE_TAIL_SIZE)} — выход цикла ушёл бы мимо записи дескриптора`,
+      `хвост Г длиной ${String(tail.length)}, а счёт обещает ${String(STRING_SLICE_TAIL_SIZE)} — ` +
+        'выход петли ушёл бы мимо записи дескриптора',
     );
   }
   return tail;
 }
 
 /**
- * СТОРОЖ САЙТА РАНТАЙМ-СРЕЗА: договор о дескрипторе, выравнивание и НЕСОВПАДЕНИЕ клеток.
+ * СТОРОЖ САЙТА Г: клетки, приёмник в полосе, ноль байтовых носителей и неприкосновенность арены.
  *
- * Проверки не украшение, а три измеренных класса порчи:
- *   • дескриптор не за шестнадцать байт до байтов — `длина` читала бы чужие байты;
- *   • буфер или дескриптор не кратны восьми — `ldd` даёт исключение выравнивания на цели (§3.133);
- *   • клетка сайта совпала с клеткой края или приёмника — край был бы испорчен ДО того, как из него
- *     посчитают `к − н`, либо приёмник нёс бы КОНЕЦ буфера вместо начала (`target` цикл наращивает).
- *
- * @param options тот же набор, что у {@link stringSliceRuntimeSite}
- * @param reserved клетки, объявленные сайтом в раскладке (`regAlloc.reserved`) — второй уровень
+ * Каждая проверка — измеренный класс порчи:
+ *   • клетка вне полосы и без объявления — раскладка отдала бы её значениям программы (D24);
+ *   • `zero` не та клетка, из которой байтовые носители берут смещение, — чтение ушло бы по чужому
+ *     адресу (смещение впаяно в форму);
+ *   • приёмник ВНЕ полосы `%b[10..15]` — результат уехал бы в клетку программы;
+ *   • роль совпала с `pointer`/`limit` арены — живое состояние арены было бы испорчено;
+ *   • две роли в одной клетке — молчаливая потеря одного из значений.
  */
 export function checkStringSliceRuntimeSite(
   options: StringSliceRuntimeSiteOptions,
   reserved: readonly number[],
 ): void {
-  if (options.descriptorAddress !== options.bufferAddress - STRING_DESCRIPTOR_BYTES) {
-    throw new StringRuntimeRefusal(
-      `дескриптор сайта рантайм-среза на ${String(options.descriptorAddress)}, а байты на ` +
-        `${String(options.bufferAddress)}: договор «дескриптор ровно за ${String(STRING_DESCRIPTOR_BYTES)} ` +
-        'байт до байтов» нарушен — `длина` прочла бы чужие байты',
-    );
-  }
-  for (const [имя, адрес] of [
-    ['буфер', options.bufferAddress],
-    ['дескриптор', options.descriptorAddress],
-  ] as const) {
-    if (адрес % STRING_SYMBOL_ENTRY_BYTES !== 0) {
-      throw new StringRuntimeRefusal(
-        `${имя} сайта рантайм-среза на ${String(адрес)} не кратен ${String(STRING_SYMBOL_ENTRY_BYTES)}: ` +
-          'дескриптор читается `ldd`, и невыровненное чтение даёт исключение выравнивания на цели',
-      );
-    }
-  }
-  checkStringCopyLoopRoles(
-    { ...options.cells, loopIndex: 0, continuation: 0 },
-    reserved,
-  );
-  const свои: readonly (readonly [string, number])[] = [['destination', options.destination]];
-  for (const [имя, клетка] of свои) {
-    if (!RESERVED_REGISTERS.includes(клетка) && !reserved.includes(клетка)) {
-      throw new StringRuntimeRefusal(
-        `клетка сайта рантайм-среза «${имя}» = %b[${String(клетка)}] вне полосы ` +
-          `${RESERVED_REGISTERS.map((номер) => `%b[${String(номер)}]`).join('/')} и не объявлена в reserved; ` +
-          'раскладка отдала бы её значениям программы',
-      );
-    }
-  }
-  // КРАЯ ОБЯЗАНЫ ПЕРЕЖИТЬ САЙТ ЦЕЛИКОМ: `к − н` считается ПОСЛЕ цикла, а цикл портит `byte`, `key`,
-  // `source`, `end`, `target`. Совпадение любой из этих клеток с краем — тихая ложь в дескрипторе.
-  const занятые: readonly (readonly [string, number])[] = [
+  const роли: readonly (readonly [string, number])[] = [
     ['source', options.cells.source],
     ['end', options.cells.end],
     ['target', options.cells.target],
     ['byte', options.cells.byte],
+    ['flag', options.cells.flag],
+    ['table', options.cells.table],
+    ['scratch', options.cells.scratch],
+    ['copied', options.cells.copied],
     ['one', options.cells.one],
     ['zero', options.cells.zero],
     ['key', options.cells.key],
+    ['from', options.from],
+    ['to', options.to],
+    ['destination', options.destination],
   ];
-  for (const [имя, клетка] of занятые) {
-    if (клетка === options.from || клетка === options.to) {
+  for (const [имя, клетка] of роли) {
+    if (!Number.isInteger(клетка) || клетка < 0 || клетка >= BASE_REGISTER_COUNT) {
       throw new StringRuntimeRefusal(
-        `клетка «${имя}» = %b[${String(клетка)}] совпала с краем среза: край нужен записи дескриптора ` +
-          'ПОСЛЕ цикла, а цикл эту клетку портит — число кодпоинтов было бы чужим',
-      );
-    }
-    // ПРИЁМНИК — РАБОЧИЙ АДРЕС САЙТА (см. `destination`): в нём лежит адрес байтов и адрес
-    // дескриптора, и цикл обязан его не трогать. Совпадение с `target` особенно ядовито: цикл `target`
-    // наращивает, и результат нёс бы КОНЕЦ буфера вместо начала.
-    if (клетка === options.destination) {
-      throw new StringRuntimeRefusal(
-        `приёмник результата совпал с клеткой «${имя}» = %b[${String(options.destination)}]: в приёмнике ` +
-          'лежит РАБОЧИЙ АДРЕС сайта (байты, затем дескриптор), а цикл эту клетку пишет — ' +
-          (имя === 'target'
-            ? 'результат нёс бы КОНЕЦ буфера вместо начала, срез читался бы с мусора'
-            : 'смещение источника или счёт байтов были бы испорчены'),
+        `роль сайта Г «${имя}» = %b[${String(клетка)}] вне 0..${String(BASE_REGISTER_COUNT - 1)}`,
       );
     }
   }
+  const безПолосы = роли.filter(
+    ([, клетка]) => !RESERVED_REGISTERS.includes(клетка) && !reserved.includes(клетка),
+  );
+  if (безПолосы.length > 0) {
+    throw new StringRuntimeRefusal(
+      `клетки сайта Г вне полосы ${RESERVED_REGISTERS.map((номер) => `%b[${String(номер)}]`).join('/')} и не ` +
+        `объявлены в reserved: ${безПолосы.map(([имя, клетка]) => `«${имя}» %b[${String(клетка)}]`).join(', ')} — ` +
+        'раскладка отдала бы их значениям программы',
+    );
+  }
+  if (!RESERVED_REGISTERS.includes(options.destination)) {
+    throw new StringRuntimeRefusal(
+      `приёмник сайта Г = %b[${String(options.destination)}] ВНЕ полосы ` +
+        `${RESERVED_REGISTERS.map((номер) => `%b[${String(номер)}]`).join('/')}: результат живёт в клетке, ` +
+        'которую раскладка вправе отдать программе',
+    );
+  }
+  if (options.cells.zero !== ARRAY_REGISTERS.zero) {
+    throw new StringRuntimeRefusal(
+      `клетка нуля сайта Г = %b[${String(options.cells.zero)}], а байтовые носители берут смещение из ` +
+        `%b[${String(ARRAY_REGISTERS.zero)}] — с чужим нулём копирование читало бы по чужому адресу`,
+    );
+  }
+  for (const [имя, клетка] of [
+    ['pointer', options.arena.pointer],
+    ['limit', options.arena.limit],
+  ] as const) {
+    if (роли.some(([, клеткаРоли]) => клеткаРоли === клетка)) {
+      throw new StringRuntimeRefusal(
+        `клетка арены «${имя}» = %b[${String(клетка)}] занята ролью сайта Г: это ЖИВОЕ состояние арены на ` +
+          'всю программу — сайт испортил бы выделение следующим операциям',
+      );
+    }
+  }
+  const видели = new Map<number, string>();
+  for (const [имя, клетка] of роли) {
+    const прежняя = видели.get(клетка);
+    if (прежняя !== undefined) {
+      throw new StringRuntimeRefusal(
+        `клетка %b[${String(клетка)}] несёт ДВЕ роли сайта Г: «${прежняя}» и «${имя}» — одно из значений ` +
+          'было бы потеряно молча',
+      );
+    }
+    видели.set(клетка, имя);
+  }
 }
+
+/**
+ * СТОРОЖ ХВОСТА Г: место петли, ЗНАЧЕНИЕ длины из счётчика, границы копии и возврат за вызов.
+ *
+ * Две проверки названы владельцем отдельно, потому что обе дают ВЕРНУЮ ДЛИНУ при НЕВЕРНЫХ байтах:
+ *   • слово длины берётся из `copied` (после петли), а не из `к − н` (до нормализации);
+ *   • границы копии — НОРМАЛИЗОВАННЫЕ `from`/`to` в байтах, а не исходные `н`/`к` в кодпоинтах.
+ */
+export function checkStringSliceRuntimeTail(
+  tail: readonly AsmInstruction[],
+  options: StringSliceRuntimeTailOptions,
+): void {
+  const эталон = stringSliceRuntimeTail(options);
+  if (tail.length !== эталон.length) {
+    throw new StringRuntimeRefusal(
+      `хвост Г длиной ${String(tail.length)}, а построитель строит ${String(эталон.length)} — сверять ` +
+        'место петли не с чем',
+    );
+  }
+  // ПЕТЛЯ — НАЧАЛО ХВОСТА, а не `tail[loopIndex]`: хвост ложится в поток ЦЕЛИКОМ, начиная с
+  // `loopIndex`, поэтому индекс внутри массива хвоста отсчитывается от НУЛЯ, а цели переходов —
+  // АБСОЛЮТНЫЕ по итоговому потоку.
+  const loop = tail.slice(0, STRING_SLICE_COPY_LOOP_SIZE);
+  if (loop.length !== STRING_SLICE_COPY_LOOP_SIZE) {
+    throw new StringRuntimeRefusal(
+      `петля Г в хвосте длиной ${String(loop.length)} вместо ${String(STRING_SLICE_COPY_LOOP_SIZE)} — выход ` +
+        'петли ушёл бы мимо записи дескриптора',
+    );
+  }
+  // ЦЕЛИ ПЕРЕХОДОВ ВНУТРИ ХВОСТА: промах на один носитель уводит в середину команды (§3.35), а цель
+  // «первый носитель за массивом» вообще выключает сторожа ребра взятого перехода (случай 78).
+  tail.forEach((carrier, индекс) => {
+    if (!carrier.mnemonic.startsWith('IR.jmp')) return;
+    const цель = carrier.operands[carrier.operands.length - 1];
+    if (цель?.kind !== 'imm') {
+      throw new StringRuntimeRefusal(
+        `переход хвоста Г #${String(индекс)} несёт цель не числом: индекс носителя неизвестен`,
+      );
+    }
+    const адрес = цель.value;
+    const последний = индекс === tail.length - 1;
+    if (последний) {
+      if (адрес !== options.successor) {
+        throw new StringRuntimeRefusal(
+          `последний носитель хвоста Г ведёт на ${String(адрес)}, а за вызовом стоит носитель ` +
+            `${String(options.successor)} — возврат ушёл бы не туда`,
+        );
+      }
+      return;
+    }
+    if (адрес < options.loopIndex || адрес >= options.loopIndex + tail.length) {
+      throw new StringRuntimeRefusal(
+        `переход хвоста Г #${String(индекс)} ведёт на ${String(адрес)} ВНЕ хвоста (` +
+          `${String(options.loopIndex)}..${String(options.loopIndex + tail.length - 1)}): цель вне массива ` +
+          'не разбирается, и сторож ребра взятого перехода молча выключается (случай 78 реестра)',
+      );
+    }
+  });
+  // ДЛИНА — ИЗ СЧЁТЧИКА: последняя запись дескриптора обязана нести `copied`.
+  const последняяЗапись = tail.filter((carrier) => carrier.mnemonic === 'IR.store').at(-1);
+  const значение = последняяЗапись?.operands[0];
+  if (значение?.kind !== 'reg' || значение.index !== options.cells.copied) {
+    throw new StringRuntimeRefusal(
+      'слово длины хвоста Г берётся НЕ из счётчика скопированных кодпоинтов: после нормализации краёв ' +
+        'разность `к − н` считала бы не то число',
+    );
+  }
+  // ГРАНИЦЫ КОПИИ — НОРМАЛИЗОВАННЫЕ клетки краёв (они же счётчики петли).
+  for (const [имя, клетка] of [
+    ['from', options.from],
+    ['to', options.to],
+  ] as const) {
+    const вПетле = loop.some((carrier) =>
+      carrier.operands.some((операнд) => операнд.kind === 'reg' && операнд.index === клетка),
+    );
+    if (!вПетле) {
+      throw new StringRuntimeRefusal(
+        `граница копии «${имя}» = %b[${String(клетка)}] в петле Г не участвует: копировались бы байты по ` +
+          'ИСХОДНЫМ краям, а не по нормализованным',
+      );
+    }
+  }
+  for (const [номер, носитель] of tail.entries()) {
+    if (теЖеОперанды(носитель.operands, эталон[номер]!.operands)) continue;
+    throw new StringRuntimeRefusal(
+      `носитель хвоста Г #${String(номер)} (${носитель.mnemonic}) разошёлся с построителем: поток правили ` +
+        'руками, и место петли перестало быть известным',
+    );
+  }
+}
+
 
 /**
  * СВЕРКА ОПЕРАНДОВ БЕЗ `JSON.stringify`.
@@ -1254,13 +1510,12 @@ export interface StringSliceSiteRequest {
   readonly from: number;
   /** Клетка конца среза (операнд 5). */
   readonly to: number;
-  /** Приёмник (операнд 4). */
+  /** Приёмник (операнд 4) — адрес байтов В АРЕНЕ; он обязан быть в полосе `%b[10..15]`. */
   readonly destination: number;
-  /** Адрес байтов доказанного источника — константа сборки. */
-  readonly blobAddress: number;
-  readonly bufferAddress: number;
-  readonly descriptorAddress: number;
-  readonly cells: StringSliceRuntimeTailOptions['cells'];
+  /** Константы сборки — ИНДЕКСЫ ПУЛА (`IR.const`): адреса, число кодпоинтов, единица, шестнадцать. */
+  readonly literals: StringSliceLiterals;
+  readonly cells: StringSliceRuntimeSiteOptions['cells'];
+  readonly arena: StringSliceArenaCells;
   /** Клетки, объявленные сайтом в раскладке — второй уровень закрепления (D24). */
   readonly reserved?: readonly number[];
 }
@@ -1311,20 +1566,18 @@ export function stringSliceGroups(
   const options: StringSliceRuntimeSiteOptions = {
     from: site.from,
     to: site.to,
-    blobAddress: site.blobAddress,
-    bufferAddress: site.bufferAddress,
-    descriptorAddress: site.descriptorAddress,
     destination: site.destination,
+    literals: site.literals,
     cells: site.cells,
+    arena: site.arena,
     loopIndex,
   };
   checkStringSliceRuntimeSite(options, site.reserved ?? []);
   const хвостOptions: StringSliceRuntimeTailOptions = {
     from: site.from,
     to: site.to,
-    bufferAddress: site.bufferAddress,
-    descriptorAddress: site.descriptorAddress,
     destination: site.destination,
+    literals: site.literals,
     cells: site.cells,
     loopIndex,
     successor,
@@ -1335,52 +1588,6 @@ export function stringSliceGroups(
     [последний, stringSliceRuntimeTail(хвостOptions)],
   ]);
   return { groups: группы, loopIndex, tailIndex: successor };
-}
-
-/**
- * СТОРОЖ ХВОСТА САЙТА РАНТАЙМ-СРЕЗА: место цикла, место записи дескриптора и возврат за вызов.
- *
- * Три измеренных требования, каждое из которых иначе даёт молчаливо неверный результат:
- *   • цикл начинается РОВНО на `loopIndex` — иначе обратный переход уйдёт в середину чужой команды;
- *   • выход цикла (восьмой носитель) ведёт на ПЕРВЫЙ носитель записи дескриптора — иначе `длина`
- *     результата читала бы в дескрипторе мусор (или прежнее число от прошлого среза);
- *   • последний носитель хвоста возвращает поток на `successor` — иначе удачная копия «провалится»
- *     в блок отказа и напечатает отказ вместо результата.
- *
- * @param tail тот же набор, что у {@link stringSliceRuntimeTail}
- * @param options опции, которыми хвост построен
- */
-export function checkStringSliceRuntimeTail(
-  tail: readonly AsmInstruction[],
-  options: StringSliceRuntimeTailOptions,
-): void {
-  const эталон = stringSliceRuntimeTail(options);
-  if (tail.length !== эталон.length) {
-    throw new StringRuntimeRefusal(
-      `хвост сайта рантайм-среза длиной ${String(tail.length)}, а построитель строит ` +
-        `${String(эталон.length)} — сверять место цикла не с чем`,
-    );
-  }
-  for (const [номер, носитель] of tail.entries()) {
-    const ожидаемый = эталон[номер];
-    if (ожидаемый === undefined) continue;
-    if (носитель.mnemonic !== ожидаемый.mnemonic || !теЖеОперанды(носитель.operands, ожидаемый.operands)) {
-      throw new StringRuntimeRefusal(
-        `носитель ${String(номер)} хвоста не тот, что выбрал сайт: «${носитель.mnemonic}» ` +
-          `(${носитель.operands.length} операндов), а роли дают «${ожидаемый.mnemonic}» ` +
-          `(${ожидаемый.operands.length} операндов) — хвост собран не тем сайтом или не на том месте`,
-      );
-    }
-  }
-  const выход = tail[STRING_COPY_LOOP_SIZE - 1];
-  const ждём = options.loopIndex + STRING_COPY_LOOP_SIZE;
-  const цель = выход?.operands[0];
-  if (цель === undefined || цель.kind !== 'imm' || (цель as { value?: number }).value !== ждём) {
-    throw new StringRuntimeRefusal(
-      `выход цикла ведёт не на запись дескриптора (нужно ${String(ждём)}): число кодпоинтов ` +
-        'не попало бы в дескриптор, и `длина` результата читала бы мусор',
-    );
-  }
 }
 
 
@@ -1394,38 +1601,6 @@ export function checkStringSliceRuntimeTail(
  */
 export function concatFitsBuffer(firstBytes: number, secondBytes: number): boolean {
   return firstBytes + secondBytes <= STRING_BUFFER_BYTES;
-}
-
-/** Сколько байт области записи занимает срез: дескриптор (16) и буфер байтов (20). */
-export const STRING_SLICE_SLOTS_BYTES = STRING_DESCRIPTOR_BYTES + STRING_BUFFER_BYTES;
-
-/** Место рантайм-среза в области записи: буфер байтов и дескриптор ровно за ШЕСТНАДЦАТЬ байт до него. */
-export interface StringSliceSlots {
-  readonly bufferAddress: number;
-  readonly descriptorAddress: number;
-}
-
-/**
- * МЕСТО РАНТАЙМ-СРЕЗА В ОБЛАСТИ ЗАПИСИ — ВНИЗ от буфера склейки, с выравниванием ВНИЗ до восьми.
- *
- * # Почему именно здесь и почему считается, а не берётся «где-нибудь»
- *
- * Байты и дескриптор среза живут в РАНТАЙМЕ (сборка их не знает), поэтому статическая страница кода не
- * годится — она только для чтения. Буфер склейки уже занимает `[spillBase − 20, spillBase)`, поэтому
- * срез кладётся НИЖЕ него ровно на {@link STRING_SLICE_SLOTS_BYTES} байт: две строковые операции не
- * затирают друг друга, и граница названа числом, а не «места хватит».
- *
- * ВЫРАВНИВАНИЕ ВНИЗ, А НЕ ПРОСТО СДВИГ: дескриптор читается `ldd` (двойное слово), и невыровненный
- * адрес даёт ИСКЛЮЧЕНИЕ ВЫРАВНИВАНИЯ на цели, а не отказ сборки (§3.133). Буфер стоит за дескриптором
- * через `STRING_DESCRIPTOR_BYTES` (16 — кратно восьми), поэтому одного выравнивания довольно обоим.
- *
- * @param spillBase база области записи (`spillBaseOf(heapAddress)`), как у буфера склейки
- */
-export function stringSliceSlots(spillBase: number): StringSliceSlots {
-  const низ = spillBase - STRING_BUFFER_BYTES - STRING_SLICE_SLOTS_BYTES;
-  const остаток = ((низ % STRING_SYMBOL_ENTRY_BYTES) + STRING_SYMBOL_ENTRY_BYTES) % STRING_SYMBOL_ENTRY_BYTES;
-  const descriptorAddress = низ - остаток;
-  return { bufferAddress: descriptorAddress + STRING_DESCRIPTOR_BYTES, descriptorAddress };
 }
 
 /**

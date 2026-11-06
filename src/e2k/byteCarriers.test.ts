@@ -45,27 +45,37 @@ const reg = (index: number) => ({ kind: 'reg' as const, index });
 const imm = (value: number) => ({ kind: 'imm' as const, value });
 const носитель = (mnemonic: string, operands: readonly unknown[]) => ({ mnemonic, channel: 0, operands });
 
-const РОЛИ = { source: 1, end: 2, target: 3, byte: 4, one: 5, zero: 6, key: 7 } as const;
-const цикл = (loopIndex: number, continuation: number, роли: Partial<typeof РОЛИ> = {}) =>
-  stringCopyLoopCarriers({ loopIndex, continuation, ...РОЛИ, ...роли });
+const РОЛИ = { source: 1, end: 2, target: 3, byte: 4, one: 5, zero: ARRAY_REGISTERS.zero, key: 7 } as const;
+
+/**
+ * ЦИКЛ КОНКРЕТНЫМИ КОМАНДАМИ — РАЗЛИЧАЮЩИЙ КОНТРОЛЬ случая 78 (носителей байта в дереве не было).
+ *
+ * Роли те же, что у {@link циклНаНосителях}, и порядок тот же: различие ровно в байтовом доступе, иначе
+ * сравнение чисел доказывало бы что-то другое.
+ */
+const цикл = (loopIndex: number, continuation: number, роли: Partial<typeof РОЛИ> = {}) => {
+  const р = { ...РОЛИ, ...роли };
+  return [
+    носитель('IR.lt', [reg(р.key), reg(р.source), reg(р.end)]),
+    носитель('IR.jmp_if_not', [reg(р.key), imm(loopIndex + 7)]),
+    носитель('ldb', [reg(р.source), reg(р.zero), reg(р.byte)]),
+    носитель('stb', [reg(р.byte), reg(р.target), reg(р.zero)]),
+    носитель('IR.add', [reg(р.source), reg(р.source), reg(р.one)]),
+    носитель('IR.add', [reg(р.target), reg(р.target), reg(р.one)]),
+    носитель('IR.jmp', [imm(loopIndex)]),
+    носитель('IR.jmp', [imm(continuation)]),
+  ];
+};
 
 /**
  * ТОТ ЖЕ ЦИКЛ, НО БАЙТОВЫЙ ДОСТУП — НОСИТЕЛЯМИ: ровно то, чего требует D26b.
  *
- * Роли операндов переводятся как есть: `ldb [база, индекс, приёмник]` → `IR.load_byte [адрес, приёмник]`,
- * `stb [значение, база, индекс]` → `IR.store_byte [значение, адрес]` — смещение у носителя нулевое
- * (нулевая клетка рантайма массивов), как у `IR.load`/`IR.store`.
+ * Роли операндов переводит САМ построитель: `ldb [база, индекс, приёмник]` → `IR.load_byte [адрес,
+ * приёмник]`, `stb [значение, база, индекс]` → `IR.store_byte [значение, адрес]` — смещение у носителя
+ * впаяно нулевой клеткой рантайма массивов, как у `IR.load`/`IR.store`.
  */
 const циклНаНосителях = (loopIndex: number, continuation: number, роли: Partial<typeof РОЛИ> = {}) =>
-  цикл(loopIndex, continuation, роли).map((carrier) => {
-    if (carrier.mnemonic === 'ldb') {
-      return носитель(LOAD_BYTE_CARRIER, [carrier.operands[0]!, carrier.operands[2]!]);
-    }
-    if (carrier.mnemonic === 'stb') {
-      return носитель(STORE_BYTE_CARRIER, [carrier.operands[0]!, carrier.operands[1]!]);
-    }
-    return carrier;
-  }) as ReturnType<typeof цикл>;
+  stringCopyLoopCarriers({ loopIndex, continuation, ...РОЛИ, ...роли });
 
 describe('носители байтового доступа: форма и байты сходятся у одного источника', () => {
   it('форма — 8 байт у обоих, и столько же даёт кодировщик', () => {
