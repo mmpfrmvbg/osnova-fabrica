@@ -460,6 +460,16 @@ export interface CarrierFormContext {
    * (`src/e2k/procedureCall.ts#prepareImage`).
    */
   readonly zeroSize?: readonly number[];
+  /**
+   * НАЧАЛА ПРОЦЕДУР потока — те же `codeOffset`, что видит понижение.
+   *
+   * Зачем раскладке: длина сравнения зависит от пометки материализации, а пометку ставит
+   * `pairPredicates`, и его окно живости обязано кончаться на границе процедуры. Раскладка зовёт
+   * сопоставление САМА (ниже), и без того же списка границ её пометки разошлись бы с пометками
+   * понижения: форма сравнения стала бы не той, что закодирована (класс §3.135 — «форма известна
+   * заранее и без плоскости»).
+   */
+  readonly procedureStarts?: readonly number[];
 }
 
 /**
@@ -1577,7 +1587,9 @@ export function layoutOf(
   // судьба пары известна целиком. Форму раскладка берёт заранее и без плоскости (§3.135), поэтому
   // признак обязан стоять на самом носителе: пометку сопоставление кладёт по тождеству объекта, а
   // читают её и раскладка (здесь), и понижение — разойтись им нечем.
-  pairPredicates(instructions);
+  pairPredicates(instructions, {
+    ...(context.procedureStarts === undefined ? {} : { procedureStarts: context.procedureStarts }),
+  });
   let offset = 0;
   instructions.forEach((instruction, index) => {
     if (zeroSize.has(index)) {

@@ -427,12 +427,47 @@ function conditionRegisterOf(instruction: AsmInstruction): number | undefined {
 }
 
 /**
+ * Границы процедур для окна живости значения.
+ *
+ * # Зачем
+ *
+ * Поток носителей — ОДИН массив на все процедуры образа, и сравнение из процедуры `A` не имеет
+ * права «увидеть» читателей из процедуры `B`: на цели между ними стоит граница вызова, значение
+ * через неё не течёт. Без этой границы окно уходило в конец потока и собирало переходы-читатели
+ * ЧУЖОЙ процедуры — `jumpReaders.length !== 1`, пара не составлялась, и общий проход отказывал
+ * «условие пришло не из сравнения» (случай 89 реестра; замер: k=1 понижается, k=2 с НЕВЫЗЫВАЕМОЙ
+ * второй процедурой даёт `#90`).
+ */
+export interface PairingOptions {
+  /**
+   * Начала процедур — индексы носителей в `instructions`, по возрастанию (как `codeOffset`
+   * в `ProcedureOffset`). Процедура значения — последняя граница, не большая индекса сравнения;
+   * её конец — следующая граница или конец потока.
+   *
+   * Не задано — поток считается ОДНОЙ процедурой: поведение прежнее, кроме барьера (см. ниже).
+   */
+  readonly procedureStarts?: readonly number[];
+}
+
+/**
  * Составить пары «сравнение → условный переход» и назвать причины, по которым пара не составилась.
  *
  * Каждая инструкция потока получает не больше одного отказа; для инструкций, к паре не
  * относящихся (например, безусловного `IR.jmp`), отказов нет вовсе.
+ *
+ * # Границы окна
+ *
+ * Жизнь значения кончается на ближайшем из трёх событий: следующая запись того же регистра,
+ * `known:false`-барьер (операция с неизвестными операндами) или **граница процедуры**. Прежде
+ * барьер оставлял `end = instructions.length`, то есть окно деградировало до конца ВСЕГО потока и
+ * захватывало читателей следующих процедур. Это и был дефект случая 89: расширение потока
+ * (`IR.window_grow`/`IR.array_values`/`IR.callee_zero` в прологе каждой вызываемой) лишь СТАВИЛО
+ * барьер, а окно через границу открывало сопоставление.
  */
-export function pairPredicates(instructions: readonly AsmInstruction[]): PairingResult {
+export function pairPredicates(
+  instructions: readonly AsmInstruction[],
+  options: PairingOptions = {},
+): PairingResult {
   const pairs: PredicatePair[] = [];
   const refusals: PairingRefusal[] = [];
   const pairedJump = new Set<number>();
@@ -447,6 +482,16 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
   const refuse = (index: number, reason: string): void => {
     refusals.push({ index, code: LOWERING_CODES.layout, reason });
   };
+  // Границы — только законные индексы, без повторов и по возрастанию: список приходит от конвейера,
+  // но проверка дешёвая, а испорченная граница молча сдвинула бы окно.
+  const procedureStarts = [...new Set(options.procedureStarts ?? [])]
+    .filter((start) => Number.isInteger(start) && start >= 0 && start <= instructions.length)
+    .sort((left, right) => left - right);
+  /** Конец процедуры, которой принадлежит носитель `index`. */
+  const procedureEndOf = (index: number): number => {
+    for (const start of procedureStarts) if (start > index) return start;
+    return instructions.length;
+  };
 
   instructions.forEach((instruction, index) => {
     const comparison = comparisonMnemonicOf(instruction.mnemonic);
@@ -456,13 +501,16 @@ export function pairPredicates(instructions: readonly AsmInstruction[]): Pairing
       refuse(index, `«${instruction.mnemonic}» #${index}: у сравнения нет регистра-результата`);
       return;
     }
-    // Конец жизни значения: следующая инструкция, которая пишет тот же регистр.
-    let end = instructions.length;
+    // Конец жизни значения: ближайшее из «следующая запись того же регистра», «барьер» и «граница
+    // процедуры». Барьер обрывает окно, а не отдаёт его концу потока: за операцией с неизвестными
+    // операндами живость результата не доказана, и читатель оттуда — уже не читатель этого значения.
+    let end = procedureEndOf(index);
     let barrier: number | undefined;
-    for (let next = index + 1; next < instructions.length; next++) {
+    for (let next = index + 1; next < end; next++) {
       const info = registersOf(instructions[next]!);
       if (!info.known) {
         barrier = next;
+        end = next;
         break;
       }
       if (info.writes.includes(result)) {

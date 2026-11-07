@@ -82,7 +82,6 @@ import {
   arrayValuePrologue,
   calleeZeroInstructions,
   ARRAY_REGISTERS,
-  ARRAY_BASE_OPERAND,
   ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
   CALLEE_ZERO_CARRIER,
@@ -1387,10 +1386,13 @@ export function runKernelThroughRealEncoding(
   // Контекст обязателен: длина `IR.invoke` зависит от имени вызова, и без списка имён носитель не
   // размещается вовсе (`carrierFormOf` возвращает причину, а не длину «на глаз»).
   // Пул констант обязателен: длина \`IR.const\` зависит от значения литерала (короткая форма 0…15).
-  const layout = layoutOf(code, { invokeNames: emitted.image.invokeNames, constants: emitted.scheduled.constants });
+  // ГРАНИЦЫ ПРОЦЕДУР — тем же списком, что у раскладки: окно живости пары обязано кончаться на
+  // границе процедуры, иначе сравнение собирает читателей из соседней процедуры (случай 89).
+  const procedureStarts = allocation.procedures.map((procedure) => procedure.codeOffset);
+  const layout = layoutOf(code, { invokeNames: emitted.image.invokeNames, constants: emitted.scheduled.constants, procedureStarts });
   const resolved = secondPass(code, layout.addresses);
   // ── Сопоставление пар «сравнение → условный переход» ────────────────────────
-  const pairing = pairPredicates(code);
+  const pairing = pairPredicates(code, { procedureStarts });
   const displacementAt = new Map(resolved.displacements.map((item) => [item.index, item.disp]));
   const predicateAt = new Map(
     pairing.pairs.map((pair) => [pair.comparisonIndex, { mnemonic: pair.cmpMnemonic, index: pair.predicate }]),

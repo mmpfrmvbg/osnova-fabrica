@@ -1630,15 +1630,20 @@ export function imageOfCarriers(
   // они ИСПОЛНЯЮТСЯ, и форма обязана считать пару (`procedureReturn`). Возвраты точки входа
   // помечены нулевыми (`zeroSize`): их место занимает её `exit`.
   const zeroSize = new Set(prepared.zeroSize);
+  // ГРАНИЦЫ ПРОЦЕДУР — ОДНИ И ТЕ ЖЕ для раскладки и для сопоставления пар. Поток носителей общий на
+  // весь образ, и без списка начал окно живости сравнения уходит в следующую процедуру (случай 89).
+  // Список идёт в ОБА прохода, иначе пометки материализации разойдутся с формой (см. `CarrierFormContext`).
+  const procedureStarts = procedures.map((procedure) => procedure.codeOffset);
   const layout = layoutOf(planned, {
     invokeNames: strings.invokeNames,
     constants: strings.constants,
     heapAddress,
     procedureReturn: true,
     zeroSize: prepared.zeroSize,
+    procedureStarts,
   });
   const resolved = secondPass(planned, layout.addresses);
-  const pairing = pairPredicates(planned);
+  const pairing = pairPredicates(planned, { procedureStarts });
   // ВЫЗОВ: адрес вызываемой известен только теперь — тем же механизмом, что цель перехода.
   const calls = callAddresses({
     code: planned,
