@@ -87,6 +87,7 @@
 import type { AsmInstruction } from "./backend";
 import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
 import { ARRAY_REGISTERS, ARRAY_SLOT_CARRIER } from "./arrayRuntime";
+import { PRINT_WRITE_CARRIER } from "./printCall";
 import { callArgumentOperands } from "./shell";
 import { LOAD_BYTE_CARRIER, LOAD_CARRIER, STORE_BYTE_CARRIER, STORE_CARRIER } from "./memoryAccess";
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from "./procedureCall";
@@ -277,6 +278,23 @@ export function registersOf(instruction: AsmInstruction): { known: boolean; read
     // ветвь каждому нужна отдельным атомом, а не «добавлением имени в таблицу».
     case ARRAY_SLOT_CARRIER:
       return known([], [ARRAY_REGISTERS.heapSlot]);
+    // ХВОСТ `write` (`src/e2k/printPrimitives.ts#writeTextPrimitives`): барьер снят ЧТЕНИЕМ РАЗВЁРТКИ, а не
+    // догадкой. Что доказано по коду и замерам:
+    //   · свои рабочие клетки — `%b[2]` (адрес текста), `%b[4]` (длина), `%b[6]` (смещение), `%b[9]`
+    //     (ноль): хвост пишет их ПЕРВЫМ делом и читает только записанное;
+    //   · аргументы системного вызова ложатся в ОКОННЫЕ регистры `base+0..base+3`, а в кадре точки
+    //     входа `base = 2·wbs = 8` — это `%b[8]`, `%b[9]`, `%b[10]`, `%b[11]`;
+    //   · `call wbs = 4` отдаёт вызываемой `%b[8..15]` вызывающего, и восьмая тихая ложь измерена
+    //     ИМЕННО на этом: `%b[4]` вызываемой — та же клетка, что `%b[12]` вызывающего (замер
+    //     `src/e2k/printPrimitives.ts#writeTextPrimitives`, комментарий «ВЕРНУТЬ СВОЙ РЕГИСТР ДЛИНЫ»).
+    // Поэтому ветвь объявляет ВСЕ клетки, которые носитель может оставить изменёнными в плоскости
+    // точки входа: 2, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15. ПЕРЕОЦЕНКА ЗАПИСЕЙ БЕЗОПАСНА (окно пары
+    // обрывается раньше), НЕДООЦЕНКА — тихая ложь (D33/D34); чтений у хвоста нет вовсе — все чтения
+    // идут по адресам из памяти, а регистры он перед чтением сам же и пишет.
+    // `%b[0]`, `%b[1]`, `%b[3]`, `%b[5]`, `%b[7]` хвост НЕ трогает — развёртка числа (`IR.print_text`)
+    // живёт отдельным атомом (D33): ветвь для неё была бы другим фактом.
+    case PRINT_WRITE_CARRIER:
+      return known([], [2, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15]);
     case "IR.move":
     case "IR.not":
       return known(regs([operands[1]!]), regs([operands[0]!]));
@@ -796,3 +814,4 @@ function takenEdgeProblem(
   }
   return undefined;
 }
+
