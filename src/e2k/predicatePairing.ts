@@ -86,7 +86,7 @@
 
 import type { AsmInstruction } from "./backend";
 import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
-import { ARRAY_REGISTERS } from "./arrayRuntime";
+import { ARRAY_REGISTERS, ARRAY_SLOT_CARRIER } from "./arrayRuntime";
 import { callArgumentOperands } from "./shell";
 import { LOAD_BYTE_CARRIER, LOAD_CARRIER, STORE_BYTE_CARRIER, STORE_CARRIER } from "./memoryAccess";
 import { ARENA_LIMIT_BASE, ARENA_POINTER_BASE } from "./procedureCall";
@@ -269,6 +269,14 @@ export function registersOf(instruction: AsmInstruction): { known: boolean; read
     // участвует: ветвь отвечает на вопрос «какие регистры трогает носитель», не «как составить пару».
     case "IR.zero":
       return known([], regs([operands[0]!]));
+    // АДРЕС ЯЧЕЙКИ КУЧИ В ВЫЗЫВАЕМОЙ (`src/e2k/arrayRuntime.ts#arraySlotPrologue`): ровно одна
+    // `movtd` литерала в ПОСТОЯННУЮ клетку `ARRAY_REGISTERS.heapSlot`; чтений нет, приёмник в операндах
+    // не назван (операнд 0 — сам адрес). Факт целиком — свойство носителя, поэтому ветвь допустима.
+    // СОСЕДИ ПО ЦЕПИ (D33, `docs/decisions.md`): `IR.callee_zero`, `IR.print_write`, `IR.print_text`,
+    // `IR.slice_runtime`, `IR.array_values` — СОСТАВНЫЕ (их записи не выводятся из операндов), и
+    // ветвь каждому нужна отдельным атомом, а не «добавлением имени в таблицу».
+    case ARRAY_SLOT_CARRIER:
+      return known([], [ARRAY_REGISTERS.heapSlot]);
     case "IR.move":
     case "IR.not":
       return known(regs([operands[1]!]), regs([operands[0]!]));
