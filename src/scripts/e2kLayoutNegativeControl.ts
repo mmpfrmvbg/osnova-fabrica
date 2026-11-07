@@ -671,9 +671,14 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     // указывать на файл, ГДЕ СТРОКА ЛЕЖИТ, иначе дефект не вносится, а числа для него стоят
     // (сторож этой таблицы ловит ровно такой разрыв).
     file: 'src/e2k/guards/loweredUnchecked.ts',
-    from: '    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),',
+    from:
+      '    freeFor: (at) =>\n      at === entryAt\n' +
+      '        ? ALLOCATABLE_REGISTERS.filter((cell) => !entryRuntime.has(cell))\n' +
+      '        : CALLEE_REGISTERS,',
     to:
-      '    freeFor: (at) => (at === entryAt ? undefined : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), ' +
+      '    freeFor: (at) =>\n      at === entryAt\n' +
+      '        ? ALLOCATABLE_REGISTERS.filter((cell) => !entryRuntime.has(cell))\n' +
+      '        : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ' +
       '// ДЕФЕКТ 11.3: бюджет вызываемой снят',
     tests: ['src/compiler-v3/nativePathE2k.test.ts'],
     config: 'vitest.config.ts',
@@ -690,9 +695,14 @@ export const DEFECTS_CALLEE_WINDOW: readonly Defect[] = [
     title: 'бюджет вызываемой снят — фикстура с вложенными циклами даёт 92 вместо 91',
     // Тот же переезд, что у 11.3 (5е, D11): якорь — в сырой двери сторожей.
     file: 'src/e2k/guards/loweredUnchecked.ts',
-    from: '    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),',
+    from:
+      '    freeFor: (at) =>\n      at === entryAt\n' +
+      '        ? ALLOCATABLE_REGISTERS.filter((cell) => !entryRuntime.has(cell))\n' +
+      '        : CALLEE_REGISTERS,',
     to:
-      '    freeFor: (at) => (at === entryAt ? undefined : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), ' +
+      '    freeFor: (at) =>\n      at === entryAt\n' +
+      '        ? ALLOCATABLE_REGISTERS.filter((cell) => !entryRuntime.has(cell))\n' +
+      '        : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ' +
       '// ДЕФЕКТ 11.4: бюджет вызываемой снят',
     tests: ['src/e2k/e2kCallWindowQemu.test.ts'],
     config: 'vitest.qemu.config.ts',

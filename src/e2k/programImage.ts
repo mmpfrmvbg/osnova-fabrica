@@ -610,11 +610,19 @@ export function arrayProceduresOf(
  *
  * Точка входа в список не входит: у неё те же клетки держит `RESERVED_REGISTERS`.
  */
-export function stringCalleeProcedures(
+/**
+ * ПРОЦЕДУРЫ, КОТОРЫМ НУЖНЫ ВРЕМЕННЫЕ СТРОКОВОГО РАНТАЙМА, — ВКЛЮЧАЯ ТОЧКУ ВХОДА.
+ *
+ * Этим списком решается, закреплять ли `%b[10]`, `%b[11]` и `%b[13]` за рантаймом (B-блок). Прежняя
+ * редакция (`stringCalleeProcedures`) исключала точку входа, потому что её клетки держал статический
+ * `RESERVED_REGISTERS` = `%b[10..15]`. С расширенным пулом `%b[0..15]` статической полосы больше нет:
+ * клетки входа входят в бюджет значений, и закреплять их обязан ТОТ ЖЕ условный резерв, что у
+ * вызываемой, — иначе раскладка отдаст их значениям и рантайм затёр бы их МОЛЧА (D4 малого B).
+ */
+export function stringProcedures(
   code: readonly AsmInstruction[],
   procedures: readonly ProcedureOffset[],
   invokeNames: readonly string[],
-  entryAt: number,
 ): Set<number> {
   const found = new Set<number>();
   code.forEach((carrier, index) => {
@@ -627,9 +635,23 @@ export function stringCalleeProcedures(
     // `codeOffset` разошёлся бы с ним, если процедуры идут не по порядку смещений, — и отказ сказал бы
     // «клетки не закреплены» там, где они закреплены.
     const at = procedureAt(procedures, index);
-    if (at === undefined || at === entryAt) return;
-    found.add(at);
+    if (at !== undefined) found.add(at);
   });
+  return found;
+}
+
+/**
+ * То же, но БЕЗ точки входа: проверка в теле (`imageOfCarriers`) судит только вызываемую, а у входа
+ * закрепление проверяется не словом, а самим `reserved`/бюджетом.
+ */
+export function stringCalleeProcedures(
+  code: readonly AsmInstruction[],
+  procedures: readonly ProcedureOffset[],
+  invokeNames: readonly string[],
+  entryAt: number,
+): Set<number> {
+  const found = stringProcedures(code, procedures, invokeNames);
+  found.delete(entryAt);
   return found;
 }
 
@@ -667,7 +689,9 @@ export function stringNeedProcedures(input: {
     input.heapAddress,
     factsOptions(typeFacts),
   );
-  return stringCalleeProcedures(planned.code, input.procedures, planned.invokeNames, input.entryAt);
+  // ВКЛЮЧАЯ ТОЧКУ ВХОДА: с расширенным пулом `%b[0..15]` её клетки тоже надо закреплять, иначе
+  // раскладка отдаст их значениям и рантайм затёр бы их молча (D4 малого B).
+  return stringProcedures(planned.code, input.procedures, planned.invokeNames);
 }
 
 export function heapSlotProcedures(

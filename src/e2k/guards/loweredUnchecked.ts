@@ -27,9 +27,10 @@ import { annotateAtomRegions } from '../../compiler/atomRegions';
 import { emitShell } from '../emitterShell';
 import { MINIMAL_BASE } from '../elfMinimal';
 import { entryProcedureIndex } from '../procedureCall';
-import { allocateProgram } from '../regAlloc';
+import { ALLOCATABLE_REGISTERS, allocateProgram } from '../regAlloc';
 import { CALL_WBS, CALLEE_REGISTERS } from '../twoPassLayout';
-import { ARRAY_REGISTERS } from '../arrayRuntime';
+import { ARRAY_REGISTERS, ENTRY_ARRAY_CELLS } from '../arrayRuntime';
+import { PRINT_CALL } from '../printCall';
 import { arenaReservedRegisters, usesArena } from '../arenaRuntime';
 import { collectionReservedRegisters, usesCollections } from '../collectionsRuntime';
 import { planStrings } from '../stringPlan';
@@ -182,6 +183,59 @@ export function loweredProgramUnchecked(
   // (`planStrings`), что у арены: второй счётчик срезов разошёлся бы с планом. Слово «резерв сделан»
   // уезжает в `imageOfCarriers` (`sliceReserved`), и разойдись они — названный отказ, а не порча.
   const sliceReserved = (разведкаСтрок.counts.slicesRuntime ?? 0) > 0;
+  // B-БЛОК: РАСШИРЕННЫЙ ПУЛ `%b[0..15]` — КЛЕТКИ РАНТАЙМА ЗАКРЕПЛЯЮТСЯ УСЛОВНО, ПО НУЖДЕ.
+  //
+  // Прежняя редакция держала `%b[10..15]` статически (`RESERVED_REGISTERS`), потому что бюджет входа
+  // был `%b[0..9]`. С расширенным пулом эти клетки входят в бюджет значений, и статической полосы
+  // больше нет: клетки, нужные рантайму, обязан закрепить ТОТ ЖЕ условный резерв, что у строк в
+  // вызываемой. Признак расширения — пул адресует `%b[10]`: в прежней конфигурации (бюджет `%b[0..9]`)
+  // множество ниже пусто, и закреплённые числа не двигаются ВООБЩЕ.
+  //
+  // ЧТО ИМЕННО ЗАКРЕПЛЯЕТСЯ (только у точки входа; у вызываемой — свой `CALLEE_REGISTERS`):
+  //   • `%b[12]` — НОЛЬ рантайма (его читают печать, строки, массивы и выход), всегда;
+  //   • `%b[10]`, `%b[11]`, `%b[13]` — временные строкового рантайма (`STRING_REGISTERS`), если в
+  //     программе есть строковая операция (вход ИЛИ вызываемая — список `stringProcedures`);
+  //   • `%b[10..15]` — блок рантайма массивов ТОЧКИ ВХОДА (`ENTRY_ARRAY_CELLS` + ячейка кучи), если
+  //     точка входа работает с массивом. У вызываемой блок свой (её бюджет), поэтому здесь его нет;
+  //   • `%b[0]` — НИЗКИЙ НОЛЬ разделённого сайта печати: без него `planPrintSite` ищет его среди
+  //     живых значений и отказывает (`OSN-LOW-005`), как только низ занят;
+  //   • `%b[10..15]` — полоса сайта рантайм-среза, если он есть (его клетки 1/2/3/15 закреплены
+  //     отдельным механизмом, но 10..14 — тоже его).
+  const arrayProcedures = arrayProceduresOf(
+    emitted.instructions,
+    emitted.scheduled.procedures,
+    emitted.image.invokeNames,
+  );
+  const entryArray = arrayProcedures.includes(entryAt);
+  const poolExpanded = ALLOCATABLE_REGISTERS.includes(10);
+  const hasPrint = emitted.instructions.some((instruction) => {
+    if (instruction.mnemonic !== 'IR.invoke') return false;
+    const payload = instruction.operands[3];
+    return (
+      payload !== undefined &&
+      payload.kind === 'imm' &&
+      emitted.image.invokeNames[payload.value] === PRINT_CALL
+    );
+  });
+  const entryRuntime = new Set<number>([
+    // НОЛЬ — всегда: его читает и выход, и печать, и строки, и массивы.
+    12,
+    ...(stringsCalleeReserved
+      ? [STRING_REGISTERS.first, STRING_REGISTERS.second, STRING_REGISTERS.write]
+      : []),
+    ...(entryArray
+      ? [
+          ENTRY_ARRAY_CELLS.zero,
+          ENTRY_ARRAY_CELLS.one,
+          ENTRY_ARRAY_CELLS.eight,
+          ENTRY_ARRAY_CELLS.scratch,
+          ENTRY_ARRAY_CELLS.scratch2,
+          ARRAY_REGISTERS.heapSlot,
+        ]
+      : []),
+    ...(poolExpanded && hasPrint ? [0] : []),
+    ...(poolExpanded && sliceReserved ? [10, 11, 12, 13, 14, 15] : []),
+  ]);
   // КАНАЛ ПАРЫ `Результат<Т, Е>` — РЕЗЕРВ УСЛОВНЫЙ, как у арены, коллекций и ячейки кучи.
   //
   // Почему он вообще нужен. Возврат пары кладёт нагрузку в СВОЮ клетку `1`, а её клетка `1` — это
@@ -219,13 +273,12 @@ export function loweredProgramUnchecked(
   ];
   const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
     reserved,
-    freeFor: (at) => (at === entryAt ? undefined : CALLEE_REGISTERS),
+    freeFor: (at) =>
+      at === entryAt
+        ? ALLOCATABLE_REGISTERS.filter((cell) => !entryRuntime.has(cell))
+        : CALLEE_REGISTERS,
     // Блок рантайма массивов — по процедурам, которые с массивами работают (§3.128).
-    arrayProcedures: arrayProceduresOf(
-      emitted.instructions,
-      emitted.scheduled.procedures,
-      emitted.image.invokeNames,
-    ),
+    arrayProcedures,
   });
   const report = allocation.report[0]!;
   // БУКВА D13 ИСПОЛНЕНА (PHASE-05/TASK-05-01): на отказе раскладки контрактный поток `instructions`
