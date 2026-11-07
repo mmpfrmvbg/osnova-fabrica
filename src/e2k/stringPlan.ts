@@ -457,6 +457,25 @@ export function planStrings(
    */
   const numbersOf = new Map<number, number>();
   /**
+   * СЛОТЫ ВЫТЕСНЕНИЯ: ЧТО В НИХ ЛЕЖИТ (D32, ATOM-07-03b).
+   *
+   * Зачем. После раскладки строковое значение может уехать в слот и вернуться
+   * (`IR.spill_st`/`IR.spill_ld`): у тела лексера куска 2 это 8 вытеснений и 40 носителей. Карта
+   * линейна, как `byRegister`, и пустеет там же, где обязаны умирать значения: на слиянии путей
+   * (TD-0003) и на ВЫЗОВЕ.
+   *
+   * КОНТРАКТ (D32, прочитан из `src/vliw/spill.ts` и `src/e2k/regAlloc.ts`, НЕ придуман):
+   *   • `IR.spill_st [значение, регистр-адреса, адрес]` — значение ЧИТАЕТСЯ, адресный регистр ПИШЕТСЯ
+   *     самим носителем (`movtd` + `std`), поэтому клетку значения запись в слот НЕ затирает;
+   *   • `IR.spill_ld [регистр-адреса, приёмник, адрес]` — пишутся ОБА (у раскладки это одна клетка);
+   *   • внутри процедуры слот принадлежит ОДНОМУ значению, поэтому «последняя запись перед чтением» и
+   *     есть живое значение; между процедурами номера совпадают (общий `base`, нумерация с нуля) —
+   *     значит слот вызов НЕ переживает: на `IR.call` карта чистится.
+   */
+  const slotValues = new Map<number, StringValue>();
+  /** В СЛОТЕ БЫЛА СТРОКА, а значение не доказано: тогда приёмник получает ТИП, а не догадку. */
+  const slotTyped = new Set<number>();
+  /**
    * ЧИСЛО, ЕСЛИ ОНО ДОКАЗАНО: либо непосредственный операнд, либо регистр со известным значением.
    *
    * Одна точка правды для всех потребителей плана (край среза, константный индекс символа): пока
@@ -507,6 +526,10 @@ export function planStrings(
     typedValues.clear();
     typedChoices.clear();
     typedReasons.clear();
+    // СЛОТЫ — ПРИНАДЛЕЖНОСТЬ ПРОЦЕДУРЫ (D32): нумерация в каждой процедуре начинается с нуля, поэтому
+    // через границу процедуры слот предыдущей — ЧУЖАЯ память. Чистка здесь, а не только на вызове.
+    slotValues.clear();
+    slotTyped.clear();
     for (const register of seededNumbers) numbersOf.delete(register);
     seededNumbers = [];
     if (typeFacts === undefined) return;
@@ -753,6 +776,14 @@ export function planStrings(
    * путям ЗДЕСЬ, в плане. Отказов это не добавляет: клетка лишь перестаёт считаться доказанной.
    */
   const mergeKills = new Map<number, Set<number>>();
+  /**
+   * СЛОТЫ, ЗАПИСАННЫЕ В ВЕТВИ, — УМИРАЮТ НА СЛИЯНИИ (D32, то же правило, что `mergeKills` у клеток).
+   *
+   * Иначе запись в слот, сделанная в одной ветви, «доехала» бы до чтения после слияния как доказанная,
+   * хотя другая ветвь в этот слот не писала, — и план подставил бы байты чужого значения. Это ровно
+   * класс тихой лжи, ради которого `mergeKills` и заведён (TD-0003), только ключ у него — адрес слота.
+   */
+  const mergeKillSlots = new Map<number, Set<number>>();
   code.forEach((carrier, index) => {
     if (carrier.mnemonic !== 'IR.jmp' && carrier.mnemonic !== 'IR.jmp_if' && carrier.mnemonic !== 'IR.jmp_if_not') {
       return;
@@ -761,13 +792,18 @@ export function planStrings(
     const target = operand !== undefined && operand.kind === 'imm' ? operand.value : undefined;
     if (target === undefined || target <= index || target > code.length) return;
     const killed = mergeKills.get(target) ?? new Set<number>();
+    const killedSlots = mergeKillSlots.get(target) ?? new Set<number>();
     for (let at = index + 1; at < target; at += 1) {
       const inner = code[at];
       if (inner === undefined) break;
       const register = writtenRegisterOf(inner);
       if (register !== undefined) killed.add(register);
+      // СЛОТ, ЗАПИСАННЫЙ В ВЕТВИ, ЗАБЫВАЕТСЯ НА ЦЕЛИ (D32): читать его после слияния — догадка.
+      const slot = inner.mnemonic === 'IR.spill_st' ? inner.operands[2] : undefined;
+      if (slot !== undefined && slot.kind === 'imm') killedSlots.add(slot.value);
     }
     if (killed.size > 0) mergeKills.set(target, killed);
+    if (killedSlots.size > 0) mergeKillSlots.set(target, killedSlots);
   });
 
   code.forEach((carrier, index) => {
@@ -785,6 +821,14 @@ export function planStrings(
     // СХОЖДЕНИЕ ПУТЕЙ: карта линейна, поэтому здесь умирают значения, записанные ветвями (см. `mergeKills`).
     const mergeKilled = mergeKills.get(index);
     if (mergeKilled !== undefined) for (const cell of mergeKilled) kill(cell);
+    // СЛИЯНИЕ ПУТЕЙ ЗАБЫВАЕТ И СЛОТЫ: запись в слот из ветви не доказана после слияния (D32).
+    const mergeKilledSlots = mergeKillSlots.get(index);
+    if (mergeKilledSlots !== undefined) {
+      for (const slot of mergeKilledSlots) {
+        slotValues.delete(slot);
+        slotTyped.delete(slot);
+      }
+    }
     // Пул констант: строковый литерал — это строка, всё остальное — числа.
     if (carrier.mnemonic === 'IR.const') {
       const destination = carrier.operands[0];
@@ -840,6 +884,62 @@ export function planStrings(
       else numbersOf.set(destination.index, number);
       return;
     }
+    // ── ВЫТЕСНЕНИЕ: ЗНАЧЕНИЕ, УЕХАВШЕЕ В СЛОТ, НЕ ТЕРЯЕТСЯ (D32, ATOM-07-03b) ────────────────────
+    //
+    // ЗАМЕР, из-за которого ветвь появилась (§3.182): у тела лексера куска 2 восемь строковых операций
+    // отказывали «аргумент не строка», потому что строковый литерал уезжал в слот, а возвращался оттуда
+    // «неизвестным»: общий путь убивал значение на `IR.spill_st` (его первый операнд — ЗНАЧЕНИЕ, а не
+    // приёмник), а `IR.spill_ld` ничего не возвращал. Уменьшенный вариант (34 носителя) не вытесняет
+    // вовсе, и там всё работало — то есть различал не код программы, а факт вытеснения.
+    if (carrier.mnemonic === 'IR.spill_st') {
+      // `[значение, регистр-адреса, адрес слота]`: адрес пишет САМ носитель (`movtd`+`std`), поэтому
+      // клетку адреса старый факт не переживает, а клетку ЗНАЧЕНИЯ этот носитель НЕ затирает.
+      const address = carrier.operands[1];
+      if (address !== undefined && address.kind === 'reg') kill(address.index);
+      const slot = carrier.operands[2];
+      if (slot !== undefined && slot.kind === 'imm') {
+        const value = registerOf(carrier.operands[0]) ?? provenValueOf(carrier.operands[0]);
+        if (value === undefined) {
+          // В СЛОТЕ НЕ ДОКАЗАНО ЧТО — прежняя догадка обязана умереть, а тип запоминается отдельно:
+          // тогда отказ назовёт «тип есть, значения нет», а не «аргумент не строка».
+          slotValues.delete(slot.value);
+          if (typedWithoutValue(carrier.operands[0])) slotTyped.add(slot.value);
+          else slotTyped.delete(slot.value);
+        } else {
+          slotValues.set(slot.value, value);
+          slotTyped.add(slot.value);
+        }
+      }
+      return;
+    }
+    if (carrier.mnemonic === 'IR.spill_ld') {
+      // `[регистр-адреса, приёмник, адрес слота]`: пишутся ОБА (у раскладки это одна клетка). Адрес
+      // получает адрес слота, приёмник — то, что лежало в слоте.
+      const address = carrier.operands[0];
+      if (address !== undefined && address.kind === 'reg') kill(address.index);
+      const destination = carrier.operands[1];
+      if (destination === undefined || destination.kind !== 'reg') return;
+      // ПРИЁМНИК МОЖЕТ СОВПАСТЬ С АДРЕСОМ — тогда `kill` выше уже снял старый факт; порядок важен.
+      const slot = carrier.operands[2];
+      const value = slot !== undefined && slot.kind === 'imm' ? slotValues.get(slot.value) : undefined;
+      if (value !== undefined) {
+        byRegister.set(destination.index, value);
+        typedRegisters.add(destination.index);
+        typedValues.delete(destination.index);
+        typedReasons.delete(destination.index);
+        return;
+      }
+      // ЗНАЧЕНИЯ НЕТ: тип сохраняем только если в слоте ДОКАЗАННО была строка, иначе — не строка.
+      kill(destination.index);
+      typedValues.delete(destination.index);
+      typedReasons.delete(destination.index);
+      if (slot !== undefined && slot.kind === 'imm' && slotTyped.has(slot.value)) {
+        typedRegisters.add(destination.index);
+      } else {
+        typedRegisters.delete(destination.index);
+      }
+      return;
+    }
     // НАГРУЗКА ПАРЫ `Результат<Строка, …>`: тип нагрузки взят у ОБЪЯВЛЕННОГО возврата вызываемой
     // (`typeArgs[0]`), а ЗНАЧЕНИЕ — у возвратов с ТЕГОМ УСПЕХА, связанных с этим вызовом. Карту
     // «индекс носителя → текст значения» считает конвейер (`src/e2k/programImage.ts`): здесь нет ни
@@ -880,6 +980,13 @@ export function planStrings(
     if (carrier.mnemonic === 'IR.call') {
       const destination = writtenRegisterOf(carrier);
       kill(destination);
+      // СЛОТ ВЫЗОВ НЕ ПЕРЕЖИВАЕТ (D32, ответ 3): база слотов ОДНА на программу, а нумерация в каждой
+      // процедуре начинается с нуля, поэтому вызываемая пишет в ТУ ЖЕ память, что и вызывающий, и
+      // восстановления в прологе/эпилоге нет. Считать содержимое слота доказанным после вызова значило
+      // бы подставить байты чужой строки — тихая ложь. Чистим ВСЮ карту, а не только «свои» слоты:
+      // какие именно слоты займёт вызываемая, из потока не видно.
+      slotValues.clear();
+      slotTyped.clear();
       const proof = typeFacts?.callValues?.get(index);
       const callee = carrier.operands[3];
       const returnsString =

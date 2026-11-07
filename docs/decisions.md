@@ -943,15 +943,15 @@ liveness — отдельный трек после Альфы. В минима�
 
 Источник: `spillStoreCarrier(valueRegister, addressRegister, address)` и
 `spillLoadCarrier(addressRegister, destinationRegister, address)` — `src/vliw/spill.ts`; вставка —
-`regAlloc.ts:1090` (`spillLoadCarrier(register, register, …)` — адрес и приёмник ОДНА клетка) и
-`regAlloc.ts:1139` (`spillStoreCarrier(value, address, …)`, адрес обязан отличаться от значения).
+`src/e2k/regAlloc.ts#applySegments` (`spillLoadCarrier(register, register, …)` — адрес и приёмник ОДНА клетка) и
+`src/e2k/regAlloc.ts#applySegments` (`spillStoreCarrier(value, address, …)`, адрес обязан отличаться от значения).
 Адресный регистр не «читается»: его пишет САМ носитель (`movtd imm(slot)`, затем `std`, см. П5 в
 `src/e2k/spillCallee.test.ts`) — поэтому `IR.spill_st` НЕ затирает клетку значения, хотя его первый
 операнд пишется по счёту оболочки. Именно на этом и стоял отказ §3.182: общий `kill(writtenRegisterOf)`
 убивал клетку литерала на `spill_st`.
 
 **2. Переиспользуется ли слот между разными отрезками.** ВНУТРИ процедуры — **нет**: слот выдаётся на
-ВЫТЕСНЕННОЕ ЗНАЧЕНИЕ (vreg) и нумеруется подряд от `plan.base` (`regAlloc.ts:985`:
+ВЫТЕСНЕННОЕ ЗНАЧЕНИЕ (vreg) и нумеруется подряд от `plan.base` (`src/e2k/regAlloc.ts#allocateSegments`:
 `slot: spilled.length, address: spillAddressOf(plan.base, spilled.length)`), а список `spilled` свой на
 каждую процедуру. Значит разные значения один слот не делят, а ОДНО значение пишется в свой слот при
 каждом определении и читается перед каждым использованием — «последний `spill_st` в слоте перед
@@ -960,7 +960,7 @@ liveness — отдельный трек после Альфы. В минима�
 TD-0003, `mergeKills`), и для слотов его нужно повторить.
 
 **3. Переживает ли слот вызов — НЕТ (caller-saved, и даже хуже).** `spillPlan` ОДИН на программу
-(`regAlloc.ts:501`, передаётся в `allocateSegments` на каждой процедуре — `:678`), а нумерация слотов в
+(`src/e2k/regAlloc.ts#allocateProgram`, передаётся в `allocateSegments` на каждой процедуре), а нумерация слотов в
 каждой процедуре начинается с НУЛЯ. Значит слот `k` вызываемой — это ТА ЖЕ память, что слот `k`
 вызывающего: любой вызов может затереть чужие слоты своими. Восстановления нет ни в прологе, ни в
 эпилоге. Поэтому `stringPlan` ОБЯЗАН ЧИСТИТЬ карту слотов на `IR.call` и на входе в процедуру.
