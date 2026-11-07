@@ -27,6 +27,7 @@
 
 import type { AsmInstruction, Operand } from './backend';
 import {
+  callClobberedCells,
   cfgSegmentsOf,
   defUseOf,
   liveIntervalsOf,
@@ -49,7 +50,7 @@ import {
  * (`twoPassLayout.ts`, разбор порядка импортов).
  */
 import { CALL_WBS } from './twoPassLayout';
-import { entryProcedureIndex } from './procedureCall';
+import { entryProcedureIndex, INNER_CALL_WBS } from './procedureCall';
 import { rematerializeConstants } from './rematerialize';
 import { DEFAULT_SPILL_BASE } from './elfMinimal';
 import { IR_CARRIER_PREFIX } from './shell';
@@ -672,10 +673,30 @@ export function allocateProgram(
     const free = budget.filter(
       (register) => !pinned.has(register) && !reserved.has(register),
     );
+    // ПОРЧА ОКНА ВЫЗОВОМ (случай 86, решение D35). Вызов отдаёт вызываемой `wbs` пар, и это клетки
+    // вызывающего `2·wbs … 4·wbs−1`. У точки входа ширина 4 — эталон lcc отдаёт 4 пары параметров, —
+    // и пересечение с её бюджетом даёт `%b[8..9]`: ровно те две клетки пула, в которые попадали живые
+    // через вызов значения (замер — `src/e2k/spillAcrossCall.test.ts`). У процедуры, вырастившей окно,
+    // вызов идёт с `wbs = 16`, отданные клетки лежат ВНЕ её пула (8..15), и пересечение пустое САМО
+    // СОБОЙ — то есть правило ничего лишнего у вызываемых не отнимает.
+    const callWidth = index === entryAt ? CALL_WBS : INNER_CALL_WBS;
+    const callClobbers: { index: number; cells: number[] }[] = [];
+    stream.forEach((instruction, at) => {
+      if (instruction.mnemonic !== 'IR.call') return;
+      const flags = instruction.operands[0];
+      const argc = flags !== undefined && flags.kind === 'imm' ? flags.value >> 1 : 0;
+      const cells = callClobberedCells(callWidth, argc).filter((cell) => free.includes(cell));
+      if (cells.length > 0) callClobbers.push({ index: at, cells });
+    });
     const allocation = allocateSegments(
       segments.filter((segment) => !pinned.has(segment.vreg)),
       free,
-      { spill: spillPlan, loopCarried, instructions: stream },
+      {
+        spill: spillPlan,
+        loopCarried,
+        instructions: stream,
+        clobber: { at: callClobbers },
+      },
     );
     const common = {
       procedure: procedure.name,
@@ -873,6 +894,24 @@ export interface SegmentAllocationOptions {
   readonly loopCarried?: ReadonlySet<number>;
   /** Поток процедуры — по нему считается цена вытеснения (чтения и определения значения). */
   readonly instructions?: readonly AsmInstruction[];
+  /**
+   * ПОРЧА ОКНА ВЫЗОВОМ (случай 86, решение D35): какие ФИЗИЧЕСКИЕ клетки уничтожает вызов и где эти
+   * вызовы стоят. Значение, живущее ЧЕРЕЗ вызов (началось до него и читается после), в испорченную
+   * клетку не выдаётся: там его затрут аргументы, ответ или приобретённые клетки. Не хватило
+   * клеток — работает обычное вытеснение, то есть значение уезжает в слот, а не теряется молча.
+   *
+   * Почему это отдельная ручка, а не пометка в `defUseOf`: живость считает номера vreg'ов (до
+   * раскладки), а порча — свойство физических клеток окна; отображение появляется только здесь.
+   * Правило и его источник — `src/e2k/liveness.ts#callClobberedCells`.
+   */
+  readonly clobber?: {
+    /**
+     * Клетки, которые уничтожает КОНКРЕТНЫЙ вызов: аргументы, которые эмиттер в него переносит
+     * `movts`, и клетка ответа. Разные вызовы пишут разное число клеток (зависит от арности), поэтому
+     * список — по вызовам, а не один на процедуру.
+     */
+    readonly at: readonly { readonly index: number; readonly cells: readonly number[] }[];
+  };
 }
 
 /**
@@ -936,6 +975,15 @@ export function allocateSegments(
     return seen.size;
   };
   const feasible = (vreg: number): boolean => siteFeasible(sites.get(vreg), free.length, (at) => occupiedAt(at, vreg));
+  // ПОРЧА ОКНА ВЫЗОВОМ (случай 86, решение D35). Клетка, которую вызов уничтожает, годится для
+  // значения, через вызов НЕ живущего: аргумент умирает на самом вызове (эмиттер переносит его
+  // `movts` в отданную клетку), приёмник в нём рождается (эмиттер переносит ответ оттуда). А для
+  // значения, начавшегося ДО вызова и читаемого ПОСЛЕ, она не годится: там его затрут.
+  const clobberAt = options.clobber?.at ?? [];
+  const crossesCall = (segment: LiveInterval, cell: number): boolean =>
+    clobberAt.some((site) => site.cells.includes(cell) && segment.start < site.index && site.index < segment.end);
+  const candidateFor = (segment: LiveInterval, held: ReadonlySet<number>): number | undefined =>
+    free.find((candidate) => !held.has(candidate) && !crossesCall(segment, candidate));
   for (const segment of sorted) {
     // Вытесненное значение регистра не занимает: оно живёт в слоте и подгружается в точке чтения.
     if (spilledVregs.has(segment.vreg)) continue;
@@ -951,7 +999,7 @@ export function allocateSegments(
       }
     }
     const held = (): Set<number> => new Set(active.map((entry) => entry.register));
-    let register = free.find((candidate) => !held().has(candidate));
+    let register = candidateFor(segment, held());
     // Регистра нет — вытесняем самое дешёвое из тех, кто его держит, и пробуем снова.
     while (register === undefined && plan !== undefined) {
       if (spilled.length >= maxSlots) {
@@ -986,7 +1034,7 @@ export function allocateSegments(
       for (let index = active.length - 1; index >= 0; index--) {
         if (active[index]!.vreg === victim) active.splice(index, 1);
       }
-      register = free.find((candidate) => !held().has(candidate));
+      register = candidateFor(segment, held());
     }
     if (register === undefined) {
       const live = sorted.filter((other) => overlaps(other, segment));
@@ -1205,3 +1253,6 @@ export function applyAllocation(
 export function pinRegisters(incoming: readonly number[]): ReadonlySet<number> {
   return new Set(incoming);
 }
+
+
+
