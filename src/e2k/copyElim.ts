@@ -53,6 +53,49 @@ function definesFirstOperand(mnemonic: string): boolean {
   return !['IR.jmp', 'IR.jmp_if', 'IR.jmp_if_not', 'IR.ret', 'IR.call', 'IR.invoke'].includes(mnemonic);
 }
 
+/**
+ * ВИД ПОТОКА ДЛЯ ЖИВОСТИ: цели переходов — ЛОКАЛЬНЫЕ индексы среза процедуры.
+ *
+ * Цели в носителях записаны индексами потока МОДУЛЯ (так их читает `secondPass`), а `liveSetsOf`
+ * понимает только локальные: `successorsOf` принимает цель, если `0 <= target < length`. Для первой
+ * процедуры (`codeOffset = 0`) эти системы совпадают, для всех следующих — нет. Без пересчёта
+ * `liveSetsOf` теряет рёбра переходов, и `liveOut` объявляет мёртвым значение, живое на пути,
+ * который ведёт через другую ветвь. Это не оценка «на глаз»: D4 (случай 89) — `Успех(0)` вместо
+ * `Успех(1072)` при нуле отказов, ровно потому что копия `код = б` снималась по неверной живости.
+ *
+ * Цель вне среза — это переход в ДРУГУЮ процедуру; для анализа этой процедуры ребра нет, поэтому
+ * такая цель переводится в `-1` (её `successorsOf` игнорирует). Оставлять абсолютный номер нельзя:
+ * при `codeOffset > 0` он может случайно попасть в диапазон локальных индексов и создать ложное
+ * ребро на чужую команду.
+ */
+function localJumpTargets(
+  carriers: readonly AsmInstruction[],
+  codeOffset: number,
+): readonly AsmInstruction[] {
+  if (codeOffset === 0) return carriers;
+  const length = carriers.length;
+  return carriers.map((carrier) => {
+    if (!['IR.jmp', 'IR.jmp_if', 'IR.jmp_if_not'].includes(carrier.mnemonic)) return carrier;
+    const targetAt = carrier.mnemonic === 'IR.jmp' ? 0 : 1;
+    const target = carrier.operands[targetAt];
+    if (target === undefined || target.kind !== 'imm' || !Number.isInteger(target.value)) return carrier;
+    const local = target.value - codeOffset;
+    if (local >= 0 && local < length) {
+      const operands = carrier.operands.map((operand, at): Operand => {
+        if (at !== targetAt || operand.kind !== 'imm') return operand;
+        return { ...operand, value: local };
+      });
+      return { ...carrier, operands };
+    }
+    // Цель вне среза: это другая процедура, локального ребра нет.
+    const operands = carrier.operands.map((operand, at): Operand => {
+      if (at !== targetAt || operand.kind !== 'imm') return operand;
+      return { ...operand, value: -1 };
+    });
+    return { ...carrier, operands };
+  });
+}
+
 /** Пик одновременной жизни: максимум живых на выходе инструкции. */
 export function livePeakOf(carriers: readonly AsmInstruction[]): number {
   return Math.max(0, ...liveSetsOf(carriers).liveOut.map((entry) => entry.length));
@@ -102,6 +145,7 @@ export function tryRemoveCopy(
   carriers: readonly AsmInstruction[],
   at: number,
   blockStarts: readonly number[] = [],
+  codeOffset = 0,
 ): AsmInstruction[] | undefined {
   const carrier = carriers[at];
   if (carrier === undefined || carrier.mnemonic !== 'IR.move') return undefined;
@@ -109,7 +153,9 @@ export function tryRemoveCopy(
   const source = carrier.operands[1];
   if (destination?.kind !== 'reg' || source?.kind !== 'reg' || destination.index === source.index) return undefined;
 
-  const { liveOut } = liveSetsOf(carriers);
+  // ЖИВОСТЬ — ПО ГРАФУ, А НЕ ПО ЛИНЕЙНОМУ ХВОСТУ. Цели переходов пересчитаны в локальные индексы
+  // среза (см. `localJumpTargets`): иначе у любой процедуры, кроме первой, рёбер нет вовсе.
+  const { liveOut } = liveSetsOf(localJumpTargets(carriers, codeOffset));
   // Обратная дуга: приёмник читается РАНЬШЕ пересылки — значение переносится через цикл.
   if (carriers.some((item, index) => index < at && defUseOf(item).use.includes(destination.index))) return undefined;
   // Где `d` читается после пересылки и докуда вообще жив.
@@ -121,7 +167,12 @@ export function tryRemoveCopy(
     if (targets.length > 0 && !(liveOut[index] ?? []).includes(destination.index)) break; // значение умерло
   }
   if (targets.length === 0) {
-    // `d` не читается вовсе: пересылка мертва, её можно выбросить без переименований.
+    // `d` не читается на ЛИНЕЙНОМ пути до первого определения. Это ещё не значит «мёртва»: первое
+    // определение может стоять на одной ветви `если`, а чтение — на другой, куда оно не исполняется.
+    // Живость по графу отвечает на этот вопрос: если `d` жив на выходе пересылки, читатель есть на
+    // каком-то пути, и снятие копии оставило бы его со старым значением (D4, случай 89). Снимаем
+    // только тогда, когда `d` НЕ жив ни на одном из путей.
+    if ((liveOut[at] ?? []).includes(destination.index)) return undefined;
     return carriers.filter((_, index) => index !== at);
   }
   const last = targets[targets.length - 1]!;
@@ -211,7 +262,7 @@ export function removeCopies(
   let removed = 0;
   let at = 0;
   while (at < current.length) {
-    const candidate = tryRemoveCopy(current, at, [...starts]);
+    const candidate = tryRemoveCopy(current, at, [...starts], codeOffset);
     if (candidate !== undefined) {
       const candidatePeak = livePeakOf(candidate);
       if (candidatePeak <= peak) {

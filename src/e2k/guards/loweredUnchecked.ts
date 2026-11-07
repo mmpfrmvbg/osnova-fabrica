@@ -176,7 +176,13 @@ export function loweredProgramUnchecked(
     heapAddress: MINIMAL_BASE + HEAP_OFFSET,
     entryAt,
   });
-  const stringsCalleeReserved = stringCalleeAt.size > 0;
+  // ДЕЛИМ НУЖДУ НА ВХОД И ВЫЗЫВАЕМУЮ. У входа бюджет `%b[0..9]`, и 10/11/13 он держит в своём
+  // `entryRuntime`; у вызываемой те же клетки входят в `CALLEE_REGISTERS`, и закреплять их там можно
+  // ТОЛЬКО по её собственной нужде. Общий флаг `size > 0` закреплял их у вызываемой из-за строки во
+  // ВХОДЕ — ровно так 19 вызовов `система.массив.получить` в B остались без трёх подряд клеток
+  // (`#246`, случай 89). Вход по-прежнему получает свои клетки, но не через `reserved` вызываемой.
+  const stringsEntryReserved = stringCalleeAt.has(entryAt);
+  const stringsCalleeReserved = [...stringCalleeAt].some((at) => at !== entryAt);
   // КЛЕТКИ САЙТА РАНТАЙМ-СРЕЗА — резерв УСЛОВНЫЙ, и он НУЖЕН ИМЕННО ЗДЕСЬ, ДО РАСКЛАДКИ: сайт
   // берёт четыре клетки из бюджета ПРОГРАММЫ (`STRING_SLICE_DECLARED_CELLS`) и пишет в них байт,
   // счётчик, адрес таблицы продолжений и результат сравнений петли. Разведка — тем же проходом
@@ -220,7 +226,7 @@ export function loweredProgramUnchecked(
   const entryRuntime = new Set<number>([
     // НОЛЬ — всегда: его читает и выход, и печать, и строки, и массивы.
     12,
-    ...(stringsCalleeReserved
+    ...(stringsEntryReserved
       ? [STRING_REGISTERS.first, STRING_REGISTERS.second, STRING_REGISTERS.write]
       : []),
     ...(entryArray

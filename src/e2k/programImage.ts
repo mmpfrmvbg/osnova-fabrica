@@ -677,6 +677,11 @@ export function stringNeedProcedures(input: {
 }): Set<number> {
   const declaredTypes: readonly ProcedureOffset[] =
     input.procedures.length === 0 ? [{ name: 'главная', codeOffset: 0 }] : input.procedures;
+  // Доказанные значения НУЖНЫ и здесь: без них склейка доказанной строки в вызываемой не попадает
+  // в план, детектор говорит «строк нет», и настоящая строковая операция остаётся без клеток 10/11/13
+  // (`booleanLiterals.test.ts`, `stringTypeParam.test.ts` СК1б). Ложная нужда B снимается не этим, а
+  // РАЗДЕЛЕНИЕМ входа и вызываемой в `loweredUnchecked`: строка во ВХОДЕ больше не закрепляет клетки
+  // вызываемой (случай 89).
   const typeFacts = stringTypeFactsOf(
     declaredTypes,
     input.procedureTypes,
@@ -689,9 +694,37 @@ export function stringNeedProcedures(input: {
     input.heapAddress,
     factsOptions(typeFacts),
   );
-  // ВКЛЮЧАЯ ТОЧКУ ВХОДА: с расширенным пулом `%b[0..15]` её клетки тоже надо закреплять, иначе
-  // раскладка отдаст их значениям и рантайм затёр бы их молча (D4 малого B).
-  return stringProcedures(planned.code, input.procedures, planned.invokeNames);
+  const found = stringProcedures(planned.code, input.procedures, planned.invokeNames);
+  // ДОКАЗАННЫЕ ЗНАЧЕНИЯ — НЕ ПРАВО КАЖДОЙ ПРОЦЕДУРЫ НА СТРОКОВЫЙ РЕЗЕРВ. В B доказательство
+  // превращало `система.массив.получить` в `система.строка.символ` во ВСЕХ процедурах (числа/знаки/
+  // ключевые), хотя их параметры — `Список Число`; резерв 10/11/13 отнимал у них три подряд клетки
+  // и давал 19 отказов `#246`. Поэтому доказательный ответ принимается только там, где СТРОКОВОСТЬ
+  // названа ИНТЕРФЕЙСОМ (строковый параметр или возврат), либо где в процедуре есть ЯВНЫЙ вызов
+  // строкового рантайма. Склейка доказанных строк в вызываемой (`с_токеном`, СК1б) имеет строковые
+  // параметры/возврат — её резерв сохраняется; числовые handler'ы B — нет.
+  const typed = new Set<number>();
+  if (typeFacts !== undefined) {
+    typeFacts.stringParams.forEach((cells, at) => {
+      if (cells.length > 0) typed.add(at);
+    });
+    typeFacts.stringReturns?.forEach((at) => typed.add(at));
+  }
+  for (const at of [...found]) {
+    if (typed.has(at)) continue;
+    const from = declaredTypes[at]?.codeOffset ?? 0;
+    const to = declaredTypes[at + 1]?.codeOffset ?? planned.code.length;
+    // СЫРОЙ поток, а не `planned.code`: доказательство само превращает `массив.получить` в
+    // `строка.символ`, и проверка по плану приняла бы это превращение за «явную строковую операцию» —
+    // то есть ровно за то, что фильтр и должен отсечь.
+    const explicit = input.code.slice(from, to).some((carrier) => {
+      if (carrier.mnemonic !== 'IR.invoke') return false;
+      const payload = carrier.operands[3];
+      if (payload === undefined || payload.kind !== 'imm') return false;
+      return (input.invokeNames[payload.value] ?? '').startsWith('система.строка.');
+    });
+    if (!explicit) found.delete(at);
+  }
+  return found;
 }
 
 export function heapSlotProcedures(
