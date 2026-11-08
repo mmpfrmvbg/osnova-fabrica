@@ -72,7 +72,7 @@
 
 import { getEncoder, type AsmInstruction, type Operand } from './backend';
 import { IMAGE_TAIL_OFFSET, MINIMAL_BASE, SYSCALL_TRAP, spillBaseOf } from './elfMinimal';
-import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ } from './arrayRuntime';
+import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ, arrayBlockRestore } from './arrayRuntime';
 import {
   ENTRY_SYSCALL_FRAME,
   SYS_EXIT,
@@ -598,6 +598,14 @@ export function writeTextPrimitives(
     a('sdisp', [imm(1), imm(SYSCALL_TRAP)]),
     a('call', [imm(1), imm(frame.wbs)]), // ширина вызова из кадра: 4 в точке входа, 16 в выращенной
     ...syscallCallClose(frame),
+    // ── ВОССТАНОВИТЬ БЛОК РАНТАЙМА МАССИВОВ, ЕСЛИ ЭТОТ ВЫЗОВ ЕГО ЗАНУЛИЛ (D12, 2026-11-08) ─────
+    //
+    // `call wbs = 4` в точке входа сдвигает окно на восемь регистров: `%b[12..15]` вызывающего —
+    // это `%b[4..7]` ядра, и ядро их зануляет (замер: `.tmp/d12-asm/probe-*.s`, железо — 0,
+    // модель — 8). Остаются 0/1/8 и адрес ячейки кучи, поэтому после печати чтение `а[1]` давало
+    // `а[0]`, а `создать`/`добавить` падали кодом 139. Подробности — `src/e2k/arrayRuntime.ts#arrayBlockRestore`.
+    ...(frame.restoreHeapAddress === undefined ? [] : arrayBlockRestore(frame.restoreHeapAddress)),
+    //
     // ВЕРНУТЬ СВОЙ РЕГИСТР ДЛИНЫ В НОЛЬ (A4-5ж/2, восьмая тихая ложь).
     //
     // Хвост оставлял в `r.scratch` (`%b[4]`) число записанных байт — и это НЕ безобидный мусор:

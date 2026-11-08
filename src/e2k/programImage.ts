@@ -60,6 +60,7 @@ import {
   WINDOW_NUMBER_REGISTER,
   syscallCallClose,
   syscallCallOpen,
+  type SyscallFrame,
 } from './syscallRuntime';
 import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
@@ -121,6 +122,7 @@ import {
   printTextInstructions,
   printWriteInstructions,
   withPrintSaveCount,
+  withPrintFrame,
   type PrintSitePlan,
 } from './printCall';
 
@@ -565,6 +567,33 @@ function usesArrayHeap(code: readonly AsmInstruction[], invokeNames: readonly st
       SUPPORTED_ARRAY_CALLS.includes(invokeNames[payload.value] ?? '')
     );
   });
+}
+
+/**
+ * ТОЧКА ВХОДА ПОЛЬЗУЕТСЯ РАНТАЙМОМ МАССИВОВ (D12, 2026-11-08) — нужен ли её сайтам печати возврат
+ * блока `%b[12..15]` после системного вызова.
+ *
+ * Признак — вызов `система.массив.*` в ТЕЛЕ точки входа (не в чужой процедуре): в кадре точки входа
+ * `call wbs = 4` кладёт в окно ядра ровно её `%b[8..15]`, и после `write` собственные `%b[13..15]`
+ * читаются как нули (замер: `src/e2k/arrayRuntime.ts#arrayBlockRestore`). Программа без массивов
+ * восстанавливать нечего, поэтому ни одной лишней команды не получает.
+ *
+ * Отдельной функцией — чтобы сторож звал ТУ ЖЕ проверку, что и конвейер: разойдись они, сторож
+ * зеленел бы на пустом месте.
+ */
+export function entryUsesArrayRuntime(
+  code: readonly AsmInstruction[],
+  procedures: readonly ProcedureOffset[],
+  entryAt: number,
+  invokeNames: readonly string[],
+): boolean {
+  const start = procedures[entryAt]?.codeOffset ?? 0;
+  const end =
+    procedures
+      .map((procedure) => procedure.codeOffset)
+      .filter((offset) => offset > start)
+      .sort((a, b) => a - b)[0] ?? code.length;
+  return usesArrayHeap(code.slice(start, end), invokeNames);
 }
 
 /**
@@ -1616,6 +1645,14 @@ export function imageOfCarriers(
   const plannedCode = prepared.code;
   const procedures = prepared.procedures;
   const entryAt = procedures.length === 0 ? 0 : entryProcedureIndex(procedures);
+  // РАНТАЙМ МАССИВОВ В ТОЧКЕ ВХОДА (D12, 2026-11-08): нужен ли её сайтам печати ВОЗВРАТ БЛОКА
+  // `%b[12..15]` после системного вызова. Признак тот же, что у `arrayProceduresOf`, но для точки
+  // входа: вызов `система.массив.*` в её теле. Программа без массивов не получает ни одной лишней
+  // команды — закреплённые числа (потолок печати) от этого не двигаются.
+  const entryArrayRuntime = entryUsesArrayRuntime(plannedCode, procedures, entryAt, strings.invokeNames);
+  const entryFrame: SyscallFrame = entryArrayRuntime
+    ? { ...ENTRY_SYSCALL_FRAME, restoreHeapAddress: heapAddress }
+    : ENTRY_SYSCALL_FRAME;
   // ПЕЧАТЬ: план сайта — ДО раскладки, потому что её длину раскладка обязана знать (иначе
   // смещение перехода, пересекающего печать, считается по нулю — docs/hardware-debt.md §3.43).
   // Число сохраняемых регистров уезжает в сам носитель: другого канала к раскладке нет.
@@ -1629,15 +1666,24 @@ export function imageOfCarriers(
     options.spilledAddresses ?? [],
   );
   const planned = plannedCode.map((carrier, index) => {
+    // ПЛОСКОСТЬ ЭТОГО НОСИТЕЛЯ: в точке входа системный вызов идёт с `wbs = 4`, то есть в окне
+    // ядра оказываются `%b[8..15]` точки входа (D12), — поэтому только её сайты помечаются
+    // возвратом блока рантайма массивов. У выращенной процедуры окно ядра далеко от блока.
+    const inEntry = procedures.length === 0 || procedureAt(procedures, index) === entryAt;
+    const marked = (it: AsmInstruction): AsmInstruction => (inEntry ? withPrintFrame(it, entryFrame) : it);
     const numberPlan = printPlans.get(index);
-    if (numberPlan !== undefined) return withPrintSaveCount(carrier, numberPlan.saved.length);
+    if (numberPlan !== undefined) return marked(withPrintSaveCount(carrier, numberPlan.saved.length));
     const stringPlan = stringPrintPlans.get(index);
-    if (stringPlan === undefined) return carrier;
+    if (stringPlan === undefined) {
+      // ХВОСТ `write` РАЗДЕЛЁННОЙ ПЕЧАТИ стоит у ВЫЗЫВАЮЩЕГО и делает тот же вызов — блок обязан
+      // вернуться и здесь (у выращенной процедуры хвост — названный отказ, см. ниже).
+      return carrier.mnemonic === PRINT_WRITE_CARRIER ? marked(carrier) : carrier;
+    }
     // Число сохранённых — СЕДЬМОЙ пометкой носителя: шестая занята длиной строки, седьмая — адресом
     // перевода строки (`src/e2k/stringPlan.ts`), и раскладка читает их по порядку.
     const operands = [...carrier.operands];
     operands[STRING_MARK_OPERAND + 2] = imm(stringPlan.saved.length);
-    return { ...carrier, operands };
+    return marked({ ...carrier, operands });
   });
   // ГЛУБИНА ≥ 2: процедуры, которые САМИ вызывают (по потоку после всех вставок). Их носители
   // понижаются иначе: свой `wbs = 8` и порядок возврата «`return` → значение → `ct`» (§3.56.5, 3–5).
@@ -1893,8 +1939,9 @@ export function imageOfCarriers(
     const heapSlotReady = inCallee && heapSlotReadyAt.has(procedureAt(procedures, index) ?? 0);
     /** Выращен ли кадр этой процедуры: в нём и вызов, и системный вызов идут иначе. */
     const grownFrame = onDepthTwo;
-    /** Кадр системного вызова для этого носителя: выращенный — у процедуры, иначе кадр точки входа. */
-    const frame = inCallee && grownFrame ? GROWN_SYSCALL_FRAME : ENTRY_SYSCALL_FRAME;
+    /** Кадр системного вызова для этого носителя: выращенный — у процедуры, иначе кадр точки входа
+     * (с возвратом блока рантайма массивов, если образ его использует — D12). */
+    const frame = inCallee && grownFrame ? GROWN_SYSCALL_FRAME : entryFrame;
     const limit = inCallee ? calleeLimit(carrier, { grown: grownFrame }) : undefined;
     const problem =
       limit ??

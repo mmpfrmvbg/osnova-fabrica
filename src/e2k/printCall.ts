@@ -310,25 +310,40 @@ export const PRINT_TEXT_CARRIER = 'IR.print_text';
 export const PRINT_WRITE_CARRIER = 'IR.print_write';
 
 /**
- * ПОМЕТКА КАДРА: девятый операнд носителя печати, `1` — кадр процедуры с выращенным окном.
+ * ПОМЕТКА КАДРА: девятый операнд носителя печати. `1` — кадр процедуры с выращенным окном,
+ * `2` — кадр точки входа, который ОБЯЗАН восстановить блок рантайма массивов после вызова (D12).
  *
  * Нужна раскладке: она считает формы команд ТЕМ ЖЕ кадром, что и понижение (иначе разойдутся длины
  * и уедут адреса — класс §3.35). Шестой-восьмой операнды заняты у печати строки (длина, адрес
  * перевода строки, число сохранённых), поэтому кадр живёт на девятом.
+ *
+ * Метка `2` появилась 2026-11-08: сайт печати в плоскости точки входа возвращает `%b[13]`, `%b[14]`,
+ * `%b[15]` после `call wbs = 4`, потому что ядро их зануляет (замер — `src/e2k/arrayRuntime.ts#arrayBlockRestore`).
+ * Раскладка обязана видеть эти три команды, иначе её длина сайта разойдётся с байтами молча.
  */
 export const PRINT_FRAME_OPERAND = 8;
 
-/** Кадр носителя: у печати из процедуры — выращенный, у прочих — кадр точки входа. */
-export function syscallFrameOfCarrier(instruction: AsmInstruction): SyscallFrame {
+/** Кадр носителя: у печати из процедуры — выращенный, у прочих — кадр точки входа (с восстановлением
+ * блока рантайма, если образ его использует и адрес кучи известен). */
+export function syscallFrameOfCarrier(instruction: AsmInstruction, heapAddress?: number): SyscallFrame {
   const mark = instruction.operands[PRINT_FRAME_OPERAND];
-  return mark !== undefined && mark.kind === 'imm' && mark.value === 1 ? GROWN_SYSCALL_FRAME : ENTRY_SYSCALL_FRAME;
+  if (mark === undefined || mark.kind !== 'imm') return ENTRY_SYSCALL_FRAME;
+  if (mark.value === 1) return GROWN_SYSCALL_FRAME;
+  if (mark.value === 2) {
+    // Адрес кучи несёт раскладке `context.heapAddress` — тот же, что у понижения (`?? PRINT_HEAP_BY_CONVENTION`,
+    // ровно как у форм развёртки: разойтись им нечем).
+    return { ...ENTRY_SYSCALL_FRAME, restoreHeapAddress: heapAddress ?? PRINT_HEAP_BY_CONVENTION };
+  }
+  return ENTRY_SYSCALL_FRAME;
 }
 
 /** Пометить носитель кадром (ставит конвейер до раскладки). */
 export function withPrintFrame(instruction: AsmInstruction, frame: SyscallFrame): AsmInstruction {
-  if (frame === ENTRY_SYSCALL_FRAME) return instruction;
+  const mark =
+    frame.wbs === GROWN_SYSCALL_FRAME.wbs ? 1 : frame.restoreHeapAddress === undefined ? undefined : 2;
+  if (mark === undefined) return instruction;
   const operands = [...instruction.operands];
-  operands[PRINT_FRAME_OPERAND] = { kind: 'imm', value: 1 };
+  operands[PRINT_FRAME_OPERAND] = { kind: 'imm', value: mark };
   return { ...instruction, operands };
 }
 

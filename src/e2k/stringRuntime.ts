@@ -37,7 +37,7 @@
  * `%b[14]` (восемь) и `%b[15]` (куча) не трогаются вовсе.
  */
 import type { AsmInstruction, Operand } from './backend';
-import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ } from './arrayRuntime';
+import { ARRAY_REGISTERS, ARRAY_WINDOW_RSZ, arrayBlockRestore } from './arrayRuntime';
 import { BASE_REGISTER_COUNT, IMM_SRC1_MAX } from './e2k-real';
 import { RESERVED_REGISTERS } from './regAlloc';
 import {
@@ -2004,6 +2004,11 @@ export function stringWriteInstructions(options: {
     ...write(options.address, options.byteLength),
     a('movtd', [literal(options.newlineAddress), reg(STRING_REGISTERS.first)]),
     ...write(STRING_REGISTERS.first, 1),
+    // БЛОК РАНТАЙМА МАССИВОВ — ПОСЛЕ ПОСЛЕДНЕГО ВЫЗОВА (D12, 2026-11-08): в кадре точки входа ядро
+    // зануляет `%b[12..15]` вызывающего (`call wbs = 4` сдвигает окно на восемь регистров), и без
+    // этой строки вывод СТРОКИ перед чтением `а[i]` сдвигал бы чтение на элемент, а `создать` падало
+    // бы кодом 139. Замер — `src/e2k/arrayRuntime.ts#arrayBlockRestore`.
+    ...(frame.restoreHeapAddress === undefined ? [] : arrayBlockRestore(frame.restoreHeapAddress)),
   ];
 }
 
