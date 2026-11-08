@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (30). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (29). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (76)
+## Фронтир и замеры (77)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -74,7 +74,7 @@
 - [docs/osnova-signature-spec.md](osnova-signature-spec.md)
 - [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md) ⚠
 - [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md)
-- [docs/osnova-spec.md](osnova-spec.md) ⚠
+- [docs/osnova-spec.md](osnova-spec.md)
 - [docs/osnova-vision.md](osnova-vision.md)
 - [docs/parser-protocol.md](parser-protocol.md)
 - [docs/register-ir-migration.md](register-ir-migration.md) ⚠
@@ -102,6 +102,7 @@
 - [docs/tutorial/15-faq.md](tutorial/15-faq.md)
 - [docs/tutorial/README.md](tutorial/README.md)
 - [docs/v0.1-semantics.md](v0.1-semantics.md)
+- [docs/v3-spec.md](v3-spec.md)
 - [docs/verification-debt.md](verification-debt.md)
 - [docs/vliw-e2k-model.md](vliw-e2k-model.md)
 - [docs/vliw-ilp-calibration.md](vliw-ilp-calibration.md)

@@ -19,6 +19,7 @@ docs/ast-format.md: {status: active, source-files: [src/compiler-v3/astFormat.ts
 docs/v0.1-semantics.md: {status: active, source-files: [src/compiler-v3/parserV01.ts, src/compiler-v3/astFormat.ts, src/spec/osnova-spec.ts]}
 docs/parser-protocol.md: {status: active, source-files: [src/compiler-v3/astFormat.ts]}
 docs/osnova-spec.md: {status: active, source-files: [src/spec/osnova-spec.ts, src/spec/specification.test.ts]}
+docs/v3-spec.md: {status: active}
 docs/lexics-audit.md: {status: scratch, source-files: [src/spec/osnova-spec.ts, src/compiler-v3/lexer.ts, src/compiler-v3/parserV01.ts, src/compiler-v3/parser.ts, src/compiler-v3/astFormat.ts]}
 docs/d51-audit.md: {status: scratch, source-files: [src/compiler-v3/parser.ts, src/compiler-v3/parserV01.ts, src/compiler/regcodegen.ts, src/spec/osnova-spec.ts, src/e2k/emitterShell.ts, src/e2k/e2kRealRun.ts, src/runtime/vm/reginterpreter.ts]}
 docs/d51-plan.md: {status: active, source-files: [src/compiler-v3/parser.ts, src/compiler-v3/parserV01.ts, src/compiler-v3/astFormat.ts, src/compiler/regcodegen.ts, src/runtime/vm/regcode.ts, src/runtime/vm/reginterpreter.ts, src/e2k/emitterShell.ts, src/spec/osnova-spec.ts]}
