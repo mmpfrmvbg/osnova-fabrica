@@ -16,6 +16,7 @@ docs/language-contributing-v2.md: {status: stable, source-files: [src/compiler/l
 docs/language-registry.md: {status: stable, source-files: [src/compiler/language-registry.ts]}
 docs/compiler-v3-plan.md: {status: active}
 docs/ast-format.md: {status: active, source-files: [src/compiler-v3/astFormat.ts, src/compiler-v3/parserV01.ts]}
+docs/v0.1-semantics.md: {status: active, source-files: [src/compiler-v3/parserV01.ts, src/spec/osnova-spec.ts]}
 docs/osnova-spec.md: {status: active, source-files: [src/spec/osnova-spec.ts, src/spec/specification.test.ts]}
 docs/language-changelog-v2.md: {status: stable}
 docs/golden-schema.md: {status: stable, source-files: [src/runtime/goldenApps.ts]}

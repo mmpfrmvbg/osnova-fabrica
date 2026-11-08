@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (28). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (27). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (73)
+## Фронтир и замеры (74)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -36,7 +36,7 @@
 - [OSNOVA-CLI.md](../OSNOVA-CLI.md)
 - [OSNOVA.md](../OSNOVA.md)
 - [README.md](../README.md)
-- [docs/abi-v3-draft.md](abi-v3-draft.md) ⚠
+- [docs/abi-v3-draft.md](abi-v3-draft.md)
 - [docs/ast-format.md](ast-format.md)
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/decisions.md](decisions.md)
@@ -99,6 +99,7 @@
 - [docs/tutorial/14-reference.md](tutorial/14-reference.md)
 - [docs/tutorial/15-faq.md](tutorial/15-faq.md)
 - [docs/tutorial/README.md](tutorial/README.md)
+- [docs/v0.1-semantics.md](v0.1-semantics.md)
 - [docs/verification-debt.md](verification-debt.md)
 - [docs/vliw-e2k-model.md](vliw-e2k-model.md)
 - [docs/vliw-ilp-calibration.md](vliw-ilp-calibration.md)
