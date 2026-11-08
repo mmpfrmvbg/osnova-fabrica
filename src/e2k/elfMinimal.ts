@@ -99,10 +99,18 @@ export const WRITE_ZONE_EXTRA_MEMORY = IMAGE_TAIL_OFFSET + 0x1000;
 export const DATA_SEGMENT_BASE = MINIMAL_BASE + IMAGE_TAIL_OFFSET - 0x1000;
 
 /**
- * РАЗМЕР СЕГМЕНТА ДАННЫХ: страница области записи и страница кучи с ареной.
+ * РАЗМЕР СЕГМЕНТА ДАННЫХ ПО УМОЛЧАНИЮ: страница области записи и КУЧА С АРЕНОЙ.
  *
  * Две страницы — потому что за областью записи сразу идёт куча массивов (`MINIMAL_BASE +
  * IMAGE_TAIL_OFFSET`), и на той же странице начинается арена (§3.88.4: они начинаются там же).
+ * Этого хватает программам с маленькими списками.
+ *
+ * САЙТ МОЖЕТ ПОДНЯТЬ РАЗМЕР ЧЕРЕЗ `buildElfFromCode({ dataSegmentBytes })` (2026-11-08, D49). Замер
+ * полного одно-проходного лексера: вход на 3219 кодовых точек — это 3219·8 = **25752** байта списка
+ * кодов плюс список токенов (~53 КБ кучи), и на двух страницах прогон падал кодом 9 (запись за
+ * отображённую страницу), то есть тихой ложью, а не отказом. Умолчание оставлено прежним НАМЕРЕННО:
+ * `p_memsz` сегмента данных входит в файл, поэтому смена умолчания сдвинула бы `sha256/16` образов всех
+ * прочих программ (и закреплённые пины приёмочных проб) — лексер просит `0x14000` сам.
  */
 export const DATA_SEGMENT_BYTES = 0x2000;
 
@@ -325,7 +333,7 @@ export function buildMinimalElf(exitCode = 42, base = MINIMAL_BASE): MinimalElf 
 export function buildElfFromCode(
   code: Uint8Array,
   base = MINIMAL_BASE,
-  options: { readonly writable?: boolean; readonly extraMemory?: number } = {},
+  options: { readonly writable?: boolean; readonly extraMemory?: number; readonly dataSegmentBytes?: number } = {},
 ): Omit<MinimalElf, 'program'> {
   const textOffset = IMAGE_TEXT_OFFSET;
   const sections: { name: string; offset: number; size: number }[] = [];
@@ -433,7 +441,11 @@ export function buildElfFromCode(
   // Первый: КОД. `p_offset % page == p_vaddr % page` — иначе загрузчик положит сегмент не туда.
   phdr(0x40, 5, textOffset, base, segmentSize, segmentSize);
   // Второй: ДАННЫЕ. В файле их нет (`p_filesz = 0`) — отображается нулями (`p_memsz`).
-  phdr(0x78, 6, 0, DATA_SEGMENT_BASE, 0, DATA_SEGMENT_BYTES);
+  // РАЗМЕР СЕГМЕНТА ДАННЫХ МОЖЕТ БЫТЬ ПОДНЯТ САЙТОМ (2026-11-08, D49): полный одно-проходный лексер
+  // держит в куче весь вход и весь выход, и прежних двух страниц ему не хватает — прогон падал кодом 9
+  // (запись за отображённую страницу), то есть тихой ложью, а не отказом. Умолчание оставлено прежним,
+  // чтобы образы всех прочих программ не сдвинулись байт в байт (в ELF входит `p_memsz` сегмента данных).
+  phdr(0x78, 6, 0, DATA_SEGMENT_BASE, 0, options.dataSegmentBytes ?? DATA_SEGMENT_BYTES);
 
   file.set(text, textOffset);
   file.set(symtab, symtabOffset);
