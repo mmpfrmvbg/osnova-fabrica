@@ -28,7 +28,7 @@
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (72)
+## Фронтир и замеры (73)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -37,6 +37,7 @@
 - [OSNOVA.md](../OSNOVA.md)
 - [README.md](../README.md)
 - [docs/abi-v3-draft.md](abi-v3-draft.md) ⚠
+- [docs/ast-format.md](ast-format.md)
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/decisions.md](decisions.md)
 - [docs/diagnostics-v1.md](diagnostics-v1.md)

@@ -15,6 +15,7 @@ docs/system-api-v1.md: {status: stable, source-files: [src/runtime/vm/invokeRegi
 docs/language-contributing-v2.md: {status: stable, source-files: [src/compiler/language-schema.ts]}
 docs/language-registry.md: {status: stable, source-files: [src/compiler/language-registry.ts]}
 docs/compiler-v3-plan.md: {status: active}
+docs/ast-format.md: {status: active, source-files: [src/compiler-v3/astFormat.ts, src/compiler-v3/parserV01.ts]}
 docs/osnova-spec.md: {status: active, source-files: [src/spec/osnova-spec.ts, src/spec/specification.test.ts]}
 docs/language-changelog-v2.md: {status: stable}
 docs/golden-schema.md: {status: stable, source-files: [src/runtime/goldenApps.ts]}

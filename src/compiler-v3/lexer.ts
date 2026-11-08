@@ -110,8 +110,19 @@ export interface V3Token {
   lexeme: string;
   /** Значение литерала: число у `число`, содержимое у `строка`. */
   value?: number | string;
-  /** Номер строки, с 1. Колонки нет намеренно: формат ошибки v3 — «файл:строка: текст». */
+  /** Номер строки, с 1. */
   line: number;
+  /**
+   * Смещение НАЧАЛА токена в КОДОВЫХ ТОЧКАХ (0-based), а не в байтах и не в UTF-16.
+   *
+   * Позиции AST (`docs/ast-format.md`) считаются кодпоинтами: `source.length` в UTF-16 дал бы
+   * другое число на каждой эмодзи. Полю `offset` верят и парсер v0.1, и его лента.
+   */
+  offset: number;
+  /** Длина ЛЕКСЕМЫ В ИСХОДНИКЕ в кодовых точках (у строки — вместе с кавычками и escape). */
+  length: number;
+  /** Колонка начала, с 1, в КОДОВЫХ ТОЧКАХ от начала строки. */
+  column: number;
 }
 
 export interface V3LexResult {
@@ -217,8 +228,36 @@ export function tokenizeV3(source: string, filename: string = DEFAULT_V3_FILENAM
   const errors: string[] = [];
   let i = 0;
   let line = 1;
-  const push = (kind: V3TokenKind, lexeme: string, value?: number | string): void => {
-    tokens.push(value === undefined ? { kind, lexeme, line } : { kind, lexeme, value, line });
+  /** UTF-16 индекс начала текущей строки: от него считается колонка в кодпоинтах. */
+  let lineStart = 0;
+  // ПАРЫ СУРРОГАТОВ: кодпоинт-смещение = индекс UTF-16 минус число пар ДО него. Мы не переписываем
+  // весь лексер на обход кодпоинтов (это сдвинуло бы побайтовый вывод D49), а считаем позиции здесь.
+  const пары: number[] = [];
+  for (let п = 0; п + 1 < source.length; п++) {
+    const старший = source.charCodeAt(п);
+    const младший = source.charCodeAt(п + 1);
+    if (старший >= 0xd800 && старший <= 0xdbff && младший >= 0xdc00 && младший <= 0xdfff) пары.push(п);
+  }
+  /** Кодпоинт-смещение UTF-16 индекса: пара считается за одну точку. */
+  const смещение = (индекс: number): number => {
+    let низ = 0;
+    let верх = пары.length;
+    while (низ < верх) {
+      const середина = (низ + верх) >> 1;
+      if (пары[середина]! < индекс) низ = середина + 1;
+      else верх = середина;
+    }
+    return индекс - низ;
+  };
+  const push = (kind: V3TokenKind, lexeme: string, value?: number | string, start = i): void => {
+    const offset = смещение(start);
+    const колонка = offset - смещение(lineStart) + 1;
+    const length = смещение(i) - offset;
+    tokens.push(
+      value === undefined
+        ? { kind, lexeme, line, offset, length, column: колонка }
+        : { kind, lexeme, value, line, offset, length, column: колонка },
+    );
   };
 
   while (i < source.length) {
@@ -228,9 +267,11 @@ export function tokenizeV3(source: string, filename: string = DEFAULT_V3_FILENAM
       continue;
     }
     if (c === "\n") {
-      push("новая_строка", "\n");
+      const начало = i;
       i++;
+      push("новая_строка", "\n", undefined, начало);
       line++;
+      lineStart = i;
       continue;
     }
     // Комментарии: `//` до конца строки, `/* */` — до закрытия (вложенности нет).
@@ -242,7 +283,10 @@ export function tokenizeV3(source: string, filename: string = DEFAULT_V3_FILENAM
       const at = line;
       i += 2;
       while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) {
-        if (source[i] === "\n") line++;
+        if (source[i] === "\n") {
+          line++;
+          lineStart = i + 1;
+        }
         i++;
       }
       if (i >= source.length) {
@@ -254,6 +298,7 @@ export function tokenizeV3(source: string, filename: string = DEFAULT_V3_FILENAM
     }
     if (c === '"') {
       const at = line;
+      const начало = i;
       i++;
       let value = "";
       while (i < source.length && source[i] !== '"' && source[i] !== "\n") {
@@ -269,25 +314,27 @@ export function tokenizeV3(source: string, filename: string = DEFAULT_V3_FILENAM
       if (i >= source.length) errors.push(formatV3Error(filename, at, "незакрытая строка"));
       else if (source[i] === "\n") errors.push(formatV3Error(filename, at, "строка не закрыта до конца строки"));
       else i++; // закрывающая кавычка
-      push("строка", value, value);
+      push("строка", value, value, начало);
       continue;
     }
     if (c >= "0" && c <= "9") {
+      const начало = i;
       let n = "";
       while (i < source.length && source[i]! >= "0" && source[i]! <= "9") n += source[i++];
       if (source[i] === "." && source[i + 1] !== undefined && source[i + 1]! >= "0" && source[i + 1]! <= "9") {
         n += source[i++];
         while (i < source.length && source[i]! >= "0" && source[i]! <= "9") n += source[i++];
       }
-      push("число", n, Number(n));
+      push("число", n, Number(n), начало);
       continue;
     }
     if (isLetter(c) || c === "_") {
+      const начало = i;
       let w = "";
       while (i < source.length && (isLetter(source[i]!) || source[i] === "_" || (source[i]! >= "0" && source[i]! <= "9"))) {
         w += source[i++];
       }
-      push(KEYWORDS[w] ?? "имя", w);
+      push(KEYWORDS[w] ?? "имя", w, undefined, начало);
       continue;
     }
     const two = source.slice(i, i + 2);
@@ -297,29 +344,33 @@ export function tokenizeV3(source: string, filename: string = DEFAULT_V3_FILENAM
       continue;
     }
     if (two === "==" || two === "!=" || two === "<=" || two === ">=") {
-      push(two, two);
+      const начало = i;
       i += 2;
+      push(two, two, undefined, начало);
       continue;
     }
     if (c === "→") {
-      push("→", "→");
+      const начало = i;
       i++;
+      push("→", "→", undefined, начало);
       continue;
     }
     if ("()[]{},:.?".includes(c)) {
-      push(c as V3TokenKind, c);
+      const начало = i;
       i++;
+      push(c as V3TokenKind, c, undefined, начало);
       continue;
     }
     if ("+-*/%<>=;|".includes(c)) {
-      push(c as V3TokenKind, c);
+      const начало = i;
       i++;
+      push(c as V3TokenKind, c, undefined, начало);
       continue;
     }
     errors.push(formatV3Error(filename, line, `в языке нет символа ${JSON.stringify(c)}`));
     i++;
   }
 
-  push("конец_файла", "<конец файла>");
+  push("конец_файла", "<конец файла>", undefined, source.length);
   return { tokens, errors };
 }
