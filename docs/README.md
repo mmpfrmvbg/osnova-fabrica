@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (27). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (29). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -37,7 +37,7 @@
 - [OSNOVA.md](../OSNOVA.md)
 - [README.md](../README.md)
 - [docs/abi-v3-draft.md](abi-v3-draft.md)
-- [docs/ast-format.md](ast-format.md)
+- [docs/ast-format.md](ast-format.md) ⚠
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/decisions.md](decisions.md)
 - [docs/diagnostics-v1.md](diagnostics-v1.md)
@@ -100,7 +100,7 @@
 - [docs/tutorial/14-reference.md](tutorial/14-reference.md)
 - [docs/tutorial/15-faq.md](tutorial/15-faq.md)
 - [docs/tutorial/README.md](tutorial/README.md)
-- [docs/v0.1-semantics.md](v0.1-semantics.md)
+- [docs/v0.1-semantics.md](v0.1-semantics.md) ⚠
 - [docs/verification-debt.md](verification-debt.md)
 - [docs/vliw-e2k-model.md](vliw-e2k-model.md)
 - [docs/vliw-ilp-calibration.md](vliw-ilp-calibration.md)
@@ -160,7 +160,7 @@
 - [docs/legacy/system-invoke-api-v0.2.md](legacy/system-invoke-api-v0.2.md)
 - [docs/legacy/trace-format-v0.1.md](legacy/trace-format-v0.1.md)
 
-## Разведка и сырьё (24)
+## Разведка и сырьё (26)
 
 - [docs/ai-centric-os-recommendations.md](ai-centric-os-recommendations.md)
 - [docs/brainstorm/00-map.md](brainstorm/00-map.md)
@@ -171,6 +171,7 @@
 - [docs/brainstorm/05-step1-measurement.md](brainstorm/05-step1-measurement.md)
 - [docs/brainstorm/06-next-steps.md](brainstorm/06-next-steps.md)
 - [docs/brainstorm/06-stepB-packet-size.md](brainstorm/06-stepB-packet-size.md)
+- [docs/d51-audit.md](d51-audit.md)
 - [docs/e2k-asm-scheduler-effect.md](e2k-asm-scheduler-effect.md)
 - [docs/e2k-imm-short-effect.md](e2k-imm-short-effect.md)
 - [docs/e2k-literal-barriers.md](e2k-literal-barriers.md)
@@ -178,6 +179,7 @@
 - [docs/e2k-reorder-effect.md](e2k-reorder-effect.md)
 - [docs/e2k-shell-ticks.md](e2k-shell-ticks.md)
 - [docs/e2k-spec-bit.md](e2k-spec-bit.md)
+- [docs/lexics-audit.md](lexics-audit.md)
 - [docs/micromodules-v2.md](micromodules-v2.md)
 - [docs/osnova-v5.4-vision.md](osnova-v5.4-vision.md)
 - [docs/patterns.md](patterns.md)
