@@ -30,6 +30,7 @@ import { entryProcedureIndex } from '../procedureCall';
 import { ALLOCATABLE_REGISTERS, allocateProgram } from '../regAlloc';
 import { CALL_WBS, CALLEE_REGISTERS } from '../twoPassLayout';
 import { ARRAY_REGISTERS, ENTRY_ARRAY_CELLS } from '../arrayRuntime';
+import { insertListSetBounds } from '../arrayBounds';
 import { PRINT_CALL } from '../printCall';
 import { arenaReservedRegisters, usesArena } from '../arenaRuntime';
 import { collectionReservedRegisters, usesCollections } from '../collectionsRuntime';
@@ -277,7 +278,21 @@ export function loweredProgramUnchecked(
     // остальных его клеток — полоса `%b[10..15]` и одна клетка арены, уже закреплённые).
     ...(sliceReserved ? STRING_SLICE_DECLARED_CELLS : []),
   ];
-  const allocation = allocateProgram(emitted.instructions, emitted.scheduled.procedures, {
+  // D43b: ПРОВЕРКА ГРАНИЦ `Списки.установить` — ДО РАСКЛАДКИ.
+  //
+  // Почему здесь, а не в `imageOfCarriers`: проверка — это сравнение + условный переход, то есть
+  // несколько НОСИТЕЛЕЙ со своими регистрами. Вставь их после раскладки — у них не было бы выданных
+  // клеток, и сторож поймал бы виртуальные номера (класс `diagnosticFlow`). Поэтому сайт входит в
+  // поток, который раскладывается, и получает настоящие регистры наравне с программой.
+  //
+  // Смещения процедур и цели СТАРЫХ переходов пересчитывает сам проход: вставка сдвигает поток, и
+  // оставить их по-старому значило бы повторить §3.35 молча.
+  const bounds = insertListSetBounds(
+    emitted.instructions,
+    emitted.scheduled.procedures,
+    emitted.image.invokeNames,
+  );
+  const allocation = allocateProgram(bounds.code, bounds.procedures, {
     reserved,
     freeFor: (at) =>
       at === entryAt

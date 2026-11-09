@@ -88,6 +88,8 @@ import {
 } from "./predicatePairing";
 
 import {
+  ARRAY_BOUNDS_TRAP_CARRIER,
+  ARRAY_LENGTH_CARRIER,
   ARRAY_REGISTERS,
   ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
@@ -284,6 +286,23 @@ export const CARRIER_FORMS: readonly CarrierForm[] = [
     /** `IR.store_byte [значение, адрес]` — запись БАЙТА (`stb`); канал 2, как у всех `st*`. */
     carrier: STORE_BYTE_CARRIER,
     commands: [{ mnemonic: "stb", form: "ALF3", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  },
+  {
+    /**
+     * D43b: `IR.array_len [приёмник, база, смещение]` — чтение длины блока (`ldd`). Размер — из того же
+     * источника, что понижение (`arrayLengthInstructions`): одна ALF1-команда. Разойдись объявление и
+     * понижение — уехали бы адреса переходов после носителя (класс §3.35).
+     */
+    carrier: ARRAY_LENGTH_CARRIER,
+    commands: [{ mnemonic: "ldd", form: "ALF1", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
+  },
+  {
+    /**
+     * D43b: `IR.array_bounds_trap [приёмник, база, смещение]` — `sdivs` с нулевым делителем: деление на
+     * ноль даёт архитектурное исключение `exc_div` и не возвращается. Длина — та же ALF1-команда.
+     */
+    carrier: ARRAY_BOUNDS_TRAP_CARRIER,
+    commands: [{ mnemonic: "sdivs", form: "ALF1", size: REAL_SHORT_FORM_SIZE, source: SHORT_SOURCE }],
   },
   {
     // Целочисленное деление (БЛОК 2, оператор `div`). Форма объявлена 2026-09-25: правило понижения

@@ -81,11 +81,15 @@ import {
   arraySlotPrologue,
   arrayValuePrologue,
   calleeZeroInstructions,
+  ARRAY_BOUNDS_TRAP_CARRIER,
+  ARRAY_LENGTH_CARRIER,
   ARRAY_REGISTERS,
   ARRAY_SLOT_CARRIER,
   ARRAY_VALUES_CARRIER,
   CALLEE_ZERO_CARRIER,
   ENTRY_ARRAY_BASE,
+  arrayBoundsTrapInstructions,
+  arrayLengthInstructions,
   isArrayRuntimeCall,
 } from "./arrayRuntime";
 import { COLLECTION_ALLOC_CARRIER, COLLECTION_CALL_NAMES, collectionAllocInstructions, lowerCollectionCall } from "./collectionsRuntime";
@@ -879,6 +883,28 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
     } catch (error) {
       return failureOf(LOWERING_CODES.runtime, error instanceof Error ? error.message : String(error));
     }
+  }
+
+  // ── D43b: ГРАНИЦЫ СПИСКА ────────────────────────────────────────────────────────────────────────
+  //
+  // Оба носителя понижаются ОДНОЙ `ldd`: у `IR.array_len` это чтение слова длины, у
+  // `IR.array_bounds_trap` — чтение по нулевому адресу (ловушка). Формы у них одинаковые (ALF1, 8
+  // байт), поэтому раскладке не нужно знать, какая из двух операций стоит в потоке, — но знать
+  // ОБЯЗАНА, что длина ровно одна команда: `twoPassLayout` берёт её из того же списка.
+  if (instruction.mnemonic === ARRAY_LENGTH_CARRIER || instruction.mnemonic === ARRAY_BOUNDS_TRAP_CARRIER) {
+    const operands = instruction.operands;
+    if (operands.length !== 3 || operands.some((operand) => operand.kind !== 'reg')) {
+      return failureOf(
+        LOWERING_CODES.carrier,
+        `«${instruction.mnemonic}»: ожидались три регистра (приёмник, база, смещение)`,
+      );
+    }
+    const [destination, base, offset] = operands as readonly { index: number }[];
+    const instructions =
+      instruction.mnemonic === ARRAY_LENGTH_CARRIER
+        ? arrayLengthInstructions(base!.index, offset!.index, destination!.index)
+        : arrayBoundsTrapInstructions(base!.index, offset!.index, destination!.index);
+    return { ok: true, instructions };
   }
 
   // ── Чтение и запись по адресу-РЕГИСТРУ (`src/e2k/memoryAccess.ts`) ─────────────────────────────

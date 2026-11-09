@@ -86,7 +86,7 @@
 
 import type { AsmInstruction } from "./backend";
 import { LOWERING_CODES, type LoweringRefusalCode } from "./loweringRefusal";
-import { ARRAY_REGISTERS, ARRAY_SLOT_CARRIER } from "./arrayRuntime";
+import { ARRAY_BOUNDS_TRAP_CARRIER, ARRAY_LENGTH_CARRIER, ARRAY_REGISTERS, ARRAY_SLOT_CARRIER } from "./arrayRuntime";
 import { PRINT_WRITE_CARRIER } from "./printCall";
 import { callArgumentOperands } from "./shell";
 import { LOAD_BYTE_CARRIER, LOAD_CARRIER, STORE_BYTE_CARRIER, STORE_CARRIER } from "./memoryAccess";
@@ -270,6 +270,12 @@ export function registersOf(instruction: AsmInstruction): { known: boolean; read
     // участвует: ветвь отвечает на вопрос «какие регистры трогает носитель», не «как составить пару».
     case "IR.zero":
       return known([], regs([operands[0]!]));
+    // D43b: `IR.array_len [приёмник, база, смещение]` и `IR.array_bounds_trap [...]` — обычные
+    // трёхоперандные носители: приёмник пишется, база и смещение читаются. Без этих ветвей они
+    // падали бы в умолчание (`known: false`) и рвали окно пары между сравнением границ и переходом.
+    case ARRAY_LENGTH_CARRIER:
+    case ARRAY_BOUNDS_TRAP_CARRIER:
+      return known(regs([operands[1]!, operands[2]!]), regs([operands[0]!]));
     // АДРЕС ЯЧЕЙКИ КУЧИ В ВЫЗЫВАЕМОЙ (`src/e2k/arrayRuntime.ts#arraySlotPrologue`): ровно одна
     // `movtd` литерала в ПОСТОЯННУЮ клетку `ARRAY_REGISTERS.heapSlot`; чтений нет, приёмник в операндах
     // не назван (операнд 0 — сам адрес). Факт целиком — свойство носителя, поэтому ветвь допустима.
