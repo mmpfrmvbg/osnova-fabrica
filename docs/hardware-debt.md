@@ -15546,9 +15546,9 @@ r % 16777216)` (без писателей, без печати), `N` итера�
 пересчитаны из текущих образов и совпали; меняется только провенанс.
 
 **Что именно 126 976 в `foundationE2k`.** Это НЕ длина кода лексера. `кодовБайт` под отказом —
-`сырой.bytes.length` (`src/e2k/lowered.ts:63`), а при статических блобах `programImage.ts` отдаёт
+`сырой.bytes.length` (`src/e2k/lowered.ts#кодовБайт`), а при статических блобах `programImage.ts` отдаёт
 `withStatics` длиной `staticOffset + staticBytesOf(strings)`; `staticStart` отсчитывается вниз от
-`STATIC_AREA_TOP = DATA_SEGMENT_BASE` (`src/e2k/stringPlan.ts:233`). Поэтому длина образа =
+`STATIC_AREA_TOP = DATA_SEGMENT_BASE` (`src/e2k/stringPlan.ts#STATIC_AREA_TOP`). Поэтому длина образа =
 `DATA_SEGMENT_BASE − MINIMAL_BASE` = `0x1F000` = **126 976** независимо от длины кода; прежнее
 65 536 = `0x10000` — та же формула при старой странице. Подпись «ЧЕСТНОЕ ЧИСЛО собранного кода» в
 комментарии теста ложна; правка комментария — в `src/**`, отдельный атом `code=test`.
