@@ -542,8 +542,17 @@ export function printCommandForm(instruction: AsmInstruction): PrintCommandForm 
       return long('CS1_SETWD');
     case 'sdisp':
       return short('CS0 (C0F2)');
-    case 'movtd':
-      return long('ALF2 + LTS');
+    case 'movtd': {
+      // КОРОТКАЯ ФОРМА `movtd` — РЕГИСТР→РЕГИСТР И МАЛОЕ НЕПОСРЕДСТВЕННОЕ. Кодировщик отдаёт 8 байт
+      // для `movtd %b → %b` и для `imm 0…15`; 16 — только для `imm64` (адрес) и `imm 16+`. Форма
+      // объявляла 16 ВСЕГДА. Замер: `.tmp/movtd-size2.ts` (imm 0 = 8, imm 16 = 16), понижение
+      // `Списки.установить` даёт `movtd reg,reg` = 8. В P2a таких сайтов четыре до `главная`, и
+      // переход входа уезжал на +32 байта — в середину пролога массива. Это ЗАПИСЬ ТАБЛИЦЫ ФОРМ.
+      const first = instruction.operands[0];
+      const longForm =
+        first?.kind === 'imm64' || (first?.kind === 'imm' && (!Number.isInteger(first.value) || first.value > IMM_SHORT_MAX));
+      return longForm ? long('ALF2 + LTS') : short('ALF2');
+    }
     case 'muls':
       // ALF11 (длинная форма) — 16 байт, и это верно и для регистровых операндов, и для литерала
       // в src2. Короче она становится ТОЛЬКО когда литерал стоит в src1: у src1 литерального слова

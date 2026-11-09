@@ -171,6 +171,28 @@ describe('форма по непосредственному: объявлени
     expect(problems, problems.join('\n')).toEqual([]);
   });
 
+  it('movtd: регистр→регистр — 8, imm64 — 16; форма НЕ «всегда 16»', () => {
+    // Случай P2a: `Списки.установить` понижается в `movtd %b, %b` (8 байт), а форма объявляла 16.
+    // Четыре таких сайта до `главная` уводили переход входа на +32 байта. Сверка с кодировщиком,
+    // а не с константой: иначе тест пересказывал бы правку.
+    const регистровая: AsmInstruction = { mnemonic: 'movtd', channel: 0, operands: [reg(1), reg(2)] };
+    const литеральная: AsmInstruction = {
+      mnemonic: 'movtd',
+      channel: 0,
+      operands: [{ kind: 'imm64', value: 0x111000n }, reg(2)],
+    };
+    for (const [имя, команда, ожидание] of [
+      ['reg→reg', регистровая, 8],
+      ['imm64', литеральная, 16],
+    ] as const) {
+      const form = printCommandForm(команда);
+      expect(form, `movtd ${имя}: формы нет`).toBeDefined();
+      const encoded = encoder.encode(команда).length;
+      expect(form!.size, `movtd ${имя}: форма ${String(form!.size)}, кодировщик ${String(encoded)}`).toBe(encoded);
+      expect(form!.size, `movtd ${имя}: ожидалось ${String(ожидание)}`).toBe(ожидание);
+    }
+  });
+
   it('ARRAY_COMMAND_FORMS согласна с кодировщиком (addd/smodx/ldd — литерал в src1)', () => {
     const problems: string[] = [];
     let checked = 0;
