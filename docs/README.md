@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (29). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (30). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -36,7 +36,7 @@
 - [OSNOVA-CLI.md](../OSNOVA-CLI.md)
 - [OSNOVA.md](../OSNOVA.md)
 - [README.md](../README.md)
-- [docs/abi-v3-draft.md](abi-v3-draft.md)
+- [docs/abi-v3-draft.md](abi-v3-draft.md) ⚠
 - [docs/ast-format.md](ast-format.md)
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/d51-plan.md](d51-plan.md) ⚠

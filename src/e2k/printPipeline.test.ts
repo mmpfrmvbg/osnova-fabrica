@@ -261,17 +261,23 @@ describe('печать: шесть записей корпуса собираю�
     // страницы: 0x100000 + 65 536 = 0x110000, то есть до падения потолка в сайтах остался один
     // байт печати. Это названная цена правки, а не округление: следующая добавка к пути печати
     // обязана перемерить и число сайтов.
+    // ПЕРЕМЕР 2026-11-09 (атом depth-3/P3b, `src/e2k/elfMinimal.ts#IMAGE_TAIL_OFFSET`): страница
+    // области записи переехала с 0x110000 на 0x11F000, потолок кода стал 126 976 байт, и граница
+    // в сайтах обязана была съехать — она и съехала. Замер тем же путём: **505 сайтов** собираются
+    // (кода 126 792, конец 0x11EF48), **506** — названный отказ (кода 127 040, конец 0x11F040).
+    // Причина переезда измерена на пробе протокола: глубина 3 требует кода 67 056 при прежнем
+    // потолке 65 536 (`docs/hardware-debt.md` §3.194).
     const sites = (count: number): AsmInstruction[] => [
       ...Array.from({ length: count }, () => printingCarrier(2)),
       { mnemonic: 'IR.ret', channel: 0, operands: [imm(0), reg(0)] },
     ];
-    expect(() => imageOfCarriers(sites(259), [], [PRINT_CALL])).toThrow(PrintCallRefusal);
-    expect(() => imageOfCarriers(sites(259), [], [PRINT_CALL])).toThrow(/место записи/iu);
-    // Сторона «влезает»: 258 сайтов — 65 536 байт кода, конец ровно 0x110000 (до починки 71 —
-    // 65 496 и конец 0x10ffd8; до починки восьмой лжи влезало 266 сайтов).
-    const fits = imageOfCarriers(sites(258), [], [PRINT_CALL]);
-    expect(fits.refused, 'двести пятьдесят восемь сайтов обязаны собираться').toEqual([]);
-    expect(fits.bytes.length, 'и это ровно измеренная длина').toBe(65536);
+    expect(() => imageOfCarriers(sites(506), [], [PRINT_CALL])).toThrow(PrintCallRefusal);
+    expect(() => imageOfCarriers(sites(506), [], [PRINT_CALL])).toThrow(/место записи/iu);
+    // Сторона «влезает»: 505 сайтов — 126 792 байта кода, конец 0x11EF48 (до переезда влезало 258
+    // сайтов и 65 536 байт).
+    const fits = imageOfCarriers(sites(505), [], [PRINT_CALL]);
+    expect(fits.refused, 'пятьсот пять сайтов обязаны собираться').toEqual([]);
+    expect(fits.bytes.length, 'и это ровно измеренная длина').toBe(126792);
     const fitsEnd = MINIMAL_BASE + fits.bytes.length;
     expect(fitsEnd, 'и не входить в страницу записи').toBeLessThanOrEqual(pageOf(printAreaOf(HEAP)));
     expect(fitsEnd, 'но и не быть крошечным: прежний потолок в 4 КиБ пройден').toBeGreaterThan(MINIMAL_BASE + 0x1000);
