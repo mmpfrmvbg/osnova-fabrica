@@ -241,6 +241,14 @@ qemu-e2k: qemu: exception handling is unimplemented - aborting
     env->sregs.wd = FIELD_DP64_E2K(env->sregs.wd, WD, size_d , 8 * 2);
 ```
 
+Правка живёт **в двух патчах**: [`osnova-local-cpu_loop.patch`](../tools/qemu-e2k/osnova-local-cpu_loop.patch)
+(инициализация окна; позже `size_q` поднят с 8 до 12 — `docs/hardware-debt.md` §3.44) и
+[`osnova-local-translate-ct.patch`](../tools/qemu-e2k/osnova-local-translate-ct.patch) — те же
+`_d = 2 * _q` в `e2k_cpu_exec_ct_RETURN` и `e2k_cpu_exec_ct_CALL`; без второго `WD` после
+вызова/возврата снова получает нулевые `_d`. Оба патча лежат в репозитории; проверено внесением
+на pristine-копию: результат побайтово равен живому дереву, то есть пересборка по репозиторию
+даёт текущий бинарь.
+
 Пересборка — инкрементальная (`ninja` в `/root/qemu-build`, 2 файла + линковка). **Семантика
 инструкций не меняется**: восполняется начальное состояние окна, которое в реальной системе
 задаёт ядро, а в linux-user — загрузчик.
