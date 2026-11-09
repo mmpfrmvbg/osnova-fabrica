@@ -365,6 +365,40 @@ export const SUPPORTED_ARRAY_CALLS: readonly string[] = [
   'система.массив.установить',
 ];
 
+/**
+ * D43a: `Списки.*` — таблица понижения, а НЕ source-level подстановка.
+ *
+ * Почему таблица, а не правка `parser.ts`/`regcodegen.ts`: `Списки.добавить` имеет ТРИ аргумента
+ * (список, элемент, арена), а `система.массив.добавить` — ДВА; арена в D43a принимается, но пока
+ * не используется (куча массива одна на точку входа, D12-2). Подстановка в исходник сделала бы
+ * арену «работающей» на бумаге и потеряла бы её значение молча. Здесь же имя и арность проверяются
+ * по таблице, и только потом аргументы приводятся к рантайму.
+ *
+ * `возвращаетБазу` — единственное отличие от рантайма: `Списки.добавить` по D43 возвращает ТОТ ЖЕ
+ * список, а `система.массив.добавить` результата не имеет. Поэтому в приёмник кладётся копия
+ * указателя (`movtd`); без неё `пусть л2 = Списки.добавить(...)` читал бы мусор.
+ */
+const D43_LIST_ALIASES: Readonly<
+  Record<string, { readonly имя: string; readonly арность: number; readonly безАрены: boolean; readonly возвращаетБазу?: true }>
+> = {
+  'Списки.пустой': { имя: 'система.массив.создать', арность: 1, безАрены: true },
+  'Списки.добавить': { имя: 'система.массив.добавить', арность: 3, безАрены: true, возвращаетБазу: true },
+  'Списки.длина': { имя: 'система.массив.длина', арность: 1, безАрены: false },
+};
+
+/** Имена D43a, которые понижает рантайм массивов (для разведки кучи ДО раскладки). */
+export const D43_LIST_CALLS: readonly string[] = Object.keys(D43_LIST_ALIASES);
+
+/** Является ли имя вызовом рантайма массивов — с учётом D43a. Одна проверка на план и понижение. */
+export function isArrayRuntimeCall(name: string): boolean {
+  return SUPPORTED_ARRAY_CALLS.includes(name) || D43_LIST_CALLS.includes(name);
+}
+
+/** Выделяет ли вызов память массива — с учётом D43a (`Списки.пустой`). */
+export function isArrayCreateCall(name: string): boolean {
+  return name === 'система.массив.создать' || name === 'Списки.пустой';
+}
+
 /** Отказ рантайма массивов: причина называется, а не замалчивается. */
 export class ArrayRuntimeRefusal extends Error {
   constructor(message: string) {
@@ -800,6 +834,13 @@ const std = (value: number, src1: number, src2: number): AsmInstruction => ({
   operands: [reg(value), reg(src1), reg(src2)],
 });
 
+/** `movtd src, dst` — 64-битная копия регистра: указатель списка/адрес не влезает в `movts`. */
+const movtd = (src: number, dst: number): AsmInstruction => ({
+  mnemonic: 'movtd',
+  channel: 0,
+  operands: [reg(src), reg(dst)],
+});
+
 /**
  * `×8` удвоением: три `addd` (форма `D`, проверена пробой), результат — в `dst`.
  * Требует, чтобы `src` и `dst` были разными регистрами (иначе первое удвоение затрёт вход).
@@ -830,6 +871,27 @@ export function lowerArrayCall(
   } = {},
 ): AsmInstruction[] {
   const forForm = options.forForm === true;
+  // D43a: проверка ИМЕНИ и АРНОСТИ ДО приведения. Иначе `Списки.пустой()` без арены после
+  // отбрасывания последнего аргумента стал бы «создать()» — отказ превратился бы в тихое согласие.
+  if (name === 'Списки.взять') {
+    throw new ArrayRuntimeRefusal(
+      `«${name}»: D43a не понижает возврат пары Результат<T, Ошибка> — пара в горячем пути точки ` +
+        'входа не влезает (D49); подменять её голым система.массив.получить запрещено (D4). ' +
+        'Это следующий атом, а не забытая ветвь.',
+    );
+  }
+  const alias = D43_LIST_ALIASES[name];
+  if (alias !== undefined && args.length !== alias.арность) {
+    throw new ArrayRuntimeRefusal(
+      `«${name}»: аргументов ${args.length}, по D43 ${alias.арность} ` +
+        `(${name === 'Списки.добавить' ? 'список, элемент, арена' : name === 'Списки.пустой' ? 'арена' : 'список'})`,
+    );
+  }
+  const возвращаетБазу = alias?.возвращаетБазу === true;
+  if (alias !== undefined) {
+    args = alias.безАрены ? args.slice(0, -1) : args;
+    name = alias.имя;
+  }
   const arity = ARITY[name];
   if (arity === undefined) {
     throw new ArrayRuntimeRefusal(
@@ -974,7 +1036,7 @@ export function lowerArrayCall(
       // Длина обновляется ДО вычисления адреса (иначе адрес считался бы по новой длине),
       // но адрес считается по СТАРОЙ длине — она остаётся в scratch.
       const steps = timesEight(scratch, scratch2);
-      return [
+      const sequence: AsmInstruction[] = [
         ldd(registers[0]!, zero, scratch),
         addd(scratch, one, scratch2),
         std(scratch2, registers[0]!, zero),
@@ -993,6 +1055,12 @@ export function lowerArrayCall(
         addd(scratch2, eight, scratch2),
         std(scratch2, heapSlot, zero),
       ];
+      // D43a: `Списки.добавить` возвращает ТОТ ЖЕ список. Рантайм `добавить` результата не имеет,
+      // поэтому копия указателя кладётся ДО последовательности: `dst` не должен совпасть с `base`.
+      if (возвращаетБазу && dst !== undefined && dst !== registers[0]) {
+        return [movtd(registers[0]!, dst), ...sequence];
+      }
+      return sequence;
     }
     default:
       throw new ArrayRuntimeRefusal(`«${name}»: ветвь не описана`);

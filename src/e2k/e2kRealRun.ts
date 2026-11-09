@@ -86,7 +86,7 @@ import {
   ARRAY_VALUES_CARRIER,
   CALLEE_ZERO_CARRIER,
   ENTRY_ARRAY_BASE,
-  SUPPORTED_ARRAY_CALLS,
+  isArrayRuntimeCall,
 } from "./arrayRuntime";
 import { COLLECTION_ALLOC_CARRIER, COLLECTION_CALL_NAMES, collectionAllocInstructions, lowerCollectionCall } from "./collectionsRuntime";
 import { SUPPORTED_MATH_CALLS, lowerMathCall } from "./mathRuntime";
@@ -854,7 +854,7 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       // `ARRAY_BASE_OPERAND` носителя), и признак вызываемой процедуры. Базы нет — `lowerArrayCall`
       // отказывает по имени; именно это закрывает тихий путь §3.127 (аргументы 8/9 у вызываемой).
       const destinationIndex = hasDestination ? (destination as { index: number }).index : undefined;
-      if (SUPPORTED_ARRAY_CALLS.includes(name)) {
+      if (isArrayRuntimeCall(name)) {
         return {
           ok: true,
           instructions: lowerArrayCall(name, args as readonly Operand[], destinationIndex, {
@@ -1345,7 +1345,7 @@ export function runKernelThroughRealEncoding(
         if (carrier.mnemonic !== 'IR.invoke') return false;
         const payload = carrier.operands[3];
         const name = payload !== undefined && payload.kind === 'imm' ? emitted.image.invokeNames[payload.value] : undefined;
-        return name !== undefined && SUPPORTED_ARRAY_CALLS.includes(name);
+        return name !== undefined && isArrayRuntimeCall(name);
       });
       return usesArrays ? at : undefined;
     })

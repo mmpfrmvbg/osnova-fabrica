@@ -45,7 +45,8 @@ import {
   ARRAY_VALUES_CARRIER,
   CALLEE_ZERO_CARRIER,
   ENTRY_ARRAY_BASE,
-  SUPPORTED_ARRAY_CALLS,
+  isArrayCreateCall,
+  isArrayRuntimeCall,
   arrayBaseProblems,
   arrayPrologue,
   type ProcedureNumberFacts,
@@ -564,7 +565,7 @@ function usesArrayHeap(code: readonly AsmInstruction[], invokeNames: readonly st
     return (
       payload !== undefined &&
       payload.kind === 'imm' &&
-      SUPPORTED_ARRAY_CALLS.includes(invokeNames[payload.value] ?? '')
+      isArrayRuntimeCall(invokeNames[payload.value] ?? '')
     );
   });
 }
@@ -772,7 +773,7 @@ export function heapSlotProcedures(
       return (
         payload !== undefined &&
         payload.kind === 'imm' &&
-        invokeNames[payload.value] === 'система.массив.создать'
+        isArrayCreateCall(invokeNames[payload.value] ?? '')
       );
     });
     if (allocates) found.add(at);
@@ -2048,7 +2049,7 @@ export function imageOfCarriers(
         continue;
       }
       if (
-        (name === 'система.массив.установить' || name === 'система.массив.создать') &&
+        (name === 'система.массив.установить' || isArrayCreateCall(name ?? '')) &&
         inCallee &&
         depth >= 2
       ) {
