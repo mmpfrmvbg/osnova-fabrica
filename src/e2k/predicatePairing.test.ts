@@ -86,6 +86,7 @@ import {
   isMaterializingComparison,
   isValueBranchJump,
   pairPredicates,
+  registersOf,
   type PredicatePair,
 } from './predicatePairing';
 import { lowerCarrier } from './e2kRealRun';
@@ -514,5 +515,36 @@ describe('K5: закреплённые числа не тронуты', () => {
     const пара: PredicatePair = pairing.pairs[0]!;
     expect(пара.predicate).toBe(PREDICATE_FOR_PAIRS);
     expect(пара.condition).toBe(CTCOND_NEG_PRED | PREDICATE_FOR_PAIRS);
+  });
+});
+
+describe('K5: `IR.idiv` — ЗАПИСЬ ТАБЛИЦЫ (`N = 1`)', () => {
+  /**
+   * ОДНА проверка на правку — и она обязана краснеть РОВНО одна при откате.
+   *
+   * `IR.idiv` (`нацело`) — трёхоперандный носитель `[dst, a, b]`, как `IR.div`/`IR.rem`. До правки
+   * его не было в `registersOf`, умолчание давало `known: false`, и второй сторож отказывал
+   * `OSN-LOW-004 ... «IR.idiv» с неизвестными операндами` на ребре взятого перехода, которое
+   * перепрыгивает целочисленное деление. Роли здесь проверяются ОТДЕЛЬНО от понижения: так откат
+   * правки виден и без сборки образа. Программа-репро — шесть строк из задания; до правки она даёт
+   * один отказ (`#3 IR.lt ...`), после — ноль.
+   */
+  it('роли трёх операндов и минимальная программа с делением в ребре понижаются без отказов', () => {
+    const info = registersOf(ir('IR.idiv', [reg(1), reg(2), reg(3)]));
+    expect(info.known).toBe(true);
+    expect(info.reads).toEqual([2, 3]);
+    expect(info.writes).toEqual([1]);
+
+    const источник = [
+      'действие главная()',
+      '  пусть а = 1',
+      '  пока а < 10',
+      '    пусть б = а нацело 2',
+      '    а = а + 1',
+      '  конец пока',
+      'конец',
+      '',
+    ].join('\n');
+    expect(отказы(источник)).toEqual([]);
   });
 });

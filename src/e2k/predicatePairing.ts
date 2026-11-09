@@ -308,6 +308,14 @@ export function registersOf(instruction: AsmInstruction): { known: boolean; read
     case "IR.sub":
     case "IR.mul":
     case "IR.div":
+    // K5 (2026-11-09): `IR.idiv` — такой же трёхоперандный носитель `[dst, a, b]`, как `IR.rem`
+    // строкой ниже (`src/e2k/shell.ts`: раскладка операндов; понижение — `sdivs`,
+    // `src/e2k/e2kRealRun.ts`). Без этой ветви он падал в `known: false` (умолчание ниже), и второй
+    // сторож `pairPredicates` отказывал `OSN-LOW-004 ... «IR.idiv» с неизвестными операндами —
+    // живость на ребре взятого перехода не доказана` на любом ребре, пропускающем целочисленное
+    // деление (замер: `.tmp/k5-min.ts` — `#3 IR.lt → #4 IR.jmp_if_not → #13`). Это ЗАПИСЬ ТАБЛИЦЫ,
+    // а не изменение алгоритма: роли выведены из операндов, ровно как у `IR.add`/`IR.rem`.
+    case "IR.idiv":
     case "IR.rem":
     case "IR.eq":
     case "IR.ne":
