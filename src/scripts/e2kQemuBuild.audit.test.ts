@@ -92,7 +92,13 @@ export function checkBuiltBinary(file: string): { ok: boolean; version?: string;
   }
 }
 
-describe("сборка QEMU-e2k", () => {
+// Этот сторож проверяет ИМЕННО Windows-сторону: пути .tmp, WSL и отсутствие
+// инструментов сборки в PATH Windows. На Linux-облаке L1 таких путей нет, и
+// проверка «инструменты появились» краснела бы не по делу. Сам QEMU на цели
+// по-прежнему проверяется воротами `gate:qemu`.
+const describeWindows = process.platform === "win32" ? describe : describe.skip;
+
+describeWindows("сборка QEMU-e2k", () => {
   const doc = fs.existsSync(DOC) ? fs.readFileSync(DOC, "utf-8") : "";
 
   it("документ существует и называет путь бинаря", () => {

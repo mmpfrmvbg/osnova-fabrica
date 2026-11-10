@@ -144,7 +144,10 @@ describe('внешняя проверка: разбор вывода дизас�
     expect(decodeConsoleOutput(Buffer.from(text, 'utf-8'))).toContain('adds,0');
   });
 
-  it('путь к ELF переводится в путь WSL', () => {
+  // Путь WSL существует только на Windows-хосте; на Linux L1 проверять нечего,
+  // и подстановка «/mnt/d/...» была бы проверкой чужой машины. Живой дизассемблер
+  // ниже сам называет причину, если его нет.
+  it.skipIf(process.platform !== 'win32')('путь к ELF переводится в путь WSL', () => {
     expect(toWslPath('D:\\PROJECTS\\OSNOVA-FABRIKA\\.tmp\\e2k-samples.elf')).toBe(
       '/mnt/d/PROJECTS/OSNOVA-FABRIKA/.tmp/e2k-samples.elf',
     );

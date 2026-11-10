@@ -48,12 +48,19 @@ import * as path from 'path';
 import { describe, it, expect } from 'vitest';
 import { getEncoder, sameInstruction, toHex, type AsmInstruction, type Operand } from './backend';
 import { REAL_OPCODES } from './e2k-real';
-import { assembleAll, type AsSample } from '../scripts/e2kExternalAs';
+import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 import { buildE2kElf, disassembleElf, findExternalTool, parseObjdumpOutput } from '../scripts/e2kExternalObjdump';
 import type { E2kSample } from '../scripts/extractE2kSamples';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
+
+// Внешний as живёт только на Windows-хосте (WSL). На Linux-облаке L1 его нет,
+// поэтому секция внешней сверки пропускается с названной причиной; чистое
+// кодирование и разбор остаются в полном прогоне.
+const externalAs = findExternalAs();
+if (externalAs.tool === undefined) console.warn(`[L1] предикаты: внешняя сверка пропущена: ${externalAs.reason}`);
+const describeExternalAs = externalAs.tool === undefined ? describe.skip : describe;
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 /** Предикат — ОТДЕЛЬНЫЙ вид операнда: смешать `%pred0` с `%b[0]` нельзя. */
@@ -188,7 +195,7 @@ describe('предикаты: 3. отказы названы, а не подст
   });
 });
 
-describe('предикаты: 4. внешняя сверка (as и objdump)', () => {
+describeExternalAs('предикаты: 4. внешняя сверка (as и objdump)', () => {
   it('ассемблер МЦСТ собирает те же байты', () => {
     const samples: AsSample[] = MEASURED.map((sample) => ({
       key: sample.key,

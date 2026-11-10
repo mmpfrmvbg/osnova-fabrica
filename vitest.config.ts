@@ -173,6 +173,21 @@ export default defineConfig({
       // и печатает 1. Число спрашивает модель, поэтому место — gate:qemu (случай 12); в полном
       // прогоне файл тянул бы шим и сдвигал счёт файлов.
       '**/procedureBoundaryPairing.test.ts',
+      // D43b `Списки.установить`, протокол P3b/c/d, печать в вызываемой и границы окна:
+      // ответ даёт только живой QEMU. В полном прогоне на Linux-облаке модели нет, поэтому
+      // файлы живут в `gate:qemu` (тот же случай 12 реестра проверяемости).
+      '**/d43ListsQemu.test.ts',
+      '**/parserProtocolP3b.test.ts',
+      '**/parserProtocolP3c.test.ts',
+      '**/parserProtocolP3d.test.ts',
+      '**/printPrimitivesQemu.test.ts',
+      '**/printThenArrayQemu.test.ts',
+      '**/copyElimValueBoundaryQemu.test.ts',
+      '**/windowLimits.test.ts',
+      // Строковый символ и фундамент self-host на цели: обе стороны сверяются прогоном
+      // в модели, а не формой носителя; в полном прогоне их места нет (случай 12).
+      '**/stringSymbol.test.ts',
+      '**/foundationE2k.test.ts',
     ],
   },
 });

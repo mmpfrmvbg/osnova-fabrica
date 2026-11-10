@@ -305,6 +305,16 @@ export default defineConfig({
       // чтение), а дефект стережёт структурный `src/e2k/arrayBlockRestore.test.ts` (N = 1).
       // Число спрашивается у модели — тот же случай 12.
       'src/e2k/printThenArrayQemu.test.ts',
+      // АУДИТ СБОРКИ QEMU на Windows-стороне: проверяет .tmp-пути, WSL и отсутствие
+      // инструментов сборки в PATH Windows. На Linux L1 он неприменим, поэтому в полном
+      // прогоне пропускается, а здесь — на L2-хосте — обязан отработать.
+      'src/scripts/e2kQemuBuild.audit.test.ts',
+      // ВНЕШНИЕ СВЕРКИ С МЦСТ (as/objdump): на Linux-облаке инструментов нет, поэтому
+      // их содержательные секции пропускаются с причиной. На L2-хосте они обязаны
+      // отработать — иначе внешняя сверка не проверяется нигде.
+      'src/e2k/e2kCmpand.test.ts',
+      'src/e2k/e2kPredicates.test.ts',
+      'src/scripts/e2kExternalObjdump.test.ts',
     ],
   },
 });

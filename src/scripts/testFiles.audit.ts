@@ -185,6 +185,62 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
       'обязан краснеть, а не пропускать проверку',
   },
   {
+    match: 'd43ListsQemu.test.ts',
+    reason:
+      'D43a/D43b `Списки.*`: числа и границы (1/0/2/1, запись на глубине 0/1, отказ OSN-RT-010) ' +
+      'отвечает только прогон в живом QEMU — вынесен в gate:qemu по случаю 12',
+  },
+  {
+    match: 'parserProtocolP3b.test.ts',
+    reason:
+      'шаг P3b протокола: эталонная лента и числа 8/14 приходят из модели, а не из формы носителя — ' +
+      'gate:qemu, случай 12',
+  },
+  {
+    match: 'parserProtocolP3c.test.ts',
+    reason:
+      'шаг P3c: вид токена на конце выражения (33) и отказ раскладки проверяются прогоном в модели — ' +
+      'gate:qemu, случай 12',
+  },
+  {
+    match: 'parserProtocolP3d.test.ts',
+    reason: 'шаг P3d: сравнения и `нацело` (1/3/6) отвечают только прогоном в живом QEMU — gate:qemu, случай 12',
+  },
+  {
+    match: 'printPrimitivesQemu.test.ts',
+    reason:
+      'печать числа на цели: гостевой текст и байты записей 39–44 сверяются прогоном в модели, ' +
+      'в полном прогоне Linux-облака её нет — gate:qemu, случай 12',
+  },
+  {
+    match: 'printThenArrayQemu.test.ts',
+    reason:
+      'D12: печать не смеет менять чтение элемента списка; число даёт только модель — gate:qemu, случай 12',
+  },
+  {
+    match: 'copyElimValueBoundaryQemu.test.ts',
+    reason:
+      'D4-граница процедуры: значение пары (1072 вместо 0) проверяется исполнением в QEMU — gate:qemu, случай 12',
+  },
+  {
+    match: 'windowLimits.test.ts',
+    reason:
+      'границы окна регистров: предел клеток задаёт `rsz`, годность пары и отказ `setwd` измеряются ' +
+      'прогоном в модели — gate:qemu, случай 12',
+  },
+  {
+    match: 'stringSymbol.test.ts',
+    reason:
+      'посимвольный доступ `с[и]`: константный и рантайм-индекс и граница −1 проверяются на цели — ' +
+      'gate:qemu, случай 12',
+  },
+  {
+    match: 'foundationE2k.test.ts',
+    reason:
+      'self-host лексер на цели: числа `и`/`или`/`нет` и куски лексера сверяются с TS-лексером ' +
+      'прогоном в модели — gate:qemu, случай 12',
+  },
+  {
     match: 'e2kConvolutionQemu.test.ts',
     reason: 'ресурсозависимый, живёт в gate:qemu: встраивание свёртки измеряется прогоном в QEMU (случай 12)',
   },

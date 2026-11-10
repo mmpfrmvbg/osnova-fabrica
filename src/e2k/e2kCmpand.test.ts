@@ -49,13 +49,23 @@ import * as path from 'path';
 import { describe, it, expect } from 'vitest';
 import { getEncoder, sameInstruction, toHex, type AsmInstruction, type Operand } from './backend';
 import { REAL_OPCODES, realOpcode } from './e2k-real';
-import { assembleAll, type AsSample } from '../scripts/e2kExternalAs';
+import { assembleAll, findExternalAs, type AsSample } from '../scripts/e2kExternalAs';
 import { buildE2kElf, disassembleElf, findExternalTool, parseObjdumpOutput } from '../scripts/e2kExternalObjdump';
 import type { E2kSample } from '../scripts/extractE2kSamples';
 import type { RealForm } from './e2k-real';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const encoder = getEncoder('e2k');
+
+// Внешние as/objdump живут только на Windows-хосте (WSL). На Linux-облаке L1
+// их нет, поэтому секции внешней сверки пропускаются с названной причиной, а не
+// краснеют «модель не ответила». Внутренние кодирование и разбор остаются в L1.
+const externalAs = findExternalAs();
+const externalTool = findExternalTool();
+if (externalAs.tool === undefined) console.warn(`[L1] CMPAND: внешняя сверка as пропущена: ${externalAs.reason}`);
+if (externalTool.tool === undefined) console.warn(`[L1] CMPAND: внешняя сверка objdump пропущена: ${externalTool.reason}`);
+const describeExternalAs = externalAs.tool === undefined ? describe.skip : describe;
+const describeExternalTool = externalTool.tool === undefined ? describe.skip : describe;
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 /** Предикат — ОТДЕЛЬНЫЙ вид операнда: `%pred0` и `%b[0]` лежат в разных файлах. */
@@ -238,7 +248,7 @@ describe('CMPAND*: 3. НЕГАТИВНЫЙ КОНТРОЛЬ', () => {
   });
 });
 
-describe('CMPAND*: 4. внешняя сверка — ассемблер МЦСТ (текст → байты)', () => {
+describeExternalAs('CMPAND*: 4. внешняя сверка — ассемблер МЦСТ (текст → байты)', () => {
   it('ассемблер собирает те же восемь байт', () => {
     const samples: AsSample[] = FAMILY.map((item) => ({
       key: item.mnemonic,
@@ -265,7 +275,7 @@ describe('CMPAND*: 4. внешняя сверка — ассемблер МЦС�
   });
 });
 
-describe('CMPAND*: 5. внешняя сверка — дизассемблер МЦСТ (байты → текст), ПО АДРЕСАМ', () => {
+describeExternalTool('CMPAND*: 5. внешняя сверка — дизассемблер МЦСТ (байты → текст), ПО АДРЕСАМ', () => {
   it('по адресу каждой нашей команды дизассемблер печатает CMPAND, а не nop и не мусор', () => {
     const { tool, reason } = findExternalTool();
     if (tool === undefined) {
@@ -509,7 +519,7 @@ describe('CMPAND*: 7. предикат-условие (`psrc`) — слог CDS'
   });
 });
 
-describe('CMPAND*: 8. внешняя сверка формы с условием', () => {
+describeExternalAs('CMPAND*: 8. внешняя сверка формы с условием', () => {
   it('ассемблер МЦСТ собирает те же шестнадцать байт', () => {
     const samples: AsSample[] = CONDITIONED.map((item) => ({
       key: item.key,
