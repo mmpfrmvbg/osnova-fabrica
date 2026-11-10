@@ -29,6 +29,7 @@ docs/golden-tests.md: {status: stable, source-files: [docs/golden-tests.json]}
 docs/stack-convention-v0.1.md: {status: stable}
 docs/coding-with-osnova-v2.md: {status: stable}
 docs/release-process.md: {status: stable, source-files: [.github/workflows/release.yml]}
+docs/ci-cd.md: {status: active, source-files: [.gitverse/workflows/full-ci.yaml, src/scripts/ciCheck.ts, scripts/ci-local.sh, tools/e2k-hardware/ci-run.sh]}
 docs/self-hosted-runner-runbook.md: {status: stable, source-files: [.github/workflows/ci.yml]}
 docs/DOCS.md: {status: stable, source-files: [src/scripts/doc-guardian.ts]}
 

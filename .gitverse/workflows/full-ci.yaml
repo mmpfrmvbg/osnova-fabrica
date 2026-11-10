@@ -14,6 +14,7 @@ jobs:
   build-and-test:
     name: L1 build and test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,23 +27,39 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Check CI contract
+        run: npm run check:ci
 
-      - name: Tests
-        run: npm test
+      - name: Build
+        run: npm run build
 
-      - name: Lint
-        run: npm run lint
+      - name: Full quality gate
+        run: npm run ci
 
-      - name: Docs
-        run: npm run docs:check
+      - name: Upload vitest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l1-vitest-report
+          path: .tmp/vitest-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l1-coverage
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
 
   qemu-test:
     name: L2 QEMU
     needs: build-and-test
     if: ${{ gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch' }}
     runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -66,6 +83,7 @@ jobs:
     needs: build-and-test
     if: ${{ gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -119,6 +137,7 @@ jobs:
     needs: [ build-and-test, qemu-test, hardware-test ]
     if: ${{ startsWith(gitverse.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -131,11 +150,34 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Check tag matches package version
+        env:
+          REF: ${{ gitverse.ref }}
+        run: |
+          set -eu
+          tag="${REF#refs/tags/}"
+          tag="${tag#v}"
+          version="$(node -p "require('./package.json').version")"
+          echo "тег=$tag версия=$version"
+          test "$tag" = "$version"
+
       - name: Build package
         run: |
+          set -eu
           npm run build
+          test -f dist/cli.js
           npm pack --pack-destination dist
           mv dist/osnova-fabrica-*.tgz dist/osnova-fabrica.tgz
+          sha256sum dist/osnova-fabrica.tgz > dist/SHA256SUMS
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: |
+            dist/osnova-fabrica.tgz
+            dist/SHA256SUMS
+          retention-days: 30
 
       - name: Create Release
         uses: actions/create-release@v1
@@ -146,5 +188,6 @@ jobs:
             Сборка прошла L1, L2 и L3.
           files: |
             dist/osnova-fabrica.tgz
+            dist/SHA256SUMS
           draft: false
           pre_release: false
