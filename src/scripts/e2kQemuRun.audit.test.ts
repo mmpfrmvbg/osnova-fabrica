@@ -71,6 +71,8 @@ export function run(command: string, args: readonly string[]): RunResult | undef
 /** Живая проверка: что происходит с прогоном прямо сейчас. */
 export interface LiveRunProbe {
   readonly binaryExists: boolean;
+  /** Есть ли образец ELF, на котором вообще можно проверить размещение гостя. */
+  readonly sampleExists: boolean;
   readonly version?: string;
   readonly guestBaseWorks: boolean;
   readonly guestBaseError?: string;
@@ -83,14 +85,20 @@ export function probeLiveRun(): LiveRunProbe {
   const windowsBinary = fs.existsSync(BINARY);
   const version = run(WSL, ['-d', 'e2k', '--', WSL_QEMU, '--version']);
   const binaryExists = windowsBinary || version !== undefined;
-  const elf = toWslPath(path.join(ROOT, '.tmp', 'e2k-samples.elf'));
-  const guestBaseOutput = run(WSL, ['-d', 'e2k', '--', WSL_QEMU, elf]);
+  const sample = path.join(ROOT, '.tmp', 'e2k-samples.elf');
+  const sampleExists = fs.existsSync(sample);
+  // Без образца ELF запуск QEMU завершается «нет файла», а не проверкой guest_base:
+  // считать это доказательством размещения гостя нельзя. Отсутствие образца означает
+  // «проверка не выполнена», и это названо отдельным полем, а не выдано за успех.
+  const elf = toWslPath(sample);
+  const guestBaseOutput = sampleExists ? run(WSL, ['-d', 'e2k', '--', WSL_QEMU, elf]) : undefined;
   const guestBaseError = /Unable to find a guest_base/.test(guestBaseOutput?.text ?? '') ? 'Unable to find a guest_base' : undefined;
   const control = run(WSL, ['-d', 'e2k', '--', WSL_QEMU_X86, WSL_CONTROL]);
   return {
     binaryExists,
+    sampleExists,
     ...(version === undefined ? {} : { version: version.text.split('\n')[0]!.trim() }),
-    guestBaseWorks: binaryExists && guestBaseError === undefined && guestBaseOutput !== undefined,
+    guestBaseWorks: sampleExists && binaryExists && guestBaseError === undefined && guestBaseOutput !== undefined,
     ...(guestBaseError === undefined ? {} : { guestBaseError }),
     userModeWorks: control !== undefined && control.status === 0,
     ...(control === undefined ? {} : { controlExit: control.status ?? undefined }),
@@ -204,6 +212,11 @@ describe('QEMU-прогон: причина записана и подтверж
 
   it('развилка «прогон был / не было» разрешена и совпадает с живой проверкой', () => {
     const probe = live();
+    if (!probe.sampleExists) {
+      console.warn('[L2] образца .tmp/e2k-samples.elf нет: развилка проверяется по документу, guest_base не измеряется');
+      expect(doc).toMatch(/ПРОГОН НЕ СОСТОЯЛСЯ/);
+      return;
+    }
     expect(checkRunBranch(doc, probe.binaryExists, probe.guestBaseWorks)).toEqual([]);
   });
 
@@ -220,7 +233,7 @@ describe('QEMU-прогон: причина записана и подтверж
 
   it('причина несостоявшегося прогона названа: guest_base и контрольный эксперимент', () => {
     const probe = live();
-    if (!probe.binaryExists) return;
+    if (!probe.binaryExists || !probe.sampleExists) return;
     if (probe.guestBaseWorks) return; // прогон состоялся — эту ветку проверяет развилка выше
     expect(probe.guestBaseError, 'прогон не состоялся, а причина не guest_base').toBeDefined();
     expect(doc).toContain('guest_base');
