@@ -93,7 +93,8 @@ jobs:
           set -eu
           test -n "$E2K_SSH_KEY"
           install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$E2K_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          umask 077
+          printf '%s\n' "$E2K_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519"
 
       - name: Run on E8C2
