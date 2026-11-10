@@ -13,7 +13,7 @@
 |------|-----|----------|
 | `version` | number | Версия байткода (1) |
 | `moduleName` | string | Имя модуля |
-| `constants` | unknown[] | Пул констант (числа, строки, булевы, null) |
+| `constants` | unknown[] | Пул констант (числа, строки, логические, null) |
 | `procedures` | ProcedureDef[] | Список процедур |
 | `code` | CodeElement[] | Инструкции (линейные или VLIW-пакеты) |
 | `vliwSlots` | number? | Максимум слотов в пакете (v2, опционально) |
