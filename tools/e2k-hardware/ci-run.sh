@@ -37,7 +37,7 @@ fail() {
 cleanup() {
   set +e
   if [ -n "$REMOTE_DIR" ]; then
-    ssh_cmd "rm -rf '$REMOTE_DIR'" >/dev/null 2>&1
+    ssh_cmd "rm -rf $REMOTE_DIR" >/dev/null 2>&1
   fi
   rm -rf "$TMP_LOCAL"
   set -e
@@ -102,13 +102,13 @@ scp_cmd "$TMP_LOCAL/run.sh" "$TMP_LOCAL/expected.tsv" "$USER@$HOST:$REMOTE_DIR/"
 scp_cmd -r "$TMP_LOCAL/bin" "$USER@$HOST:$REMOTE_DIR/" ||
   fail "scp bin/ не удался"
 
-ssh_cmd "chmod +x '$REMOTE_DIR/run.sh'" || fail "chmod на $HOST не удался"
+ssh_cmd "chmod +x $REMOTE_DIR/run.sh" || fail "chmod на $HOST не удался"
 
 # run.sh всегда завершается 0, поэтому итог разбирается отдельно. Строка
 # «итог: совпало N, расхождений M, файлов нет K» — единственный контракт,
 # который связывает прогон на машине с кодом возврата CI.
 set +e
-ssh_cmd "sh '$REMOTE_DIR/run.sh'" >"$LOG" 2>&1
+ssh_cmd "sh $REMOTE_DIR/run.sh" >"$LOG" 2>&1
 RC=$?
 set -e
 cat "$LOG"
