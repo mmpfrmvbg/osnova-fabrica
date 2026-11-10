@@ -764,7 +764,15 @@ describe("достижимость видов: замер вместо замы�
   });
 });
 
-describe("журнал runs/traces.jsonl против текущей схемы src/trace/**", () => {
+// Живой журнал — НЕ часть репозитория: в чистом checkout его нет. Это не
+// «проверка пройдена», а «проверка не выполнена», поэтому секция честно
+// пропускается с названной причиной, а не краснеет на каждом CI. Когда журнал
+// есть (локальный прогон), обе проверки работают как раньше.
+const journalAvailable = fs.existsSync(JOURNAL);
+if (!journalAvailable) console.warn(`[L1] аудит журнала пропущен: нет ${path.relative(ROOT, JOURNAL)}`);
+const describeJournal = journalAvailable ? describe : describe.skip;
+
+describeJournal("журнал runs/traces.jsonl против текущей схемы src/trace/**", () => {
   /** Причины отказа, существовавшие ДО правки журнала (поля T4 не трогал). */
   const PREEXISTING_REFUSAL_PATHS = ["status", "intent.appType"];
 

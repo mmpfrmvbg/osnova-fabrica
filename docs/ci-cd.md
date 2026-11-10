@@ -125,7 +125,7 @@ L1 при этом всё равно проверяет структуру до�
 
 | уровень | команда | результат |
 |---|---|---|
-| L1 | `npm ci && npm run check:ci && npm run build && npm run ci` | **11/11 шагов**, `npm test` — 257 файлов, 4008 проверок; `docs:check` — 0 ошибок; coverage — см. прогон ниже |
+| L1 | `npm ci && npm run check:ci && npm run build && npm run ci` | **11/11 шагов**, `npm test` — 257 файлов, 4008 проверок; `docs:check` — 0 ошибок; coverage — 256 файлов, 3998 проверок |
 | L2 | `npm run gate:qemu` на Windows-хосте с WSL `e2k` | **59 файлов, 547 проверок**, 143 с |
 | L3 | `sh tools/e2k-hardware/ci-run.sh` на E8C2 | **совпало 38, расхождений 0, файлов нет 0**; кит после сборки не изменился |
 
