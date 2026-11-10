@@ -19,7 +19,12 @@ import { load } from 'js-yaml';
 const ROOT = path.resolve(__dirname, '..', '..');
 const WORKFLOW = path.join(ROOT, '.gitverse', 'workflows', 'full-ci.yaml');
 const REQUIRED_JOBS = ['build-and-test', 'qemu-test', 'hardware-test', 'release'] as const;
-const REQUIRED_SCRIPTS = ['tools/e2k-hardware/ci-run.sh', 'scripts/sync-public.sh', 'scripts/ci-local.sh'] as const;
+const REQUIRED_SCRIPTS = [
+  'tools/e2k-hardware/ci-run.sh',
+  'scripts/sync-public.sh',
+  'scripts/ci-local.sh',
+  'scripts/release-local.sh',
+] as const;
 
 interface Step {
   run?: string;
