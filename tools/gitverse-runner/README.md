@@ -27,13 +27,15 @@ L2 (`qemu-test`) требует Windows-хост: тесты вызывают
 
 ```powershell
 $env:GITVERSE_RUNNER_TOKEN = '<токен из интерфейса>'
-pwsh -File tools/gitverse-runner/register-windows.ps1
+pwsh -File tools/gitverse-runner/register-windows.ps1 -InstallTask
 ```
 
 3. Скрипт регистрирует с метками `self-hosted:host,windows:host,x64:host`;
    имена меток совпадают с `runs-on: [self-hosted, windows, x64]` в
-   [full-ci.yaml](../../.gitverse/workflows/full-ci.yaml).
-4. Запуск как службы/задачи автозапуска:
+   [full-ci.yaml](../../.gitverse/workflows/full-ci.yaml). `-InstallTask`
+   создаёт задачу автозапуска при входе пользователя и запускает её; повторный
+   запуск демона не создаётся — `run-daemon.cmd` проверяет уже живой процесс.
+4. Без задачи автозапуска демон можно держать вручную:
 
 ```powershell
 tools\gitverse-runner\run-daemon.cmd

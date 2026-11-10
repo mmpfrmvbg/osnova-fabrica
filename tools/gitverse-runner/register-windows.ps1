@@ -5,7 +5,8 @@ param(
     [string]$Labels = 'self-hosted:host,windows:host,x64:host',
     [string]$Token = $env:GITVERSE_RUNNER_TOKEN,
     [switch]$CheckOnly,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$InstallTask
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,6 +64,23 @@ function Assert-Host {
     }
 }
 
+function Install-RunnerTask {
+    $taskName = 'Osnova GitVerse L2'
+    $cmdPath = Join-Path $here 'run-daemon.cmd'
+    $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "' + $cmdPath + '"')
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
+        -LogonType Interactive -RunLevel Limited
+    $settings = New-ScheduledTaskSettingsSet -RestartCount 3 `
+        -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable `
+        -ExecutionTimeLimit (New-TimeSpan -Days 3650)
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
+        -Principal $principal -Settings $settings `
+        -Description 'GitVerse self-hosted Windows runner для L2 (QEMU/WSL e2k)' -Force | Out-Null
+    Start-ScheduledTask -TaskName $taskName
+    Write-Host ("задача автозапуска: {0}" -f $taskName)
+}
+
 Get-RunnerBinary
 $version = Get-RunnerVersion
 Write-Host "runner: $version"
@@ -108,7 +126,11 @@ try {
         throw 'после регистрации нет .runner: раннер не сохранил настройки'
     }
     Write-Host ("зарегистрирован: name={0}, labels={1}" -f $Name, $Labels)
-    Write-Host 'запуск: tools\gitverse-runner\run-daemon.cmd (или как служба/задача автозапуска)'
+    if ($InstallTask) {
+        Install-RunnerTask
+    } else {
+        Write-Host 'запуск: tools\gitverse-runner\run-daemon.cmd (или как служба/задача автозапуска)'
+    }
 } finally {
     Pop-Location
 }

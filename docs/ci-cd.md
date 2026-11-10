@@ -48,7 +48,7 @@ self-hosted, windows, x64
 
 ```powershell
 $env:GITVERSE_RUNNER_TOKEN = '<токен из Settings → Runners>'
-pwsh -File tools/gitverse-runner/register-windows.ps1
+pwsh -File tools/gitverse-runner/register-windows.ps1 -InstallTask
 ```
 
 Скрипт скачивает официальную Windows-сборку `act_runner_windows_amd64` 6.1.0,
