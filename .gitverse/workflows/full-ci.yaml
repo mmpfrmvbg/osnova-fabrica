@@ -139,7 +139,7 @@ jobs:
       - name: Create Release
         uses: actions/create-release@v1
         with:
-          api_key: ${{ secrets.GITVERSE_API_KEY }}
+          api_key: ${{ secrets.RELEASE_API_KEY }}
           title: Release ${{ gitverse.ref_name }}
           body: |
             Сборка прошла L1, L2 и L3.
