@@ -161,6 +161,13 @@ jobs:
           echo "тег=$tag версия=$version"
           test "$tag" = "$version"
 
+      - name: Ensure tag is on master
+        run: |
+          set -eu
+          git fetch --no-tags origin master
+          git merge-base --is-ancestor HEAD FETCH_HEAD
+          echo "тег указывает на коммит master"
+
       - name: Build package
         run: |
           set -eu

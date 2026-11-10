@@ -108,6 +108,7 @@ for (const id of REQUIRED_JOBS.slice(0, 3)) {
 }
 check(/secrets\.RELEASE_API_KEY/.test(releaseText), 'release: не подключён секрет RELEASE_API_KEY');
 check(/gitverse\.ref/.test(release?.if ?? ''), 'release: условие не привязано к gitverse.ref');
+check(/merge-base --is-ancestor/.test(releaseText), 'release: тег не проверяется на принадлежность master');
 
 const serialized = JSON.stringify(workflow);
 check(!/secrets\.GITVERSE_/.test(serialized), 'секрет с запрещённым префиксом GITVERSE_');
