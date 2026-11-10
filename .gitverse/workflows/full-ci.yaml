@@ -41,7 +41,7 @@ jobs:
   qemu-test:
     name: L2 QEMU
     needs: build-and-test
-    if: gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch'
+    if: ${{ gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch' }}
     runs-on: [self-hosted, windows, x64]
     steps:
       - name: Checkout repository
@@ -64,7 +64,7 @@ jobs:
   hardware-test:
     name: L3 E8C2
     needs: build-and-test
-    if: gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch'
+    if: ${{ gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -116,7 +116,7 @@ jobs:
   release:
     name: Release by tag
     needs: [ build-and-test, qemu-test, hardware-test ]
-    if: startsWith(gitverse.ref, 'refs/tags/v')
+    if: ${{ startsWith(gitverse.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -140,7 +140,7 @@ jobs:
         uses: actions/create-release@v1
         with:
           api_key: ${{ secrets.RELEASE_API_KEY }}
-          title: Release ${{ gitverse.ref_name }}
+          title: Release ${{ gitverse.head_ref || gitverse.ref }}
           body: |
             Сборка прошла L1, L2 и L3.
           files: |
