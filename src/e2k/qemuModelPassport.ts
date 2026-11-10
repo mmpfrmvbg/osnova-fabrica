@@ -23,9 +23,9 @@ export const QEMU_MODEL = {
   /** Строка версии, как её печатает сам бинарь. */
   version: 'qemu-e2k version 11.0.1',
   /** sha256 бинаря: `wsl -d e2k -- sha256sum /root/qemu-build/qemu-e2k`. */
-  sha256: '6fdf89be18eb3fbad486d8156dbd72b66c1e893c42d6058f7ac26944b89de103',
+  sha256: '4e37a37243189dec4f7405ed465c7eade2d51f5edab95060a6ada880f23fe081',
   /** Когда бинарь собран (mtime внутри дистрибутива). */
-  builtAt: '2026-11-10 11:30:02',
+  builtAt: '2026-11-10 12:00:44',
   /** Первая из двух локальных правок порта (полный список — `localPatches`). */
   localPatch: 'tools/qemu-e2k/osnova-local-cpu_loop.patch',
   /**
