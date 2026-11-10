@@ -207,6 +207,12 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
     reason: 'шаг P3d: сравнения и `нацело` (1/3/6) отвечают только прогоном в живом QEMU — gate:qemu, случай 12',
   },
   {
+    match: 'parserProtocolP4b.test.ts',
+    reason:
+      'шаг P4b: `если`/`пока` спрашивают у живого QEMU эталонную ленту (86/84) и код 0 — ' +
+      'gate:qemu, случай 12',
+  },
+  {
     match: 'printPrimitivesQemu.test.ts',
     reason:
       'печать числа на цели: гостевой текст и байты записей 39–44 сверяются прогоном в модели, ' +

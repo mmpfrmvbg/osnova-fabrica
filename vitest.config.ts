@@ -180,6 +180,7 @@ export default defineConfig({
       '**/parserProtocolP3b.test.ts',
       '**/parserProtocolP3c.test.ts',
       '**/parserProtocolP3d.test.ts',
+      '**/parserProtocolP4b.test.ts',
       '**/printPrimitivesQemu.test.ts',
       '**/printThenArrayQemu.test.ts',
       '**/copyElimValueBoundaryQemu.test.ts',
