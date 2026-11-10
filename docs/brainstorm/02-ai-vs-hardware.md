@@ -151,8 +151,8 @@ passed, durationMs, qualityScore, outputDiff, vmErrors[]}`, `source.{filename, s
 `buildReport.semanticErrors[].kind` — `syscall_argc` 52, `redeclare_var` 40, `undeclared_var` 7,
 `unknown_syscall` 4, `invented_syntax` 4. И это **ошибки модели в языке** — сообщение вида
 «`система.массив.создать` ожидает 0 аргументов, передано 1» встретилось 30 раз в поле
-`buildReport.compilerErrors[].message` файла `runs/traces.jsonl` (пример записи —
-`runs/traces.jsonl:669`), а не отказы кодогенератора.
+`buildReport.compilerErrors[].message` файла `runs/traces.jsonl` (локальный журнал, не в git), а не
+отказы кодогенератора.
 
 ### 4.4. Число, которое ограничивает любую ставку на трейсы
 
