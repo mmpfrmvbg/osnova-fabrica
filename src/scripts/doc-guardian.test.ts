@@ -14,7 +14,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, utimesSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { runGuardian, classify, loadManifest, buildIndex, stampFor, applyStamp } from "./doc-guardian";
+import { runGuardian, classify, loadManifest, buildIndex, stampFor, applyStamp, withoutStaleMarks } from "./doc-guardian";
 
 const OLD = new Date("2020-01-01T00:00:00Z");
 const RECENT = new Date("2030-01-01T00:00:00Z");
@@ -196,6 +196,15 @@ describe("buildIndex", () => {
     expect(idx).toContain("- [docs/b.md](b.md)\n");
     expect(idx).toContain("⚠ — исходник менялся позже дока (1)");
     rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("withoutStaleMarks", () => {
+  it("mtime-метка не делает индекс устаревшим, а смена состава — делает", () => {
+    const marked = "# Карта\n> ⚠ — исходник менялся позже дока (1)\n- [docs/a.md](a.md) ⚠\n";
+    const plain = "# Карта\n- [docs/a.md](a.md)\n";
+    expect(withoutStaleMarks(marked)).toBe(withoutStaleMarks(plain));
+    expect(withoutStaleMarks("- [docs/a.md](a.md)")).not.toBe(withoutStaleMarks("- [docs/b.md](b.md)"));
   });
 });
 

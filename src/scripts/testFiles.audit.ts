@@ -339,6 +339,16 @@ export interface TestFileAudit {
  */
 export function relative(file: string): string {
   const normalized = file.replace(/\\/g, '/');
+  // Корень берётся у текущего дерева, а не у имени каталога: в CI репозиторий может
+  // называться Osnova-Private, а в проверочном клоне — иначе. Жёсткое имя
+  // `osnova-fabrika` делало все пути «вне репозитория» и краснило нормальный клон.
+  const root = ROOT.replace(/\\/g, '/').replace(/\/+$/, '');
+  const prefix = `${root}/`;
+  if (normalized.toLowerCase().startsWith(prefix.toLowerCase())) {
+    const withoutRoot = normalized.slice(prefix.length);
+    return withoutRoot.startsWith('./') ? withoutRoot.slice(2) : withoutRoot;
+  }
+  // Совместимость с проверками, которые подают абсолютный путь другого стенда.
   const marker = normalized.toLowerCase().lastIndexOf('/osnova-fabrika/');
   const withoutRoot = marker >= 0 ? normalized.slice(marker + '/osnova-fabrika/'.length) : normalized;
   return withoutRoot.startsWith('./') ? withoutRoot.slice(2) : withoutRoot;

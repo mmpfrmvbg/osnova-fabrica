@@ -251,6 +251,15 @@ function writeStamps(root: string, stamps: Map<string, string>): number {
   return changed;
 }
 
+/** Сравнение индекса без mtime-меток: список доков — канон, ⚠ — сигнал, а не состав. */
+export function withoutStaleMarks(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !line.startsWith("> ⚠ — исходник менялся позже дока"))
+    .map((line) => (line.endsWith(" ⚠") ? line.slice(0, -2) : line))
+    .join("\n");
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const fix = args.includes("--fix");
@@ -266,7 +275,10 @@ function main(): void {
     console.log(`✓ индекс перегенерирован: docs/README.md; штампов обновлено: ${stamped}`);
   } else if (existsSync(indexPath)) {
     const onDisk = readFileSync(indexPath, "utf8");
-    if (onDisk !== result.index) {
+    // Метка ⚠ зависит от mtime, а в свежем checkout порядок выдачи файлов делает
+    // источник «позже» дока случайно. Список доков — канон, метка протухания — сигнал,
+    // поэтому она не участвует в сравнении индекса (иначе L1 краснеет от порядка checkout).
+    if (withoutStaleMarks(onDisk) !== withoutStaleMarks(result.index)) {
       result.errors.push({ path: "docs/README.md", kind: "error", msg: "индекс устарел — запусти `npm run docs:index`" });
     }
   }
