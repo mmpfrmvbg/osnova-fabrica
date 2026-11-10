@@ -17,18 +17,41 @@ L2 (`qemu-test`) требует Windows-хост: тесты вызывают
 
 ## Регистрация
 
-1. GitVerse → репозиторий → CI/CD → Runners → новый локальный раннер.
-2. Скачать Windows-сборку `act_runner` со страницы раннера. Версия и ссылка
-   выдаются интерфейсом; в репозиторий бинарь не кладётся.
-3. Зарегистрировать с метками `self-hosted`, `windows`, `x64` (метки должны
-   совпасть с `runs-on` в `.gitverse/workflows/full-ci.yaml`).
-4. Запустить `act_runner daemon` и оставить его как службу/задачу автозапуска.
-5. Проверить: Actions → `Full CI` → `Run workflow` → job `L2 QEMU` должен
-   забрать задание, а не висеть в очереди.
+Официальная Windows-сборка GitVerse: `act_runner_windows_amd64` 6.1.0,
+пакет `https://gitverse.ru/gitverse/-/packages/generic/act_runner_windows_amd64/6.1.0`.
+Скрипт скачивает её сам (около 32 МБ), проверяет запуск и регистрирует раннер;
+бинарь остаётся в `tools/gitverse-runner/.bin/` и в git не попадает.
+
+1. GitVerse → репозиторий → CI/CD → Runners → новый локальный раннер → токен.
+2. Задать токен **только через переменную окружения**, не аргументом:
+
+```powershell
+$env:GITVERSE_RUNNER_TOKEN = '<токен из интерфейса>'
+pwsh -File tools/gitverse-runner/register-windows.ps1
+```
+
+3. Скрипт регистрирует с метками `self-hosted:host,windows:host,x64:host`;
+   имена меток совпадают с `runs-on: [self-hosted, windows, x64]` в
+   [full-ci.yaml](../../.gitverse/workflows/full-ci.yaml).
+4. Запуск как службы/задачи автозапуска:
+
+```powershell
+tools\gitverse-runner\run-daemon.cmd
+```
+
+5. Проверить: Actions → `Full CI` → job `L2 QEMU` должен забрать задание, а
+   не висеть в очереди.
+
+Проверка без токена (бинарь, версия, WSL, QEMU):
+
+```powershell
+pwsh -File tools/gitverse-runner/register-windows.ps1 -CheckOnly
+```
 
 Если GitVerse не публикует Windows-сборку раннера, L2 нельзя считать
 настроенным: Linux-раннер с ярлыком `windows` не заменит WSL и даст ложный
-зелёный.
+зелёный. Токен регистрации — секрет: не коммитится, не печатается, не
+передаётся в аргументах командной строки.
 
 ## Проверка перед регистрацией
 

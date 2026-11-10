@@ -43,6 +43,18 @@ self-hosted, windows, x64
 Пока раннера нет, job стоит в очереди, а release не запускается: зависимость
 `release` от L2 намеренная, иначе тег мог бы стать релизом без проверки QEMU.
 
+Регистрация сведена к одной команде; токен берётся только из окружения и не
+попадает в аргументы:
+
+```powershell
+$env:GITVERSE_RUNNER_TOKEN = '<токен из Settings → Runners>'
+pwsh -File tools/gitverse-runner/register-windows.ps1
+```
+
+Скрипт скачивает официальную Windows-сборку `act_runner_windows_amd64` 6.1.0,
+проверяет её запуск и регистрирует метки `self-hosted:host,windows:host,x64:host`.
+Проверка без токена: `... -CheckOnly`. Подробности — [tools/gitverse-runner/README.md](../tools/gitverse-runner/README.md).
+
 ## L3: железо и секреты
 
 L3 запускает `tools/e2k-hardware/ci-run.sh`, а не `run.sh` напрямую. Причина:

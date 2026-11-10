@@ -12,7 +12,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { load } from 'js-yaml';
 
@@ -90,6 +90,20 @@ check(qemuLabels.includes('windows'), 'L2: QEMU должен идти на windo
 check(qemuLabels.includes('x64'), 'L2: QEMU должен идти на x64');
 check(!qemuLabels.includes('ubuntu-latest'), 'L2: ubuntu-latest не умеет WSL/QEMU этого проекта');
 check(/npm run gate:qemu\b/.test(qemuText), 'L2: нет npm run gate:qemu');
+
+const runnerScript = path.join(ROOT, 'tools', 'gitverse-runner', 'register-windows.ps1');
+check(existsSync(runnerScript), 'L2: нет tools/gitverse-runner/register-windows.ps1');
+const runnerText = existsSync(runnerScript) ? readFileSync(runnerScript, 'utf8') : '';
+check(/self-hosted:host/.test(runnerText), 'L2: регистрация раннера без метки self-hosted');
+check(/windows:host/.test(runnerText), 'L2: регистрация раннера без метки windows');
+check(/x64:host/.test(runnerText), 'L2: регистрация раннера без метки x64');
+check(/GITVERSE_RUNNER_TOKEN/.test(runnerText), 'L2: токен регистрации не берётся из окружения');
+check(/act_runner_windows_amd64/.test(runnerText), 'L2: регистрация не использует Windows-сборку act_runner');
+const runnerIgnore = path.join(ROOT, 'tools', 'gitverse-runner', '.gitignore');
+check(existsSync(runnerIgnore), 'L2: нет .gitignore для бинаря и .runner');
+const ignoreText = existsSync(runnerIgnore) ? readFileSync(runnerIgnore, 'utf8') : '';
+check(/\.runner/.test(ignoreText), 'L2: .runner не исключён из git');
+check(/\.bin\//.test(ignoreText), 'L2: бинарь раннера не исключён из git');
 
 const hardware = jobs['hardware-test'];
 const hardwareText = jobText(hardware);
