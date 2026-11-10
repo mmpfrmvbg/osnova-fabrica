@@ -213,6 +213,12 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
       'gate:qemu, случай 12',
   },
   {
+    match: 'parserProtocolP4c.test.ts',
+    reason:
+      'шаг P4c-fix: `%` → `a - (a нацело b)*b`; AST=эталон (85) и код 0 спрашиваются у живого QEMU — ' +
+      'gate:qemu, случай 12',
+  },
+  {
     match: 'printPrimitivesQemu.test.ts',
     reason:
       'печать числа на цели: гостевой текст и байты записей 39–44 сверяются прогоном в модели, ' +
