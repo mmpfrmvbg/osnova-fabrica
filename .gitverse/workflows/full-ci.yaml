@@ -177,7 +177,7 @@ jobs:
           test -f dist/cli.js
           npm pack --pack-destination dist
           mv dist/osnova-fabrica-*.tgz dist/osnova-fabrica.tgz
-          sha256sum dist/osnova-fabrica.tgz > dist/SHA256SUMS
+          sha256sum dist/osnova-fabrica.tgz > dist/SHA256SUMS.txt
 
       - name: Upload release package
         uses: actions/upload-artifact@v4
@@ -185,7 +185,7 @@ jobs:
           name: release-package
           path: |
             dist/osnova-fabrica.tgz
-            dist/SHA256SUMS
+            dist/SHA256SUMS.txt
           retention-days: 30
 
       - name: Create Release
@@ -197,6 +197,6 @@ jobs:
             Сборка прошла L1, L2 и L3.
           files: |
             dist/osnova-fabrica.tgz
-            dist/SHA256SUMS
+            dist/SHA256SUMS.txt
           draft: false
           pre_release: false
