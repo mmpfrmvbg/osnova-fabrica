@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (30). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (31). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md)
@@ -101,7 +101,7 @@
 - [docs/tutorial/14-reference.md](tutorial/14-reference.md)
 - [docs/tutorial/15-faq.md](tutorial/15-faq.md)
 - [docs/tutorial/README.md](tutorial/README.md)
-- [docs/v0.1-semantics.md](v0.1-semantics.md)
+- [docs/v0.1-semantics.md](v0.1-semantics.md) ⚠
 - [docs/v3-spec.md](v3-spec.md)
 - [docs/verification-debt.md](verification-debt.md)
 - [docs/vliw-e2k-model.md](vliw-e2k-model.md)
