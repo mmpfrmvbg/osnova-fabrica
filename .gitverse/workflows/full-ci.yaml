@@ -1,0 +1,149 @@
+# Полный CI приватного репозитория.
+# L1 — облачный Linux, L2 — локальный Windows-раннер с WSL/QEMU, L3 — E8C2 по SSH.
+name: Full CI
+
+on:
+  push:
+    branches: [ master, feat/lang-v2-block1 ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: L1 build and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Docs
+        run: npm run docs:check
+
+  qemu-test:
+    name: L2 QEMU
+    needs: build-and-test
+    if: gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, windows, x64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: QEMU gate
+        run: npm run gate:qemu
+
+  hardware-test:
+    name: L3 E8C2
+    needs: build-and-test
+    if: gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Rebuild hardware kit
+        run: |
+          npm run hardware:kit
+          git diff --exit-code -- tools/e2k-hardware/bin tools/e2k-hardware/expected.tsv
+
+      - name: Install SSH key
+        env:
+          E2K_SSH_KEY: ${{ secrets.E2K_SSH_KEY }}
+        run: |
+          set -eu
+          test -n "$E2K_SSH_KEY"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$E2K_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+
+      - name: Run on E8C2
+        env:
+          E2K_HOST: ${{ secrets.E2K_HOST }}
+          E2K_USER: ${{ secrets.E2K_USER }}
+          E2K_PORT: ${{ secrets.E2K_PORT }}
+        run: |
+          SSH_KEY_PATH="$HOME/.ssh/id_ed25519" sh tools/e2k-hardware/ci-run.sh
+
+      - name: Upload E8C2 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e8c2-report
+          path: tools/e2k-hardware/logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release:
+    name: Release by tag
+    needs: [ build-and-test, qemu-test, hardware-test ]
+    if: startsWith(gitverse.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build package
+        run: |
+          npm run build
+          npm pack --pack-destination dist
+          mv dist/osnova-fabrica-*.tgz dist/osnova-fabrica.tgz
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        with:
+          api_key: ${{ secrets.GITVERSE_API_KEY }}
+          title: Release ${{ gitverse.ref_name }}
+          body: |
+            Сборка прошла L1, L2 и L3.
+          files: |
+            dist/osnova-fabrica.tgz
+          draft: false
+          pre_release: false

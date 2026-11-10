@@ -285,7 +285,6 @@ const ОЖИДАНИЕ_П2 = ['5', '0 - 7', '0', '5'].map((значение) => 
 // ОБЩИЕ ПОМОЩНИКИ
 // ─────────────────────────────────────────────────────────────────────────────
 
-const imm = (value: number): Operand => ({ kind: 'imm', value });
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 const carrier = (mnemonic: string, operands: readonly Operand[]): AsmInstruction => ({
   mnemonic,

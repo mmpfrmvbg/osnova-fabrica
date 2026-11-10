@@ -57,7 +57,6 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { HEAP_OFFSET } from './programImage';
 import { loweredProgram } from './lowered';
 import { buildElfFromCode, MINIMAL_BASE } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
@@ -66,7 +65,6 @@ import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
 import { parseV3 } from '../compiler-v3/index';
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const HEAP = MINIMAL_BASE + HEAP_OFFSET;
 /** 5 000 мс: петля обязана НЕ уложиться в это время. Тот же предел у различающих проб отчёта. */
 const TIMEOUT_MS = 5_000;
 

@@ -286,7 +286,7 @@ describe('СЛУЧАЙ 68: цепочка «склеек» — цель ветв
     const поцели = new Map(pairing.pairs.map((пара) => [пара.jumpIndex, пара]));
     const беды: string[] = [];
     let звеньев = 0;
-    поток.forEach((инструкция, индекс) => {
+    поток.forEach((инструкция, _индекс) => {
       if (!isValueBranchJump(инструкция)) return;
       const цель = инструкция.operands[1];
       if (цель === undefined || цель.kind !== 'imm') return;

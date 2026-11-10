@@ -40,7 +40,6 @@ import { describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseV3 } from '../compiler-v3/index';
-import { validateNamedTypesAndRewrite } from '../compiler/compiler';
 import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { MINIMAL_BASE, buildElfFromCode } from '../e2k/elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';

@@ -371,7 +371,6 @@ export function prepareImage(
   //    Цена правки названа: каждый возврат со значением теперь несёт свой выход (~72 байта), а не
   //    делит один с первым. Дешевле — общий выход и переход к нему от прочих возвратов (перенос
   //    значения в регистр выхода) — это долг места, а не повод оставить тихий провал за код.
-  let exitSeen = false;
   const zeroSizeBeforeJump: number[] = [];
   const replaced = code.map((carrier, index) => {
     if (carrier.mnemonic !== 'IR.ret') return carrier;
@@ -380,7 +379,6 @@ export function prepareImage(
     const value = carrier.operands[1];
     const valued = flag?.kind === 'imm' && flag.value === 1 && value?.kind === 'reg';
     if (valued || options.exitOnVoidReturn === true) {
-      exitSeen = true;
       const operands: Operand[] = [imm(0)];
       if (valued) operands.push(value as Operand);
       return { ...carrier, mnemonic: EXIT_CARRIER, operands };

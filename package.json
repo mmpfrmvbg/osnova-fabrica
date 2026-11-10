@@ -39,6 +39,7 @@
     "gate:pack": "tsx src/scripts/pack-gate.ts",
     "gate:pack:negative": "tsx src/scripts/pack-gate-negative.ts",
     "gate:qemu": "vitest run --config vitest.qemu.config.ts",
+    "hardware:kit": "tsx src/scripts/e2kHardwareKit.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",

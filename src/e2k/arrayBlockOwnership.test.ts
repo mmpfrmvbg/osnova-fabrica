@@ -42,7 +42,7 @@ import { getEncoder } from './backend';
 import { emitShell } from './emitterShell';
 import { allocateProgram } from './regAlloc';
 import { CALL_WBS, CALLEE_REGISTERS } from './twoPassLayout';
-import { CALLEE_ARRAY_BLOCK_SIZE, ENTRY_ARRAY_BASE, arrayCells, calleeArrayCells } from './arrayRuntime';
+import { CALLEE_ARRAY_BLOCK_SIZE, ENTRY_ARRAY_BASE, calleeArrayCells } from './arrayRuntime';
 import { entryProcedureIndex } from './procedureCall';
 import { regModuleWithRecordPlan } from './recordPlan';
 import { parseV3 } from '../compiler-v3/index';

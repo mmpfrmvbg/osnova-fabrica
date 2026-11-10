@@ -90,11 +90,10 @@ import { createDefaultInvokeHandler, VM } from '../runtime/vm/interpreter';
 import { RegVM } from '../runtime/vm/reginterpreter';
 import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
-import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
+import { runInQemu } from '../scripts/e2kQemuExec';
 
 const ФАЙЛ = 'проба.osnova';
 const ROOT = path.resolve(__dirname, '..', '..');
-const shim = buildShim();
 
 type Проба = {
   readonly имя: string;

@@ -109,7 +109,6 @@ import { parseV3 } from '../compiler-v3/index';
 import { loweredProgramUnchecked } from './guards/loweredUnchecked';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from './elfMinimal';
 import { buildShim, runInQemu } from '../scripts/e2kQemuExec';
-import { isLoweringRefusalCode } from './loweringRefusal';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const ФАЙЛ = 'проба.osnova';
@@ -295,10 +294,6 @@ const ЛОЖЬ_ПОД_ОТКАЗОМ: ReadonlyMap<string, number> = new Map<stri
  * кроме записанной, нет» покраснеет.
  */
 const ТИХАЯ_ЛОЖЬ: ReadonlyMap<string, number> = new Map<string, number>([]);
-
-/** Класс 5а: причина обязана называть «склейку» и то, почему один `ct` не выражает оба ребра. */
-const МЕХАНИЗМ = /склейка/;
-const ПОЧЕМУ_ОДИН_CT = /один ct не выражает оба ребра/;
 
 type Замер = {
   readonly имя: string;
