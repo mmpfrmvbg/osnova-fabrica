@@ -153,7 +153,11 @@ export function insertListSetBounds<T extends ProcedureOffset>(
       throw new Error(`«${LIST_SET_CALL}»: проверка границ требует регистров списка и индекса`);
     }
     const siteStart = out.length;
-    const trapAt = siteStart + 8;
+    // Цель ловушки указывает на САМ носитель `IR.zero`, который её обслуживает: определение нуля
+    // стоит в холодной ветке ПЕРЕД ловушкой, и переход обязан приводить на определение, а не мимо
+    // него (иначе ноль для ловушки не определён — измерено: живых стало 17 вместо 14, см. отчёт
+    // `.tmp/atoms/20261111-231500-etap3-l2-blocker.md` §54–§55).
+    const trapAt = siteStart + 7;
     const invokeAt = siteStart + 9;
     const zero = next++;
     const zero2 = next++;
@@ -161,7 +165,6 @@ export function insertListSetBounds<T extends ProcedureOffset>(
     const flag = next++;
     out.push(
       { mnemonic: 'IR.zero', channel: 0, operands: [reg(zero)] },
-      { mnemonic: 'IR.zero', channel: 0, operands: [reg(zero2)] },
       {
         mnemonic: ARRAY_LENGTH_CARRIER,
         channel: 0,
@@ -172,6 +175,12 @@ export function insertListSetBounds<T extends ProcedureOffset>(
       { mnemonic: 'IR.le', channel: 0, operands: [reg(flag), reg(zero), reg(indexArg.index)] },
       { mnemonic: 'IR.jmp_if_not', channel: 0, operands: [reg(flag), imm(trapAt)] },
       { mnemonic: 'IR.jmp', channel: 0, operands: [imm(invokeAt)] },
+      // НОЛЬ ДЛЯ ЛОВУШКИ ОПРЕДЕЛЯЕТСЯ ЗДЕСЬ, а не в начале сайта: он нужен ТОЛЬКО носителю ловушки,
+      // а определённый в начале он жил через весь горячий путь (7 носителей) и добавлял живое значение
+      // в тесную точку каждой проверки границ (отчёт `.tmp/atoms/20261111-231500-etap3-l2-blocker.md`
+      // §54: пик всех процедур стоит ровно на `IR.zero`/`IR.array_len`/`IR.lt`). Индексы не сдвинулись:
+      // ловушка остаётся на `siteStart + 8`, вызов — на `siteStart + 9` (замер по составу пика).
+      { mnemonic: 'IR.zero', channel: 0, operands: [reg(zero2)] },
       { mnemonic: ARRAY_BOUNDS_TRAP_CARRIER, channel: 0, operands: [reg(zero2), reg(zero), reg(zero2)] },
       instruction,
     );
