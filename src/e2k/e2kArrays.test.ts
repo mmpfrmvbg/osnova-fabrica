@@ -93,19 +93,21 @@ describe('рантайм массивов: последовательности 
     ]);
   });
 
-  it('создать: взять указатель кучи из ЯЧЕЙКИ, обнулить длину, сдвинуть куче на заголовок', () => {
+  it('создать: взять указатель кучи из ЯЧЕЙКИ, обнулить длину, сдвинуть кучу на РЕЗЕРВ', () => {
     const sequence = низвести('система.массив.создать', [], 3);
-    expect(mnemonics(sequence)).toEqual(['ldd', 'std', 'addd', 'std']);
+    expect(mnemonics(sequence)).toEqual(['ldd', 'std', 'movts', 'addd', 'std']);
     // С A4 (§3.136) указатель кучи живёт в ЯЧЕЙКЕ ПАМЯТИ, а `%b[15]` несёт только её адрес:
     // первая команда читает значение кучи в приёмник (он и есть адрес блока), вторая пишет нулевую
-    // длину, третья сдвигает ВРЕМЕННЫЙ на слово заголовка, четвёртая кладёт сдвинутое в ячейку.
-    // Приёмник НЕ сдвигается: иначе программа получила бы указатель за словом длины.
+    // длину, `movts` материализует резерв (TD-0013: заголовок + ёмкость), `addd` сдвигает ВРЕМЕННЫЙ,
+    // последняя кладёт сдвинутое в ячейку. Приёмник НЕ сдвигается: иначе программа получила бы
+    // указатель за словом длины.
     expect(sequence[0]!.operands[0], 'база чтения — адрес ячейки кучи').toEqual(reg(ARRAY_REGISTERS.heapSlot));
     expect(sequence[0]!.operands[2], 'приёмник — адрес блока').toEqual(reg(3));
     expect(sequence[1]!.mnemonic).toBe('std');
-    expect(sequence[2]!.operands[2], 'сдвигается временный, а не приёмник').not.toEqual(reg(3));
-    expect(sequence[2]!.operands[1]).toEqual(reg(ARRAY_REGISTERS.eight));
-    expect(sequence[3]!.operands[1], 'в ячейку').toEqual(reg(ARRAY_REGISTERS.heapSlot));
+    expect(sequence[2]!.mnemonic, 'резерв ёмкости материализуется в клетку').toBe('movts');
+    expect(sequence[3]!.operands[2], 'сдвигается временный, а не приёмник').not.toEqual(reg(3));
+    expect(sequence[3]!.operands[1], 'сдвиг идёт на резерв, а не на роль «восемь»').toEqual(sequence[2]!.operands[1]);
+    expect(sequence[4]!.operands[1], 'в ячейку').toEqual(reg(ARRAY_REGISTERS.heapSlot));
   });
 
   it('получить: индекс без сдвигов — удвоением, затем адрес и чтение', () => {
@@ -333,7 +335,7 @@ describe('рантайм массивов: пролог адреса ячейк�
 
     // А со словом — понижается, и приёмник не сдвигается (урок §3.136).
     const со = lowerArrayCall('система.массив.создать', [], 3, { base: 12, inCallee: true, heapSlotReady: true });
-    expect(со.map((instruction) => instruction.mnemonic)).toEqual(['ldd', 'std', 'addd', 'std']);
+    expect(со.map((instruction) => instruction.mnemonic)).toEqual(['ldd', 'std', 'movts', 'addd', 'std']);
     expect(со[0]!.operands[0]).toEqual(reg(ARRAY_REGISTERS.heapSlot));
   });
 

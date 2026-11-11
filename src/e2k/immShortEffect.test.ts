@@ -72,11 +72,11 @@ export const IMM_SHORT_EFFECT: readonly ImmShortRow[] = [
   // массивам стало 17 вместо 45, а понижённых последовательностей рантайма — больше. Короткие формы
   // (74) и экономия (592) НЕ изменились, и не могли: короткая форма — это литеральный `movts` потока
   // ЭМИТТЕРА, а сдвинулось то, что добавляет ПОНИЖЕНИЕ.
-  { name: 'fir', commands: 266, short: 20, shortLiterals: 20, saved: 160 },
-  { name: 'iir', commands: 156, short: 10, shortLiterals: 10, saved: 80 },
-  { name: 'fft', commands: 154, short: 14, shortLiterals: 14, saved: 112 },
-  { name: 'convolution', commands: 207, short: 16, shortLiterals: 16, saved: 128 },
-  { name: 'correlation', commands: 188, short: 14, shortLiterals: 14, saved: 112 },
+  { name: 'fir', commands: 268, short: 20, shortLiterals: 20, saved: 160 },
+  { name: 'iir', commands: 157, short: 10, shortLiterals: 10, saved: 80 },
+  { name: 'fft', commands: 155, short: 14, shortLiterals: 14, saved: 112 },
+  { name: 'convolution', commands: 209, short: 16, shortLiterals: 16, saved: 128 },
+  { name: 'correlation', commands: 190, short: 14, shortLiterals: 14, saved: 112 },
 ];
 
 /**
@@ -176,8 +176,8 @@ describe('эффект короткой формы: измерение по пя
     const sum = (pick: (row: { commands: number }) => number): number =>
       LITERAL_BARRIERS.reduce((total, row) => total + pick(row), 0);
     const effectSum = IMM_SHORT_EFFECT.reduce((total, row) => total + row.commands, 0);
-    expect(sum((row) => row.commands), 'таблица барьеров').toBe(971);
-    expect(effectSum, 'таблица эффекта').toBe(971);
+    expect(sum((row) => row.commands), 'таблица барьеров').toBe(979);
+    expect(effectSum, 'таблица эффекта').toBe(979);
     expect(sum((row) => row.commands), 'оба оракула на одной базе').toBe(effectSum);
     // Экономия от сдвига базы не зависит: она считается по числу коротких форм.
     expect(IMM_SHORT_EFFECT.reduce((total, row) => total + row.short, 0) * 8, 'экономия').toBe(592);

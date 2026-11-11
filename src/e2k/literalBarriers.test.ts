@@ -150,13 +150,13 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   // Литеральные колонки (`literals`, `tinyLiterals`, `control`, `longForm`) НЕ СДВИНУЛИСЬ — и это
   // содержательная проверка: понижение меняет `addd`/`ldd`/`std` рантайма, а литералы и управляющие
   // команды приходят из потока эмиттера.
-  { name: 'fir', commands: 266, literals: 20, tinyLiterals: 20, control: 22, longForm: 1, packets: 218, emptySlots: 1042 },
-  { name: 'iir', commands: 156, literals: 14, tinyLiterals: 10, control: 22, longForm: 2, packets: 124, emptySlots: 588 },
-  { name: 'fft', commands: 154, literals: 14, tinyLiterals: 14, control: 14, longForm: 0, packets: 135, emptySlots: 656 },
+  { name: 'fir', commands: 268, literals: 22, tinyLiterals: 20, control: 22, longForm: 1, packets: 218, emptySlots: 1042 },
+  { name: 'iir', commands: 157, literals: 15, tinyLiterals: 10, control: 22, longForm: 2, packets: 124, emptySlots: 588 },
+  { name: 'fft', commands: 155, literals: 15, tinyLiterals: 14, control: 14, longForm: 0, packets: 135, emptySlots: 656 },
   {
     name: 'convolution',
-    commands: 207,
-    literals: 16,
+    commands: 209,
+    literals: 18,
     tinyLiterals: 16,
     control: 26,
     longForm: 1,
@@ -165,8 +165,8 @@ export const LITERAL_BARRIERS: readonly LiteralBarrierRow[] = [
   },
   {
     name: 'correlation',
-    commands: 188,
-    literals: 14,
+    commands: 190,
+    literals: 16,
     tinyLiterals: 14,
     control: 22,
     longForm: 1,
@@ -271,8 +271,8 @@ describe('LTS-барьеры: что именно разрывает пакет�
     // вызываемых процедур отказывают по имени, разбор — в шапке таблицы выше). Литеральных 78 и
     // «малых» 74, управляющих 106, длинных форм 5 — НЕ двигались: усечение снимает последовательности
     // рантайма массивов (`addd`/`ldd`/`std`), а литералы и управляющие приходят из потока эмиттера.
-    expect(sum((row) => row.commands), 'команд').toBe(971);
-    expect(sum((row) => row.literals), 'литеральных').toBe(78);
+    expect(sum((row) => row.commands), 'команд').toBe(979);
+    expect(sum((row) => row.literals), 'литеральных').toBe(86);
     expect(sum((row) => row.tinyLiterals), 'со значением 0..15').toBe(74);
     expect(sum((row) => row.control), 'управляющих').toBe(106);
     expect(sum((row) => row.longForm), 'длинных форм').toBe(5);

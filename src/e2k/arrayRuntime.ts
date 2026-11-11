@@ -151,6 +151,7 @@ export function calleeZeroInstructions(): [AsmInstruction] {
 
 /** Размер блока рантайма в клетках: ноль, единица, восемь, временный, второй временный. */
 export const ARRAY_BLOCK_SIZE = 5;
+export const ARRAY_RESERVED_BYTES = 8 + 14 * 8;
 
 /**
  * РАЗМЕР БЛОКА РАНТАЙМА В ВЫЗЫВАЕМОЙ: три клетки, БЕЗ постоянной единицы (A4, §3.135).
@@ -746,6 +747,12 @@ function checkOperand(operand: Operand, name: string, role: string, reserved: re
  * пришедшее из `ldd`, который пишет регистр целиком) сломал бы `adds`-арифметику молча. Форма `D`
  * снимает это по построению, а не сторожем.
  */
+const movts = (value: number, dst: number): AsmInstruction => ({
+  mnemonic: 'movts',
+  channel: 0,
+  operands: [{ kind: 'imm', value }, reg(dst)],
+});
+
 const addd = (src1: number, src2: number, dst: number): AsmInstruction => ({
   mnemonic: 'addd',
   channel: 0,
@@ -1094,7 +1101,12 @@ function формыВызоваМассива(
       return [
         ldd(heapSlot, zero, dst!),
         std(zero, dst!, zero),
-        addd(dst!, eight, scratch),
+        // РЕЗЕРВ ЁМКОСТИ, А НЕ ТОЛЬКО ЗАГОЛОВКА (TD-0013): иначе следующий `создать` получает ровно
+        // `ptr + 8`, и первый элемент предыдущего массива попадает в СЛОВО ДЛИНЫ следующего.
+        // Измерено `.tmp/b2a-three.osnova`: `[112, 1, 333, 1, 112, 1]` вместо `[111, 222, 333, 1, 1, 1]`.
+        // Формулы адреса (`массив + 8 + индекс*8`) не меняются.
+        movts(ARRAY_RESERVED_BYTES, scratch),
+        addd(dst!, scratch, scratch),
         std(scratch, heapSlot, zero),
       ];
     case 'система.массив.получить': {
@@ -1373,18 +1385,30 @@ export function checkArraySequence(name: string, instructions: readonly AsmInstr
     );
     if (slotStore === undefined) return false;
     const stored = (slotStore.operands[0] as { readonly index: number }).index;
-    // В ячейку обязано лечь ИМЕННО «блок + 8»: значение должно быть результатом `addd …, eight`.
-    // Иначе `создать` вернуло бы программе указатель ЗА словом длины, а куча встала бы не на конец
-    // блока — ровно этот дефект и был измерен пробой `.tmp/osnova-a4-slot-trace.ts` (102008 вместо
-    // 102000, и заголовок второго массива лёг на последний элемент первого).
-    return sequence.some(
-      (instruction) =>
-        instruction.mnemonic === 'addd' &&
-        instruction.operands[1]?.kind === 'reg' &&
-        (instruction.operands[1] as { readonly index: number }).index === ARRAY_REGISTERS.eight &&
-        instruction.operands[2]?.kind === 'reg' &&
-        (instruction.operands[2] as { readonly index: number }).index === stored,
-    );
+    // В ячейку обязано лечь «блок + положительный сдвиг», а НЕ сам блок: иначе `создать` вернуло бы
+    // программе указатель ЗА словом длины — этот дефект и был измерен пробой
+    // `.tmp/osnova-a4-slot-trace.ts` (102008 вместо 102000). Сдвиг задаётся РЕГИСТРОМ, и форм две:
+    // роль `восемь` (прежняя: резерв одного заголовка) или величина, материализованная `movts` с
+    // `≥ 8` (форма TD-0013: заголовок плюс ёмкость под данные).
+    const cellOf = (operand: Operand | undefined): number | undefined =>
+      operand !== undefined && operand.kind === 'reg' ? (operand as { readonly index: number }).index : undefined;
+    const reserveCell = (cell: number): boolean =>
+      sequence.some(
+        (instruction) =>
+          instruction.mnemonic === 'movts' &&
+          instruction.operands[0]?.kind === 'imm' &&
+          (instruction.operands[0] as { readonly value: number }).value >= 8 &&
+          cellOf(instruction.operands[1]) === cell,
+      );
+    return sequence.some((instruction) => {
+      if (instruction.mnemonic !== 'addd') return false;
+      if (cellOf(instruction.operands[2]) !== stored) return false;
+      return [instruction.operands[0], instruction.operands[1]].some((operand) => {
+        const cell = cellOf(operand);
+        if (cell === undefined) return false;
+        return cell === ARRAY_REGISTERS.eight || reserveCell(cell);
+      });
+    });
   }
 
   switch (name) {

@@ -36,7 +36,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { ARRAY_REGISTERS, ENTRY_ARRAY_BASE, arrayPrologue, lowerArrayCall } from './arrayRuntime';
+import { ARRAY_REGISTERS, ARRAY_RESERVED_BYTES, ENTRY_ARRAY_BASE, arrayPrologue, lowerArrayCall } from './arrayRuntime';
 import type { AsmInstruction, Operand } from './backend';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
@@ -248,9 +248,10 @@ describe('куча массивов: блоки двух массивов не �
     };
     const a = machine.at(1);
     const b = machine.at(3);
-    expect(b, 'второй блок начинается сразу за заголовком первого').toBe(a + 8);
-    expect(readElement(1, 0), 'a[0]: её затёрла запись длины b').toBe(2);
-    expect(readElement(3, 0), 'b[0]: элемент уехал — длина b была испорчена').toBe(0);
-    expect(machine.memory.get(b), 'длина b: её переписал элемент a, потом она стала 2').toBe(2);
+    expect(b, 'второй блок начинается за РЕЗЕРВОМ первого, а не за заголовком').toBe(a + ARRAY_RESERVED_BYTES);
+    expect(readElement(1, 0), 'a[0] не затёрт заголовком b').toBe(1);
+    expect(readElement(3, 0), 'b[0] — свой элемент').toBe(2);
+    expect(machine.memory.get(b), 'длина b').toBe(1);
+    expect(machine.memory.get(a), 'длина a').toBe(1);
   });
 });
