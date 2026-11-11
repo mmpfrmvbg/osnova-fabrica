@@ -46,6 +46,7 @@ import {
   CALLEE_ZERO_CARRIER,
   ENTRY_ARRAY_BASE,
   isArrayCreateCall,
+  isArrayWriteCall,
   isArrayRuntimeCall,
   arrayBaseProblems,
   arrayPrologue,
@@ -2052,7 +2053,7 @@ export function imageOfCarriers(
         continue;
       }
       if (
-        (name === 'система.массив.установить' || isArrayCreateCall(name ?? '')) &&
+        (isArrayWriteCall(name ?? '') || isArrayCreateCall(name ?? '')) &&
         inCallee &&
         depth >= 2
       ) {
