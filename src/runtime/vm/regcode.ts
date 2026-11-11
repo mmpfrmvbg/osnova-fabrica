@@ -1,3 +1,5 @@
+import type { IRSourceRef } from "./sourceMap";
+
 /**
  * Регистровый байткод Основа (RegBC, `.osvreg.json`) — формат **рядом** со стековым
  * байткодом v0.1 из {@link import("./bytecode")}. Стековый формат не меняется: два
@@ -276,6 +278,68 @@ export type RegInstruction =
   | RegInstructionRet
   | RegInstructionField
   | RegInstructionResultPick;
+
+/**
+ * `sourceRef` — ОДНО необязательное поле у КАЖДОГО носителя IR: откуда в исходнике он взялся.
+ *
+ * # Зачем это здесь, а не отдельным видом инструкции
+ *
+ * Отказ понижения обязан называть то, что человек НАПИСАЛ (`лента[индекс], строка 5`), а не
+ * внутреннее имя (`система.массив.получить`) и не «операнд 6». Ссылка — не поведение, а признак
+ * происхождения, поэтому она едет при самой инструкции и переживает любые перестановки.
+ *
+ * # Почему объявление СЛИТО, а не вписано в каждую форму
+ *
+ * Формы носителей описаны выше и намеренно не тронуты: поле аддитивно и необязательно, поэтому
+ * `REGCODE_VERSION` НЕ поднимается, а закоммиченные артефакты не меняются — тем же приёмом, что
+ * `RegModule.atoms` (`src/compiler/atomRegions.ts`). Слияние объявлений TypeScript даёт ровно
+ * это: одно поле у всех четырнадцати форм, ни одной правки в их собственных объявлениях.
+ *
+ * `undefined` — законное значение и означает «источника нет». Потребитель обязан вернуться к
+ * прежнему тексту отказа, а не подставлять «где-то рядом»: источник не выдумывается.
+ */
+export interface RegInstructionConst {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionMove {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionBinary {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionUnary {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionLiteral {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionInvoke {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionCall {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionJump {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionTryBegin {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionTryEnd {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionThrow {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionRet {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionField {
+  sourceRef?: IRSourceRef;
+}
+export interface RegInstructionResultPick {
+  sourceRef?: IRSourceRef;
+}
 
 /**
  * Описание процедуры в регистровой форме.

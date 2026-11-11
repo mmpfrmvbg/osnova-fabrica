@@ -55,6 +55,20 @@ import {
   type RegOp,
   type RegProcedure,
 } from "../runtime/vm/regcode";
+// Карта источника: `IR → AST → токен`. Импорт идёт в `runtime/vm`, а НЕ в `compiler-v3`:
+// обратный импорт `compiler → compiler-v3` дал бы петлю и второй путь (`compiler.ts:108`).
+import { ссылкаНаИсточник } from "../runtime/vm/sourceMap";
+
+/**
+ * Инструкция IR вместе с источником её ВЫРАЖЕНИЯ, если источник записан.
+ *
+ * Одно место на все носители, рождаемые из выражения: без ссылки возвращается ТА ЖЕ инструкция
+ * (у прежних потоков ничего не меняется), со ссылкой — та же плюс `sourceRef`.
+ */
+function сИсточникомВыражения<T extends RegInstruction>(expr: Expr, instruction: T): T {
+  const источник = ссылкаНаИсточник(expr);
+  return источник === undefined ? instruction : { ...instruction, sourceRef: источник };
+}
 
 /** Ошибка регистрового кодогена: конструкция вне поддержанного среза. */
 export class RegCodegenError extends Error {
@@ -421,11 +435,15 @@ class ProcedureCodegen {
   private emitInto(expr: Expr, d: number): void {
     switch (expr.kind) {
       case "число": {
-        this.emit({ op: "const", d, type: regConstType(expr.value), k: this.constIndex(expr.value) });
+        // ИСТОЧНИК У ЛИТЕРАЛА: `1.5` литералом e2k невыразимо, и отказ `OSN-LOW-002` обязан назвать
+        // САМ ЛИТЕРАЛ («1.5, строка 3, колонка N»), а не только «константа пула #0».
+        this.emit(
+          сИсточникомВыражения(expr, { op: "const", d, type: regConstType(expr.value), k: this.constIndex(expr.value) }),
+        );
         return;
       }
       case "строка": {
-        this.emit({ op: "const", d, type: "str", k: this.constIndex(expr.value) });
+        this.emit(сИсточникомВыражения(expr, { op: "const", d, type: "str", k: this.constIndex(expr.value) }));
         return;
       }
       // ЛОГИЧЕСКИЕ И ПУСТОЙ ЛИТЕРАЛЫ ИДУТ ЧЕРЕЗ ПУЛ, как числа и строки, а не своими операциями
@@ -568,7 +586,18 @@ class ProcedureCodegen {
       // срезе не влияет на семантику (регистр-приёмник всё равно нужен для
       // `pop`-семантики стековой VM) — набор оставлен как место для оптимизаций.
       void EFFECT_ONLY_INVOKES;
-      this.emit({ op: "invoke", d, name: expr.name, args, argc: args.length });
+      // ИСТОЧНИК: `лента[индекс]` разбор свёрнут в вызов `система.массив.получить`, у которого
+      // `args[0]` — ТА САМАЯ база (`лента`). Ключ карты — база, поэтому ссылка находится здесь, а
+      // не по пересобранному узлу `вызова`. Нет ссылки — нет поля: отказ останется прежним.
+      const источник = ссылкаНаИсточник(expr.args[0]);
+      this.emit({
+        op: "invoke",
+        d,
+        name: expr.name,
+        args,
+        argc: args.length,
+        ...(источник === undefined ? {} : { sourceRef: источник }),
+      });
       this.allocator.freeTo(mark);
       return;
     }

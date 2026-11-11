@@ -45,6 +45,7 @@ import {
 } from "./emitterOracle";
 import { verifyAtomRegions } from "../compiler/atomRegions";
 import { isRegPacket, type RegAtomRegion, type RegInstruction, type RegModule } from "../runtime/vm/regcode";
+import type { IRSourceRef } from "../runtime/vm/sourceMap";
 import { scheduleRegWithReorder } from "../vliw/reorderScheduler";
 
 /** Инъекция дефектов — ТОЛЬКО для негативного контроля. */
@@ -181,6 +182,13 @@ interface InsFields {
   fi?: number;
   argc?: number;
   args?: number[];
+  /**
+   * Источник носителя в исходнике (карта источника, `src/runtime/vm/sourceMap.ts`).
+   *
+   * Читается ТОЛЬКО для переноса на {@link AsmInstruction.sourceRef}: раскладка и кодирование о нём
+   * не знают, байты от него не меняются.
+   */
+  sourceRef?: IRSourceRef;
 }
 
 const reg = (index: number): Operand => ({ kind: "reg", index });
@@ -188,6 +196,16 @@ const num = (value: number): Operand => ({ kind: "imm", value });
 
 function fieldsOf(instruction: RegInstruction): InsFields {
   return instruction as unknown as InsFields;
+}
+
+/**
+ * Перенести ссылку на источник с инструкции IR на её носитель. Одно место, а не десятки ветвей.
+ *
+ * Возвращает ТОТ ЖЕ объект, когда ссылки нет: у всех прежних потоков носители не меняются ни на
+ * поле, и это условие проверяемо (`sourceRef === undefined` остаётся `undefined`).
+ */
+function сИсточником(носитель: AsmInstruction, sourceRef: IRSourceRef | undefined): AsmInstruction {
+  return sourceRef === undefined ? носитель : { ...носитель, sourceRef };
 }
 
 function cloneInstruction(instruction: RegInstruction): RegInstruction {
@@ -547,7 +565,10 @@ export function emitShell(module: RegModule, encoder: Encoder, options: EmitOpti
   // ── Понижение до носителей и кодирование ────────────────────────────────────
   const invokeNames = collectInvokeNames(newCode);
   const instructions = newCode.map((instruction) =>
-    lowerInstruction(instruction, module, invokeNames, defects),
+    // ИСТОЧНИК ЕДЕТ С НОСИТЕЛЕМ (часть 2 карты источника): отказ собирается на стадии, где на руках
+    // уже НОСИТЕЛЬ, а не инструкция IR. Поэтому ссылка переносится здесь, одним местом, и не
+    // размазывается по десяткам ветвей `lowerInstruction`. Нет ссылки — носитель не меняется.
+    сИсточником(lowerInstruction(instruction, module, invokeNames, defects), fieldsOf(instruction).sourceRef),
   );
 
   const size = encoder.description.instructionSize;

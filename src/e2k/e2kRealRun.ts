@@ -868,6 +868,10 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
             // положил носитель `IR.array_slot` в пролог роста И закрепил `%b[15]` за раскладкой.
             // Без слова `создать` в вызываемой остаётся названным отказом (см. `lowerArrayCall`).
             ...(context.heapSlotReady === true ? { heapSlotReady: true } : {}),
+            // ИСТОЧНИК ИЗ САМОЙ ИНСТРУКЦИИ IR (часть 2 карты источника): `IR.invoke` несёт
+            // `sourceRef`, поставленный кодогеном из разбора (`лента[индекс]`). Отказ рантайма
+            // массивов назовёт его, а не внутреннее имя; нет ссылки — текст прежний.
+            ...(instruction.sourceRef === undefined ? {} : { sourceRef: instruction.sourceRef }),
           }),
         };
       }

@@ -69,6 +69,7 @@
 
 import type { AsmInstruction, Operand } from './backend';
 import { foldNumericCarrier, isNumericCarrier } from './numberFacts';
+import { описаниеПоСсылке, type IRSourceRef } from '../runtime/vm/sourceMap';
 
 const reg = (index: number): Operand => ({ kind: 'reg', index });
 
@@ -914,6 +915,39 @@ export function lowerArrayCall(
     readonly inCallee?: boolean;
     readonly forForm?: boolean;
     readonly heapSlotReady?: boolean;
+    /**
+     * ОТКУДА ВЫЗОВ ВЗЯЛСЯ В ИСХОДНИКЕ (`лента[индекс]`).
+     *
+     * Не влияет ни на один байт: нужно ТОЛЬКО отказу, чтобы он назвал то, что человек написал, а не
+     * `система.массив.получить` и не «операнд 6». Нет ссылки — прежний текст байт в байт.
+     */
+    readonly sourceRef?: IRSourceRef;
+  } = {},
+): AsmInstruction[] {
+  try {
+    return формыВызоваМассива(name, args, dst, options);
+  } catch (error) {
+    // ОДНО место, а не восемь: причин отказа у рантайма массивов много (`Списки.взять` — пара не
+    // влезает, нет базы раскладки, окно вызываемой, арность), и каждая обязана назвать ИСХОДНИК.
+    // Оборачивая здесь, я не рискую, что новая причина забудет это: она пройдёт через ту же дверь.
+    if (!(error instanceof ArrayRuntimeRefusal)) throw error;
+    const описание = описаниеПоСсылке(options.sourceRef);
+    if (описание === undefined) throw error;
+    throw new ArrayRuntimeRefusal(`${описание} — ${error.message}`);
+  }
+}
+
+/** Тело {@link lowerArrayCall}: если оно откажет, обёртка добавит источник впереди причины. */
+function формыВызоваМассива(
+  name: string,
+  args: readonly Operand[],
+  dst: number | undefined,
+  options: {
+    readonly base?: number;
+    readonly inCallee?: boolean;
+    readonly forForm?: boolean;
+    readonly heapSlotReady?: boolean;
+    readonly sourceRef?: IRSourceRef;
   } = {},
 ): AsmInstruction[] {
   const forForm = options.forForm === true;

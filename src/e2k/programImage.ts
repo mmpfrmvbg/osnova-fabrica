@@ -66,7 +66,7 @@ import {
 import { defUseOf } from './liveness';
 import { cfgLiveSets } from '../vliw/cfg';
 import { exitPrimitives, printAreaOf } from './printPrimitives';
-import { LOWERING_CODES, LoweringRefusalError, refusalOf, type LoweringRefusal } from './loweringRefusal';
+import { LOWERING_CODES, LoweringRefusalError, refusalOf, refusalWithSource, type LoweringRefusal } from './loweringRefusal';
 import { STRING_MARK_OPERAND, isStringPrint, planStrings, staticBytesOf, stringMarksOf, type StringTypeFacts } from './stringPlan';
 import { INNER_CALL_WBS, WINDOW_GROW_CARRIER } from './procedureCall';
 import {
@@ -260,9 +260,10 @@ function sharePrintSites(
     const argument = carrier.operands[1];
     if (argument === undefined || argument.kind !== 'reg') {
       problems.push(
-        refusalOf(
+        refusalWithSource(
           LOWERING_CODES.print,
           `#${index} ${carrier.mnemonic}: у печати нет регистра значения — разделённому сайту нечего передать вызовом`,
+          carrier.sourceRef,
         ),
       );
       continue;
@@ -296,11 +297,12 @@ function sharePrintSites(
       const zero = [0, 1, 3, 5, 7].find((register) => !busy.has(register));
       if (zero === undefined) {
         problems.push(
-          refusalOf(
+          refusalWithSource(
             LOWERING_CODES.print,
             `#${index} ${carrier.mnemonic}: разделённому сайту нужен НИЗКИЙ регистр под ноль ` +
               `(ноль рантайма %b[12] после вызова недоступен), а свободных в %b[0,1,3,5,7] нет: ` +
               `заняты ${[...busy].sort((a, b) => a - b).map((r) => `%b[${String(r)}]`).join(', ')}`,
+            carrier.sourceRef,
           ),
         );
         continue;
@@ -333,10 +335,11 @@ function sharePrintSites(
       groupAt.set(index, group);
     } catch (error) {
       problems.push(
-        refusalOf(
+        refusalWithSource(
           LOWERING_CODES.print,
           `#${index} ${carrier.mnemonic}: разделённый сайт не спланирован — ` +
             (error instanceof Error ? error.message : String(error)),
+          carrier.sourceRef,
         ),
       );
     }
@@ -509,7 +512,7 @@ export function programBytes(
     const lowered = lowerCarrier(carrier, context);
     if (!lowered.ok) {
       // Код берётся у ПОНИЖЕНИЯ, а не выводится из текста: причина отказа — личность.
-      refused.push(refusalOf(lowered.code, `${carrier.mnemonic}: ${lowered.reason}`));
+      refused.push(refusalWithSource(lowered.code, `${carrier.mnemonic}: ${lowered.reason}`, carrier.sourceRef));
       continue;
     }
     body.push(...lowered.instructions);
@@ -2371,7 +2374,7 @@ export function imageOfCarriers(
       ...(onDepthTwo ? { callWbs: INNER_CALL_WBS, returnAfterCall: true } : {}),
     });
     if (!lowered.ok) {
-      refused.push(refusalOf(lowered.code, `#${index} ${carrier.mnemonic}: ${lowered.reason}`));
+      refused.push(refusalWithSource(lowered.code, `#${index} ${carrier.mnemonic}: ${lowered.reason}`, carrier.sourceRef));
       continue;
     }
     // ОКОННАЯ ФОРМА РЕГИСТРОВ В ВЫЗЫВАЕМОЙ. Измерено (`.tmp/osnova-call-enter.ts`): в вызываемой
