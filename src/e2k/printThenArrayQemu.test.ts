@@ -53,7 +53,7 @@ function прогон(строки: readonly string[]): QemuRun {
   return runInQemu(elf, { shim: true, timeoutMs: 60_000 });
 }
 
-const СТРОКИ = (тело: readonly string[]): readonly string[] => ['действие главная()', ...тело, 'конец'];
+const СТРОКИ = (тело: readonly string[]): readonly string[] => ['действие главная()', ...тело, 'конец главная'];
 
 describe('D12: печать не смещает чтение элемента списка', () => {
   beforeAll(() => buildShim());

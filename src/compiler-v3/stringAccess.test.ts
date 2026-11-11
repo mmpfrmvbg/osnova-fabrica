@@ -38,7 +38,7 @@ const опцииV3 = (src: string) => {
   return { filename: ФАЙЛ, parse: () => ({ ast: р.program ?? null, errors: р.errors }) };
 };
 
-const обёртка = (тело: string): string => `действие главная()\n  ${тело}\nконец\n`;
+const обёртка = (тело: string): string => `действие главная()\n  ${тело}\nконец главная\n`;
 
 function сообщенияРазбора(тело: string): string {
   const src = обёртка(тело);

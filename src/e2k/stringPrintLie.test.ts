@@ -42,7 +42,7 @@ const опцииV3 = (src: string) => {
 
 /** Вывод цели для v3-программы (печать, а не код возврата: числа ≥ 256 в код не влезают). */
 function вывод(имя: string, тело: string): string {
-  const src = `действие главная()\n  ${тело}\nконец\n`;
+  const src = `действие главная()\n  ${тело}\nконец главная\n`;
   const образ = loweredProgramUnchecked(src, опцииV3(src));
   expect(
     образ.refused.map((item) => `${item.code ?? '—'} ${item.reason}`),

@@ -148,7 +148,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const shim = buildShim();
 
 /** Исходник пробы: тело действия + `конец`. */
-const программа = (тело: readonly string[]): string => ['действие главная()', ...тело, 'конец', ''].join('\n');
+const программа = (тело: readonly string[]): string => ['действие главная()', ...тело, 'конец главная', ''].join('\n');
 
 type Проба = {
   readonly имя: string;

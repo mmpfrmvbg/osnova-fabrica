@@ -47,7 +47,7 @@ import type { AsmInstruction } from './backend';
 
 const ФАЙЛ = 'доминирование.osnova';
 
-const программа = (тело: readonly string[]): string => ['действие главная()', ...тело, 'конец', ''].join('\n');
+const программа = (тело: readonly string[]): string => ['действие главная()', ...тело, 'конец главная', ''].join('\n');
 
 /**
  * Носители ТЕМ ЖЕ путём, что `src/e2k/guards/loweredUnchecked.ts#loweredProgramUnchecked`: разбор `parseV3` подставляется,
