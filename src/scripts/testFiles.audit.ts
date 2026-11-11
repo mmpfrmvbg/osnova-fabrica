@@ -220,6 +220,14 @@ export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
       'gate:qemu, случай 12',
   },
   {
+    match: 'parserProtocolB2a.test.ts',
+    reason:
+      'шаг B2a: пять программ — пер-событийные писатели; P1–P4 сверяют AST=эталон (эталон считается ' +
+      'независимо, `parseV01` + `лентаИзAst`) и код 0 прогоном в живом QEMU, P5 (глубина > 2) — ' +
+      'названный отказ `OSN-PAR-031` ДО модели. Число даёт только модель, поэтому место — gate:qemu, ' +
+      'случай 12',
+  },
+  {
     match: 'parserProtocolP4c.test.ts',
     reason:
       'шаг P4c-fix: `%` → `a - (a нацело b)*b`; AST=эталон (85) и код 0 спрашиваются у живого QEMU — ' +

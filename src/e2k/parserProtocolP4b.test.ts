@@ -67,7 +67,7 @@ function запустить(источник: string, имя: string): { код:
 function телоПроцедуры(источник: string, имя: string): string {
   const начало = источник.indexOf(`процедура ${имя}(`);
   expect(начало, `процедура ${имя} обязана быть`).toBeGreaterThanOrEqual(0);
-  const конец = источник.indexOf("\nконец\n", начало);
+  const конец = источник.indexOf(`\nконец ${имя}`, начало);
   expect(конец, `у процедуры ${имя} обязан быть конец`).toBeGreaterThan(начало);
   return источник.slice(начало, конец);
 }
