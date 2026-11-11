@@ -974,7 +974,7 @@ export function allocateSegments(
     }
     return seen.size;
   };
-  const feasible = (vreg: number): boolean => siteFeasible(sites.get(vreg), free.length, (at) => occupiedAt(at, vreg));
+  const feasible = (vreg: number): boolean => siteFeasible(sites.get(vreg), free.length - 1, (at) => occupiedAt(at, vreg));
   // ПОРЧА ОКНА ВЫЗОВОМ (случай 86, решение D35). Клетка, которую вызов уничтожает, не годится
   // НИКОМУ, кто читается этим вызовом или переживает его: аргумент читается `movts`-пересылками
   // самой раскладки вызова, и они ПИШУТ те же клетки — в порядке аргументов.
@@ -1040,6 +1040,10 @@ export function allocateSegments(
         active.map((entry) => entry.vreg),
         costs,
         feasible,
+        (vreg) => {
+          const entry = active.find((other) => other.vreg === vreg);
+          return entry === undefined ? 0 : entry.end - segment.start;
+        },
       );
       if (victim === undefined) {
         // Активных нет, а регистра всё равно нет: вытеснять некого — это отказ раскладки, а не

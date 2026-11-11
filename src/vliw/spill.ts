@@ -189,13 +189,16 @@ export function chooseSpillVictim(
   candidates: readonly number[],
   costs: ReadonlyMap<number, SpillCost>,
   feasible?: (vreg: number) => boolean,
+  remaining?: (vreg: number) => number,
 ): number | undefined {
   let best: SpillCost | undefined;
+  let bestLength = -1;
   for (const vreg of candidates) {
     const cost = costs.get(vreg);
     if (cost === undefined) continue;
     if (feasible !== undefined && !feasible(vreg)) continue;
-    if (best === undefined || cost.cost < best.cost || (cost.cost === best.cost && cost.vreg < best.vreg)) best = cost;
+    const length = remaining === undefined ? 0 : remaining(vreg);
+    if (best === undefined || length > bestLength || (length === bestLength && cost.cost < best.cost) || (length === bestLength && cost.cost === best.cost && cost.vreg < best.vreg)) { best = cost; bestLength = length; }
   }
   return best?.vreg;
 }
