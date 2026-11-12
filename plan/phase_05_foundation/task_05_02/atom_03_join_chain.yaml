@@ -1,0 +1,20 @@
+id: ATOM-05-02-03
+title: "Замыкание цепочки «склеек»: цель ветви по значению — тоже ветвь по значению (случай 68)"
+phase: PHASE-05
+task: TASK-05-02
+status: done
+depends_on:
+  - ATOM-05-02-01
+  - ATOM-05-02-02
+blocks: []
+input: []
+output: []
+done_criteria: []
+tests: []
+registers_touched:
+  decisions: []
+  errors: []
+  tech_debt: []
+  blind_spots: []
+notes: ""
+commit_hash: 40b9bebf

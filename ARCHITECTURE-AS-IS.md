@@ -1,4 +1,11 @@
+<!-- doc-status: frozen -->
 # ARCHITECTURE-AS-IS.md
+
+> ⚠️ **FROZEN — заморожено (2026-09).** Этот документ описывает весенний LLM-пайплайн
+> (`src/pipeline`, `src/agents`, `src/llm`, `src/trace`) и весенний Python-слой.
+> Он **не отражает текущую работу** (сентябрь 2026), которая идёт через DSH напрямую
+> над e2k-бэкендом, регистровой VM и self-host. Актуальная картина — в `AGENTS.md`.
+> Возврат к пайплайну планируется с пересборкой под экосистему.
 
 ## Что реально работает (production-ready компоненты)
 - `src/compiler/*` (lexer/parser/AST/compiler/codegen/semantic): компилирует `.osnova` в байткод (JSON) и выдаёт ошибки на всех фазах; покрыт unit-тестами `vitest`.

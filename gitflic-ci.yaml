@@ -1,0 +1,137 @@
+# CI/CD проекта «Основа» на GitFlic.
+#
+# Исполнитель — агент PowerShell на рабочей машине (своего раннера у gitflic.ru нет),
+# метки агента: osnova, windows. Без включённого агента задания просто висят в очереди.
+#
+# Принцип: каждый шаг — отдельная строка, чтобы падение называло СВОЙ слой.
+# Цепочка `npm run ci` здесь НЕ используется: она рвётся на первом падении и прячет остальные
+# (см. src/scripts/ciChain.ts — там это записано как измеренный дефект).
+#
+# Слои и что они ловят:
+#   quick   — форма: типы, линт, доки, схема языка, дрейф YAML, спецификация (~1–2 мин)
+#   tests   — поведение: ~4000 проверок, оракулы VM/раскладки, шлюзы e2k, закреплённые числа
+#   gate    — смысл (по кнопке): эталонные приложения, порядок команд, упаковка, QEMU, железо
+#   release — доставка (по тегу, по кнопке): сборка, кит для машины, пакет npm
+
+stages:
+  - quick
+  - tests
+  - gate
+  - release
+
+variables:
+  OSNOVA_STORAGE_ROOT: "build/ci-storage"
+  npm_config_audit: "false"
+  npm_config_fund: "false"
+  npm_config_progress: "false"
+  # Кэш npm лежит ВНУТРИ рабочего каталога задания: путь относительный, поэтому годится
+  # на любой машине агента. `npm ci` с тёплым кэшем заметно быстрее холодного.
+  npm_config_cache: "build/npm-cache"
+
+# Кэш пакетов npm. Ключ — имя ветки: main и рабочая ветка не выбивают кэш друг другу.
+cache:
+  key: "npm-$CI_COMMIT_REF_NAME"
+  paths:
+    - build/npm-cache
+
+# --- слой 1: форма -----------------------------------------------------------
+# Быстрый: не больше двух минут. Ловит рассинхрон кода, доков, реестра и схемы языка
+# раньше, чем запустится длинный прогон тестов.
+quick:
+  stage: quick
+  tags: [osnova, windows]
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm run typecheck
+    - npm run lint
+    - npm run docs:check
+    - npm run check:language-schema
+    - npm run check:yaml-drift
+    - npm run validate:spec
+
+# --- слой 2: поведение -------------------------------------------------------
+# Оракулы языка, VM, раскладки, шлюзы e2k. Главное доказательство «форма не изменилась».
+tests:
+  stage: tests
+  tags: [osnova, windows]
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm test
+    # Сторож счёта файлов читает отчёт ПРЕДЫДУЩЕГО прогона (`.tmp/vitest-report.json`),
+    # поэтому стоит строго ПОСЛЕ `npm test`. В быстром слое он падает не по делу: на чистом
+    # рабочем каталоге агента отчёта ещё нет (измерено на конвейере 1 — quick=FAILED).
+    - npm run check:test-files
+  artifacts:
+    # Отчёт прогона — доказательство числа проверок для MR. Живёт как артефакт задания,
+    # чтобы его можно было открыть, не воспроизводя прогон.
+    paths:
+      - .tmp/vitest-report.json
+
+# --- слой 3: смысл (по кнопке) -----------------------------------------------
+# Самый долгий и самый «дорогой»: гонять его на каждый push — значит приучить себя
+# не смотреть на красное. Поэтому по кнопке, перед слиянием смысловых изменений.
+gate:
+  stage: gate
+  tags: [osnova, windows]
+  when: manual
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm run golden
+    - npm run gate:reorder
+    - npm run gate:pack
+    # ЧИСЛА смыслового слоя, а не PASS/FAIL: FIR-ядро=268, пять ядер=979, пакеты=220, срез=3/11/2/0.
+    # Каждое число берётся из реального прогона (понижение ядер + исполнение четырёх программ
+    # владельца на модели), расхождение с эталоном делает задание красным с ДВУМЯ числами.
+    # Нет модели — `срез=refused reason=no-model`: число не выдумывается (exit 3).
+    - npm run gate:metrics
+
+# Шлюз QEMU — по кнопке и только при СОБРАННОЙ модели.
+# Модель — наш порт (QEMU 11.0.1 + правка окна), паспорт `src/e2k/qemuModelPassport.ts`.
+# Если модели нет, задание обязано КРАСНО редеть с этой причиной, а не «пропуститься»:
+# зелёный шлюз без модели — ложь, которая в этом проекте уже ловилась (см. AGENTS.md).
+qemu:
+  stage: gate
+  tags: [osnova, windows]
+  when: manual
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    # Проверяет наличие модели в WSL `e2k` и её sha256, затем гоняет оракулы
+    # (сверка с паспортом — внутри, src/e2k/qemuModelIdentity.test.ts).
+    - powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci/run-qemu.ps1
+
+# Железо — по кнопке, с рабочей машины на лабораторный стенд по SSH.
+# Ключ стенда в git НЕ лежит и не должен: агент клонирует репозиторий, где `key.openssh` нет.
+# Wrapper ищет его по порядку: `OSNOVA_E2K_KEY` → `E2K_SSH_KEY_PATH` → `%USERPROFILE%\.ssh\osnova_e2k`
+# → `key.openssh` в корне. На машине агента задайте переменную конвейера `OSNOVA_E2K_KEY`
+# (Settings → CI/CD → Variables) с АБСОЛЮТНЫМ путём к ключу или положите ключ в `~/.ssh/osnova_e2k`.
+# Адрес и порт — из docs/e2k-hardware-access.md. Кит собирается здесь же и уезжает на стенд целиком,
+# отчёт забирается обратно; расхождение делает задание КРАСНЫМ.
+hardware:
+  stage: gate
+  tags: [osnova, windows]
+  when: manual
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm run hardware:kit
+    - powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci/run-hardware.ps1
+
+# --- слой 4: доставка (по тегу, по кнопке) -----------------------------------
+# Что считается «поставкой» у компилятора: собранный дистрибутив (dist), пакет npm и кит
+# для живой машины. Тег vX.Y.Z ставится на main после зелёного `gate`; задание делает
+# артефакты, которые можно приложить к релизу в интерфейсе GitFlic.
+release:
+  stage: release
+  tags: [osnova, windows]
+  only:
+    - tags
+  when: manual
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm run build
+    - npm run hardware:kit
+    - npm pack
+  artifacts:
+    paths:
+      - dist
+      - tools/e2k-hardware
+      - osnova-fabrica-*.tgz

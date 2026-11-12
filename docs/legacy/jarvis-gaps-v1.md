@@ -1,3 +1,4 @@
+<!-- doc-status: deprecated -->
 # Gaps языка v1 для Jarvis / todo-service
 
 Обнаружены при компиляции `apps/osnova-todo/todo-service.osnova`  

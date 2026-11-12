@@ -1,0 +1,46 @@
+[
+  {
+    "case": "два getsp,0 после роста",
+    "grow": true,
+    "literals": [
+      0,
+      0
+    ],
+    "status": 0,
+    "expected": 0,
+    "ok": true
+  },
+  {
+    "case": "getsp,0 и getsp,−16 после роста",
+    "grow": true,
+    "literals": [
+      0,
+      -16
+    ],
+    "status": 16,
+    "expected": 16,
+    "ok": true
+  },
+  {
+    "case": "два getsp,0 БЕЗ роста (повтор §3.48.6)",
+    "grow": false,
+    "literals": [
+      0,
+      0
+    ],
+    "status": 0,
+    "expected": 0,
+    "ok": true
+  },
+  {
+    "case": "getsp,0 и getsp,−16 БЕЗ роста (повтор §3.48.6)",
+    "grow": false,
+    "literals": [
+      0,
+      -16
+    ],
+    "status": 16,
+    "expected": 16,
+    "ok": true
+  }
+]

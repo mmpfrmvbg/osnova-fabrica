@@ -1,0 +1,203 @@
+version: 1
+
+# ============================================================
+# docs/manifest.yaml — единый реестр документации.
+# Ключ = путь к .md от корня. Статус из набора:
+#   active | stable | frozen | superseded | deprecated | scratch
+# docs/legacy/** считается deprecated автоматически (без записи).
+# Свежесть: source-files сравниваются по mtime с самим доком.
+# ============================================================
+
+# --- Канон языка (stable) ---
+docs/language-v2.md: {status: stable, source-files: [src/compiler/lexer.ts, src/compiler/parser.ts, src/compiler/ast.ts, src/compiler/semantic.ts, src/compiler/codegen.ts, src/compiler/compiler.ts]}
+docs/bytecode-v1.md: {status: stable, source-files: [src/runtime/vm/bytecode.ts, src/runtime/vm/interpreter.ts]}
+docs/system-api-v1.md: {status: stable, source-files: [src/runtime/vm/invokeRegistry.ts]}
+docs/language-contributing-v2.md: {status: stable, source-files: [src/compiler/language-schema.ts]}
+docs/language-registry.md: {status: stable, source-files: [src/compiler/language-registry.ts]}
+docs/compiler-v3-plan.md: {status: active}
+docs/ast-format.md: {status: active, source-files: [src/compiler-v3/astFormat.ts, src/compiler-v3/parserV01.ts]}
+docs/v0.1-semantics.md: {status: active, source-files: [src/compiler-v3/parserV01.ts, src/compiler-v3/astFormat.ts, src/spec/osnova-spec.ts]}
+docs/parser-protocol.md: {status: active, source-files: [src/compiler-v3/astFormat.ts]}
+docs/osnova-spec.md: {status: active, source-files: [src/spec/osnova-spec.ts, src/spec/specification.test.ts]}
+docs/v3-spec.md: {status: active}
+docs/lexics-audit.md: {status: scratch, source-files: [src/spec/osnova-spec.ts, src/compiler-v3/lexer.ts, src/compiler-v3/parserV01.ts, src/compiler-v3/parser.ts, src/compiler-v3/astFormat.ts]}
+docs/d51-audit.md: {status: scratch, source-files: [src/compiler-v3/parser.ts, src/compiler-v3/parserV01.ts, src/compiler/regcodegen.ts, src/spec/osnova-spec.ts, src/e2k/emitterShell.ts, src/e2k/e2kRealRun.ts, src/runtime/vm/reginterpreter.ts]}
+docs/d51-plan.md: {status: active, source-files: [src/compiler-v3/parser.ts, src/compiler-v3/parserV01.ts, src/compiler-v3/astFormat.ts, src/compiler/regcodegen.ts, src/runtime/vm/regcode.ts, src/runtime/vm/reginterpreter.ts, src/e2k/emitterShell.ts, src/spec/osnova-spec.ts]}
+docs/language-changelog-v2.md: {status: stable}
+docs/golden-schema.md: {status: stable, source-files: [src/runtime/goldenApps.ts]}
+docs/golden-tests.md: {status: stable, source-files: [docs/golden-tests.json]}
+docs/stack-convention-v0.1.md: {status: stable}
+docs/coding-with-osnova-v2.md: {status: stable}
+docs/release-process.md: {status: stable, source-files: [.github/workflows/release.yml]}
+docs/ci-cd.md: {status: active, source-files: [.gitverse/workflows/full-ci.yaml, src/scripts/ciCheck.ts, scripts/ci-local.sh, tools/e2k-hardware/ci-run.sh]}
+docs/self-hosted-runner-runbook.md: {status: stable, source-files: [.github/workflows/ci.yml]}
+docs/DOCS.md: {status: stable, source-files: [src/scripts/doc-guardian.ts]}
+
+# --- Golden-приложения (stable) ---
+docs/golden-app-chat.md: {status: stable, source-files: [src/runtime/fixtures/chat.osapp.yaml]}
+docs/golden-app-game-rounds.md: {status: stable, source-files: [src/runtime/fixtures/game_rounds.osnova]}
+docs/golden-app-micro-crm.md: {status: stable, source-files: [src/runtime/fixtures/micro_crm.osnova]}
+docs/golden-app-notepad.md: {status: stable, source-files: [src/runtime/fixtures/notepad.osapp.yaml]}
+docs/golden-app-todo.md: {status: stable, source-files: [src/runtime/fixtures/todo.osnova]}
+docs/golden-app-viewer.md: {status: stable, source-files: [src/runtime/fixtures/viewer.osvbc.json]}
+
+# --- Учебник языка (active) ---
+docs/tutorial/README.md: {status: active}
+docs/tutorial/01-intro.md: {status: active}
+docs/tutorial/02-install.md: {status: active}
+docs/tutorial/03-basics.md: {status: active}
+docs/tutorial/04-control.md: {status: active}
+docs/tutorial/05-loops.md: {status: active}
+docs/tutorial/06-procedures.md: {status: active}
+docs/tutorial/07-arrays.md: {status: active}
+docs/tutorial/08-objects.md: {status: active}
+docs/tutorial/09-errors.md: {status: active}
+docs/tutorial/10-modules.md: {status: active}
+docs/tutorial/11-syscalls.md: {status: active}
+docs/tutorial/12-division.md: {status: active}
+docs/tutorial/13-advanced.md: {status: active}
+docs/tutorial/14-reference.md: {status: active}
+docs/tutorial/15-faq.md: {status: active}
+
+# --- Лицензия (active) ---
+LICENSE-COMMERCIAL.md: {status: active}
+
+# --- Фронтир, замеры, статус (active) ---
+AGENTS.md: {status: active}
+BIG-PICTURE.md: {status: active}
+README.md: {status: active}
+OSNOVA.md: {status: active}
+OSNOVA-CLI.md: {status: active}
+docs/token-cost-report.md: {status: active}
+docs/dsh-llm-routes.md: {status: active}
+docs/language-v2-requirements.md: {status: active}
+docs/trace-failure-report.md: {status: active}
+docs/diagnostics-v1.md: {status: active, source-files: [src/compiler/diagnosticCatalogue.ts, src/runtime/runtimeCodes.ts, src/compiler/compileDiagnostics.ts, src/trace/traceStore.ts]}
+docs/hardware-debt.md: {status: active}
+docs/verification-debt.md: {status: active}
+# Решения владельца, записанные решением (ADR-lite), а не выведенные из кода заново.
+docs/decisions.md: {status: active}
+docs/spec-alignment.md: {status: active}
+docs/roadmap.md: {status: active}
+docs/register-ir-migration.md: {status: active, source-files: [src/runtime/vm/regcode.ts, src/runtime/vm/reginterpreter.ts, src/compiler/regcodegen.ts]}
+docs/vliw-e2k-model.md: {status: active, source-files: [src/vliw/e2kDevices.ts, src/vliw/e2kModel.ts, src/vliw/e2kMachineModel.ts]}
+docs/vliw-ilp-calibration.md: {status: active, source-files: [src/vliw/vliwPipeline.ts, src/vliw/latencyScheduler.ts]}
+docs/vliw-phases-plan.md: {status: active}
+
+# --- Видение и стратегия (active) ---
+docs/osnova-vision.md: {status: active}
+
+# --- Ландшафт внешней платформы e2k (active; сверка по дате в шапке) ---
+docs/e2k-landscape.md: {status: active}
+# --- Доступ к живой машине: зарегистрированные вопросы до получения ключа ---
+docs/e2k-hardware-access.md: {status: active}
+
+# --- e2k: подтверждённые/текущие (active) ---
+docs/e2k-backend.md: {status: active, source-files: [src/e2k/backend.ts]}
+docs/abi-v3-draft.md: {status: active, source-files: [src/e2k/arrayRuntime.ts, src/e2k/procedureCall.ts, src/e2k/programImage.ts]}
+# --- e2k: извлечение семантики из чужих источников (scratch: разведка, не замер) ---
+docs/e2k-loop-mode.md: {status: scratch}
+docs/e2k-spec-bit.md: {status: scratch}
+docs/e2k-literal-barriers.md: {status: scratch}
+docs/e2k-imm-short-effect.md: {status: scratch}
+docs/e2k-reorder-effect.md: {status: scratch}
+docs/e2k-asm-scheduler-effect.md: {status: scratch}
+docs/e2k-minimal-elf.md: {status: active, source-files: [src/e2k/elfMinimal.ts]}
+docs/e2k-encoding.md: {status: active, source-files: [src/e2k/encoding.ts]}
+docs/e2k-wide-commands.md: {status: active, source-files: [src/e2k/widePacker.ts]}
+docs/e2k-syscall-abi.md: {status: active, source-files: [src/e2k/syscallRuntime.ts]}
+docs/e2k-syscalls-minimal.md: {status: active, source-files: [src/e2k/syscallRuntime.ts]}
+docs/e2k-array-literals.md: {status: active, source-files: [src/e2k/arrayRuntime.ts]}
+docs/e2k-regalloc-debt.md: {status: active, source-files: [src/e2k/regAlloc.ts]}
+docs/e2k-remainder-form-d.md: {status: active, source-files: [src/e2k/mathRuntime.ts]}
+docs/e2k-opcodes-real.md: {status: active, source-files: [src/e2k/encoding.ts]}
+docs/e2k-setwd-memory.md: {status: active, source-files: [src/e2k/e2kWindow.test.ts]}
+docs/e2k-syllables-real.md: {status: active, source-files: [src/e2k/e2k.ts]}
+docs/e2k-dsp-instructions.md: {status: active, source-files: [src/e2k/latencyMap.ts]}
+docs/e2k-subset-dsp.md: {status: active, source-files: [src/e2k/e2k.ts]}
+docs/e2k-qemu-build.md: {status: active, source-files: [src/e2k/e2kQemuExec.test.ts]}
+docs/e2k-qemu-run.md: {status: active, source-files: [src/e2k/e2kRealRun.ts]}
+docs/e2k-return-port.md: {status: active, source-files: [src/e2k/e2kRealRun.ts]}
+docs/e2k-real-run.md: {status: active, source-files: [src/e2k/e2kRealRun.ts]}
+docs/e2k-external-validation.md: {status: active, source-files: [src/e2k/emitterOracle.ts]}
+docs/e2k-external-as.md: {status: active, source-files: [src/e2k/emitterOracle.ts]}
+docs/e2k-qemu-system.md: {status: frozen, source-files: [tools/qemu-e2k/system/build-system.sh]}
+
+# --- Дизайн-слой «атом → подпись → эмиттер» (active, сент 2026) ---
+docs/osnova-atlas-v0.1.md: {status: active}
+docs/osnova-atom-boundaries.md: {status: active}
+docs/osnova-semantic-skin.md: {status: active}
+docs/osnova-skin-example-micro-crm.md: {status: active, source-files: [src/runtime/fixtures/micro_crm.osnova]}
+docs/osnova-signature-spec.md: {status: active, source-files: [src/vliw/crdtKernel.test.ts]}
+docs/osnova-signature-to-emitter.md: {status: active, source-files: [src/vliw/vliwPipeline.ts, src/compiler/regcodegen.ts]}
+docs/osnova-apps-roadmap.md: {status: active}
+
+# --- RFC (принятые решения, active) ---
+docs/rfc/RFC-001-try-catch-avoidance.md: {status: active}
+docs/rfc/RFC-002-sentinel-pattern.md: {status: active}
+docs/rfc/RFC-003-invented-syntax.md: {status: active}
+
+# --- Заморожено (frozen) ---
+ARCHITECTURE-AS-IS.md: {status: frozen, rework-plan: AGENTS.md}
+docs/pipeline-v1.md: {status: frozen, rework-plan: AGENTS.md}
+docs/traces-v1.md: {status: frozen}
+docs/doc-status-plan.md: {status: frozen, rework-plan: docs/DOCS.md}
+docs/llm-providers-v1.md: {status: frozen}
+docs/llm-routing-v1.md: {status: frozen}
+docs/training-llm-from-traces-v0.1.md: {status: frozen}
+docs/registry-v0.1.md: {status: frozen}
+docs/app-manifest-v0.1.md: {status: frozen}
+docs/osnova-forge-blueprint.md: {status: frozen}
+docs/forge-blueprint-audit-report.md: {status: frozen}
+docs/osnova-center-v1.md: {status: frozen}
+docs/system-services-v1.md: {status: frozen}
+
+# --- Заменено (superseded) ---
+docs/language-v1.md: {status: superseded, superseded-by: docs/language-v2.md}
+docs/LANGUAGE-CHANGELOG.md: {status: superseded, superseded-by: docs/language-changelog-v2.md}
+docs/compiler-v0.1.md: {status: superseded, superseded-by: docs/language-v2.md}
+docs/lexer-v0.1.md: {status: superseded, superseded-by: docs/language-v2.md}
+docs/parser-v0.1.md: {status: superseded, superseded-by: docs/language-v2.md}
+docs/tokenization-v0.1.md: {status: superseded, superseded-by: docs/language-v2.md}
+docs/language-evolution.md: {status: superseded, superseded-by: docs/language-contributing-v2.md}
+docs/chat-app-language-needs.md: {status: superseded, superseded-by: docs/language-v2.md}
+docs/osnova-roadmap-v1.5.md: {status: superseded, superseded-by: docs/roadmap.md}
+docs/b-task-candidates.md: {status: superseded, superseded-by: docs/e2k-subset-dsp.md}
+docs/e2k-address-loading.md: {status: superseded, superseded-by: docs/e2k-encoding.md}
+docs/e2k-emitter-plan.md: {status: superseded, superseded-by: docs/e2k-backend.md}
+docs/e2k-emitter-shell.md: {status: superseded, superseded-by: docs/e2k-backend.md}
+docs/e2k-encoding-raw.md: {status: superseded, superseded-by: docs/e2k-encoding.md}
+docs/e2k-sources-raw.md: {status: superseded, superseded-by: docs/e2k-syllables-real.md}
+docs/e2k-subset-requirements.md: {status: superseded, superseded-by: docs/e2k-subset-dsp.md}
+docs/e2k-syscalls-raw.md: {status: superseded, superseded-by: docs/e2k-syscalls-minimal.md}
+docs/vliw-reg-plan.md: {status: superseded, superseded-by: docs/register-ir-migration.md}
+docs/vliw-scheduler-plan.md: {status: superseded, superseded-by: src/vliw/scheduler.ts}
+docs/vliw-packing.md: {status: superseded, superseded-by: src/vliw/packetPacker.ts}
+
+# ============================================================
+# Массовые списки: разведка/сырьё, оставшееся без преемника
+# ============================================================
+# Сеанс 2026-09-19 «мозговой штурм: где теряются такты и что AI может знать такого, чего
+# hardware-предсказатель не может» — карта конвейера, диагностика, сравнение и кандидаты.
+# scratch, а не active: это разведка с гипотезами, а не подтверждённые замеры. Оракул
+# документа — src/scripts/brainstorm.audit.test.ts (ссылки существуют, оценки помечены,
+# каждый ход имеет риск и проверяемость).
+scratch:
+  - docs/ai-centric-os-recommendations.md
+  - docs/brainstorm/00-map.md
+  - docs/brainstorm/01-opportunities.md
+  - docs/brainstorm/02-ai-vs-hardware.md
+  - docs/brainstorm/03-candidates.md
+  - docs/brainstorm/04-first-experiment.md
+  - docs/brainstorm/05-step1-measurement.md
+  - docs/brainstorm/06-stepB-packet-size.md
+  - docs/brainstorm/06-next-steps.md
+  - docs/e2k-shell-ticks.md
+  - docs/micromodules-v2.md
+  - docs/osnova-v5.4-vision.md
+  - docs/patterns.md
+  - docs/project-strategy-v1.md
+  - docs/state-audit.md
+  - docs/termux-setup.md
+  - docs/vliw-considerations.md
+  - docs/vliw-pack-diagnosis.md

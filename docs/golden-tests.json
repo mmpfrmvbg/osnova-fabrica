@@ -251,6 +251,26 @@
       "expectCompiler": { "success": true }
     },
     {
+      "id": "string_length_code_points",
+      "description": "длина строки — КОДОВЫЕ ТОЧКИ: длина(\"🙂\") = 1 (единиц UTF-16 было бы 2)",
+      "category": "strings",
+      "status": "active",
+      "source": "модуль Тест\nпроцедура главная()\n  пусть с = \"🙂\"\n  вернуть система.строка.длина(с)\nконец\nконец",
+      "expected_return": 1,
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 1 }
+    },
+    {
+      "id": "string_substring_keeps_surrogate_pair",
+      "description": "подстрока по кодовым точкам не рвёт суррогатную пару: подстрока(\"🙂x\", 1, 2) = \"x\"",
+      "category": "strings",
+      "status": "active",
+      "source": "модуль Тест\nпроцедура главная()\n  пусть часть = система.строка.подстрока(\"🙂x\", 1, 2)\n  если часть == \"x\"\n    вернуть 1\n  конец\n  вернуть 0\nконец\nконец",
+      "expected_return": 1,
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 1 }
+    },
+    {
       "id": "object_syscall_get",
       "description": "система.объект.получить как альтернатива obj.поле",
       "category": "objects",
@@ -627,6 +647,20 @@
         "система.время.форматировать",
         "система.время.добавить_дни",
         "система.время.разница_дней"
+      ]
+    },
+    {
+      "id": "keyword_field_name",
+      "description": "Имя поля — ключевое слово: `конец` в объявлении типа, литерале и доступе (роль слова решает контекст)",
+      "category": "types",
+      "status": "active",
+      "source": "модуль Тест\nтип Отрезок {\n  начало: Число,\n  конец: Число\n}\n\nпроцедура главная()\n  пусть о: Отрезок = { начало: 1, конец: 2 }\n  вернуть о.конец * 10 + о.начало\nконец\nконец",
+      "expected_return": 21,
+      "expectCompiler": { "success": true },
+      "expectVM": { "returnValue": 21 },
+      "expectKeywords": [
+        "тип",
+        "конец"
       ]
     }
   ]

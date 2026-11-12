@@ -50,6 +50,8 @@ export const OpCode = {
   MUL: "mul",
   /** Деление: кладёт a / b; деление на ноль — InterpreterError. */
   DIV: "div",
+  /** Целочисленное деление (БЛОК 2): кладёт trunc(a / b), отсечение к нулю; 0 — InterpreterError. */
+  IDIV: "idiv",
   /** Остаток: кладёт a % b; делитель 0 — InterpreterError. */
   REM: "rem",
   /** Равенство: снимает b, затем a; кладёт (a === b). */

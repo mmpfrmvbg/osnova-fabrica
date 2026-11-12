@@ -127,7 +127,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
                 patch: { source, intent: ctx.intent, spec: ctx.spec },
               };
             case 'build': {
-              const buildReport = compileToBuildReport(compileSource(ctx.source!.source));
+              const buildReport = compileToBuildReport(compileSource(ctx.source!.source, { filename: ctx.source!.filename }));
               lastBuildForRepair = buildReport;
               const g2 = checkG2(buildReport);
               if (!g2.passed) {
@@ -300,7 +300,7 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
           totalDurationMs,
           shadow_hits: shadowHits,
           error: 'max repair loops reached',
-          lastErrorKind: extractLastErrorKind(br),
+          lastErrorKind: extractLastErrorKind(br, state.goldenReport ?? lastGoldenForRepair),
         };
       }
 
@@ -353,7 +353,10 @@ export async function runPipelineWithExecAgent(task: string): Promise<PipelineRe
             totalDurationMs,
             shadow_hits: shadowHits,
             error: `repair failed: ${msg}`,
-            lastErrorKind: extractLastErrorKind(state.buildReport ?? lastBuildForRepair),
+            lastErrorKind: extractLastErrorKind(
+              state.buildReport ?? lastBuildForRepair,
+              state.goldenReport ?? lastGoldenForRepair,
+            ),
           };
         }
         repairAttempts++;

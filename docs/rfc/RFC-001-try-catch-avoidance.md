@@ -1,3 +1,4 @@
+<!-- doc-status: active -->
 # RFC-001: try/catch avoidance через few-shot промпты
 
 **Тип:** anti-rfc

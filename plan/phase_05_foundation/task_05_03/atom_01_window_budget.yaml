@@ -1,0 +1,15 @@
+id: ATOM-05-03-01
+title: "Проверить лимиты wsz/wbs"
+phase: PHASE-05
+task: TASK-05-03
+status: done
+input:
+  - "K2: бюджет окна"
+output:
+  - "проверка лимитов wsz/wbs"
+done_criteria:
+  - "лимиты wsz/wbs проверены и задокументированы"
+  - "покрывающий тест зелёный"
+tests: []
+registers_touched: {}
+commit_hash: 652a6fa1f592afd06dc8a07a3dd99af7895feffb

@@ -1,0 +1,202 @@
+# Полный CI приватного репозитория.
+# L1 — облачный Linux, L2 — локальный Windows-раннер с WSL/QEMU, L3 — E8C2 по SSH.
+name: Full CI
+
+on:
+  push:
+    branches: [ master, feat/lang-v2-block1 ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: L1 build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Check CI contract
+        run: npm run check:ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Full quality gate
+        run: npm run ci
+
+      - name: Upload vitest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l1-vitest-report
+          path: .tmp/vitest-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l1-coverage
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  qemu-test:
+    name: L2 QEMU
+    needs: build-and-test
+    if: ${{ gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: QEMU gate
+        run: npm run gate:qemu
+
+  hardware-test:
+    name: L3 E8C2
+    needs: build-and-test
+    if: ${{ gitverse.event_name == 'push' || gitverse.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Rebuild hardware kit
+        run: |
+          npm run hardware:kit
+          git diff --exit-code -- tools/e2k-hardware/bin tools/e2k-hardware/expected.tsv
+
+      - name: Install SSH key
+        env:
+          E2K_SSH_KEY: ${{ secrets.E2K_SSH_KEY }}
+        run: |
+          set -eu
+          test -n "$E2K_SSH_KEY"
+          install -d -m 700 "$HOME/.ssh"
+          umask 077
+          printf '%s\n' "$E2K_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+
+      - name: Run on E8C2
+        env:
+          E2K_HOST: ${{ secrets.E2K_HOST }}
+          E2K_USER: ${{ secrets.E2K_USER }}
+          E2K_PORT: ${{ secrets.E2K_PORT }}
+        run: |
+          SSH_KEY_PATH="$HOME/.ssh/id_ed25519" sh tools/e2k-hardware/ci-run.sh
+
+      - name: Upload E8C2 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e8c2-report
+          path: tools/e2k-hardware/logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release:
+    name: Release by tag
+    needs: [ build-and-test, qemu-test, hardware-test ]
+    if: ${{ startsWith(gitverse.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Check tag matches package version
+        env:
+          REF: ${{ gitverse.ref }}
+        run: |
+          set -eu
+          tag="${REF#refs/tags/}"
+          tag="${tag#v}"
+          version="$(node -p "require('./package.json').version")"
+          echo "тег=$tag версия=$version"
+          test "$tag" = "$version"
+
+      - name: Ensure tag is on master
+        run: |
+          set -eu
+          git fetch --no-tags origin master
+          git merge-base --is-ancestor HEAD FETCH_HEAD
+          echo "тег указывает на коммит master"
+
+      - name: Build package
+        run: |
+          set -eu
+          npm run build
+          test -f dist/cli.js
+          npm pack --pack-destination dist
+          mv dist/osnova-fabrica-*.tgz dist/osnova-fabrica.tgz
+          sha256sum dist/osnova-fabrica.tgz > dist/SHA256SUMS.txt
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: |
+            dist/osnova-fabrica.tgz
+            dist/SHA256SUMS.txt
+          retention-days: 30
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        with:
+          api_key: ${{ secrets.RELEASE_API_KEY }}
+          title: Release ${{ gitverse.head_ref || gitverse.ref }}
+          body: |
+            Сборка прошла L1, L2 и L3.
+          files: |
+            dist/osnova-fabrica.tgz
+            dist/SHA256SUMS.txt
+          draft: false
+          pre_release: false

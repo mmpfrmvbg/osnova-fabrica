@@ -13,7 +13,8 @@
       "name": "главная",
       "codeOffset": 0,
       "argc": 0,
-      "localsCount": 3
+      "localsCount": 3,
+      "pure": false
     }
   ],
   "code": [

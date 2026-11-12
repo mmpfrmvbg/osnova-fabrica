@@ -27,6 +27,7 @@ import {
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
+import { classifyBuildFailure, classifyGoldenFailure } from './failureKind';
 import { logger } from '../logger';
 import { compileSource, compileToBuildReport } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
@@ -85,29 +86,21 @@ function hasBlockingSemanticErrors(report: BuildReport | undefined): boolean {
   );
 }
 
-/** Kind последней ошибки сборки (как extractLastErrorKind в orchestrator, но локально). */
-function lastBuildErrorKind(report: BuildReport | undefined): string {
-  if (!report) return 'unknown';
-  const blocking = (report.semanticErrors ?? []).filter(e =>
-    (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
-  );
-  if (blocking.length > 0) return blocking[blocking.length - 1]!.kind;
-  if ((report.compilerErrors ?? []).length > 0) return 'compiler_error';
-  if ((report.parserErrors ?? []).length > 0) return 'parser_error';
-  if ((report.lexerErrors ?? []).length > 0) return 'lexer_error';
-  return 'unknown';
-}
-
-/** Короткий признак причины провала итерации — для прозрачного трейса. */
+/**
+ * Короткий признак причины провала итерации — для прозрачного трейса.
+ *
+ * Делегирует в общий классификатор (`src/pipeline/failureKind.ts`): раньше здесь
+ * лежала локальная копия логики orchestrator, и две копии расходились.
+ * Поведение сохранено: фаза build → причина сборки, фаза golden → причина golden.
+ */
 function loopErrorKind(
   buildReport: BuildReport | undefined,
   goldenReport: GoldenReport | undefined,
   phase: 'build' | 'golden',
 ): string {
-  if (phase === 'build') return lastBuildErrorKind(buildReport);
-  if (goldenReport?.vmErrors?.length) return 'vm_error';
-  if (goldenReport?.outputDiff) return 'golden_diff';
-  return 'golden_fail';
+  return phase === 'build'
+    ? classifyBuildFailure(buildReport)
+    : classifyGoldenFailure(goldenReport);
 }
 
 /**
@@ -223,7 +216,7 @@ export async function runLoop(goal: string, opts: RunLoopOptions = {}): Promise<
 
       // build
       log.info(`loop: build (итерация ${iteration})`);
-      buildReport = compileToBuildReport(compileSource(current.source));
+      buildReport = compileToBuildReport(compileSource(current.source, { filename: current.filename }));
 
       const g2 = checkG2(buildReport);
       if (!g2.passed) {

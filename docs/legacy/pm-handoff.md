@@ -1,3 +1,4 @@
+<!-- doc-status: deprecated -->
 ---
 # PM Handoff — ОС-НОВА Session State
 

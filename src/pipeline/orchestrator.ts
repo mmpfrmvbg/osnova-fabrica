@@ -20,7 +20,9 @@ import {
 import { checkG1, checkG2, checkG3 } from './gateChecker';
 import { QUALITY_PARTIAL, QUALITY_PASS } from './thresholds';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
+import { classifyFailure } from './failureKind';
 import { saveTrace } from '../trace/traceStore';
+import { projectEntryDiagnostics } from '../trace/diagnosticsProjection';
 import { logger } from '../logger';
 import { compileSource, compileToBuildReport } from '../compiler/compiler';
 import { runGoldenCheck } from '../runtime/goldenApps';
@@ -83,26 +85,21 @@ export function hasBlockingSemanticErrors(report: BuildReport | undefined): bool
 }
 
 /**
- * A-2: Извлекает kind последней ошибки из buildReport.
- * Приоритет: semantic (blocking) → compiler → parser → lexer → semantic (non-blocking).
- * Если ничего нет → 'unknown'.
+ * A-2: kind последней ошибки прогона.
+ *
+ * С 2026-09-19 делегирует в {@link classifyFailure}: добавлен `goldenReport`,
+ * без которого отказы на исполнении (сборка прошла, golden нет) давали
+ * `unknown` — по замеру это 42 % реальных отказов, и именно они составляли
+ * 683 записи `unknown` из 693 в `runs/repair-failures.jsonl`.
+ *
+ * @param report BuildReport; при `undefined` причину ищут в golden
+ * @param golden GoldenReport — нужен, когда сборка прошла, а прогон упал
  */
-export function extractLastErrorKind(report: BuildReport | undefined): string {
-  if (!report) return 'unknown';
-  const blocking = (report.semanticErrors ?? []).filter(e =>
-    (BLOCKING_SEMANTIC_KINDS as readonly string[]).includes(e.kind),
-  );
-  if (blocking.length > 0) return blocking[blocking.length - 1]!.kind;
-  if ((report.compilerErrors ?? []).length > 0) {
-    const last = report.compilerErrors![report.compilerErrors!.length - 1]!;
-    return (last as { kind?: string }).kind ?? 'compiler_error';
-  }
-  if ((report.parserErrors ?? []).length > 0) return 'parser_error';
-  if ((report.lexerErrors ?? []).length > 0) return 'lexer_error';
-  if ((report.semanticErrors ?? []).length > 0) {
-    return report.semanticErrors![report.semanticErrors!.length - 1]!.kind ?? 'semantic_warning';
-  }
-  return 'unknown';
+export function extractLastErrorKind(
+  report: BuildReport | undefined,
+  golden?: GoldenReport,
+): string {
+  return classifyFailure(report, golden);
 }
 
 export async function runPipeline(
@@ -128,6 +125,13 @@ export async function runPipeline(
   let goldenReport: GoldenReport | undefined;
   let lastSource: OsnovaSource | undefined;
   let shadowHits: ShadowHit[] = [];
+
+  /**
+   * Диагностика прогона для записи журнала (T4). Только заполнение нового поля
+   * `diagnostics`: ни статусы, ни гейты, ни repair-цикл отсюда не меняются —
+   * замороженный контур `src/pipeline/**` остаётся как был.
+   */
+  const diagnosticsForTrace = () => projectEntryDiagnostics({ buildReport, goldenReport });
 
   try {
     // ─── Фаза 1: intake ───
@@ -166,7 +170,7 @@ export async function runPipeline(
     for (let loop = 0; loop <= MAX_REPAIR_LOOPS; loop++) {
       // ─── Фаза 4: build ───
       log.info(`phase: build (attempt ${loop + 1})`);
-      buildReport = compileToBuildReport(compileSource(lastSource.source));
+      buildReport = compileToBuildReport(compileSource(lastSource.source, { filename: lastSource.filename }));
 
       // ─── Gate G2 ───
       const g2 = checkG2(buildReport);
@@ -219,7 +223,7 @@ export async function runPipeline(
           log.info('qualityScore in [0.5, 0.7) — partial, no repair');
           source = lastSource;
           const result = finish('partial');
-          await saveTrace({
+          const partialTrace = await saveTrace({
             runId,
             status: toPipelineTracePersistedStatus(result.status),
             task,
@@ -231,8 +235,12 @@ export async function runPipeline(
             goldenReport,
             repairAttempts,
             semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+            diagnostics: diagnosticsForTrace(),
             shadow_hits: shadowHits,
           });
+          if (!partialTrace.saved) {
+            log.warn('запись журнала не сохранена (partial)', partialTrace.reason);
+          }
           return result;
         }
         log.warn(`gate G3 FAIL (attempt ${loop + 1})`, g3.failedChecks);
@@ -271,7 +279,7 @@ export async function runPipeline(
       // non-blocking sem errors не блокируют success (по дизайну языка)
       const finalStatus = goldenReport.passed && !blockingSemErrors ? 'success' : 'partial';
       const result = finish(finalStatus);
-      await saveTrace({
+      const finalTrace = await saveTrace({
         runId,
         status: toPipelineTracePersistedStatus(result.status),
         task,
@@ -283,20 +291,24 @@ export async function runPipeline(
         goldenReport,
         repairAttempts,
         semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+        diagnostics: diagnosticsForTrace(),
         shadow_hits: shadowHits,
       });
+      if (!finalTrace.saved) {
+        log.warn(`запись журнала не сохранена (${result.status})`, finalTrace.reason);
+      }
       return result;
     }
 
     // repair exhausted — A-2: сохраняем kind последней ошибки
-    const lastErrorKind = extractLastErrorKind(buildReport);
+    const lastErrorKind = extractLastErrorKind(buildReport, goldenReport);
     if (lastErrorKind === 'unknown') {
-      log.warn('A-2: repair_exhausted без определённого error.kind — buildReport пустой или нет ошибок');
+      log.warn('A-2: repair_exhausted без определённого error.kind — ни сборка, ни golden не дали причины');
     } else {
       log.error('repair loop exhausted', { repairAttempts, lastErrorKind });
     }
     const result = finish('repair_exhausted', 'max repair loops reached', lastErrorKind);
-    await saveTrace({
+    const exhaustedTrace = await saveTrace({
       runId,
       status: toPipelineTracePersistedStatus(result.status),
       task,
@@ -309,8 +321,12 @@ export async function runPipeline(
       modelId,
       lastErrorKind,
       semanticErrorCount: (buildReport?.semanticErrors ?? []).length,
+      diagnostics: diagnosticsForTrace(),
       shadow_hits: shadowHits,
     });
+    if (!exhaustedTrace.saved) {
+      log.warn('запись журнала не сохранена (repair_exhausted)', exhaustedTrace.reason);
+    }
     appendRepairFailure({
       ts: new Date().toISOString(),
       traceId: runId,
@@ -324,7 +340,7 @@ export async function runPipeline(
     const message = err instanceof Error ? err.message : String(err);
     log.error('unhandled error', message);
     try {
-      await saveTrace({
+      const errorTrace = await saveTrace({
         runId,
         status: 'error',
         task,
@@ -335,8 +351,12 @@ export async function runPipeline(
         buildReport,
         goldenReport,
         repairAttempts,
+        diagnostics: diagnosticsForTrace(),
         shadow_hits: shadowHits,
       });
+      if (!errorTrace.saved) {
+        log.warn('запись журнала не сохранена (error)', errorTrace.reason);
+      }
     } catch (traceErr) {
       console.warn('[orchestrator] saveTrace failed:', traceErr);
     }

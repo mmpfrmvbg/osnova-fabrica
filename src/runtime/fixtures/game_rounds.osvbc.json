@@ -27,37 +27,43 @@
       "name": "запуск",
       "codeOffset": 0,
       "argc": 0,
-      "localsCount": 5
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "handle_event",
-      "codeOffset": 42,
+      "codeOffset": 49,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "сумма_очков",
-      "codeOffset": 55,
+      "codeOffset": 64,
       "argc": 1,
-      "localsCount": 6
+      "localsCount": 7,
+      "pure": false
     },
     {
       "name": "количество_побед",
-      "codeOffset": 89,
+      "codeOffset": 103,
       "argc": 1,
-      "localsCount": 5
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "бонусные_победы",
-      "codeOffset": 125,
+      "codeOffset": 144,
       "argc": 1,
-      "localsCount": 7
+      "localsCount": 8,
+      "pure": false
     },
     {
       "name": "run_golden",
-      "codeOffset": 171,
+      "codeOffset": 197,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     }
   ],
   "code": [
@@ -93,6 +99,9 @@
       "name": "система.окно.показать"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "const",
       "type": "str",
       "k": 3
@@ -112,6 +121,9 @@
       "name": "система.интерфейс.текст"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "invoke",
       "name": "система.окно.получить_события"
     },
@@ -124,21 +136,12 @@
       "i": 1
     },
     {
+      "op": "invoke",
+      "name": "система.итератор.из"
+    },
+    {
       "op": "local.set",
       "i": 3
-    },
-    {
-      "op": "const",
-      "type": "i32",
-      "k": 6
-    },
-    {
-      "op": "local.set",
-      "i": 4
-    },
-    {
-      "op": "local.get",
-      "i": 4
     },
     {
       "op": "local.get",
@@ -149,11 +152,32 @@
       "name": "система.массив.длина"
     },
     {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
       "op": "lt"
     },
     {
       "op": "jmp_if_not",
-      "off": 38
+      "off": 43
     },
     {
       "op": "local.get",
@@ -161,7 +185,7 @@
     },
     {
       "op": "local.get",
-      "i": 4
+      "i": 5
     },
     {
       "op": "invoke",
@@ -189,7 +213,7 @@
     },
     {
       "op": "jmp_if_not",
-      "off": 33
+      "off": 38
     },
     {
       "op": "const.null"
@@ -199,7 +223,7 @@
     },
     {
       "op": "local.get",
-      "i": 4
+      "i": 5
     },
     {
       "op": "const",
@@ -211,11 +235,11 @@
     },
     {
       "op": "local.set",
-      "i": 4
+      "i": 5
     },
     {
       "op": "jmp",
-      "off": 17
+      "off": 23
     },
     {
       "op": "const",
@@ -227,8 +251,14 @@
       "name": "система.время.спать"
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "jmp",
-      "off": 11
+      "off": 13
+    },
+    {
+      "op": "const.null"
     },
     {
       "op": "ret"
@@ -256,7 +286,7 @@
     },
     {
       "op": "jmp_if_not",
-      "off": 52
+      "off": 60
     },
     {
       "op": "const",
@@ -266,6 +296,9 @@
     {
       "op": "invoke",
       "name": "система.окно.закрыть"
+    },
+    {
+      "op": "pop"
     },
     {
       "op": "const",
@@ -282,6 +315,9 @@
     },
     {
       "op": "ret"
+    },
+    {
+      "op": "const.null"
     },
     {
       "op": "ret"
@@ -300,21 +336,12 @@
       "i": 0
     },
     {
+      "op": "invoke",
+      "name": "система.итератор.из"
+    },
+    {
       "op": "local.set",
       "i": 3
-    },
-    {
-      "op": "const",
-      "type": "i32",
-      "k": 6
-    },
-    {
-      "op": "local.set",
-      "i": 4
-    },
-    {
-      "op": "local.get",
-      "i": 4
     },
     {
       "op": "local.get",
@@ -325,11 +352,32 @@
       "name": "система.массив.длина"
     },
     {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
       "op": "lt"
     },
     {
       "op": "jmp_if_not",
-      "off": 83
+      "off": 95
     },
     {
       "op": "local.get",
@@ -337,7 +385,7 @@
     },
     {
       "op": "local.get",
-      "i": 4
+      "i": 5
     },
     {
       "op": "invoke",
@@ -362,7 +410,7 @@
     },
     {
       "op": "local.set",
-      "i": 5
+      "i": 6
     },
     {
       "op": "local.get",
@@ -370,7 +418,7 @@
     },
     {
       "op": "local.get",
-      "i": 5
+      "i": 6
     },
     {
       "op": "add"
@@ -381,7 +429,7 @@
     },
     {
       "op": "local.get",
-      "i": 4
+      "i": 5
     },
     {
       "op": "const",
@@ -393,11 +441,11 @@
     },
     {
       "op": "local.set",
-      "i": 4
+      "i": 5
     },
     {
       "op": "jmp",
-      "off": 61
+      "off": 74
     },
     {
       "op": "const",
@@ -422,6 +470,12 @@
       "name": "система.хранилище.записать"
     },
     {
+      "op": "pop"
+    },
+    {
+      "op": "const.null"
+    },
+    {
       "op": "ret"
     },
     {
@@ -438,21 +492,12 @@
       "i": 0
     },
     {
+      "op": "invoke",
+      "name": "система.итератор.из"
+    },
+    {
       "op": "local.set",
       "i": 3
-    },
-    {
-      "op": "const",
-      "type": "i32",
-      "k": 6
-    },
-    {
-      "op": "local.set",
-      "i": 4
-    },
-    {
-      "op": "local.get",
-      "i": 4
     },
     {
       "op": "local.get",
@@ -463,11 +508,32 @@
       "name": "система.массив.длина"
     },
     {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
       "op": "lt"
     },
     {
       "op": "jmp_if_not",
-      "off": 119
+      "off": 136
     },
     {
       "op": "local.get",
@@ -475,7 +541,7 @@
     },
     {
       "op": "local.get",
-      "i": 4
+      "i": 5
     },
     {
       "op": "invoke",
@@ -508,7 +574,7 @@
     },
     {
       "op": "jmp_if_not",
-      "off": 114
+      "off": 131
     },
     {
       "op": "local.get",
@@ -528,7 +594,7 @@
     },
     {
       "op": "local.get",
-      "i": 4
+      "i": 5
     },
     {
       "op": "const",
@@ -540,11 +606,11 @@
     },
     {
       "op": "local.set",
-      "i": 4
+      "i": 5
     },
     {
       "op": "jmp",
-      "off": 95
+      "off": 113
     },
     {
       "op": "const",
@@ -569,6 +635,12 @@
       "name": "система.хранилище.записать"
     },
     {
+      "op": "pop"
+    },
+    {
+      "op": "const.null"
+    },
+    {
       "op": "ret"
     },
     {
@@ -585,21 +657,12 @@
       "i": 0
     },
     {
+      "op": "invoke",
+      "name": "система.итератор.из"
+    },
+    {
       "op": "local.set",
       "i": 3
-    },
-    {
-      "op": "const",
-      "type": "i32",
-      "k": 6
-    },
-    {
-      "op": "local.set",
-      "i": 4
-    },
-    {
-      "op": "local.get",
-      "i": 4
     },
     {
       "op": "local.get",
@@ -610,11 +673,32 @@
       "name": "система.массив.длина"
     },
     {
+      "op": "local.set",
+      "i": 4
+    },
+    {
+      "op": "const",
+      "type": "i32",
+      "k": 6
+    },
+    {
+      "op": "local.set",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 5
+    },
+    {
+      "op": "local.get",
+      "i": 4
+    },
+    {
       "op": "lt"
     },
     {
       "op": "jmp_if_not",
-      "off": 165
+      "off": 189
     },
     {
       "op": "local.get",
@@ -622,7 +706,7 @@
     },
     {
       "op": "local.get",
-      "i": 4
+      "i": 5
     },
     {
       "op": "invoke",
@@ -647,7 +731,7 @@
     },
     {
       "op": "local.set",
-      "i": 5
+      "i": 6
     },
     {
       "op": "local.get",
@@ -664,11 +748,11 @@
     },
     {
       "op": "local.set",
-      "i": 6
+      "i": 7
     },
     {
       "op": "local.get",
-      "i": 5
+      "i": 6
     },
     {
       "op": "const",
@@ -680,11 +764,11 @@
     },
     {
       "op": "jmp_if_not",
-      "off": 155
+      "off": 178
     },
     {
       "op": "local.get",
-      "i": 6
+      "i": 7
     },
     {
       "op": "const",
@@ -695,8 +779,15 @@
       "op": "ge"
     },
     {
+      "op": "jmp",
+      "off": 179
+    },
+    {
+      "op": "const.false"
+    },
+    {
       "op": "jmp_if_not",
-      "off": 160
+      "off": 184
     },
     {
       "op": "local.get",
@@ -716,7 +807,7 @@
     },
     {
       "op": "local.get",
-      "i": 4
+      "i": 5
     },
     {
       "op": "const",
@@ -728,11 +819,11 @@
     },
     {
       "op": "local.set",
-      "i": 4
+      "i": 5
     },
     {
       "op": "jmp",
-      "off": 131
+      "off": 154
     },
     {
       "op": "const",
@@ -757,6 +848,12 @@
       "name": "система.хранилище.записать"
     },
     {
+      "op": "pop"
+    },
+    {
+      "op": "const.null"
+    },
+    {
       "op": "ret"
     },
     {
@@ -768,6 +865,9 @@
       "fi": 2
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "local.get",
       "i": 0
     },
@@ -776,12 +876,21 @@
       "fi": 3
     },
     {
+      "op": "pop"
+    },
+    {
       "op": "local.get",
       "i": 0
     },
     {
       "op": "call",
       "fi": 4
+    },
+    {
+      "op": "pop"
+    },
+    {
+      "op": "const.null"
     },
     {
       "op": "ret"

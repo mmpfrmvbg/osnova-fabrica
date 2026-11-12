@@ -10,12 +10,13 @@
  * диспетчеризация шага — {@link import("../runtime/vm/interpreter").VM} / interpretInstruction.
  */
 
-import { tokenize } from './lexer';
-import { parse, type ParseError } from './parser';
+import { tokenize, type LexerError } from './lexer';
+import { parse, type ParseError, type ParseWarning } from './parser';
 import { compile, compileProgram } from './codegen';
 import { isVliwPacket, type CodeElement, type OsVbcModule, type RawInstruction } from '../runtime/vm/bytecode';
 import { OsVbcVM, type OsVbcVMOptions, type StackValue } from '../runtime/vm';
 import { InterpreterError } from '../runtime/vm/interpreter';
+import { RUNTIME_CODES } from '../runtime/runtimeCodes';
 import { analyzeProgram, type SemanticError, type HostSyscallSpec } from './semantic';
 import { BLOCKING_SEMANTIC_KINDS } from './semanticKinds';
 import type { Expr, Program, Module, Procedure, Stmt, TypeDeclaration, TypeRef } from './ast';
@@ -47,6 +48,14 @@ export interface CompileResult {
   module: OsVbcModule | null;
   /** Скомпилированные модули Program (multi-module path) */
   modules?: OsVbcModule[];
+  /**
+   * Расширенный AST главного модуля — точно тот, что ушёл в стековый кодоген
+   * (импорты развёрнуты, `когда` снят, типы развёрнуты и дописаны литералы).
+   * Нужен альтернативным бэкендам (регистровый, `src/oracle/parity.ts`): они
+   * обязаны компилировать **тот же** AST, что эталон, иначе сверка бессмысленна.
+   * Не заполняется, если ошибка случилась до кодогена (лексер/парсер).
+   */
+  moduleAst?: Module;
   /** true если компилятор отработал без ошибок */
   compilerSuccess: boolean;
   /** Ошибки лексера */
@@ -57,6 +66,13 @@ export interface CompileResult {
   compilerErrors: { message: string; node?: string; file?: string; line?: number; column?: number }[];
   /** Ошибки семантического анализатора (предупреждения первого этапа) */
   semanticErrors: SemanticError[];
+  /**
+   * Предупреждения компиляции. **Не** влияют на `compilerSuccess` и на
+   * `BuildReport.success`: это информация, а не отказ (Стадия 2 плана v2 —
+   * устаревшее закрывающее `конец`). Пусто, если предупреждения не запрошены
+   * ({@link CompileOptions.warnDeprecated}).
+   */
+  warnings: ParseWarning[];
   /** Время компиляции в мс */
   durationMs: number;
   /** Логи компиляции для отладки и трассировки */
@@ -83,10 +99,27 @@ export interface CompileOptions {
   /** Имя входного файла для диагностики (например `игра.osnova`). */
   filename?: string;
   /**
+   * ФРОНТЕНД (внедряется снаружи, по умолчанию — v2).
+   *
+   * Зачем параметр, а не импорт: конвейер компилятора не должен знать, каким
+   * синтаксисом написан исходник. v3-фронтенд (`src/compiler-v3`) выдаёт тот же
+   * `Module` формы v2 и подставляет себя здесь — тогда ВЕСЬ путь (`semantic` →
+   * кодоген → `regcodegen` → `vliw` → `e2k` → ELF) идёт без единой копии.
+   * Обратный импорт (`compiler` → `compiler-v3`) дал бы петлю и второй путь.
+   */
+  parse?: (source: string, filename: string) => { ast: Program | null; errors: string[] };
+  /**
    * Хост-вызовы вне `система.*` (например `игра.очистить`).
    * Проверяются как syscall (имя + argc). Не добавляются в language-registry.
    */
   extraSyscalls?: HostSyscallSpec[];
+  /**
+   * Включить предупреждения об устаревших конструкциях. По умолчанию
+   * **выключено**: корпус и примеры ещё на legacy-закрытиях `конец`, и молчание
+   * по умолчанию — часть Стадии 2 (массовая миграция — после выкладки 0.1).
+   * Включается флагом CLI `--warn-deprecated` и шагом CI.
+   */
+  warnDeprecated?: boolean;
 }
 
 /** Ошибка разворачивания импорта: файл и место, не только текст. */
@@ -162,7 +195,15 @@ export class Compiler {
     } else {
       const def = result.module.procedures[procedureIndex];
       if (!def) {
-        throw new InterpreterError(`Invalid procedure index: ${procedureIndex}`);
+        // Код назван так же, как у одноимённого пути в интерпретаторе: без него
+        // запись отказа в журнале получила бы `OSN-RT-000` («код не назван») и
+        // выглядела бы разрывом канала, хотя причина известна (замер T2, 2026-09-28).
+        throw new InterpreterError(
+          `Invalid procedure index: ${procedureIndex}`,
+          undefined,
+          undefined,
+          RUNTIME_CODES.entryNotFound,
+        );
       }
       procedure = def.name;
     }
@@ -321,7 +362,9 @@ function getFirstModuleOrThrow(program: Program | null): Module {
 
 function parseModuleOrThrow(source: string, file: string): Module {
   const { tokens, errors: lexerErrors } = tokenize(source);
-  const { ast: program, errors: parserErrors } = parse(tokens);
+  // Импортируемый файл — такой же файл-модуль (БЛОК 3, пункт 1): имя модуля
+  // берётся из имени ЭТОГО файла, а не из имени входного.
+  const { ast: program, errors: parserErrors } = parse(tokens, { filename: file });
   if (lexerErrors.length > 0) {
     const e = lexerErrors[0]!;
     throw new ImportExpandError(e.message, { file, line: e.line, column: e.column });
@@ -403,6 +446,10 @@ function expandModuleImports(
         pure: p.pure,
         body: p.body,
         exported: undefined, // импортированные процедуры не экспортируются из текущего модуля
+        // Файл, откуда процедура пришла: без него диагностика внутри встроенной
+        // процедуры называла бы сборкой ГЛАВНОГО модуля. Ровно так терялась
+        // ошибка `модуль 'ЗадачиПриоритеты' не найден` из tasks_core.osnova.
+        origin: p.origin ?? importDisplay,
       };
       rewriteProcedureCalls(inlinedProc, (callee) => nameMap.get(callee) ?? callee);
       inlinedProcedures.push(inlinedProc);
@@ -445,15 +492,31 @@ function expandModuleImports(
     name: ast.name,
     imports: [],
     typeDeclarations: mergedTypeDeclarations,
-    procedures: [...ast.procedures, ...inlinedProcedures],
+    // Каждой процедуре проставляется ФАЙЛ, из которого она пришла. Свои —
+    // входной файл, встроенные — тот, откуда их принесли. Иначе диагностика
+    // (semantic.ts) называла бы сборкой главного ошибку, возникшую в чужом
+    // модуле: так и было с `модуль 'X' не найден` из `tasks_core.osnova`.
+    procedures: [
+      ...ast.procedures.map((p) => ({ ...p, origin: p.origin ?? currentFile })),
+      ...inlinedProcedures.map((p) => ({ ...p, origin: p.origin ?? currentFile })),
+    ],
   };
 }
 
-/** Поля именованных типов: канон + синоним `Число` (парсер и few-shot допускают оба). */
-const PRIMITIVE_FIELD_TYPES = new Set(["Целое32", "Число", "Строка", "Логический"]);
+/**
+ * Поля именованных типов: канон + синонимы, сводящиеся к `Число`.
+ *
+ * `Целое32` и `Целое64` — не отдельные типы, а **аннотации**: оба сводятся к
+ * `Число` (`primitiveAlias`), арифметика одна, float64. Отдельной 32/64-битной
+ * арифметики с обёрткой в языке НЕТ — это объявлено в каноне (§13.5) и
+ * закреплено оракулом `src/compiler/canon.test.ts` равенством БАЙТКОДА программ
+ * с аннотацией и без неё: если бы аннотация что-то значила для кодогена, байткод
+ * разошёлся бы.
+ */
+const PRIMITIVE_FIELD_TYPES = new Set(["Целое32", "Целое64", "Число", "Строка", "Логический"]);
 
 function primitiveAlias(name: string): string {
-  if (name === "Целое32") return "Число";
+  if (name === "Целое32" || name === "Целое64") return "Число";
   return name;
 }
 
@@ -471,7 +534,15 @@ function typesCompatible(expected: TypeRef, actual: TypeRef): boolean {
   return primitiveAlias(expected.name) === primitiveAlias(actual.name);
 }
 
-function validateNamedTypesAndRewrite(ast: Module): string[] {
+/**
+ * Приводит AST к виду, который ждут кодогены: проверяет именованные типы и
+ * РАЗРЕШАЕТ нейтральные имена (`длина` — по типу операнда: строка или список).
+ *
+ * Экспортируется для v3-фронтенда: он отдаёт тот же AST, и ему нужен тот же
+ * проход. Порядок обязателен — до семантики и кодогена, иначе `длина` дойдёт до
+ * них как неизвестное имя.
+ */
+export function validateNamedTypesAndRewrite(ast: Module): string[] {
   const errors: string[] = [];
 
   const typeByName = new Map<string, TypeDeclaration>();
@@ -652,6 +723,60 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
 
   type Env = Map<string, TypeRef>;
 
+  /**
+   * ТИП ВОЗВРАТА СИСТЕМНОГО ВЫЗОВА — то, чего до этой правки не знал никто.
+   *
+   * # Почему это понадобилось именно здесь
+   *
+   * `inferExprType` выводил тип только для СВОИХ процедур (`returnTypeByProc`), а системные вызовы
+   * возвращали `undefined`. Пока это никого не задевало, потому что типы системных значений почти
+   * нигде не спрашиваются. Но `длина` спрашивает — и это её смысл: она выбирает реализацию по типу
+   * операнда, а при невыведенном типе ОТКАЗЫВАЕТ (названный отказ, а не догадка).
+   *
+   * Замер, который это показал (первый прогон `src/self-host/stringIndex.test.ts`):
+   * `пусть знак = с[1]` + `длина знак` → ««длина» требует известного типа операнда: у «знак» тип не
+   * выведен». То есть СИМВОЛ СТРОКИ был получен, а его длина — уже нет: законная программа
+   * отвергалась из-за пробела в выводе типов, а не из-за своего дефекта.
+   *
+   * # Границы карты
+   *
+   * Здесь только те вызовы, чей тип возврата ОПРЕДЕЛЁН каноном и не зависит от аргументов. Чего
+   * здесь нет намеренно: `система.массив.получить` (тип элемента известен только по типу массива —
+   * это вывод по контейнеру, отдельная работа), `система.json.*` (значение любого типа),
+   * `система.оценить` (то же). Пустое место честнее догадки: неизвестный тип остаётся `undefined`,
+   * и `длина` от него отказывает, как и раньше.
+   */
+  function syscallReturnType(name: string): TypeRef | undefined {
+    switch (name) {
+      case "система.строка.подстрока":
+      case "система.строка.объединить":
+      case "система.строка.из_числа":
+      case "система.строка.в_верхний":
+      case "система.строка.в_нижний":
+      case "система.строка.обрезать":
+      case "система.строка.заменить":
+        return { name: "Строка", nullable: false };
+      case "система.строка.длина":
+      case "система.строка.найти":
+      // КОД СИМВОЛА, а не символ-строка (решение владельца 2026-10-10, §3.133): строковая модель
+      // цели требует известной на СБОРКЕ длины, а `с[и]` по рантаймовому индексу даёт 1–4 байта,
+      // известных только в рантайме. Прежде здесь стояла Строка — и `с[0] + 100` склеивало.
+      case "система.строка.символ":
+      case "система.массив.длина":
+        return { name: "Число", nullable: false };
+      // Файловые операции: `читать` даёт Строку, `открыть` — дескриптор-Число. Без этих двух строк
+      // `длина читать(д, 100)` отверглась бы с «тип не выведен» — ровно так уже было у символа
+      // строки, и разбор этого случая — в шапке `syscallReturnType`.
+      case "система.файлы.читать":
+        return { name: "Строка", nullable: false };
+      case "система.файлы.открыть":
+      case "система.файлы.писать":
+        return { name: "Число", nullable: false };
+      default:
+        return undefined;
+    }
+  }
+
   function inferExprType(expr: Expr, env: Env): TypeRef | undefined {
     switch (expr.kind) {
       case "число":
@@ -700,7 +825,7 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
       case "унарное":
         return { name: "Логический", nullable: false };
       case "вызов":
-        return returnTypeByProc.get(expr.name);
+        return syscallReturnType(expr.name) ?? returnTypeByProc.get(expr.name);
       default:
         return undefined;
     }
@@ -1025,6 +1150,29 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
     visitStmtsLiteralPass(proc.body);
   }
 
+  // ── РАЗВОРОТ ФОРМЫ `arr[i]` ПО ТИПУ ОПЕРАНДА — ПЕРВЫЙ ПРОХОД, ДО ВСЕХ ОСТАЛЬНЫХ ──────────────
+  //
+  // Строка → `система.строка.символ`, всё прочее → прежний массивный доступ. И это обязано быть
+  // РАНЬШЕ ПРОВЕРКИ ТИПОВ, а не «где-то рядом»: тип возврата у массивного доступа НАМЕРЕННО
+  // неизвестен (элемент списка выводится по контейнеру — отдельная работа), у символьного — Строка.
+  // Каждый, кто читает тип (`inferExprType`), обязан видеть уже развёрнутую форму.
+  //
+  // ЗАМЕР, которым это найдено (`src/self-host/lexer.osnova`, проба `.tmp/osnova-ast-probe.ts`):
+  // `пусть два = с[0] + с[1]` выводилось как **Число**, и законная передача в параметр `Строка`
+  // отвергалась: «Несовпадение типа (принять#0): ожидалось Строка, получено Число». Причина НЕ в `+`
+  // (он склеивает, если хоть один операнд — строка, и это верно) и не в выводе типов: к моменту
+  // проверки на месте `с[0]` стоял ещё массивный доступ с неизвестным типом, поэтому `+` уходил в
+  // числовую ветвь. Прежний порядок делал лексер на v3 НЕПИШУЩИМСЯ: склейка двух символов — самая
+  // частая его операция.
+  for (const proc of ast.procedures) {
+    const env: Env = new Map();
+    for (let i = 0; i < proc.params.length; i++) {
+      const pt = proc.paramTypes?.[i];
+      if (pt) env.set(proc.params[i]!, pt);
+    }
+    resolveStringIndexInStmts(proc.body, env);
+  }
+
   const procByName = new Map(ast.procedures.map((p) => [p.name, p]));
   for (const proc of ast.procedures) {
     const env: Env = new Map();
@@ -1183,6 +1331,7 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
     }
   }
 
+
   for (const proc of ast.procedures) {
     const env: Env = new Map();
     for (let i = 0; i < proc.params.length; i++) {
@@ -1190,6 +1339,282 @@ function validateNamedTypesAndRewrite(ast: Module): string[] {
       if (pt) env.set(proc.params[i]!, pt);
     }
     checkCallsInStmts(proc.body, env);
+  }
+
+  /**
+   * `длина` — НЕЙТРАЛЬНОЕ имя: один узел, а реализацию выбирает СЕМАНТИКА по типу
+   * операнда. `длина "абв"` → `система.строка.длина`, `длина [1,2]` →
+   * `система.массив.длина`.
+   *
+   * Зачем так, а не «в лексере сразу в массивную». В языке две длины, и различить
+   * их СИНТАКСИЧЕСКИ нельзя: `длина х` одинакова для строки и списка. Решать это
+   * должен слой, который ЗНАЕТ тип, — иначе строковая длина недостижима, а это
+   * блокер для прикладных программ (строки там везде: имена, описания).
+   *
+   * Если тип не выведен — остаётся массивная длина: это прежнее поведение, и
+   * молчаливая смена реализации была бы хуже явного `undefined`.
+   */
+  function resolveLength(expr: Expr, env: Env): void {
+    switch (expr.kind) {
+      case "вызов": {
+        if (expr.name === "длина" && expr.args.length === 1) {
+          const t = inferExprType(expr.args[0]!, env);
+          if (t?.name === "Строка") {
+            expr.name = "система.строка.длина";
+          } else if (t?.array === true) {
+            expr.name = "система.массив.длина";
+          } else if (t !== undefined) {
+            // ТИП ИЗВЕСТЕН, НО ЭТО НЕ СТРОКА И НЕ СПИСОК (TD-0006). Прежде эта ветвь была общей с
+            // «тип не выведен» и советовала добавить аннотацию — даже там, где аннотация УЖЕ СТОИТ
+            // (`пусть ч: Число = 5` + `длина ч`: замер — читатель шёл добавлять то, что есть, а
+            // НАСТОЯЩЕЙ причины не видел). Причина здесь в ТИПЕ, и она называется.
+            const арг = expr.args[0]!;
+            errors.push(
+              "«длина» определена для Строки и Списка, а у " +
+                (арг.kind === "переменная" ? `«${арг.name}»` : "выражения") +
+                ` тип «${t.name}» — длины для него нет`,
+            );
+          } else {
+            // ТИП НЕ ВЫВЕДЕН — ОТКАЗ, а не догадка. Прежде здесь молча выбиралась
+            // массивная длина: на строке это вернуло бы неверное число, то есть
+            // ровно ту тихую ложь, из-за которой в проекте уже разбирали `arr[i]` с
+            // несуществующим полем. Названный отказ лучше верного на вид числа.
+            const арг = expr.args[0]!;
+            errors.push(
+              "«длина» требует известного типа операнда: у " +
+                (арг.kind === "переменная" ? `«${арг.name}»` : "выражения") +
+                " тип не выведен — добавьте аннотацию (например «пусть имена: Список Строка = …»): " +
+                "без типа неясно, нужна длина строки или длина списка",
+            );
+          }
+        }
+        for (const a of expr.args) resolveLength(a, env);
+        return;
+      }
+      case "бинарное":
+        resolveLength(expr.left, env);
+        resolveLength(expr.right, env);
+        return;
+      case "унарное":
+        resolveLength(expr.arg, env);
+        return;
+      case "поле":
+        resolveLength(expr.object, env);
+        return;
+      case "массив":
+        for (const э of expr.elements) resolveLength(э, env);
+        return;
+      case "объект":
+        for (const п of expr.entries) resolveLength(п.value, env);
+        return;
+      case "кортеж":
+        for (const э of expr.элементы) resolveLength(э, env);
+        return;
+      default:
+        return;
+    }
+  }
+
+  /**
+   * `с[i]` — РАЗВОРОТ ПО ТИПУ ОПЕРАНДА, ровно как у `длина`.
+   *
+   * Парсер ставит форму `система.массив.получить(база, индекс)` — и это ПРАВИЛЬНО: `arr[i]` есть
+   * форма ОБРАЩЕНИЯ, одна для списка и для строки, а не сахар над массивной операцией. Различить
+   * их СИНТАКСИЧЕСКИ нечем: `с[0]` одинаково выглядит для строки и для списка. Значит решать
+   * обязан слой, который ЗНАЕТ тип, — то есть этот.
+   *
+   * Что было: у строки `система.массив.получить` возвращала **`null`**, и `"абв"[0] + 100` давало
+   * **100** — символ вёл себя как ноль. Для лексера это худший исход: буквы «читались» бы как нули,
+   * и поток токенов вышел бы пустым МОЛЧА (тихая ложь, а не отказ).
+   *
+   * Чего здесь НЕТ: отказа при невыведенном типе. У `длина` он есть, потому что там два РАЗНЫХ
+   * числа (длина строки и длина списка) и выбор молча дал бы неверное. Здесь выбор другой: строка →
+   * символ, всё остальное → прежняя массивная операция. Невыведенный тип означает «не строка», и
+   * это ровно прежнее поведение, а не догадка о новом.
+   */
+  function resolveStringIndex(expr: Expr, env: Env): void {
+    switch (expr.kind) {
+      case "вызов": {
+        if (expr.name === "система.массив.получить" && expr.args.length === 2) {
+          const t = inferExprType(expr.args[0]!, env);
+          if (t?.name === "Строка" && t.array !== true) {
+            expr.name = "система.строка.символ";
+          }
+        }
+        for (const a of expr.args) resolveStringIndex(a, env);
+        return;
+      }
+      case "бинарное":
+        resolveStringIndex(expr.left, env);
+        resolveStringIndex(expr.right, env);
+        return;
+      case "унарное":
+        resolveStringIndex(expr.arg, env);
+        return;
+      case "поле":
+        resolveStringIndex(expr.object, env);
+        return;
+      case "массив":
+        for (const э of expr.elements) resolveStringIndex(э, env);
+        return;
+      case "объект":
+        for (const п of expr.entries) resolveStringIndex(п.value, env);
+        return;
+      case "кортеж":
+        for (const э of expr.элементы) resolveStringIndex(э, env);
+        return;
+      default:
+        return;
+    }
+  }
+
+  function resolveStringIndexInStmts(stmts: Stmt[], env: Env): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "пусть":
+          resolveStringIndex(s.init, env);
+          if (s.typeAnnotation) env.set(s.name, s.typeAnnotation);
+          else {
+            const t = inferExprType(s.init, env);
+            if (t) env.set(s.name, t);
+          }
+          break;
+        case "присвоить":
+          resolveStringIndex(s.value, env);
+          break;
+        case "поле_присвоить":
+          resolveStringIndex(s.object, env);
+          resolveStringIndex(s.value, env);
+          break;
+        case "выражение":
+          resolveStringIndex(s.expr, env);
+          break;
+        case "вернуть":
+          if (s.value) resolveStringIndex(s.value, env);
+          break;
+        case "выбросить":
+          resolveStringIndex(s.value, env);
+          break;
+        case "если":
+          resolveStringIndex(s.condition, env);
+          resolveStringIndexInStmts(s.body, new Map(env));
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) {
+            resolveStringIndex(c.condition, env);
+            resolveStringIndexInStmts(c.body, new Map(env));
+          }
+          if (s.elseBody) resolveStringIndexInStmts(s.elseBody, new Map(env));
+          break;
+        case "пока":
+          resolveStringIndex(s.condition, env);
+          resolveStringIndexInStmts(s.body, new Map(env));
+          break;
+        case "для_каждого":
+          resolveStringIndex(s.source, env);
+          resolveStringIndexInStmts(s.body, new Map(env));
+          break;
+        case "цикл":
+          resolveStringIndexInStmts(s.body, new Map(env));
+          break;
+        case "когда":
+          resolveStringIndex(s.scrutinee, env);
+          for (const arm of s.arms) {
+            resolveStringIndex(arm.variant, env);
+            resolveStringIndexInStmts(arm.body, new Map(env));
+          }
+          if (s.elseBody) resolveStringIndexInStmts(s.elseBody, new Map(env));
+          break;
+        case "попробовать":
+          resolveStringIndexInStmts(s.body, new Map(env));
+          resolveStringIndexInStmts(s.catchBody, new Map(env));
+          break;
+        case "распаковать":
+          resolveStringIndex(s.значение, env);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  function resolveLengthInStmts(stmts: Stmt[], env: Env): void {
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "пусть":
+          resolveLength(s.init, env);
+          if (s.typeAnnotation) env.set(s.name, s.typeAnnotation);
+          else {
+            const t = inferExprType(s.init, env);
+            if (t) env.set(s.name, t);
+          }
+          break;
+        case "присвоить":
+          resolveLength(s.value, env);
+          break;
+        case "поле_присвоить":
+          resolveLength(s.object, env);
+          resolveLength(s.value, env);
+          break;
+        case "выражение":
+          resolveLength(s.expr, env);
+          break;
+        case "вернуть":
+          if (s.value) resolveLength(s.value, env);
+          break;
+        case "выбросить":
+          resolveLength(s.value, env);
+          break;
+        case "если":
+          resolveLength(s.condition, env);
+          resolveLengthInStmts(s.body, new Map(env));
+          if (s.elseIfClauses) for (const c of s.elseIfClauses) {
+            resolveLength(c.condition, env);
+            resolveLengthInStmts(c.body, new Map(env));
+          }
+          if (s.elseBody) resolveLengthInStmts(s.elseBody, new Map(env));
+          break;
+        case "пока":
+          resolveLength(s.condition, env);
+          resolveLengthInStmts(s.body, new Map(env));
+          break;
+        case "цикл":
+          resolveLengthInStmts(s.body, new Map(env));
+          break;
+        case "для_каждого":
+          resolveLength(s.source, env);
+          resolveLengthInStmts(s.body, new Map(env));
+          break;
+        case "когда":
+          resolveLength(s.scrutinee, env);
+          for (const arm of s.arms) {
+            resolveLength(arm.variant, env);
+            resolveLengthInStmts(arm.body, new Map(env));
+          }
+          if (s.elseBody) resolveLengthInStmts(s.elseBody, new Map(env));
+          break;
+        case "попробовать":
+          resolveLengthInStmts(s.body, new Map(env));
+          resolveLengthInStmts(s.catchBody, new Map(env));
+          break;
+        case "распаковать":
+          resolveLength(s.значение, env);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  // Разворот `arr[i]` по типу операнда УЖЕ сделан — первым проходом, до проверки типов (см. выше,
+  // рядом с `visitStmtsLiteralPass`). Здесь остаётся вывод длин: он ЧИТАЕТ имена, которые первый
+  // проход дописал, и потому обязан идти после него. Прежний порядок («разворот здесь, вместе с
+  // длинами») отвергал законную программу `пусть знак = с[1]` + `длина знак` с «тип не выведен».
+  for (const proc of ast.procedures) {
+    const env: Env = new Map();
+    for (let i = 0; i < proc.params.length; i++) {
+      const pt = proc.paramTypes?.[i];
+      if (pt) env.set(proc.params[i]!, pt);
+    }
+    resolveLengthInStmts(proc.body, env);
   }
 
   return errors;
@@ -1259,8 +1684,41 @@ export function optimizeIrModule(ir: OsVbcModule): OsVbcModule {
 export function compileSource(source: string, options: CompileOptions = {}): CompileResult {
   const start = Date.now();
   const logs: CompileLog[] = [];
-  const { tokens, errors: lexerErrors } = tokenize(source);
-  const { ast: program, errors: parserErrors } = parse(tokens);
+
+  // ФРОНТЕНД: по умолчанию v2 (лексер + парсер), но он может быть ПОДСТАВЛЕН
+  // снаружи (см. `CompileOptions.parse`). Компилятор о синтаксисе исходника не
+  // знает: на выходе в обоих случаях — `Program` формы v2, и дальше путь один.
+  let program: Program | null;
+  let parserErrors: ParseError[];
+  let lexerErrors: LexerError[];
+  let warnings: ParseWarning[] = [];
+  if (options.parse) {
+    const подставлено = options.parse(source, options.filename ?? "вход");
+    program = подставлено.ast;
+    // Сообщения фронтенда приходят строкой «файл:строка: текст» — раскладываем их
+    // на те же поля, что у v2-парсера, чтобы диагностика осталась единой.
+    parserErrors = подставлено.errors.map((сообщение) => {
+      const м = /^(.*?):(\d+):\s*(.*)$/.exec(сообщение);
+      // Без разобранной позиции строка всё равно нужна полем: диагностика ждёт
+      // `line` числом, поэтому называем первую строку, а не «неизвестно».
+      return м
+        ? { message: м[3]!, line: Number(м[2]), column: 1 }
+        : { message: сообщение, line: 1, column: 1 };
+    });
+    lexerErrors = [];
+  } else {
+    const лекс = tokenize(source);
+    lexerErrors = лекс.errors;
+    const разбор = parse(лекс.tokens, {
+      warnDeprecated: options.warnDeprecated === true,
+      // Файл = модуль (БЛОК 3, пункт 1): когда шапки `модуль имя` нет, имя модуля
+      // берётся из имени файла — без него разбор назвал бы модуль «вход».
+      filename: options.filename,
+    });
+    program = разбор.ast;
+    parserErrors = разбор.errors;
+    warnings = разбор.warnings;
+  }
 
   // Логирование ошибок лексера
   for (const err of lexerErrors) {
@@ -1281,6 +1739,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       parserErrors,
       compilerErrors: [],
       semanticErrors: [],
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };
@@ -1304,6 +1763,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       parserErrors: [],
       compilerErrors: [err],
       semanticErrors: [],
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };
@@ -1330,11 +1790,13 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     return {
       module: null,
       modules: [],
+      moduleAst: expandedAst,
       compilerSuccess: false,
       lexerErrors: [],
       parserErrors: [],
       compilerErrors: namedTypeErrors,
       semanticErrors: [],
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };
@@ -1342,18 +1804,19 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
 
   const semanticErrors = analyzeProgram(
     { modules: [expandedAst] },
-    { extraSyscalls: options.extraSyscalls },
+    { extraSyscalls: options.extraSyscalls, filename: entryFile },
   ).errors;
   const semanticAsCompiler = semanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
 
   // Логирование семантических ошибок
   for (const err of semanticErrors) {
-    addLog(logs, 'warn', 'semantic', err.message, start, toCompileError({ message: err.message }, err.line, undefined, err.kind));
+    addLog(logs, 'warn', 'semantic', err.message, start, toCompileError({ message: err.message, file: err.file }, err.line, undefined, err.kind));
   }
 
   if (program.modules.length > 1) {
     const programSemanticErrors = analyzeProgram(program, {
       extraSyscalls: options.extraSyscalls,
+      filename: entryFile,
     }).errors;
     const programSemanticAsCompiler = programSemanticErrors.map((e) => ({ message: `[semantic] ${e.message}` }));
     try {
@@ -1361,11 +1824,13 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
       return {
         module: compiledModules[0] ?? null,
         modules: compiledModules,
+        moduleAst: getFirstModuleOrThrow(program),
         compilerSuccess: true,
         lexerErrors: [],
         parserErrors: [],
         compilerErrors: programSemanticAsCompiler,
         semanticErrors: programSemanticErrors,
+        warnings,
         durationMs: Date.now() - start,
         logs,
       };
@@ -1383,6 +1848,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
           { message: errorMsg },
         ],
         semanticErrors: programSemanticErrors,
+        warnings,
         durationMs: Date.now() - start,
         logs,
       };
@@ -1394,11 +1860,13 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
     return {
       module,
       modules: [module],
+      moduleAst: expandedAst,
       compilerSuccess: true,
       lexerErrors: [],
       parserErrors: [],
       compilerErrors: semanticAsCompiler,
       semanticErrors,
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };
@@ -1416,6 +1884,7 @@ export function compileSource(source: string, options: CompileOptions = {}): Com
         { message: errorMsg },
       ],
       semanticErrors,
+      warnings,
       durationMs: Date.now() - start,
       logs,
     };

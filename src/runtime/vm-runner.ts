@@ -11,7 +11,8 @@ import { setupWindow, setupService } from "./ui";
 import type { WindowApi } from "./ui";
 import * as storage from "./storage";
 import { isOsVbcModule } from "./vm/bytecode";
-import { VM, loadModule, runProgram, createDefaultInvokeHandler } from "./vm/interpreter";
+import { VM, loadModule, runProgram, createDefaultInvokeHandler, formatOsnovaValue } from "./vm/interpreter";
+import { isKnownInvoke } from "./vm/invokeRegistry";
 import type { StackValue } from "./vm/interpreter";
 import type { OsVbcModule } from "./vm/bytecode";
 
@@ -98,11 +99,16 @@ function createInvokeHandler(
 ) {
   const { windowApi } = appContext;
   const pad2 = (n: number): string => String(Math.trunc(n)).padStart(2, "0");
+  /**
+   * Общий обработчик — источник истины для чистых системных вызовов языка.
+   * Держим один экземпляр: он без состояния, а создание на каждый вызов — лишнее.
+   */
+  const base = createDefaultInvokeHandler();
 
   return async (name: string, args: StackValue[]): Promise<StackValue | null> => {
     switch (name) {
       case "система.лог.вывести":
-        console.log(String(args[0] ?? ""));
+        console.log(formatOsnovaValue(args[0]));
         return null;
 
       case "система.файлы.прочитать_все": {
@@ -554,6 +560,11 @@ function createInvokeHandler(
         const src = /^\s*модуль(?:\s|$)/.test(raw)
           ? raw
           : `модуль Внутр\nпроцедура главная()\n  вернуть ${raw}\nконец\nконец`;
+        // Компилируется СТРОКА, а не файл: источник строится здесь же и несёт
+        // явную шапку `модуль Внутр`, поэтому имя модуля берётся из шапки, а
+        // `filename` передавать неоткуда. `baseDir` тоже не нужен: каталога нет
+        // и импортов такая строка не содержит. Это названо намеренно — иначе
+        // следующий читатель решит, что опции забыли (аудит `.tmp/call-sites-audit.ts`).
         const { compileSource } = await import("../compiler/compiler");
         const compiled = compileSource(src);
         if (!compiled.module || compiled.lexerErrors.length || compiled.parserErrors.length) {
@@ -572,6 +583,11 @@ function createInvokeHandler(
         const src = /^\s*модуль(?:\s|$)/.test(raw)
           ? raw
           : `модуль Внутр\nпроцедура главная()\n  вернуть ${raw}\nконец\nконец`;
+        // Компилируется СТРОКА, а не файл: источник строится здесь же и несёт
+        // явную шапку `модуль Внутр`, поэтому имя модуля берётся из шапки, а
+        // `filename` передавать неоткуда. `baseDir` тоже не нужен: каталога нет
+        // и импортов такая строка не содержит. Это названо намеренно — иначе
+        // следующий читатель решит, что опции забыли (аудит `.tmp/call-sites-audit.ts`).
         const { compileSource } = await import("../compiler/compiler");
         const compiled = compileSource(src);
         if (!compiled.module || compiled.lexerErrors.length || compiled.parserErrors.length) {
@@ -597,6 +613,15 @@ function createInvokeHandler(
         if (name.startsWith("система.сеть") && !sandbox.allowNetwork) {
           throw new SandboxError("Network not allowed");
         }
+        // Чистые вызовы языка (математика, `объект.*`, `строка.из_числа`,
+        // `итератор.из`) реализованы в общем обработчике. Раньше они молча
+        // становились здесь заглушкой, и это ломало приложения: `для_каждого`
+        // компилируется в `система.итератор.из` (`src/compiler/codegen.ts`), а
+        // байткод-фикстуры приложений перегенерированы в `7853a50` — app-runner
+        // новый системный вызов не получил, и ни один `для` не делал итераций
+        // (Micro-CRM считал 0 вместо 65). Свои вызовы — окно, хранилище, файлы,
+        // лог, интерфейс — раннер держит выше в `switch` и они сюда не доходят.
+        if (isKnownInvoke(name)) return base(name, args);
         console.error("[osnova-vm] invoke stub:", name);
         return null;
     }

@@ -16,6 +16,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/reusable-node-run.yml
     with:
+      runs_on: '["ubuntu-latest"]'
       fetch-depth: 0
       commands: |
         npm run health-diff

@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: CC-BY-SA-4.0
+# What v6 adds to the E2K operations: hand-written rules, as in
+# operations-v3.yaml (which explains the fields). Checked on the
+# Elbrus-2C3 (v6).
+
+header: |
+  # Operations added in v6
+
+  What `elbrus-v6` (Elbrus-16C, -2C3) adds to
+  [operations-v5.md](operations-v5.md); v7 is in
+  [operations-v7.md](operations-v7.md). **Generated** by
+  `tools/isa-extract/gen_operations.py` from `operations-v6.yaml`; the
+  columns are those of [operations-v3.md](operations-v3.md) (the "lcc
+  v3 / v5" column is empty here: those sysroots predate v6).
+
+  Every v6 ALU operation was run on an Elbrus-2C3, by `sem6.c` (46 sets
+  of 128-bit inputs) and timed by `bench.py` (`v6op_*`), the register
+  branch and call and the user-mode control operations by `ctl6.c`:
+  semantics.md, "v6 operations", timing.md, "Elbrus-2C3 (v6)", and
+  control-transfer.md, "v6". The community qemu matches the hardware on all of
+  them except the packed fused multiply-adds, which it gets wrong, and
+  six it doesn't implement.
+
+  ## What v6 changes for a compiler
+
+  - **Loads take 5 cycles** to any consumer in either cluster (3, +1
+    across, before), and `ldqp` goes through L1 (5 cycles, four a
+    cycle; v5: 11, one a cycle). Schedule load consumers 5 cycles
+    out: one at 3 stalls a 4-cycle step. lcc's 2C3 libraries use `ldqp`
+    5,747 times (its v5 code loads 128 bits as two `ldd`).
+  - **Integer predicates are faster**: a compare or predicate logic
+    reaches a predicated operation or `merge` in 1 cycle (2 before).
+  - **Fused multiply-add**: `fma*`, `fms*`, `fnma*`, `fnms*` and their
+    `qp` forms round once, take 5 cycles through any operand (the
+    combined `fmul_add*` round twice and take 8) and issue six a cycle.
+    They are GCC's `fma<mode>4` family and what `-ffp-contract=fast`
+    wants. lcc's 2C3 libraries use `fmad` 857 times and `fmul_addd` 27.
+    lcc itself emits `fmad` for `__builtin_fma` always; under
+    `-ffp-contract=fast` also in recurrences (Horner) and `restrict`
+    loops (`fmsd`, `fnmad`), dropping `fmul_addd` there and in other
+    loops; under `-ffast-math` also for `fma()` and in loops without
+    `restrict`; never for a returned `a * b + c` or in reductions. At
+    `-O3` it keeps `fmul_addd` and calls libm for `fma()`.
+  - **lcc's v6 code** otherwise differs little from its v5 code: in
+    CoreMark 4% fewer wide instructions (fewer `ibranch`es and
+    predicate operations), in Linpack 6% fewer (fewer `nop`s), with the
+    same operations.
+  - **Vector loop exits**: a packed compare straight into a predicate
+    (`qpcmpeqbop`: any lane equal) replaces v5's `qpcmpeqb` +
+    `qpsgn2mskb` + compare; lcc's string functions use it (247
+    `qpcmpeqbop`, 40 `qpcmpeqbap`). 4 cycles to a predicated operation,
+    5 to `ct`.
+  - **APB**: an area delivers 32 bytes a cycle (16 before), so two
+    `movaqp` from one area per iteration run at an iteration a cycle;
+    after a trap outside a loop the areas keep their positions
+    (apb.md, "v6").
+  - Smaller changes: an integer compare or predicate logic one
+    instruction before a taken return now reaches the return's
+    instruction (FP compares not run on v6); `movtd` and `ct` through one CTPR
+    in one instruction don't transfer; `stmqp` takes any address; the
+    divider no longer delays ALC5 FP operations; `abg` is gone (gas
+    rejects it), replaced by `abgc`/`rbgc`.
+
+groups:
+
+- title: Scalar
+  rules:
+  - ops: clmull clmulh
+    does: "Carry-less 64 × 64 product, low or high 64 bits (x86 `pclmulqdq`; checked against the community qemu on the 2C3). 4 cycles, ALC0/1/3/4, four a cycle."
+    use: CRC and GCM (`clmul`).
+  - ops: fma{s,d} fms{s,d} fnma{s,d} fnms{s,d}
+    does: "Fused a × b + c, a × b − c, −(a × b) + c, −(a × b) − c, rounded once (matches C `fma()` on every input). 5 cycles through any operand, 7 to an integer consumer or the other cluster; six a cycle."
+    use: "`fma`, `fms`, `fnma`, `fnms<mode>4`; `fma()`; contraction (the combined `fmul_add*` round twice)."
+  - ops: ibranchd icalld
+    does: "Branch (`ibranchd,0 %drN, %empty [? cond]`) or call (`icalld,0 wbs = N, %drN, %empty`) to the address in a register, without a CTPR. A taken `ibranchd` costs 12 cycles beyond its instruction however early the address is ready; `icalld` + return 23 a call (`disp` + `call` 14)."
+    use: "Code size only: `movtd` 9 cycles ahead + `ct`/`call` is faster for indirect jumps and calls (control-transfer.md, \"v6\"). binutils uses `ibranchd` in v7 PLT entries, and lcc 1.31.05 for v7 jump tables, indirect tail calls and calls (not for v6)."
+    lat: "12 (taken)"
+  - ops: mkfsw
+    does: "An x87 status word from a and b: C0, C2, C3 = bits 0, 2, 6 (CF, PF, ZF) of a, TOP = b mod 8, other bits 0 (what `fnstsw` returns after an `fcmpud*f`-style compare)."
+    use: x87 code on the `%bgr` stack (binary translation); none in C.
+  - ops: modbgv vfbgv
+    does: "`%bgr` (x87 register stack) helpers, masks rotated by the stack top: `modbgv a` sets `val` = (`val` & ~a[7:0]) | a[15:8] (marks registers empty or full); `vfbgv a, b` raises SIGFPE `FPE_FLTINV` if a register in b[7:0] is full or one in b[15:8] is empty. Both write 0."
+    use: Binary translation only (loops.md, "v6").
+
+- title: Packed
+  rules:
+  - ops: pcmp{eq,gt}{b,h,w,d}{op,ap} qpcmp{eq,gt}{b,h,w,d}{op,ap}
+    does: "Into a predicate: true if the compare (signed for `gt`) holds in any lane (`op`) or in all lanes (`ap`). 4 cycles to a predicated operation or `merge`, 5 to `ct` (as FP compares); ALC0/3."
+    use: "Vector loop exits (`any`/`all`) without `qpsgn2mskb` and a scalar compare; lcc's string functions."
+  - ops: qpcheck{s,d,q}
+    does: "Nothing when a = b (32, 64 or 128 bits); SIGBUS `BUS_OBJERR` at the operation when they differ. The destination keeps its old value, and nothing waits for it: a reader of the destination (or a chain through it) issues the next cycle, as after an integer operation (`ctlleft.c` `t6_qpcheck*`, 2C3); two a cycle (ALC0 and ALC3)."
+    use: A one-operation "trap unless equal" (assertions); lcc doesn't use it.
+  - ops: pmrgp qpmrgp
+    does: "Merge by a predicate, as `merged`: a when it is false, b when true (64 or 128 bits). 1 cycle."
+    use: "`vcond`/`vec_select` on a predicate (lcc: `qpmrgp` 30 times)."
+  - ops: qpsrad
+    does: Arithmetic right shift of both 64-bit lanes by the count b. 1 cycle.
+    use: "`ashr` of `V2DI`, which v5 lacks (`qpsraw` stops at 32-bit lanes)."
+  - ops: qpcext_0x{00,7f,80,ff}
+    does: 128 bits with b in the low half and the high half filled with the byte in the name. 1 cycle.
+    use: Widening a 64-bit value to 128 bits (zero, sign-style fills).
+  - ops: qpfma{s,d} qpfms{s,d} qpfnma{s,d} qpfnms{s,d} qpfmas{s,d} qpfmsa{s,d}
+    does: "Fused multiply-add per lane, rounded once; `mas`: add c in even lanes (lane 0 is the low one) and subtract in odd, `msa` the reverse (so x86 `vfmaddsub` is `qpfmsa*`). 5 cycles, six a cycle. The community qemu gets these wrong."
+    use: "Vector `fma<mode>4` and friends; `vec_fmaddsub`."
+
+- title: Control
+  rules:
+  - ops: abgc rbgc
+    does: "Replace `abg` (gas rejects it for v6): `abgc N [? %predN]` adds N (1-7) to `%bgr.cur`, `rbgc` sets it to 0; neither checks or changes `val`, neither traps. They take effect for the next wide instruction (`rrs %bgr` and `vfbgv` in their own see the old `cur`), and nothing stalls (`ctlleft.c`, 2C3)."
+    use: Binary translation only (loops.md, "v6").
+  - ops: fillr fillc
+    does: "Refill the register window stack (`fillr`) or the chain stack (`fillc`) from memory, the counterparts of `flushr`/`flushc` (CS1 opcode 7, `param` bits 2 and 3; gas `parse_copf4_args`); presumably ahead of the returns that would otherwise refill frame by frame (inferred from the kernel's use and the timing; what they refill was not read back). The kernel runs `{fillc; fillr}` before returning to user mode when the CPU has both (v6+, but not `fillr` in hardware guests on E2C3, E12C, E16C, erratum #135233; kernel `asm/cpu_features.h:834-852`, `asm/e2k_api.h:6493-6519`, `ttable-inline.h:39-61,274-292`). They run in user mode and return normally: with nothing flushed each costs about 2 cycles. Right after a `flushr`, a `fillr` adds about 63 cycles to a call chain 0–4 frames deep, 16 at 16 frames, and saves 36 at 64 (1,593 against 1,629 cycles; the `flushr` and the 64 returns cost 193 over no flush). A `fillc` after `flushc` adds 1–11 cycles and saves 23 at 64 frames (1,526 against 1,549; the `flushc` and the returns cost 113) (`ctlleft.c` `fr_*`, 2C3)."
+    use: "None for a compiler: the hardware refills frames on return anyway."
+  - ops: hcall icall
+    does: "`hcall N, wbs = W`: hypercall N (0–15, CS0.disp bits 4:1; the kernel enables user hypercall numbers through `%hcem`). `icall L, wbs = W`: a call to the label L without a CTPR, CS0 holding the displacement (gas takes a symbol for it; binutils `parse_hicall_args`, `tc-e2k.c`)."
+    use: "lcc 1.31.05 emits `icall f, wbs = 4` for direct calls (and `ibranch f` for direct tail calls) only in v7 code (`-march=elbrus-v7`); its v6 code keeps `disp` + `call`. On the 2C3 `icall f, wbs = 0x1c` passed an argument and kept the caller's registers below `wbs`; it costs 6 cycles more than a `call` through a CTPR prepared in time, plus up to 3 that caller work after the return hides: 17 cycles a call of a 7-cycle leaf, against 14.3 for `disp`, 5 empty cycles and `call`, and 22.9 for `icalld` (control-transfer.md, \"v6\")."
+    status: "v6; `icall` run on the 2C3 (`timeleft.c`); `hcall` not run (it enters the hypervisor)"
+  - ops: iret hret glaunch
+    does: Privileged returns from traps and the hypervisor, guest launch.
+    status: "v6; not run (privileged)"

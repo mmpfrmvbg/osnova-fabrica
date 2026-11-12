@@ -17,6 +17,17 @@
  * не ломает VM — любой файл .osvbc с валидными `slots` продолжает работать.
  */
 
+/**
+ * Версия формата `.osvbc` — НАШЕ РЕШЕНИЕ, не из документа.
+ *
+ * Номер версии назначает проект, когда меняет структуру модуля. Документ
+ * `docs/bytecode-v1.md` описывает именно версию 1 и говорит «Версия байткода
+ * (1 для v1)» — то есть документ и код согласованы, но первоисточник здесь код,
+ * а не документ.
+ *
+ * Почему это помечено: версия определяет, как VM читает файл. Необъяснённое
+ * число здесь — это либо забытая константа, либо выдумка; отличить нельзя.
+ */
 export const BYTECODE_VERSION = 1;
 
 export type ConstType = "i32" | "f64" | "str" | "bool" | "null";
@@ -37,6 +48,7 @@ export type Op =
   | "sub"
   | "mul"
   | "div"
+  | "idiv"
   | "rem"
   | "eq"
   | "ne"
@@ -61,6 +73,58 @@ export type Op =
   | "obj.set"
   | "dup"
   | "pop";
+
+/**
+ * Тот же набор опкодов, что {@link Op}, но доступный во время исполнения.
+ *
+ * Зачем: `Op` — только тип, во время работы его не существует. Из-за этого
+ * инструменты (модель VLIW, отчёты, валидаторы) не могут проверить, что они не
+ * разошлись с языком. Именно так `src/vliw/e2kModel.ts` и
+ * `src/vliw/dependencyGraph.ts` обзавелись ветками на `global.get`,
+ * `global.set`, `field.get`, `field.set`, `result.unwrap`, `result.tag` —
+ * опкоды, которых в языке нет и никогда не было.
+ *
+ * ПРАВИЛО: при добавлении опкода в {@link Op} добавить его и сюда. Тесты
+ * `src/vliw/e2kDevices.test.ts` и `src/runtime/vm/bytecode.test.ts` сверяют,
+ * что наборы совпадают.
+ */
+export const ALL_OPS = [
+  "const",
+  "const.true",
+  "const.false",
+  "const.null",
+  "local.get",
+  "local.set",
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "idiv",
+  "rem",
+  "eq",
+  "ne",
+  "lt",
+  "le",
+  "gt",
+  "ge",
+  "and",
+  "or",
+  "not",
+  "call",
+  "invoke",
+  "jmp",
+  "jmp_if",
+  "jmp_if_not",
+  "try_begin",
+  "try_end",
+  "throw",
+  "ret",
+  "obj.new",
+  "obj.get",
+  "obj.set",
+  "dup",
+  "pop",
+] as const satisfies readonly Op[];
 
 export interface InstructionConst {
   op: "const";

@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: src/runtime/goldenApps.ts -->
 ## JSON‑схема для golden‑кейсов Основа v0.1
 
 Эталонное машинное представление golden‑тестов, чтобы **фабрика** и **тулчейн** читали один и тот же `.json` / `.yaml` и не парсили markdown.

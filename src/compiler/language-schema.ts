@@ -39,6 +39,8 @@ interface LanguageSchema {
     relatedTokens: string[];
     relatedAstNodes: string[];
     status: Status;
+    /** Написания-алиасы того же оператора (метаданные, не отдельный оператор). */
+    aliases: string[];
   }>;
   types: Array<{
     id: string;
@@ -77,6 +79,7 @@ const KEYWORD_TO_CONSTRUCTION: Record<string, string[]> = {
   когда: ["match_when"],
   есть: ["match_when"],
   попробовать: ["try_catch"],
+  поймать: ["try_catch"],
   иначе_попытка: ["try_catch"],
   выбросить: ["throw_stmt"],
   для_каждого: ["for_each", "for_each_indexed"],
@@ -117,7 +120,8 @@ const OPCODES: LanguageSchema["opcodes"] = [
   { id: "add", description: "Arithmetic add", relatedNodeTypes: ["бинарное"] },
   { id: "sub", description: "Arithmetic subtract", relatedNodeTypes: ["бинарное"] },
   { id: "mul", description: "Arithmetic multiply", relatedNodeTypes: ["бинарное"] },
-  { id: "div", description: "Arithmetic divide", relatedNodeTypes: ["бинарное"] },
+  { id: "div", description: "Arithmetic divide (real)", relatedNodeTypes: ["бинарное"] },
+  { id: "idiv", description: "Integer divide, truncation toward zero (БЛОК 2: оператор `div`)", relatedNodeTypes: ["бинарное"] },
   { id: "rem", description: "Arithmetic remainder", relatedNodeTypes: ["бинарное"] },
   { id: "eq", description: "Compare equals", relatedNodeTypes: ["бинарное", "унарное"] },
   { id: "ne", description: "Compare not equals", relatedNodeTypes: ["бинарное"] },
@@ -195,13 +199,22 @@ export function buildLanguageSchema(): LanguageSchema {
   }));
   constructions.push(...PLANNED_CONSTRUCTIONS);
 
-  const keywords = Object.keys(KEYWORDS)
-    .sort((a, b) => a.localeCompare(b, "ru"))
+  // Ключевые слова — из карты лексера ПЛЮС закрывающие блок слова (`конец`,
+  // `конец_если`, …): они реализованы, но в карту не входят, потому что лексер
+  // проверяет их до неё (у них свой TokenKind). Схема обязана их знать, иначе
+  // machine-readable канон перестаёт описывать синтаксис, который принимается.
+  const blockClosingLexemes = LANGUAGE_REGISTRY.keywords
+    .filter((k) => k.kind === "block" && k.implemented)
+    .map((k) => k.lexeme);
+  const keywordSpellings = Array.from(new Set([...Object.keys(KEYWORDS), ...blockClosingLexemes]))
+    .sort((a, b) => a.localeCompare(b, "ru"));
+
+  const keywords = keywordSpellings
     .map((spelling) => {
       const spec = LANGUAGE_REGISTRY.keywords.find((k) => k.lexeme === spelling);
       return {
         spelling,
-        tokenKind: KEYWORDS[spelling],
+        tokenKind: KEYWORDS[spelling] ?? spelling,
         relatedConstructions: KEYWORD_TO_CONSTRUCTION[spelling] ?? [],
         status: (spec?.implemented ? "stable" : "experimental") as Status,
       };
@@ -212,9 +225,10 @@ export function buildLanguageSchema(): LanguageSchema {
     category: op.kind,
     precedence: op.precedence,
     associativity: op.associativity,
-    relatedTokens: [op.symbol],
+    relatedTokens: [op.symbol, ...(op.aliases ?? [])],
     relatedAstNodes: ["бинарное", "унарное", "присвоить"],
     status: (op.implemented ? "stable" : "planned") as Status,
+    aliases: op.aliases ?? [],
   }));
 
   const syscalls = Object.keys(INVOKE_ARG_COUNT)

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { Compiler, compile, compileSource, compileProgram, optimizeIrModule, compileToBuildReport, formatCompileFailureMessage } from ".";
 import { LANGUAGE_REGISTRY } from "./language-registry";
+import { buildLanguageSchema } from "./language-schema";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { analyzeProgram } from "./semantic";
@@ -341,6 +342,22 @@ describe("Spec (ATM-EPK-260329-023-009): реестр языка ↔ лексе�
       expect(tokens[0]?.kind, lexeme).toBe(lexeme);
       expect(tokens[0]?.kind, lexeme).not.toBe("идентификатор");
     }
+  });
+
+  it("`:=` — алиас `=` в machine-readable каноне, а НЕ отдельный оператор", () => {
+    // Решение владельца: не отдельным токеном, а метаданными. Отдельная запись
+    // оператора сломала бы предыдущий инвариант: он требует, чтобы символ давал
+    // токен того же вида, а лексер сводит `:=` к `=`.
+    const eq = LANGUAGE_REGISTRY.operators.find((o) => o.symbol === "=");
+    expect(eq?.aliases, "у оператора = должен быть алиас :=").toContain(":=");
+    expect(
+      LANGUAGE_REGISTRY.operators.some((o) => o.symbol === ":="),
+      "отдельной записи-оператора быть не должно",
+    ).toBe(false);
+    // И схема это несёт: канон machine-readable, а не только проза.
+    const schema = buildLanguageSchema();
+    const schemaEq = schema.operators.find((o) => o.symbol === "=");
+    expect(schemaEq?.aliases, "схема несёт алиас :=").toContain(":=");
   });
 
   it("каждый implemented-оператор из реестра (кроме псевдо-символа унарного минуса) даёт один токен с тем же kind", () => {

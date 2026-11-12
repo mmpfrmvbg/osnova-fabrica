@@ -3,7 +3,13 @@ name: "Чат с Jarvis"
 version: "0.1.0"
 
 entry:
-  module: "чат"
+  # `entry.module` — это ИМЯ ФАЙЛА в каталоге пакета (`--package`), а не имя модуля
+  # внутри байткода: `loadModule(appDir, entry.module)` читает `<имя>.osvbc.json`
+  # (`src/runtime/vm/interpreter.ts:865`). Здесь стояло «чат» — и грузился
+  # осиротевший `apps/chat/чат.osvbc.json` (3505 б), тогда как свежий
+  # `apps/chat/chat.osvbc.json` (3750 б) не грузился никем и оттого не сторожился.
+  # Замер — `.tmp/chat-entry.ts`.
+  module: "chat"
   procedure: "главная"
   args: ["http://localhost:3000/chat"]
 

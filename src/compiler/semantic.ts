@@ -1,25 +1,24 @@
 import type { Expr, Program, Module, Stmt } from "./ast";
+import type { SemanticKind } from "./semanticKinds";
+import { unknownSyscallMessage } from "../runtime/vm/invokeRegistry";
 import { LANGUAGE_REGISTRY } from "./language-registry";
 
 export interface SemanticError {
   message: string;
   line?: number;
-  kind:
-    | "undeclared_var"
-    | "syscall_argc"
-    | "chained_compare"
-    | "unknown_syscall"
-    | "unknown_procedure"
-    | "arg_count_mismatch"
-    | "redeclare_var"
-    | "keyword_param"
-    | "keyword_as_identifier"
-    | "invented_syntax"
-    | "sentinel_pattern"
-    | "unknown_module"
-    | "export_collision"
-    | "break_outside_loop"
-    | "continue_outside_loop";
+  /**
+   * Файл, к которому относится ошибка. Ставится, потому что импорты
+   * разворачиваются: без него ошибка внутри импортируемого модуля называлась бы
+   * сборкой главного (`Procedure.origin`, `expandModuleImports`).
+   */
+  file?: string;
+  /**
+   * Вид ошибки. Объединение имён — из единого каталога
+   * (`src/compiler/diagnosticCatalogue.ts`), а не свой список здесь: прежде
+   * inline-union из 15 видов жил отдельно от списков `semanticKinds.ts` (9), и
+   * шесть видов не видела ни одна проверка «блокирует ли это сборку».
+   */
+  kind: SemanticKind;
 }
 
 export interface SemanticResult {
@@ -34,12 +33,13 @@ export interface HostSyscallSpec {
 
 export interface SemanticOptions {
   extraSyscalls?: HostSyscallSpec[];
-}
-
-const COMPARE_OPS = new Set(["==", "!=", "<", "<=", ">", ">="]);
-
-function isCompareExpr(expr: Expr): boolean {
-  return expr.kind === "бинарное" && COMPARE_OPS.has(expr.op);
+  /**
+   * Имя входного файла — файл по умолчанию для диагностики.
+   *
+   * Ошибка внутри процедуры называет СВОЙ файл (`Procedure.origin`), а этот —
+   * для ошибок уровня модуля, где процедуры ещё не назвали себя.
+   */
+  filename?: string;
 }
 
 interface ModuleSemanticContext {
@@ -48,10 +48,21 @@ interface ModuleSemanticContext {
   namespaceProcedures?: Map<string, Map<string, number>>;
   extraSyscallByName?: Map<string, number>;
   hostNamespaces?: Set<string>;
+  /** Файл по умолчанию для диагностики — см. {@link SemanticOptions.filename}. */
+  filename?: string;
 }
 
 function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}): SemanticError[] {
   const errors: SemanticError[] = [];
+  /**
+   * Файл, к которому относится проверяемое сейчас место.
+   *
+   * Переставляется на каждой процедуре из её `origin`: импорты разворачиваются, и
+   * без этого ошибка внутри встроенной процедуры называла бы сборкой главного
+   * модуля. Проверено замером: `модуль 'ЗадачиПриоритеты' не найден`, возникшая в
+   * `tasks_core.osnova`, приписывалась `main.osnova`.
+   */
+  let currentFile: string | undefined = context.filename;
   const knownProcedures = context.knownProcedures ?? new Set(ast.procedures.map((p) => p.name));
   const procedureArity: Map<string, number> =
     context.procedureArity ??
@@ -60,7 +71,14 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
     ?? new Map<string, Map<string, number>>();
   const extraSyscallByName = context.extraSyscallByName ?? new Map<string, number>();
   const hostNamespaces = context.hostNamespaces ?? new Set<string>();
-  const kwSet = new Set(LANGUAGE_REGISTRY.keywords.map((k) => k.lexeme));
+  // Закрывающие блоки лексемы (`конец`, `конец_если`, …) — контекстные, а не
+  // зарезервированные: вне позиции закрытия это обычные имена. Поэтому в набор
+  // «ключевых слов, которыми нельзя называть» они не входят (БЛОК 1 v2).
+  const kwSet = new Set(
+    LANGUAGE_REGISTRY.keywords
+      .filter((k) => k.kind !== "block")
+      .map((k) => k.lexeme),
+  );
 
   // ─── RFC-003: invented syntax check ───
   function checkInventedSyntaxInExpr(expr: Expr): void {
@@ -69,6 +87,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
         if (expr.name === "структура") {
           errors.push({
             kind: "invented_syntax",
+            file: currentFile,
             message:
               "Конструкция 'структура(...)' не существует в языке Основа. Используйте объектный литерал: { поле: значение }",
           });
@@ -76,20 +95,23 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
         if (expr.name.startsWith("система.типы.")) {
           errors.push({
             kind: "invented_syntax",
-            message: `Конструкция '${expr.name}' не существует в языке Основа. Используйте объектный литерал: { поле: значение }`,
+            file: currentFile,
+            message: `Конструкция '${expr.name}' не существует в языке Основа. Именованный тип объявляется: тип Имя = { поле: Тип } (перечень: тип Имя = вариант | вариант)`,
           });
         }
         if (expr.name === "система.хранилище.установить_поле") {
           errors.push({
             kind: "invented_syntax",
+            file: currentFile,
             message:
-              "Конструкция 'система.хранилище.установить_поле' не существует. Используйте система.хранилище.записать(ключ, значение)",
+              "Конструкция 'система.хранилище.установить_поле' не существует. Поле объекта устанавливается присваиванием: объект.поле = значение",
           });
         }
         // только .новый — система.объект.получить валиден в реестре
         if (expr.name === "система.объект.новый") {
           errors.push({
             kind: "invented_syntax",
+            file: currentFile,
             message: `Конструкция '${expr.name}' не существует в языке Основа. Используйте объектный литерал: { поле: значение }`,
           });
         }
@@ -179,6 +201,8 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
   }
 
   for (const proc of ast.procedures) {
+
+    currentFile = proc.origin ?? context.filename;
     checkInventedSyntaxInStmts(proc.body);
   }
 
@@ -191,6 +215,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
       if (stmt.kind === "пусть" && isSentinelInit(stmt.init) && !insideTry) {
         errors.push({
           kind: "sentinel_pattern",
+          file: currentFile,
           message: `Переменная '${stmt.name}' инициализируется значением пусто — это sentinel-паттерн. Используйте попробовать/иначе_попытка вместо проверки == пусто`,
         });
       }
@@ -226,6 +251,8 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
   }
 
   for (const proc of ast.procedures) {
+
+    currentFile = proc.origin ?? context.filename;
     checkSentinelInStmts(proc.body, false);
   }
 
@@ -235,6 +262,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
         if (!declared.has(expr.name)) {
           errors.push({
             kind: "undeclared_var",
+            file: currentFile,
             message: `переменная '${expr.name}' используется без объявления через пусть`,
           });
         }
@@ -261,11 +289,13 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           if (!spec) {
             errors.push({
               kind: "unknown_syscall",
-              message: `системный вызов '${expr.name}' не существует`,
+              file: currentFile,
+              message: unknownSyscallMessage(expr.name),
             });
           } else if (expr.args.length !== spec.argc) {
             errors.push({
               kind: "syscall_argc",
+              file: currentFile,
               message: `'${expr.name}' ожидает ${spec.argc} аргументов, передано ${expr.args.length}`,
             });
           }
@@ -275,6 +305,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
             if (expr.args.length !== hostArgc) {
               errors.push({
                 kind: "syscall_argc",
+                file: currentFile,
                 message: `'${expr.name}' ожидает ${hostArgc} аргументов, передано ${expr.args.length}`,
               });
             }
@@ -283,6 +314,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
             if (hostNamespaces.has(namespace ?? "")) {
               errors.push({
                 kind: "unknown_syscall",
+                file: currentFile,
                 message: `хост-вызов '${expr.name}' не существует`,
               });
             } else {
@@ -290,11 +322,13 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
               if (!exported) {
                 errors.push({
                   kind: "unknown_module",
+                  file: currentFile,
                   message: `модуль '${namespace}' не найден`,
                 });
               } else if (!exported.has(procName ?? "")) {
                 errors.push({
                   kind: "unknown_procedure",
+                  file: currentFile,
                   message: `процедура '${procName}' не экспортирована модулем '${namespace}'`,
                 });
               } else {
@@ -302,6 +336,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
                 if (expectedArity !== undefined && expr.args.length !== expectedArity) {
                   errors.push({
                     kind: "arg_count_mismatch",
+                    file: currentFile,
                     message: `процедура '${namespace}.${procName}' ожидает ${expectedArity} аргументов, получено ${expr.args.length}`,
                   });
                 }
@@ -311,6 +346,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
         } else if (!knownProcedures.has(expr.name)) {
           errors.push({
             kind: "unknown_procedure",
+            file: currentFile,
             message: `процедура '${expr.name}' не объявлена в модуле`,
           });
         } else {
@@ -319,6 +355,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           if (expectedArity !== undefined && expr.args.length !== expectedArity) {
             errors.push({
               kind: "arg_count_mismatch",
+              file: currentFile,
               message: `процедура '${expr.name}' ожидает ${expectedArity} аргументов, получено ${expr.args.length}`,
             });
           }
@@ -328,12 +365,31 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
       case "бинарное":
         checkExpr(expr.left, declared);
         checkExpr(expr.right, declared);
-        if (COMPARE_OPS.has(expr.op) && (isCompareExpr(expr.left) || isCompareExpr(expr.right))) {
-          errors.push({
-            kind: "chained_compare",
-            message: "цепочечные сравнения не поддерживаются, используй 'и'",
-          });
-        }
+        // Цепочечное сравнение здесь НЕ проверяется — и это не забытая строка.
+        //
+        // Здесь стоял вид `chained_compare` («цепочки не поддерживаются,
+        // используй 'и'»), и он был **инвертирован**. Замер 2026-09-28
+        // (`.tmp/diag-chain-number.osnova`, `.tmp/diag-paren-bool.osnova`):
+        //
+        //   • настоящая цепочка разворачивается в ПАРСЕРЕ (`parser.ts`,
+        //     `parseCompare`: `a < b < c` → `(a < b) и (b < c)`) — то есть
+        //     считается, и число верное: дискриминатор `1 < 5 < 3` /
+        //     `1 < 2 < 3` / `5 < 2 < 9` даёт **10**, а не «истина на всё».
+        //     Канон §2.1 объявляет эту запись сахаром языка, так что отказом
+        //     она быть не может;
+        //   • а сюда доходило только ЗАКОННОЕ сравнение результата сравнения
+        //     (`(1 < 2) = истина`), и оно называлось ошибкой **ложно**: вид
+        //     `chained_compare` не порождался ничем, кроме верной программы.
+        //
+        // Подгонять условие нечем: после разворота `(a < b) и (b < c)`
+        // неотличимо от написанного руками `и`, поэтому на форме AST сахар и
+        // ошибка неразличимы. Вид объявлен недостижимым из исходного текста
+        // (`diagnosticCatalogue.ts`, поле `debt`), а не «починен» вслепую.
+        //
+        // Сторожа: `diagnosticCatalogue.test.ts` — таблица замеров и класс
+        // «`blocking` ⟺ сборка не проходит»; независимый аудит —
+        // `src/scripts/errorChannel.audit.test.ts` (значение цепочки меряется
+        // на VM, а не выводится из сборки).
         return;
       case "поле":
         checkExpr(expr.object, declared);
@@ -363,6 +419,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           if (kwSet.has(stmt.name)) {
             errors.push({
               kind: "keyword_as_identifier",
+              file: currentFile,
               message: `«${stmt.name}» является ключевым словом — используйте другое имя переменной`,
             });
             break;
@@ -370,6 +427,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           if (declared.has(stmt.name)) {
             errors.push({
               kind: "redeclare_var",
+              file: currentFile,
               message: `повторное объявление '${stmt.name}' через пусть — используй просто '${stmt.name} = ...'`,
             });
           }
@@ -379,6 +437,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           if (!declared.has(stmt.name)) {
             errors.push({
               kind: "undeclared_var",
+              file: currentFile,
               message: `переменная '${stmt.name}' используется без объявления через пусть`,
             });
           }
@@ -420,6 +479,13 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           const loopScope = new Set(declared);
           const v = stmt.item ?? stmt.variable;
           loopScope.add(v);
+          // ИНДЕКС ПЕРЕБОРА — тоже объявленная переменная. Форма
+          // `для эл, инд в числа` есть и в реестре (`for_each_indexed`), и в AST
+          // (`index`), но в области видимости индекс не заводился: любая программа,
+          // которая им ПОЛЬЗУЕТСЯ, получала ложное «переменная 'инд' используется без
+          // объявления через пусть». Замерено: то же на v2, то есть дыра общая, а не
+          // v3-фронтенда — и молчаливая, пока индекс в теле не понадобится.
+          if (stmt.index !== undefined) loopScope.add(stmt.index);
           checkStmts(stmt.body, loopScope, true);
           break;
         }
@@ -435,6 +501,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           if (!inLoop) {
             errors.push({
               kind: "break_outside_loop",
+              file: currentFile,
               message: "оператор 'прервать' допустим только внутри цикла",
             });
           }
@@ -443,6 +510,7 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
           if (!inLoop) {
             errors.push({
               kind: "continue_outside_loop",
+              file: currentFile,
               message: "оператор 'продолжить' допустим только внутри цикла",
             });
           }
@@ -461,10 +529,13 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
   }
 
   for (const proc of ast.procedures) {
+
+    currentFile = proc.origin ?? context.filename;
     for (const param of proc.params) {
       if (kwSet.has(param)) {
         errors.push({
           kind: "keyword_param",
+          file: currentFile,
           message: `параметр '${param}' является ключевым словом — используй другое имя`,
         });
       }
@@ -475,8 +546,8 @@ function checkModuleSemantics(ast: Module, context: ModuleSemanticContext = {}):
   return errors;
 }
 
-export function checkSemantics(ast: Module): SemanticError[] {
-  return checkModuleSemantics(ast);
+export function checkSemantics(ast: Module, options: SemanticOptions = {}): SemanticError[] {
+  return checkModuleSemantics(ast, { filename: options.filename });
 }
 
 interface ModuleExports {
@@ -495,7 +566,11 @@ export function analyzeProgram(program: Program, options: SemanticOptions = {}):
   }
   const exportsByModuleName = new Map<string, ModuleExports[]>();
 
+  /** Файл уровня модуля: у самого `Module` поля нет, берём из его процедур. */
+  let currentFile: string | undefined = options.filename;
+
   for (const mod of program.modules) {
+    currentFile = mod.procedures[0]?.origin ?? options.filename;
     const moduleExports: ModuleExports = {
       procedures: new Map(
         mod.procedures
@@ -512,6 +587,7 @@ export function analyzeProgram(program: Program, options: SemanticOptions = {}):
           if (prev.procedures.has(proc)) {
             errors.push({
               kind: "export_collision",
+              file: currentFile,
               message: `коллизия экспортов: модуль '${mod.name}' экспортирует процедуру '${proc}' более одного раза`,
             });
           }
@@ -529,6 +605,7 @@ export function analyzeProgram(program: Program, options: SemanticOptions = {}):
       if (!providers || providers.length === 0) {
         errors.push({
           kind: "unknown_module",
+          file: currentFile,
           message: `модуль '${imp.module}' не найден`,
         });
         continue;
@@ -539,6 +616,7 @@ export function analyzeProgram(program: Program, options: SemanticOptions = {}):
           if (merged.has(proc)) {
             errors.push({
               kind: "export_collision",
+              file: currentFile,
               message: `коллизия экспортов: namespace '${imp.module}' содержит дубликат процедуры '${proc}'`,
             });
           }
@@ -554,6 +632,7 @@ export function analyzeProgram(program: Program, options: SemanticOptions = {}):
         namespaceProcedures,
         extraSyscallByName,
         hostNamespaces,
+        filename: currentFile,
       }),
     );
   }

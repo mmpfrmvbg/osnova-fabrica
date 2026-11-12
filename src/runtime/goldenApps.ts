@@ -11,8 +11,66 @@ import { isOsVbcModule, isVliwPacket } from './vm/bytecode';
 import type { OsVbcModule, VliwPacket } from './vm/bytecode';
 import type { GoldenReport } from '../pipeline/types';
 import type { OsnovaSpec } from '../pipeline/types';
+import { RUNTIME_CODES, runtimeErrorCodeOf, type RuntimeErrorCode } from './runtimeCodes';
 
 const STORAGE_ROOT = path.join(os.tmpdir(), 'osnova-storage');
+
+/**
+ * Запись об отказе исполнения для `GoldenReport.vmErrors`.
+ *
+ * Зачем отдельная функция и почему она экспортирована: сборка записи — это
+ * **точка, где канал рвётся молча**. Замер 2026-09-28 (проба T4): код у ошибки
+ * уже был (`код=OSN-RT-002`), а в записи лежал только текст — в живом
+ * `runs/traces.jsonl` 51 отказ исполнения, и у всех код «не назван». Поэтому
+ * сборка вынесена в одно место, покрыта сторожем
+ * (`src/runtime/runtimeCodes.test.ts`) и не оставляет выбора «забыть поле».
+ *
+ * Контракт записи:
+ * - `message` — **дословно** прежний текст (`e.message`), его читает человек и
+ *   ищут существующие проверки; текст не переписывается;
+ * - `code` — код из таблицы `src/runtime/runtimeCodes.ts`. Если у ошибки кода
+ *   нет (в том числе когда это не ошибка, а текст отказа), запись получает
+ *   **явный** маркер `OSN-RT-000`: «код не назван» обязано быть видно числом,
+ *   а не пустым полем — пустое поле не отличить от «поле забыли»;
+ * - `op`/`pc` — место отказа в байткоде, когда оно есть: без них запись говорит
+ *   «что», но не «где».
+ */
+export interface VmErrorRecord {
+  readonly message: string;
+  readonly code: RuntimeErrorCode;
+  readonly op?: string;
+  readonly pc?: number;
+  readonly opcode?: string;
+  readonly stack?: unknown[];
+}
+
+/** Собрать запись об отказе исполнения (см. {@link VmErrorRecord}). */
+export function vmErrorRecordOf(error: unknown): VmErrorRecord {
+  const record: {
+    message: string;
+    code: RuntimeErrorCode;
+    op?: string;
+    pc?: number;
+  } = {
+    message: error instanceof Error ? error.message : String(error),
+    code: runtimeErrorCodeOf(error) ?? RUNTIME_CODES.unnamedRefusal,
+  };
+  if (error !== null && typeof error === 'object') {
+    const { op, pc } = error as { op?: unknown; pc?: unknown };
+    // Пустые `op`/`pc` не пишем: поле с `undefined` в JSON-журнале неотличимо
+    // от отсутствующего, а «нет места» — это отсутствие поля, а не пустое значение.
+    if (typeof op === 'string' && op !== '') record.op = op;
+    if (typeof pc === 'number' && Number.isInteger(pc)) record.pc = pc;
+  }
+  return record;
+}
+
+/**
+ * Корень хранилища golden-приложений. Экспортирован для оракула app-runner'а:
+ * он обязан читать те же ключи из того же корня, что пишет приложение
+ * (`src/runtime/appRunner.test.ts`), иначе проверка смотрела бы в другое место.
+ */
+export const GOLDEN_STORAGE_ROOT = STORAGE_ROOT;
 
 function makeTmpStorageRoot(): string {
   const dir = path.join(os.tmpdir(), `osnova-golden-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -36,14 +94,16 @@ export async function runGoldenCheck(
       executed: false,
       passed: false,
       qualityScore: 0,
-      vmErrors: [{ message: 'bytecode is not a valid OsVbcModule' }],
+      // Предполётный отказ проверки: исполнение не состоялось, кода у него нет —
+      // маркер `OSN-RT-000` ставится тем же сборщиком записи, что и для ошибок.
+      vmErrors: [vmErrorRecordOf('bytecode is not a valid OsVbcModule')],
       outputDiff: null,
       durationMs: Date.now() - start,
     };
   }
 
   const module = bytecode as OsVbcModule;
-  const vmErrors: { message: string; opcode?: string; stack?: unknown[] }[] = [];
+  const vmErrors: VmErrorRecord[] = [];
 
   // ── 1. Точка входа ──
   const entryName =
@@ -55,7 +115,7 @@ export async function runGoldenCheck(
       executed: false,
       passed: false,
       qualityScore: 0,
-      vmErrors: [{ message: 'no procedures in bytecode' }],
+      vmErrors: [vmErrorRecordOf('no procedures in bytecode')],
       outputDiff: null,
       durationMs: Date.now() - start,
     };
@@ -170,13 +230,15 @@ export async function runGoldenCheck(
 
     const vm = createGoldenCheckVm(spec, module, { invoke: goldenInvoke });
     if (!vm) {
-      vmErrors.push({ message: 'bytecode is not a valid OsVbcModule' });
+      vmErrors.push(vmErrorRecordOf('bytecode is not a valid OsVbcModule'));
     } else {
       vmResult = await vm.execute({ procedure: entryName });
       executed = true;
     }
   } catch (e) {
-    vmErrors.push({ message: e instanceof Error ? e.message : String(e) });
+    // Отказ VM: текст остаётся дословным, а код (или явный `OSN-RT-000`) едет
+    // в запись отдельным полем — см. `vmErrorRecordOf`.
+    vmErrors.push(vmErrorRecordOf(e));
   }
 
   if (!executed) {

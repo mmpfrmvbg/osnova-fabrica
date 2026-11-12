@@ -7,7 +7,17 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { OsVbcModule, RawInstruction, CodeElement } from "./bytecode";
 import { getInvokeArgCount, isKnownInvoke } from "./invokeRegistry";
+// Коллекции на `brk`: отказ и разбор целых — из общего модуля, чтобы эталон и цель не разошлись в
+// том, что считается отказом. Объявление арности для VM живёт ТАМ ЖЕ и объяснено: канон языка этих
+// операций ещё не несёт, поэтому арность едет `extraInvokes`, а не реестром (`invokeRegistry`).
+import { CollectionRefusal, collectionInteger } from "./collectionCalls";
+export { CollectionRefusal } from "./collectionCalls";
+// Символ строки: разбор индекса и НАЗВАННЫЙ отказ живут в общем модуле — тот же приём, что у
+// коллекций, и по той же причине: у обеих VM и у цели причина отказа обязана быть ОДНОЙ.
+import { stringCodeAt } from "./stringChar";
 import { isVliwPacket } from "./bytecode";
+import { codePointIndexOf, codePointLength, codePointSlice, orderedCompare } from "./stringUnits";
+import { RUNTIME_CODES, type RuntimeErrorCode } from "../runtimeCodes";
 
 export type StackValue =
   | number
@@ -21,9 +31,57 @@ export interface InvokeHandler {
   (name: string, args: StackValue[]): Promise<StackValue> | StackValue;
 }
 
+/**
+ * АРЕНА У ЯЗЫКА: база и предел — условные числа (в VM адрес — просто число), но **поведение
+ * обязано совпадать с целью**: арена растёт, не возвращается, а исчерпание — это ОТКАЗ с одной и
+ * той же строкой (решение владельца: «текст потом» не принимается, молчание с числом — нет).
+ * Контракт цели: `docs/hardware-debt.md` §3.87.
+ */
+export const VM_ARENA_BASE = 4096;
+export const VM_ARENA_LIMIT = 65536;
+/** Строка отказа при исчерпании — ОДНА на VM и на цель (на цели её печатает stderr, код 231). */
+export const ARENA_EXHAUSTED_MESSAGE = "арена исчерпана: выделение сверх предела";
+
+/**
+ * КОЛЛЕКЦИИ НА `brk` В VM: ГЕОМЕТРИЯ БЛОКА — ОДНА НА VM И НА ЦЕЛЬ.
+ *
+ * Слова заголовка и элемента — по 8 байт: то же число, что у цели (`COLLECTION_WORD_REGISTER`,
+ * `src/e2k/collectionsRuntime.ts`). Адреса VM начинаются выше арены, чтобы «адрес арены» и «адрес
+ * коллекции» не путались в отчётах; на семантику это не влияет — сравниваются значения, а не адреса,
+ * но одна арифметика адресов нужна: ею проверяется, что два выделения подряд стоят ровно на
+ * `8 + ёмкость·8` друг от друга.
+ */
+export const VM_COLLECTIONS_BASE = 1 << 20;
+export const COLLECTION_HEADER_BYTES = 8;
+export const COLLECTION_ELEMENT_BYTES = 8;
+
 /** Обработчик по умолчанию (используется когда invoke не передан). */
 export function createDefaultInvokeHandler(): InvokeHandler {
   const storage = new Map<string, StackValue>();
+  // Указатель арены: одна арена на прогон — как и на цели.
+  let arenaNext = VM_ARENA_BASE;
+  // Коллекции на `brk`: указатель кучи и блоки. Адрес — просто число, но ШАГ тот же, что у цели
+  // (`COLLECTION_HEADER_BYTES + ёмкость·COLLECTION_ELEMENT_BYTES`), иначе «разность адресов двух
+  // выделений» нельзя было бы спросить у обеих сторон одним вопросом.
+  let collectionsNext = VM_COLLECTIONS_BASE;
+  const collections = new Map<number, { capacity: number; elements: StackValue[] }>();
+  const collectionBlockOf = (address: StackValue, op: string): { capacity: number; elements: StackValue[] } => {
+    const block = collections.get(Number(address));
+    if (block === undefined) {
+      throw new CollectionRefusal(
+        `коллекция.${op}: по адресу ${String(address)} блока нет — адрес не от «выделить» или не от «расширить»`,
+      );
+    }
+    return block;
+  };
+  const collectionCheckIndex = (index: number, capacity: number, op: string): void => {
+    if (index < 0 || index >= capacity) {
+      throw new CollectionRefusal(
+        `коллекция.${op}: индекс ${String(index)} вне ёмкости ${String(capacity)} — ` +
+          'это НАЗВАННЫЙ отказ, а не null: выход за границу обязан быть виден (§2.3)',
+      );
+    }
+  };
   const pad2 = (n: number): string => String(Math.trunc(n)).padStart(2, "0");
   return async (name: string, args: StackValue[]): Promise<StackValue | null> => {
     switch (name) {
@@ -75,14 +133,93 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       }
       return null;
     }
+    // ─── КОЛЛЕКЦИИ НА `brk`: ЭТАЛОН ЯЗЫКА ───────────────────────────────────────────────────────
+    //
+    // Растущий массив записей. Формат блока — ТОТ ЖЕ, что на цели, и это не совпадение, а условие
+    // сравнимости: `[ёмкость: 8 байт][элемент 0][элемент 1]…`, адрес следующего блока отстоит от
+    // предыдущего на `8 + ёмкость·8` (`src/e2k/collectionsRuntime.ts` — оттуда же и правило).
+    //
+    // Здесь адрес — просто число (у VM нет памяти), но АРИФМЕТИКА АДРЕСОВ та же: тогда «разность
+    // адресов двух выделений» — величина, которую можно спросить у обеих сторон одним вопросом, а не
+    // двумя похожими. Блок не освобождается никогда: `расширить` выделяет НОВЫЙ блок и возвращает его
+    // адрес, старое остаётся мёртвым — ровно как `brk` на цели (арена без возврата, §4.4).
+    //
+    // Незаписанный элемент читается нулём, и это НЕ произвол: свежая страница кучи на цели приходит
+    // от ядра нулевой, поэтому ноль — то же самое, что прочитала бы программа до первой записи.
+    case "система.коллекция.выделить": {
+      const capacity = collectionInteger(args[0], "выделить", "ёмкость");
+      if (capacity < 0) {
+        throw new CollectionRefusal(`коллекция.выделить: ёмкость ${String(capacity)} отрицательна`);
+      }
+      const address = collectionsNext;
+      collectionsNext += COLLECTION_HEADER_BYTES + capacity * COLLECTION_ELEMENT_BYTES;
+      collections.set(address, { capacity, elements: new Array<StackValue>(capacity).fill(0) });
+      return address;
+    }
+    case "система.коллекция.положить": {
+      const block = collectionBlockOf(args[0], "положить");
+      const index = collectionInteger(args[1], "положить", "индекс");
+      collectionCheckIndex(index, block.capacity, "положить");
+      block.elements[index] = args[2] as StackValue;
+      return null;
+    }
+    case "система.коллекция.взять": {
+      const block = collectionBlockOf(args[0], "взять");
+      const index = collectionInteger(args[1], "взять", "индекс");
+      collectionCheckIndex(index, block.capacity, "взять");
+      return block.elements[index] as StackValue;
+    }
+    case "система.коллекция.расширить": {
+      const block = collectionBlockOf(args[0], "расширить");
+      const capacity = collectionInteger(args[1], "расширить", "новая ёмкость");
+      if (capacity < 0) {
+        throw new CollectionRefusal(`коллекция.расширить: новая ёмкость ${String(capacity)} отрицательна`);
+      }
+      // РАСШИРЕНИЕ — ЭТО РОСТ, А НЕ ПЕРЕЕЗД НА МЕСТО: «новая ёмкость не больше текущей» — НАЗВАННЫЙ
+      // отказ, и он есть у ОБЕИХ сторон (цель: своя строка, `COLLECTION_CAPACITY_REFUSAL_TEXT`).
+      // Молчаливый возврат того же блока был бы тихой ложью: программа считала бы, что ёмкость выросла,
+      // и первая же запись за старой границей ушла бы в чужую память (на цели — в чужой блок).
+      if (capacity <= block.capacity) {
+        throw new CollectionRefusal(
+          `коллекция.расширить: новая ёмкость ${String(capacity)} не больше текущей ` +
+            `${String(block.capacity)} — расширять некуда`,
+        );
+      }
+      const address = collectionsNext;
+      collectionsNext += COLLECTION_HEADER_BYTES + capacity * COLLECTION_ELEMENT_BYTES;
+      // Копируются ВСЕ старые элементы, а не «сколько влезет»: пропуск последнего — тот самый
+      // негативный контроль, на котором сумма в сквозном прогоне перестаёт сходиться.
+      const elements = new Array<StackValue>(capacity).fill(0);
+      for (let at = 0; at < block.capacity && at < capacity; at++) elements[at] = block.elements[at] as StackValue;
+      collections.set(address, { capacity, elements });
+      return address;
+    }
     case "система.строка.объединить": {
-      const a = String(args[0] ?? "");
-      const b = String(args[1] ?? "");
-      return a + b;
+      // Тот же формат значения, что у `+` со строкой: иначе `+` и `объединить`
+      // расходились бы на логических (`истина` против `true`).
+      return formatOsnovaValue(args[0]) + formatOsnovaValue(args[1]);
     }
     case "система.строка.длина": {
       const s = String(args[0] ?? "");
-      return s.length;
+      // ЕДИНИЦА — КОДОВАЯ ТОЧКА (решение владельца 2026-09-28): `s.length` здесь давало единицы
+      // UTF-16, из-за чего «🙂» отвечало 2 вместо 1, а «👨‍👩‍👧» — 8 вместо 5.
+      return codePointLength(s);
+    }
+    case "система.память.выделить": {
+      // Тип результата — ЧИСЛО: отдельного типа «Адрес» нет (решение владельца, §3.87).
+      const bytes = Number(args[0] ?? 0);
+      if (!Number.isFinite(bytes) || bytes < 0) {
+        throw new Error(
+          `система.память.выделить: размер обязан быть неотрицательным числом, получено ${String(args[0])}`,
+        );
+      }
+      if (arenaNext + bytes > VM_ARENA_LIMIT) {
+        // Исчерпание — ОТКАЗ, а не тихая порча указателя: та же строка, что печатает цель.
+        throw new Error(ARENA_EXHAUSTED_MESSAGE);
+      }
+      const address = arenaNext;
+      arenaNext += bytes;
+      return address;
     }
     case "система.строка.содержит": {
       const haystack = String(args[0] ?? "");
@@ -102,9 +239,22 @@ export function createDefaultInvokeHandler(): InvokeHandler {
     case "система.строка.подстрока": {
       const s = String(args[0] ?? "");
       const start = Number(args[1] ?? 0);
-      const end = Number(args[2] ?? s.length);
-      return s.slice(start, end);
+      // Край по умолчанию — длина по КОДОВЫМ ТОЧКАМ: прежде здесь стояло `s.length` (единицы
+      // UTF-16), и это была вторая половина той же ошибки, что у `длина`. Пропущенный третий
+      // аргумент приходит и как `undefined`, и как `null` (так его кладёт вызов с двумя
+      // аргументами), поэтому проверяются оба — иначе двухаргументная форма давала бы пустую
+      // строку (`Number(null)` = 0) вместо «до конца».
+      const rawEnd = args[2];
+      const end = rawEnd === undefined || rawEnd === null ? undefined : Number(rawEnd);
+      // Срез по кодовым точкам: суррогатная пара не разрезается (`s.slice` её резал — «🙂» с
+      // границами (0,1) давало половину пары, то есть невалидный текст).
+      return codePointSlice(s, start, end);
     }
+    case "система.строка.символ":
+      // КОД символа по индексу в КОДОВЫХ ТОЧКАХ (решение владельца 2026-10-10). Отказ (а не `null`)
+      // — из общего модуля, чтобы у обеих VM и у цели причина была ОДНА: `null` сложился бы с числом
+      // как ноль, и лексер «прочитал» бы буквы как нули молча (`src/runtime/vm/stringChar.ts`).
+      return stringCodeAt(args[0] as StackValue, args[1] as StackValue);
     case "система.строка.в_верхний": {
       return String(args[0] ?? "").toUpperCase();
     }
@@ -129,7 +279,9 @@ export function createDefaultInvokeHandler(): InvokeHandler {
     case "система.строка.найти": {
       const s = String(args[0] ?? "");
       const sub = String(args[1] ?? "");
-      return s.indexOf(sub);
+      // Индекс — в КОДОВЫХ ТОЧКАХ: `indexOf` отвечает единицами UTF-16, и на «🙂x» поиск «x»
+      // давал 2 вместо 1. Так же отвечает Python `str.find`.
+      return codePointIndexOf(s, sub);
     }
     case "система.хранилище.записать": {
       const key = String(args[0] ?? "");
@@ -197,7 +349,11 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       return Math.floor(diffDays);
     }
     case "система.лог.вывести": {
-      console.log(args[0]);
+      // Печатаем ОСНОВСКИЙ вид значения: логические — словами, `пусто` — словом.
+      // Голое `console.log(args[0])` давало `true`, тогда как склейка через `+`
+      // давала `истина`, — одно значение выглядело по-разному в зависимости от
+      // способа печати (найдено при написании учебника, 2026-09-23).
+      console.log(formatOsnovaValue(args[0]));
       return null;
     }
     case "система.время.сейчас": {
@@ -278,6 +434,11 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       const src = /^\s*модуль(?:\s|$)/.test(raw)
         ? raw
         : `модуль Внутр\nпроцедура главная()\n  вернуть ${raw}\nконец\nконец`;
+      // Компилируется СТРОКА, а не файл: источник строится здесь же и несёт
+      // явную шапку `модуль Внутр`, поэтому имя модуля берётся из шапки, а
+      // `filename` передавать неоткуда. `baseDir` тоже не нужен: каталога нет
+      // и импортов такая строка не содержит. Названо намеренно — иначе следующий
+      // читатель решит, что опции забыли (аудит `.tmp/call-sites-audit.ts`).
       const { compileSource } = await import("../../compiler/compiler");
       const compiled = compileSource(src);
       if (!compiled.module || compiled.lexerErrors.length || compiled.parserErrors.length) {
@@ -295,6 +456,11 @@ export function createDefaultInvokeHandler(): InvokeHandler {
       const src = /^\s*модуль(?:\s|$)/.test(raw)
         ? raw
         : `модуль Внутр\nпроцедура главная()\n  вернуть ${raw}\nконец\nконец`;
+      // Компилируется СТРОКА, а не файл: источник строится здесь же и несёт
+      // явную шапку `модуль Внутр`, поэтому имя модуля берётся из шапки, а
+      // `filename` передавать неоткуда. `baseDir` тоже не нужен: каталога нет
+      // и импортов такая строка не содержит. Названо намеренно — иначе следующий
+      // читатель решит, что опции забыли (аудит `.tmp/call-sites-audit.ts`).
       const { compileSource } = await import("../../compiler/compiler");
       const compiled = compileSource(src);
       if (!compiled.module || compiled.lexerErrors.length || compiled.parserErrors.length) {
@@ -354,14 +520,40 @@ export interface TryFrame {
   frameDepth: number;
 }
 
+/**
+ * Отказ стековой VM: текст (человеку), место в байткоде и **код** (машине).
+ *
+ * `code` — четвёртый параметр, а не второй: порядок `message, pc, op` закреплён
+ * существующими вызовами (в т.ч. `src/compiler/compiler.ts`) и тестами, поэтому
+ * новый параметр добавлен в конец и необязателен. Значения кодов — таблица
+ * `src/runtime/runtimeCodes.ts`; в каждой точке броска код проставлен явно, и
+ * это держит сторож `src/runtime/runtimeCodes.test.ts` (скан источников).
+ */
 export class InterpreterError extends Error {
-  constructor(message: string, public pc?: number, public op?: string) {
+  constructor(
+    message: string,
+    public pc?: number,
+    public op?: string,
+    public code?: RuntimeErrorCode,
+  ) {
     super(message);
     this.name = "InterpreterError";
   }
 }
 
-function osnovaStringify(v: StackValue | undefined): string {
+/**
+ * Значение программы как текст — по-основски.
+ *
+ * Единственное место, где решается, как выглядит значение при печати и склейке:
+ * логические — словами `истина` / `ложь`, отсутствие значения — словом `пусто`,
+ * массив и объект — в JSON, числа и строки — как есть.
+ *
+ * Почему экспортируется: тот же вид обязаны давать ВСЕ пути вывода — общий
+ * обработчик, раннер приложений и CLI. Пока каждый печатал по-своему, голое
+ * логическое выводилось как `true`, а в склейке через `+` — как `истина`
+ * (найдено при написании учебника, 2026-09-23).
+ */
+export function formatOsnovaValue(v: StackValue | undefined): string {
   if (v === true) return "истина";
   if (v === false) return "ложь";
   if (v === null || v === undefined) return "пусто";
@@ -389,6 +581,22 @@ export class VM {
     this.module = module;
     this.options = {
       invoke: options.invoke ?? createDefaultInvokeHandler(),
+      // ЛИМИТ ШАГОВ — НАШЕ РЕШЕНИЕ, не из стандарта и не из документа.
+      //
+      // Это политика безопасности: программа на Основе может содержать
+      // бесконечный `цикл` (оконные приложения вроде `todo.osnova` так и
+      // делают), и без лимита прогон зависнет. Значение 1_000_000 выбрано как
+      // заведомо достаточное для наших программ и достаточно малое, чтобы
+      // зависание обнаружилось за секунды.
+      //
+      // Источника в документе нет и быть не может — это наше число. Помечено
+      // явно потому, что оно определяет НАБЛЮДАЕМОЕ поведение: при достижении
+      // лимита VM бросает «Max steps exceeded», и оракулы трактуют это как
+      // «программа не завершилась» (см. `both_hit_step_limit`).
+      //
+      // Аудит: `src/vliw/sourceAudit.test.ts` требует, чтобы у каждой константы
+      // поведения было объяснение рядом. Без этой пометки число неотличимо от
+      // выдумки.
       maxSteps: options.maxSteps ?? 1_000_000,
     };
     this.extraInvokeArgc = new Map(
@@ -422,7 +630,7 @@ export class VM {
   /** Найти индекс процедуры по имени (без учёта модуля: имя процедуры). */
   findProcedureIndex(name: string): number {
     const i = this.module.procedures.findIndex((p) => p.name === name);
-    if (i < 0) throw new InterpreterError(`Procedure not found: ${name}`);
+    if (i < 0) throw new InterpreterError(`Procedure not found: ${name}`, undefined, undefined, RUNTIME_CODES.entryNotFound);
     return i;
   }
 
@@ -432,7 +640,7 @@ export class VM {
    */
   async runProcedure(procedureIndex: number, args: StackValue[]): Promise<StackValue | undefined> {
     const proc = this.module.procedures[procedureIndex];
-    if (!proc) throw new InterpreterError(`Invalid procedure index: ${procedureIndex}`);
+    if (!proc) throw new InterpreterError(`Invalid procedure index: ${procedureIndex}`, undefined, undefined, RUNTIME_CODES.entryNotFound);
 
     const locals: StackValue[] = new Array(Math.max(proc.argc, proc.localsCount));
     for (let i = 0; i < proc.argc; i++) locals[i] = args[i] ?? null;
@@ -450,7 +658,7 @@ export class VM {
     let steps = 0;
     while (this.pc >= 0 && this.pc < this.module.code.length) {
       if (++steps > this.options.maxSteps) {
-        throw new InterpreterError(`Max steps exceeded (${this.options.maxSteps})`, this.pc);
+        throw new InterpreterError(`Max steps exceeded (${this.options.maxSteps})`, this.pc, undefined, RUNTIME_CODES.maxSteps);
       }
       const el: CodeElement = this.module.code[this.pc];
       if (isVliwPacket(el)) {
@@ -517,7 +725,7 @@ export class VM {
       case "const": {
         const k = (ins as { op: "const"; type: string; k: number }).k;
         const v = this.module.constants[k];
-        if (v === undefined) throw new InterpreterError(`Constant index out of range: ${k}`, this.pc, "const");
+        if (v === undefined) throw new InterpreterError(`Constant index out of range: ${k}`, this.pc, "const", RUNTIME_CODES.internalInvariant);
         this.stack.push(v as StackValue);
         return next;
       }
@@ -534,7 +742,7 @@ export class VM {
         const i = (ins as { op: "local.get"; i: number }).i;
         const frame = this.frames[this.frames.length - 1];
         if (!frame || i < 0 || i >= frame.locals.length)
-          throw new InterpreterError(`local.get invalid index: ${i}`, this.pc);
+          throw new InterpreterError(`local.get invalid index: ${i}`, this.pc, undefined, RUNTIME_CODES.internalInvariant);
         this.stack.push(frame.locals[i]);
         return next;
       }
@@ -542,7 +750,7 @@ export class VM {
         const i = (ins as { op: "local.set"; i: number }).i;
         const frame = this.frames[this.frames.length - 1];
         if (!frame || i < 0 || i >= frame.locals.length)
-          throw new InterpreterError(`local.set invalid index: ${i}`, this.pc);
+          throw new InterpreterError(`local.set invalid index: ${i}`, this.pc, undefined, RUNTIME_CODES.internalInvariant);
         const v = this.stack.pop();
         frame.locals[i] = v ?? null;
         return next;
@@ -551,7 +759,7 @@ export class VM {
         const b = this.stack.pop();
         const a = this.stack.pop();
         if (typeof a === "string" || typeof b === "string") {
-          this.stack.push(osnovaStringify(a) + osnovaStringify(b));
+          this.stack.push(formatOsnovaValue(a) + formatOsnovaValue(b));
           return next;
         }
         this.stack.push((a as number) + (b as number));
@@ -572,14 +780,23 @@ export class VM {
       case "div": {
         const b = this.stack.pop() as number;
         const a = this.stack.pop() as number;
-        if (b === 0) throw new InterpreterError("Division by zero", this.pc, "div");
+        if (b === 0) throw new InterpreterError("Division by zero", this.pc, "div", RUNTIME_CODES.divisionByZero);
         this.stack.push(a / b);
+        return next;
+      }
+      case "idiv": {
+        // БЛОК 2: целочисленное деление — отсечение К НУЛЮ (как `SDIVs` в e2k и
+        // как остаток `rem` в этом же интерпретаторе: знак — по делимому).
+        const b = this.stack.pop() as number;
+        const a = this.stack.pop() as number;
+        if (b === 0) throw new InterpreterError("Integer division by zero", this.pc, "idiv", RUNTIME_CODES.divisionByZero);
+        this.stack.push(Math.trunc(a / b));
         return next;
       }
       case "rem": {
         const b = this.stack.pop() as number;
         const a = this.stack.pop() as number;
-        if (b === 0) throw new InterpreterError("Remainder by zero", this.pc, "rem");
+        if (b === 0) throw new InterpreterError("Remainder by zero", this.pc, "rem", RUNTIME_CODES.remainderByZero);
         this.stack.push(a % b);
         return next;
       }
@@ -590,27 +807,30 @@ export class VM {
         this.stack.push(this.stack.pop() !== this.stack.pop());
         return next;
       case "lt": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a < b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        // Порядок строк — по КОДОВЫМ ТОЧКАМ (см. `stringUnits`): у UTF-16 суррогаты стоят ниже
+        // 0xE000, у кодовых точек астральные символы — выше, поэтому «🙂» и «\uFFFD» меняются
+        // местами. Числа и прочее сравниваются как раньше.
+        this.stack.push(orderedCompare(a, b, "<"));
         return next;
       }
       case "le": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a <= b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        this.stack.push(orderedCompare(a, b, "<="));
         return next;
       }
       case "gt": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a > b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        this.stack.push(orderedCompare(a, b, ">"));
         return next;
       }
       case "ge": {
-        const b = this.stack.pop() as number;
-        const a = this.stack.pop() as number;
-        this.stack.push(a >= b);
+        const b = this.stack.pop();
+        const a = this.stack.pop();
+        this.stack.push(orderedCompare(a, b, ">="));
         return next;
       }
       case "and": {
@@ -633,7 +853,7 @@ export class VM {
       case "call": {
         const fi = (ins as { op: "call"; fi: number }).fi;
         const proc = this.module.procedures[fi];
-        if (!proc) throw new InterpreterError(`call invalid procedure index: ${fi}`, this.pc);
+        if (!proc) throw new InterpreterError(`call invalid procedure index: ${fi}`, this.pc, undefined, RUNTIME_CODES.internalInvariant);
         const args: StackValue[] = [];
         for (let i = 0; i < proc.argc; i++) args.unshift(this.stack.pop()!);
         const locals: StackValue[] = new Array(Math.max(proc.argc, proc.localsCount));
@@ -646,7 +866,7 @@ export class VM {
         const name = (ins as { op: "invoke"; name: string }).name;
         const extraArgc = this.extraInvokeArgc.get(name);
         if (!isKnownInvoke(name) && extraArgc === undefined) {
-          throw new InterpreterError(`Unknown invoke: ${name}`, this.pc, "invoke");
+          throw new InterpreterError(`Unknown invoke: ${name}`, this.pc, "invoke", RUNTIME_CODES.unknownInvoke);
         }
         const argc = extraArgc !== undefined ? extraArgc : getInvokeArgCount(name);
         const args: StackValue[] = [];
@@ -686,7 +906,7 @@ export class VM {
         } else {
           errText = String(errVal);
         }
-        throw new InterpreterError(`Необработанное исключение: ${errText}`, this.pc, "throw");
+        throw new InterpreterError(`Необработанное исключение: ${errText}`, this.pc, "throw", RUNTIME_CODES.unhandledThrow);
       }
       case "jmp_if": {
         const off = (ins as { op: "jmp_if"; off: number }).off;
@@ -729,13 +949,13 @@ export class VM {
       }
       case "pop": {
         if (this.stack.length === 0) {
-          throw new InterpreterError("Stack underflow on pop", this.pc, "pop");
+          throw new InterpreterError("Stack underflow on pop", this.pc, "pop", RUNTIME_CODES.internalInvariant);
         }
         this.stack.pop();
         return next;
       }
       default:
-        throw new InterpreterError(`Unknown op: ${(ins as RawInstruction).op}`, this.pc, (ins as RawInstruction).op);
+        throw new InterpreterError(`Unknown op: ${(ins as RawInstruction).op}`, this.pc, (ins as RawInstruction).op, RUNTIME_CODES.internalInvariant);
     }
   }
 
@@ -754,7 +974,7 @@ function resolveProgramEntry(
 ): ProcedureLocation {
   const firstModule = modules[0];
   if (!firstModule || firstModule.procedures.length === 0) {
-    throw new InterpreterError("Program has no procedures in the first module");
+    throw new InterpreterError("Program has no procedures in the first module", undefined, undefined, RUNTIME_CODES.entryNotFound);
   }
 
   if (options.entryProcedure) {
@@ -788,7 +1008,7 @@ function resolveProgramEntry(
 
   const fallback = procedureRegistry.get(firstModule.procedures[0]!.name);
   if (!fallback) {
-    throw new InterpreterError("Entry point not found: neither главная/main nor first procedure exists");
+    throw new InterpreterError("Entry point not found: neither главная/main nor first procedure exists", undefined, undefined, RUNTIME_CODES.entryNotFound);
   }
   return fallback;
 }
@@ -798,7 +1018,7 @@ export async function runProgram(
   options: RunProgramOptions = {},
 ): Promise<void> {
   if (!Array.isArray(modules) || modules.length === 0) {
-    throw new InterpreterError("Program is empty: no modules provided");
+    throw new InterpreterError("Program is empty: no modules provided", undefined, undefined, RUNTIME_CODES.entryNotFound);
   }
 
   const procedureRegistry = new Map<string, ProcedureLocation>();

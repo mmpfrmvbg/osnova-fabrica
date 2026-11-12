@@ -1,0 +1,193 @@
+{
+  "format": "osnova-shell-ticks",
+  "version": 1,
+  "passport": {
+    "status": "ДОПУЩЕНИЕ",
+    "source": "docs/vliw-e2k-model.md (глава 6, стр. 71–72; глава 12, стр. 194); src/vliw/e2kDevices.ts; src/e2k/latencyMap.ts",
+    "limitation": "не валидировано на железе: числа тактов получены по модели, а не измерены; штраф за переход между кластерами АЛУ принят нулевым (docs/hardware-debt.md §3.2)",
+    "tickModel": "однослотовая выдача (1 инструкция за такт) + ожидание готовности результата по RAW (issue >= issue(производителя) + latency(производителя)); число тактов = максимум (issue + latency - 1) по исполненным инструкциям",
+    "note": "ЧИСЛА ПО МОДЕЛИ, НЕ ЗАМЕР: это такты симулятора на внутренней оболочке проекта, а не e2k. Модель не валидирована на железе (docs/hardware-debt.md)"
+  },
+  "kernels": {
+    "fir": {
+      "algorithm": "FIR-фильтр",
+      "atom": "A5",
+      "checksum": 181,
+      "staticInstructions": 111,
+      "instructions": 727,
+      "ticks": 802,
+      "ticksLinear": 802,
+      "cpi": 1.103,
+      "classes": [
+        {
+          "label": "ALU",
+          "executed": 512,
+          "ticks": 512,
+          "stalls": 60
+        },
+        {
+          "label": "BRANCH",
+          "executed": 72,
+          "ticks": 359,
+          "stalls": 10
+        },
+        {
+          "label": "НЕТ КЛАССА",
+          "executed": 123,
+          "ticks": 123,
+          "stalls": 0
+        },
+        {
+          "label": "MUL",
+          "executed": 20,
+          "ticks": 80,
+          "stalls": 0
+        }
+      ]
+    },
+    "iir": {
+      "algorithm": "IIR-фильтр",
+      "atom": "A5",
+      "checksum": 119,
+      "staticInstructions": 85,
+      "instructions": 285,
+      "ticks": 390,
+      "ticksLinear": 390,
+      "cpi": 1.368,
+      "classes": [
+        {
+          "label": "BRANCH",
+          "executed": 37,
+          "ticks": 179,
+          "stalls": 60
+        },
+        {
+          "label": "ALU",
+          "executed": 175,
+          "ticks": 175,
+          "stalls": 40
+        },
+        {
+          "label": "MUL",
+          "executed": 15,
+          "ticks": 95,
+          "stalls": 0
+        },
+        {
+          "label": "НЕТ КЛАССА",
+          "executed": 58,
+          "ticks": 58,
+          "stalls": 0
+        }
+      ]
+    },
+    "fft": {
+      "algorithm": "БПФ radix-2",
+      "atom": "A5",
+      "checksum": 4,
+      "staticInstructions": 105,
+      "instructions": 211,
+      "ticks": 226,
+      "ticksLinear": 226,
+      "cpi": 1.071,
+      "classes": [
+        {
+          "label": "ALU",
+          "executed": 141,
+          "ticks": 141,
+          "stalls": 0
+        },
+        {
+          "label": "BRANCH",
+          "executed": 22,
+          "ticks": 109,
+          "stalls": 10
+        },
+        {
+          "label": "НЕТ КЛАССА",
+          "executed": 48,
+          "ticks": 48,
+          "stalls": 0
+        }
+      ]
+    },
+    "convolution": {
+      "algorithm": "свёртка",
+      "atom": "A6",
+      "checksum": 90,
+      "staticInstructions": 110,
+      "instructions": 665,
+      "ticks": 707,
+      "ticksLinear": 707,
+      "cpi": 1.063,
+      "classes": [
+        {
+          "label": "ALU",
+          "executed": 462,
+          "ticks": 462,
+          "stalls": 27
+        },
+        {
+          "label": "BRANCH",
+          "executed": 89,
+          "ticks": 444,
+          "stalls": 10
+        },
+        {
+          "label": "НЕТ КЛАССА",
+          "executed": 105,
+          "ticks": 105,
+          "stalls": 0
+        },
+        {
+          "label": "MUL",
+          "executed": 9,
+          "ticks": 36,
+          "stalls": 0
+        }
+      ]
+    },
+    "correlation": {
+      "algorithm": "корреляция",
+      "atom": "A6",
+      "checksum": 32,
+      "staticInstructions": 100,
+      "instructions": 159,
+      "ticks": 183,
+      "ticksLinear": 183,
+      "cpi": 1.151,
+      "classes": [
+        {
+          "label": "ALU",
+          "executed": 102,
+          "ticks": 102,
+          "stalls": 9
+        },
+        {
+          "label": "BRANCH",
+          "executed": 18,
+          "ticks": 89,
+          "stalls": 10
+        },
+        {
+          "label": "НЕТ КЛАССА",
+          "executed": 36,
+          "ticks": 36,
+          "stalls": 0
+        },
+        {
+          "label": "MUL",
+          "executed": 3,
+          "ticks": 12,
+          "stalls": 0
+        }
+      ]
+    }
+  },
+  "total": {
+    "staticInstructions": 511,
+    "instructions": 2047,
+    "ticks": 2308,
+    "ticksLinear": 2308
+  }
+}

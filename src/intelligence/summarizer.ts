@@ -3,11 +3,16 @@
 // Возвращает { summary, relevance_score }.
 
 import { getLLMProvider } from '../llm/index';
+import { getDefaultModel } from '../llm/defaults';
+import { resolveProvider } from '../llm/routing';
 import { logLlmUsage } from '../lib/usage-logger';
 import type { RawItem } from './prefilter';
 
+// Дефолт — модель текущего провайдера (deepseek), а не имя модели Qwen.
 const SUMMARIZER_MODEL =
-  process.env.OSNOVA_INTELLIGENCE_MODEL ?? process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
+  process.env.OSNOVA_INTELLIGENCE_MODEL ??
+  process.env.OSNOVA_MODEL ??
+  getDefaultModel(resolveProvider());
 
 const SYSTEM_PROMPT = `
 Ты — аналитик технологической разведки для проекта ОС-НОВА.

@@ -53,6 +53,11 @@ coverage/
 # vitest
 .vitest-cache/
 
+# Сырые внешние источники кодировки e2k (binutils/LLVM/QEMU/elbrus-docs):
+# сотни мегабайт, в репозиторий не попадают. Опись — docs/e2k-sources-raw.md,
+# сверка описи с копией — src/scripts/e2kSources.audit.test.ts.
+.tmp/e2k-sources/
+
 # Batch run results
 runs/*
 # decisions.jsonl tracked intentionally
@@ -82,3 +87,54 @@ apps/osiris/.env
 .qwen/oauth_creds.json
 
 .qwen/oauth_creds*.json
+
+# Проектные навыки DSH: .dsh/skills — junction на .cursor/skills.
+# Игнорируем только связь, чтобы .dsh остался доступен для версионируемой
+# конфигурации (например, .dsh/roles/*.yml).
+.dsh/skills
+
+# SSH-доступ к железу МЦСТ: приватный ключ и его OpenSSH-копия.
+# Приватные ключи в репозиторий не попадают никогда — ни в каком формате.
+Ssh_private_mcst_key.ppk
+key.openssh
+*.openssh
+.ssh/
+**/.ssh/
+
+# Сырые журналы прогона кита на живой машине.
+tools/e2k-hardware/logs/*.raw
+
+# Отчёты о доступе к железу МЦСТ: локальные, содержат данные доступа
+# (имя хоста, логин, порт) — публикации не подлежат.
+.tmp/mcst-*.md
+
+# ── ДАННЫЕ ДОСТУПА ВООБЩЕ (правило ужесточено 2026-10-09) ──────────────────
+# Повод: строка с адресом, логином и портом живой машины попала в ОТСЛЕЖИВАЕМЫЙ
+# `memory/_index.md` и ушла в remote (коммит 95fc2e6, убрано ddb2232).
+#
+# ГРАНИЦА, КОТОРУЮ НАДО ЗНАТЬ: `.gitignore` не спасает от строки ВНУТРИ
+# отслеживаемого файла — он отсекает только целые файлы. Поэтому правила ниже —
+# половина меры; вторая половина — сторож содержимого (см. долг в
+# `docs/verification-debt.md`, случай 43).
+*.pem
+*.key
+*.ppk
+id_rsa*
+id_ed25519*
+*access*.txt
+*tokens*.txt
+*credentials*.json
+
+# Отчёты о доступе к ЛЮБОЙ машине (не только МЦСТ): там имя хоста, логин, порт.
+.tmp/*access*.md
+.tmp/*-access-*.md
+.tmp/*hardware-report*.md
+
+.tmp/
+src/self-host/gen*.osvbc.json
+last-raw.txt
+last-diff.txt
+registers/
+handoff/
+Fabrika2.0/
+.cursor/

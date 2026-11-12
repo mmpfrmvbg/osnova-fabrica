@@ -20,6 +20,9 @@ const BINARY_OP: Record<string, Op> = {
   "*": "mul",
   "/": "div",
   "%": "rem",
+  // БЛОК 2: целочисленное деление — отдельная операция, а не режим `div`:
+  // `div` в VM вещественный (`a / b`), `idiv` отсекает к нулю.
+  "div": "idiv",
   "==": "eq",
   "!=": "ne",
   "<": "lt",
@@ -87,6 +90,16 @@ export function compile(ast: Module): OsVbcModule {
           locals.set(`__arr_literal_${arrLiteralCounter}`, locals.size);
         arrLiteralCounter++;
         for (const el of expr.элементы) scanExpr(el);
+        return;
+      }
+      // ПАРА `Результат<Т, Е>` на ЭТАЛОННОЙ плоскости — блок из двух мест (тег, нагрузка), тот же
+      // слот, что у литерала массива. Плоскость ЦЕЛИ пару блоком не строит: там это две клетки
+      // канала вызова (§10.2), и расхождение представлений названо, а не спрятано.
+      if (expr.kind === "успех" || expr.kind === "неудача") {
+        if (!locals.has(`__arr_literal_${arrLiteralCounter}`))
+          locals.set(`__arr_literal_${arrLiteralCounter}`, locals.size);
+        arrLiteralCounter++;
+        scanExpr(expr.значение);
         return;
       }
       if (expr.kind === "бинарное") {
@@ -273,6 +286,31 @@ export function compile(ast: Module): OsVbcModule {
           for (const el of expr.элементы) {
             emit({ op: "local.get", i: slot } as RawInstruction);
             emitExpr(el, l);
+            emit({ op: "invoke", name: "система.массив.добавить" } as RawInstruction);
+            emit({ op: "pop" } as RawInstruction);
+          }
+          emit({ op: "local.get", i: slot } as RawInstruction);
+          break;
+        }
+        // ПАРА `Результат<Т, Е>`: место 0 — ТЕГ (0 = Успех, 1 = Неудача), место 1 — НАГРУЗКА.
+        // Тот же блок из двух мест, что у литерала массива/кортежа, поэтому `распаковать` читает
+        // её существующей ветвью. Числа тега — i32, а не булево: `если тег == 1` обязано сравнивать
+        // ЧИСЛА на обеих плоскостях (у цели булева литерала нет вовсе, `e2kRealRun.ts#literalOf`).
+        case "успех":
+        case "неудача": {
+          const slotKey = `__arr_literal_${emitArrLiteralCounter++}`;
+          const slot = l.get(slotKey);
+          if (slot === undefined) throw new Error(`Нет слота для пары Результат<>: ${slotKey}`);
+          emit({ op: "invoke", name: "система.массив.создать" } as RawInstruction);
+          emit({ op: "local.set", i: slot } as RawInstruction);
+          const tag = constIndex(expr.kind === "успех" ? 0 : 1);
+          for (const значение of [null, expr.значение] as const) {
+            emit({ op: "local.get", i: slot } as RawInstruction);
+            if (значение === null) {
+              emit({ op: "const", type: "i32", k: tag } as RawInstruction);
+            } else {
+              emitExpr(значение, l);
+            }
             emit({ op: "invoke", name: "система.массив.добавить" } as RawInstruction);
             emit({ op: "pop" } as RawInstruction);
           }
@@ -623,6 +661,10 @@ function cloneExprWithResolver(expr: Expr, resolveCall: (name: string) => string
       };
     case "вариант":
       return { kind: "вариант", typeName: expr.typeName, variant: expr.variant };
+    case "успех":
+      return { kind: "успех", значение: cloneExprWithResolver(expr.значение, resolveCall) };
+    case "неудача":
+      return { kind: "неудача", значение: cloneExprWithResolver(expr.значение, resolveCall) };
     default:
       return assertNever(expr, "cloneExprWithResolver");
   }

@@ -35,6 +35,53 @@ jobs:
       install_command: npm ci --no-audit
       commands-file: .github/workflow-scripts/ci-osiris.sh
 
+  factory-e2e:
+    name: Factory E2E (manual + two atoms + forge qwen CLI)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install factory Python dependencies
+        working-directory: Fabrika2.0/proekt
+        run: pip install -r requirements.txt
+      - name: Factory unit tests (qwen_cli_runner + forge-worker)
+        working-directory: Fabrika2.0/proekt
+        env:
+          FACTORY_API_KEY_1: dummy-ci-key
+          FACTORY_API_NAME_1: ci
+          FACTORY_API_LIMIT_1: "3000"
+        run: python -m unittest discover -s factory/tests -p "test_*.py" -v
+      - name: Factory E2E live (forge_worker + DRY_RUN)
+        working-directory: Fabrika2.0/proekt
+        env:
+          FACTORY_API_KEY_1: dummy-ci-key
+          FACTORY_API_NAME_1: ci
+          FACTORY_API_LIMIT_1: "3000"
+          FACTORY_QWEN_DRY_RUN: "1"
+        run: python -m factory --e2e-live
+      # Первые два сценария всегда с dry-run Qwen (внутри задают FACTORY_QWEN_DRY_RUN=1).
+      - name: Run factory E2E (manual + two atoms)
+        working-directory: Fabrika2.0/proekt
+        env:
+          FACTORY_API_KEY_1: dummy-ci-key
+          FACTORY_API_NAME_1: ci
+          FACTORY_API_LIMIT_1: "3000"
+        run: |
+          python -m factory --e2e-manual
+          python -m factory --e2e-two-atoms
+      - name: Factory E2E №3 (forge ↔ qwen runner, DRY_RUN)
+        working-directory: Fabrika2.0/proekt
+        env:
+          FACTORY_API_KEY_1: dummy-ci-key
+          FACTORY_API_NAME_1: ci
+          FACTORY_API_LIMIT_1: "3000"
+          FACTORY_QWEN_DRY_RUN: "1"
+        run: python -m factory --e2e-qwen-dry
+
   forge-close-pending-ci:
     name: Forge — close pending-ci issue (state.yaml)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -422,7 +422,7 @@
       "id": "module",
       "kind": "statement",
       "humanName": "module",
-      "description": "",
+      "description": "Один файл — один модуль; имя модуля берётся из имени файла (привет.osnova → «привет»). Шапка `модуль <имя>` не обязательна; `конец_модуля` без шапки — ошибка",
       "astNodeType": "Module",
       "fields": [
         {
@@ -865,12 +865,9 @@
       "status": "stable"
     },
     {
-      "spelling": "для_каждого",
-      "tokenKind": "для_каждого",
-      "relatedConstructions": [
-        "for_each",
-        "for_each_indexed"
-      ],
+      "spelling": "для",
+      "tokenKind": "для",
+      "relatedConstructions": [],
       "status": "stable"
     },
     {
@@ -930,14 +927,6 @@
       "status": "stable"
     },
     {
-      "spelling": "иначе_попытка",
-      "tokenKind": "иначе_попытка",
-      "relatedConstructions": [
-        "try_catch"
-      ],
-      "status": "stable"
-    },
-    {
       "spelling": "использовать",
       "tokenKind": "использовать",
       "relatedConstructions": [
@@ -977,6 +966,60 @@
       "status": "stable"
     },
     {
+      "spelling": "конец_для",
+      "tokenKind": "конец_для",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_для_каждого",
+      "tokenKind": "конец_для_каждого",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_если",
+      "tokenKind": "конец_если",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_когда",
+      "tokenKind": "конец_когда",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_модуля",
+      "tokenKind": "конец_модуля",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_пока",
+      "tokenKind": "конец_пока",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_попробовать",
+      "tokenKind": "конец_попробовать",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_процедуры",
+      "tokenKind": "конец_процедуры",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
+      "spelling": "конец_цикла",
+      "tokenKind": "конец_цикла",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
       "spelling": "ложь",
       "tokenKind": "ложь",
       "relatedConstructions": [
@@ -998,6 +1041,14 @@
       "tokenKind": "не",
       "relatedConstructions": [
         "not"
+      ],
+      "status": "stable"
+    },
+    {
+      "spelling": "поймать",
+      "tokenKind": "поймать",
+      "relatedConstructions": [
+        "try_catch"
       ],
       "status": "stable"
     },
@@ -1083,11 +1134,23 @@
       "status": "stable"
     },
     {
+      "spelling": "чистый",
+      "tokenKind": "чистый",
+      "relatedConstructions": [],
+      "status": "stable"
+    },
+    {
       "spelling": "экспорт",
       "tokenKind": "экспорт",
       "relatedConstructions": [
         "module_export"
       ],
+      "status": "stable"
+    },
+    {
+      "spelling": "div",
+      "tokenKind": "div",
+      "relatedConstructions": [],
       "status": "stable"
     }
   ],
@@ -1105,7 +1168,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "-(унарный)",
@@ -1120,7 +1184,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "-=",
@@ -1135,7 +1200,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "!=",
@@ -1150,7 +1216,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "*",
@@ -1165,7 +1232,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "*=",
@@ -1180,7 +1248,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "/",
@@ -1195,7 +1264,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "/=",
@@ -1210,7 +1280,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "%",
@@ -1225,7 +1296,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "+",
@@ -1240,7 +1312,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "+=",
@@ -1255,7 +1328,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "<",
@@ -1270,7 +1344,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "<=",
@@ -1285,7 +1360,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": "=",
@@ -1293,14 +1369,18 @@
       "precedence": 1,
       "associativity": "right",
       "relatedTokens": [
-        "="
+        "=",
+        ":="
       ],
       "relatedAstNodes": [
         "бинарное",
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": [
+        ":="
+      ]
     },
     {
       "symbol": "==",
@@ -1315,7 +1395,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": ">",
@@ -1330,7 +1411,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     },
     {
       "symbol": ">=",
@@ -1345,7 +1427,8 @@
         "унарное",
         "присвоить"
       ],
-      "status": "stable"
+      "status": "stable",
+      "aliases": []
     }
   ],
   "types": [
@@ -1717,6 +1800,78 @@
         "returns": "any"
       },
       "description": "Нормализация к массиву: массив → как есть, объект → Object.keys",
+      "status": "stable"
+    },
+    {
+      "id": "система.коллекция.взять",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Прочитать элемент: взять(база, индекс). Незаписанный элемент читается нулём (свежая страница кучи приходит от ядра нулевой). В v3 пишется словом взять",
+      "status": "stable"
+    },
+    {
+      "id": "система.коллекция.выделить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Выделить блок коллекции ёмкостью N; результат — ЧИСЛО-адрес (отдельного типа «Адрес» нет). Шаг блока 8 + N·8 байт. В v3 пишется словом выделить",
+      "status": "stable"
+    },
+    {
+      "id": "система.коллекция.положить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          },
+          {
+            "name": "arg3",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Записать элемент: положить(база, индекс, значение). Индекс за границей блока — НАЗВАННЫЙ отказ, а не тихая запись в чужую память. В v3 пишется словом положить",
+      "status": "stable"
+    },
+    {
+      "id": "система.коллекция.расширить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Переезд в блок большей ёмкости: расширить(база, новая_ёмкость) → новый адрес. Новая ёмкость не больше текущей — НАЗВАННЫЙ отказ. Старый блок остаётся мёртвым: возврата памяти нет. В v3 пишется словом расширить",
       "status": "stable"
     },
     {
@@ -2142,6 +2297,70 @@
       "status": "experimental"
     },
     {
+      "id": "система.оценить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Скомпилировать и исполнить строку кода на лету (eval)",
+      "status": "stable"
+    },
+    {
+      "id": "система.оценить_в",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Исполнить код на лету с доступом к окружению",
+      "status": "stable"
+    },
+    {
+      "id": "система.оценить.получить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Прочитать значение из окружения eval по ключу",
+      "status": "stable"
+    },
+    {
+      "id": "система.оценить.установить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Записать значение в окружение eval по ключу",
+      "status": "stable"
+    },
+    {
       "id": "система.пайплайн.главный_модуль",
       "signature": {
         "args": [],
@@ -2167,6 +2386,20 @@
       },
       "description": "Получить ожидаемое возвращаемое значение пайплайна",
       "status": "stable"
+    },
+    {
+      "id": "система.память.выделить",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Выделить байт памяти из арены; результат — ЧИСЛО (адрес — это число, отдельного типа «Адрес» нет). Арена растёт и не возвращается; при исчерпании — отказ: код 231 и строка «арена исчерпана: выделение сверх предела»",
+      "status": "experimental"
     },
     {
       "id": "система.сеть.запрос",
@@ -2265,7 +2498,7 @@
         ],
         "returns": "any"
       },
-      "description": "Получить длину строки",
+      "description": "Длина строки в КОДОВЫХ ТОЧКАХ (не в байтах UTF-8 и не в единицах UTF-16: длина(\"🙂\") = 1)",
       "status": "stable"
     },
     {
@@ -2337,7 +2570,7 @@
         ],
         "returns": "any"
       },
-      "description": "Найти индекс первого вхождения подстроки; -1 если не найдено",
+      "description": "Индекс первого вхождения подстроки в КОДОВЫХ ТОЧКАХ; -1 если не найдено",
       "status": "stable"
     },
     {
@@ -2409,7 +2642,7 @@
         ],
         "returns": "any"
       },
-      "description": "Получить подстроку по диапазону",
+      "description": "Подстрока по диапазону КОДОВЫХ ТОЧЕК (границы не рвут суррогатную пару). В v3 доступна ВСТРОЕННЫМ СЛОВОМ `подстрока(строка, начало, конец)`: трёхсегментное имя v3 не разбирает (§3.105.3), а после решения 2026-10-10 (`символ` — ЧИСЛО) это единственный способ получить из исходника ТЕКСТ — без него self-host-лексер не выразим (§3.133)",
       "status": "stable"
     },
     {
@@ -2431,6 +2664,24 @@
       "status": "stable"
     },
     {
+      "id": "система.строка.символ",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "КОД символа строки по индексу в КОДОВЫХ ТОЧКАХ: символ(\"абв\", 0) = 1072 (U+0430), символ(\"abc\", 0) = 97. Возвращает ЧИСЛО, а не строку (решение владельца 2026-10-10): строковая модель цели требует известной на сборке длины, а символ по рантаймовому индексу — 1–4 байта, известных только в рантайме. Выход за границу в VM — названный отказ, а не null: null сложился бы с числом как ноль. Разворачивается из формы arr[i], когда операнд — строка (как длина — по типу операнда)",
+      "status": "stable"
+    },
+    {
       "id": "система.строка.содержит",
       "signature": {
         "args": [
@@ -2446,6 +2697,20 @@
         "returns": "any"
       },
       "description": "Проверить, содержит ли строка подстроку",
+      "status": "stable"
+    },
+    {
+      "id": "система.файлы.закрыть",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Закрыть файл: закрыть(дескриптор). Незакрытый дескриптор течёт: у процесса их конечное число, и это названная цена, а не свойство. В v3 пишется словом закрыть",
       "status": "stable"
     },
     {
@@ -2465,6 +2730,42 @@
       },
       "description": "Записать данные в файл",
       "status": "experimental"
+    },
+    {
+      "id": "система.файлы.открыть",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Открыть файл: открыть(путь, режим) → дескриптор. Режим — литерал: чтение (O_RDONLY), запись (O_WRONLY|O_CREAT|O_TRUNC), дописать (O_WRONLY|O_APPEND). В v3 пишется словом открыть",
+      "status": "stable"
+    },
+    {
+      "id": "система.файлы.писать",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Записать в файл: писать(дескриптор, текст) → число записанных байтов. В v3 пишется словом писать",
+      "status": "stable"
     },
     {
       "id": "система.файлы.прочитать_все",
@@ -2493,6 +2794,24 @@
       },
       "description": "Проверить существование файла",
       "status": "experimental"
+    },
+    {
+      "id": "система.файлы.читать",
+      "signature": {
+        "args": [
+          {
+            "name": "arg1",
+            "type": "any"
+          },
+          {
+            "name": "arg2",
+            "type": "any"
+          }
+        ],
+        "returns": "any"
+      },
+      "description": "Прочитать из файла: читать(дескриптор, длина) → Строка. Длина — в КОДОВЫХ ТОЧКАХ, как у длина: иначе двухбайтовая буква разрезалась бы пополам. На конце файла — пустая строка, а не отказ. В v3 пишется словом читать",
+      "status": "stable"
     },
     {
       "id": "система.хранилище.записать",
@@ -2640,7 +2959,7 @@
     },
     {
       "id": "div",
-      "description": "Arithmetic divide",
+      "description": "Arithmetic divide (real)",
       "relatedNodeTypes": [
         "бинарное"
       ]
@@ -2670,6 +2989,13 @@
     {
       "id": "gt",
       "description": "Compare greater than",
+      "relatedNodeTypes": [
+        "бинарное"
+      ]
+    },
+    {
+      "id": "idiv",
+      "description": "Integer divide, truncation toward zero (БЛОК 2: оператор `div`)",
       "relatedNodeTypes": [
         "бинарное"
       ]

@@ -363,14 +363,16 @@ def scope_derived_expected_files(scope: list[Any] | str | None) -> list[str]:
         if "/" in tok or tok.endswith(
             (".ts", ".tsx", ".js", ".mjs", ".cjs", ".json", ".yaml", ".yml", ".md", ".py", ".rs", ".go")
         ):
-            out.append(tok.replace("\\", "/").lstrip("/"))
+            norm = tok.replace("\\", "/").lstrip("/")
+            if norm:
+                out.append(norm)
     return out
 
 
 def expected_files_for_atom(atom: dict[str, Any]) -> list[str]:
     ef = atom.get("expected_files")
     if isinstance(ef, list) and ef:
-        return [str(x).strip().replace("\\", "/").lstrip("/") for x in ef if str(x).strip()]
+        return [p for p in (str(x).strip().replace("\\", "/").lstrip("/") for x in ef) if p]
     return scope_derived_expected_files(atom.get("scope") or [])
 
 

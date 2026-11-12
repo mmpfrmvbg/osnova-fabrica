@@ -10,12 +10,14 @@
  */
 export type { TokenKind, Token, LexerError, LexerResult } from "./lexer";
 export { ALL_TOKEN_KINDS, KEYWORDS, tokenize } from "./lexer";
-export type { ParseErrorContext, ParseError, ParseResult } from "./parser";
+export type { ParseErrorContext, ParseError, ParseResult, ParseWarning, ParseOptions } from "./parser";
 export { parse, printParseError } from "./parser";
 /** Семантика: только явные экспорты из `./semantic` (без `export *`). */
 export type { SemanticError, SemanticResult, HostSyscallSpec, SemanticOptions } from "./semantic";
 export { analyzeProgram, checkSemantics } from "./semantic";
 export * from "./codegen";
+/** Регистровый кодоген (срез 1, рядом со стековым): `compileToReg` / `compileProgramToReg`. */
+export * from "./regcodegen";
 export * from "./compiler";
 export * from "./vm";
 

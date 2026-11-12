@@ -1,3 +1,4 @@
+<!-- doc-status: stable; source: .github/workflows/release.yml -->
 # Release Process
 
 В проекте используется централизованная версия через файл `VERSION` в корне репозитория.

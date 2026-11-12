@@ -3,6 +3,7 @@
  */
 
 import { KEYWORDS, type Token, type TokenKind } from "./lexer";
+import { resolveSyscallAlias } from "../runtime/vm/invokeRegistry";
 import type { Program, Module, Procedure, Stmt, Expr, ImportDeclaration, TypeDeclaration, TypeRef, TypeField } from "./ast";
 
 export type ParseErrorContext = "module" | "procedure" | "stmt" | "expr";
@@ -20,19 +21,109 @@ export interface ParseError {
 export interface ParseResult {
   ast: Program | null;
   errors: ParseError[];
+  /**
+   * Предупреждения разбора. Пусто, если предупреждения не запрошены
+   * ({@link ParseOptions.warnDeprecated}) — по умолчанию их нет.
+   */
+  warnings: ParseWarning[];
 }
 
-export function parse(tokens: Token[]): ParseResult {
+/**
+ * Вид предупреждения разбора.
+ *
+ * | вид | о чём |
+ * |---|---|
+ * | `deprecated_closer` | одиночный `конец` вместо `конец_<блок>` (Стадия 2 плана v2) |
+ * | `module_header_without_closer` | шапка `модуль имя` без закрытия модуля (БЛОК 3, пункт 1) |
+ *
+ * Оба вида — про **устаревшую форму записи**, поэтому включаются одним флагом
+ * {@link ParseOptions.warnDeprecated} и оба информационные.
+ */
+export type ParseWarningKind = "deprecated_closer" | "module_header_without_closer";
+
+/**
+ * Предупреждение разбора. Это **не** ошибка: разбор завершился, AST построен,
+ * компиляция продолжается.
+ */
+export interface ParseWarning {
+  kind: ParseWarningKind;
+  message: string;
+  line: number;
+  column: number;
+  /** Блок, о котором предупреждение (`процедура`, `модуль`, `пока`, …). */
+  block: string;
+  /** Каноническое закрывающее слово этого блока (`конец_процедуры`, …). */
+  canonical: string;
+}
+
+export interface ParseOptions {
+  /**
+   * Предупреждать об устаревших формах записи: одиночном `конец` и шапке
+   * `модуль имя` без закрытия (БЛОК 3, пункт 1).
+   *
+   * По умолчанию **выключено**: корпус и примеры написаны на legacy-формах, и
+   * по умолчанию компилятор обязан молчать (Стадия 2: массовая миграция — после
+   * выкладки 0.1, до неё предупреждение только по явному запросу).
+   */
+  warnDeprecated?: boolean;
+  /**
+   * Имя исходного файла — источник имени модуля, когда шапки `модуль имя` нет
+   * (канон БЛОК 3, пункт 1: файл = модуль).
+   *
+   * Без имени файла модуль получает имя {@link DEFAULT_MODULE_NAME}: разбор
+   * обязан оставаться возможным и на безымянном источнике (так его зовут оракулы
+   * парсера), но угадывать имя ему не из чего.
+   */
+  filename?: string;
+}
+
+/**
+ * Имя модуля, когда шапки нет и имени файла тоже нет.
+ *
+ * То же слово, что у входного файла по умолчанию в `compileSource`: два разных
+ * умолчания для одного понятия разошлись бы.
+ */
+export const DEFAULT_MODULE_NAME = "вход";
+
+/**
+ * Имя модуля из имени файла: `привет.osnova` → `привет`.
+ *
+ * Снимается только расширение языка (`.osnova`, регистр не важен) и только
+ * каталог — как разделители принимаются и `/`, и `\`: на Windows путь приходит с
+ * обратными, и имя модуля не должно зависеть от платформы. Прочие точки в имени
+ * остаются частью имени (`мой.модуль.osnova` → `мой.модуль`): снимать «последнее
+ * расширение» значило бы молча терять часть имени.
+ */
+export function moduleNameFromFilename(filename: string | undefined): string {
+  if (filename === undefined || filename === "") return DEFAULT_MODULE_NAME;
+  const normalized = filename.replace(/\\/g, "/");
+  const base = normalized.slice(normalized.lastIndexOf("/") + 1);
+  const withoutExt = base.replace(/\.osnova$/i, "");
+  return withoutExt === "" ? DEFAULT_MODULE_NAME : withoutExt;
+}
+
+export function parse(tokens: Token[], options: ParseOptions = {}): ParseResult {
   const errors: ParseError[] = [];
+  const warnings: ParseWarning[] = [];
   let pos = 0;
 
   function peek(): Token {
     return tokens[pos] ?? tokens[tokens.length - 1];
   }
 
+  /**
+   * Следующий токен.
+   *
+   * ВАЖНО: `pos` обязан двигаться и на `конец_файла` — иначе на нём можно
+   * застрять. Раньше здесь стоял запрет двигаться с `конец_файла`, и любой цикл
+   * восстановления после ошибки (`while (peek() !== "конец_файла")`) навсегда
+   * зацикливался на последнем токене: `peek()` возвращал тот же `конец_файла`,
+   * `pos` не менялся. Это и был вечный цикл/OOM на `попробовать` + неизвестное
+   * слово. Циклы проверяют `pos < tokens.length`, поэтому выход есть.
+   */
   function advance(): Token {
     const t = peek();
-    if (pos < tokens.length && tokens[pos].kind !== "конец_файла") pos++;
+    if (pos < tokens.length) pos++;
     return t;
   }
 
@@ -61,9 +152,209 @@ export function parse(tokens: Token[]): ParseResult {
     while (peek().kind === "новая_строка") advance();
   }
 
+  /**
+   * ─── БЛОК 1 (v2): закрывающее слово называет свой блок ───
+   *
+   * `конец_X` — канон: закрывает X и ничего другого. `конец` — контекстный
+   * токен: закрывает ближайший блок по контексту, а вне позиции закрытия
+   * работает как имя (`пусть конец = 5`, `о.конец`). Контекст закрытия
+   * определяет `isCloserToken`.
+   */
+  const KIND_КОНЕЦ_ПРОЦЕДУРЫ: TokenKind = "конец_процедуры";
+  const KIND_КОНЕЦ_ЕСЛИ: TokenKind = "конец_если";
+  const KIND_КОНЕЦ_ПОКА: TokenKind = "конец_пока";
+  const KIND_КОНЕЦ_ДЛЯ: TokenKind = "конец_для";
+  const KIND_КОНЕЦ_ЦИКЛА: TokenKind = "конец_цикла";
+  const KIND_КОНЕЦ_КОГДА: TokenKind = "конец_когда";
+  const KIND_КОНЕЦ_ПОПРОБОВАТЬ: TokenKind = "конец_попробовать";
+  const KIND_КОНЕЦ_МОДУЛЯ: TokenKind = "конец_модуля";
+
+  const ANY_BLOCK_CLOSER_KINDS: readonly TokenKind[] = [
+    KIND_КОНЕЦ_ЕСЛИ,
+    KIND_КОНЕЦ_ПОКА,
+    KIND_КОНЕЦ_ДЛЯ,
+    KIND_КОНЕЦ_ЦИКЛА,
+    KIND_КОНЕЦ_КОГДА,
+    KIND_КОНЕЦ_ПОПРОБОВАТЬ,
+    KIND_КОНЕЦ_ПРОЦЕДУРЫ,
+    KIND_КОНЕЦ_МОДУЛЯ,
+  ];
+
+  /** Лексемы, принимаемые как имена: `конец` больше не зарезервирован. */
+  const CONTEXTUAL_NAME_LEXEMES: readonly string[] = ["конец"];
+
+  /**
+   * Продолжение инструкции сразу после токена — значит, это имя, а не закрытие.
+   * `пусть конец = 5`, `вернуть конец - начало`, `о.конец`.
+   */
+  const EXPR_CONTINUATION_KINDS: readonly TokenKind[] = [
+    "=", "+=", "-=", "*=", "/=",
+    "+", "-", "*", "/", "%", "div",
+    "==", "!=", "<", "<=", ">", ">=",
+    "и", "или", "?", ".",
+    "[", "]", "(", ")",
+    ",", ":", "}",
+  ];
+
+  function peekNext(): Token {
+    return tokens[pos + 1] ?? tokens[tokens.length - 1];
+  }
+
+  /**
+   * Глубина разбора условия. В условии одиночный `=` читается как `==`
+   * (пункт 1.1 требований: 52 случая в трейсах — модель тянет `=` из Pascal/SQL).
+   * Вне условия `=` остаётся оператором инструкции, и в выражении он — ошибка.
+   */
+  let conditionDepth = 0;
+
+  /** Разобрать выражение в позиции условия (`если`, `иначе_если`, `пока`). */
+  function parseCondition(): Expr | null {
+    conditionDepth++;
+    try {
+      return parseExpr();
+    } finally {
+      conditionDepth--;
+    }
+  }
+  /**
+   * Токен — закрывающее слово для блока. `конец_X` однозначны (ключевые слова).
+   * `конец` закрывает только тогда, когда за ним НЕТ продолжения инструкции.
+   */
+  function isCloserToken(t: Token): boolean {
+    if (t.kind === "конец") {
+      if (!CONTEXTUAL_NAME_LEXEMES.includes(t.lexeme)) return false;
+      const n = peekNext();
+      if (n.kind === "новая_строка" || n.kind === "конец_файла") return true;
+      if (ANY_BLOCK_CLOSER_KINDS.includes(n.kind)) return true;
+      return !EXPR_CONTINUATION_KINDS.includes(n.kind);
+    }
+    return ANY_BLOCK_CLOSER_KINDS.includes(t.kind) && t.lexeme === t.kind;
+  }
+
+  function isContextualNameToken(): boolean {
+    const t = peek();
+    return t.kind === "конец" && CONTEXTUAL_NAME_LEXEMES.includes(t.lexeme);
+  }
+
+
+  /** Принимаемое закрытие конкретного блока: канон (`конец_X`) и legacy (`конец`). */
+  interface CloserSpec {
+    kinds: readonly TokenKind[];
+    /** Человекочитаемое имя закрываемого блока — для диагностики. */
+    block: string;
+  }
+
+  const PROCEDURE_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ПРОЦЕДУРЫ, "конец"], block: "процедура" };
+  const MODULE_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_МОДУЛЯ, "конец"], block: "модуль" };
+  const IF_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ЕСЛИ, "конец"], block: "если" };
+  const WHEN_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_КОГДА, "конец"], block: "когда" };
+  const TRY_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ПОПРОБОВАТЬ, "конец"], block: "попробовать" };
+  const WHILE_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ПОКА, "конец"], block: "пока" };
+  // `конец_для_каждого` — полная форма имени конструкции; реестр знает короткую
+  // `конец_для`. Обе принимаются: отказ на полной форме был бы непонятен.
+  const FOR_EACH_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ДЛЯ, "конец_для_каждого", "конец"], block: "для" };
+  const LOOP_CLOSER: CloserSpec = { kinds: [KIND_КОНЕЦ_ЦИКЛА, "конец"], block: "цикл" };
+
+  /** Закрывает ли текущий токен блок по спецификации `spec`. */
+  function isAtCloser(spec: CloserSpec): boolean {
+    const t = peek();
+    return spec.kinds.includes(t.kind) && isCloserToken(t);
+  }
+
+  /** Явное закрытие не тем словом — ошибка с указанием ожидаемого. */
+  function isMismatchedCloser(spec: CloserSpec): boolean {
+    const t = peek();
+    return ANY_BLOCK_CLOSER_KINDS.includes(t.kind) && isCloserToken(t) && !spec.kinds.includes(t.kind);
+  }
+
+  /**
+   * Устаревшее закрытие: одиночный `конец` вместо `конец_<блок>`.
+   *
+   * Срабатывает ровно в момент ПРИНЯТОГО закрытия (`advance()` ниже), поэтому
+   * `конец` в позиции имени (`пусть конец = 5`) сюда не попадает — он и не
+   * закрытие. По умолчанию предупреждение выключено, см. {@link ParseOptions}.
+   */
+  function warnLegacyCloser(spec: CloserSpec): void {
+    if (options.warnDeprecated !== true) return;
+    const t = peek();
+    if (t.kind !== "конец") return;
+    const canonical = String(spec.kinds[0]);
+    warnings.push({
+      kind: "deprecated_closer",
+      message: `устаревшее закрытие «конец»: блок «${spec.block}» в каноне v2 закрывается '${canonical}'`,
+      line: t.line,
+      column: t.column,
+      block: spec.block,
+      canonical,
+    });
+  }
+
+  /**
+   * Шапка `модуль имя` без закрытия (БЛОК 3, пункт 1).
+   *
+   * Почему это **предупреждение**, а не ошибка. Замер 2026-09-19: из 68 файлов
+   * корпуса шапка есть у всех 68, а `конец_модуля` — только у 11, то есть 57
+   * файлов закрытия не имеют. Объявить их ошибкой значило бы обрушить корпус и
+   * 46 файлов оракулов разом, нарушив два критерия блока сразу («legacy
+   * принимается», «npm test — 0 падений»). Решение владельца: диагностика по
+   * флагу, жёсткая ошибка — только на закрытие без шапки (см.
+   * {@link parseFileAsModule}).
+   */
+  function warnModuleHeaderWithoutCloser(name: string, line: number, column: number): void {
+    if (options.warnDeprecated !== true) return;
+    warnings.push({
+      kind: "module_header_without_closer",
+      message:
+        `шапка «модуль ${name}» без закрытия: закройте блок словом 'конец_модуля' ` +
+        `или уберите шапку — файл сам является модулем`,
+      line,
+      column,
+      block: "модуль",
+      canonical: String(KIND_КОНЕЦ_МОДУЛЯ),
+    });
+  }
+
+  /**
+   * Закрыть блок. Отказ называет блок и ожидаемое слово: «Закрытие ... не
+   * совпадает» при явно не том слове и «Ожидается закрытие ...» при отсутствии.
+   */
+  function expectCloser(spec: CloserSpec): boolean {
+    if (isAtCloser(spec)) {
+      warnLegacyCloser(spec);
+      advance();
+      return true;
+    }
+    const expectedWords = spec.kinds.map((k) => `'${k}'`).join(" или ");
+    if (isMismatchedCloser(spec)) {
+      const t = peek();
+      errors.push({
+        message: `Закрытие не совпадает: блок «${spec.block}» закрывается ${expectedWords}, получено: '${t.lexeme}'`,
+        line: t.line,
+        column: t.column,
+        context: "stmt",
+        expected: [...spec.kinds],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      advance();
+      return false;
+    }
+    const t = peek();
+    errors.push({
+      message: `Ожидается закрытие блока «${spec.block}»: ${expectedWords}, получено: ${t.kind}`,
+      line: t.line,
+      column: t.column,
+      context: "stmt",
+      expected: [...spec.kinds],
+      actualKind: t.kind,
+      actualLexeme: t.lexeme,
+    });
+    return false;
+  }
+
   function isFieldNameToken(): boolean {
     const t = peek();
-    return t.kind === "идентификатор" || KEYWORDS[t.lexeme] !== undefined;
+    return t.kind === "идентификатор" || KEYWORDS[t.lexeme] !== undefined || isContextualNameToken();
   }
 
   function takeFieldName(): string {
@@ -94,19 +385,24 @@ export function parse(tokens: Token[]): ParseResult {
       "когда",
       "пока",
       "вернуть",
-      "для_каждого",
+      "для",
       "попробовать",
       "выбросить",
       "прервать",
       "продолжить",
       "цикл",
     ];
+    const start = pos;
     while (pos < tokens.length) {
       const k = peek().kind;
-      if (k === "новая_строка" || k === "конец" || k === "конец_файла") return;
-      if (stmtHead.includes(k)) return;
+      if (k === "новая_строка" || k === "конец" || k === "конец_файла") break;
+      if (stmtHead.includes(k)) break;
       advance();
     }
+    // Гарантия прогресса: восстановление обязано сдвинуть разбор хотя бы на
+    // токен. Иначе «текущий токен — начало инструкции, которую не удалось
+    // разобрать» превращается в вечный цикл у вызывающего.
+    if (pos === start) advance();
   }
 
   /** Восстановление на уровне модуля: до следующей процедура или конец_файла. */
@@ -118,37 +414,14 @@ export function parse(tokens: Token[]): ParseResult {
     }
   }
 
-  function parseModule(): Module | null {
-    if (!isAt("модуль")) {
-      const t = peek();
-      errors.push({
-        message: "Ожидается 'модуль'",
-        line: t.line,
-        column: t.column,
-        context: "module",
-        expected: ["модуль"],
-        actualKind: t.kind,
-        actualLexeme: t.lexeme,
-      });
-      return null;
-    }
-    advance();
-    if (!isAt("идентификатор")) {
-      const t = peek();
-      errors.push({
-        message: "Ожидается имя модуля",
-        line: t.line,
-        column: t.column,
-        context: "module",
-        expected: ["идентификатор"],
-        actualKind: t.kind,
-        actualLexeme: t.lexeme,
-      });
-      return null;
-    }
-    const tokMod = advance();
-    const name = String(tokMod.value ?? tokMod.lexeme);
-    skipNewlines();
+  /**
+   * Тело модуля: импорты, типы, процедуры.
+   *
+   * Вынесено отдельно, потому что тело у обеих форм одно и то же (БЛОК 3, пункт
+   * 1): у шапки `модуль имя` и у файла-модуля различаются только объявление
+   * имени и закрытие.
+   */
+  function parseModuleBody(): Pick<Module, "imports" | "typeDeclarations" | "procedures"> {
     const imports: ImportDeclaration[] = [];
     // Импорт разрешён только в самом начале модуля.
     while (peek().kind === "использовать") {
@@ -199,12 +472,103 @@ export function parse(tokens: Token[]): ParseResult {
       else syncToTopLevel();
       skipNewlines();
     }
-    // Опциональный закрывающий "конец" для модуля
-    if (peek().kind === "конец") {
+    return { imports, typeDeclarations, procedures };
+  }
+
+  /**
+   * Legacy-форма: модуль объявлен шапкой `модуль <имя>`.
+   *
+   * Закрытие остаётся **необязательным**. Замер 2026-09-19: шапку пишут все 68
+   * файлов корпуса, а `конец_модуля` — только 11, то есть 57 файлов модуль не
+   * закрывают. Отсутствие закрытия — предупреждение по флагу, а не ошибка, см.
+   * {@link warnModuleHeaderWithoutCloser}.
+   */
+  function parseModule(): Module | null {
+    if (!isAt("модуль")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается 'модуль'",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["модуль"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      return null;
+    }
+    const tokHeader = advance();
+    if (!isAt("идентификатор")) {
+      const t = peek();
+      errors.push({
+        message: "Ожидается имя модуля",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["идентификатор"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      return null;
+    }
+    const tokMod = advance();
+    const name = String(tokMod.value ?? tokMod.lexeme);
+    skipNewlines();
+    const body = parseModuleBody();
+    // Опциональный закрывающий "конец"/"конец_модуля" для модуля (БЛОК 1 v2).
+    if (isAtCloser(MODULE_CLOSER)) {
+      warnLegacyCloser(MODULE_CLOSER);
+      advance();
+      skipNewlines();
+    } else {
+      warnModuleHeaderWithoutCloser(name, tokHeader.line, tokHeader.column);
+    }
+    return { name, ...body };
+  }
+
+  /**
+   * Канон БЛОК 3, пункт 1: **файл = модуль**.
+   *
+   * Шапки `модуль имя` нет — модуль это весь файл, имя берётся из имени файла
+   * ({@link moduleNameFromFilename}). Закрывать нечего: конец файла и есть конец
+   * модуля, поэтому `конец_модуля` здесь — ошибка, а не закрытие.
+   *
+   * Различие между `конец_модуля` и одиночным `конец` намеренное, и оно не
+   * косметическое: `конец_модуля` **называет** модуль, то есть утверждает «модуль
+   * объявлен шапкой» — в файле-модуле это утверждение ложно. Одиночный `конец`
+   * имени не называет и остаётся принимаемым legacy-закрытием (как и везде после
+   * БЛОК 1 v2).
+   */
+  function parseFileAsModule(): Module | null {
+    const name = moduleNameFromFilename(options.filename);
+    const body = parseModuleBody();
+
+    // Смешение форм: закрытие без открытия. Причина называется точно — и что
+    // не так, и оба способа починить.
+    if (isAtCloser(MODULE_CLOSER) && peek().kind === KIND_КОНЕЦ_МОДУЛЯ) {
+      const t = peek();
+      errors.push({
+        message:
+          "'конец_модуля' без шапки 'модуль имя': закрывать нечего — файл сам является модулем; " +
+          "уберите 'конец_модуля' либо объявите модуль шапкой 'модуль <имя>'",
+        line: t.line,
+        column: t.column,
+        context: "module",
+        expected: ["конец_файла"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      advance();
+      skipNewlines();
+      return null;
+    }
+
+    if (isAtCloser(MODULE_CLOSER)) {
+      warnLegacyCloser(MODULE_CLOSER);
       advance();
       skipNewlines();
     }
-    return { name, imports, typeDeclarations, procedures };
+    return { name, ...body };
   }
 
   function parseImportDeclaration(): ImportDeclaration | null {
@@ -313,8 +677,11 @@ export function parse(tokens: Token[]): ParseResult {
     const name = String(tokName.value ?? tokName.lexeme);
     skipNewlines();
 
-    // Перечень: тип Имя = a | b | c
-    if (peek().kind === "=") {
+    // Перечень: `тип Имя = a | b | c`.
+    // Запись: `тип Имя = { поле: Тип, … }` — знак `=` допустим и в этой форме
+    // (модель пишет запись через `=`, это частая LLM-ошибка; принимаем оба
+    // написания вместо отказа).
+    if (peek().kind === "=" && tokens[pos + 1]?.kind !== "{") {
       advance();
       skipNewlines();
       const variants: string[] = [];
@@ -354,6 +721,9 @@ export function parse(tokens: Token[]): ParseResult {
       return { kind: "TypeDeclaration", name, fields: [], variants };
     }
 
+    // Форма записи со знаком равенства: `тип Имя = { … }` — `=` пропускаем,
+    // дальше разбор тела общий.
+    if (peek().kind === "=") advance();
     if (!consume("{", "Ожидается '{' или '=' после имени типа")) return null;
     skipNewlines();
 
@@ -439,7 +809,7 @@ export function parse(tokens: Token[]): ParseResult {
     const params: string[] = [];
     const paramTypes: Array<TypeRef | undefined> = [];
     skipNewlines();
-    while (peek().kind === "идентификатор") {
+    while (isAt("идентификатор") || isContextualNameToken()) {
       const tokParam = advance();
       params.push(String(tokParam.value ?? tokParam.lexeme));
       skipNewlines();
@@ -467,13 +837,18 @@ export function parse(tokens: Token[]): ParseResult {
       skipNewlines();
     }
     const body: Stmt[] = [];
-    while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+    while (!isAtCloser(PROCEDURE_CLOSER) && !isMismatchedCloser(PROCEDURE_CLOSER) && peek().kind !== "конец_файла") {
+      const before = pos;
       const s = parseStmt();
       if (s) body.push(s);
       else syncToStmtBoundary();
+      // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+      // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+      // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+      if (pos === before) break;
       skipNewlines();
     }
-    if (!consume("конец", "Ожидается 'конец'")) return null;
+    if (!expectCloser(PROCEDURE_CLOSER)) return null;
     const hasParamTypes = paramTypes.some((t) => t !== undefined);
     return {
       name,
@@ -486,7 +861,39 @@ export function parse(tokens: Token[]): ParseResult {
     };
   }
 
+  /**
+   * `пока_не` в позиции КОНСТРУКЦИИ: слово, за которым идёт выражение
+   * (`пока_не x > 5`). Решение владельца — конструкцию не добавлять; здесь только
+   * точная диагностика вместо каскада ошибок.
+   *
+   * Как имя переменной слово законно (`пусть пока_не = 5`, `пока_не = 1`,
+   * `пока_не(...)`, `пока_не.поле`), поэтому за присваиванием/вызовом/полем/
+   * индексом и в конце строки диагностика молчит.
+   */
+  function atMissingWhileNot(): boolean {
+    const t = peek();
+    if (t.kind !== "идентификатор" || t.lexeme !== "пока_не") return false;
+    const varLike: TokenKind[] = [
+      "=", "+=", "-=", "*=", "/=", "(", ".", "[", ",",
+      "новая_строка", "конец_файла",
+    ];
+    return !varLike.includes(peekNext().kind);
+  }
   function parseStmt(): Stmt | null {
+    if (atMissingWhileNot()) {
+      const t = peek();
+      errors.push({
+        message: "нет конструкции 'пока_не'; используйте 'пока не x'",
+        line: t.line,
+        column: t.column,
+        context: "stmt",
+        expected: ["пока"],
+        actualKind: t.kind,
+        actualLexeme: t.lexeme,
+      });
+      advance();
+      return null;
+    }
     const compoundToBinaryOp: Record<"+=" | "-=" | "*=" | "/=", "+" | "-" | "*" | "/"> = {
       "+=": "+",
       "-=": "-",
@@ -589,6 +996,9 @@ export function parse(tokens: Token[]): ParseResult {
       if (isAt("идентификатор")) {
         const tokLet = advance();
         name = String(tokLet.value ?? tokLet.lexeme);
+      } else if (isContextualNameToken()) {
+        // `конец` — контекстный токен; вне позиции закрытия это обычное имя.
+        name = advance().lexeme;
       } else if (KEYWORDS[peek().lexeme] !== undefined) {
         // ключевое слово на месте имени — парсим как имя, семантика выдаст keyword_as_identifier
         const tokLet = advance();
@@ -642,9 +1052,19 @@ export function parse(tokens: Token[]): ParseResult {
     }
     if (peek().kind === "вернуть") {
       advance();
+      // Два сигнала вместе, порознь их не хватает:
+      //  - значение может быть и на следующей строке (`вернуть` + перевод + `0`):
+      //    это зафиксировано тестом parser.test.ts и должно остаться;
+      //  - `конец` на ТОЙ ЖЕ строке, что `вернуть`, — имя переменной (§1.4):
+      //    закрытие блока на строке с `вернуть` не пишут;
+      //  - `конец` на СЛЕДУЮЩЕЙ строке — закрытие блока, а не значение: иначе
+      //    пустой возврат съедал бы закрытие.
+      const sameLine = peek().kind !== "новая_строка";
       skipNewlines();
+      const atEof = peek().kind === "конец_файла";
+      const closerOnNextLine = !sameLine && isCloserToken(peek());
       let value: Expr | undefined;
-      if (peek().kind !== "новая_строка" && peek().kind !== "конец" && peek().kind !== "конец_файла") {
+      if (!atEof && !closerOnNextLine) {
         const v = parseExpr();
         if (v) {
           if (peek().kind === ",") {
@@ -666,30 +1086,40 @@ export function parse(tokens: Token[]): ParseResult {
     if (peek().kind === "если") {
       advance();
       skipNewlines();
-      const condition = parseExpr();
+      const condition = parseCondition();
       if (!condition) return null;
       if (peek().kind === "тогда") advance();
       skipNewlines();
       const body: Stmt[] = [];
-      while (peek().kind !== "конец" && peek().kind !== "иначе_если" && peek().kind !== "иначе" && peek().kind !== "конец_файла") {
+      while (peek().kind !== "иначе_если" && peek().kind !== "иначе" && !isAtCloser(IF_CLOSER) && !isMismatchedCloser(IF_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+        if (pos === before) break;
         skipNewlines();
       }
       const elseIfClauses: Array<{ condition: Expr; body: Stmt[] }> = [];
       while (atElseIf()) {
         consumeElseIf();
         skipNewlines();
-        const cond = parseExpr();
+        const cond = parseCondition();
         if (!cond) return null;
         if (peek().kind === "тогда") advance();
         skipNewlines();
         const clauseBody: Stmt[] = [];
-        while (peek().kind !== "конец" && peek().kind !== "иначе_если" && peek().kind !== "иначе" && peek().kind !== "конец_файла") {
+        while (peek().kind !== "иначе_если" && peek().kind !== "иначе" && !isAtCloser(IF_CLOSER) && !isMismatchedCloser(IF_CLOSER) && peek().kind !== "конец_файла") {
+          const before = pos;
           const s = parseStmt();
           if (s) clauseBody.push(s);
           else syncToStmtBoundary();
+          // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+          // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+          if (pos === before) break;
           skipNewlines();
         }
         elseIfClauses.push({ condition: cond, body: clauseBody });
@@ -699,14 +1129,19 @@ export function parse(tokens: Token[]): ParseResult {
         advance();
         skipNewlines();
         elseBody = [];
-        while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+        while (!isAtCloser(WHEN_CLOSER) && !isMismatchedCloser(WHEN_CLOSER) && peek().kind !== "конец_файла") {
+          const before = pos;
           const s = parseStmt();
           if (s) elseBody.push(s);
           else syncToStmtBoundary();
+          // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+          // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+          if (pos === before) break;
           skipNewlines();
         }
       }
-      if (!consume("конец", "Ожидается 'конец' после тела если")) return null;
+      if (!expectCloser(IF_CLOSER)) return null;
       return { kind: "если", condition, body, elseIfClauses: elseIfClauses.length > 0 ? elseIfClauses : undefined, elseBody };
     }
     if (peek().kind === "когда") {
@@ -726,12 +1161,17 @@ export function parse(tokens: Token[]): ParseResult {
         while (
           peek().kind !== "есть" &&
           peek().kind !== "иначе" &&
-          peek().kind !== "конец" &&
+          !isAtCloser(WHEN_CLOSER)  &&
           peek().kind !== "конец_файла"
         ) {
+          const before = pos;
           const s = parseStmt();
           if (s) armBody.push(s);
           else syncToStmtBoundary();
+          // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+          // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+          if (pos === before) break;
           skipNewlines();
         }
         arms.push({ variant, body: armBody });
@@ -751,32 +1191,42 @@ export function parse(tokens: Token[]): ParseResult {
         advance();
         skipNewlines();
         elseBody = [];
-        while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+        while (!isAtCloser(WHEN_CLOSER) && !isMismatchedCloser(WHEN_CLOSER) && peek().kind !== "конец_файла") {
+          const before = pos;
           const s = parseStmt();
           if (s) elseBody.push(s);
           else syncToStmtBoundary();
+          // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+          // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+          // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+          if (pos === before) break;
           skipNewlines();
         }
       }
-      if (!consume("конец", "Ожидается 'конец' после тела когда")) return null;
+      if (!expectCloser(WHEN_CLOSER)) return null;
       return { kind: "когда", scrutinee, arms, elseBody };
     }
     if (peek().kind === "попробовать") {
       advance();
       skipNewlines();
       const body: Stmt[] = [];
-      while (peek().kind !== "иначе_попытка" && peek().kind !== "конец_файла") {
+      while (peek().kind !== "поймать" && !isAtCloser(TRY_CLOSER) && !isMismatchedCloser(TRY_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+        if (pos === before) break;
         skipNewlines();
       }
-      if (!consume("иначе_попытка", "Ожидается 'иначе_попытка'")) return null;
+      if (!consume("поймать", "Ожидается 'поймать' (алиас: 'иначе_попытка')")) return null;
       skipNewlines();
       if (!isAt("идентификатор")) {
         const t = peek();
         errors.push({
-          message: "Ожидается имя переменной ошибки после 'иначе_попытка'",
+          message: "Ожидается имя переменной ошибки после 'поймать'",
           line: t.line,
           column: t.column,
           context: "stmt",
@@ -790,13 +1240,18 @@ export function parse(tokens: Token[]): ParseResult {
       const catchVar = String(catchTok.value ?? catchTok.lexeme);
       skipNewlines();
       const catchBody: Stmt[] = [];
-      while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+      while (!isAtCloser(TRY_CLOSER) && !isMismatchedCloser(TRY_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) catchBody.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+        if (pos === before) break;
         skipNewlines();
       }
-      if (!consume("конец", "Ожидается 'конец' после иначе_попытка")) return null;
+      if (!expectCloser(TRY_CLOSER)) return null;
       return { kind: "попробовать", body, catchVar, catchBody };
     }
     if (peek().kind === "выбросить") {
@@ -809,26 +1264,31 @@ export function parse(tokens: Token[]): ParseResult {
     if (peek().kind === "пока") {
       advance();
       skipNewlines();
-      const condition = parseExpr();
+      const condition = parseCondition();
       if (!condition) return null;
       if (peek().kind === "тогда") advance();
       skipNewlines();
       const body: Stmt[] = [];
-      while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+      while (!isAtCloser(WHILE_CLOSER) && !isMismatchedCloser(WHILE_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+        if (pos === before) break;
         skipNewlines();
       }
-      if (!consume("конец", "Ожидается 'конец' после тела пока")) return null;
+      if (!expectCloser(WHILE_CLOSER)) return null;
       return { kind: "пока", condition, body };
     }
-    if (peek().kind === "для_каждого") {
+    if (peek().kind === "для") {
       advance();
       if (!isAt("идентификатор")) {
         const t = peek();
         errors.push({
-          message: "Ожидается имя переменной после 'для_каждого'",
+          message: "Ожидается имя переменной после 'для'",
           line: t.line,
           column: t.column,
           context: "stmt",
@@ -859,20 +1319,25 @@ export function parse(tokens: Token[]): ParseResult {
         const tokIndex = advance();
         index = String(tokIndex.value ?? tokIndex.lexeme);
       }
-      if (!consume("в", "Ожидается 'в' после переменной для_каждого")) return null;
+      if (!consume("в", "Ожидается 'в' после переменной для")) return null;
       skipNewlines();
       const source = parseExpr();
       if (!source) return null;
       if (peek().kind === "тогда") advance();
       skipNewlines();
       const body: Stmt[] = [];
-      while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+      while (!isAtCloser(FOR_EACH_CLOSER) && !isMismatchedCloser(FOR_EACH_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+        if (pos === before) break;
         skipNewlines();
       }
-      if (!consume("конец", "Ожидается 'конец' после тела для_каждого")) return null;
+      if (!expectCloser(FOR_EACH_CLOSER)) return null;
       return {
         kind: "для_каждого",
         item,
@@ -896,13 +1361,18 @@ export function parse(tokens: Token[]): ParseResult {
       advance();
       skipNewlines();
       const body: Stmt[] = [];
-      while (peek().kind !== "конец" && peek().kind !== "конец_файла") {
+      while (!isAtCloser(LOOP_CLOSER) && !isMismatchedCloser(LOOP_CLOSER) && peek().kind !== "конец_файла") {
+        const before = pos;
         const s = parseStmt();
         if (s) body.push(s);
         else syncToStmtBoundary();
+        // Гарантия прогресса: разбор, не сдвинувший позицию, — вечный цикл.
+        // НЕ ПОКРЫТА оракулом (замер 2026-09-23): 875 входов, 0 срабатываний —
+        // защита в глубину. Реестр: docs/verification-debt.md, п. 5.
+        if (pos === before) break;
         skipNewlines();
       }
-      if (!consume("конец", "Ожидается 'конец' после тела цикл")) return null;
+      if (!expectCloser(LOOP_CLOSER)) return null;
       return { kind: "цикл", body };
     }
     if (isAt("идентификатор")) {
@@ -962,16 +1432,23 @@ export function parse(tokens: Token[]): ParseResult {
     return parseCompare();
   }
 
+  /** Оператор сравнения; в позиции условия одиночный `=` читается как `==` (пункт 1.1). */
+  function isCompareOp(k: TokenKind): boolean {
+    if (k === "=") return conditionDepth > 0;
+    return k === "==" || k === "!=" || k === "<" || k === "<=" || k === ">" || k === ">=";
+  }
+
   function parseCompare(): Expr | null {
     const left = parseAdd();
     if (!left) return null;
-    const compareOps = new Set<TokenKind>(["==", "!=", "<", "<=", ">", ">="]);
-    if (!compareOps.has(peek().kind)) return left;
+    if (!isCompareOp(peek().kind)) return left;
     // a < b < c → (a < b) и (b < c) — как пишут нейросети и Python
     let acc: Expr | null = null;
     let prevRight: Expr = left;
-    while (compareOps.has(peek().kind)) {
-      const op = advance().kind;
+    while (isCompareOp(peek().kind)) {
+      const raw = advance().kind;
+      // В условии `=` — сравнение, а не присваивание: в AST идёт `==`.
+      const op = raw === "=" ? "==" : raw;
       skipNewlines();
       const right = parseAdd();
       if (!right) return null;
@@ -998,7 +1475,8 @@ export function parse(tokens: Token[]): ParseResult {
   function parseMul(): Expr | null {
     let left = parseUnary();
     if (!left) return null;
-    while (peek().kind === "*" || peek().kind === "/" || peek().kind === "%") {
+    // `div` — целочисленное деление (БЛОК 2): тот же уровень, что `*`, `/`, `%`.
+    while (peek().kind === "*" || peek().kind === "/" || peek().kind === "%" || peek().kind === "div") {
       const op = advance().kind;
       skipNewlines();
       const right = parseUnary();
@@ -1106,7 +1584,7 @@ export function parse(tokens: Token[]): ParseResult {
       if (!consume("]", "Ожидается ']'")) return null;
       return { kind: "массив", elements };
     }
-    if (t.kind === "идентификатор") {
+    if (t.kind === "идентификатор" || isContextualNameToken()) {
       advance();
       const name = String(t.value ?? t.lexeme);
       let expr: Expr = { kind: "переменная", name };
@@ -1157,7 +1635,9 @@ export function parse(tokens: Token[]): ParseResult {
               } else break;
             }
             if (!consume(")", "Ожидается ')'")) return null;
-            return { kind: "вызов", name: fullName, args };
+            // Синоним системного вызова сводится к канону здесь, где имя попадает
+            // в AST: тогда семантика, кодогенерация и обе VM видят одно имя.
+            return { kind: "вызов", name: resolveSyscallAlias(fullName), args };
           }
           expr = { kind: "поле", object: expr, field };
         }
@@ -1189,7 +1669,7 @@ export function parse(tokens: Token[]): ParseResult {
           } else break;
         }
         consume(")", "Ожидается ')'");
-        return { kind: "вызов", name, args };
+        return { kind: "вызов", name: resolveSyscallAlias(name), args };
       }
       return expr;
     }
@@ -1207,44 +1687,75 @@ export function parse(tokens: Token[]): ParseResult {
 
   skipNewlines();
   const modules: Module[] = [];
-  while (peek().kind !== "конец_файла") {
-    if (!isAt("модуль")) {
+  // Канон БЛОК 3, пункт 1: файл = модуль. Всё, что не начинается шапкой
+  // `модуль имя`, — один модуль; имя берётся из имени файла. Это включает и
+  // ПУСТОЙ файл (пустой источник, одни переводы строк, одни комментарии): под
+  // нормой «файл = модуль» у него есть честный ответ — модуль с пустым телом.
+  // Прежде пустой поток проходил мимо этой ветки, модулей получалось ноль, AST
+  // был `null`, и `compileSource` отказывал по `modules.length === 0` — отказ
+  // БЕЗ единой диагностики во всех фазах, то есть отказ, по которому нельзя
+  // понять, что не так. Если шапка есть, работает прежний путь: модулей в файле
+  // по-прежнему может быть несколько.
+  const fileIsModule = !isAt("модуль");
+  if (fileIsModule) {
+    const mod = parseFileAsModule();
+    if (mod) modules.push(mod);
+    skipNewlines();
+    if (peek().kind !== "конец_файла") {
       const t = peek();
       errors.push({
-        message: "Ожидается 'модуль'",
+        message: "Ожидается конец файла: файл является модулем целиком",
         line: t.line,
         column: t.column,
         context: "module",
-        expected: ["модуль"],
+        expected: ["конец_файла"],
         actualKind: t.kind,
         actualLexeme: t.lexeme,
       });
-      advance();
-      syncToTopLevel();
-      skipNewlines();
-      continue;
+      // Восстанавливаться некуда: второго модуля в файле-модуле быть не может,
+      // поэтому поток дочитывается до конца, а не синхронизируется по шапке.
+      while (peek().kind !== "конец_файла" && pos < tokens.length) advance();
     }
-    const mod = parseModule();
-    if (mod) {
-      modules.push(mod);
-      if (peek().kind !== "модуль" && peek().kind !== "конец_файла") {
+  } else {
+    while (peek().kind !== "конец_файла") {
+      if (!isAt("модуль")) {
         const t = peek();
         errors.push({
-          message: "Ожидается начало следующего модуля или конец файла",
+          message: "Ожидается 'модуль'",
           line: t.line,
           column: t.column,
           context: "module",
-          expected: ["модуль", "конец_файла"],
+          expected: ["модуль"],
           actualKind: t.kind,
           actualLexeme: t.lexeme,
         });
         advance();
         syncToTopLevel();
+        skipNewlines();
+        continue;
       }
-    } else {
-      syncToTopLevel();
+      const mod = parseModule();
+      if (mod) {
+        modules.push(mod);
+        if (peek().kind !== "модуль" && peek().kind !== "конец_файла") {
+          const t = peek();
+          errors.push({
+            message: "Ожидается начало следующего модуля или конец файла",
+            line: t.line,
+            column: t.column,
+            context: "module",
+            expected: ["модуль", "конец_файла"],
+            actualKind: t.kind,
+            actualLexeme: t.lexeme,
+          });
+          advance();
+          syncToTopLevel();
+        }
+      } else {
+        syncToTopLevel();
+      }
+      skipNewlines();
     }
-    skipNewlines();
   }
   const ast = modules.length > 0
     ? ({
@@ -1253,11 +1764,16 @@ export function parse(tokens: Token[]): ParseResult {
         ...modules[0],
       } as Program)
     : null;
-  return { ast, errors };
+  return { ast, errors, warnings };
 }
 
 /** Форматированный вывод ошибки парсера для CLI (строка + указатель + ожидалось/получено). */
-export function printParseError(e: ParseError, source: string): void {
+export function printParseError(
+  e: ParseError,
+  source: string,
+  /** Куда печатать. Параметр добавлен для CLI, который собирает вывод в io. */
+  sink: (line: string) => void = (line) => console.error(line),
+): void {
   const lines = source.split(/\r?\n/);
   const line = lines[e.line - 1] ?? "";
   const pointer = " ".repeat(Math.max(0, e.column - 1)) + "^";
@@ -1266,7 +1782,8 @@ export function printParseError(e: ParseError, source: string): void {
   const actual = e.actualKind ? `, получено: ${e.actualKind}` : "";
   const where = e.context ? `[${e.context}] ` : "";
 
-  console.error(
+  sink(
     `Парсер ${e.line}:${e.column}: ${where}${e.message}${expected}${actual}\n${line}\n${pointer}`,
   );
 }
+

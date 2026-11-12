@@ -130,11 +130,18 @@ describe('DiagnosticAgent', () => {
     });
 
     it('детектирует non-blocking semantic ошибки', () => {
+      // Вид-пример обязан быть неблокирующим ПО ФАКТУ. Здесь стоял
+      // `break_outside_loop`; 2026-09-28 он переведён в блокирующие, потому что
+      // программа с `прервать` вне цикла не собирается (замер —
+      // `src/compiler/diagnosticCatalogue.ts`, поле `buildRefused` отменено вместе
+      // с расхождением). Неблокирующий вид в каталоге сегодня один:
+      // `keyword_as_identifier` — ключевое слово в роли имени переменной; сборку
+      // он не останавливает.
       const ctx = createMockContext({
         buildReport: createMockBuildReport({
           success: true,
           semanticErrors: [
-            { kind: 'break_outside_loop', message: 'прервать вне цикла' },
+            { kind: 'keyword_as_identifier', message: 'ключевое слово в роли имени' },
           ],
         }),
       });

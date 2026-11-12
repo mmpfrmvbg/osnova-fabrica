@@ -1,3 +1,4 @@
+<!-- doc-status: deprecated -->
 # Язык «Основа» — Грамматика v0.1
 
 > **⚠️ Статус:** formal grammar design document. Описывает целевую грамматику языка Основа,

@@ -1,3 +1,4 @@
+<!-- doc-status: frozen -->
 # Отчёт аудита: OSNOVA-FABRIKA vs blueprint Forge v5.0 / v5.1 / v5.2
 
 **Дата:** 2026-03-28  

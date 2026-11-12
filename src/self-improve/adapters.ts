@@ -10,6 +10,8 @@
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { getLLMProvider } from '../llm/index';
+import { getDefaultModel } from '../llm/defaults';
+import { resolveProvider } from '../llm/routing';
 import { execAsync } from '../patch-agent/exec';
 import type { PatchGenPort, PatchPort, GatePort, PatchGenRequest, FileEdits } from './core';
 
@@ -18,7 +20,9 @@ export function createLlmPatchGen(opts?: { model?: string }): PatchGenPort {
   return {
     async generate(req: PatchGenRequest): Promise<string> {
       const provider = getLLMProvider();
-      const model = opts?.model ?? process.env.OSNOVA_MODEL ?? 'qwen-coder-plus';
+      // Дефолт — модель текущего провайдера, а не имя модели Qwen: при
+      // OSNOVA_PROVIDER=deepseek обращение к 'qwen-coder-plus' не сработало бы.
+      const model = opts?.model ?? process.env.OSNOVA_MODEL ?? getDefaultModel(resolveProvider());
 
       const filesBlock = Object.entries(req.files)
         .map(([p, c]) => `=== ${p} ===\n${c}`)

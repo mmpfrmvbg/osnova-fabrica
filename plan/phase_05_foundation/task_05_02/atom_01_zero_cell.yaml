@@ -1,0 +1,15 @@
+id: ATOM-05-02-01
+title: "Добавить клетку нуля"
+phase: PHASE-05
+task: TASK-05-02
+status: done
+input:
+  - "контракт вызываемой"
+output:
+  - "клетка нуля в коде вызываемой"
+done_criteria:
+  - "вызываемая принимает клетку нуля"
+  - "покрывающий тест зелёный"
+tests: []
+registers_touched: {}
+commit_hash: e21d3d1f

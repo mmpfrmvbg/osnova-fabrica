@@ -1,3 +1,4 @@
+<!-- doc-status: active -->
 # Osnova CLI
 
 Тонкий CLI поверх `forge/`: статус, health, лог, квоты, запуск EPIC/ATM, пауза forge, completions.

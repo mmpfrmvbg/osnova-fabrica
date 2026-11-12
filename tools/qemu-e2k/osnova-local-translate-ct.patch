@@ -1,0 +1,24 @@
+--- a/target/e2k/tcg/translate-ct.c
++++ b/target/e2k/tcg/translate-ct.c
+@@ -62,6 +62,10 @@
+     new_wd = FIELD_DP64(new_wd, WD,  base_q, (wd_base_q + MAXSR_Q - wbs) % MAXSR_Q);
+     new_wd = FIELD_DP64(new_wd, WD,  size_q, wd_psize_q + wbs);
+     new_wd = FIELD_DP64(new_wd, WD, psize_q, wpsz);
++    /* OSNOVA-LOCAL-PATCH: _d = 2 * _q — иначе чтение base_d/size_d ниже (:71-73) видит нули. */
++    new_wd = FIELD_DP64(new_wd, WD, base_d, ((wd_base_q + MAXSR_Q - wbs) % MAXSR_Q) * 2);
++    new_wd = FIELD_DP64(new_wd, WD, size_d, (wd_psize_q + wbs) * 2);
++    new_wd = FIELD_DP64(new_wd, WD, psize_d, wpsz * 2);
+     new_wd = FIELD_DP64(new_wd, WD,      fx,  wfx);
+     new_wd = FIELD_DP64(new_wd, WD,     dbl, wdbl);
+     env->sregs.wd = new_wd;
+@@ -1077,6 +1081,10 @@
+     new_wd = FIELD_DP64(new_wd, WD,  base_q, (wd_base_q + wbs) % MAXSR_Q);
+     new_wd = FIELD_DP64(new_wd, WD,  size_q, wd_size_q - wbs);
+     new_wd = FIELD_DP64(new_wd, WD, psize_q, wd_size_q - wbs);
++    /* OSNOVA-LOCAL-PATCH: _d = 2 * _q — иначе после call оконные регистры недоступны. */
++    new_wd = FIELD_DP64(new_wd, WD, base_d, ((wd_base_q + wbs) % MAXSR_Q) * 2);
++    new_wd = FIELD_DP64(new_wd, WD, size_d, (wd_size_q - wbs) * 2);
++    new_wd = FIELD_DP64(new_wd, WD, psize_d, (wd_size_q - wbs) * 2);
+     new_wd = FIELD_DP64(new_wd, WD,      fx, 1);
+     new_wd = FIELD_DP64(new_wd, WD,     dbl, 0);
+     env->sregs.wd = new_wd;

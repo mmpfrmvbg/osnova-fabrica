@@ -1,3 +1,4 @@
+<!-- doc-status: deprecated -->
 # Дорожная карта: от OS‑nova к «идеальной ОС»
 
 > **Статус:** vision‑документ. Актуальная дорожная карта: [roadmap.md](roadmap.md).

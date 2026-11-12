@@ -18,7 +18,17 @@ function main(): number {
     const inputPath = path.join(FIXTURES_DIR, file);
     const outPath = inputPath.replace(/\.osnova$/i, ".osvbc.json");
     const source = fs.readFileSync(inputPath, "utf-8");
-    const result = compileSource(source);
+    // Имя файла и его каталог передаются ЯВНО — как в `cliCompile.ts:59`.
+    //
+    // Без `filename` канон «файл = модуль» называет модуль `вход` вместо имени
+    // файла, и записанный артефакт расходится со сторожем
+    // `src/runtime/artifactDrift.test.ts` (он собирает с `filename: basename`).
+    // Без `baseDir` импорты `использовать модуль X из "y.osnova"` разрешаются от
+    // текущего каталога, а не от каталога исходника.
+    const result = compileSource(source, {
+      baseDir: path.dirname(inputPath),
+      filename: path.basename(inputPath),
+    });
 
     if (result.lexerErrors.length > 0 || result.parserErrors.length > 0 || !result.module) {
       console.error(`[osnova-compile:all] Ошибка компиляции: ${file}`);

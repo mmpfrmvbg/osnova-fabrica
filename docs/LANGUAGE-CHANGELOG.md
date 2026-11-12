@@ -1,3 +1,4 @@
+<!-- doc-status: superseded -->
 ## Changelog языка «Основа»
 
 Формат: в духе [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), но кратко.  

@@ -35,43 +35,50 @@
       "name": "вид_токена",
       "codeOffset": 0,
       "argc": 2,
-      "localsCount": 2
+      "localsCount": 2,
+      "pure": false
     },
     {
       "name": "текст_токена",
       "codeOffset": 19,
       "argc": 2,
-      "localsCount": 2
+      "localsCount": 2,
+      "pure": false
     },
     {
       "name": "разобрать_множитель",
       "codeOffset": 29,
       "argc": 2,
-      "localsCount": 8
+      "localsCount": 8,
+      "pure": false
     },
     {
       "name": "разобрать_слагаемое",
       "codeOffset": 137,
       "argc": 2,
-      "localsCount": 6
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "разобрать_выражение",
       "codeOffset": 200,
       "argc": 2,
-      "localsCount": 6
+      "localsCount": 6,
+      "pure": false
     },
     {
       "name": "печать",
       "codeOffset": 263,
       "argc": 1,
-      "localsCount": 1
+      "localsCount": 1,
+      "pure": false
     },
     {
       "name": "главная",
       "codeOffset": 315,
       "argc": 0,
-      "localsCount": 10
+      "localsCount": 10,
+      "pure": false
     }
   ],
   "code": [

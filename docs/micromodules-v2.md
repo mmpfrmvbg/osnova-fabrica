@@ -1,3 +1,4 @@
+<!-- doc-status: scratch -->
 # Micromodules for Osnova v2.0
 
 Эти микромодули — референсные "small but real" приложения на языке Основа v2.0.

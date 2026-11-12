@@ -62,12 +62,12 @@ describe('resolveTier / resolveLevel', () => {
 });
 
 describe('resolveModel', () => {
-  it('DeepSeek: тир auto и flash → deepseek-flash, pro → deepseek-pro', () => {
+  it('DeepSeek: тир auto и flash → deepseek-flash, pro → deepseek-v4-pro', () => {
     vi.stubEnv('OSNOVA_PROVIDER', 'deepseek');
     clearEnv('OSNOVA_MODEL_CODEGEN');
     expect(resolveModel('codegen', 'auto')).toBe('deepseek-flash');
     expect(resolveModel('codegen', 'flash')).toBe('deepseek-flash');
-    expect(resolveModel('codegen', 'pro')).toBe('deepseek-pro');
+    expect(resolveModel('codegen', 'pro')).toBe('deepseek-v4-pro');
   });
 
   it('не-DeepSeek: тир игнорируется, работает OSNOVA_MODEL', () => {
@@ -98,7 +98,7 @@ describe('resolveModel', () => {
   it('resolveEscalationModel всегда даёт Pro у DeepSeek', () => {
     vi.stubEnv('OSNOVA_PROVIDER', 'deepseek');
     clearEnv('OSNOVA_MODEL_REPAIR');
-    expect(resolveEscalationModel('repair')).toBe('deepseek-pro');
+    expect(resolveEscalationModel('repair')).toBe('deepseek-v4-pro');
   });
 });
 
@@ -199,8 +199,8 @@ describe('resolvePhaseRouting / routingSummary', () => {
 
   it('явный model override (эскалация) подменяет модель', () => {
     vi.stubEnv('OSNOVA_PROVIDER', 'deepseek');
-    const r = resolvePhaseRouting('repair', { tier: 'auto', level: 'med', model: 'deepseek-pro' });
-    expect(r.model).toBe('deepseek-pro');
+    const r = resolvePhaseRouting('repair', { tier: 'auto', level: 'med', model: 'deepseek-v4-pro' });
+    expect(r.model).toBe('deepseek-v4-pro');
     expect(r.tier).toBe('auto');
   });
 

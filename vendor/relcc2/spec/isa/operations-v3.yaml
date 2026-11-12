@@ -1,0 +1,553 @@
+# SPDX-License-Identifier: CC-BY-SA-4.0
+# What every E2K operation up to v3 does: hand-written rules, one per
+# operation or family. tools/isa-extract/gen_operations.py joins them with
+# binutils-ops.yaml, the timing tables, lcc-usage.yaml and the probes
+# into operations-v3.md, and fails if an operation matches no rule or
+# two, or sits in the wrong level's file. operations-v5.yaml adds v4 and
+# v5 (the Elbrus-8C2), operations-v6.yaml v6, operations-v7.yaml v7.
+#
+# Rule fields: ops (names, with {a,b} alternatives) or match (a regular
+# expression over all names); does (the result; a, b, c are src1..src3);
+# use (how a compiler uses it); see (where the details are); lat (a
+# latency for rows without a kernel of their own); status (overrides
+# the generated "run on hardware" cell).
+
+header: |
+  # Operations up to v3
+
+  Every operation that exists by `elbrus-v3` (the Elbrus 4C, the
+  baseline the GCC port targets), what it computes, how a compiler uses
+  it, and what is known about it. Operations only v1 (Elbrus-3M) had are
+  left out: no working machine exists. What v4 and v5 add is in
+  [operations-v5.md](operations-v5.md), v6 in
+  [operations-v6.md](operations-v6.md) and v7 in
+  [operations-v7.md](operations-v7.md). **Generated** by
+  `tools/isa-extract/gen_operations.py` from `operations-v3.yaml` (the
+  rules, hand-written), `binutils-ops.yaml`, the timing tables,
+  `lcc-usage.yaml` and the probes' assembly; edit the sources, not this
+  page.
+
+  Columns:
+
+  - **ISA**: the `elbrus-vN` versions that have it (8 is binutils'
+    placeholder for future ones). Rows marked 1–2 don't exist on v3 and
+    later (`v2ops.c`).
+  - **ALC**: the ALU channels it may issue in (blank: a control or
+    syllable operation, bundle.md).
+  - **Does**: the result, with a, b, c the first to third source operand
+    in gas order (stores: address, offset, data under `.ignore
+    ld_st_style`). Lanes are numbered from the least significant.
+    Results narrower than the register follow `setwd dbl`
+    (registers.md). Details and corner cases are in the section named.
+  - **Lat**: scheduled latency in cycles to a consumer of the same kind
+    (timing.md; "(v5)": measured on the Elbrus-8C2 only); several values
+    for a row with several operations. Rows without a kernel of their
+    own give timing.md's value for them, where it has one.
+  - **lcc v3 / v5**: how many times the operations of the row appear in
+    the shared libraries of lcc 1.29.16's v3 and v5 sysroots
+    (`lcc-usage.yaml`): what lcc relies on.
+  - **Run on hardware**: the probes (`tools/isa-probes`,
+    `tools/abi/probes`) whose assembly executes the operations, and the
+    machines (4C: Elbrus 4C, v3; 8C2: Elbrus-8C2, v5); "*n* of *m*" when
+    not all of the row's operations ran. Rows without a probe were taken
+    from the sources named in the row.
+
+  An operation's behaviour is checked when its probe compares results
+  with a model (semantics.c, semp.c, sem5.c, semx.c, semfx.c, semc.c,
+  fcomb.c, icomb.c, sqrt.c, getf.c, divx.c, stmqp.c) or records what
+  user mode gets (v2ops.c, ctlops.c: completes, or which signal); the
+  others use it in a larger test (loops, speculation, prefetch).
+
+groups:
+
+- title: Integer arithmetic and logic
+  intro: >
+    One cycle in any channel unless noted. `s` forms are 32-bit, `d`
+    forms 64-bit. The second operand may be a literal (bundle.md).
+  rules:
+  - ops: add{s,d}
+    does: a + b, wrapping.
+    use: "`add<mode>3`."
+    see: semantics.md, "Integer arithmetic and logic"
+  - ops: sub{s,d}
+    lat: "1"
+    does: a − b (`rsub` exists only as a combined stage).
+    use: "`sub<mode>3`; `neg` is `subd 0, x`."
+  - ops: and{s,d} or{s,d} xor{s,d}
+    lat: "1"
+    does: Bitwise and, or, xor.
+    use: "`and`, `ior`, `xor<mode>3`; `xor x, -1` for `not`."
+  - ops: andn{s,d} orn{s,d} xorn{s,d}
+    lat: "1"
+    does: a & ~b, a | ~b, a ^ ~b (the **second** operand inverted).
+    use: Combine patterns for `(and (not b) a)` and friends.
+  - ops: mul{s,d}
+    does: Low 32 or 64 bits of the product (signed and unsigned alike). ALC0, 1, 3, 4; 4 cycles, 6 to an integer consumer.
+    use: "`mul<mode>3`."
+  - ops: smulx umulx
+    does: 64-bit product of the two 32-bit operands, signed or unsigned.
+    use: "`mulsidi3`, `umulsidi3` (lcc: `(long) a * b`)."
+    see: semantics.md, "Other scalar operations"
+  - ops: smulhd umulhd
+    does: High 64 bits of the 128-bit product, signed or unsigned.
+    use: "`smuldi3_highpart`, `umuldi3_highpart`, division by constants."
+  - ops: sdiv{s,d} udiv{s,d}
+    lat: "11 (small quotients, up to 18); 13 to an integer op"
+    does: Quotient truncated toward zero; division by zero is SIGFPE (`FPE_INTDIV`); `sdivd MIN, −1` = MIN. ALC5 only, shares the divider (timing.md, "Divider"); the result arrives on the FP side, so an integer op waits 2 more.
+    use: "`div`, `udiv<mode>3`; `%` is divide, multiply, subtract (as lcc). Speculative (`,sm`) forms defer the fault."
+    see: semantics.md, "Division"
+  - ops: sdivx udivx smodx umodx
+    lat: "11 (`sdivx`, `udivx`), 10 (`smodx`, `umodx`); 13, 12 to an integer op"
+    does: 64-bit a ÷ 32-bit b into 32 bits (quotient or remainder); SIGFPE for a zero divisor, a quotient that doesn't fit, and for the remainders when a shifted left by the divisor's leading zeros overflows. ALC5; `smodx` and `umodx` hold the divider 9 cycles.
+    use: Only for proven ranges.
+    see: semantics.md, "Other scalar operations"
+  - ops: sxt
+    does: "Extend b by mode a: 0, 1, 2 sign-extend 8, 16, 32 bits; 4, 5, 6 zero-extend them (3 = 2, 7 = 6)."
+    use: "`extend`, `zero_extend`; `sxt 6` is the free `x & 0xffffffff`."
+    see: semantics.md, "Integer arithmetic and logic"
+  - ops: merge{s,d}
+    does: "pred ? b : a: **a when the predicate is false**."
+    use: "`mov<mode>cc`, conditional select."
+    see: semantics.md, "Integer arithmetic and logic"
+  - ops: popcnt{s,d} lzcnt{s,d} bitrev{s,d}
+    does: Number of set bits; leading zeros (width for 0); bit reversal. v2+. `popcnt`, `lzcnt` ALC1/4.
+    use: "`popcount`, `clz` (`CLZ_DEFINED_VALUE_AT_ZERO` = width), `bitreverse`; `ctz` = `lzcnt (bitrev x)`."
+  - ops: shl{s,d} shr{s,d} sar{s,d} scl{s,d} scr{s,d}
+    does: Shift left, logical right, arithmetic right, rotate left, rotate right; the count is b modulo the width.
+    use: "`ashl`, `lshr`, `ashr`, `rotl`, `rotr<mode>3`; `SHIFT_COUNT_TRUNCATED` holds."
+    see: semantics.md, "Shifts and rotates"
+  - ops: getf{s,d}
+    does: "Field extract: rotate a right by b's offset, keep *len* bits, zero- or sign-extend (v1–v4 take the sign bit from b's BYTE field, v5 from the field's top; operations-v5.md)."
+    use: "`extzv`, `extv`, shift-and-mask, sign-extending shift pairs, wide low masks."
+    see: semantics.md, "Field extract"
+  - ops: insf{s,d}
+    does: Rotate a right by b's offset, then replace its low *len* bits by c's. ALC0, 1, 3, 4.
+    use: "`insv` with a rotate back (`scl`), as lcc stores bit-fields."
+    see: semantics.md, "Other scalar operations"
+  - ops: mpsadbh
+    does: Four 16-bit sums of absolute byte differences, lane i = Σ |a.byte[i+j] − b.byte[j]| (x86 `mpsadbw` on 64 bits). v3+.
+    see: semantics.md, "Other scalar operations"
+- title: Integer compares
+  intro: >
+    Into a predicate (`%predN`), from a − b (or a & b) tested like x86
+    flags. Compare → predicated operation 2 cycles, → `ct` 3.
+  rules:
+  - ops: cmp{o,b,e,be,s,p,l,le}{s,d}b
+    lat: "2; 3 to `ct`"
+    does: "o: signed overflow of a − b; b: a < b unsigned; e: a = b; be: a ≤ b unsigned; s: a − b negative; p: even parity of its low byte; l: a < b signed; le: a ≤ b signed. No ne/gt/ge forms: swap operands or negate at the use."
+    use: "`cbranch`, `cstore`, `mov<mode>cc` conditions; ALC0, 1, 3, 4."
+    see: semantics.md, "Integer compares"
+  - ops: cmpand{e,s,p,le}{s,d}b
+    lat: "2; 3 to `ct`"
+    does: "The same tests on a & b: e zero, s sign bit, p even parity of the low byte, le ≤ 0 signed."
+    use: Bit tests (`if (x & m)`); lcc tests FP compare flags with them.
+    see: semantics.md, "Integer compares"
+  - ops: cctop{o,b,e,be,s,p,l,le}
+    lat: "2; 3 to `ct`"
+    does: "Predicate: x86 condition c on b's low 32 bits read as EFLAGS (`o` OF, `b` CF, `e` ZF, `be` CF|ZF, `s` SF, `p` PF, `l` SF≠OF, `le` ZF|(SF≠OF)). ALC0/3; 2 cycles to a predicated op."
+    use: With the flag forms below, e.g. overflow checks.
+    see: semantics.md, "x86 flag operations"
+
+- title: x86 flag operations
+  rules:
+  - match: '[a-z]+[sd]_f[bhwd]|[su]mulx_f[bhw]'
+    does: "Return the x86 EFLAGS the operation would set (CF 0x01, PF 0x04, AF 0x10, ZF 0x40, SF 0x80, OF 0x800) as a 32-bit result, for operand width b/h/w/d: add, sub, the logic operations, inc/dec (a ± b, CF from c), shifts and rotates (old flags in c), 32 × 32 multiplies. For x86 binary translation; ALC0/3; a 32-bit result (dbl applies)."
+    lat: "2 to an integer op or `cctop` in its cluster, 4 to the other; store data 1 (3 across); `[su]mulx_f*` 6 (4 to an FP-side op)"
+    use: "`adds_fw` + `cctopo` give `__builtin_add_overflow`'s flag (lcc doesn't use them)."
+    see: semantics.md, "x86 flag operations"
+
+- title: Combined integer operations
+  intro: >
+    `X_Y a, b, c` = Y(c, X(a, b)): two ordinary operations chained in
+    ALC1 or ALC4 with the latency of both (2; 4 to the other cluster).
+    They save an instruction slot, not time (semantics.md, "FP min, max
+    and combined operations").
+  rules:
+  - match: '(and|andn|or|orn|xor|xorn|add|sub|scl|scr|shl|shr|sar|getf)_(and|andn|or|orn|xor|xorn|add|sub|rsub)[sd]'
+    does: "Y(c, X(a, b)), `rsub` being t − c. Every one equals the two ordinary operations (icomb.c, 252 of v3's)."
+    use: "Peephole fusion of dependent pairs where channels are short; lcc rarely uses them."
+    see: semantics.md, "FP min, max and combined operations"
+  - match: 'merge_(and|andn|or|orn|xor|xorn|add|sub|rsub)[sd]'
+    does: "Y(c, merge(a, b, pred)): select, then the second stage."
+    use: "Adding, subtracting or or-ing a select into a value; with arms 0 and 1 a condition held in a predicate (a 0/1 `cstore` combined into its user): `merge_addd 0, 1, x, dst, pred` = x + (pred ? 1 : 0), `merge_subd` x − pred, `merge_ord` x | pred. lcc uses them in unrolled and pipelined loops: carry and borrow chains (`mpn_add`: `cmpbdb`, then `merge_addd 0, 1` of the carry; `__quadmath_mpn_*`, `__divtf3`, glibc's `round_and_return`), counts (`n += a[i] < k`) and select-and-accumulate (a sum of absolute byte differences: `merge_adds` of `a − b` and `b − a` into the sum under `cmpssb`'s predicate). In straight-line code it keeps `merged` + `addd`, and `(c ? a : b) + d` becomes two predicated `addd`. 115 uses in its v3 libraries, 97 of them with arms `0x0, 0x1`."
+    see: semantics.md, "Other scalar operations"
+
+- title: Floating point
+  intro: >
+    IEEE single and double in the general registers, `%pfpfr` holding
+    the rounding mode and flags (x86 MXCSR layout); 4 cycles in ALC0, 1,
+    3, 4 (v5 also 2, 5). Operations set the denormal flag for a denormal
+    operand. `s` forms keep the upper half of their destination.
+  rules:
+  - ops: fadd{s,d} fsub{s,d} fmul{s,d}
+    does: a + b, a − b, a × b, correctly rounded.
+    use: "`add`, `sub`, `mul<mode>3`."
+  - ops: fdiv{s,d}
+    does: a ÷ b, correctly rounded, IEEE flags. ALC5 (divider), 11 / 14 cycles, 13 / 16 to an integer op.
+    use: "`div<mode>3`."
+    see: semantics.md, "Square root and reciprocals"
+  - ops: fsqrts fsqrtid fsqrttd
+    lat: "12 (`fsqrts`); 11 + 14 (`fsqrtid`, `fsqrttd`); 14, 13, 16 to an integer op"
+    does: "`fsqrts` √a; a double square root is `fsqrtid a, t` then `fsqrttd a, t, r`, correctly rounded as a pair (`fsqrtid` alone is an intermediate in its own format). ALC5."
+    use: "`sqrt<mode>2` (keep the pair together)."
+    see: semantics.md, "Square root and reciprocals"
+  - ops: frcps frsqrts
+    lat: "6; 8 to an integer op"
+    does: 12-bit estimates of 1/a and 1/√a, no flags.
+    use: "`-ffast-math` reciprocal estimates with Newton steps (lcc never)."
+    see: semantics.md, "Square root and reciprocals"
+  - ops: fmax{s,d} fmin{s,d}
+    does: x86 `maxsd`/`minsd`, **b** if either is a NaN or both are zeros. 2 cycles, 4 to an integer op.
+    use: "`smax`, `smin` only under `-ffinite-math-only` (and no signed zeros), or for `a > b ? a : b` and `a < b ? a : b`; not for `>=` or `<=`, which lcc `-O3` maps to them too, wrongly for signed zeros."
+    see: semantics.md, "FP min, max and combined operations"
+  - ops: fcmp{eq,lt,le,uod,neq,nlt,nle,od}{s,d}b
+    lat: "4; 5 to `ct`"
+    does: "Predicate: a c b, quiet for eq, neq, uod, od, signalling for lt, le, nlt, nle; neq, nlt, nle are true when unordered. 4 cycles to a predicated op, 5 to `ct`."
+    use: "`cbranch`, `cstore` for FP; swap operands for gt/ge."
+    see: semantics.md, "Floating-point compares"
+  - ops: fcmp{eq,lt,le,uod,neq,nlt,nle,od}{s,d}
+    does: "All ones (64 bits, or the low 32 for `s`) if a c b, else 0: x86 `cmpsd`/`cmpss`."
+    use: Branch-free FP selects with `and`/`andn`.
+    see: semantics.md, "Floating-point compares"
+  - ops: fcmp{ud,od}{s,d}f
+    lat: "4 to an integer op or `cctop`, in either cluster"
+    does: "x86 `ucomisd`/`comisd` flags into a register: less 0x01, equal 0x40, greater 0, unordered 0x45; `ud` quiet, `od` signalling."
+    use: "C's `isless` family: `fcmpuddf`, then an integer test of the flags (lcc: `cmpesb r, 1` for `isless`, two `cmpesb` and `landp` for `islessequal`); pipelined like any FP operation (lcc's `c += isless (a[i], b[i])` is a one-instruction kernel on v5)."
+    see: semantics.md, "Floating-point compares"
+  - ops: fstois fstoistr fstoid fstoidtr fdtois fdtoistr fdtoid fdtoidtr
+    lat: "4; 6 to an integer op"
+    does: "FP → integer: single or double to 32 or 64 bits, in the current rounding mode or truncated (`tr`); out of range or NaN gives the integer indefinite (0x80…0) and invalid. 4 cycles to a consumer of their format, 6 to an integer op."
+    use: "`fix_trunc`, `lrint<mode><mode>2`."
+    see: semantics.md, "Other scalar operations"
+  - ops: istofs istofd idtofs idtofd
+    lat: "4; 6 to an integer op"
+    does: 32- or 64-bit signed integer → single or double, current rounding mode.
+    use: "`float<mode><mode>2`; unsigned via a fix-up sequence."
+    see: semantics.md, "Other scalar operations"
+  - ops: fstofd fdtofs
+    lat: "4; 6 to an integer op"
+    does: Single → double (exact), double → single (rounded).
+    use: "`extendsfdf2`, `truncdfsf2`."
+    see: timing.md, "Formats"
+  - ops: fdtoifd fstoifs
+    does: "Round b to an integral value with a as x86 `roundsd`'s immediate (bits 0–1 mode, bit 2 use `%pfpfr`, bit 3 no inexact). v3+."
+    use: "`floor`, `ceil`, `btrunc`, `roundeven<mode>2` with a = 9, 0xa, 0xb, 8 (no inexact, as C23 and GCC's default for C require); `nearbyint` 0xc, `rint` 4. lcc and MCST's libm use 1, 2, 3 for floor, ceil and trunc, which raise inexact. C `round` has no mode (lcc: x + copysign (0.5, x), truncated, with range guards)."
+    see: 'semantics.md, "Other scalar operations"; every immediate checked by pocchk5.c'
+- title: Combined FP operations
+  intro: >
+    `X_Y a, b, c` = Y(c, X(a, b)) with a rounding after each stage, 8
+    cycles; the packed forms work lane by lane with `hadd`, `hsub` and
+    `addsub` stages (semantics.md, "FP min, max and combined operations").
+  rules:
+  - match: 'f(add|sub|mul)_(add|sub|rsub)[sd]'
+    does: "(a X b) then Y with c as the first operand: `fmul_addd` = a × b + c, `fmul_subd` = c − a × b, `fmul_rsubd` = a × b − c; **two roundings**."
+    use: "Multiply-add only under `-ffp-contract=fast`, never for `fma()`; lcc uses `fmul_add*` in loops."
+  - match: 'pf(add|sub|mul|hadd|hsub|addsub)_(add|sub|rsub|hadd|hsub|addsub|mul)[sd]'
+    does: "The same on 64-bit packed singles (and `d` scalar doubles), with hadd(x, y) = (x0 + x1, y0 + y1), hsub likewise, addsub(x, y) = (x0 − y0, x1 + y1)."
+- title: 80-bit (x87 extended) operations
+  intro: >
+    `long double`: a 64-bit significand in the register and sign and
+    exponent in its 16-bit extended part, under `%fpcr`/`%fpsr` (x87
+    control and status words). Every operation equals x87 code exactly,
+    including rounding first to the precision control and then to a
+    narrower result (semantics.md, "80-bit operations").
+  rules:
+  - match: 'fx(add|sub|rsub|mul)(ss|sx|dd|dx|xs|xd|xx)'
+    lat: "5 (`fxmul` with an 80-bit result 4); 7 to an integer op (6); 8C2: 7 from an FP result into the single or double b"
+    does: "a (80-bit) op b (type of the first suffix letter: single, double, 80-bit) → result of the second letter's type; `rsub` is b − a."
+    use: "`long double` arithmetic, also with a narrower operand or result."
+  - match: 'fxdiv(ss|sx|dd|dx|xs|xd|xx)'
+    lat: "16; 18 to an integer op; 8C2: 18 into the single or double b"
+    does: a ÷ b as above, ALC5.
+    use: "`divxf3` `fxdivxx`. lcc uses a float or double divisor as it is (`a / d` = `fxdivdx a, d`; a constant exact as a single goes in as a 32-bit literal, `a / 3.0L` = `fxdivsx a, 0x40400000`, and `a / 4.0L` stays a division), rounds a narrower quotient in the same operation, as x87 `fdiv` then a narrow `fstp` (`(double) (a / b)` `fxdivxd`, `(float) (a / b)` `fxdivxs`, `(double) (a / d)` `fxdivdd`), and converts an integer divisor first (`istofx`). A float or double dividend takes `fxdivt*`."
+  - ops: fxdivt{ss,sx,dd,dx}
+    lat: "16; 18 to an integer op; 8C2: 18 into the single or double src1"
+    does: "src1 ÷ src2 with src1 a single (`s`) or double (`d`) and src2 80-bit; the result as the second letter. x87 `fld src1; fld src2; fdivrp; fstp` exactly, rounded to the precision control, then to a single or double result; ALC5."
+    use: "`divxf3` with a single or double dividend. lcc: `float` or `double` ÷ `long double` (`fxdivtsx`, `fxdivtdx`), the same narrowed back (`fxdivtss`, `fxdivtdd`), and constants exact as a single (`1.0L / x`: `adds 0, 0x3f800000` puts the single in a register, as src1 takes no long literal, then `fxdivtsx`; `0.1L / x` is an 80-bit constant and `fxdivxx`)."
+    see: semantics.md, "80-bit operations"
+    status: "sregs (4C, 8C2, 2C3); semfx ran them with the operands swapped"
+  - match: 'fxsqrt[iut][sdx]x'
+    lat: "11 (`fxsqrti*`), 16 (`fxsqrtu*`, `fxsqrtt*`; `fxsqrtuxx` 16–17, 18 on v6)"
+    does: "Square root steps: lcc's `fxsqrtixx a, t; fxsqrtuxx a, t, t; fxsqrttxx a, t, r` equals x87 `fsqrt`; the steps alone are not decoded. ALC5, 53 cycles for the chain."
+    use: "`sqrtxf2` as the three-step chain."
+  - match: 'fxcmp(eq|lt|le|uod|neq|nlt|nle|od)[sdx]b'
+    lat: "4 to a predicated op"
+    does: Predicate compare of a (80-bit) with b; quiet and signalling as the scalar compares.
+    use: "`cbranchxf4`, `cstorexf4` (then `merged 0, 1` under the predicate) and `long double` selects. lcc: `==` `fxcmpeqxb`, `!=` `fxcmpneqxb`, `<` `fxcmpltxb`, `<=` `fxcmplexb`, `>` and `>=` the same with the operands swapped; `!(a < b)` uses the predicate inverted, so it needs no `nlt` or `nle` form, and unordered tests go through `fxcmpudxf` (lcc uses neither `uod` nor `od`). The `d` and `s` forms take a double or float b without a conversion (`a < d` = `fxcmpltdb a, d`) and constants exact as a single (`a < 1.5L` = `fxcmpltsb a, 0x3fc00000`); no form puts the narrow operand first, so `a > d` is `fdtofx d` then `fxcmpltxb`. lcc puts the `ct` 5 cycles after the compare."
+  - match: 'fxcmp(ud|od)[sdx]f'
+    lat: "6 to an integer op or `cctop`"
+    does: x86 flag layout as `fcmp*f`; `ud` quiet, `od` signalling.
+    use: "Quiet `long double` compares (GCC's UNLT, UNLE, UNGT, UNGE, LTGT, UNEQ, ORDERED, UNORDERED: `isless` and friends, `isunordered`, `isnan`): `fxcmpudxf a, b, t`, then an integer compare of t. lcc: less `cmpesb t, 1`, greater `cmpesb t, 0`, unordered `cmpesb t, 0x45` (`isnan` compares a with itself), less or greater `cmpbesb t, 1`, `islessequal` t = 1 or t = 0x40 (two `cmpesb` and an `andp`). lcc converts a narrow operand first (`fdtofx`) and uses neither the `ud[sd]f` forms nor the signalling `od` ones (its v3 libraries: 225 `fxcmpudxf`, no other)."
+  - ops: fxtof{s,d} fxto{is,id,istr,idtr} fdtofx fstofx idtofx istofx
+    lat: "5; 7 to an integer op"
+    does: "Conversions to and from 80-bit as x87 loads and stores (`fld`, `fstp`, `fild`, `fistp`, `fisttp` for `tr`)."
+    use: "lcc: `fix_truncxfsi2` `fxtoistr` (`short` and `char` too, then narrowed by `sxt`), `fix_truncxfdi2` `fxtoidtr`, `fixuns_truncxfsi2` `fxtoidtr` and a 32-bit zero-extension (`getfd`; lcc 1.31.05 `sxt 6`), `fixuns_truncxfdi2` `fxcmpltsb x, 0x5f000000` (2⁶³) choosing between `fxtoidtr x` and `fxtoidtr (fxsubsx x, 0x5f000000)` + `addd 0x8000000000000000`; `lrintxfdi2` `fxtoid` (also for `(int) lrintl`; lcc never uses `fxtois`); `floatsixf2` `istofx`, `floatdixf2` `idtofx`, `floatunssixf2` `sxt 6` then `idtofx`, `floatunsdixf2` `idtofx`, or for a value with the top bit set `idtofx (x − 2⁶³)` then `fxaddsx 0x5f000000`; `extendsfxf2` `fstofx`, `extenddfxf2` `fdtofx`, `truncxfsf2` `fxtofs`, `truncxfdf2` `fxtofd`. `rintl`, `floorl`, `truncl`, `nearbyintl` and `lroundl` stay library calls, also under `-ffast`."
+  - ops: movx movxa movxc
+    lat: "4; 6 to an integer op"
+    does: 80-bit copy, copy with the sign cleared (`fabs`), copy with the sign flipped (`fchs`); no flags.
+    use: "`movxf`, `absxf2`, `negxf2`."
+  - ops: movif movfi
+    lat: "4"
+    does: "`movif a, b, dst` packs significand a and sign/exponent b into an 80-bit register; `movfi` reads the 16-bit extended part. 4 cycles."
+    use: "`long double` arguments, results and spills (spec/abi/registers.md)."
+
+- title: Packed integer (64-bit registers)
+  intro: >
+    Lanes of 8 (b), 16 (h), 32 (w) or 64 (d) bits, little-endian.
+    Mostly 1 cycle (multiplies, SAD and `phminposuh` 2) to packed or FP
+    consumers, 4 to integer ones; add/sub/compare/min/max/average forms
+    in ALC0/3, multiplies, `pmadd*`, `psadbw`, unpacks and packs in
+    ALC1/4 (v3).
+    Semantics follow the community qemu's `helper_vec.c` except the
+    points in semantics.md, "Packed operations of v3".
+  rules:
+  - ops: padd{b,h,w,d} psub{b,h,w,d}
+    does: Lane-wise add or subtract, wrapping.
+    use: "`add`/`sub` on `V8QI`, `V4HI`, `V2SI`."
+  - ops: padds{b,h} paddus{b,h} psubs{b,h} psubus{b,h}
+    does: Lane-wise saturating, signed or unsigned (x86 `paddsb` …).
+    use: "`ssadd`, `usadd`, `sssub`, `ussub`."
+  - ops: pmax{s,u}{b,h,w} pmin{s,u}{b,h,w}
+    does: Lane-wise maximum, minimum, signed or unsigned.
+    use: "`smax`, `umax`, `smin`, `umin`."
+  - ops: pavgus{b,h}
+    does: Lane-wise (a + b + 1) >> 1 unsigned (x86 `pavgb`, `pavgw`).
+    use: "`uavg<mode>3_ceil`."
+  - ops: pcmpeq{b,h,w,d} pcmpgt{b,h,w,d}
+    does: All-ones lanes where a = b, or a > b signed.
+    use: "`vec_cmp`, masks for `pmerge`."
+  - ops: pmullh pmulhh pmulhuh pmulhrsh
+    does: "16-bit lanes: low half of the product, high half signed or unsigned, (a × b + 0x4000) >> 15 (x86 `pmulhrsw`)."
+    use: "`mul`, `smulhs`, `umulhs`, `smulhrs` on `V4HI`."
+  - ops: pmaddh pmaddubsh
+    does: "`pmaddh`: x86 `pmaddwd`; `pmaddubsh`: signed bytes of **a** × unsigned bytes of **b**, pairs summed with signed saturation (x86 `pmaddubsw` with the roles swapped)."
+    use: "Dot products (`sdot_prod`)."
+  - ops: pmulubhh
+    does: "16-bit lanes: (unsigned byte i of a × signed halfword i of b + 0x80) >> 8, bytes 0–3 of a."
+  - ops: psadbw
+    does: Sum of the 8 absolute byte differences in the low bits (x86 `psadbw`).
+    use: "`usad`, `sad` reductions."
+  - ops: psign{b,h,w}
+    does: "x86 `psign`: lane of a negated, kept or zeroed by the sign of b's lane."
+    use: "`abs<mode>2` on `V8QI`, `V4HI`, `V2SI` as `psign* a, a` (doc/gcc-port-plan.md, P32; the most negative value stays as it is, as `abs` wraps); x86 `psign` (lcc's `_mm_sign_epi8` is two `psignb`). lcc's own loops compute `abs` with `psrah`, `xord`, `psubh`."
+  - ops: psll{h,w,d} psrl{h,w,d} psra{h,w}
+    does: "Every lane shifted by the 64-bit count b: left, logical right, arithmetic right; counts at or beyond the lane width give 0 (arithmetic: the sign)."
+    use: "`ashl`, `lshr`, `ashr` with a scalar count."
+  - ops: psll{qh,ql} psrl{qh,ql}
+    does: "Shift a:b (a high) as one 128-bit value by 8 × imm bits, keep the low (`l`) or high (`h`) half; 16 and more give 0."
+    use: Byte-granular vector shifts and alignment.
+    see: semantics.md, "Packed operations of v3"
+  - ops: pack{ss,us}hb pack{ss,us}wh
+    does: "Narrow with signed or unsigned saturation: halfwords → bytes, words → halfwords; **a's lanes go to the high half**, b's to the low half."
+    use: "`vec_pack_ssat`, `vec_pack_usat` (swap the operands)."
+  - ops: punpck{l,h}{bh,hw,wd}
+    does: "Interleave the low (`l`) or high (`h`) halves: **b's lanes at even positions**, a's at odd."
+    use: "`vec_interleave_lo/hi`, widening by unpacking with zero or a sign mask."
+  - ops: pshufb
+    does: "Byte i from mask c's byte: bit 7 set gives a constant (bits 5–6: 0, 0x7f, 0x80, 0xff), else bits 0–2 pick a byte of a (bit 3 set) or b; v5 adds invert, bit-reverse and sign-replicate in bits 4–6, **v3 ignores them**."
+    use: "`vec_perm` on 64 bits, byte swaps (`bswap` when MAS bit 3 can't be used)."
+    see: semantics.md, "Packed operations of v3"
+  - ops: pshufh pshufw
+    does: "`pshufh a, imm`: halfword i = a's halfword (imm >> 2i) & 3 (x86 `pshufw`); `pshufw a, b, imm`: word i from a (selector > 1) or b, word selector bit 0."
+    use: "`vec_perm` with constant selectors."
+  - ops: pmerge
+    does: "Byte i = c's byte i negative ? b's : a's."
+    use: "`vcond`, `vec_merge` with a byte mask (after `pcmp*`)."
+  - ops: pextrh pinsh
+    does: "`pextrh a, b, imm`: halfword imm of a:b (0–3 from b), imm > 7 differs by machine; `pinsh a, b, imm`: a with halfword imm & 3 replaced by b's low halfword."
+    use: "`vec_extract`, `vec_set`."
+    see: semantics.md, "Packed operations of v3"
+  - ops: pmovmsk{b,ps,pd}
+    does: "Sign bits gathered: `pmovmskb` b's 8 bytes in bits 0–7, a's in 8–15; `ps` 2 + 2 words; `pd` 1 + 1 doubles."
+    use: "`vec_pack_sfix`-free mask tests, `memchr`-style loops."
+  - ops: phminposuh
+    does: Minimum unsigned halfword of the 8 lanes of a (lanes 0–3) and b (4–7) and its index in bits 16 up (x86 `phminposuw`).
+  - ops: phadd{h,w} phaddsh phsub{h,w} phsubsh
+    does: Horizontal add or subtract of adjacent pairs (saturating `s`), a's pairs into the low half, b's into the high half (x86 `phaddw` …).
+    use: Reductions.
+  - ops: pandd pandnd pord pxord
+    does: 64-bit bitwise and, a & ~b, or, xor, on the packed side (latency 1 to packed and FP consumers).
+    use: Logic between packed values without the FP → integer crossing.
+  - ops: pistofs pfstois pfstoistr
+    does: "Two 32-bit lanes: integer → single, single → integer (rounding mode or truncated)."
+    use: "`float`, `fix_trunc` on `V2SI`/`V2SF`."
+- title: Packed FP (64-bit registers)
+  intro: >
+    `pf*s` treat the register as two singles, `pf*d` as one double
+    (identical to the scalar operation, kept for encoding symmetry);
+    `pfdivs`, `pfsqrts` and the conversions other than `pfstoifs` work
+    on one lane (semantics.md, "Packed operations of v3").
+    4 cycles (min, max and compares 2), 6 to an integer op; flags as the
+    scalar operations (semantics.md, "Packed operations of v3").
+  rules:
+  - ops: pfadd{s,d} pfsub{s,d} pfmul{s,d} pfmax{s,d} pfmin{s,d}
+    does: Lane-wise add, subtract, multiply, x86-style max and min.
+    use: "`V2SF` arithmetic."
+  - ops: pfdiv{s,d} pfsqrts pfsqrttd
+    lat: "11 (`pfdivs`), 12 (`pfsqrts`), 14 (`pfdivd`, `pfsqrttd`; 16 on v5 and v6)"
+    does: "`pfdivs`, `pfdivd`: IEEE values but **no flags**; `pfdivs` divides the low singles only (not packed, as `pfsqrts` = `fsqrts` of the low single); `pfsqrttd` = `fsqrttd`. From v5 `pfdivd` and `pfsqrttd` take 2 cycles more than `fdivd` and `fsqrttd`."
+    use: "Only where IEEE flags don't matter (`-fno-trapping-math`), one lane at a time. lcc divides a `V2SF` GNU vector with `getfd` (the high singles), two `pfdivs` and `insfd`, even without `-ffast-math`; its loops use scalar `fdivs`, `fdivd`, `fsqrts` and `fsqrtid` + `fsqrttd`, also under `-ffast`."
+    see: semantics.md, "Packed operations of v3"
+  - ops: pfcmp{eq,lt,le,uod,neq,nlt,nle,od}{s,d}
+    does: All-ones lanes where the compare holds; eq, neq, od, uod quiet (also on qemu's error list), lt/le signal.
+    use: "`vec_cmpv2sfv2si` and `vcond_mask` with `pmerge y, x, mask`: lt, le, eq directly, gt, ge with the operands swapped, `!(a < b)` by swapping the select's arms, `!=` `pfcmpneqs`, unordered `pfcmpuods`. lcc's v3 vectorizer uses `pfcmplts`, `pfcmples`, `pfcmpeqs` + `pmerge` for masks and counts (`n += a[i] < k`, with `paddw`) at `-O3`, and for selects only under `-faligned` (or `-ffast`); it keeps `!=`, unordered and `isless` loops scalar. GNU vector `!=` is `pfcmpneqs`, and its `_mm_cmpnlt_ps`, `_mm_cmpunord_ps`, `_mm_cmpord_ps` are `pfcmpnlts`, `pfcmpuods`, `pfcmpods`. lt, le, nlt, nle signal on quiet NaNs, so a quiet relational vector compare (`isless`) is no single packed operation. The `d` forms are one double, as `fcmp*d`."
+  - ops: pfhadds pfhsubs pfaddsubs
+    does: "Horizontal add/subtract (a's pair low, b's high); `pfaddsubs` (a0 − b0, a1 + b1)."
+  - ops: pfdtofs pfdtois pfdtoistr pfstofd pfdtoifd pfstoifs
+    does: "One lane, as the scalar operation of the same name (`pfdtofs` = `fdtofs`, …): `pfdtofs`, `pfdtois`, `pfdtoistr` write one 32-bit result, `pfstofd` reads the low single, `pfdtoifd` rounds one double; only `pfstoifs` is packed, rounding both singles to integral with mode a."
+    use: "`pfstoifs`: `floor`, `ceil`, `btrunc`, `roundeven`, `rint`, `nearbyint` on `V2SF` with a = 9, 0xa, 0xb, 8, 4, 0xc, as for scalar `fstoifs` (both lanes checked with every immediate in pocchk5.c); lcc gives scalar `fstoifs` 1, 2, 3, which raise inexact, its `_mm_floor_ps` on v3 is two `pfstoifs 0x1`, and its vectorizer keeps these loops scalar. The rest convert one lane at a time: lcc's `__builtin_convertvector` from `V2SF` to `V2DF` is `getfd` (the high single) and two `pfstofd`, from `V2DF` to `V2SF` or `V2SI` two `pfdtofs` or `pfdtoistr` joined by `insfd`; it never uses `pfdtois` or `pfdtoifd` (its x86 headers emit `fdtois`, `fdtoifd`)."
+
+- title: Memory
+  intro: >
+    Address a + b (64-bit), MAS in the operation's `mas=` field (bit 3
+    byte swap, bits 5–6 cache hints, mod in bits 0–2: speculation and
+    atomics). Loads take 3 cycles from L1 and zero-extend; stores take
+    their data without the FP-side or cluster penalty. Up to four loads
+    (ALC0, 2, 3, 5) and two stores (ALC2, 5) a cycle.
+  rules:
+  - ops: ld{b,h,w,d}
+    does: Load 1, 2, 4, 8 bytes, zero-extended. `,sm` is speculative (diagnostic value instead of a fault).
+    use: "`mov<mode>` loads; `zero_extend` from memory is free."
+    see: speculation.md; semantics.md, "Byte-swapped memory accesses"
+  - ops: st{b,h,w,d}
+    does: Store the low 1, 2, 4, 8 bytes of the data. ALC2/5.
+    use: "`mov<mode>` stores."
+  - ops: ldaa{b,h,w,d,q} staa{b,h,w,d,q}
+    does: "Array access through an AAU descriptor `%aadN` and index `%aastiN` (+ literal); `incr` advances the index by `%aaincrN` × the element size. Stores obey loop-mode store suppression; neither loads nor stores need alignment (on v3 too). A MAS acts as on `ld`/`st` (cache hints, `be`); mod 2 and 3 make an AAU load an ordinary load, not a DAM check. **AAU loads are served from L2**: 9 cycles to an integer op on the 4C, 11 on the 8C2, 13 on the 2C3, in either cluster, and they fill no L1 line."
+    use: "Pipelined loops: lcc's APB loops and its `#pragma vector nontemporal` loops (`mas=0x60`) store with `staa`; lcc emits no `ldaa`."
+    see: apb.md, "AAU stores", "AAU loads"; loops.md
+  - ops: ld{cs,ds,es,fs,gs,ss}{b,h,w,d,q} st{cs,ds,es,fs,gs,ss}{b,h,w,d,q}
+    does: Loads and stores through x86-style segment registers set up by a binary translator; **fault in user mode** (SIGILL, SIGSEGV or SIGBUS).
+    see: semantics.md, "Memory, tag and descriptor operations"
+  - ops: ldgd{b,h,w,d,q} stgd{b,h,w,d,q} ldcud{b,h,w,d,q}
+    lat: "`ldgd*` 3 (v6 5), as the `ld*` of its width; `stgd*` as `st*` (32-bit processes; `ldcud*` not measured)"
+    does: "Loads/stores relative to the global (GD) or compilation-unit (CUD) descriptor; SIGSEGV `SEGV_BNDERR` in an ordinary 64-bit process, but lcc's 32-bit code (`-mptr32`) makes every memory access with `ldgd*`/`stgd*`: the two 32-bit operands are summed modulo 2³², and past `0xf000_0000` they are `SEGV_BNDERR` (x86-support.md; spec/abi/mode32.md); lcc's protected code (`-mptr128`) reads globals with them, checked against the module's `GD` (spec/abi/protected-mode.md). In a protected process `ldcud*` read the module's own code, `SEGV_BNDERR` past `CUD`'s size; lcc never emits them (protected-mode.md, \"Operations\")."
+  - ops: ldap{b,h,w,d,q} stap{b,h,w,d,q}
+    does: "Loads/stores through a protected-mode array pointer plus an index, checked against its bounds (SIGSEGV `SEGV_BNDERR`): every pointer access of lcc's protected code (`-mptr128`); SIGILL `ILL_ILLOPN` in a 64-bit process."
+    see: spec/abi/protected-mode.md
+  - ops: ldrd strd
+    does: Privileged register-space access; SIGILL `ILL_PRVOPC` in user mode.
+  - ops: ldod{p,r,w}{b,h,w,d,q} stod{p,r,w}{b,h,w,d,q}
+    does: "Object-descriptor accesses of v2's protected mode, gone from v3: `stodwd` is SIGILL `ILL_ILLOPC` on the 4C, while `ldodwd`'s encoding (and `stodwd`'s on the 8C2) runs without a fault, as some later operation (`v2ops.c`)."
+- title: Array prefetch and AAU registers
+  intro: >
+    The array prefetch unit runs a program prepared by `ldisp %ctpr2`
+    and started by `bap`; `mova*` read its buffer in channels 0–3
+    (apb.md, which gives the correctness rules).
+  rules:
+  - ops: mova{b,h,w,d,q,qp}
+    does: "Read the next element(s) of an array prefetch area: base + index + displacement + step × n, zero-extended; a diagnostic value instead of a fault. 5 cycles. `movaqp` is v5+: gas accepts it for v3, where it writes a diagnostic value."
+    use: Software-pipelined loops in `loop_mode` (lcc at -O2+).
+    see: apb.md
+  - ops: bap eap fapb
+    does: "`bap` starts the prefetch program, `eap` stops it; `fapb` is the program's own instruction format (written by `ldisp` targets)."
+    see: apb.md
+  - ops: aaurr aaurrd aaurrq aaurw aaurwd aaurwq
+    does: "Read or write AAU registers (`%aadN`, `%aaindN`, `%aaincrN`, `%aastiN`, `%aabfN`, …); `aaurr*` of positions read 0 in user mode, `aaurrq` of a descriptor reads it back. ALC2/5."
+    use: Loop setup for `staa`/`ldaa`/APB.
+    see: apb.md, "AAU registers"
+  - ops: incr
+    does: Advance an AAU store/load index (`%aastiN += %aaincrN × size`), in the CDS syllable.
+    see: apb.md
+
+- title: Tags, protected mode and pointers
+  intro: >
+    Registers carry tags (diagnostic values, protected-mode pointers).
+    Ordinary C code meets tags only through speculation
+    (speculation.md); these operations matter to protected mode.
+  rules:
+  - ops: gettag{s,d} puttag{s,d}
+    lat: "1; a 64-bit reader of a `gettag*` or `puttags` result waits 4 under `dbl = 0` (timing.md, Formats)"
+    does: "`gettag*`: the tags of a (`gettagd` both halves, 0–15; `gettags` the low half's, 0–3) as a 32-bit result; no trap on a diagnostic a. `puttag*`: a with tags b (its low 4 bits; `puttags` 2); SIGILL `ILL_PRVOPC` when asked for a diagnostic half (tag 1 with bit 30 set) or a pointer tag (2, 3) not next to an empty half (`puttags`: any 2 or 3); `,sm` gives a diagnostic value (bit 30 set) instead. `puttag* a, 0` clears without checking a; a diagnostic b is `ILL_ILLOPN`."
+    use: "Clearing the tag of a speculatively loaded word (lcc's `ld_*_cleartag` builtins; lcc always uses tag 0)."
+    see: semantics.md, "Tag operations"; speculation.md, "Diagnostic values", "What lcc speculates"
+  - ops: movt{s,d,q}
+    lat: "2; 9 (`movtd` to `ct`)"
+    does: "Copy keeping tags (`movtq` every tag, `movtd` turns a tag-3 half into 0, `movts` keeps only tag 1: semantics.md, \"Tag operations\"); `movtd a, %ctprN` prepares a transfer to the address in a (9 cycles to `ct`; ALC0). Under a predicate, `movtd` into a CTPR is SIGILL `ILL_ILLOPC` whether the predicate is true or false (gas accepts it; MCST's qemu runs it conditionally: predicates.md, \"RLP\")."
+    use: "Indirect calls and jumps (`movtd` + `ct`/`call`)."
+    see: control-transfer.md
+  - ops: movtc{s,d,q} movtr{s,d,q} movtrc{s,d,q}
+    does: Tag-converting moves; plain copies of untagged values.
+  - ops: gettc gettst invtc puttc puttst
+    does: "Tag/trap-cell state: `gettc`, `puttc`, `puttst` SIGILL `ILL_ILLOPC` in user mode, `gettst` leaves its destination, `invtc` returns an undecoded value."
+  - ops: getpl
+    does: "Prepare a transfer to the offset a from the compilation unit's start (`getpl a, %ctprN`, ALC0) (guide 10.9.2). Into a register: SIGILL `ILL_ILLOPN` with semc's operand in a 64-bit process; in a 32-bit or protected process a procedure label (v3–v5: the address with tag 0xA; v6: a 128-bit label in an even pair with the module's index in the high word, an odd destination SIGILL `ILL_ILLOPC`)."
+    lat: "9 to `ct` or `call`, as `movtd`"
+    use: "lcc's indirect calls in 32-bit mode (`-mptr32`), 9 cycles before the `call`; function addresses in protected mode (`-mptr128`)."
+    see: control-transfer.md; spec/abi/mode32.md, "Timing"; spec/abi/protected-mode.md
+  - ops: aptoap aptoapb cudtoap gdtoap getsap getva vfsi
+    does: "Protected-mode pointer conversions and checks (v2–v6). In ordinary user mode `aptoap`, `aptoapb` are SIGILL `ILL_ILLOPN`, `cudtoap`, `gdtoap` SIGSEGV `SEGV_BNDERR`, `getsap` SIGILL `ILL_ILLOPC`, `vfsi` SIGBUS `BUS_ADRALN`; `getva a, b` returns the low 48 bits of the pointer a plus b (a = (0x0123456789abcdef, 0x10), b = 0x10 gives 0x456789abcdff). In a protected process (`-mptr128`) they make and narrow pointers: `getsap` allocates stack, `aptoap`/`aptoapb` narrow, `gdtoap` points into the globals, `cudtoap` gives a read-only AP to the module's code (lcc never emits it), `getva` gives an address."
+    see: spec/abi/protected-mode.md, "Operations"
+  - ops: cast odtoap tdtomp gettd getsod
+    does: "Object-descriptor operations of v2's protected mode; SIGILL `ILL_ILLOPC` on v3 and v5 (`v2ops.c`)."
+- title: Registers and state
+  rules:
+  - ops: rr{s,d} rw{s,d}
+    lat: "2 (`%ip`, `%upsr`, `%clkr`, `%idr`); 4 (`%core_mode`); 11 (`%pfpfr`, `%fpcr`, `%fpsr`)"
+    does: "Read or write a state register: in user mode `%pfpfr`, `%fpcr`, `%fpsr` (FP control and status), `%lsr`/`%ilcr` (loops), `%clkr` (cycle counter), `%ip`, `%idr`, `%core_mode`, `%dimar0/1`, the stack registers (`%usd`, `%psp`, `%pshtp`, `%pcsp`, `%pcshtp`, `%sbr`, `%wd`, `%br`, `%cr0`, `%cr1`: reads checked, writes not tried; MCST's qemu stops on `%psp`, `%pshtp`, `%sbr`, `%br`), …; ALC0, one a cycle. `rrs` gives the low 32 bits (under `dbl = 0` the destination's upper half is kept, under `dbl = 1` zeroed, but the 4C then writes all 64 bits of `%clkr` and `%ip`); `rrd` zero-extends a 32-bit register (registers.md, `dbl`). `rwd %lsr` needs 4 cycles before `rrd %lsr` or the loop and 5 before `rrd %ilcr` (v5 `%lsr1` the same; loops.md, \"Registers\"); a write of the FP state is seen by the next operation but does not overlap a divide in flight (timing.md, \"Every v3 operation\")."
+    use: "`fenv`, the GOT base (`rrd %ip`), loop counts, cycle counting."
+    see: registers.yaml; spec/abi/registers.md; spec/abi/stack-and-unwinding.md, "Stack registers"
+  - ops: getsp
+    lat: "2"
+    does: "Allocate (negative b) or release stack in the user stack and return the new stack pointer, the sum rounded down to 16 bytes; `getsp 0` reads it. 2 cycles. The amount must be a window register or `%g16`+. One past the part of the stack `USD` covers traps, and the kernel grows the stack by the amount rounded up to a page, at least 16 KiB. It touches no memory, so it is no stack probe; a release is not bounded by the frame; under a predicate it runs only when true."
+    use: "`allocate_stack`, frame setup; a positive amount frees a VLA or, before a sibling call's `ct`, the whole frame (spec/abi/calling-convention.md, \"Tail calls that release the frame\")."
+    see: spec/abi/stack-and-unwinding.md, "User stack"; spec/abi/kernel-interface.md, "The data stack"
+- title: Predicates
+  rules:
+  - ops: pass andp landp movep
+    lat: "1; 0 within an instruction"
+    does: "PLS logic on primary predicates `@pN`: `pass` loads a `%pred` or a special predicate (`%lcntex`, `%spred`, `%rndpred`) into `@p0`-`@p3`, or writes a CLP result back to a `%pred`; `andp`/`landp` give c0 && c1 (each optionally negated; `landp`'s second operand is lazy for diagnostic values); `movep c, v` writes v to its `%pred` only when c is true. 1 cycle through a `%pred`, 0 within a wide instruction (two levels at most)."
+    use: Branch conditions, if-conversion of `&&`/`||` chains (lcc does every conjunction with `landp`, and uses `andp` only to copy or invert).
+    see: predicates.md; semantics.md, "Predicate logic"; bundle.md, "PLS"
+  - ops: clpandp clplandp
+    does: "Stand-alone predicate logic outside a wide instruction, `clpandp %predA, %predB, %predC` (gas expands it into PLS syllables); runs in user mode."
+  - ops: srp crp slrp
+    does: "SS bits that set (`srp`), clear (`crp`) or set a loop (`slrp`) recovery point for the x86 binary translator, with an optional condition `? %predN` (binutils `parse_srp_args`): `srp`/`slrp` write their own address and BR to `%rpr` and start generations mode, `crp` ends it. Not used by lcc. In user mode they run on every machine, but in generations mode a lock-wait load is SIGILL `ILL_ILLOPC` on v3/v5, and on v6 a lock-wait load, a fault or an instruction-cache fill raises the recovery-point exception (SIGBUS `BUS_OBJERR`), most likely what ctlops.c's earlier SIGILL (8C2) and SIGBUS (2C3) were."
+    see: speculation.md, "Recovery points"
+  - ops: set_mark vfdi
+    does: "SS bits (`set_mark` the `sw` bit, `vfdi` a verify bit); both run in user mode without visible effect. The instruction monitor's `HS_SW` event (DIM0 0x0f) counts executed instructions with the `sw` bit, so `set_mark` marks instructions to count (pmu2.c `sw_mark`, 4C, 8C2, 2C3); `vfdi`'s meaning is not documented."
+    see: monitors.md, "Pipeline repeats and the rest"; bundle.md, "HS"
+
+- title: Control transfer
+  intro: >
+    A transfer is prepared into `%ctpr1–3` (`disp`, `return`, `movtd`,
+    `getpl`, `sdisp`), then executed by `ct`, `call` or a condition on
+    it; `ibranch` needs no preparation but costs 6 cycles when taken
+    (control-transfer.md).
+  rules:
+  - ops: disp ldisp sdisp return gettsd
+    lat: "5 (`disp`), 6 (`return`) to `ct`"
+    does: "Prepare a `%ctpr`: `disp` a label (5 cycles to `ct`), `ldisp` an array prefetch program (`%ctpr2`), `sdisp %ctprN, NUM` a system call entry (glibc: `sdisp %ctpr1, 3` + `call`; 1 for 32-bit, 8 for protected mode), `return` the caller (6 cycles); `gettsd %ctprN` (v3+) runs in user mode."
+    use: "Branches, calls (`disp` + `call`), returns, system calls (`sdisp` + `call`)."
+    see: control-transfer.md
+  - ops: ct call ibranch rbranch
+    does: "`ct %ctprN ? cond` transfers (free when prepared in time); `call %ctprN, wbs = N` calls with a new window; `ibranch` is a direct branch (taken: 6 cycles); `rbranch` returns into a recovery block on `%MLOCK` or `%dt_alN`."
+    use: "`jump`, `cbranch`, `call`, `return`, check-recovery."
+    see: control-transfer.md, speculation.md
+  - ops: pref
+    does: "Prefetch code at a label into the instruction cache, `pref %iprN, label` (guide 10.9.6); runs in user mode. It starts fetching at once, like an early `disp` without a CTPR, and given about 20 cycles' lead (code in L2) or 200–255 (code in memory) hides the miss, also before an `ibranch` and across a call; it fetches about as deep as `ipd 2` (`ctlleft.c`, 4C, 8C2, 2C3)."
+    use: "Cold code reached through a call or an `ibranch`, a few hundred cycles ahead; only with a global symbol (gas relocates a local label wrongly: elf.md, `R_E2K_PREF`). lcc doesn't emit it."
+    see: control-transfer.md, "Code not in the instruction cache"
+  - ops: ipd nop wait
+    does: "`ipd N` instruction prefetch depth of a preparation (0–3; it matters only for code not in the instruction cache: control-transfer.md); `nop N` N empty cycles after the instruction; `wait` orders memory (`ld_c`, `st_c`, …: atomics.md, fences; the v5+ and v6+ fields: bundle.md, CS1): 6–7 cycles with nothing outstanding; a store and then the `wait` take 15–16 cycles with `st_c`, 20–33 with `ma_c`, and 6–7 with a v5+ soft modifier, which also cuts the `wait` alone to 2 (timing.md, \"Every v3 operation\"); `wait trap = 1` never returns in user mode."
+    use: "`ipd` as lcc; `wait st_c` for C11 seq_cst stores; `nop` for delays under `.ignore strict_delay`."
+  - ops: setwd setbn setbp vfrpsz
+    does: "`setwd` sets the window size, `nfx` and `dbl`; `setbn`/`setbp` the rotating register and predicate areas. A `setwd wsz` smaller than the parameter area the caller handed over (the caller's wsz − its `call`'s wbs, in pairs) is SIGILL `ILL_ILLOPC`. `vfrpsz rpsz = N` checks that area: more than N pairs is SIGSEGV `SEGV_BNDERR` (the window-bounds exception), N or fewer runs, in the function's first instruction or its second (the only ones tried; `ctlleft.c` `vfrpsz`: N 0–8, 12, 16, 31 against 0–8 and 12 pairs; 4C, 8C2, 2C3). gas encodes `vfrpsz` only together with a `setwd` (CS1 opcode 1) and writes `wsz = 0` when none is given, so a lone `vfrpsz` in a function that was handed anything gets the window check's SIGILL (the earlier `ctlops.c` result); when both checks fail only the SIGILL is seen."
+    use: "`vfrpsz`: the kernel's entries only (`rpsz = 4`, protected mode 8; kernel `trap_table.S`); a compiler has no use for it."
+    see: spec/abi/registers.md; loops.md; spec/abi/kernel-interface.md, "System calls"
+  - ops: loop_mode alc abn abp abg
+    does: "Loop mode and counters: `loop_mode` marks the loop, `alc` advances the loop counters, `abn`/`abp` rotate the register and predicate areas, `abg` the global registers (`%bgr`)."
+    see: loops.md
+  - ops: flushr flushc flushts
+    does: "Spill the register window stack (`flushr`) or the chain stack (`flushc`) to memory; `flushts` flushes the trap stack. `flushr`, `flushc`, `flushts` run in user mode."
+    use: "Stack walking (unwinders, `setjmp`-style code) needs the stacks in memory."
+  - ops: setsft
+    does: "Software trap: SIGTRAP `TRAP_BRKPT` in user mode (the kernel's `BUG()` uses it)."
+    use: "`trap` (`__builtin_trap`) as a breakpoint-style trap; lcc stores to address 0 instead."
+  - ops: settr setei
+    does: "System settings: `settr type = N` is SIGILL `ILL_ILLOPC` in user mode, `setei` runs without visible effect."
+  - ops: done
+    does: "Privileged return from a trap handler: SIGILL `ILL_PRVOPC` in user mode."
+  - ops: mmurr mmurw
+    does: "MMU register access, privileged except `mmurw x, %dam_inv`, which clears the data speculation table (lcc writes it at the exits of loops with check loads); `mmurr` of the monitor registers is SIGILL."
+    see: speculation.md; monitors.md

@@ -211,12 +211,12 @@ gates:
 env:
   required:
     OSNOVA_PROVIDER:
-      values: [qwen-cli, deepseek, ollama]
-      default: qwen-cli
+      values: [deepseek, ollama, qwen-cli]
+      default: deepseek
     DEEPSEEK_API_KEY: "Обязателен при provider=deepseek"
   optional:
     OSNOVA_MODEL:
-      default: qwen-coder-plus
+      default: deepseek-flash
     OLLAMA_URL:
       default: "http://localhost:11434"
     OSNOVA_TRACE_DB:
@@ -228,7 +228,7 @@ env:
       note: "Читается в validateEnv(), применяется через setLogLevel() в src/logger.ts"
     QWEN_TIMEOUT_MS:
       default: 300000
-      note: "таймаут для QwenCliProvider (мс)"
+      note: "legacy: таймаут QwenCliProvider. Qwen CLI выведен из эксплуатации"
 
 # ---------------------------------------------------------------------------
 # Язык Основа

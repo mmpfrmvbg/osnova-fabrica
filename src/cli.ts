@@ -19,10 +19,40 @@ import { resident } from './resident/core';
 import { createLlmPlanner, createResidentExecutor } from './resident/adapters';
 import { validateEnv } from './env';
 import { compileSource } from './compiler/compiler';
-import { printParseError } from './compiler/parser';
+import { reportCompileDiagnostics } from './compiler/compileDiagnostics';
+import {
+  diagnosticsSink,
+  parseDiagnosticsFormat,
+  reportCliRefusal,
+  reportParseWarnings,
+} from './compiler/cliCompile';
 import { run as runRuntime } from './runtime/run';
+import { runParity } from './oracle/parity';
+import { regModuleOf } from './vliw/regOracle';
+import { compareReorders, formatComparison } from './vliw/reorderEquivalence';
+import { checkCompileTarget, parseTargetArgument, TARGET_USAGE } from './cli/target';
 
 const args = process.argv.slice(2);
+
+/**
+ * Загружает корневой `.env` в process.env (если переменная ещё не задана).
+ * Без зависимости dotenv: простой разбор KEY=VALUE с учётом '#'-комментариев.
+ */
+function loadDotEnv(): void {
+  const envPath = path.resolve('.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const rawLine of fs.readFileSync(envPath, 'utf-8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    const commentIdx = value.indexOf(' #');
+    if (commentIdx >= 0) value = value.slice(0, commentIdx).trim();
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
 
 function printUsage(): void {
   console.error('Использование:');
@@ -32,8 +62,13 @@ function printUsage(): void {
   console.error('  osnova resident "старт" [--rounds N]  Автономный резидент (сам ставит цели)');
   console.error('  osnova new-app --task "описание"     Генерация + сохранение + регистрация');
   console.error('  osnova compile file.osnova [-o out]  Компиляция .osnova → .osvbc');
+  console.error(TARGET_USAGE);
   console.error('  osnova run --manifest path           Запуск приложения по манифесту');
   console.error('  osnova schedule file.osvbc.json      VLIW-планирование (линейный код)');
+  console.error('  osnova parity file.osnova            Оракул: стековая VM vs регистровая (сверка трасс)');
+  console.error('  osnova reorder file.osnova [--memory l1|l2|l3|mem] [--entry имя] [--steps N]');
+  console.error('                                       Оракул перестановки: линейный регистровый код vs');
+  console.error('                                       переставленный на одной RegVM + счётчики e2k');
   console.error('  osnova list [--dir <path>]       Список приложений из реестра');
 }
 
@@ -197,9 +232,28 @@ async function runResidentMode(startGoal: string, args: string[]): Promise<void>
 }
 
 function runCompileMode(cliArgs: string[]): number {
+  // Формат диагностики разбирается до чтения файла: неверная форма флага — это
+  // отказ команды, а не молчаливое умолчание (правило канала — `cliCompile`).
+  const format = parseDiagnosticsFormat(cliArgs);
+  if (format === null) {
+    console.error('Формат диагностики не поддержан. Допустимо: --diagnostics=json (или --diagnostics=human).');
+    return 1;
+  }
+  // Стоки объявлены до разбора аргументов: отказы ДО компиляции печатаются теми
+  // же двумя потоками (человеку — stderr, машине — stdout).
+  const io = { out: (line: string) => console.log(line), err: (line: string) => console.error(line) };
+  // ЦЕЛЬ — до поиска входного файла: значение `--target` иначе попадает в позиционные
+  // аргументы, и команда ищет файл с именем «e2k» (замер до правки). Отказ разбора цели —
+  // названный отказ команды, а не тихое умолчание.
+  const targetRequest = parseTargetArgument(cliArgs);
+  if (targetRequest.problem !== undefined) {
+    io.err(targetRequest.problem);
+    return 1;
+  }
   let input: string | null = null;
   let output: string | null = null;
   for (let i = 0; i < cliArgs.length; i++) {
+    if (targetRequest.consumed.includes(i)) continue;
     if (cliArgs[i] === '-o' || cliArgs[i] === '--output') {
       output = cliArgs[++i] ?? null;
     } else if (!cliArgs[i].startsWith('-')) {
@@ -207,7 +261,82 @@ function runCompileMode(cliArgs: string[]): number {
     }
   }
   if (!input) {
-    console.error('Использование: osnova compile input.osnova [-o output.osvbc.json]');
+    // Человеческий вывод — прежний (замыкание), машинный — запись `OSN-CLI-001`.
+    reportCliRefusal("inputMissing", format, io, () =>
+      console.error('Использование: osnova compile input.osnova [-o output.osvbc.json] [--diagnostics=json]'),
+    );
+    return 1;
+  }
+  const inputPath = path.resolve(input);
+  if (!fs.existsSync(inputPath)) {
+    reportCliRefusal(
+      "inputNotFound",
+      format,
+      io,
+      () => console.error('Файл не найден:', inputPath),
+      inputPath,
+    );
+    return 1;
+  }
+  const source = fs.readFileSync(inputPath, 'utf-8');
+  // Имя файла и его каталог передаются ЯВНО — как это делает `src/compiler/cli.ts`.
+  //
+  // Без `filename` канон «файл = модуль» даёт модулю имя `вход` (умолчание из
+  // parser.ts) вместо имени файла: файл без шапки `модуль имя` собирался с чужим
+  // именем, и артефакт расходился со сторожем `src/runtime/artifactDrift.test.ts`,
+  // который собирает с `filename: basename`. Разница была незаметна, пока шапки
+  // стояли: шапка сильнее имени файла и маскировала расхождение двух путей сборки.
+  //
+  // Без `baseDir` импорты `использовать модуль X из "y.osnova"` разрешались от
+  // текущего каталога, а не от каталога исходника: сборка приложения из другого
+  // каталога падала на «Модуль не найден».
+  const result = compileSource(source, {
+    baseDir: path.dirname(inputPath),
+    filename: path.basename(inputPath),
+  });
+  // Здесь стоял молчащий путь: печатались лексер и парсер, а `compilerErrors`
+  // не печатались вовсе — на семантической ошибке команда выходила кодом 1 с
+  // нулём строк вывода (замер 2026-09-28). Из этого файла собран `dist/cli.js`,
+  // то есть установленный `osnova`. Вывод сведён к одному модулю.
+  //
+  // `--diagnostics=json` поддержан и здесь: машинный вывод нужен именно
+  // установленной команде, а флаг, понятный только другой точке входа, — это
+  // ровно тот разъезд трёх реализаций, ради которого модуль и появился.
+  reportCompileDiagnostics(result, diagnosticsSink(io, format), { source, format });
+  reportParseWarnings(result.warnings, io, format);
+  if (!result.module) return 1;
+  const json = JSON.stringify(result.module, null, 2);
+  const outPath = output ?? inputPath.replace(/\.osnova$/i, '.osvbc.json');
+  fs.writeFileSync(path.resolve(outPath), json, 'utf-8');
+  // В JSON-режиме stdout несёт только JSONL (успех виден по коду 0 и файлу).
+  if (format !== 'json') console.log('Скомпилировано:', outPath);
+  // ЦЕЛЬ: компиляция уже сделана и артефакт записан — флаг ничего в ней не меняет. Он добавляет
+  // ответ на другой вопрос: соберётся ли ЭТА программа НА ЦЕЛИ. Отказы понижения печатает
+  // наблюдатель (`src/scripts/e2kLoweringDiagnostics.ts`), он же даёт код: 0 — отказов нет.
+  if (targetRequest.target !== undefined) {
+    return checkCompileTarget({ file: inputPath, format, io });
+  }
+  return 0;
+}
+
+async function runScheduleMode(cliArgs: string[]): Promise<number> {
+  const { runScheduleCli } = await import('./vliw/cli');
+  return runScheduleCli(cliArgs);
+}
+
+/**
+ * `osnova parity file.osnova` — дифференциальный оракул бэкендов.
+ *
+ * Компилирует один исходник дважды (стековый и регистровый байткод), исполняет
+ * обе VM с одинаковым хостом и сверяет трассы вызовов и итоговое значение.
+ * Код возврата: 0 — совпало, 1 — расхождение, 2 — программа вне среза
+ * регистрового бэкенда (ещё не поддержано, это не расхождение), 3 — обе VM не
+ * завершились за лимит шагов: сравнивать нечего, и это не «совпало».
+ */
+async function runParityMode(cliArgs: string[]): Promise<number> {
+  const input = cliArgs.find((a) => !a.startsWith('-'));
+  if (!input) {
+    console.error('Использование: osnova parity input.osnova [--entry имя]');
     return 1;
   }
   const inputPath = path.resolve(input);
@@ -215,27 +344,92 @@ function runCompileMode(cliArgs: string[]): number {
     console.error('Файл не найден:', inputPath);
     return 1;
   }
+  const entryIdx = cliArgs.indexOf('--entry');
+  const entryProcedure = entryIdx >= 0 ? cliArgs[entryIdx + 1] : undefined;
+
   const source = fs.readFileSync(inputPath, 'utf-8');
-  const result = compileSource(source);
-  if (result.lexerErrors.length > 0) {
-    for (const e of result.lexerErrors) {
-      console.error(`Лексер ${e.line}:${e.column}: ${e.message}`);
-    }
+  const result = await runParity(source, { entryProcedure });
+  if ('skipped' in result) {
+    console.log(`[skip] ${path.basename(inputPath)}: ${result.reason}`);
+    return 2;
   }
-  if (result.parserErrors.length > 0) {
-    for (const e of result.parserErrors) printParseError(e, source);
+  console.log(`[${result.ok ? 'OK' : 'FAIL'}] ${path.basename(inputPath)}`);
+  console.log('  статус:         ', result.status);
+  console.log('  стековая VM:    ', JSON.stringify(result.stackValue));
+  console.log('  регистровая VM: ', JSON.stringify(result.regValue));
+  console.log('  шагов трассы:   ', result.stackTrace.length);
+  console.log('  сверка:         ', result.message);
+  if (result.status === 'both_hit_step_limit') {
+    console.error('  обе VM не завершились за лимит шагов — сравнивать нечего');
+    return 3;
   }
-  if (!result.module) return 1;
-  const json = JSON.stringify(result.module, null, 2);
-  const outPath = output ?? inputPath.replace(/\.osnova$/i, '.osvbc.json');
-  fs.writeFileSync(path.resolve(outPath), json, 'utf-8');
-  console.log('Скомпилировано:', outPath);
+  if (!result.ok) {
+    console.error(`  первое расхождение на шаге ${result.divergenceIndex}`);
+    return 1;
+  }
   return 0;
 }
 
-async function runScheduleMode(cliArgs: string[]): Promise<number> {
-  const { runScheduleCli } = await import('./vliw/cli');
-  return runScheduleCli(cliArgs);
+/**
+ * `osnova reorder file.osnova` — оракул перестановки независимых операций.
+ *
+ * Собирает регистровый код, планирует его двумя способами (в порядке программы и
+ * с перестановкой) на одном графе с одними длительностями, исполняет обе версии
+ * на одной `RegVM` и печатает:
+ * - эквивалентность исполнения (значение, трасса, набор инструкций);
+ * - аппаратные счётчики e2k (TICKS, EXEC, BUB_E2) до и после.
+ *
+ * Код возврата: 0 — эквивалентно, 1 — расхождение, 2 — не компилируется.
+ */
+async function runReorderMode(cliArgs: string[]): Promise<number> {
+  const input = cliArgs.find((a) => !a.startsWith('-'));
+  if (!input) {
+    console.error('Использование: osnova reorder input.osnova [--memory l1|l2|l3|mem] [--entry имя] [--steps N]');
+    return 1;
+  }
+  const inputPath = path.resolve(input);
+  if (!fs.existsSync(inputPath)) {
+    console.error('Файл не найден:', inputPath);
+    return 1;
+  }
+
+  const argOf = (flag: string): string | undefined => {
+    const i = cliArgs.indexOf(flag);
+    return i >= 0 ? cliArgs[i + 1] : undefined;
+  };
+  const memoryRaw = argOf('--memory') ?? 'l1';
+  const allowed = ['l1', 'l2', 'l3', 'mem'] as const;
+  if (!(allowed as readonly string[]).includes(memoryRaw)) {
+    console.error(`Неизвестный уровень памяти: ${memoryRaw}. Допустимо: ${allowed.join(', ')}`);
+    return 1;
+  }
+  const memoryLevel = memoryRaw as (typeof allowed)[number];
+  const entryProcedure = argOf('--entry');
+  const stepsRaw = argOf('--steps');
+  const maxSteps = stepsRaw !== undefined ? Number(stepsRaw) : undefined;
+  if (maxSteps !== undefined && (!Number.isFinite(maxSteps) || maxSteps <= 0)) {
+    console.error('--steps должен быть положительным числом');
+    return 1;
+  }
+
+  const source = fs.readFileSync(inputPath, 'utf-8');
+  const built = regModuleOf(source);
+  if (!built) {
+    console.error(`[FAIL] ${path.basename(inputPath)}: исходник не компилируется`);
+    return 2;
+  }
+
+  const cmp = await compareReorders(built.module, {
+    memoryLevel,
+    ...(entryProcedure !== undefined ? { entryProcedure } : {}),
+    ...(maxSteps !== undefined ? { maxSteps } : {}),
+  });
+  console.log(formatComparison(path.basename(inputPath), cmp, memoryLevel));
+  if (!cmp.equivalence.ok) {
+    console.error(`  расхождение: ${cmp.equivalence.message}`);
+    return 1;
+  }
+  return 0;
 }
 
 async function listApps(cliArgs: string[]): Promise<number> {
@@ -388,6 +582,7 @@ async function runNewApp(cliArgs: string[]): Promise<void> {
 }
 
 async function main(): Promise<number> {
+  loadDotEnv();
   const sub = args[0];
   const taskIdx = args.indexOf('--task');
 
@@ -437,6 +632,14 @@ async function main(): Promise<number> {
 
   if (sub === 'schedule') {
     return await runScheduleMode(args.slice(1));
+  }
+
+  if (sub === 'parity') {
+    return await runParityMode(args.slice(1));
+  }
+
+  if (sub === 'reorder') {
+    return await runReorderMode(args.slice(1));
   }
 
   if (sub === 'list') {

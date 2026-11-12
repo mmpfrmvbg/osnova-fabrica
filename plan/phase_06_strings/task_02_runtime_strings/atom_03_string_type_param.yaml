@@ -1,0 +1,19 @@
+id: ATOM-06-02-03
+title: "Шаг 2.3 владельца (ATOM-06-02-02а): строковость из ТИПА параметра — с[0]/длина по Строка-параметру, нагрузка Результат&lt;Строка,…&gt;; случай 73 реестра"
+phase: PHASE-06
+task: TASK-06-02
+status: done
+depends_on:
+  - ATOM-06-02-01
+blocks: []
+input: []
+output: []
+done_criteria: []
+tests: []
+registers_touched:
+  decisions: []
+  errors: []
+  tech_debt: []
+  blind_spots: []
+notes: ""
+commit_hash: ea396563

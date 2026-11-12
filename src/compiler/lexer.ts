@@ -23,22 +23,32 @@ const TOKEN_KINDS = [
   "иначе",
   "иначе_если",
   "попробовать",
-  "иначе_попытка",
+  "поймать",
   "пока",
   "тогда",
   "когда",
   "есть",
   "выбросить",
-  "для_каждого",
+  "для",
   "в",
   "цикл",
   "прервать",
   "продолжить",
   "конец",
+  "конец_если",
+  "конец_пока",
+  "конец_для",
+  "конец_для_каждого",
+  "конец_цикла",
+  "конец_когда",
+  "конец_попробовать",
+  "конец_процедуры",
+  "конец_модуля",
   "вернуть",
   "и",
   "или",
   "не",
+  "div",
   "истина",
   "ложь",
   "пусто",
@@ -89,10 +99,47 @@ export interface Token {
   column: number;
 }
 
-/** Ключевые слова лексера — из реестра языка (implemented: true). */
+/**
+ * Закрывающие лексемы: `конец` (legacy, контекстный) и `конец_X` (канон).
+ *
+ * Проверяются **до** карты ключевых слов и потому в неё не попадают: у каждой
+ * свой `TokenKind`, а контекст («это закрытие или имя?») решает парсер, не лексер.
+ * `конец_файла` сюда НЕ входит — это служебный вид токена, а не ключевое слово.
+ * `конец` остаётся в реестре как implemented: иначе реестр перестанет описывать
+ * синтаксис, который лексер принимает.
+ */
+export const BLOCK_CLOSING_LEXEMES: readonly string[] = [
+  "конец",
+  "конец_если",
+  "конец_пока",
+  "конец_для",
+  "конец_для_каждого",
+  "конец_цикла",
+  "конец_когда",
+  "конец_попробовать",
+  "конец_процедуры",
+  "конец_модуля",
+];
+
 export const KEYWORDS: Record<string, TokenKind> = Object.fromEntries(
-  getImplementedKeywords().map((k) => [k.lexeme, k.lexeme as TokenKind]),
+  getImplementedKeywords()
+    .filter((k) => !BLOCK_CLOSING_LEXEMES.includes(k.lexeme))
+    .map((k) => [k.lexeme, k.lexeme as TokenKind]),
 ) as Record<string, TokenKind>;
+
+/**
+ * Все лексемы-ключевые слова, которые лексер ПРИНИМАЕТ.
+ *
+ * `KEYWORDS` — только зарезервированные; контекстные закрывающие (`конец_*`) в
+ * него не входят намеренно: их вид определяет парсер, а не лексер. Но реестр
+ * языка обязан описывать и их, поэтому согласованность лексера с реестром надо
+ * проверять по этому полному набору — иначе проверка требует от лексера
+ * «зарезервировать» контекстные слова и краснеет на верном коде.
+ */
+export const ACCEPTED_KEYWORD_LEXEMES: readonly string[] = [
+  ...Object.keys(KEYWORDS),
+  ...BLOCK_CLOSING_LEXEMES,
+];
 
 function isLetter(c: string): boolean {
   if (!c) return false;
@@ -251,7 +298,39 @@ export function tokenize(source: string): LexerResult {
     if (isLetter(c) || c === "_") {
       let lex = "";
       while (isIdContinue(peek())) lex += advance();
+      // Служебный токен конца файла — не ключевое слово и не `конец_` + `файла`:
+      // проверяется раньше всего остального, иначе слово `конец_файла` в исходнике
+      // закрывало бы блок.
+      if (lex === "конец_файла") {
+        tokens.push(makeToken("конец_файла", lex));
+        continue;
+      }
+      // `конец` и `конец_X` — отдельные виды токенов; контекст решает парсер.
+      if (BLOCK_CLOSING_LEXEMES.includes(lex)) {
+        tokens.push(makeToken(lex as TokenKind, lex));
+        continue;
+      }
       const kw = KEYWORDS[lex] ?? (LLM_KEYWORD_ALIASES[lex] as TokenKind | undefined);
+      // Английский алиас `end` ведёт к тому же виду токена, что `конец`:
+      // лексема у него своя, поэтому контекст закрытия надо сохранить.
+      if (kw === "конец") {
+        tokens.push(makeToken("конец", "конец"));
+        continue;
+      }
+      // `else if` пишется с пробелом: посимвольный алиас его не ловит. Собираем
+      // в один токен `иначе_если`, иначе `else` уходил в ветку `иначе`, а `if`
+      // начинал новую инструкцию внутри неё.
+      if (lex === "else") {
+        const save = i;
+        while (peek() === " " || peek() === "\t") advance();
+        if (source.startsWith("if", i) && !isIdContinue(source[i + 2] ?? "")) {
+          advance();
+          advance();
+          tokens.push(makeToken("иначе_если", "else if"));
+          continue;
+        }
+        i = save;
+      }
       if (kw) tokens.push(makeToken(kw, lex));
       else tokens.push(makeToken("идентификатор", lex, lex));
       continue;
@@ -327,6 +406,15 @@ export function tokenize(source: string): LexerResult {
       advance();
       advance();
       tokens.push(makeToken("/=", "/="));
+      continue;
+    }
+    // `:=` — алиас `=` (пункт 1.3 требований: 20 случаев в трейсах, модель тянет
+    // `:=` из Паскаля). Двоеточие в языке только в аннотации типа и в литералах
+    // объектов, где за ним идёт имя типа, а не `=`, поэтому разбор однозначен.
+    if (c === ":" && source[i + 1] === "=") {
+      advance();
+      advance();
+      tokens.push(makeToken("=", ":="));
       continue;
     }
 
