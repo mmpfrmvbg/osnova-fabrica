@@ -54,3 +54,35 @@ gate:
     - npm run golden
     - npm run gate:reorder
     - npm run gate:pack
+
+# Шлюз QEMU — по кнопке и только при СОБРАННОЙ модели.
+# Модель — наш порт (QEMU 11.0.1 + правка окна), паспорт `src/e2k/qemuModelPassport.ts`.
+# Если модели нет, задание обязано КРАСНО редеть с этой причиной, а не «пропуститься»:
+# зелёный шлюз без модели — ложь, которая в этом проекте уже ловилась (см. AGENTS.md).
+qemu:
+  stage: gate
+  tags: [osnova, windows]
+  when: manual
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - >-
+      wsl -e bash -lc "cd /mnt/d/PROJECTS/OSNOVA-FABRIKA &&
+      command -v qemu-e2k >/dev/null ||
+      { echo 'МОДЕЛИ НЕТ: соберите порт (tools/qemu-e2k/README.md) — шлюз не запускался'; exit 3; }"
+    - npm run gate:qemu
+
+# Железо — по кнопке, с рабочей машины на лабораторный стенд по SSH.
+# Ключ стенда — `key.openssh` в корне (в git не кладётся), адрес и порт — из
+# docs/e2k-hardware-access.md. Кит собирается здесь же и уезжает на стенд целиком,
+# отчёт забирается обратно; числа из отчёта идут в MR.
+hardware:
+  stage: gate
+  tags: [osnova, windows]
+  when: manual
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm run hardware:kit
+    - >-
+      wsl -e bash -lc "cd /mnt/d/PROJECTS/OSNOVA-FABRIKA &&
+      test -f key.openssh ||
+      { echo 'НЕТ КЛЮЧА СТЕНДА: key.openssh отсутствует'; exit 3; }"
