@@ -140,6 +140,42 @@ YAML не включает branch protection. В настройках репоз
 защитить и потребовать зелёные `L1 build and test`, `L2 QEMU` и `L3 E8C2`.
 Без этого правила workflow остаётся сигналом, а не запретом на merge.
 
+## GitHub Actions: self-hosted и METRICS (2026-11-12)
+
+В GitHub контуре три задания в `.github/workflows/ci.yml`:
+
+| Задание | Раннер | Что доказывает |
+|---|---|---|
+| `checks` | `windows-latest` | типы, lint, `npm test`, docs, YAML-дрейф, реестр языка |
+| `qemu` | `[self-hosted, windows, osnova-qemu]` | `gate:qemu` + `metrics:ast`: модель под паспортом, AST = эталон |
+| `hardware` | `[self-hosted, windows, osnova-hardware]` | `tools/e2k-hardware/ci-run.sh` на живой E8C2 |
+
+**METRICS — артефакт, а не слово SUCCESS.** Каждое задание пишет строку чисел в
+`.tmp/<job>-metrics.txt` и загружает её артефактом (`checks-metrics`,
+`qemu-metrics`, `hardware-metrics`). Файл стирается в начале прогона, поэтому
+артефакт прошлого запуска нельзя принять за текущий; при отказе внешнего ресурса
+в файл попадает `reason=...`, а не пустота.
+
+Формат строк (числа — из прогона, здесь только поля):
+
+```text
+METRICS checks: files=… passed=… skipped=… failed=…
+METRICS qemu: files=… checks=… failures=… model_sha256=… passport=match AST=etalon …/… QEMU=… exit=…
+METRICS hardware: matched=… mismatch=… missing=… state=ok|FLAKY|REAL attempts=… exit=…
+```
+
+`qemu` отказывает ДО прогона, если sha256 модели не совпал с
+`src/e2k/qemuModelPassport.ts` (`passport=match` обязателен). `hardware` делает
+не больше двух попыток: «упало один раз, прошло второй» печатается как
+`state=FLAKY`, обе неудачи — `state=REAL` и красное задание.
+
+**Почему задания не на `pull_request`.** Репозиторий публичный: self-hosted
+задание на PR из форка исполнило бы чужой код на машине с ключом к стенду.
+`qemu` и `hardware` запускаются на push в ветки репозитория и вручную
+(`workflow_dispatch`); `checks` — на PR тоже.
+
+Раннер, его метки и восстановление — [self-hosted-runner-runbook.md](self-hosted-runner-runbook.md).
+
 ## Локально
 
 ```bash

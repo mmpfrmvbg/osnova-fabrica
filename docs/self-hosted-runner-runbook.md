@@ -1,136 +1,115 @@
 <!-- doc-status: stable; source: .github/workflows/ci.yml -->
 # Self-hosted Runner Runbook
 
-This runbook documents monitoring and recovery for GitHub Actions self-hosted runners used by this repository.
+This runbook documents the GitHub Actions self-hosted runner that executes the
+external-resource gates (`qemu`, `hardware`) and how to check or recover it.
 
-## Current topology
+## Current topology (measured 2026-11-12)
 
-- Runner 1: `osnova-vps-runner`
-- Runner 2: `osnova-vps-runner-2`
-- Labels: `self-hosted`, `Linux`, `X64`, `osnova`
-- Host: `90.156.210.111`
-- Install dirs:
-  - `/opt/actions-runner`
-  - `/opt/actions-runner-2`
-- Services:
-  - `actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner.service`
-  - `actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner-2.service`
+- Runner: `osnova-win-qemu`
+- Labels: `self-hosted`, `Windows`, `X64`, `osnova-qemu`, `osnova-hardware`
+- Host: the Windows workstation that has WSL distro `e2k` and the E8C2 SSH key
+- Install directory: `C:\actions-runner-osnova`
+- Work directory: `C:\actions-runner-osnova\_work`
+- Start command: `C:\actions-runner-osnova\run.cmd` (interactive process, not a service)
+
+One runner carries both labels on purpose: `gate:qemu` needs
+`/root/qemu-build/qemu-e2k` inside WSL, and the E8C2 stand is reached over SSH
+from the same Windows profile (key `%USERPROFILE%\.ssh\osnova_e2k`). A Linux
+runner on the stand would require opening GitHub traffic into the stand network,
+which is not part of this decision.
+
+Verification:
+
+```powershell
+gh api repos/mmpfrmvbg/osnova-fabrica/actions/runners `
+  --jq '.runners[] | {name,status,busy,labels:[.labels[].name]}'
+```
+
+Expected: `"name":"osnova-win-qemu"`, `"status":"online"`, both `osnova-qemu`
+and `osnova-hardware` present.
+
+## Stale topology warning
+
+An earlier revision of this file documented two Linux VPS runners
+(`osnova-vps-runner`, `osnova-vps-runner-2`) at `90.156.210.111`. On 2026-11-12
+`gh api .../actions/runners` returned `total_count: 0`, and
+`ssh root@90.156.210.111` timed out (port 22). Those runners do not exist in the
+current repository; do not build workflow labels on them.
 
 ## Daily quick checks (2-3 min)
 
-### 1) GitHub-side status
+1. GitHub-side status (command above): runner online, not stuck busy for hours.
+2. WSL model identity:
 
-Run from repository root:
+   ```powershell
+   wsl -d e2k -e bash -lc 'sha256sum /root/qemu-build/qemu-e2k'
+   ```
 
-```bash
-gh api repos/mmpfrmvbg/osnova-fabrica/actions/runners
-```
+   Expected sha256:
+   `4e37a37243189dec4f7405ed465c7eade2d51f5edab95060a6ada880f23fe081`.
+3. Hardware key visible from Windows and WSL:
 
-Expected:
+   ```powershell
+   Test-Path "$env:USERPROFILE\.ssh\osnova_e2k"
+   ```
 
-- `total_count >= 2`
-- both runners have `status: "online"`
-
-### 2) Service status on VPS
-
-```bash
-ssh root@90.156.210.111 "systemctl status actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner.service --no-pager"
-ssh root@90.156.210.111 "systemctl status actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner-2.service --no-pager"
-```
-
-Expected: `Active: active (running)` for both services.
-
-### 3) Capacity guardrails
-
-```bash
-ssh root@90.156.210.111 "df -h / /opt"
-ssh root@90.156.210.111 "free -h"
-ssh root@90.156.210.111 "top -bn1 | head -20"
-```
-
-Operational thresholds:
-
-- disk free >= 20%
-- memory pressure is low (no persistent OOM kills)
-- CPU can spike during CI, but should return to normal baseline
+4. Disk space for `C:\actions-runner-osnova\_work` (each job runs `npm ci`).
 
 ## Incident checklist
 
-Use this flow when workflows are red and fail before steps run.
-
-1. Confirm failure type:
-   - check run logs for only `system.txt` and no executed steps
-2. Check runners online in GitHub (`gh api .../actions/runners`)
-3. Check both systemd services on VPS
-4. Restart unhealthy service(s)
-5. Re-run affected workflows
+1. Open the failed run and check whether any steps started. A run with only
+   `Set up job` failing is runner infrastructure, not a code failure.
+2. Check runner online (`gh api ...`). If offline, start `run.cmd`.
+3. If jobs hang in `queued`, confirm the job labels match the runner labels
+   exactly (case-insensitive).
+4. If `qemu` fails with `passport-unreadable` or `model-mismatch`, the METRICS
+   artifact names both sha256 values; do not re-run hoping for green — rebuild
+   or restore the model.
+5. If `hardware` fails with `no-key` or `no-key-wsl`, the key is not visible to
+   the account that started the runner; fixing this needs the same Windows
+   profile that owns WSL.
 
 ## Recovery commands
 
-### Restart one runner
+Start the runner (interactive session; keep the window open):
 
-```bash
-ssh root@90.156.210.111 "systemctl restart actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner.service"
-ssh root@90.156.210.111 "systemctl restart actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner-2.service"
+```powershell
+C:\actions-runner-osnova\run.cmd
 ```
 
-### Restart both runners
+Re-register the runner if its identity is broken:
 
-```bash
-ssh root@90.156.210.111 "systemctl restart actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner.service actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner-2.service"
-```
-
-### Check recent logs
-
-```bash
-ssh root@90.156.210.111 "journalctl -u actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner.service -n 200 --no-pager"
-ssh root@90.156.210.111 "journalctl -u actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner-2.service -n 200 --no-pager"
-```
-
-## Re-register runner (if broken identity)
-
-1. Request registration token:
-
-```bash
+```powershell
 gh api -X POST repos/mmpfrmvbg/osnova-fabrica/actions/runners/registration-token
+C:\actions-runner-osnova\config.cmd --url https://github.com/mmpfrmvbg/osnova-fabrica `
+  --token <TOKEN> --name osnova-win-qemu `
+  --labels osnova-qemu,osnova-hardware --work _work --unattended --replace
 ```
 
-2. Reconfigure runner in install directory (`/opt/actions-runner` or `/opt/actions-runner-2`) as user `gha`:
+Then start `run.cmd` and verify online in GitHub.
 
-```bash
-cd /opt/actions-runner-2
-sudo -u gha ./config.sh \
-  --url https://github.com/mmpfrmvbg/osnova-fabrica \
-  --token <TOKEN> \
-  --name osnova-vps-runner-2 \
-  --labels osnova,linux,x64 \
-  --unattended \
-  --replace
-```
+## Security boundary
 
-3. Restart service and verify online in GitHub.
+The repository is public. `pull_request` jobs are excluded from the self-hosted
+`qemu` and `hardware` jobs (`if: github.event_name != 'pull_request'`), because a
+fork PR could otherwise execute its own code on this machine. Those gates run on
+pushes to repository branches and on manual dispatch only.
 
 ## Common failure signatures
 
-- **Only `system.txt` in logs; no steps started**
-  - Runner infra startup issue
-  - Action: restart runner services, re-run workflow
-- **`actionlint` unknown label**
-  - Missing/incorrect `.github/actionlint.yaml`
-  - Action: fix config, rerun `Workflow Lint`
-- **Permission denied in workspace**
-  - stale file ownership from previous runs
-  - Action: fix ownership under `/opt/actions-runner*/_work`
+- **Only `system.txt`; no steps started** — runner process died or was
+  unregistered. Start `run.cmd`, verify online.
+- **`actionlint` unknown label** — `.github/actionlint.yaml` must list
+  `osnova-qemu` and `osnova-hardware`; it does as of 2026-11-12.
+- **`wsl: distribution e2k not found`** — the runner was started under a
+  different Windows account than the one that registered the WSL distro.
+- **`METRICS ... reason=no-model`** — `/root/qemu-build/qemu-e2k` is missing or
+  unreadable inside WSL; the artifact says so instead of a fake pass.
 
-## Change management notes
+## Change management
 
-- Keep both runners on same action runner version.
-- After OS updates, verify both services are still enabled:
-
-```bash
-ssh root@90.156.210.111 "systemctl is-enabled actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner.service actions.runner.mmpfrmvbg-osnova-fabrica.osnova-vps-runner-2.service"
-```
-
-- Any change to runner labels must be reflected in:
-  - workflow `runs-on`
-  - `.github/actionlint.yaml`
+- Any label change must be reflected in the workflow `runs-on` values and in
+  `.github/actionlint.yaml`.
+- After changing the QEMU binary, update `src/e2k/qemuModelPassport.ts` in the
+  same commit; otherwise the job refuses with `model-mismatch` (by design).

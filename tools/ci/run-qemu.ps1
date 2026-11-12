@@ -12,6 +12,20 @@ Set-Location $root
 # `npm run gate:metrics` это не влияет — там строка идёт из node в конвейер без PowerShell.
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 
+# METRICS — В ФАЙЛ, А НЕ ТОЛЬКО В ЛОГ. GitHub Actions отдаёт артефакт, который ревьюер
+# открывает и читает числа, не веря строке «SUCCESS». Файл стирается в НАЧАЛЕ прогона:
+# иначе упавший шаг оставил бы артефакт ПРЕДЫДУЩЕГО прогона (та же ловушка, что со старыми
+# .elf в стенде). Пишется и на отказе — «чисел нет» должно быть названо, а не пропущено.
+$metricsDir = Join-Path $root '.tmp'
+$metricsPath = Join-Path $metricsDir 'qemu-metrics.txt'
+New-Item -ItemType Directory -Force -Path $metricsDir | Out-Null
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText($metricsPath, '', $utf8NoBom)
+function Write-Metrics([string]$line) {
+    [IO.File]::AppendAllText($metricsPath, $line + "`n", $utf8NoBom)
+    Write-Host $line
+}
+
 # ПАСПОРТ ЧИТАЕТСЯ ПО ПОЛЮ, А НЕ ПО СЛОВУ В КОММЕНТАРИИ. Прежняя редакция брала первую строку
 # со словом `sha256` — это строка комментария («sha256 бинаря: …»), 64 шестнадцатеричных знака в ней
 # нет, и шлюз отказывал `passport-unreadable` ещё до прогона. Поле паспорта — `sha256: '<64 hex>'`.
@@ -19,7 +33,7 @@ $passportLine = (Select-String -Path 'src/e2k/qemuModelPassport.ts' -Pattern "^\
 $expected = if ($passportLine -match '([0-9a-f]{64})') { $Matches[1] } else { '' }
 if (-not $expected) {
     Write-Host 'ПАСПОРТ НЕ ПРОЧИТАН: в src/e2k/qemuModelPassport.ts не найден sha256.'
-    Write-Host 'METRICS qemu=refused reason=passport-unreadable'
+    Write-Metrics 'METRICS qemu=refused reason=passport-unreadable'
     exit 3
 }
 
@@ -30,7 +44,7 @@ $actualRaw = ((& wsl -d e2k -e bash -lc 'sha256sum /root/qemu-build/qemu-e2k 2>/
 $actual = if ($actualRaw -match '([0-9a-f]{64})') { $Matches[1] } else { '' }
 if (-not $actual) {
     Write-Host 'МОДЕЛИ НЕТ: /root/qemu-build/qemu-e2k в WSL-дистрибутиве e2k не найден.'
-    Write-Host 'METRICS qemu=refused reason=no-model'
+    Write-Metrics 'METRICS qemu=refused reason=no-model'
     exit 3
 }
 
@@ -40,7 +54,7 @@ Write-Host "  на диске sha256=$actual"
 
 if ($actual -ne $expected) {
     Write-Host 'МОДЕЛЬ НЕ ТА: числа непригодны, прогон НЕ начинался.'
-    Write-Host "METRICS qemu=refused reason=model-mismatch model_sha256=$actual passport_sha256=$expected"
+    Write-Metrics "METRICS qemu=refused reason=model-mismatch model_sha256=$actual passport_sha256=$expected"
     exit 4
 }
 
@@ -79,5 +93,5 @@ $astMetric = if ($astLog -match 'AST=etalon\s+(\d+)/(\d+)') {
 $qemuBad = if ($astLog -match 'QEMU=(\d+)') { $Matches[1] } else { '?' }
 if ($code -eq 0 -and $astCode -ne 0) { $code = $astCode }
 
-Write-Host "METRICS qemu: файлов=$files проверок=$tests провалов=$failed model_sha256=$actual passport=match $astMetric QEMU=$qemuBad exit=$code"
+Write-Metrics "METRICS qemu: files=$files checks=$tests failures=$failed model_sha256=$actual passport=match $astMetric QEMU=$qemuBad exit=$code"
 exit $code

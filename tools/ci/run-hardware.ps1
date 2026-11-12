@@ -33,6 +33,19 @@ Set-Location $root
 # читаемы, а не «Є«оз».
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 
+# METRICS — В ФАЙЛ, А НЕ ТОЛЬКО В ЛОГ (тот же закон, что в run-qemu.ps1): артефакт
+# GitHub Actions должен содержать числа, а не «job failed». Файл стирается ДО прогона,
+# поэтому артефакт прошлого запуска не может быть принят за текущий.
+$metricsDir = Join-Path $root '.tmp'
+$metricsPath = Join-Path $metricsDir 'hardware-metrics.txt'
+New-Item -ItemType Directory -Force -Path $metricsDir | Out-Null
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText($metricsPath, '', $utf8NoBom)
+function Write-Metrics([string]$line) {
+    [IO.File]::AppendAllText($metricsPath, $line + "`n", $utf8NoBom)
+    Write-Host $line
+}
+
 $candidates = @()
 if ($KeyPath) { $candidates += [pscustomobject]@{ Path = $KeyPath; Source = 'param -KeyPath' } }
 if ($env:OSNOVA_E2K_KEY) { $candidates += [pscustomobject]@{ Path = $env:OSNOVA_E2K_KEY; Source = 'env OSNOVA_E2K_KEY' } }
@@ -53,7 +66,7 @@ foreach ($candidate in $candidates) {
 if ($null -eq $chosen) {
     Write-Host 'НЕТ КЛЮЧА СТЕНДА: перебраны -KeyPath, OSNOVA_E2K_KEY, E2K_SSH_KEY_PATH, %USERPROFILE%\.ssh\osnova_e2k, key.openssh.'
     Write-Host 'Положите ключ на машину агента и задайте переменную конвейера OSNOVA_E2K_KEY (или E2K_SSH_KEY_PATH).'
-    Write-Host 'METRICS hardware=refused reason=no-key'
+    Write-Metrics 'METRICS hardware=refused reason=no-key'
     exit 3
 }
 $key = $chosen.Path
@@ -62,7 +75,7 @@ Write-Host "key: $key (source: $($chosen.Source))"
 $wslRoot = ((& wsl -d e2k -e wslpath -a $root 2>$null) | Out-String).Trim()
 if (-not $wslRoot) {
     Write-Host 'WSL-дистрибутив e2k недоступен: прогон на железе невозможен.'
-    Write-Host 'METRICS hardware=refused reason=no-wsl'
+    Write-Metrics 'METRICS hardware=refused reason=no-wsl'
     exit 3
 }
 
@@ -71,7 +84,7 @@ if (-not $wslRoot) {
 $wslKey = ((& wsl -d e2k -e wslpath -a $key 2>$null) | Out-String).Trim()
 if (-not $wslKey) {
     Write-Host "KEY NOT VISIBLE FROM WSL: $key"
-    Write-Host 'METRICS hardware=refused reason=no-key-wsl'
+    Write-Metrics 'METRICS hardware=refused reason=no-key-wsl'
     exit 3
 }
 Write-Host "key in WSL: $wslKey"
@@ -105,7 +118,7 @@ function Invoke-Attempt([int]$n) {
 Write-Host "hardware: $User@${HostName}:$Port (kit built from $(Get-Location))"
 $first = Invoke-Attempt 1
 if ($first.Code -eq 0 -and $first.Mismatch -eq 0) {
-    Write-Host "METRICS hardware: matched=$($first.Matched) mismatch=$($first.Mismatch) missing=$($first.Missing) state=ok attempts=1 exit=0"
+    Write-Metrics "METRICS hardware: matched=$($first.Matched) mismatch=$($first.Mismatch) missing=$($first.Missing) state=ok attempts=1 exit=0"
     exit 0
 }
 
@@ -113,10 +126,10 @@ Write-Host 'первая попытка не прошла — вторая и п
 $second = Invoke-Attempt 2
 if ($second.Code -eq 0 -and $second.Mismatch -eq 0) {
     Write-Host 'ФЛАКИ: первая попытка упала, вторая прошла — это НАЗВАНО, а не спрятано'
-    Write-Host "METRICS hardware: matched=$($second.Matched) mismatch=$($second.Mismatch) missing=$($second.Missing) state=FLAKY attempts=2 exit=0"
+    Write-Metrics "METRICS hardware: matched=$($second.Matched) mismatch=$($second.Mismatch) missing=$($second.Missing) state=FLAKY attempts=2 exit=0"
     exit 0
 }
 
 Write-Host 'две попытки упали — это РЕАЛЬНАЯ ошибка, а не флаки'
-Write-Host "METRICS hardware: attempt1(exit=$($first.Code) matched=$($first.Matched) mismatch=$($first.Mismatch)) attempt2(exit=$($second.Code) matched=$($second.Matched) mismatch=$($second.Mismatch)) state=REAL attempts=2 exit=1"
+Write-Metrics "METRICS hardware: attempt1(exit=$($first.Code) matched=$($first.Matched) mismatch=$($first.Mismatch)) attempt2(exit=$($second.Code) matched=$($second.Matched) mismatch=$($second.Mismatch)) state=REAL attempts=2 exit=1"
 exit 1
