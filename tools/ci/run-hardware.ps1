@@ -28,6 +28,11 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $root
 
+# Тот же закон, что в run-qemu.ps1: вывод wsl/ssh — UTF-8, а PowerShell 5.1 по умолчанию читает его
+# в CP866. Числа железа уже берутся с ASCII-строки, но «ключ/источник» и прочий текст должны быть
+# читаемы, а не «Є«оз».
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+
 $candidates = @()
 if ($KeyPath) { $candidates += [pscustomobject]@{ Path = $KeyPath; Source = 'param -KeyPath' } }
 if ($env:OSNOVA_E2K_KEY) { $candidates += [pscustomobject]@{ Path = $env:OSNOVA_E2K_KEY; Source = 'env OSNOVA_E2K_KEY' } }

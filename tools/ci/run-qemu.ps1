@@ -6,6 +6,12 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $root
 
+# КОНСОЛЬ ЧИТАЕТ UTF-8, А НЕ КОДОВУЮ СТРАНИЦУ МАШИНЫ. npm/vitest пишут UTF-8, а Windows PowerShell
+# 5.1 по умолчанию разбирает их вывод в CP866: кириллица в METRICS приезжала кракозябрами (задание
+# qemu #56 — «файлов=63» читалось как «䠩���=63»), хотя сами числа были верны. На прямой вызов
+# `npm run gate:metrics` это не влияет — там строка идёт из node в конвейер без PowerShell.
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+
 # ПАСПОРТ ЧИТАЕТСЯ ПО ПОЛЮ, А НЕ ПО СЛОВУ В КОММЕНТАРИИ. Прежняя редакция брала первую строку
 # со словом `sha256` — это строка комментария («sha256 бинаря: …»), 64 шестнадцатеричных знака в ней
 # нет, и шлюз отказывал `passport-unreadable` ещё до прогона. Поле паспорта — `sha256: '<64 hex>'`.
