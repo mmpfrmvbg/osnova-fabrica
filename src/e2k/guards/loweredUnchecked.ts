@@ -52,6 +52,11 @@ import type { Отказ, ОтказЗапись, СыройОбраз } from '.
  */
 export type ОпцииСырогоПути = CompileOptions & {
   readonly assumeArenaReserved?: true;
+  /**
+   * D12: принять запись массива из глубины ≥ 2 по ЖЕЛЕЗУ. Модель на `std` в таком кадре
+   * зацикливается, поэтому QEMU-прогон этого образа запрещён; флаг включает только сборку.
+   */
+  readonly allowDeepArrayWrites?: boolean;
 };
 
 export function loweredProgramUnchecked(
@@ -69,6 +74,7 @@ export function loweredProgramUnchecked(
      * (`docs/hardware-debt.md` §3.134, `src/self-host/foundationE2k.test.ts`).
      */
     readonly assumeArenaReserved?: true;
+    readonly allowDeepArrayWrites?: boolean;
   } = {},
 ): СыройОбраз {
   // ОТКАЗ ПОВЕРХНОСТИ НАЗЫВАЕТСЯ (D5, случай 73): прежняя редакция бросала безымянное «программа не
@@ -354,6 +360,7 @@ export function loweredProgramUnchecked(
     // ПОЧЕМУ БАЗЫ НЕТ (D5): причина с числами уезжает в отказ понижения, чтобы «не выдала базу» не
     // читалось как дефект выдачи (размерная стена против алгоритма раскладки — §10.1).
     arrayBlockProblems: allocation.arrayBlockProblems,
+    allowDeepArrayWrites: options.allowDeepArrayWrites === true,
     // Слово о закреплении регистров — тому, кто раскладывал: разойдись оно с нуждой образа,
     // конвейер откажет по имени, а не соберёт образ с мусором вместо указателя арены.
     arenaReserved,
