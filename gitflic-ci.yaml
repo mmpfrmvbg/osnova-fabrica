@@ -1,0 +1,53 @@
+# CI/CD проекта «Основа» на GitFlic.
+#
+# Исполнитель — агент PowerShell на рабочей машине (своего раннера у gitflic.ru нет),
+# метки агента: osnova, windows. Без включённого агента задания просто висят в очереди.
+#
+# Принцип: каждый шаг — отдельная строка, чтобы падение называло СВОЙ слой.
+# Цепочка `npm run ci` здесь НЕ используется: она рвётся на первом падении и прячет остальные
+# (см. src/scripts/ciChain.ts — там это записано как измеренный дефект).
+
+stages:
+  - quick
+  - tests
+  - gate
+
+variables:
+  OSNOVA_STORAGE_ROOT: "build/ci-storage"
+  npm_config_audit: "false"
+  npm_config_fund: "false"
+  npm_config_progress: "false"
+
+# Быстрый слой: то, что обязано быть зелёным на КАЖДОМ push и в каждом MR.
+quick:
+  stage: quick
+  tags: [osnova, windows]
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm run typecheck
+    - npm run lint
+    - npm run docs:check
+    - npm run check:language-schema
+    - npm run check:yaml-drift
+    - npm run validate:spec
+    - npm run check:test-files
+
+# Модульные и оракульные тесты (vitest, ~4000 проверок).
+tests:
+  stage: tests
+  tags: [osnova, windows]
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm test
+
+# Смысловой шлюз: эталонные приложения, перестановка, упаковка. По кнопке,
+# потому что он самый долгий и его имеет смысл гонять перед слиянием, а не на каждый push.
+gate:
+  stage: gate
+  tags: [osnova, windows]
+  when: manual
+  script:
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm run golden
+    - npm run gate:reorder
+    - npm run gate:pack
