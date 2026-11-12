@@ -1944,8 +1944,8 @@ POST-ORDER на ленте и shunting-yard; рекурсии-писателя �
 `итог: совпало 87, расхождений 0, файлов нет 0`
 
 `METRICS hardware: matched=87 mismatch=0 missing=0 state=ok attempts=1 exit=0`. Отчёт —
-`tools/e2k-hardware/logs/ci-report-20261113T004359Z.txt`, паспорт машины —
-`tools/e2k-hardware/logs/machine-20261113T004359Z.txt` (дата `2026-11-13T00:43:59+03:00`).
+`tools/e2k-hardware/logs/ci-report-l2-input.txt`, паспорт машины —
+`tools/e2k-hardware/logs/machine-l2-input.txt` (дата `2026-11-13T02:13:42+03:00`).
 Каждая B2b-форма печатает AST и сверяется с `эталоннаяЛента` **байт в байт**; код 0.
 Новые формы — `b2b4p1..p20` и `b2b5p1..p5` (`src/scripts/e2kHardwareKit.ts#ПРОГРАММЫ_B2B`),
 те же — в `src/e2k/parserProtocolB2bHardware.test.ts#B2B4`/`#B2B5`, счёт кита закреплён
