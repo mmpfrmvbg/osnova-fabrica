@@ -934,6 +934,8 @@ export function lowerArrayCall(
   dst: number | undefined,
   options: {
     readonly base?: number;
+    /** Причина отсутствия базы из раскладки (D5) — попадает в текст отказа, чисел не меняет. */
+    readonly baseProblem?: string;
     readonly inCallee?: boolean;
     readonly forForm?: boolean;
     readonly heapSlotReady?: boolean;
@@ -966,6 +968,7 @@ function формыВызоваМассива(
   dst: number | undefined,
   options: {
     readonly base?: number;
+    readonly baseProblem?: string;
     readonly inCallee?: boolean;
     readonly forForm?: boolean;
     readonly heapSlotReady?: boolean;
@@ -1015,7 +1018,10 @@ function формыВызоваМассива(
   if (!forForm && (options.base === undefined || options.base === ARRAY_BASE_UNASSIGNED)) {
     throw new ArrayRuntimeRefusal(
       `«${name}»: раскладка не выдала базу блока рантайма (операнд ${ARRAY_BASE_OPERAND} носителя) — ` +
-        'обращение ушло бы в чужие клетки; базу кладёт `allocateProgram` (src/e2k/regAlloc.ts)',
+        'обращение ушло бы в чужие клетки; базу кладёт `allocateProgram` (src/e2k/regAlloc.ts)' +
+        // ПРИЧИНА ИЗ РАСКЛАДКИ (D5, 2026-11-12): с числами и словом «размерная стена». Без неё этот
+        // текст читался как дефект выдачи и увёл диагноз на три круга (`.tmp/atoms/20261111-*`).
+        (options.baseProblem === undefined ? '' : `. Причина: ${options.baseProblem}`),
     );
   }
   // Форме база не нужна (длина от номера клетки не зависит), но она обязана быть числом: подставляем

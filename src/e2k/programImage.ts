@@ -1242,6 +1242,11 @@ export function imageOfCarriers(
      */
     readonly arrayBases?: readonly (number | undefined)[];
     /**
+     * ПОЧЕМУ БАЗЫ НЕТ — по процедурам, тем же индексом, что `arrayBases` (D5). Уходит в причину отказа
+     * `lowerArrayCall`: без неё отказ читался как дефект выдачи, а не как размерная стена.
+     */
+    readonly arrayBlockProblems?: readonly (string | undefined)[];
+    /**
      * ЗАКРЕПЛЕНЫ ЛИ РЕГИСТРЫ АРЕНЫ у этого потока — слово того, кто раскладывал регистры.
      *
      * Арена пишет указатель и предел **в обход** потока носителей (`src/e2k/arenaRuntime.ts`),
@@ -1925,6 +1930,9 @@ export function imageOfCarriers(
     // массивов в процедуре нет либо раскладку звали без списка процедур с массивами; тогда понижение
     // откажет по имени, а не угадает клетки.
     const arrayBase = (options.arrayBases ?? [])[procedureAt(procedures, index) ?? 0];
+    // ПОЧЕМУ БАЗЫ НЕТ (D5): причина из раскладки — числа свободных/занятых клеток и слово о размерной
+    // стене. Без базы и без причины (раскладку звали без списка процедур) остаётся прежний текст.
+    const baseBlockProblem = (options.arrayBlockProblems ?? [])[procedureAt(procedures, index) ?? 0];
     if (process.env.OSN_DEBUG_BASE !== undefined && index < 14) {
       console.log(
         `[отладка базы] #${index} ${carrier.mnemonic}: процедура=${String(procedureAt(procedures, index))} ` +
@@ -2370,6 +2378,7 @@ export function imageOfCarriers(
       // в вызываемой понижается; нет слова — отказ по имени внутри `lowerArrayCall`.
       ...(heapSlotReady ? { heapSlotReady: true } : {}),
       ...(arrayBase === undefined ? {} : { arrayBase }),
+      ...(baseBlockProblem === undefined ? {} : { arrayBaseProblem: baseBlockProblem }),
       // На глубине ≥ 2 — свой `wbs = 8` (окно выращено прологом процедуры) и измеренный порядок
       // возврата «`return` → значение → `ct`» (§3.56.3, V3 против V2).
       ...(onDepthTwo ? { callWbs: INNER_CALL_WBS, returnAfterCall: true } : {}),
