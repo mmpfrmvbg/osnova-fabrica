@@ -1070,4 +1070,54 @@ sha256 `d25504499c0a1efa…` совпал до и после поездки (Э�
 собираются (держим ноль). **Не считаем**: строки кода, число тестов, доков и коммитов, зелёный
 CI сам по себе.
 
+---
 
+# CI на GitFlic — основной репозиторий и слои проверок (2026-11-12)
+
+**Основной репозиторий: GitFlic** — `https://gitflic.ru/project/mmpvbg/osnova-privat`
+(SSH `git@gitflic.ru:mmpvbg/osnova-privat.git`). Прежние адреса (`origin` = GitHub,
+`private` = GitVerse) остаются ЗЕРКАЛАМИ на случай недоступности; истина — GitFlic.
+Ветка `main` защищена: прямой push запрещён, слияние только админом, `push --force` запрещён.
+
+## Исполнитель конвейера
+
+Своего раннера у gitflic.ru нет: конвейер исполняет **агент PowerShell на рабочей машине**,
+зарегистрированный на уровне проекта с метками `osnova`, `windows`.
+
+- Каталог агента: `%USERPROFILE%\gitflic-runner`, конфиг `config/application.properties`
+  (`runner.executor=powershell` — без этой строки агент падает на старте, а не «висит»).
+- Запуск: `java -jar runner.jar start --config=config/application.properties`.
+- **Агент выключен — задания ВИСЯТ, а не падают.** Пустая очередь при зелёном дереве ничего
+  не доказывает: перед выводами о CI смотри статус агента (`/project/{o}/{p}/runners`, поле `active`).
+- Регистрация агента на gitflic.ru — только через `register --url <registrationUrl>
+  --registration-token <token>`; `--url https://gitflic.ru` даёт HTML вместо JSON и не работает.
+
+## Слои проверок (и что каждый ловит)
+
+| Слой | Задание | Команды | Что ловит |
+|---|---|---|---|
+| форма | `quick` | `npm run typecheck`, `lint`, `docs:check`, `check:language-schema`, `check:yaml-drift`, `validate:spec`, `check:test-files` | рассинхрон кода, доков, реестра и схемы языка — тот самый класс «тихой лжи» |
+| поведение | `tests` | `npm test` | оракулы VM/раскладки, шлюзы e2k, закреплённые числа (458 / 53 / 511, FIR 181, образ 6856) |
+| смысл | `gate` (по кнопке) | `golden`, `gate:reorder`, `gate:pack` | изменения, которые точечные тесты не видят: эталонные приложения, независимость от порядка команд, упаковка |
+
+**`npm run ci` в конвейере НЕ используется намеренно:** он рвётся на первом падении и прячет
+все следующие шаги (измерено: так был скрыт красный `validate:spec` — `src/scripts/ciChain.ts`).
+В CI каждый шаг — отдельная строка, чтобы отказ называл свой слой.
+
+**`gate:qemu` в конвейер НЕ включён:** он требует собранной модели с паспортом
+(`src/e2k/qemuModelPassport.ts`), а на машине агента модели нет. Ложное «зелено» без модели
+хуже, чем честное «не проверено»: шлюз гоняется локально или на лабораторной машине, а число
+заносится в отчёт. Кто включит его в CI без модели — получит красное, не связанное с кодом.
+
+## Воспроизведение локально (то же, что в CI)
+
+```powershell
+npm ci --prefer-offline --no-audit --no-fund
+npm run typecheck; npm run lint; npm run docs:check
+npm run check:language-schema; npm run check:yaml-drift; npm run validate:spec; npm run check:test-files
+npm test
+npm run golden; npm run gate:reorder; npm run gate:pack   # смысловой шлюз
+```
+
+Зелёный `quick` + `tests` на своей машине и на агенте — **разные** доказательства: локально
+проверяются изменения рабочего дерева, на агенте — ровно то, что лежит в ветке.
