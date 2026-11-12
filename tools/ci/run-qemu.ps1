@@ -39,8 +39,15 @@ if ($actual -ne $expected) {
 }
 
 Write-Host 'модель совпала с паспортом — прогон начинается'
+# НАТИВНЫЕ КОМАНДЫ ПИШУТ В stderr, И ЭТО НЕ ОШИБКА СКРИПТА. С $ErrorActionPreference='Stop'
+# PowerShell 5.1 превращает ЛЮБУЮ строку stderr в исключение: измерено конвейером (задание qemu #41) —
+# vitest вывел `stderr | …`, и шлюз умер ДО METRICS, хотя прогон был жив. На время нативных вызовов
+# ошибки только собираются (`2>&1`), а судит пусть код возврата.
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $log = (& npm run gate:qemu 2>&1 | Out-String)
 $code = $LASTEXITCODE
+$ErrorActionPreference = $previous
 $log -split "`n" | Select-Object -Last 8 | ForEach-Object { $_.TrimEnd() }
 
 $files = if ($log -match 'Test Files\s+(\d+) passed') { $Matches[1] } else { '?' }
@@ -50,8 +57,11 @@ $failed = if ($log -match 'Tests\s+(\d+) failed') { $Matches[1] } else { '0' }
 # AST=ЭТАЛОН — ВТОРОЕ число того же шлюза, а не «тест прошёл»: 85 клеток эталона, сколько совпало и
 # сколько прогонов модели было плохих. Скрипт спрашивает у модели напрямую (src/scripts/astMetrics.ts),
 # поэтому его отказ НАЗЫВАЕТСЯ в METRICS и делает задание красным, а не пропускает проверку.
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $astLog = (& npm run metrics:ast 2>&1 | Out-String)
 $astCode = $LASTEXITCODE
+$ErrorActionPreference = $previous
 $astLog -split "`n" | Select-Object -Last 4 | ForEach-Object { $_.TrimEnd() }
 $astMetric = if ($astLog -match 'AST=etalon\s+(\d+)/(\d+)') {
     "AST=etalon $($Matches[1])/$($Matches[2])"

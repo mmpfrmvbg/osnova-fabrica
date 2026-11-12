@@ -77,8 +77,13 @@ function Invoke-Attempt([int]$n) {
            "cd '$wslRoot' && timeout $TimeoutSeconds " +
            "env E2K_HOST=$HostName E2K_USER=$User E2K_PORT=$Port " +
            "SSH_KEY_PATH=/tmp/osnova-key sh tools/e2k-hardware/ci-run.sh"
+    # Тот же закон, что в run-qemu.ps1: stderr нативной команды — НЕ исключение. С
+    # $ErrorActionPreference='Stop' любая строка прогресса ssh на stderr убила бы wrapper до METRICS.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     $log = (& wsl -d e2k -e bash -lc $cmd 2>&1 | Out-String)
     $code = $LASTEXITCODE
+    $ErrorActionPreference = $previous
     $log -split "`n" | Select-Object -Last 6 | ForEach-Object { $_.TrimEnd() }
 
     $matched = if ($log -match 'совпало\s+(\d+)') { [int]$Matches[1] } else { -1 }
