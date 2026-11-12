@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'fix/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -43,11 +43,26 @@ jobs:
       - name: Тесты (vitest + сторожа счёта и схемы)
         run: npm test
 
-      # gate:metrics в CI не включён осознанно: числа ядер печатаются без модели, но
-      # сверка с эталоном идёт ПОСЛЕ прогона среза, а срез требует qemu-e2k в WSL.
-      # На раннере модели нет — шаг вернул бы 3 «срез не спрошен», и красное означало
-      # бы отсутствие внешнего ресурса, а не дефект. Числа шлюза проверяются локально
-      # и на стенде: `npm run gate:metrics` (см. README, раздел «Репозитории»).
+      # ЧИСЛА, А НЕ «SUCCESS»: отчёт vitest читается в METRICS-строку, которая уходит
+      # и в лог, и в $GITHUB_STEP_SUMMARY, и в артефакт. Шаг стоит с `if: always()`:
+      # упавший тест обязан оставить числа, иначе ревьюер видит «job failed» без счёта.
+      - name: METRICS checks
+        if: always()
+        shell: pwsh
+        run: |
+          $line = 'METRICS checks: files=? passed=? skipped=? failed=? reason=no-report'
+          if (Test-Path '.tmp/vitest-report.json') {
+            try {
+              $j = Get-Content '.tmp/vitest-report.json' -Raw | ConvertFrom-Json
+              $line = "METRICS checks: files=$($j.testResults.Count) passed=$($j.numPassedTests) skipped=$($j.numPendingTests) failed=$($j.numFailedTests)"
+            } catch {
+              $line = "METRICS checks: files=? passed=? skipped=? failed=? reason=unreadable-report"
+            }
+          }
+          New-Item -ItemType Directory -Force -Path .tmp | Out-Null
+          $line | Out-File -FilePath .tmp/checks-metrics.txt -Encoding utf8
+          $line | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          Write-Host $line
 
       - name: Документация (реестр и ссылки)
         run: npm run docs:check
@@ -64,5 +79,104 @@ jobs:
         with:
           name: vitest-report
           path: .tmp/vitest-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Артефакт METRICS checks
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: checks-metrics
+          path: .tmp/checks-metrics.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  # SELF-HOSTED, ПОТОМУ ЧТО ВНЕШНИЙ РЕСУРС — НЕ ТЕСТ. GitHub-hosted runner не имеет ни
+  # WSL с моделью `/root/qemu-build/qemu-e2k`, ни ключа к стенду E8C2. Прогон здесь
+  # даёт артефакт с ЧИСЛАМИ: model_sha256, passport, AST=etalon 85/85, QEMU=0.
+  #
+  # НЕ НА pull_request: публичный репозиторий + self-hosted = код из форка исполнялся бы
+  # на этой машине. Ветки push в этом репозитории пишут только свои; для PR шлюзы
+  # запускаются вручную (`workflow_dispatch` на ветке) или после merge.
+  qemu:
+    name: QEMU + AST (METRICS)
+    needs: checks
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, windows, osnova-qemu]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Node из .nvmrc + npm ci
+        uses: ./.github/actions/node-bootstrap
+
+      - name: QEMU-шлюз (METRICS)
+        shell: pwsh
+        run: ./tools/ci/run-qemu.ps1
+
+      - name: Сводка METRICS qemu
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path '.tmp/qemu-metrics.txt') {
+            $lines = Get-Content '.tmp/qemu-metrics.txt'
+            $lines | ForEach-Object { Write-Host $_ }
+            $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            Write-Host 'METRICS qemu: файла нет — шаг не дошёл до записи'
+          }
+
+      - name: Артефакт METRICS qemu
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: qemu-metrics
+          path: .tmp/qemu-metrics.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ЖЕЛЕЗО E8C2. Здесь один раннер, а не отдельный linux-хост: стенд доступен по SSH
+  # ИЗ ЭТОЙ машины, а ключ и WSL-путь живут в её профиле; ставить агента на стенд
+  # значило бы открыть GitHub в сеть стенда. Числа те же: matched/mismatch/missing.
+  hardware:
+    name: E8C2 hardware (METRICS)
+    needs: checks
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, windows, osnova-hardware]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Node из .nvmrc + npm ci
+        uses: ./.github/actions/node-bootstrap
+
+      - name: Стенд E8C2 (METRICS)
+        shell: pwsh
+        run: ./tools/ci/run-hardware.ps1
+
+      - name: Сводка METRICS hardware
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path '.tmp/hardware-metrics.txt') {
+            $lines = Get-Content '.tmp/hardware-metrics.txt'
+            $lines | ForEach-Object { Write-Host $_ }
+            $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            Write-Host 'METRICS hardware: файла нет — шаг не дошёл до записи'
+          }
+
+      - name: Артефакт METRICS hardware
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: hardware-metrics
+          path: .tmp/hardware-metrics.txt
           if-no-files-found: warn
           retention-days: 14

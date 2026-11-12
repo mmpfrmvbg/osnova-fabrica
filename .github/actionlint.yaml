@@ -2,3 +2,5 @@ self-hosted-runner:
   labels:
     - osnova
     - osnova-forge
+    - osnova-qemu
+    - osnova-hardware
