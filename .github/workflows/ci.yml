@@ -176,6 +176,13 @@ jobs:
         shell: pwsh
         run: npm ci
 
+      # КИТ НЕ В GIT (`tools/e2k-hardware/.gitignore`): bin/ — десятки ELF, они
+      # воспроизводятся упаковщиком. Без этого шага ci-run.sh отказывает «нет bin»,
+      # и job падает ДО машины (измерено прогоном 43194927449: matched=-1 attempts=2).
+      - name: Сборка кита E8C2
+        shell: pwsh
+        run: npx tsx src/scripts/e2kHardwareKit.ts
+
       - name: Стенд E8C2 (METRICS)
         shell: pwsh
         run: ./tools/ci/run-hardware.ps1
