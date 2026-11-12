@@ -90,16 +90,14 @@ qemu:
   when: manual
   script:
     - npm ci --prefer-offline --no-audit --no-fund
-    - >-
-      wsl -e bash -lc "cd /mnt/d/PROJECTS/OSNOVA-FABRIKA &&
-      command -v qemu-e2k >/dev/null ||
-      { echo 'МОДЕЛИ НЕТ: соберите порт (tools/qemu-e2k/README.md) — шлюз не запускался'; exit 3; }"
-    - npm run gate:qemu
+    # Проверяет наличие модели в WSL `e2k` и её sha256, затем гоняет оракулы
+    # (сверка с паспортом — внутри, src/e2k/qemuModelIdentity.test.ts).
+    - powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci/run-qemu.ps1
 
 # Железо — по кнопке, с рабочей машины на лабораторный стенд по SSH.
 # Ключ стенда — `key.openssh` в корне (в git не кладётся), адрес и порт — из
 # docs/e2k-hardware-access.md. Кит собирается здесь же и уезжает на стенд целиком,
-# отчёт забирается обратно; числа из отчёта идут в MR.
+# отчёт забирается обратно; расхождение делает задание КРАСНЫМ.
 hardware:
   stage: gate
   tags: [osnova, windows]
@@ -107,10 +105,7 @@ hardware:
   script:
     - npm ci --prefer-offline --no-audit --no-fund
     - npm run hardware:kit
-    - >-
-      wsl -e bash -lc "cd /mnt/d/PROJECTS/OSNOVA-FABRIKA &&
-      test -f key.openssh ||
-      { echo 'НЕТ КЛЮЧА СТЕНДА: key.openssh отсутствует'; exit 3; }"
+    - powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci/run-hardware.ps1
 
 # --- слой 4: доставка (по тегу, по кнопке) -----------------------------------
 # Что считается «поставкой» у компилятора: собранный дистрибутив (dist), пакет npm и кит
