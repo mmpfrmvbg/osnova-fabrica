@@ -96,9 +96,14 @@ export function checkBuiltBinary(file: string): { ok: boolean; version?: string;
 // инструментов сборки в PATH Windows. На Linux-облаке L1 таких путей нет, и
 // проверка «инструменты появились» краснела бы не по делу. Сам QEMU на цели
 // по-прежнему проверяется воротами `gate:qemu`.
-const describeWindows = process.platform === "win32" ? describe : describe.skip;
+//
+// На CI (windows-latest) стенда нет: нет дистрибутива WSL `e2k`, нет собранного
+// `/root/qemu-build/qemu-e2k`, а в PATH стоит mingw-цепочка. Сторож же сверяет
+// документ с НАСТОЯЩИМ стендом и без него утверждал бы про чужую машину («НЕ
+// СОБРАН» там, где собрано). Потому на CI блок не исполняется; локально — как был.
+const describeStand = process.platform === "win32" && process.env.CI !== "true" ? describe : describe.skip;
 
-describeWindows("сборка QEMU-e2k", () => {
+describeStand("сборка QEMU-e2k", () => {
   const doc = fs.existsSync(DOC) ? fs.readFileSync(DOC, "utf-8") : "";
 
   it("документ существует и называет путь бинаря", () => {
@@ -123,13 +128,7 @@ describeWindows("сборка QEMU-e2k", () => {
     expect(doc, "нет ссылки на требование meson.build к sh").toMatch(/meson\.build:78/);
   });
 
-  // Проверка о PATH СТЕНДА, а не о PATH раннера: на окнах GitHub-раннера стоит mingw-цепочка
-  // (gcc/cc/clang/make), которой на машине, где снимался документ, нет. Смешивать эти два PATH
-  // значило бы утверждать про стенд по чужой машине — потому на CI проверка не исполняется,
-  // а на стенде (локально) остаётся как была. Это названная граница, а не сокрытие красного.
-  it.skipIf(process.env.CI === "true")(
-    "причина не устарела: инструментов сборки в PATH Windows по-прежнему нет",
-    () => {
+  it("причина не устарела: инструментов сборки в PATH Windows по-прежнему нет", () => {
     if (findBuiltQemu().ok && process.platform === "win32") {
       // Сборка идёт в WSL; проверяем, что Windows-PATH по-прежнему без цепочки, и что это
       // записано как причина «на Windows невозможно».
@@ -143,8 +142,7 @@ describeWindows("сборка QEMU-e2k", () => {
       tools,
       `инструменты появились (${tools.join(", ")}) — причину «не собралось» нужно перепроверить, а не повторять`,
     ).toEqual([]);
-  },
-  );
+  });
 
   it("дерево порта e2k совпадает с документом", () => {
     if (!fs.existsSync(TREE)) {
