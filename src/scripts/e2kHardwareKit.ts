@@ -15,6 +15,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { buildElfImage } from './e2kProgramRun';
+import { parseV3 } from '../compiler-v3';
+import { программаПротоколаB2 } from '../compiler-v3/parser-protocol-b2';
+import { эталоннаяЛента } from '../compiler-v3/parser-protocol-probe';
+import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from '../e2k/elfMinimal';
+import { loweredProgram } from '../e2k/lowered';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const EXAMPLES = path.join(ROOT, 'examples');
@@ -64,6 +69,43 @@ function examplesWithE2k(): string[] {
     .sort();
 }
 
+/**
+ * B2: рантайм-цикл по ленте, POST-ORDER. В отличие от корпуса, эти программы требуют
+ * `allowDeepArrayWrites` (D12: решение владельца, QEMU — названный отказ, железо — арбитр).
+ * Эталон — независимый `эталоннаяЛента` (`parseV01` + `лентаИзAst`), а не вывод пробы.
+ */
+const ПРОГРАММЫ_B2 = [
+  'ф(х)',
+  'ф(г(х))',
+  'ф(г(ч(х)))',
+  'ф(г(ч(ш(х))))',
+  'ф(1)',
+  'ф(1, х)',
+  'ф(г(1), х)',
+  'ф(г(ч(1)))',
+] as const;
+
+function buildB2Elf(тело: string, файл: string): { elf: Buffer; expected: number[] } {
+  const источник = `действие главная()\n  ${тело}\nконец главная\n`;
+  const сгенерирован = программаПротоколаB2(источник, файл);
+  const разобранный = parseV3(сгенерирован, файл);
+  if (разобранный.errors.length > 0) {
+    throw new Error(`${файл}: ${разобранный.errors.map((error) => String(error)).join('; ')}`);
+  }
+  const понижен = loweredProgram(сгенерирован, {
+    filename: файл,
+    allowDeepArrayWrites: true,
+    parse: () => ({ ast: разобранный.program ?? null, errors: разобранный.errors }),
+  });
+  if (!понижен.ок) throw new Error(`${файл}: ${понижен.отказ.причина}`);
+  const elf = buildElfFromCode(понижен.значение.bytes, MINIMAL_BASE, {
+    writable: true,
+    extraMemory: WRITE_ZONE_EXTRA_MEMORY,
+    dataSegmentBytes: 0x8000,
+  });
+  return { elf: Buffer.from(elf.bytes), expected: эталоннаяЛента(источник, файл) };
+}
+
 function main(): void {
   fs.mkdirSync(BIN, { recursive: true });
   const entries: KitEntry[] = [];
@@ -97,6 +139,27 @@ function main(): void {
       expectedOrigin: meta.expected?.origin ?? 'не назван',
       shows: meta.shows ?? '',
       hardware: meta.hardware ?? '',
+    });
+  }
+
+  // ── B2: восемь программ рантайм-разбора, POST-ORDER ─────────────────────────
+  for (const [индекс, тело] of ПРОГРАММЫ_B2.entries()) {
+    const номер = String(индекс + 1);
+    const файл = `b2p${номер}.osnova`;
+    const elfPath = path.join(BIN, `b2p${номер}.elf`);
+    const { elf, expected } = buildB2Elf(тело, файл);
+    fs.writeFileSync(elfPath, elf);
+    entries.push({
+      example: `b2/p${номер}`,
+      name: `B2 P${номер}: ${тело}`,
+      elf: path.relative(KIT, elfPath).replace(/\\/g, '/'),
+      elfSha256: crypto.createHash('sha256').update(elf).digest('hex'),
+      elfBytes: elf.length,
+      via: 'вывод',
+      expected: expected.join('\\n') + '\\n',
+      expectedOrigin: 'эталоннаяЛента (parseV01 + лентаИзAst)',
+      shows: 'рантайм-разбор произвольной ленты, POST-ORDER',
+      hardware: 'D12: решение владельца, запись из глубины ≥ 2 разрешена; QEMU — #180',
     });
   }
 

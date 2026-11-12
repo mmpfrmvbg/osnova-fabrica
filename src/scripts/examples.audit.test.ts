@@ -462,6 +462,10 @@ describe("корпус примеров: раскладка и статусы", 
     // кит, машина прогонит старый набор: это обязано быть видно здесь, а не на
     // железе за неделю доступа.
     const ready = examples.filter((e) => e.meta.e2k.status === "работает").length;
+    // Кит несёт не только корпус: 8 программ B2 (рантайм-разбор ленты) собираются
+    // генератором и проверяются на железе тем же каналом `вывод`. Их отсутствие —
+    // тоже отставание кита, поэтому число фиксировано здесь, а не выводится из корпуса.
+    const b2 = 8;
     const kitReadme = path.join(ROOT, "tools", "e2k-hardware", "README.md");
     const kit = path.join(ROOT, "tools", "e2k-hardware", "expected.tsv");
     const problems: string[] = [];
@@ -476,9 +480,9 @@ describe("корпус примеров: раскладка и статусы", 
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l !== "").length;
-      if (rows !== ready) {
+      if (rows !== ready + b2) {
         problems.push(
-          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
+          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} = ${String(ready + b2)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
         );
       }
     }
