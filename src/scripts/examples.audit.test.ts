@@ -468,6 +468,8 @@ describe("корпус примеров: раскладка и статусы", 
     const b2 = 8;
     // B2b: по 5 форм на подэтап (пусть/выражения, если/пока, комбинация) — 15.
     const b2b = 15;
+    // P4a: все 15 форм B2b одной программой (`b2b/all`, 126976 кода, данные 64 КиБ).
+    const p4a = 1;
     const kitReadme = path.join(ROOT, "tools", "e2k-hardware", "README.md");
     const kit = path.join(ROOT, "tools", "e2k-hardware", "expected.tsv");
     const problems: string[] = [];
@@ -482,9 +484,9 @@ describe("корпус примеров: раскладка и статусы", 
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l !== "").length;
-      if (rows !== ready + b2 + b2b) {
+      if (rows !== ready + b2 + b2b + p4a) {
         problems.push(
-          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} + B2b ${String(b2b)} = ${String(ready + b2 + b2b)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
+          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} + B2b ${String(b2b)} + P4a ${String(p4a)} = ${String(ready + b2 + b2b + p4a)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
         );
       }
     }

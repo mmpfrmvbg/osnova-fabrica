@@ -124,6 +124,7 @@ function buildProtocolElf(
   сгенерирован: string,
   источник: string,
   файл: string,
+  dataSegmentBytes = 0x8000,
 ): { elf: Buffer; expected: number[] } {
   const разобранный = parseV3(сгенерирован, файл);
   if (разобранный.errors.length > 0) {
@@ -138,7 +139,7 @@ function buildProtocolElf(
   const elf = buildElfFromCode(понижен.значение.bytes, MINIMAL_BASE, {
     writable: true,
     extraMemory: WRITE_ZONE_EXTRA_MEMORY,
-    dataSegmentBytes: 0x8000,
+    dataSegmentBytes,
   });
   return { elf: Buffer.from(elf.bytes), expected: эталоннаяЛента(источник, файл) };
 }
@@ -225,14 +226,33 @@ function main(): void {
     }
   }
 
-  // ── P4a: союз 15 форм В КИТ НЕ ВХОДИТ — на потолке кода он падает на E8C2 ──────
+  // ── P4a: союз 15 форм — 126 976 кода, данных 64 КиБ ──────────────────────────
   //
-  // Замер 2026-11-12 (`ci-run.sh`, тогда в ките было 62 случая): `b2b-all.elf` — код **139**,
-  // вывод 0 байт против эталона 2908; остальные 61 совпали. То есть код ровно
-  // 126 976 — ещё НЕ исполнимый образ: союз снят из кита, бюджет 15 закреплён
-  // моделью (`parserProtocolP4aBudget.test.ts`), а на железе остаются 61/61 по
-  // формам B2b. Вернуть случай можно только с образом, у которого под код/данные
-  // есть запас (второй сегмент), а не «ещё раз попробовать».
+  // Первый прогон шёл с `dataSegmentBytes: 0x8000` и падал: ptrace дал
+  // `si_addr=0x127000` — ровно `0x11f000 + 0x8000`, конец сегмента данных, а не
+  // потолок кода (`readelf`: `.text` ровно 126976). С `0x10000` тот же `.text`
+  // даёт RC=0 и 2908 байт эталона (sha256 `31744b7a…`). Случай в ките.
+  {
+    const тело = [...ПРОГРАММЫ_B2B.b2b1, ...ПРОГРАММЫ_B2B.b2b2, ...ПРОГРАММЫ_B2B.b2b3].join('\n  ');
+    const файл = 'b2b-all.osnova';
+    const elfPath = path.join(BIN, 'b2b-all.elf');
+    const источник = `действие главная()\n  ${тело}\nконец главная\n`;
+    const сгенерирован = программаПротоколаB2b(источник, файл);
+    const { elf, expected } = buildProtocolElf(сгенерирован, источник, файл, 0x10000);
+    fs.writeFileSync(elfPath, elf);
+    entries.push({
+      example: 'b2b/all',
+      name: 'B2B ALL: 15 форм одной программой (P4a, 126976 кода, данные 64 КиБ)',
+      elf: path.relative(KIT, elfPath).replace(/\\/g, '/'),
+      elfSha256: crypto.createHash('sha256').update(elf).digest('hex'),
+      elfBytes: elf.length,
+      via: 'вывод',
+      expected: expected.join('\\n') + '\\n',
+      expectedOrigin: 'эталоннаяЛента (parseV01 + лентаИзAst)',
+      shows: 'P4a: 39 процедур, 0 отказов, вход ≤10, обойти ≤12; 126976 кода + 65536 данных',
+      hardware: 'D12: запись из глубины ≥ 2 разрешена; данные 0x10000 — иначе si_addr=0x127000',
+    });
+  }
 
   const kit = {
     purpose:
