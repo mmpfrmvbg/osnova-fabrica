@@ -142,5 +142,11 @@ scp_cmd "$USER@$HOST:$REMOTE_DIR/report.txt" "$REPORT" ||
 [ -s "$REPORT" ] || fail "report.txt пуст"
 
 echo "ci-run: E8C2 $HOST: совпало $OK, расхождений $BAD, файлов нет $MISS"
+# МАШИНОЧИТАЕМАЯ строка — ASCII, и это не украшение. GitFlic-раннер декодирует консоль задания
+# как windows-1251 (config/application.properties), поэтому кириллица из этого скрипта приезжает в
+# лог кракозябрами, и regex по словам «совпало/расхождений» НЕ СРАБАТЫВАЕТ: измерено заданием
+# hardware #47 — прогон 38/38, а wrapper насчитал matched=-1 и объявил state=REAL. Числа и ключи
+# в этой строке обязаны быть ASCII.
+echo "OSNOVA-HW: matched=$OK mismatch=$BAD missing=$MISS expected=$EXPECTED"
 echo "ci-run: журнал $LOG"
 echo "ci-run: отчёт $REPORT"
