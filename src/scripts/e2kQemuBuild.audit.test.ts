@@ -96,9 +96,14 @@ export function checkBuiltBinary(file: string): { ok: boolean; version?: string;
 // инструментов сборки в PATH Windows. На Linux-облаке L1 таких путей нет, и
 // проверка «инструменты появились» краснела бы не по делу. Сам QEMU на цели
 // по-прежнему проверяется воротами `gate:qemu`.
-const describeWindows = process.platform === "win32" ? describe : describe.skip;
+//
+// На CI (windows-latest) стенда нет: нет дистрибутива WSL `e2k`, нет собранного
+// `/root/qemu-build/qemu-e2k`, а в PATH стоит mingw-цепочка. Сторож же сверяет
+// документ с НАСТОЯЩИМ стендом и без него утверждал бы про чужую машину («НЕ
+// СОБРАН» там, где собрано). Потому на CI блок не исполняется; локально — как был.
+const describeStand = process.platform === "win32" && process.env.CI !== "true" ? describe : describe.skip;
 
-describeWindows("сборка QEMU-e2k", () => {
+describeStand("сборка QEMU-e2k", () => {
   const doc = fs.existsSync(DOC) ? fs.readFileSync(DOC, "utf-8") : "";
 
   it("документ существует и называет путь бинаря", () => {

@@ -3,9 +3,24 @@
 
 Кодогенератор для языка **Основа** — кириллического языка программирования с VLIW-поддержкой.
 
+[![CI](https://github.com/mmpfrmvbg/osnova-fabrica/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mmpfrmvbg/osnova-fabrica/actions/workflows/ci.yml)
+
 ```
 task (текст) → LLM → .osnova → компилятор → .osvbc → VM → результат
 ```
+
+## Репозитории
+
+| Хост | Роль | Адрес |
+|---|---|---|
+| **GitHub** | основной: запросы на слияние, CI, релизы | <https://github.com/mmpfrmvbg/osnova-fabrica> |
+| GitFlic | зеркало истории (архив конвейеров) | <https://gitflic.ru/project/mmpvbg/osnova-privat> |
+| GitVerse | зеркало | <https://gitverse.ru/mmpvbg/Osnova-Private> |
+
+Ветка `main` защищена: изменения входят запросом на слияние, обязателен зелёный CI.
+Полные шлюзы, которым нужны WSL, собранный `qemu-e2k` и живая машина Эльбрус, живут в
+проекте отдельно и в CI не входят: `npm run gate:metrics`, `npm run gate:qemu`,
+`tools/e2k-hardware/ci-run.sh` — у каждого в логе числа, а не `PASS`.
 
 ## Язык Основа
 

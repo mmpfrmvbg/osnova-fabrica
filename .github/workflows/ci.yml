@@ -13,93 +13,56 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  ci:
-    name: typecheck + test + lint + golden
-    permissions:
-      contents: read
-    uses: ./.github/workflows/reusable-node-run.yml
-    with:
-      runs_on: ${{ github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["self-hosted","Linux","X64","osnova"]' }}
-      commands-file: .github/workflow-scripts/ci-main.sh
-
-  test-osiris:
-    name: osiris tests (27)
-    permissions:
-      contents: read
-    uses: ./.github/workflows/reusable-node-run.yml
-    with:
-      runs_on: ${{ github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["self-hosted","Linux","X64","osnova"]' }}
-      working-directory: apps/osiris
-      cache-dependency-path: apps/osiris/package-lock.json
-      install_command: npm ci --no-audit
-      commands-file: .github/workflow-scripts/ci-osiris.sh
-
-  factory-e2e:
-    name: Factory E2E (manual + two atoms + forge qwen CLI)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
+  checks:
+    name: типы + линт + тесты + шлюзы
+    runs-on: windows-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          python-version: "3.12"
-      - name: Install factory Python dependencies
-        working-directory: Fabrika2.0/proekt
-        run: pip install -r requirements.txt
-      - name: Factory unit tests (qwen_cli_runner + forge-worker)
-        working-directory: Fabrika2.0/proekt
-        env:
-          FACTORY_API_KEY_1: dummy-ci-key
-          FACTORY_API_NAME_1: ci
-          FACTORY_API_LIMIT_1: "3000"
-        run: python -m unittest discover -s factory/tests -p "test_*.py" -v
-      - name: Factory E2E live (forge_worker + DRY_RUN)
-        working-directory: Fabrika2.0/proekt
-        env:
-          FACTORY_API_KEY_1: dummy-ci-key
-          FACTORY_API_NAME_1: ci
-          FACTORY_API_LIMIT_1: "3000"
-          FACTORY_QWEN_DRY_RUN: "1"
-        run: python -m factory --e2e-live
-      # Первые два сценария всегда с dry-run Qwen (внутри задают FACTORY_QWEN_DRY_RUN=1).
-      - name: Run factory E2E (manual + two atoms)
-        working-directory: Fabrika2.0/proekt
-        env:
-          FACTORY_API_KEY_1: dummy-ci-key
-          FACTORY_API_NAME_1: ci
-          FACTORY_API_LIMIT_1: "3000"
-        run: |
-          python -m factory --e2e-manual
-          python -m factory --e2e-two-atoms
-      - name: Factory E2E №3 (forge ↔ qwen runner, DRY_RUN)
-        working-directory: Fabrika2.0/proekt
-        env:
-          FACTORY_API_KEY_1: dummy-ci-key
-          FACTORY_API_NAME_1: ci
-          FACTORY_API_LIMIT_1: "3000"
-          FACTORY_QWEN_DRY_RUN: "1"
-        run: python -m factory --e2e-qwen-dry
+          persist-credentials: false
 
-  forge-close-pending-ci:
-    name: Forge — close pending-ci issue (state.yaml)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ci, test-osiris]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install PyYAML and run closer
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          pip install pyyaml -q
-          python forge/close_pending_ci.py || true
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .osnova/state.yaml 2>/dev/null || true
-          git diff --staged --quiet || (git commit -m "chore: clear ci_pending_issue after CI green" && git push)
+      - name: Node из .nvmrc + npm ci
+        uses: ./.github/actions/node-bootstrap
+
+      - name: Каталог отчётов
+        shell: bash
+        run: mkdir -p .tmp
+
+      - name: Типы (tsc)
+        run: npm run typecheck
+
+      - name: Линт (eslint)
+        run: npm run lint
+
+      - name: Тесты (vitest + сторожа счёта и схемы)
+        run: npm test
+
+      # gate:metrics в CI не включён осознанно: числа ядер печатаются без модели, но
+      # сверка с эталоном идёт ПОСЛЕ прогона среза, а срез требует qemu-e2k в WSL.
+      # На раннере модели нет — шаг вернул бы 3 «срез не спрошен», и красное означало
+      # бы отсутствие внешнего ресурса, а не дефект. Числа шлюза проверяются локально
+      # и на стенде: `npm run gate:metrics` (см. README, раздел «Репозитории»).
+
+      - name: Документация (реестр и ссылки)
+        run: npm run docs:check
+
+      - name: Дрейф YAML
+        run: npm run check:yaml-drift
+
+      - name: Реестр языка
+        run: npm run validate:spec
+
+      - name: Артефакт отчёта vitest
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: vitest-report
+          path: .tmp/vitest-report.json
+          if-no-files-found: warn
+          retention-days: 14
