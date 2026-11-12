@@ -1247,6 +1247,13 @@ export function imageOfCarriers(
      */
     readonly arrayBlockProblems?: readonly (string | undefined)[];
     /**
+     * РАЗРЕШИТЬ ЗАПИСЬ МАССИВА ИЗ ГЛУБИНЫ ≥ 2 (D12, hardware-only): отказ `OSN-LOW-004` стоит потому,
+     * что МОДЕЛЬ зацикливается на `std`; на ЖЕЛЕЗЕ та же проба проходит (A4 §3.137.5). По решению
+     * владельца 2026-11-12 это место принимается ТОЛЬКО по железу: ручка включается в hardware-сборке,
+     * а QEMU-тест продолжает требовать названный отказ. Не «снятие сторожа»: без флага отказ на месте.
+     */
+    readonly allowDeepArrayWrites?: boolean;
+    /**
      * ЗАКРЕПЛЕНЫ ЛИ РЕГИСТРЫ АРЕНЫ у этого потока — слово того, кто раскладывал регистры.
      *
      * Арена пишет указатель и предел **в обход** потока носителей (`src/e2k/arenaRuntime.ts`),
@@ -2063,7 +2070,8 @@ export function imageOfCarriers(
       if (
         (isArrayWriteCall(name ?? '') || isArrayCreateCall(name ?? '')) &&
         inCallee &&
-        depth >= 2
+        depth >= 2 &&
+        options.allowDeepArrayWrites !== true
       ) {
         // ЗАПИСЬ В ПАМЯТЬ РАНТАЙМА МАССИВОВ ИЗ ГЛУБИНЫ ≥ 2 — ОТКАЗ ПО ИМЕНИ, А НЕ ПЕТЛЯ (§3.135, §3.137).
         //
