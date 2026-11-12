@@ -33,17 +33,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: '.nvmrc'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@6cfc8b8e8bb586cc164bef1c478c1eea3a4d6a19 # v3
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
 
       - name: Set version from VERSION source
         working-directory: apps/osiris-android/app
@@ -61,7 +61,7 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: osiris-release-apk
           path: apps/osiris-android/app/build/outputs/apk/release/app-release.apk
@@ -86,12 +86,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: '.nvmrc'
 
       - name: Download APK artifact
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: osiris-release-apk
           path: apps/osiris-android/app/build/outputs/apk/release
@@ -116,7 +116,7 @@ jobs:
           fi
 
       - name: Setup SSH agent for VPS upload
-        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
         with:
           ssh-private-key: ${{ secrets.OSIRIS_VPS_SSH_KEY }}
 
