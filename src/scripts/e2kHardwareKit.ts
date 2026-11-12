@@ -17,6 +17,7 @@ import * as crypto from 'crypto';
 import { buildElfImage } from './e2kProgramRun';
 import { parseV3 } from '../compiler-v3';
 import { программаПротоколаB2 } from '../compiler-v3/parser-protocol-b2';
+import { программаПротоколаB2b } from '../compiler-v3/parser-protocol-b2b';
 import { эталоннаяЛента } from '../compiler-v3/parser-protocol-probe';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from '../e2k/elfMinimal';
 import { loweredProgram } from '../e2k/lowered';
@@ -88,6 +89,42 @@ const ПРОГРАММЫ_B2 = [
 function buildB2Elf(тело: string, файл: string): { elf: Buffer; expected: number[] } {
   const источник = `действие главная()\n  ${тело}\nконец главная\n`;
   const сгенерирован = программаПротоколаB2(источник, файл);
+  return buildProtocolElf(сгенерирован, источник, файл);
+}
+
+/**
+ * B2b: пять форм на подэтап (`b2b1` пусть/присваивание/выражения, `b2b2` если/пока/сравнения,
+ * `b2b3` комбинация и вызовы). Эталон — `эталоннаяЛента`, как у B2; канал — БАЙТЫ вывода.
+ */
+const ПРОГРАММЫ_B2B: Readonly<Record<'b2b1' | 'b2b2' | 'b2b3', readonly string[]>> = {
+  b2b1: [
+    'пусть а = 5',
+    'а = 5',
+    'пусть а = 1 + 2 * 3',
+    'пусть а = (1 + 2) * 3',
+    'пусть а = 8 / 2 - 1',
+  ],
+  b2b2: [
+    'если а > 1\n    а = 2\n  конец если',
+    'если а > 1\n    а = 2\n  иначе\n    а = 3\n  конец если',
+    'если а > 1\n    а = 2\n  иначе если а < 0\n    а = 3\n  иначе\n    а = 4\n  конец если',
+    'пока а < 3\n    а = а + 1\n  конец пока',
+    'пока а < 3\n    если а == 1\n      а = 2\n    иначе\n      а = а + 1\n    конец если\n  конец пока',
+  ],
+  b2b3: [
+    'пусть а = 1 + 2\n  а = а * 3\n  если а > 5\n    а = 0\n  конец если',
+    'пусть а = 2\n  пусть б = 3\n  если а < б\n    а = б - а\n  конец если\n  пока а < 10\n    а = а + 1\n  конец пока',
+    'пусть а = 5\n  ф(а)',
+    'если а > 1\n    ф(1)\n  иначе\n    ф(2)\n  конец если',
+    'пока а < 3\n    ф(а)\n    а = а + 1\n  конец пока',
+  ],
+};
+
+function buildProtocolElf(
+  сгенерирован: string,
+  источник: string,
+  файл: string,
+): { elf: Buffer; expected: number[] } {
   const разобранный = parseV3(сгенерирован, файл);
   if (разобранный.errors.length > 0) {
     throw new Error(`${файл}: ${разобранный.errors.map((error) => String(error)).join('; ')}`);
@@ -161,6 +198,31 @@ function main(): void {
       shows: 'рантайм-разбор произвольной ленты, POST-ORDER',
       hardware: 'D12: решение владельца, запись из глубины ≥ 2 разрешена; QEMU — #180',
     });
+  }
+
+  // ── B2b: пять форм на подэтап, пусть/присваивание/выражения/если/пока ─────────
+  for (const этап of ['b2b1', 'b2b2', 'b2b3'] as const) {
+    for (const [индекс, тело] of ПРОГРАММЫ_B2B[этап].entries()) {
+      const номер = String(индекс + 1);
+      const файл = `${этап}p${номер}.osnova`;
+      const elfPath = path.join(BIN, `${этап}p${номер}.elf`);
+      const источник = `действие главная()\n  ${тело}\nконец главная\n`;
+      const сгенерирован = программаПротоколаB2b(источник, файл);
+      const { elf, expected } = buildProtocolElf(сгенерирован, источник, файл);
+      fs.writeFileSync(elfPath, elf);
+      entries.push({
+        example: `${этап}/p${номер}`,
+        name: `${этап.toUpperCase()} P${номер}: ${тело}`,
+        elf: path.relative(KIT, elfPath).replace(/\\/g, '/'),
+        elfSha256: crypto.createHash('sha256').update(elf).digest('hex'),
+        elfBytes: elf.length,
+        via: 'вывод',
+        expected: expected.join('\\n') + '\\n',
+        expectedOrigin: 'эталоннаяЛента (parseV01 + лентаИзAst)',
+        shows: 'разбор пусть/присваивания/выражений/если/пока, POST-ORDER',
+        hardware: 'D12: решение владельца, запись из глубины ≥ 2 разрешена; QEMU — #180',
+      });
+    }
   }
 
   const kit = {
