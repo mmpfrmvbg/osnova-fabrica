@@ -43,6 +43,7 @@
     "metrics:ast": "tsx src/scripts/astMetrics.ts",
     "hardware:kit": "tsx src/scripts/e2kHardwareKit.ts",
     "check:ci": "tsx src/scripts/ciCheck.ts",
+    "pr:merge": "tsx src/scripts/prMerge.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",
