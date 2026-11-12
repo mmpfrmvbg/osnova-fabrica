@@ -10,7 +10,12 @@ from osnova.cli import app
 
 
 def test_read_osnova_md_parses_sections(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Патчим И источник, и потребитель: state_reader импортировал project_dir по имени,
+    # поэтому подмена osnova.config.project_dir его не видит. Без второй строки тест
+    # читал OSNOVA.md настоящего репозитория и на чистом CI (где OSNOVA_PROJECT указывает
+    # не в корень) молча получал {} — зелёный локально, красный на раннере.
     monkeypatch.setattr("osnova.config.project_dir", lambda: tmp_path)
+    monkeypatch.setattr("osnova.state_reader.project_dir", lambda: tmp_path)
     (tmp_path / "OSNOVA.md").write_text(
         "# OSNOVA\n\n## Stack\n\n- language: TypeScript\n- runtime: Node.js 20\n\n"
         "## Notouch\n\n- .github/\n\n## Brain\n\n- cycle_minutes: 36\n",
