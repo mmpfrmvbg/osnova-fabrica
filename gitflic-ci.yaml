@@ -79,6 +79,11 @@ gate:
     - npm run golden
     - npm run gate:reorder
     - npm run gate:pack
+    # ЧИСЛА смыслового слоя, а не PASS/FAIL: FIR-ядро=268, пять ядер=979, пакеты=220, срез=3/11/2/0.
+    # Каждое число берётся из реального прогона (понижение ядер + исполнение четырёх программ
+    # владельца на модели), расхождение с эталоном делает задание красным с ДВУМЯ числами.
+    # Нет модели — `срез=refused reason=no-model`: число не выдумывается (exit 3).
+    - npm run gate:metrics
 
 # Шлюз QEMU — по кнопке и только при СОБРАННОЙ модели.
 # Модель — наш порт (QEMU 11.0.1 + правка окна), паспорт `src/e2k/qemuModelPassport.ts`.
@@ -95,8 +100,11 @@ qemu:
     - powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci/run-qemu.ps1
 
 # Железо — по кнопке, с рабочей машины на лабораторный стенд по SSH.
-# Ключ стенда — `key.openssh` в корне (в git не кладётся), адрес и порт — из
-# docs/e2k-hardware-access.md. Кит собирается здесь же и уезжает на стенд целиком,
+# Ключ стенда в git НЕ лежит и не должен: агент клонирует репозиторий, где `key.openssh` нет.
+# Wrapper ищет его по порядку: `OSNOVA_E2K_KEY` → `E2K_SSH_KEY_PATH` → `%USERPROFILE%\.ssh\osnova_e2k`
+# → `key.openssh` в корне. На машине агента задайте переменную конвейера `OSNOVA_E2K_KEY`
+# (Settings → CI/CD → Variables) с АБСОЛЮТНЫМ путём к ключу или положите ключ в `~/.ssh/osnova_e2k`.
+# Адрес и порт — из docs/e2k-hardware-access.md. Кит собирается здесь же и уезжает на стенд целиком,
 # отчёт забирается обратно; расхождение делает задание КРАСНЫМ.
 hardware:
   stage: gate
