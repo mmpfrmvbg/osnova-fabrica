@@ -422,6 +422,12 @@ export interface LoweringContext {
    */
   readonly arrayBase?: number;
   /**
+   * ПОЧЕМУ БАЗЫ НЕТ (D5): причина из `allocateProgram.arrayBlockProblems` — с числами (сколько клеток
+   * свободно, сколько занято, пик отрезков) и словом о размерной стене. Уходит в текст отказа
+   * `lowerArrayCall`; без неё отказ говорит только «раскладка не выдала базу».
+   */
+  readonly arrayBaseProblem?: string;
+  /**
    * ШИРИНА ОКНА ВЫЗОВА (`wbs`) в квадрословах — по умолчанию {@link CALL_WBS} (4) для точки входа.
    *
    * Внутри процедуры, которая САМА вызывает, окно выращено её прологом (`IR.window_grow`:
@@ -863,6 +869,7 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
           ok: true,
           instructions: lowerArrayCall(name, args as readonly Operand[], destinationIndex, {
             ...(context.arrayBase === undefined ? {} : { base: context.arrayBase }),
+            ...(context.arrayBaseProblem === undefined ? {} : { baseProblem: context.arrayBaseProblem }),
             ...(context.inCallee === true ? { inCallee: true } : {}),
             // АДРЕС ЯЧЕЙКИ КУЧИ В ОКНЕ ВЫЗЫВАЕМОЙ (A4 §3.137): слово того, кто собирал поток, — он
             // положил носитель `IR.array_slot` в пролог роста И закрепил `%b[15]` за раскладкой.
@@ -1400,13 +1407,18 @@ export function runKernelThroughRealEncoding(
   const code = allocation.diagnostic?.instructions ?? allocation.instructions;
   // Контекст понижения — ПО ПРОЦЕДУРАМ: базу блока знает та процедура, которой её выдала раскладка, и
   // признак вызываемой — свойство плоскости (в ней `создать`/`добавить` отказывают по имени §3.128).
-  const procedureContextAt = new Map<number, { arrayBase?: number; inCallee: boolean }>();
+  const procedureContextAt = new Map<
+    number,
+    { arrayBase?: number; arrayBaseProblem?: string; inCallee: boolean }
+  >();
   allocation.procedures.forEach((procedure, at) => {
     const to = allocation.procedures[at + 1]?.codeOffset ?? code.length;
     for (let index = procedure.codeOffset; index < to; index++) {
       const arrayBase = allocation.arrayBases[at];
+      const arrayBaseProblem = allocation.arrayBlockProblems[at];
       procedureContextAt.set(index, {
         ...(arrayBase === undefined ? {} : { arrayBase }),
+        ...(arrayBaseProblem === undefined ? {} : { arrayBaseProblem }),
         inCallee: at !== entryAt,
       });
     }
