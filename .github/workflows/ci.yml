@@ -110,8 +110,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Node из .nvmrc + npm ci
-        uses: ./.github/actions/node-bootstrap
+      # ЗДЕСЬ НЕ КОМПОЗИТНЫЙ node-bootstrap: он ставит зависимости шагом `shell: bash`, а на
+      # self-hosted Windows `bash` — это WSL (/bin/bash), и путь `C:\actions-runner\...\temp.sh`
+      # приезжает как `C:actions-runner...` → «No such file or directory» (измерено прогоном
+      # 43193212596, задания qemu и hardware умерли ДО шлюза). На hosted windows-latest bash
+      # другой (Git Bash), поэтому там композит работает; здесь ставим Node и npm ci через pwsh.
+      - name: Node из .nvmrc
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Зависимости (npm ci)
+        shell: pwsh
+        run: npm ci
 
       - name: QEMU-шлюз (METRICS)
         shell: pwsh
@@ -153,8 +165,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Node из .nvmrc + npm ci
-        uses: ./.github/actions/node-bootstrap
+      # Та же причина, что в qemu: `shell: bash` на self-hosted Windows уходит в WSL.
+      - name: Node из .nvmrc
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Зависимости (npm ci)
+        shell: pwsh
+        run: npm ci
 
       - name: Стенд E8C2 (METRICS)
         shell: pwsh
