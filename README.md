@@ -19,7 +19,8 @@ task (текст) → LLM → .osnova → компилятор → .osvbc → VM
 
 Ветка `main` защищена: изменения входят запросом на слияние, обязателен зелёный CI.
 Полные шлюзы, которым нужны WSL, собранный `qemu-e2k` и живая машина Эльбрус, живут в
-проекте отдельно и в CI не входят: `npm run gate:qemu`, `tools/e2k-hardware/ci-run.sh`.
+проекте отдельно и в CI не входят: `npm run gate:metrics`, `npm run gate:qemu`,
+`tools/e2k-hardware/ci-run.sh` — у каждого в логе числа, а не `PASS`.
 
 ## Язык Основа
 
