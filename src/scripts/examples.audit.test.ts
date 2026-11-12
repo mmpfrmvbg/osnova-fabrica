@@ -466,6 +466,8 @@ describe("корпус примеров: раскладка и статусы", 
     // генератором и проверяются на железе тем же каналом `вывод`. Их отсутствие —
     // тоже отставание кита, поэтому число фиксировано здесь, а не выводится из корпуса.
     const b2 = 8;
+    // B2b: по 5 форм на подэтап (пусть/выражения, если/пока, комбинация) — 15.
+    const b2b = 15;
     const kitReadme = path.join(ROOT, "tools", "e2k-hardware", "README.md");
     const kit = path.join(ROOT, "tools", "e2k-hardware", "expected.tsv");
     const problems: string[] = [];
@@ -480,9 +482,9 @@ describe("корпус примеров: раскладка и статусы", 
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l !== "").length;
-      if (rows !== ready + b2) {
+      if (rows !== ready + b2 + b2b) {
         problems.push(
-          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} = ${String(ready + b2)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
+          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} + B2b ${String(b2b)} = ${String(ready + b2 + b2b)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
         );
       }
     }
