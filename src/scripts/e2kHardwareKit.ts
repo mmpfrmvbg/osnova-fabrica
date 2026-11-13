@@ -18,6 +18,7 @@ import { buildElfImage } from './e2kProgramRun';
 import { parseV3 } from '../compiler-v3';
 import { программаПротоколаB2 } from '../compiler-v3/parser-protocol-b2';
 import { программаПротоколаB2b } from '../compiler-v3/parser-protocol-b2b';
+import { ПРОГРАММЫ_B2B as ФОРМЫ_B2B } from '../compiler-v3/parserProtocolB2bForms';
 import { эталоннаяЛента } from '../compiler-v3/parser-protocol-probe';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from '../e2k/elfMinimal';
 import { loweredProgram } from '../e2k/lowered';
@@ -95,30 +96,12 @@ function buildB2Elf(тело: string, файл: string): { elf: Buffer; expected
 /**
  * B2b: пять форм на подэтап (`b2b1` пусть/присваивание/выражения, `b2b2` если/пока/сравнения,
  * `b2b3` комбинация и вызовы). Эталон — `эталоннаяЛента`, как у B2; канал — БАЙТЫ вывода.
+ *
+ * Таблица переехала в `src/compiler-v3/parserProtocolB2bForms.ts`: её читает и оракул AST
+ * (`src/compiler-v3/parserProtocolB2bOracle.test.ts`), а импортировать ЭТОТ файл тест не может —
+ * `main()` внизу собирает кит при импорте.
  */
-const ПРОГРАММЫ_B2B: Readonly<Record<'b2b1' | 'b2b2' | 'b2b3', readonly string[]>> = {
-  b2b1: [
-    'пусть а = 5',
-    'а = 5',
-    'пусть а = 1 + 2 * 3',
-    'пусть а = (1 + 2) * 3',
-    'пусть а = 8 / 2 - 1',
-  ],
-  b2b2: [
-    'если а > 1\n    а = 2\n  конец если',
-    'если а > 1\n    а = 2\n  иначе\n    а = 3\n  конец если',
-    'если а > 1\n    а = 2\n  иначе если а < 0\n    а = 3\n  иначе\n    а = 4\n  конец если',
-    'пока а < 3\n    а = а + 1\n  конец пока',
-    'пока а < 3\n    если а == 1\n      а = 2\n    иначе\n      а = а + 1\n    конец если\n  конец пока',
-  ],
-  b2b3: [
-    'пусть а = 1 + 2\n  а = а * 3\n  если а > 5\n    а = 0\n  конец если',
-    'пусть а = 2\n  пусть б = 3\n  если а < б\n    а = б - а\n  конец если\n  пока а < 10\n    а = а + 1\n  конец пока',
-    'пусть а = 5\n  ф(а)',
-    'если а > 1\n    ф(1)\n  иначе\n    ф(2)\n  конец если',
-    'пока а < 3\n    ф(а)\n    а = а + 1\n  конец пока',
-  ],
-};
+const ПРОГРАММЫ_B2B = ФОРМЫ_B2B;
 
 function buildProtocolElf(
   сгенерирован: string,
@@ -202,7 +185,7 @@ function main(): void {
   }
 
   // ── B2b: пять форм на подэтап, пусть/присваивание/выражения/если/пока ─────────
-  for (const этап of ['b2b1', 'b2b2', 'b2b3'] as const) {
+  for (const этап of ['b2b1', 'b2b2', 'b2b3', 'b2b4', 'b2b5'] as const) {
     for (const [индекс, тело] of ПРОГРАММЫ_B2B[этап].entries()) {
       const номер = String(индекс + 1);
       const файл = `${этап}p${номер}.osnova`;
