@@ -49,6 +49,21 @@ say "дата: $(date 2>/dev/null || echo '?')"
 say "хост: $(uname -m 2>/dev/null || echo '?') / $(uname -sr 2>/dev/null || echo '?')"
 say ""
 
+# ЛЕНТА ДЛЯ ФАЙЛОВОГО ВХОДА (L2 §42/§44, MVP). Программа `b2b-file` читает СТАТИЧЕСКИЙ путь, который
+# задан носителем (`src/e2k/fileCallRuntime.ts#FILE_PATH_TEXT`), а не аргументом: `argv[1]` у языка
+# ещё нет. Поэтому лента кладётся на место ДО прогонов, и отсутствие файла — названная строка отчёта,
+# а не тихий пропуск: без неё `b2b-file` вернёт пустой вывод и выглядел бы как дефект разбора.
+if [ -f "$BIN/input.osnova" ]; then
+  if cp "$BIN/input.osnova" /tmp/input.osnova 2>/dev/null; then
+    say "лента: $BIN/input.osnova → /tmp/input.osnova ($(wc -c < /tmp/input.osnova 2>/dev/null || echo '?') байт)"
+  else
+    say "лента: НЕ УДАЛОСЬ положить /tmp/input.osnova — b2b-file даст расхождение по причине стенда"
+  fi
+else
+  say "лента: bin/input.osnova НЕТ — сборка кита не приложила файл, b2b-file проверять нечем"
+fi
+say ""
+
 ok=0
 bad=0
 miss=0

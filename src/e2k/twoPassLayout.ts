@@ -68,6 +68,7 @@ import {
   stringWriteInstructions,
 } from "./stringRuntime";
 import { isStringPrint, stringMarksOf } from "./stringPlan";
+import { fileMarksOf, fileReadCallInstructions, isFileReadCall } from "./fileCallRuntime";
 import {
   BANK_LOAD_CARRIER,
   BANK_STORE_CARRIER,
@@ -1316,6 +1317,55 @@ function carrierFormWithReason(
       forms.push({ mnemonic: form.mnemonic, form: form.form, size: form.size, source: form.source });
     }
     return { form: { carrier: 'IR.invoke', commands: forms } };
+  }
+  // ── ФАЙЛОВОЕ ЧТЕНИЕ ─────────────────────────────────────────────────────────────────────────────
+  //
+  // Длина носителя — не пара команд: open + read и возврат блока рантайма массивов. Команды берутся
+  // из ТОЙ ЖЕ функции, что и у понижения, а числа — из пометок носителя, которые ставит конвейер ДО
+  // раскладки (`src/e2k/stringPlan.ts`): адрес пути появляется только после раскладки блобов, длина
+  // чтения и адрес ячейки кучи известны с начала.
+  if (isFileReadCall(name)) {
+    const marks = fileMarksOf(instruction);
+    const [pathAddress, count, heapAddress] = marks;
+    const buffer = instruction.operands[2];
+    const destinationRegister = hasDestination && destination?.kind === "reg" ? destination.index : undefined;
+    if (pathAddress === undefined || count === undefined || heapAddress === undefined || buffer?.kind !== "reg") {
+      return {
+        failure: failureOf(
+          LOWERING_CODES.runtime,
+          `«${name}»: носитель не несёт адрес пути, длину чтения или адрес ячейки кучи либо буфер не в регистре — ` +
+            "их ставит конвейер (src/e2k/stringPlan.ts)",
+        ),
+      };
+    }
+    let commands: readonly AsmInstruction[];
+    try {
+      commands = fileReadCallInstructions({
+        pathAddress,
+        count,
+        heapAddress,
+        buffer: buffer.index,
+        ...(destinationRegister === undefined ? {} : { destination: destinationRegister }),
+      });
+    } catch (error) {
+      return {
+        failure: failureOf(LOWERING_CODES.runtime, error instanceof Error ? error.message : String(error)),
+      };
+    }
+    const forms: CommandForm[] = [];
+    for (const command of commands) {
+      const form = printCommandForm(command);
+      if (form === undefined) {
+        return {
+          failure: failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: у команды файлового чтения «${command.mnemonic}» нет формы в таблице — длину взять негде`,
+          ),
+        };
+      }
+      forms.push({ mnemonic: form.mnemonic, form: form.form, size: form.size, source: form.source });
+    }
+    return { form: { carrier: "IR.invoke", commands: forms } };
   }
   const lowered = ((): readonly AsmInstruction[] | string => {
     try {
