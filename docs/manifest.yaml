@@ -74,6 +74,7 @@ docs/language-v2-requirements.md: {status: active}
 docs/trace-failure-report.md: {status: active}
 docs/diagnostics-v1.md: {status: active, source-files: [src/compiler/diagnosticCatalogue.ts, src/runtime/runtimeCodes.ts, src/compiler/compileDiagnostics.ts, src/trace/traceStore.ts]}
 docs/hardware-debt.md: {status: active}
+docs/l2-self-parse-report.md: {status: active, source-files: [src/compiler-v3/parser-protocol-b2b.ts, src/compiler-v3/parserProtocolSelfParse.ts]}
 docs/verification-debt.md: {status: active}
 # Решения владельца, записанные решением (ADR-lite), а не выведенные из кода заново.
 docs/decisions.md: {status: active}

@@ -5,7 +5,7 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (50). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (47). Детали: `npm run docs:check`.
 ## Канон (19)
 
 - [docs/DOCS.md](DOCS.md) ⚠
@@ -14,21 +14,21 @@
 - [docs/golden-app-chat.md](golden-app-chat.md) ⚠
 - [docs/golden-app-game-rounds.md](golden-app-game-rounds.md) ⚠
 - [docs/golden-app-micro-crm.md](golden-app-micro-crm.md) ⚠
-- [docs/golden-app-notepad.md](golden-app-notepad.md) ⚠
+- [docs/golden-app-notepad.md](golden-app-notepad.md)
 - [docs/golden-app-todo.md](golden-app-todo.md) ⚠
-- [docs/golden-app-viewer.md](golden-app-viewer.md) ⚠
+- [docs/golden-app-viewer.md](golden-app-viewer.md)
 - [docs/golden-schema.md](golden-schema.md) ⚠
 - [docs/golden-tests.md](golden-tests.md)
 - [docs/language-changelog-v2.md](language-changelog-v2.md)
 - [docs/language-contributing-v2.md](language-contributing-v2.md) ⚠
 - [docs/language-registry.md](language-registry.md) ⚠
 - [docs/language-v2.md](language-v2.md) ⚠
-- [docs/release-process.md](release-process.md)
-- [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md)
+- [docs/release-process.md](release-process.md) ⚠
+- [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md) ⚠
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (79)
+## Фронтир и замеры (80)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -38,7 +38,7 @@
 - [README.md](../README.md)
 - [docs/abi-v3-draft.md](abi-v3-draft.md) ⚠
 - [docs/ast-format.md](ast-format.md) ⚠
-- [docs/ci-cd.md](ci-cd.md) ⚠
+- [docs/ci-cd.md](ci-cd.md)
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/d51-plan.md](d51-plan.md) ⚠
 - [docs/decisions.md](decisions.md)
@@ -58,7 +58,7 @@
 - [docs/e2k-qemu-build.md](e2k-qemu-build.md) ⚠
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
 - [docs/e2k-real-run.md](e2k-real-run.md) ⚠
-- [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md) ⚠
+- [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md)
 - [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md) ⚠
 - [docs/e2k-return-port.md](e2k-return-port.md) ⚠
 - [docs/e2k-setwd-memory.md](e2k-setwd-memory.md) ⚠
@@ -68,6 +68,7 @@
 - [docs/e2k-syscalls-minimal.md](e2k-syscalls-minimal.md) ⚠
 - [docs/e2k-wide-commands.md](e2k-wide-commands.md) ⚠
 - [docs/hardware-debt.md](hardware-debt.md)
+- [docs/l2-self-parse-report.md](l2-self-parse-report.md)
 - [docs/language-v2-requirements.md](language-v2-requirements.md)
 - [docs/osnova-apps-roadmap.md](osnova-apps-roadmap.md)
 - [docs/osnova-atlas-v0.1.md](osnova-atlas-v0.1.md)
@@ -78,7 +79,7 @@
 - [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md) ⚠
 - [docs/osnova-spec.md](osnova-spec.md) ⚠
 - [docs/osnova-vision.md](osnova-vision.md)
-- [docs/parser-protocol.md](parser-protocol.md) ⚠
+- [docs/parser-protocol.md](parser-protocol.md)
 - [docs/register-ir-migration.md](register-ir-migration.md) ⚠
 - [docs/rfc/RFC-001-try-catch-avoidance.md](rfc/RFC-001-try-catch-avoidance.md)
 - [docs/rfc/RFC-002-sentinel-pattern.md](rfc/RFC-002-sentinel-pattern.md)
