@@ -467,10 +467,16 @@ describe("корпус примеров: раскладка и статусы", 
     // тоже отставание кита, поэтому число фиксировано здесь, а не выводится из корпуса.
     const b2 = 8;
     // B2b: 15 форм P4a (5+5+5) + 20 форм L2 + 5 вызовов в выражениях + 9 форм §41
-    // (индексация `а[…]` и `Список T` с литералом `[…]`) — 49.
-    const b2b = 49;
-    // P4a: все 15 форм B2b одной программой (`b2b/all`, 126976 кода, данные 64 КиБ).
+    // (индексация `а[…]` и `Список T` с литералом `[…]`) + 5 форм §41.2 (квалифицированный
+    // вызов) — 54.
+    const b2b = 54;
+    // P4a: все 15 форм B2b одной программой (`b2b/all`, 192512 кода, данные 64 КиБ).
     const p4a = 1;
+    // L2 §42/§44 (2026-11-13): ТА ЖЕ программа пятнадцати форм, но лента приходит `read(3)` из
+    // `/tmp/input.osnova` (`bin/b2b-file.elf` + `bin/input.osnova`, `run.sh` кладёт ленту на место
+    // перед прогоном). Это НЕ запись корпуса и не новая форма: эталон тот же `эталоннаяЛента`,
+    // различие ровно одно — источник ячеек. Поэтому число фиксировано здесь, как и у B2.
+    const файл = 1;
     const kitReadme = path.join(ROOT, "tools", "e2k-hardware", "README.md");
     const kit = path.join(ROOT, "tools", "e2k-hardware", "expected.tsv");
     const problems: string[] = [];
@@ -485,9 +491,9 @@ describe("корпус примеров: раскладка и статусы", 
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l !== "").length;
-      if (rows !== ready + b2 + b2b + p4a) {
+      if (rows !== ready + b2 + b2b + p4a + файл) {
         problems.push(
-          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} + B2b ${String(b2b)} + P4a ${String(p4a)} = ${String(ready + b2 + b2b + p4a)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
+          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} + B2b ${String(b2b)} + P4a ${String(p4a)} + файловый вход ${String(файл)} = ${String(ready + b2 + b2b + p4a + файл)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
         );
       }
     }

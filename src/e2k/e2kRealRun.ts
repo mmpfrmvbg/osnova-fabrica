@@ -118,6 +118,7 @@ import { RegVM } from "../runtime/vm/reginterpreter";
 import { createDefaultInvokeHandler, type StackValue } from "../runtime/vm/interpreter";
 import { resolveEntryIndex } from "../oracle/parity";
 import { isRegPacket, type RegInstruction, type RegModule } from "../runtime/vm/regcode";
+import { fileMarksOf, fileReadCallInstructions, isFileReadCall } from "./fileCallRuntime";
 
 const reg = (index: number): Operand => ({ kind: "reg", index });
 const imm = (value: number): Operand => ({ kind: "imm", value });
@@ -864,6 +865,45 @@ export function lowerCarrier(instruction: AsmInstruction, context: LoweringConte
       // `ARRAY_BASE_OPERAND` носителя), и признак вызываемой процедуры. Базы нет — `lowerArrayCall`
       // отказывает по имени; именно это закрывает тихий путь §3.127 (аргументы 8/9 у вызываемой).
       const destinationIndex = hasDestination ? (destination as { index: number }).index : undefined;
+      // ФАЙЛОВОЕ ЧТЕНИЕ — ДО МАССИВОВ: буфер это СПИСОК, но операция не массивная, а системный
+      // вызов. В вызываемой процедуре — названный отказ: её окно своё, а блок рантайма `%b[12..15]`
+      // принадлежит вызывающему (закон окна), поэтому возвращать его здесь нечем.
+      if (isFileReadCall(name)) {
+        if (context.inCallee === true) {
+          return failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: в вызываемой процедуре файловое чтение не понижается — системный вызов в её окне ` +
+              'занял бы чужие клетки, а блок рантайма `%b[12..15]` принадлежит вызывающему (закон окна). ' +
+              'Чтение файла — только в точке входа (это следующий атом, а не забытая ветвь)',
+          );
+        }
+        const marks = fileMarksOf(instruction);
+        const [pathAddress, count, heapAddress] = marks;
+        const buffer = args[1];
+        if (pathAddress === undefined || count === undefined || heapAddress === undefined) {
+          return failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: носитель не несёт адрес пути, длину чтения или адрес ячейки кучи — их ставит ` +
+              'конвейер (src/e2k/stringPlan.ts)',
+          );
+        }
+        if (buffer === undefined || buffer.kind !== 'reg') {
+          return failureOf(
+            LOWERING_CODES.runtime,
+            `«${name}»: буфер не в регистре — адрес ячеек списка берётся из указателя, а не из памяти`,
+          );
+        }
+        return {
+          ok: true,
+          instructions: fileReadCallInstructions({
+            pathAddress,
+            count,
+            heapAddress,
+            buffer: buffer.index,
+            ...(destinationIndex === undefined ? {} : { destination: destinationIndex }),
+          }),
+        };
+      }
       if (isArrayRuntimeCall(name)) {
         return {
           ok: true,

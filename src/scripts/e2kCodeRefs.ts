@@ -97,8 +97,12 @@ export function findRawLineRefs(text: string): string[] {
   return [...text.matchAll(RAW_LINE_PATTERN)].map((match) => `${match[1]!}:${match[2]!}`);
 }
 
-/** Каталоги, в которые индекс имён не заглядывает: чужой код и служебные каталоги git. */
-const BARE_SKIP = new Set(["node_modules", ".git"]);
+/**
+ * Каталоги, в которые индекс имён не заглядывает: чужой код, служебные каталоги git и рабочие
+ * деревья агентов `.agents/worktrees` (не отслеживаются git; их копии делают имя `compiler.ts`
+ * неоднозначным и краснят негативный контроль «голое имя нашего файла»).
+ */
+const BARE_SKIP = new Set(["node_modules", ".git", ".agents"]);
 
 /**
  * Ссылка вида `` `compiler.ts:480` `` — имя без пути.

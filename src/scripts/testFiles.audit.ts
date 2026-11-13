@@ -89,6 +89,11 @@ export interface TestFileExclusion {
 /** Исключения с причиной. Каждое обязано объяснять хотя бы один файл. */
 export const EXPECTED_EXCLUSIONS: readonly TestFileExclusion[] = [
   { match: 'node_modules', reason: 'зависимости: не наши оракулы', structural: true },
+  {
+    match: '.agents',
+    reason: 'рабочие деревья агентов: не отслеживаются git и не часть набора этого дерева',
+    structural: true,
+  },
   { match: '.e2e.test.ts', reason: 'e2e-набор живёт в отдельном конфиге (npm run test:e2e-osiris)', structural: true },
   { match: 'apps/osiris', reason: 'приложение Osiris: свой пакет и свой прогон', structural: true },
   { match: 'Fabrika2.0', reason: 'legacy-копия прежней фабрики, не отслеживается git (см. BIG-PICTURE.md)', structural: true },

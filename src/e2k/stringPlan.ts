@@ -50,6 +50,8 @@ import {  STRING_ARENA_CONCAT_CARRIER,
 import { foldNumericCarrier, isNumericCarrier } from './numberFacts';
 import { registersOf } from './predicatePairing';
 import { ARENA_POINTER_BASE } from './procedureCall';
+import { callArgumentOperands } from './shell';
+import { FILE_MARK_OPERAND, FILE_READ_ARITY, FILE_READ_CALL, FILE_READ_COUNT, isFileReadCall } from './fileCallRuntime';
 
 const imm = (value: number): Operand => ({ kind: 'imm', value });
 
@@ -318,6 +320,18 @@ type StringEdit =
       readonly destination: number | undefined;
     }
   | { readonly kind: 'print'; readonly index: number; readonly value: StringValue; readonly marks: number[] }
+  /**
+   * ФАЙЛОВОЕ ЧТЕНИЕ (`система.файлы.читать(путь, буфер)`): носитель остаётся вызовом, а пометки
+   * ставятся ПОСЛЕ раскладки блобов — адрес пути известен только там (байты пути уже в статике,
+   * как у любого строкового литерала). Три пометки: адрес пути, длина чтения, адрес ячейки кучи.
+   */
+  | {
+      readonly kind: 'file';
+      readonly index: number;
+      readonly value: StringValue;
+      readonly count: number;
+      readonly heapAddress: number;
+    }
   | { readonly kind: 'none'; readonly index: number; readonly reason: string };
 
 /** Итог планирования: переписанный поток, расширенный пул, блобы и где они лежат. */
@@ -1065,6 +1079,34 @@ export function planStrings(
     // Приёмник — по соглашению оболочки (`writtenRegisterOf`): у `IR.add` это первый регистр,
     // у `IR.invoke` — пятый под флагом «есть приёмник» (там операнд 0 — число).
     const destination = writtenRegisterOf(carrier);
+    // ── ФАЙЛОВОЕ ЧТЕНИЕ: ПУТЬ — СТРОКА, И ЕГО БАЙТЫ УЖЕ В СТАТИКЕ ─────────────────────────────────
+    //
+    // `система.файлы.читать(путь, буфер)` — второй аргумент не строка, а СПИСОК, поэтому строковая
+    // ветвь ниже его не признала бы. Здесь носитель только помечается: адрес пути известен после
+    // раскладки блобов (как у склейки/печати), а длину чтения и адрес ячейки кучи сборка знает уже.
+    if (carrier.mnemonic === 'IR.invoke' && name !== undefined && isFileReadCall(name)) {
+      const args = callArgumentOperands(carrier);
+      const pathValue = registerOf(args[0]) ?? provenValueOf(args[0]);
+      const buffer = args[1];
+      const почему =
+        args.length !== FILE_READ_ARITY
+          ? `аргументов ${String(args.length)}, по источнику ${String(FILE_READ_ARITY)} (путь, буфер)`
+          : pathValue === undefined
+            ? 'путь не строка — адрес байтов пути взять не от чего'
+            : buffer === undefined || buffer.kind !== 'reg'
+              ? 'буфер не в регистре — адрес ячеек списка берётся из регистра'
+              : undefined;
+      if (почему !== undefined) {
+        problems.push(`#${String(index)} ${name}: ${почему}`);
+        edits.set(index, { kind: 'none', index, reason: 'файловое чтение не собрано' });
+        kill(destination);
+        return;
+      }
+      edits.set(index, { kind: 'file', index, value: pathValue!, count: FILE_READ_COUNT, heapAddress });
+      // Результат — ЧИСЛО прочитанных байт: строка в приёмнике (если была) умирает.
+      kill(destination);
+      return;
+    }
     // СКЛЕЙКА `+` — ТЕМ ЖЕ ПУТЁМ (канон §2.1). Оболочка на `"а" + "б"` выдаёт `IR.add` с двумя
     // строковыми регистрами (измерено, `.tmp/osnova-strings-plus.ts`): типа у носителя нет, и
     // арифметикой он сложил бы АДРЕСА — это и было видно как «2112890». Раз строки известны здесь,
@@ -1765,6 +1807,22 @@ export function planStrings(
       pool.push(address);
       const operands = [...carrier.operands];
       operands[1] = imm(pool.length - 1);
+      return { ...carrier, operands };
+    }
+    if (edit.kind === 'file') {
+      // АДРЕС ПУТИ — ПОСЛЕ РАСКЛАДКИ, как у печати и склейки: байты уже лежат в статике, и здесь
+      // только подставляется их адрес. Длина чтения и адрес ячейки кучи известны с самого начала.
+      const address = edit.value.address;
+      if (address === undefined) {
+        problems.push(
+          `#${String(index)} ${FILE_READ_CALL}: у пути «${edit.value.key}» не оказалось адреса — дефект планирования`,
+        );
+        return carrier;
+      }
+      const operands = [...carrier.operands];
+      operands[FILE_MARK_OPERAND] = imm(address);
+      operands[FILE_MARK_OPERAND + 1] = imm(edit.count);
+      operands[FILE_MARK_OPERAND + 2] = imm(edit.heapAddress);
       return { ...carrier, operands };
     }
     const operands = [...carrier.operands];

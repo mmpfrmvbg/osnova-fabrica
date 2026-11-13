@@ -17,7 +17,7 @@ import * as crypto from 'crypto';
 import { buildElfImage } from './e2kProgramRun';
 import { parseV3 } from '../compiler-v3';
 import { программаПротоколаB2 } from '../compiler-v3/parser-protocol-b2';
-import { программаПротоколаB2b } from '../compiler-v3/parser-protocol-b2b';
+import { лентаПротоколаB2b, программаПротоколаB2b } from '../compiler-v3/parser-protocol-b2b';
 import { ПРОГРАММЫ_B2B as ФОРМЫ_B2B } from '../compiler-v3/parserProtocolB2bForms';
 import { эталоннаяЛента } from '../compiler-v3/parser-protocol-probe';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from '../e2k/elfMinimal';
@@ -185,7 +185,7 @@ function main(): void {
   }
 
   // ── B2b: пять форм на подэтап, пусть/присваивание/выражения/если/пока ─────────
-  for (const этап of ['b2b1', 'b2b2', 'b2b3', 'b2b4', 'b2b5', 'b2b6'] as const) {
+  for (const этап of ['b2b1', 'b2b2', 'b2b3', 'b2b4', 'b2b5', 'b2b6', 'b2b7'] as const) {
     for (const [индекс, тело] of ПРОГРАММЫ_B2B[этап].entries()) {
       const номер = String(индекс + 1);
       const файл = `${этап}p${номер}.osnova`;
@@ -209,11 +209,12 @@ function main(): void {
     }
   }
 
-  // ── P4a: союз 15 форм — 126 976 кода, данных 64 КиБ ──────────────────────────
+  // ── P4a: союз 15 форм — 192 512 кода, данных 64 КиБ ─────────────────────────
   //
   // Первый прогон шёл с `dataSegmentBytes: 0x8000` и падал: ptrace дал
   // `si_addr=0x127000` — ровно `0x11f000 + 0x8000`, конец сегмента данных, а не
-  // потолок кода (`readelf`: `.text` ровно 126976). С `0x10000` тот же `.text`
+  // потолок кода (`readelf`: `.text` ровно 126976 — замер 2026-11-09; после §43
+  // потолок 192 512, страница записи 0x12F000). С `0x10000` тот же `.text`
   // даёт RC=0 и 2908 байт эталона (sha256 `31744b7a…`). Случай в ките.
   {
     const тело = [...ПРОГРАММЫ_B2B.b2b1, ...ПРОГРАММЫ_B2B.b2b2, ...ПРОГРАММЫ_B2B.b2b3].join('\n  ');
@@ -225,15 +226,54 @@ function main(): void {
     fs.writeFileSync(elfPath, elf);
     entries.push({
       example: 'b2b/all',
-      name: 'B2B ALL: 15 форм одной программой (P4a, 126976 кода, данные 64 КиБ)',
+      name: 'B2B ALL: 15 форм одной программой (P4a, 192512 кода, данные 64 КиБ)',
       elf: path.relative(KIT, elfPath).replace(/\\/g, '/'),
       elfSha256: crypto.createHash('sha256').update(elf).digest('hex'),
       elfBytes: elf.length,
       via: 'вывод',
       expected: expected.join('\\n') + '\\n',
       expectedOrigin: 'эталоннаяЛента (parseV01 + лентаИзAst)',
-      shows: 'P4a: 39 процедур, 0 отказов, вход ≤10, обойти ≤12; 126976 кода + 65536 данных',
-      hardware: 'D12: запись из глубины ≥ 2 разрешена; данные 0x10000 — иначе si_addr=0x127000',
+      shows: 'P4a: 52 процедуры, 0 отказов, вход ≤10, обойти ≤12; 192512 кода + 65536 данных',
+      hardware: 'D12: запись из глубины ≥ 2 разрешена; данные 0x10000 — иначе конец сегмента данных',
+    });
+  }
+
+  // ── P4a-ФАЙЛ: та же программа, но лента — ИЗ ФАЙЛА (L2 §42/§44, MVP) ───────
+  //
+  // Зачем отдельный бинарь, а не «и так сойдёт»: у файлового входа лента НЕ ЗАПЕКАТА, и без этого
+  // прогона ни одно утверждение о `читать` на живой машине не проверено. Эталон тот же, что у
+  // `b2b-all` (он зависит от имени модуля, поэтому имя своё), а различие ровно одно: содержимое ленты
+  // приходит `read` из `/tmp/input.osnova` — файл кладёт `run.sh` из `bin/input.osnova`.
+  //
+  // Данные 0x120000: носитель просит 1 МиБ (`FILE_READ_COUNT`), ядро проверяет ВЕСЬ диапазон, а куча
+  // начинается на 0x130000 — иначе `EFAULT` (замер: код 242 = −14), и это не «файл короткий».
+  {
+    const тело = [...ПРОГРАММЫ_B2B.b2b1, ...ПРОГРАММЫ_B2B.b2b2, ...ПРОГРАММЫ_B2B.b2b3].join('\n  ');
+    const файл = 'b2b-file.osnova';
+    const elfPath = path.join(BIN, 'b2b-file.elf');
+    const источник = `действие главная()\n  ${тело}\nконец главная\n`;
+    const сгенерирован = программаПротоколаB2b(источник, файл, { fromFile: true });
+    const ячейки = лентаПротоколаB2b(источник, файл);
+    const лента = Buffer.alloc(ячейки.length * 8);
+    ячейки.forEach((значение, индекс) => лента.writeBigInt64LE(BigInt(значение), индекс * 8));
+    fs.writeFileSync(path.join(BIN, 'input.osnova'), лента);
+    const { elf, expected } = buildProtocolElf(сгенерирован, источник, файл, 0x120000);
+    fs.writeFileSync(elfPath, elf);
+    entries.push({
+      example: 'b2b/file',
+      name: 'B2B FILE: те же 15 форм, лента ЧИТАЕТСЯ из /tmp/input.osnova',
+      elf: path.relative(KIT, elfPath).replace(/\\/g, '/'),
+      elfSha256: crypto.createHash('sha256').update(elf).digest('hex'),
+      elfBytes: elf.length,
+      via: 'вывод',
+      expected: expected.join('\\n') + '\\n',
+      expectedOrigin: 'эталоннаяЛента (parseV01 + лентаИзAst)',
+      shows:
+        `файловый вход: ${String(ячейки.length)} ячеек ленты (${String(ячейки.length * 8)} байт) приходят ` +
+        'read(3) из /tmp/input.osnova, AST = эталон; open+read в точке входа, close назван долгом',
+      hardware:
+        'D12: блок %b[12..15] возвращается после вызова; данные 0x120000 — ядро проверяет весь запрошенный ' +
+        '1 МиБ (иначе EFAULT, код 242)',
     });
   }
 
