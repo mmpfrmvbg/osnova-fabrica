@@ -37,7 +37,7 @@ run_binary() {
   else
     chmod +x "$1" 2>/dev/null
     if command -v timeout >/dev/null 2>&1; then
-      timeout 30 "$1"
+      timeout "$TMO" "$1"
     else
       "$1"
     fi
@@ -49,19 +49,27 @@ say "дата: $(date 2>/dev/null || echo '?')"
 say "хост: $(uname -m 2>/dev/null || echo '?') / $(uname -sr 2>/dev/null || echo '?')"
 say ""
 
-# ЛЕНТА ДЛЯ ФАЙЛОВОГО ВХОДА (L2 §42/§44, MVP). Программа `b2b-file` читает СТАТИЧЕСКИЙ путь, который
-# задан носителем (`src/e2k/fileCallRuntime.ts#FILE_PATH_TEXT`), а не аргументом: `argv[1]` у языка
-# ещё нет. Поэтому лента кладётся на место ДО прогонов, и отсутствие файла — названная строка отчёта,
-# а не тихий пропуск: без неё `b2b-file` вернёт пустой вывод и выглядел бы как дефект разбора.
-if [ -f "$BIN/input.osnova" ]; then
-  if cp "$BIN/input.osnova" /tmp/input.osnova 2>/dev/null; then
-    say "лента: $BIN/input.osnova → /tmp/input.osnova ($(wc -c < /tmp/input.osnova 2>/dev/null || echo '?') байт)"
-  else
-    say "лента: НЕ УДАЛОСЬ положить /tmp/input.osnova — b2b-file даст расхождение по причине стенда"
+# ЛЕНТА ДЛЯ ФАЙЛОВОГО ВХОДА (L2 §42/§44). Программа читает СТАТИЧЕСКИЙ путь, который задан носителем
+# (`src/e2k/fileCallRuntime.ts#FILE_PATH_TEXT`), а не аргументом: `argv[1]` у языка ещё нет. Поэтому
+# лента кладётся ПЕРЕД КАЖДЫМ таким бинарём, а не один раз: путь у всех один, а лента — своя.
+#
+#   bin/b2b-file.elf — лента 54 форм, 39 216 байт (4 902 ячейки).
+#
+# Отсутствие файла — названная строка отчёта, а не тихий пропуск: без ленты программа напечатает пусто
+# и выглядела бы как дефект разбора.
+place_tape() {
+  tape="$1"
+  if [ ! -f "$tape" ]; then
+    say "лента: $tape НЕТ — файловый прогон проверять нечем"
+    return 1
   fi
-else
-  say "лента: bin/input.osnova НЕТ — сборка кита не приложила файл, b2b-file проверять нечем"
-fi
+  if cp "$tape" /tmp/input.osnova 2>/dev/null; then
+    return 0
+  fi
+  say "лента: НЕ УДАЛОСЬ положить /tmp/input.osnova из $tape — расхождение будет по причине стенда"
+  return 1
+}
+
 say ""
 
 ok=0
@@ -77,6 +85,16 @@ while IFS="$(printf '\t')" read -r elf via expected; do
     miss=$((miss + 1))
     continue
   fi
+  # ЛЕНТА — ПЕРЕД КАЖДЫМ БИНАРЁМ (путь у программы статический, а прогонов с файлом может быть
+  # больше одного). Без ленты прогон файловой программы не имеет смысла: она напечатает пусто, и это
+  # была бы причина стенда, а не дефект.
+  case "$elf" in
+    *b2b-file*)
+      TMO=120
+      place_tape "$BIN/input.osnova" || true
+      ;;
+    *) TMO=30 ;;
+  esac
   if [ "$via" = "вывод" ]; then
     # Байты: `\n` из таблицы разворачивается `printf %b`, сверка — `cmp` (а не `=`): перевод
     # строки в конце эталона тоже часть эталона (docs/hardware-debt.md §3.42.1).
