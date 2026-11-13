@@ -18,7 +18,7 @@ import { buildElfImage } from './e2kProgramRun';
 import { parseV3 } from '../compiler-v3';
 import { программаПротоколаB2 } from '../compiler-v3/parser-protocol-b2';
 import { лентаПротоколаB2b, программаПротоколаB2b } from '../compiler-v3/parser-protocol-b2b';
-import { ПРОГРАММЫ_B2B as ФОРМЫ_B2B } from '../compiler-v3/parserProtocolB2bForms';
+import { ПРОГРАММЫ_B2B as ФОРМЫ_B2B, ФОРМЫ_ЗАГОЛОВКА_B2B } from '../compiler-v3/parserProtocolB2bForms';
 import { эталоннаяЛента } from '../compiler-v3/parser-protocol-probe';
 import { buildElfFromCode, MINIMAL_BASE, WRITE_ZONE_EXTRA_MEMORY } from '../e2k/elfMinimal';
 import { loweredProgram } from '../e2k/lowered';
@@ -102,7 +102,6 @@ function buildB2Elf(тело: string, файл: string): { elf: Buffer; expected
  * `main()` внизу собирает кит при импорте.
  */
 const ПРОГРАММЫ_B2B = ФОРМЫ_B2B;
-
 function buildProtocolElf(
   сгенерирован: string,
   источник: string,
@@ -207,6 +206,33 @@ function main(): void {
         hardware: 'D12: решение владельца, запись из глубины ≥ 2 разрешена; QEMU — #180',
       });
     }
+  }
+
+  // ── P2b: ЗАГОЛОВОК `процедура` — параметры и `-> Тип` (пять форм, источник целиком) ─────────
+  //
+  // Здесь форма — ВЕСЬ файл, а не тело действия: проверяется объявление ДО действия, то есть
+  // узел `[3, параметров, есть_возврат]` и узлы параметров. Пятая форма — контроль `действие`.
+  // Бюджет: `шаг_объявление` used 11 (пик 13), `шаг_параметры` used 12 — блоку рантайма (3 подряд)
+  // влезает; вариант «всё в обойти» дал used 14 и отказ #5135 (замер в шапке писателя).
+  for (const [индекс, [имяФормы, исходник]] of ФОРМЫ_ЗАГОЛОВКА_B2B.entries()) {
+    const номер = String(индекс + 1);
+    const файл = `b2b8p${номер}.osnova`;
+    const elfPath = path.join(BIN, `b2b8p${номер}.elf`);
+    const сгенерирован = программаПротоколаB2b(исходник, файл);
+    const { elf, expected } = buildProtocolElf(сгенерирован, исходник, файл);
+    fs.writeFileSync(elfPath, elf);
+    entries.push({
+      example: `b2b8/p${номер}`,
+      name: `B2b P2b ${номер}: ${имяФормы}`,
+      elf: path.relative(KIT, elfPath).replace(/\\/g, '/'),
+      elfSha256: crypto.createHash('sha256').update(elf).digest('hex'),
+      elfBytes: elf.length,
+      via: 'вывод',
+      expected: expected.join('\\n') + '\\n',
+      expectedOrigin: 'эталоннаяЛента (parseV01 + лентаИзAst)',
+      shows: 'заголовок процедура: параметры, [3, N, M], -> Тип',
+      hardware: 'D12: решение владельца, запись из глубины ≥ 2 разрешена; QEMU — #180',
+    });
   }
 
   // ── P4a: союз 15 форм — 192 512 кода, данных 64 КиБ ─────────────────────────

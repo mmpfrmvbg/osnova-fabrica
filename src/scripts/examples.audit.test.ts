@@ -477,6 +477,10 @@ describe("корпус примеров: раскладка и статусы", 
     // перед прогоном). Это НЕ запись корпуса и не новая форма: эталон тот же `эталоннаяЛента`,
     // различие ровно одно — источник ячеек. Поэтому число фиксировано здесь, как и у B2.
     const файл = 1;
+    // P2b (2026-11-13): пять форм ЗАГОЛОВКА `процедура` (без параметров, `-> Тип`, один параметр,
+    // два параметра со `Список`, контроль `действие`) — источник ЦЕЛИКОМ, а не тело действия.
+    // Отдельное слагаемое, потому что это не новые записи корпуса и не формы B2b-54.
+    const p2b = 5;
     const kitReadme = path.join(ROOT, "tools", "e2k-hardware", "README.md");
     const kit = path.join(ROOT, "tools", "e2k-hardware", "expected.tsv");
     const problems: string[] = [];
@@ -491,9 +495,9 @@ describe("корпус примеров: раскладка и статусы", 
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l !== "").length;
-      if (rows !== ready + b2 + b2b + p4a + файл) {
+      if (rows !== ready + b2 + b2b + p2b + p4a + файл) {
         problems.push(
-          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} + B2b ${String(b2b)} + P4a ${String(p4a)} + файловый вход ${String(файл)} = ${String(ready + b2 + b2b + p4a + файл)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
+          `в ките ${String(rows)} строк эталонов, а целевых примеров ${String(ready)} + B2 ${String(b2)} + B2b ${String(b2b)} + P2b ${String(p2b)} + P4a ${String(p4a)} + файловый вход ${String(файл)} = ${String(ready + b2 + b2b + p2b + p4a + файл)} — пересобрать: npx tsx src/scripts/e2kHardwareKit.ts`,
         );
       }
     }
