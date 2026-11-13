@@ -469,7 +469,7 @@ describe("корпус примеров: раскладка и статусы", 
     // B2b: 15 форм P4a (5+5+5) + 20 форм L2 + 5 вызовов в выражениях + 9 форм §41
     // (индексация `а[…]` и `Список T` с литералом `[…]`) — 49.
     const b2b = 49;
-    // P4a: все 15 форм B2b одной программой (`b2b/all`, 126976 кода, данные 64 КиБ).
+    // P4a: все 15 форм B2b одной программой (`b2b/all`, 192512 кода, данные 64 КиБ).
     const p4a = 1;
     const kitReadme = path.join(ROOT, "tools", "e2k-hardware", "README.md");
     const kit = path.join(ROOT, "tools", "e2k-hardware", "expected.tsv");
