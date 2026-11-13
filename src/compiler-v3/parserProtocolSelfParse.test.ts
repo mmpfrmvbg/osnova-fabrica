@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseV3 } from './index';
 import { программаПротоколаB2b } from './parser-protocol-b2b';
+import { лентаПротоколаB2b } from './parser-protocol-b2b';
 import { безУпаковки } from './parserProtocolSelfParse';
 
 const ИСХОДНИК = 'действие главная()\n  пусть а = 5\n  а = 6\nконец главная\n';
@@ -33,6 +34,14 @@ describe('§7: возврат пары без упаковки (клетка с�
     expect(записей).toBeGreaterThan(20);
   });
 
+  it('длина источника задаётся сборкой: шапка ленты несёт ЕЁ, а не длину текста-источника (§7)', () => {
+    const свой = программаПротоколаB2b(ИСХОДНИК, 'self.osnova', { источникДлина: 12_345 });
+    const по = программаПротоколаB2b(ИСХОДНИК, 'self.osnova');
+    expect(свой).toContain('Списки.добавить(лента, 12345, 0)');
+    expect(по).not.toContain('Списки.добавить(лента, 12345, 0)');
+    const длина = [...ИСХОДНИК].length;
+    expect(по).toContain(`Списки.добавить(лента, ${String(длина)}, 0)`);
+  });
   it('отказ шага остаётся отрицательным, и чтение токена идёт из клетки', () => {
     const с = безУпаковки(программаПротоколаB2b(ИСХОДНИК, 'self.osnova'), КЛЕТКА);
     expect(с).toContain('вернуть 0 - 1');
