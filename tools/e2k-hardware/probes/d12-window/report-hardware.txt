@@ -1,0 +1,8 @@
+host: a1d3a4a788e9 / e2k / 6.1.0-0.8-e8c2
+date: Вс 08 ноя 2026 07:33:22 MSK
+exit(b12) = 0
+exit(b13) = 0
+exit(b14) = 0
+exit(b15) = 0
+exit(b14-nowrite) = 8
+--- контроль без write (берём probe-b14) ---
