@@ -9,7 +9,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseV3 } from './index';
 import { программаПротоколаB2b } from './parser-protocol-b2b';
-import { лентаПротоколаB2b } from './parser-protocol-b2b';
 import { безУпаковки } from './parserProtocolSelfParse';
 
 const ИСХОДНИК = 'действие главная()\n  пусть а = 5\n  а = 6\nконец главная\n';
