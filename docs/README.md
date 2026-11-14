@@ -5,30 +5,30 @@
 > источник истины — `docs/manifest.yaml`.
 
 
-> ⚠ — исходник менялся позже дока (32). Детали: `npm run docs:check`.
+> ⚠ — исходник менялся позже дока (50). Детали: `npm run docs:check`.
 ## Канон (19)
 
-- [docs/DOCS.md](DOCS.md)
+- [docs/DOCS.md](DOCS.md) ⚠
 - [docs/bytecode-v1.md](bytecode-v1.md) ⚠
 - [docs/coding-with-osnova-v2.md](coding-with-osnova-v2.md)
-- [docs/golden-app-chat.md](golden-app-chat.md)
-- [docs/golden-app-game-rounds.md](golden-app-game-rounds.md)
-- [docs/golden-app-micro-crm.md](golden-app-micro-crm.md)
-- [docs/golden-app-notepad.md](golden-app-notepad.md)
-- [docs/golden-app-todo.md](golden-app-todo.md)
-- [docs/golden-app-viewer.md](golden-app-viewer.md)
+- [docs/golden-app-chat.md](golden-app-chat.md) ⚠
+- [docs/golden-app-game-rounds.md](golden-app-game-rounds.md) ⚠
+- [docs/golden-app-micro-crm.md](golden-app-micro-crm.md) ⚠
+- [docs/golden-app-notepad.md](golden-app-notepad.md) ⚠
+- [docs/golden-app-todo.md](golden-app-todo.md) ⚠
+- [docs/golden-app-viewer.md](golden-app-viewer.md) ⚠
 - [docs/golden-schema.md](golden-schema.md) ⚠
 - [docs/golden-tests.md](golden-tests.md)
 - [docs/language-changelog-v2.md](language-changelog-v2.md)
 - [docs/language-contributing-v2.md](language-contributing-v2.md) ⚠
 - [docs/language-registry.md](language-registry.md) ⚠
 - [docs/language-v2.md](language-v2.md) ⚠
-- [docs/release-process.md](release-process.md) ⚠
-- [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md) ⚠
+- [docs/release-process.md](release-process.md)
+- [docs/self-hosted-runner-runbook.md](self-hosted-runner-runbook.md)
 - [docs/stack-convention-v0.1.md](stack-convention-v0.1.md)
 - [docs/system-api-v1.md](system-api-v1.md) ⚠
 
-## Фронтир и замеры (78)
+## Фронтир и замеры (79)
 
 - [AGENTS.md](../AGENTS.md)
 - [BIG-PICTURE.md](../BIG-PICTURE.md)
@@ -38,18 +38,19 @@
 - [README.md](../README.md)
 - [docs/abi-v3-draft.md](abi-v3-draft.md) ⚠
 - [docs/ast-format.md](ast-format.md) ⚠
-- [docs/ci-cd.md](ci-cd.md)
+- [docs/ci-cd.md](ci-cd.md) ⚠
 - [docs/compiler-v3-plan.md](compiler-v3-plan.md)
 - [docs/d51-plan.md](d51-plan.md) ⚠
 - [docs/decisions.md](decisions.md)
-- [docs/diagnostics-v1.md](diagnostics-v1.md)
+- [docs/diagnostics-v1.md](diagnostics-v1.md) ⚠
 - [docs/dsh-llm-routes.md](dsh-llm-routes.md)
+- [docs/e2k-abi-differential.md](e2k-abi-differential.md)
 - [docs/e2k-array-literals.md](e2k-array-literals.md) ⚠
 - [docs/e2k-backend.md](e2k-backend.md) ⚠
 - [docs/e2k-dsp-instructions.md](e2k-dsp-instructions.md) ⚠
 - [docs/e2k-encoding.md](e2k-encoding.md) ⚠
-- [docs/e2k-external-as.md](e2k-external-as.md)
-- [docs/e2k-external-validation.md](e2k-external-validation.md)
+- [docs/e2k-external-as.md](e2k-external-as.md) ⚠
+- [docs/e2k-external-validation.md](e2k-external-validation.md) ⚠
 - [docs/e2k-hardware-access.md](e2k-hardware-access.md)
 - [docs/e2k-landscape.md](e2k-landscape.md)
 - [docs/e2k-minimal-elf.md](e2k-minimal-elf.md) ⚠
@@ -58,11 +59,11 @@
 - [docs/e2k-qemu-run.md](e2k-qemu-run.md) ⚠
 - [docs/e2k-real-run.md](e2k-real-run.md) ⚠
 - [docs/e2k-regalloc-debt.md](e2k-regalloc-debt.md) ⚠
-- [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md)
+- [docs/e2k-remainder-form-d.md](e2k-remainder-form-d.md) ⚠
 - [docs/e2k-return-port.md](e2k-return-port.md) ⚠
 - [docs/e2k-setwd-memory.md](e2k-setwd-memory.md) ⚠
 - [docs/e2k-subset-dsp.md](e2k-subset-dsp.md) ⚠
-- [docs/e2k-syllables-real.md](e2k-syllables-real.md)
+- [docs/e2k-syllables-real.md](e2k-syllables-real.md) ⚠
 - [docs/e2k-syscall-abi.md](e2k-syscall-abi.md) ⚠
 - [docs/e2k-syscalls-minimal.md](e2k-syscalls-minimal.md) ⚠
 - [docs/e2k-wide-commands.md](e2k-wide-commands.md) ⚠
@@ -72,12 +73,12 @@
 - [docs/osnova-atlas-v0.1.md](osnova-atlas-v0.1.md)
 - [docs/osnova-atom-boundaries.md](osnova-atom-boundaries.md)
 - [docs/osnova-semantic-skin.md](osnova-semantic-skin.md)
-- [docs/osnova-signature-spec.md](osnova-signature-spec.md)
+- [docs/osnova-signature-spec.md](osnova-signature-spec.md) ⚠
 - [docs/osnova-signature-to-emitter.md](osnova-signature-to-emitter.md) ⚠
-- [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md)
-- [docs/osnova-spec.md](osnova-spec.md)
+- [docs/osnova-skin-example-micro-crm.md](osnova-skin-example-micro-crm.md) ⚠
+- [docs/osnova-spec.md](osnova-spec.md) ⚠
 - [docs/osnova-vision.md](osnova-vision.md)
-- [docs/parser-protocol.md](parser-protocol.md)
+- [docs/parser-protocol.md](parser-protocol.md) ⚠
 - [docs/register-ir-migration.md](register-ir-migration.md) ⚠
 - [docs/rfc/RFC-001-try-catch-avoidance.md](rfc/RFC-001-try-catch-avoidance.md)
 - [docs/rfc/RFC-002-sentinel-pattern.md](rfc/RFC-002-sentinel-pattern.md)
@@ -105,8 +106,8 @@
 - [docs/v0.1-semantics.md](v0.1-semantics.md) ⚠
 - [docs/v3-spec.md](v3-spec.md)
 - [docs/verification-debt.md](verification-debt.md)
-- [docs/vliw-e2k-model.md](vliw-e2k-model.md)
-- [docs/vliw-ilp-calibration.md](vliw-ilp-calibration.md)
+- [docs/vliw-e2k-model.md](vliw-e2k-model.md) ⚠
+- [docs/vliw-ilp-calibration.md](vliw-ilp-calibration.md) ⚠
 - [docs/vliw-phases-plan.md](vliw-phases-plan.md)
 
 ## Заморожено (14)
@@ -114,7 +115,7 @@
 - [ARCHITECTURE-AS-IS.md](../ARCHITECTURE-AS-IS.md)
 - [docs/app-manifest-v0.1.md](app-manifest-v0.1.md)
 - [docs/doc-status-plan.md](doc-status-plan.md)
-- [docs/e2k-qemu-system.md](e2k-qemu-system.md)
+- [docs/e2k-qemu-system.md](e2k-qemu-system.md) ⚠
 - [docs/forge-blueprint-audit-report.md](forge-blueprint-audit-report.md)
 - [docs/llm-providers-v1.md](llm-providers-v1.md)
 - [docs/llm-routing-v1.md](llm-routing-v1.md)

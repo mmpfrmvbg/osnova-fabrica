@@ -106,6 +106,7 @@ docs/e2k-minimal-elf.md: {status: active, source-files: [src/e2k/elfMinimal.ts]}
 docs/e2k-encoding.md: {status: active, source-files: [src/e2k/encoding.ts]}
 docs/e2k-wide-commands.md: {status: active, source-files: [src/e2k/widePacker.ts]}
 docs/e2k-syscall-abi.md: {status: active, source-files: [src/e2k/syscallRuntime.ts]}
+docs/e2k-abi-differential.md: {status: active, source-files: [src/e2k/arrayRuntime.ts, src/e2k/syscallRuntime.ts, src/e2k/procedureCall.ts, src/e2k/printCall.ts, src/e2k/emitterShell.ts, src/e2k/windowGeometry.ts]}
 docs/e2k-syscalls-minimal.md: {status: active, source-files: [src/e2k/syscallRuntime.ts]}
 docs/e2k-array-literals.md: {status: active, source-files: [src/e2k/arrayRuntime.ts]}
 docs/e2k-regalloc-debt.md: {status: active, source-files: [src/e2k/regAlloc.ts]}
